@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "C:\\Windows\\System32\\cmd.exe",
+          "args": ["/d", "/c"]
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "waldrof-dev",
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Waldrof ready at http://localhost:3000"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    }
+  ]
+}

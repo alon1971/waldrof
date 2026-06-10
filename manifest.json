@@ -1,0 +1,17 @@
+{
+  "name": "מתכנן תקופות לימוד אנתרופוסופי",
+  "short_name": "מתכנן וולדורף",
+  "description": "כלי עבודה פדגוגי לאנשי חינוך ברוח האנתרופוסופיה",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbf8f3",
+  "theme_color": "#8c2d19",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3976/3976631.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

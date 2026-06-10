@@ -1,0 +1,7 @@
+{
+  "name": "waldrof",
+  "private": true,
+  "scripts": {
+    "dev": "node dev-server.js"
+  }
+}
