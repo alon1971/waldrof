@@ -1150,10 +1150,11 @@
     const COMMUNITY_META_FIELD = 'notes';
     const SUPABASE_STORAGE_BUCKET = 'community-uploads';
     /**
-     * Live Perplexity research — proxied via Vercel serverless (api/generate.js).
-     * The API key is NEVER stored here; set AI_API_KEY or PERPLEXITY_API_KEY in Vercel → Environment Variables.
-     * All research calls go through this endpoint — live Perplexity via callPerplexity on the server.
+     * Live Perplexity research — proxied via server POST /api/generate (Render, Vercel, npm start).
+     * API key stays on the server; set PERPLEXITY_API_KEY or AI_API_KEY in host env vars.
      */
+    const USE_DIRECT_PERPLEXITY = false;
+    const PERPLEXITY_API_KEY_DIRECT = '';
     const AI_GENERATE_ENDPOINT = '/api/generate';
     const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
     const summaryJobsByKey = {};
@@ -1541,7 +1542,7 @@
     let pedagogyEventsBound = false;
     function nudgeGoogleTranslate() { /* legacy no-op — UI uses languages.js */ }
 
-    // ---------- AI research: live Perplexity via /api/generate (callPerplexity + PERPLEXITY_API_KEY) ----------
+    // ---------- AI research: direct Perplexity (static) or /api/generate (Vercel) ----------
     function isLocalFileMode() {
       try {
         return window.location.protocol === 'file:';
@@ -1550,8 +1551,11 @@
       }
     }
 
-    /** True when served over http/https — routes to api/generate.js → callPerplexity. */
+    /** True when live research is available (direct key and/or backend proxy). */
     function usesLivePerplexityResearch() {
+      if (USE_DIRECT_PERPLEXITY && PERPLEXITY_API_KEY_DIRECT && String(PERPLEXITY_API_KEY_DIRECT).trim()) {
+        return true;
+      }
       if (isLocalFileMode()) return false;
       try {
         const proto = window.location.protocol;
@@ -1559,6 +1563,11 @@
       } catch (e) {
         return false;
       }
+    }
+
+    function usesDirectPerplexityClient() {
+      return USE_DIRECT_PERPLEXITY && PERPLEXITY_API_KEY_DIRECT && String(PERPLEXITY_API_KEY_DIRECT).trim()
+        && typeof WaldorfResearchClient !== 'undefined' && typeof WaldorfResearchClient.run === 'function';
     }
 
     function isResearchAvailable() {
@@ -1740,8 +1749,23 @@
 
       if (!usesLivePerplexityResearch()) {
         throw new Error(isEnglish()
-          ? 'Live research requires a local server (npm run dev) or Vercel deployment. Opening index.html directly as file:// is not supported.'
-          : 'מחקר חי דורש שרת מקומי (npm run dev) או פריסה ל-Vercel. פתיחה ישירה של index.html כ-file:// אינה נתמכת.');
+          ? 'Live research requires a Perplexity API key (direct mode) or a backend (/api/generate on Vercel or npm run dev).'
+          : 'מחקר חי דורש מפתח Perplexity (מצב ישיר) או שרת (/api/generate ב-Vercel או npm run dev).');
+      }
+
+      if (usesDirectPerplexityClient()) {
+        try {
+          return await WaldorfResearchClient.run(researchPayload, PERPLEXITY_API_KEY_DIRECT, opts);
+        } catch (directErr) {
+          if (directErr && directErr.name === 'AbortError') throw directErr;
+          var directMsg = directErr && directErr.message ? String(directErr.message) : String(directErr);
+          if (/failed to fetch|networkerror|cors/i.test(directMsg)) {
+            throw new Error(isEnglish()
+              ? 'Browser blocked the Perplexity request (CORS). Static hosting may require a backend proxy — try Vercel /api/generate instead.'
+              : 'הדפדפן חסם את הבקשה ל-Perplexity (CORS). אירוח סטטי עשוי לדרוש פרוקסי שרת — נסו Vercel /api/generate.');
+          }
+          throw new Error(directMsg);
+        }
       }
 
       let res;

@@ -1,0 +1,138 @@
+/**
+ * Waldrof production server — static files + /api/generate (Node HTTP).
+ * Used by Render, local dev (npm run dev), and any standard Node.js host.
+ * Set PERPLEXITY_API_KEY or AI_API_KEY in the host environment.
+ */
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { URL } = require('url');
+
+const generateApi = require('./api/generate');
+const apiHandler = generateApi.legacyHandler;
+if (typeof apiHandler !== 'function') {
+  console.error('api/generate.js must export legacyHandler for Node HTTP hosting.');
+  process.exit(1);
+}
+
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+const ROOT = __dirname;
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json',
+};
+
+function readBody(req) {
+  return new Promise(function (resolve, reject) {
+    const chunks = [];
+    req.on('data', function (chunk) { chunks.push(chunk); });
+    req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', reject);
+  });
+}
+
+/** Minimal Vercel-style response helpers for api/generate legacyHandler. */
+function createApiResponse(nativeRes) {
+  const state = { statusCode: 200, headers: {} };
+  return {
+    status: function (code) {
+      state.statusCode = code;
+      return this;
+    },
+    setHeader: function (name, value) {
+      state.headers[name] = value;
+      return this;
+    },
+    json: function (payload) {
+      state.headers['Content-Type'] = 'application/json; charset=utf-8';
+      nativeRes.writeHead(state.statusCode, state.headers);
+      nativeRes.end(JSON.stringify(payload));
+    },
+    end: function () {
+      nativeRes.writeHead(state.statusCode, state.headers);
+      nativeRes.end();
+    },
+  };
+}
+
+function serveStatic(req, res, pathname) {
+  const relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^\/+/, '');
+  const filePath = path.resolve(ROOT, relative);
+  const rootResolved = path.resolve(ROOT);
+  if (filePath !== rootResolved && !filePath.startsWith(rootResolved + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Forbidden');
+  }
+  fs.readFile(filePath, function (err, data) {
+    if (err) {
+      if (relative !== 'index.html' && !path.extname(relative)) {
+        return serveStatic(req, res, '/');
+      }
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Not found');
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.end(data);
+  });
+}
+
+async function handleApiGenerate(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    await apiHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+const server = http.createServer(async function (req, res) {
+  const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
+
+  if (pathname === '/health' || pathname === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify({ ok: true, service: 'waldrof' }));
+  }
+
+  if (pathname === '/api/generate') {
+    return handleApiGenerate(req, res);
+  }
+
+  serveStatic(req, res, pathname);
+});
+
+server.listen(PORT, HOST, function () {
+  console.log('Waldrof listening on http://' + HOST + ':' + PORT);
+  console.log('API: POST /api/generate | Health: GET /health');
+});
+
+server.on('error', function (err) {
+  console.error('Server failed to start:', err);
+  process.exit(1);
+});

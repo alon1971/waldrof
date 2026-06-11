@@ -1,7 +1,11 @@
 /**
- * Vercel Serverless Function — secure AI proxy for Waldorf research.
+ * Waldorf research API — secure Perplexity proxy.
  * Perplexity API key is read server-side only (never exposed to the browser).
- * Set AI_API_KEY or PERPLEXITY_API_KEY in Vercel → Settings → Environment Variables.
+ * Set AI_API_KEY or PERPLEXITY_API_KEY in the host environment (Render, Vercel, .env for local).
+ *
+ * Exports:
+ * - legacyHandler(req, res) — Node HTTP servers (server.js, Render)
+ * - fetch(request) — Vercel serverless (Web Standard)
  */
 
 const fs = require('fs');
