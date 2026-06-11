@@ -6,7 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
 
-const handler = require('./api/generate');
+const generateApi = require('./api/generate');
+const handler = generateApi.legacyHandler || generateApi;
 const PORT = Number(process.env.PORT) || 3000;
 const ROOT = __dirname;
 

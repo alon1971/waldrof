@@ -1758,12 +1758,18 @@
         throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
       }
       let json;
+      const bodyText = await res.text();
       try {
-        const bodyText = await res.text();
         json = parseApiJsonResponse(bodyText);
       } catch (parseErr) {
         var parseMsg = parseErr && parseErr.message ? String(parseErr.message) : '';
-        throw new Error(parseMsg || ('תשובה לא תקינה מהשרת (' + res.status + ')'));
+        var preview = String(bodyText || '').trim().slice(0, 160);
+        if (/^Unexpected token/i.test(parseMsg) && !/^\s*[{[]/.test(preview)) {
+          throw new Error(isEnglish()
+            ? 'Server returned a non-JSON response (often a Vercel timeout). Confirm AI_API_KEY is set, redeploy after env changes, and allow up to 60s for live search.'
+            : 'השרת החזיר תשובה שאינה JSON (לעיתים timeout של Vercel). ודאו ש-AI_API_KEY מוגדר, פרסמו מחדש אחרי עדכון משתני סביבה, והמתינו עד 60 שניות לחיפוש חי.');
+        }
+        throw new Error(parseMsg || ('תשובה לא תקינה מהשרת (' + res.status + '): ' + preview));
       }
       if (!res.ok || json.error) {
         if (res.status === 404) {

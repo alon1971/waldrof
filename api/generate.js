@@ -750,19 +750,26 @@ async function callPerplexity(apiKey, userPrompt, extraSystem) {
     }),
   });
 
+  const responseText = await res.text();
   if (!res.ok) {
-    const errText = await res.text();
-    console.error('Perplexity error', res.status, errText);
+    console.error('Perplexity error', res.status, responseText.slice(0, 400));
     if (res.status === 401 || res.status === 403) {
       throw new Error(
         'Perplexity API key invalid or unauthorized (HTTP ' + res.status + '). ' +
         'Verify PERPLEXITY_API_KEY in .env or Vercel Environment Variables.'
       );
     }
-    throw new Error('Perplexity API ' + res.status + ': ' + errText.slice(0, 400));
+    throw new Error('Perplexity API ' + res.status + ': ' + responseText.slice(0, 400));
   }
 
-  const data = await res.json();
+  let data;
+  try {
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch (parseErr) {
+    throw new Error(
+      'Perplexity API returned non-JSON (HTTP ' + res.status + '): ' + responseText.slice(0, 200)
+    );
+  }
   const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
   if (!content) throw new Error('No content in Perplexity response');
   return content;
@@ -787,68 +794,145 @@ function setCors(res) {
   });
 }
 
-module.exports = async function handler(req, res) {
-  setCors(res);
+const MISSING_KEY_ERROR =
+  'מפתח Perplexity לא מוגדר. הוסיפו AI_API_KEY או PERPLEXITY_API_KEY ב-Vercel (Settings → Environment Variables) ופרסמו מחדש.';
 
+/** Parse JSON body from Vercel/Node request helpers (req.body getter can throw). */
+function parseRequestBody(req) {
+  let rawBody;
+  try {
+    rawBody = req.body;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(message || 'Invalid JSON body');
+  }
+
+  if (rawBody === undefined || rawBody === null) return null;
+  if (typeof rawBody === 'object' && !Buffer.isBuffer(rawBody)) return rawBody;
+  if (typeof rawBody === 'string') {
+    if (!rawBody.trim()) return null;
+    return JSON.parse(rawBody);
+  }
+  if (Buffer.isBuffer(rawBody)) {
+    const text = rawBody.toString('utf8');
+    if (!text.trim()) return null;
+    return JSON.parse(text);
+  }
+  return rawBody;
+}
+
+async function executeGenerate(body, apiKey) {
+  if (!body || !body.phase) {
+    const err = new Error('Missing phase');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const gradeLockSystem =
+    resolvedGradeId(body) || body.gradeLabel
+      ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.'
+      : '';
+
+  const searchPhases = new Set([
+    'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary',
+  ]);
+  const extraSystem =
+    gradeLockSystem +
+    (searchPhases.has(body.phase)
+      ? ' Perform a broad internet search for general educational and pedagogical answers. ' +
+        'Check Alon Yerushalmy, «מסעות בחינוך», and educationpace.com only for genuinely relevant matches — ' +
+        'never force a citation; omit entirely when search data offers no substantial topic-specific material.'
+      : '');
+
+  const userPrompt = buildUserPrompt(body);
+  const raw = await callPerplexity(apiKey, userPrompt, extraSystem);
+  try {
+    return body.phase === 'grade'
+      ? parseGradeJsonFromModel(raw)
+      : parseJsonFromModel(raw);
+  } catch (parseErr) {
+    console.error('JSON parse failed for phase', body.phase, parseErr instanceof Error ? parseErr.message : parseErr);
+    console.error('Model output preview:', String(raw).slice(0, 600));
+    throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
+  }
+}
+
+function sendJson(res, statusCode, payload) {
+  setCors(res);
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  return res.status(statusCode).json(payload);
+}
+
+/** Legacy Node (req, res) handler — used by dev-server.js locally. */
+async function legacyHandler(req, res) {
   if (req.method === 'OPTIONS') {
+    setCors(res);
     return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendJson(res, 405, { error: 'Method not allowed' });
   }
 
   const apiKey = resolveApiKey();
   if (!apiKey) {
-    return res.status(500).json({
-      error: 'מפתח Perplexity לא מוגדר. הוסיפו AI_API_KEY או PERPLEXITY_API_KEY ב-Vercel (Settings → Environment Variables) ופרסמו מחדש.',
-    });
+    return sendJson(res, 500, { error: MISSING_KEY_ERROR });
+  }
+
+  let body;
+  try {
+    body = parseRequestBody(req);
+  } catch (parseErr) {
+    const message = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    return sendJson(res, 400, { error: message || 'Invalid JSON body' });
   }
 
   try {
-    const body = req.body;
-    if (!body || !body.phase) {
-      return res.status(400).json({ error: 'Missing phase' });
-    }
-
-    const gradeLockSystem =
-      resolvedGradeId(body) || body.gradeLabel
-        ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.'
-        : '';
-
-    const searchPhases = new Set([
-      'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary',
-    ]);
-    const extraSystem =
-      gradeLockSystem +
-      (searchPhases.has(body.phase)
-        ? ' Perform a broad internet search for general educational and pedagogical answers. ' +
-          'Check Alon Yerushalmy, «מסעות בחינוך», and educationpace.com only for genuinely relevant matches — ' +
-          'never force a citation; omit entirely when search data offers no substantial topic-specific material.'
-        : '');
-
-    const userPrompt = buildUserPrompt(body);
-    let raw;
-    try {
-      raw = await callPerplexity(apiKey, userPrompt, extraSystem);
-    } catch (apiErr) {
-      throw apiErr;
-    }
-    let data;
-    try {
-      data = body.phase === 'grade'
-        ? parseGradeJsonFromModel(raw)
-        : parseJsonFromModel(raw);
-    } catch (parseErr) {
-      console.error('JSON parse failed for phase', body.phase, parseErr instanceof Error ? parseErr.message : parseErr);
-      console.error('Model output preview:', String(raw).slice(0, 600));
-      throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
-    }
-
-    return res.status(200).json({ data });
+    const data = await executeGenerate(body, apiKey);
+    return sendJson(res, 200, { data });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    const statusCode = e && e.statusCode ? e.statusCode : 500;
     console.error(message);
-    return res.status(500).json({ error: message });
+    return sendJson(res, statusCode, { error: message });
   }
-};
+}
+
+/** Web Standard fetch handler — primary export for Vercel serverless production. */
+async function fetchHandler(request) {
+  const headers = new Headers(corsHeaders);
+
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers });
+  }
+
+  if (request.method !== 'POST') {
+    return Response.json({ error: 'Method not allowed' }, { status: 405, headers });
+  }
+
+  const apiKey = resolveApiKey();
+  if (!apiKey) {
+    return Response.json({ error: MISSING_KEY_ERROR }, { status: 500, headers });
+  }
+
+  let body;
+  try {
+    const text = await request.text();
+    body = text && text.trim() ? JSON.parse(text) : null;
+  } catch (parseErr) {
+    const message = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    return Response.json({ error: message || 'Invalid JSON body' }, { status: 400, headers });
+  }
+
+  try {
+    const data = await executeGenerate(body, apiKey);
+    return Response.json({ data }, { status: 200, headers });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    const statusCode = e && e.statusCode ? e.statusCode : 500;
+    console.error(message);
+    return Response.json({ error: message }, { status: statusCode, headers });
+  }
+}
+
+module.exports = { fetch: fetchHandler, legacyHandler };
