@@ -904,7 +904,49 @@
       transition: transform 0.12s, box-shadow 0.15s;
     }
     .auth-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(92, 125, 88, 0.4); }
+    .auth-submit:disabled, .auth-google-btn:disabled, .auth-tab:disabled { opacity: 0.65; cursor: wait; transform: none; }
     .auth-error { color: #8B3A3A; font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.25rem; }
+    .auth-google-btn {
+      width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.65rem;
+      padding: 0.8rem 1rem; border-radius: 0.85rem; position: relative;
+      border: 1px solid rgba(92, 74, 58, 0.18); background: #fff; color: #5C4A3A;
+      font-weight: 600; cursor: pointer;
+      box-shadow: 0 2px 10px rgba(92, 74, 58, 0.1);
+      transition: box-shadow 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
+    }
+    .auth-google-btn:hover:not(:disabled) {
+      border-color: rgba(66, 133, 244, 0.45);
+      box-shadow: 0 4px 16px rgba(66, 133, 244, 0.15);
+      transform: translateY(-1px);
+    }
+    .auth-google-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .auth-google-icon svg { width: 1.25rem; height: 1.25rem; display: block; }
+    .auth-divider {
+      display: flex; align-items: center; gap: 0.75rem; margin: 1.15rem 0 1rem;
+      color: rgba(92, 74, 58, 0.55); font-size: 0.8rem; font-weight: 500;
+    }
+    .auth-divider::before, .auth-divider::after {
+      content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(201, 169, 98, 0.45), transparent);
+    }
+    .auth-card { position: relative; }
+    .auth-card--loading::before {
+      content: ''; position: absolute; inset: 0; z-index: 5; border-radius: inherit;
+      background: rgba(253, 251, 247, 0.55); backdrop-filter: blur(1px);
+      animation: auth-shimmer 1.2s ease-in-out infinite;
+    }
+    @keyframes auth-shimmer { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.75; } }
+    .auth-submit, .auth-google-btn { position: relative; }
+    .auth-btn-spinner {
+      position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+      color: inherit;
+    }
+    .auth-submit--loading .auth-submit-label,
+    .auth-google-btn--loading .auth-google-label,
+    .auth-google-btn--loading .auth-google-icon { visibility: hidden; }
+    .auth-submit--loading .auth-btn-spinner,
+    .auth-google-btn--loading .auth-btn-spinner { display: flex; }
+    .auth-submit--loading { color: #fff; }
+    .auth-google-btn--loading { color: #5C4A3A; }
 
     #user-account-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .user-tier-badge {
@@ -1049,7 +1091,7 @@
 
   <!-- Auth overlay (login / signup) -->
   <div id="auth-overlay" class="hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="auth-card-title">
-    <div class="auth-card">
+    <div id="auth-card" class="auth-card">
       <div class="auth-card-header">
         <div class="auth-card-logo" aria-hidden="true"><i class="fa-solid fa-seedling"></i></div>
         <h2 id="auth-card-title" class="auth-card-title font-display" data-i18n="header_title">מתכנן תקופות לימוד אנתרופוסופי</h2>
@@ -1060,6 +1102,12 @@
         <button type="button" id="auth-tab-signup" class="auth-tab" role="tab" aria-selected="false" data-i18n="auth_tab_signup">הרשמה</button>
       </div>
       <div id="auth-panel-login" class="auth-panel" role="tabpanel">
+        <button type="button" class="auth-google-btn" data-auth-google aria-label="">
+          <span class="auth-google-icon" aria-hidden="true"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg></span>
+          <span class="auth-google-label" data-i18n="auth_google_btn">התחברו באמצעות גוגל</span>
+          <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
+        </button>
+        <div class="auth-divider" role="separator"><span data-i18n="auth_or_email">או עם דוא״ל</span></div>
         <form id="auth-form-login" novalidate>
           <div class="auth-field">
             <label for="auth-login-email" data-i18n="auth_email_label">דוא״ל</label>
@@ -1070,10 +1118,19 @@
             <input type="password" id="auth-login-password" name="password" autocomplete="current-password" required minlength="6" />
           </div>
           <p id="auth-login-error" class="auth-error" role="alert"></p>
-          <button type="submit" class="auth-submit" data-i18n="auth_login_btn">היכנסו למערכת</button>
+          <button type="submit" id="auth-submit-login" class="auth-submit">
+            <span class="auth-submit-label" data-i18n="auth_login_btn">היכנסו למערכת</span>
+            <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
+          </button>
         </form>
       </div>
       <div id="auth-panel-signup" class="auth-panel hidden" role="tabpanel">
+        <button type="button" class="auth-google-btn" data-auth-google aria-label="">
+          <span class="auth-google-icon" aria-hidden="true"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg></span>
+          <span class="auth-google-label" data-i18n="auth_google_btn">התחברו באמצעות גוגל</span>
+          <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
+        </button>
+        <div class="auth-divider" role="separator"><span data-i18n="auth_or_email">או עם דוא״ל</span></div>
         <form id="auth-form-signup" novalidate>
           <div class="auth-field">
             <label for="auth-signup-name" data-i18n="auth_name_label">שם מלא</label>
@@ -1088,7 +1145,10 @@
             <input type="password" id="auth-signup-password" name="password" autocomplete="new-password" required minlength="6" />
           </div>
           <p id="auth-signup-error" class="auth-error" role="alert"></p>
-          <button type="submit" class="auth-submit" data-i18n="auth_signup_btn">התחילו ניסיון חינם</button>
+          <button type="submit" id="auth-submit-signup" class="auth-submit">
+            <span class="auth-submit-label" data-i18n="auth_signup_btn">התחילו ניסיון חינם</span>
+            <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
+          </button>
         </form>
       </div>
     </div>

@@ -42,6 +42,99 @@
   };
 
   var listeners = [];
+  var supabaseClient = null;
+  var supabaseConfig = { url: '', anonKey: '' };
+  var authUiLoading = false;
+
+  function isSupabaseConfigured() {
+    return Boolean(supabaseConfig.url && supabaseConfig.anonKey);
+  }
+
+  function getSupabaseClient() {
+    if (supabaseClient) return supabaseClient;
+    if (!isSupabaseConfigured() || typeof global.supabase === 'undefined') return null;
+    try {
+      supabaseClient = global.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey);
+    } catch (e) {
+      console.warn('[Auth] Supabase client creation failed', e);
+      return null;
+    }
+    return supabaseClient;
+  }
+
+  function normalizeAuthError(err) {
+    if (!err) return new Error(t('auth_err_supabase'));
+    if (typeof err === 'string') return new Error(err);
+    return new Error(err.message || t('auth_err_supabase'));
+  }
+
+  function resolveTierFromUser(user) {
+    var meta = (user && user.user_metadata) || {};
+    var tier = meta.tier || meta.subscription_tier;
+    return tier && TIERS[tier] ? tier : 'trial';
+  }
+
+  function mapSupabaseUser(user) {
+    var meta = (user && user.user_metadata) || {};
+    return {
+      id: user.id,
+      email: user.email || '',
+      displayName: meta.full_name || meta.name || (user.email ? user.email.split('@')[0] : ''),
+    };
+  }
+
+  function applySupabaseSession(session) {
+    if (!session || !session.user) return;
+    var user = session.user;
+    authState.isAuthenticated = true;
+    authState.provider = 'supabase';
+    authState.user = mapSupabaseUser(user);
+    authState.tier = resolveTierFromUser(user);
+    persistAuth();
+    hideAuthOverlay();
+    notifyListeners();
+  }
+
+  function clearAuthErrors() {
+    var loginErr = document.getElementById('auth-login-error');
+    var signupErr = document.getElementById('auth-signup-error');
+    if (loginErr) loginErr.textContent = '';
+    if (signupErr) signupErr.textContent = '';
+  }
+
+  function setAuthLoading(loading, scope) {
+    authUiLoading = loading;
+    var card = document.getElementById('auth-card');
+    var overlay = document.getElementById('auth-overlay');
+    var isSession = scope === 'session';
+    var isGoogle = scope === 'google';
+    var isLogin = scope === 'login';
+    var isSignup = scope === 'signup';
+
+    if (card) card.classList.toggle('auth-card--loading', loading && (isSession || isGoogle));
+    if (overlay) overlay.setAttribute('aria-busy', loading ? 'true' : 'false');
+
+    document.querySelectorAll('#auth-overlay input, #auth-overlay .auth-tab').forEach(function (el) {
+      el.disabled = loading;
+    });
+
+    document.querySelectorAll('[data-auth-google]').forEach(function (btn) {
+      btn.disabled = loading;
+      btn.classList.toggle('auth-google-btn--loading', loading && isGoogle);
+      btn.setAttribute('aria-label', t('auth_google_btn'));
+    });
+
+    var loginSubmit = document.getElementById('auth-submit-login');
+    var signupSubmit = document.getElementById('auth-submit-signup');
+    if (loginSubmit) {
+      loginSubmit.disabled = loading;
+      loginSubmit.classList.toggle('auth-submit--loading', loading && isLogin);
+    }
+    if (signupSubmit) {
+      signupSubmit.disabled = loading;
+      signupSubmit.classList.toggle('auth-submit--loading', loading && isSignup);
+    }
+  }
 
   function t(key, vars) {
     if (typeof global.t === 'function') return global.t(key, vars);
@@ -150,23 +243,25 @@
     };
   }
 
-  /* ── Future provider hooks ─────────────────────────────────────────────── */
+  /* ── Supabase Auth ─────────────────────────────────────────────────────── */
 
-  function initSupabaseAuth(supabaseClient) {
-    if (!supabaseClient || typeof supabaseClient.auth === 'undefined') {
+  function initSupabaseAuth(client) {
+    if (!client || typeof client.auth === 'undefined') {
       console.warn('[Auth] initSupabaseAuth: invalid Supabase client');
       return Promise.resolve(null);
     }
-    return supabaseClient.auth.getSession().then(function (result) {
+    supabaseClient = client;
+    return client.auth.getSession().then(function (result) {
       var session = result && result.data && result.data.session;
       if (session && session.user) {
-        applyExternalUser(session.user, 'supabase', session.user.user_metadata && session.user.user_metadata.tier);
+        applySupabaseSession(session);
       }
-      supabaseClient.auth.onAuthStateChange(function (_event, sess) {
+      client.auth.onAuthStateChange(function (event, sess) {
         if (sess && sess.user) {
-          applyExternalUser(sess.user, 'supabase', sess.user.user_metadata && sess.user.user_metadata.tier);
-        } else {
+          applySupabaseSession(sess);
+        } else if (event === 'SIGNED_OUT') {
           clearAuth(false);
+          showAuthOverlay();
         }
       });
       authState.sessionReady = true;
@@ -175,6 +270,99 @@
     });
   }
 
+  function signInWithEmail(email, password) {
+    var trimmed = String(email || '').trim().toLowerCase();
+    if (!trimmed || !String(password || '').length) {
+      return Promise.reject(new Error(t('auth_err_required')));
+    }
+    clearAuthErrors();
+    var client = getSupabaseClient();
+    if (!client) return mockSignIn(trimmed, password);
+
+    setAuthLoading(true, 'login');
+    return client.auth.signInWithPassword({ email: trimmed, password: password })
+      .then(function (result) {
+        if (result.error) throw result.error;
+        if (result.data && result.data.session) applySupabaseSession(result.data.session);
+        return getPublicState();
+      })
+      .catch(function (err) { throw normalizeAuthError(err); })
+      .finally(function () { setAuthLoading(false, 'login'); });
+  }
+
+  function signUpWithEmail(email, password, displayName) {
+    var trimmed = String(email || '').trim().toLowerCase();
+    if (!trimmed || !String(password || '').length) {
+      return Promise.reject(new Error(t('auth_err_required')));
+    }
+    clearAuthErrors();
+    var client = getSupabaseClient();
+    if (!client) return mockSignUp(trimmed, password, displayName);
+
+    setAuthLoading(true, 'signup');
+    return client.auth.signUp({
+      email: trimmed,
+      password: password,
+      options: {
+        data: {
+          full_name: String(displayName || '').trim() || trimmed.split('@')[0],
+          tier: 'trial',
+        },
+      },
+    })
+      .then(function (result) {
+        if (result.error) throw result.error;
+        if (result.data && result.data.session) {
+          applySupabaseSession(result.data.session);
+        } else {
+          var signupErr = document.getElementById('auth-signup-error');
+          if (signupErr) signupErr.textContent = t('auth_confirm_email');
+        }
+        return getPublicState();
+      })
+      .catch(function (err) { throw normalizeAuthError(err); })
+      .finally(function () { setAuthLoading(false, 'signup'); });
+  }
+
+  function signInWithGoogle() {
+    clearAuthErrors();
+    var client = getSupabaseClient();
+    if (!client) {
+      return Promise.reject(new Error(t('auth_err_supabase')));
+    }
+    setAuthLoading(true, 'google');
+    return client.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin + window.location.pathname + window.location.search,
+        queryParams: { access_type: 'offline', prompt: 'consent' },
+      },
+    })
+      .then(function (result) {
+        if (result.error) throw result.error;
+        /* Browser redirects to Google — keep loading state until navigation */
+      })
+      .catch(function (err) {
+        setAuthLoading(false, 'google');
+        throw normalizeAuthError(err);
+      });
+  }
+
+  function signOut() {
+    var client = getSupabaseClient();
+    if (client && authState.provider === 'supabase') {
+      return client.auth.signOut().then(function () {
+        clearAuth(true);
+        showAuthOverlay();
+      }).catch(function () {
+        clearAuth(true);
+        showAuthOverlay();
+      });
+    }
+    return mockSignOut();
+  }
+
+  /* ── Legacy provider hooks ─────────────────────────────────────────────── */
   function initFirebaseAuth(firebaseAuth) {
     if (!firebaseAuth || typeof firebaseAuth.onAuthStateChanged !== 'function') {
       console.warn('[Auth] initFirebaseAuth: invalid Firebase auth');
@@ -219,6 +407,7 @@
     if (!trimmed || !String(password || '').length) {
       return Promise.reject(new Error(t('auth_err_required')));
     }
+    setAuthLoading(true, 'signup');
     authState.isAuthenticated = true;
     authState.provider = 'mock';
     authState.user = {
@@ -230,7 +419,9 @@
     persistAuth();
     hideAuthOverlay();
     notifyListeners();
-    return Promise.resolve(getPublicState());
+    return Promise.resolve(getPublicState()).finally(function () {
+      setAuthLoading(false, 'signup');
+    });
   }
 
   function mockSignIn(email, password) {
@@ -238,12 +429,15 @@
     if (!trimmed || !String(password || '').length) {
       return Promise.reject(new Error(t('auth_err_required')));
     }
+    setAuthLoading(true, 'login');
     var restored = loadPersistedAuth();
     if (restored && authState.user && authState.user.email === trimmed) {
       authState.isAuthenticated = true;
       hideAuthOverlay();
       notifyListeners();
-      return Promise.resolve(getPublicState());
+      return Promise.resolve(getPublicState()).finally(function () {
+        setAuthLoading(false, 'login');
+      });
     }
     return mockSignUp(trimmed, password, trimmed.split('@')[0]);
   }
@@ -520,17 +714,35 @@
   function bindAuthUi() {
     var tabLogin = document.getElementById('auth-tab-login');
     var tabSignup = document.getElementById('auth-tab-signup');
-    if (tabLogin) tabLogin.addEventListener('click', function () { setAuthTab('login'); });
-    if (tabSignup) tabSignup.addEventListener('click', function () { setAuthTab('signup'); });
+    if (tabLogin) tabLogin.addEventListener('click', function () {
+      if (!authUiLoading) setAuthTab('login');
+    });
+    if (tabSignup) tabSignup.addEventListener('click', function () {
+      if (!authUiLoading) setAuthTab('signup');
+    });
+
+    document.querySelectorAll('[data-auth-google]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (authUiLoading) return;
+        var errEl = document.getElementById('auth-login-error');
+        var errSignup = document.getElementById('auth-signup-error');
+        signInWithGoogle().catch(function (err) {
+          var msg = err.message || String(err);
+          if (errEl) errEl.textContent = msg;
+          if (errSignup) errSignup.textContent = msg;
+        });
+      });
+    });
 
     var loginForm = document.getElementById('auth-form-login');
     if (loginForm) {
       loginForm.addEventListener('submit', function (e) {
         e.preventDefault();
+        if (authUiLoading) return;
         var email = document.getElementById('auth-login-email');
         var pass = document.getElementById('auth-login-password');
         var errEl = document.getElementById('auth-login-error');
-        mockSignIn(email && email.value, pass && pass.value).catch(function (err) {
+        signInWithEmail(email && email.value, pass && pass.value).catch(function (err) {
           if (errEl) errEl.textContent = err.message || String(err);
         });
       });
@@ -540,11 +752,12 @@
     if (signupForm) {
       signupForm.addEventListener('submit', function (e) {
         e.preventDefault();
+        if (authUiLoading) return;
         var name = document.getElementById('auth-signup-name');
         var email = document.getElementById('auth-signup-email');
         var pass = document.getElementById('auth-signup-password');
         var errEl = document.getElementById('auth-signup-error');
-        mockSignUp(email && email.value, pass && pass.value, name && name.value).catch(function (err) {
+        signUpWithEmail(email && email.value, pass && pass.value, name && name.value).catch(function (err) {
           if (errEl) errEl.textContent = err.message || String(err);
         });
       });
@@ -553,7 +766,7 @@
     var btnUpgrade = document.getElementById('btn-open-pricing');
     if (btnUpgrade) btnUpgrade.addEventListener('click', showPricingModal);
     var btnSignOut = document.getElementById('btn-auth-signout');
-    if (btnSignOut) btnSignOut.addEventListener('click', function () { mockSignOut(); });
+    if (btnSignOut) btnSignOut.addEventListener('click', function () { signOut(); });
 
     var pricingClose = document.getElementById('pricing-modal-close');
     if (pricingClose) pricingClose.addEventListener('click', hidePricingModal);
@@ -583,29 +796,36 @@
 
   function initAuthSubscription(options) {
     options = options || {};
+    supabaseConfig.url = options.supabaseUrl || '';
+    supabaseConfig.anonKey = options.supabaseAnonKey || '';
     bindAuthUi();
+
+    var useSupabase = isSupabaseConfigured() && typeof global.supabase !== 'undefined';
+
+    if (useSupabase) {
+      showAuthOverlay();
+      setAuthLoading(true, 'session');
+      var client = options.supabaseClient || getSupabaseClient();
+      initSupabaseAuth(client).then(function (session) {
+        setAuthLoading(false, 'session');
+        if (session && session.user) hideAuthOverlay();
+        else if (!authState.isAuthenticated) showAuthOverlay();
+        else hideAuthOverlay();
+      }).catch(function (e) {
+        console.warn('[Auth] Supabase session check failed', e);
+        setAuthLoading(false, 'session');
+        showAuthOverlay();
+        authState.sessionReady = true;
+        notifyListeners();
+      });
+      return getPublicState();
+    }
+
     var restored = loadPersistedAuth();
     authState.sessionReady = true;
-
-    if (options.supabaseClient) {
-      initSupabaseAuth(options.supabaseClient);
-    } else if (typeof global.supabase !== 'undefined' && options.supabaseUrl && options.supabaseAnonKey) {
-      try {
-        var client = global.supabase.createClient(options.supabaseUrl, options.supabaseAnonKey);
-        initSupabaseAuth(client);
-      } catch (e) {
-        console.warn('[Auth] Supabase init failed', e);
-      }
-    }
-
     if (options.firebaseAuth) initFirebaseAuth(options.firebaseAuth);
-
-    if (!restored && !authState.isAuthenticated) {
-      showAuthOverlay();
-    } else {
-      hideAuthOverlay();
-    }
-
+    if (!restored && !authState.isAuthenticated) showAuthOverlay();
+    else hideAuthOverlay();
     notifyListeners();
     return getPublicState();
   }
@@ -616,6 +836,9 @@
     updateSearchMeterUi();
     var subtitle = document.getElementById('auth-subtitle');
     if (subtitle) subtitle.textContent = t('auth_subtitle');
+    document.querySelectorAll('[data-auth-google]').forEach(function (btn) {
+      btn.setAttribute('aria-label', t('auth_google_btn'));
+    });
   }
 
   global.WaldorfAuth = {
@@ -629,12 +852,18 @@
     recordSearch: recordSearch,
     wrapResearchCall: wrapResearchCall,
     setTier: setTier,
+    signInWithEmail: signInWithEmail,
+    signUpWithEmail: signUpWithEmail,
+    signInWithGoogle: signInWithGoogle,
+    signOut: signOut,
     mockSignIn: mockSignIn,
     mockSignUp: mockSignUp,
     mockSignOut: mockSignOut,
     mockUpgrade: mockUpgrade,
     initSupabaseAuth: initSupabaseAuth,
     initFirebaseAuth: initFirebaseAuth,
+    getSupabaseClient: getSupabaseClient,
+    isSupabaseConfigured: isSupabaseConfigured,
     showPricingModal: showPricingModal,
     hidePricingModal: hidePricingModal,
     showAuthOverlay: showAuthOverlay,
