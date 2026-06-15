@@ -45,6 +45,7 @@
   var supabaseClient = null;
   var supabaseConfig = { url: '', anonKey: '' };
   var authUiLoading = false;
+  var useMockGoogleAuth = true;
 
   function isSupabaseConfigured() {
     return Boolean(supabaseConfig.url && supabaseConfig.anonKey);
@@ -119,7 +120,7 @@
     });
 
     document.querySelectorAll('[data-auth-google]').forEach(function (btn) {
-      btn.disabled = loading;
+      btn.disabled = loading && (isGoogle || isSession);
       btn.classList.toggle('auth-google-btn--loading', loading && isGoogle);
       btn.setAttribute('aria-label', t('auth_google_btn'));
     });
@@ -324,11 +325,39 @@
       .finally(function () { setAuthLoading(false, 'signup'); });
   }
 
+  function mockGoogleSignIn() {
+    console.log('[WaldorfAuth] Google sign-in clicked — mock/demo mode (Supabase Google not enabled yet)');
+    setAuthLoading(true, 'google');
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        authState.isAuthenticated = true;
+        authState.provider = 'mock-google';
+        authState.user = {
+          id: 'google_demo_' + Date.now(),
+          email: 'demo.user@gmail.com',
+          displayName: (typeof global.isEnglish === 'function' && global.isEnglish())
+            ? 'Google Demo User'
+            : 'משתמש גוגל (הדגמה)',
+        };
+        authState.tier = 'trial';
+        persistAuth();
+        hideAuthOverlay();
+        notifyListeners();
+        setAuthLoading(false, 'google');
+        console.log('[WaldorfAuth] Mock Google login successful', getPublicState());
+        resolve(getPublicState());
+      }, 700);
+    });
+  }
+
   function signInWithGoogle() {
     clearAuthErrors();
+    if (useMockGoogleAuth) {
+      return mockGoogleSignIn();
+    }
     var client = getSupabaseClient();
     if (!client) {
-      return Promise.reject(new Error(t('auth_err_supabase')));
+      return mockGoogleSignIn();
     }
     setAuthLoading(true, 'google');
     return client.auth.signInWithOAuth({
@@ -798,6 +827,7 @@
     options = options || {};
     supabaseConfig.url = options.supabaseUrl || '';
     supabaseConfig.anonKey = options.supabaseAnonKey || '';
+    useMockGoogleAuth = options.useMockGoogleAuth !== false;
     bindAuthUi();
 
     var useSupabase = isSupabaseConfigured() && typeof global.supabase !== 'undefined';
@@ -855,6 +885,7 @@
     signInWithEmail: signInWithEmail,
     signUpWithEmail: signUpWithEmail,
     signInWithGoogle: signInWithGoogle,
+    mockGoogleSignIn: mockGoogleSignIn,
     signOut: signOut,
     mockSignIn: mockSignIn,
     mockSignUp: mockSignUp,
