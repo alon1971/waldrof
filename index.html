@@ -2189,13 +2189,15 @@
       if (isEnglish()) {
         return (
           'Broad internet search for general educational/pedagogical material. ' +
-          'Always check and prioritize Alon Yerushalmy, the «מסעות בחינוך» podcast, and educationpace.com; ' +
+          'Always search the Waldorf Research Institute Library (https://waldorflibrary.org/) as a core archive alongside other web sources — do not restrict to this site alone. ' +
+          'Also check and prioritize Alon Yerushalmy, the «מסעות בחינוך» podcast, and educationpace.com; ' +
           'integrate relevant findings alongside general web results.'
         );
       }
       return (
         'חיפוש אינטרנט רחב למידע חינוכי ופדגוגי כללי. ' +
-        'תמיד בדוק והעדף תוכן רלוונטי מאלון ירושלמי, מפודקאסט «מסעות בחינוך» ומ-educationpace.com; ' +
+        'תמיד חפש גם בספריית מכון המחקר הוולדורפי הרשמית (https://waldorflibrary.org/) כארכיון ליבה לצד מקורות רשת אחרים — אל תגביל את החיפוש לאתר זה בלבד. ' +
+        'בדוק והעדף גם תוכן רלוונטי מאלון ירושלמי, מפודקאסט «מסעות בחינוך» ומ-educationpace.com; ' +
         'שלב ממצאים רלוונטיים לצד תוצאות רשת כלליות.'
       );
     }
@@ -4606,12 +4608,8 @@
     function updateCloudBanner() {
       const el = document.getElementById('cloud-status');
       if (!el) return;
-      el.classList.remove('hidden');
       let html = '';
-      if (isResearchAvailable()) {
-        html += '<div class="rounded-xl border border-sage/40 bg-sage/10 px-4 py-3 text-sm text-sage-dark mb-2">' +
-          '<i class="fa-solid fa-satellite-dish ml-1"></i> ' + escapeHtml(t('cloud_research_on')) + '</div>';
-      } else {
+      if (!isResearchAvailable()) {
         html += '<div class="rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-walnut mb-2">' +
           '<i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(t('cloud_config_missing')) + '</div>';
       }
@@ -4619,7 +4617,13 @@
         html += '<div class="rounded-xl border border-sage/30 bg-white/60 px-4 py-3 text-sm text-sage-dark">' +
           '<span class="inline-block w-2 h-2 rounded-full bg-sage animate-pulse ml-1"></span> ' + escapeHtml(t('cloud_community_on')) + '</div>';
       }
-      el.innerHTML = html;
+      if (html) {
+        el.innerHTML = html;
+        el.classList.remove('hidden');
+      } else {
+        el.innerHTML = '';
+        el.classList.add('hidden');
+      }
     }
 
     // ---------- Step UI engine ----------

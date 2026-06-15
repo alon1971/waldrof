@@ -40,6 +40,9 @@
     'Perform a BROAD internet search for the best general educational and pedagogical information relevant to the query. ' +
     'Synthesize Waldorf/anthroposophic perspectives together with wider pedagogical insights from live web sources ' +
     '(AWSNA, IASWECE, Waldorf Library, Steiner Archive, international teacher resources, classroom practice, and more).\n' +
+    'CORE ARCHIVE — Waldorf Research Institute Library (https://waldorflibrary.org/): ' +
+    'Always search this official library as an additional core archive and draw relevant pedagogical material from it when available. ' +
+    'Do NOT restrict research to this site alone — continue broad web search across all other sources listed above.\n' +
     'Also check (but do NOT force) Alon Yerushalmy\'s platforms for a genuinely relevant match:\n' +
     '- Alon Yerushalmy (אלון ירושלמי)\n' +
     '- The Hebrew podcast «מסעות בחינוך»\n' +
@@ -93,7 +96,7 @@
     'SOURCE DIVERSITY — "Sources & Further Reading":\n' +
     'This section MUST be rich, diverse, and objective. Actively search for and include a broad pedagogical landscape: ' +
     'Rudolf Steiner (GA lectures where verified), anthroposophic authors (e.g. von Baravalle, Finser, Harwood, Aeppli, Rawson, Stebbing), ' +
-    'AWSNA, IASWECE, Waldorf Library, Steiner Archive, global Waldorf curriculum boards, and prominent Israeli / international Waldorf educators and researchers.\n' +
+    'AWSNA, IASWECE, the Waldorf Research Institute Library (https://waldorflibrary.org/), Steiner Archive, global Waldorf curriculum boards, and prominent Israeli / international Waldorf educators and researchers.\n' +
     'No single figure or platform may dominate — aim for breadth and professional credibility.\n' +
     'PINTEREST VISUAL INSPIRATION:\n' +
     'Actively search for or suggest relevant Pinterest boards and search queries tied to the pedagogical topic ' +
