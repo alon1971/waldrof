@@ -840,15 +840,313 @@
     .pedagogy-deep-btn:hover { background: rgba(139, 58, 58, 0.12); }
     .pedagogy-deep-btn:disabled { opacity: 0.55; cursor: wait; }
     .pedagogy-deep-btn--inline { margin-top: 0.35rem; }
+
+    /* ── Auth, pricing & subscription UI ─────────────────────────────────── */
+    body.auth-locked #wizard,
+    body.auth-locked #workspace,
+    body.auth-locked .app-top-nav,
+    body.auth-locked #new-research-bar,
+    body.auth-locked footer { pointer-events: none; user-select: none; opacity: 0.35; filter: blur(1px); }
+    body.auth-locked header { opacity: 0.5; }
+    #auth-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.25rem; padding-top: max(1.25rem, env(safe-area-inset-top));
+      background: linear-gradient(145deg, rgba(92, 74, 58, 0.55), rgba(92, 125, 88, 0.45));
+      backdrop-filter: blur(6px);
+    }
+    #auth-overlay.hidden { display: none; }
+    .auth-card {
+      width: 100%; max-width: 420px;
+      background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 45%, #EDE6D6 100%);
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      border-radius: 1.5rem;
+      box-shadow: 0 24px 64px rgba(92, 74, 58, 0.22), 0 0 0 1px rgba(255,255,255,0.6) inset;
+      overflow: hidden;
+    }
+    .auth-card-header {
+      padding: 2rem 2rem 1.25rem;
+      text-align: center;
+      background: linear-gradient(180deg, rgba(122, 155, 118, 0.12), transparent);
+    }
+    .auth-card-logo {
+      width: 3.5rem; height: 3.5rem; margin: 0 auto 1rem;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #F7F3EB;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem;
+      box-shadow: 0 4px 16px rgba(92, 125, 88, 0.35);
+    }
+    .auth-card-title { font-family: 'Frank Ruhl Libre', serif; font-size: 1.5rem; font-weight: 700; color: #8B3A3A; margin: 0; }
+    .auth-card-subtitle { font-size: 0.9rem; color: rgba(92, 74, 58, 0.75); margin-top: 0.5rem; line-height: 1.5; }
+    .auth-tabs { display: flex; border-bottom: 1px solid rgba(201, 169, 98, 0.35); }
+    .auth-tab {
+      flex: 1; padding: 0.85rem 1rem; border: none; background: transparent;
+      color: rgba(92, 74, 58, 0.65); font-weight: 600; cursor: pointer;
+      border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s;
+    }
+    .auth-tab--active { color: #5C7D58; border-bottom-color: #7A9B76; background: rgba(122, 155, 118, 0.06); }
+    .auth-panel { padding: 1.5rem 2rem 2rem; }
+    .auth-field { margin-bottom: 1rem; text-align: start; }
+    .auth-field label { display: block; font-size: 0.875rem; font-weight: 600; color: #5C4A3A; margin-bottom: 0.35rem; }
+    .auth-field input {
+      width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem;
+      border: 1px solid rgba(201, 169, 98, 0.5); background: rgba(255,255,255,0.85);
+      color: #5C4A3A; outline: none; transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .auth-field input:focus { border-color: #7A9B76; box-shadow: 0 0 0 3px rgba(122, 155, 118, 0.2); }
+    .auth-submit {
+      width: 100%; margin-top: 0.5rem; padding: 0.85rem 1rem;
+      border: none; border-radius: 0.85rem; cursor: pointer; font-weight: 700;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff;
+      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.35);
+      transition: transform 0.12s, box-shadow 0.15s;
+    }
+    .auth-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(92, 125, 88, 0.4); }
+    .auth-error { color: #8B3A3A; font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.25rem; }
+
+    #user-account-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .user-tier-badge {
+      display: inline-flex; align-items: center; padding: 0.2rem 0.6rem;
+      border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
+    }
+    .user-tier-badge--trial { background: rgba(201, 169, 98, 0.2); color: #5C4A3A; }
+    .user-tier-badge--educator { background: rgba(122, 155, 118, 0.2); color: #5C7D58; }
+    .user-tier-badge--expert { background: rgba(139, 58, 58, 0.12); color: #8B3A3A; }
+    .user-action-btn {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      padding: 0.35rem 0.65rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;
+      border: 1px solid rgba(201, 169, 98, 0.45); background: rgba(255,255,255,0.7);
+      color: #5C4A3A; cursor: pointer; transition: background 0.15s;
+    }
+    .user-action-btn:hover { background: rgba(122, 155, 118, 0.12); }
+    .user-action-btn--upgrade { border-color: rgba(122, 155, 118, 0.5); color: #5C7D58; }
+    #search-usage-meter {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.35rem 0.65rem; border-radius: 9999px;
+      background: rgba(255,255,255,0.65); border: 1px solid rgba(201, 169, 98, 0.35);
+      font-size: 0.75rem; color: #5C4A3A;
+    }
+    .search-usage-track {
+      width: 4rem; height: 0.35rem; border-radius: 9999px;
+      background: rgba(92, 74, 58, 0.12); overflow: hidden;
+    }
+    .search-usage-fill {
+      height: 100%; border-radius: 9999px;
+      background: linear-gradient(90deg, #7A9B76, #5C7D58);
+      transition: width 0.3s ease, background 0.2s;
+    }
+    .search-usage-fill--warning { background: linear-gradient(90deg, #C9A962, #C4785A); }
+    .search-usage-fill--danger { background: linear-gradient(90deg, #C4785A, #8B3A3A); }
+
+    .app-modal {
+      position: fixed; inset: 0; z-index: 90;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1rem; padding-top: max(1rem, env(safe-area-inset-top));
+    }
+    .app-modal.hidden { display: none; }
+    .app-modal-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(92, 74, 58, 0.5); backdrop-filter: blur(4px);
+    }
+    .app-modal-panel {
+      position: relative; width: 100%; max-width: 960px; max-height: 90vh; overflow-y: auto;
+      background: linear-gradient(165deg, #FDFBF7, #F7F3EB);
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      border-radius: 1.5rem;
+      box-shadow: 0 24px 64px rgba(92, 74, 58, 0.25);
+      padding: 1.75rem 1.5rem 2rem;
+    }
+    @media (min-width: 640px) { .app-modal-panel { padding: 2rem 2.25rem 2.5rem; } }
+    .app-modal-close {
+      position: absolute; top: 1rem; left: 1rem;
+      width: 2.25rem; height: 2.25rem; border-radius: 50%;
+      border: 1px solid rgba(201, 169, 98, 0.45); background: rgba(255,255,255,0.8);
+      color: #5C4A3A; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    html[dir="ltr"] .app-modal-close { left: auto; right: 1rem; }
+    .pricing-header { text-align: center; margin-bottom: 1.5rem; }
+    .pricing-header h2 { font-family: 'Frank Ruhl Libre', serif; font-size: 1.5rem; color: #8B3A3A; margin: 0; }
+    .pricing-header p { color: rgba(92, 74, 58, 0.7); margin-top: 0.35rem; font-size: 0.9rem; }
+    .billing-toggle {
+      display: flex; justify-content: center; gap: 0.5rem; margin-bottom: 1.5rem;
+    }
+    .billing-toggle-btn {
+      padding: 0.5rem 1.25rem; border-radius: 9999px; font-weight: 600; font-size: 0.875rem;
+      border: 1px solid rgba(201, 169, 98, 0.45); background: rgba(255,255,255,0.7);
+      color: #5C4A3A; cursor: pointer; transition: all 0.15s;
+    }
+    .billing-toggle-btn--active {
+      background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff; border-color: transparent;
+    }
+    #pricing-tier-grid {
+      display: grid; grid-template-columns: 1fr; gap: 1rem;
+    }
+    @media (min-width: 640px) { #pricing-tier-grid { grid-template-columns: repeat(3, 1fr); } }
+    .pricing-tier-card {
+      position: relative; display: flex; flex-direction: column;
+      padding: 1.25rem 1.15rem; border-radius: 1.15rem;
+      border: 1px solid rgba(201, 169, 98, 0.4);
+      background: rgba(255,255,255,0.85);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .pricing-tier-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(92, 125, 88, 0.12); }
+    .pricing-tier-card--featured {
+      border-color: rgba(122, 155, 118, 0.55);
+      background: linear-gradient(165deg, rgba(122, 155, 118, 0.08), rgba(255,255,255,0.92));
+      box-shadow: 0 8px 28px rgba(92, 125, 88, 0.15);
+    }
+    .pricing-tier-card--current { outline: 2px solid rgba(201, 169, 98, 0.6); }
+    .pricing-tier-badge {
+      position: absolute; top: -0.5rem; left: 50%; transform: translateX(-50%);
+      padding: 0.2rem 0.75rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;
+      background: #C9A962; color: #5C4A3A; white-space: nowrap;
+    }
+    .pricing-tier-current {
+      font-size: 0.7rem; font-weight: 700; color: #5C7D58; margin-bottom: 0.35rem;
+    }
+    .pricing-tier-name { font-size: 1.1rem; font-weight: 700; color: #8B3A3A; margin: 0.5rem 0 0.25rem; }
+    .pricing-tier-price { font-size: 1.35rem; font-weight: 700; color: #5C4A3A; margin: 0; }
+    .pricing-tier-alt { font-size: 0.8rem; color: rgba(92, 74, 58, 0.6); margin: 0.15rem 0 0.5rem; }
+    .pricing-tier-limit { font-size: 0.85rem; color: #5C7D58; font-weight: 600; margin: 0.5rem 0; }
+    .pricing-tier-features {
+      list-style: none; padding: 0; margin: 0.5rem 0 1rem; flex: 1;
+      font-size: 0.85rem; color: rgba(92, 74, 58, 0.8); line-height: 1.5;
+    }
+    .pricing-tier-features li { padding: 0.25rem 0; padding-inline-start: 1.1rem; position: relative; }
+    .pricing-tier-features li::before {
+      content: '✦'; position: absolute; inset-inline-start: 0; color: #C9A962; font-size: 0.65rem; top: 0.4rem;
+    }
+    .pricing-tier-btn {
+      width: 100%; padding: 0.7rem 1rem; border-radius: 0.75rem; font-weight: 700;
+      border: none; cursor: pointer; background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff;
+      transition: opacity 0.15s;
+    }
+    .pricing-tier-btn:hover:not(:disabled) { opacity: 0.92; }
+    .pricing-tier-btn:disabled { opacity: 0.5; cursor: default; }
+    .pricing-tier-btn--outline {
+      background: transparent; border: 1.5px solid rgba(122, 155, 118, 0.55); color: #5C7D58;
+    }
+
+    #rate-limit-modal .app-modal-panel { max-width: 28rem; text-align: center; }
+    .rate-limit-icon {
+      width: 3.5rem; height: 3.5rem; margin: 0 auto 1rem; border-radius: 50%;
+      background: rgba(196, 120, 90, 0.15); color: #C4785A;
+      display: flex; align-items: center; justify-content: center; font-size: 1.5rem;
+    }
+    .rate-limit-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.25rem; }
+    .rate-limit-actions button { padding: 0.75rem 1rem; border-radius: 0.75rem; font-weight: 600; cursor: pointer; }
+    #rate-limit-upgrade {
+      border: none; background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff;
+    }
+    #rate-limit-close {
+      border: 1px solid rgba(201, 169, 98, 0.45); background: transparent; color: #5C4A3A;
+    }
   </style>
 </head>
 <body class="app-typography bg-cream text-walnut min-h-screen waldorf-pattern pb-[env(safe-area-inset-bottom)]">
+
+  <!-- Auth overlay (login / signup) -->
+  <div id="auth-overlay" class="hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="auth-card-title">
+    <div class="auth-card">
+      <div class="auth-card-header">
+        <div class="auth-card-logo" aria-hidden="true"><i class="fa-solid fa-seedling"></i></div>
+        <h2 id="auth-card-title" class="auth-card-title font-display" data-i18n="header_title">מתכנן תקופות לימוד אנתרופוסופי</h2>
+        <p id="auth-subtitle" class="auth-card-subtitle" data-i18n="auth_subtitle">הצטרפו למסע הפדגוגי — גישה למחקר חי, מאגר קהילתי וארכיון ידע</p>
+      </div>
+      <div class="auth-tabs" role="tablist">
+        <button type="button" id="auth-tab-login" class="auth-tab auth-tab--active" role="tab" aria-selected="true" data-i18n="auth_tab_login">כניסה</button>
+        <button type="button" id="auth-tab-signup" class="auth-tab" role="tab" aria-selected="false" data-i18n="auth_tab_signup">הרשמה</button>
+      </div>
+      <div id="auth-panel-login" class="auth-panel" role="tabpanel">
+        <form id="auth-form-login" novalidate>
+          <div class="auth-field">
+            <label for="auth-login-email" data-i18n="auth_email_label">דוא״ל</label>
+            <input type="email" id="auth-login-email" name="email" autocomplete="email" required />
+          </div>
+          <div class="auth-field">
+            <label for="auth-login-password" data-i18n="auth_password_label">סיסמה</label>
+            <input type="password" id="auth-login-password" name="password" autocomplete="current-password" required minlength="6" />
+          </div>
+          <p id="auth-login-error" class="auth-error" role="alert"></p>
+          <button type="submit" class="auth-submit" data-i18n="auth_login_btn">היכנסו למערכת</button>
+        </form>
+      </div>
+      <div id="auth-panel-signup" class="auth-panel hidden" role="tabpanel">
+        <form id="auth-form-signup" novalidate>
+          <div class="auth-field">
+            <label for="auth-signup-name" data-i18n="auth_name_label">שם מלא</label>
+            <input type="text" id="auth-signup-name" name="name" autocomplete="name" />
+          </div>
+          <div class="auth-field">
+            <label for="auth-signup-email" data-i18n="auth_email_label">דוא״ל</label>
+            <input type="email" id="auth-signup-email" name="email" autocomplete="email" required />
+          </div>
+          <div class="auth-field">
+            <label for="auth-signup-password" data-i18n="auth_password_label">סיסמה</label>
+            <input type="password" id="auth-signup-password" name="password" autocomplete="new-password" required minlength="6" />
+          </div>
+          <p id="auth-signup-error" class="auth-error" role="alert"></p>
+          <button type="submit" class="auth-submit" data-i18n="auth_signup_btn">התחילו ניסיון חינם</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pricing / upgrade modal -->
+  <div id="pricing-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pricing-title">
+    <div id="pricing-modal-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel">
+      <button type="button" id="pricing-modal-close" class="app-modal-close" data-i18n-aria="pricing_close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+      <div class="pricing-header">
+        <h2 id="pricing-title" class="font-display" data-i18n="pricing_title">בחרו את המסלול שלכם</h2>
+        <p data-i18n="pricing_subtitle">תמחור שקוף למורים ולצוותים פדגוגיים</p>
+      </div>
+      <div class="billing-toggle" role="group" aria-label="Billing cycle">
+        <button type="button" class="billing-toggle-btn billing-toggle-btn--active" data-billing-cycle="monthly" data-i18n="pricing_billing_monthly">חודשי</button>
+        <button type="button" class="billing-toggle-btn" data-billing-cycle="yearly" data-i18n="pricing_billing_yearly">שנתי</button>
+      </div>
+      <div id="pricing-tier-grid"></div>
+    </div>
+  </div>
+
+  <!-- Rate limit warning modal -->
+  <div id="rate-limit-modal" class="app-modal hidden" aria-hidden="true" role="alertdialog" aria-modal="true" aria-labelledby="rate-limit-title">
+    <div id="rate-limit-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel">
+      <div class="rate-limit-icon" aria-hidden="true"><i class="fa-solid fa-hourglass-half"></i></div>
+      <h2 id="rate-limit-title" class="font-display text-burgundy text-lg font-bold" data-i18n="rate_limit_title">הגעתם למכסת החיפושים היומית</h2>
+      <p id="rate-limit-message" class="text-walnut/80 text-sm mt-2"></p>
+      <div class="rate-limit-actions">
+        <button type="button" id="rate-limit-upgrade" data-i18n="rate_limit_upgrade">צפו במסלולים ושדרגו</button>
+        <button type="button" id="rate-limit-close" data-i18n="rate_limit_dismiss">הבנתי</button>
+      </div>
+    </div>
+  </div>
 
   <header class="border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="max-w-6xl mx-auto px-4 py-6 sm:py-8">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
         <p class="text-sage-dark text-sm font-medium"><i class="fa-solid fa-seedling icon-inline"></i> <span data-i18n="header_tagline">חינוך ולדורף · תקופת לימוד ראשית</span></p>
         <div class="flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
+          <div id="user-account-bar" class="hidden">
+            <div id="search-usage-meter" class="hidden" title="">
+              <span id="search-usage-label" data-i18n="search_usage_label">חיפושים היום</span>
+              <div class="search-usage-track" aria-hidden="true"><div id="search-usage-fill" class="search-usage-fill" style="width:0%"></div></div>
+              <span id="search-usage-count">0 / 20</span>
+            </div>
+            <span id="user-display-name" class="text-sm text-walnut/80 max-w-[8rem] truncate"></span>
+            <span id="user-tier-badge" class="user-tier-badge user-tier-badge--trial"></span>
+            <button type="button" id="btn-open-pricing" class="user-action-btn user-action-btn--upgrade">
+              <i class="fa-solid fa-arrow-up-right-dots" aria-hidden="true"></i>
+              <span data-i18n="auth_upgrade">שדרוג</span>
+            </button>
+            <button type="button" id="btn-auth-signout" class="user-action-btn">
+              <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+              <span data-i18n="auth_signout">יציאה</span>
+            </button>
+          </div>
           <button type="button" id="lang-toggle" class="lang-toggle lang-toggle--he-active notranslate" aria-label="החלף שפה">
             <span class="lang-toggle-label">EN</span>
           </button>
@@ -1141,6 +1439,7 @@
     </footer>
   </div>
 
+  <script src="auth-subscription.js"></script>
   <script>
     // =============================================================================
     const SUPABASE_URL = 'https://xlgufjewvwitvvsvbkmu.supabase.co';
@@ -1743,7 +2042,12 @@
       throw lastErr || new Error('תשובת JSON לא תקינה מהשרת');
     }
 
+    function isRateLimitError(err) {
+      return Boolean(err && (err.code === 'RATE_LIMIT' || /מכסת החיפושים|search limit/i.test(String(err.message || ''))));
+    }
+
     async function invokeWaldorfResearch(payload, options) {
+      if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.assertSearchAllowed();
       const opts = options || {};
       const researchPayload = prepareResearchPayload(payload);
 
@@ -1755,7 +2059,9 @@
 
       if (usesDirectPerplexityClient()) {
         try {
-          return await WaldorfResearchClient.run(researchPayload, PERPLEXITY_API_KEY_DIRECT, opts);
+          const directResult = await WaldorfResearchClient.run(researchPayload, PERPLEXITY_API_KEY_DIRECT, opts);
+          if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.recordSearch();
+          return directResult;
         } catch (directErr) {
           if (directErr && directErr.name === 'AbortError') throw directErr;
           var directMsg = directErr && directErr.message ? String(directErr.message) : String(directErr);
@@ -1813,7 +2119,9 @@
         }
         throw new Error(json.error || json.message || ('שגיאת שרת ' + res.status));
       }
-      return json.data !== undefined ? json.data : json;
+      const result = json.data !== undefined ? json.data : json;
+      if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.recordSearch();
+      return result;
     }
 
     function normalizeIcon(icon) {
@@ -3990,6 +4298,7 @@
         setupArchiveExpansionEvents();
         status.innerHTML = '<i class="fa-solid fa-check text-sage ml-1"></i> נמצאו מקורות רלוונטיים.';
       } catch (e) {
+        if (isRateLimitError(e)) return;
         status.innerHTML = '<span class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message || String(e)) + '</span>';
         document.getElementById('archive-results').innerHTML = '';
       } finally {
@@ -5074,6 +5383,7 @@
         renderGradeInsightsPanel(grade, data);
       } catch (err) {
         if (runId !== gradeResearchRunId || signal.aborted || isGradeResearchAbortError(err)) return;
+        if (isRateLimitError(err)) return;
         if (insightsBody) {
           insightsBody.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(err.message || String(err)) + '</p>';
         }
@@ -5263,6 +5573,7 @@
         btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
       } catch (e) {
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
+        if (isRateLimitError(e)) return;
         if (out) {
           out.classList.remove('hidden');
           out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message) + '</p>';
@@ -6678,6 +6989,7 @@
       updatePedagogyExportButtonsVisibility();
       const gradeLoadingText = document.getElementById('grade-research-loading-text');
       if (gradeLoadingText) gradeLoadingText.textContent = t('grade_insights_generating');
+      if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.refreshI18n();
     }
 
     if ('serviceWorker' in navigator) {
@@ -6689,6 +7001,12 @@
     async function init() {
       setOnLanguageChange(refreshUiOnLanguageChange);
       initI18n();
+      if (typeof WaldorfAuth !== 'undefined') {
+        WaldorfAuth.init({
+          supabaseUrl: SUPABASE_URL,
+          supabaseAnonKey: SUPABASE_ANON_KEY,
+        });
+      }
       resetWizardOnPageLoad();
       populateGradeSelect();
       const gradeSelAfterPopulate = document.getElementById('grade-select');
