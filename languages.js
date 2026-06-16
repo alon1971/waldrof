@@ -20,6 +20,8 @@ const LANGUAGES = {
     nav_community_aria:          'פתח מאגר קהילתי',
     nav_archive:                 'ארכיון ידע אנתרופוסופי',
     nav_archive_aria:            'פתח ארכיון ידע אנתרופוסופי',
+    nav_search_history:          'חיפושים קודמים',
+    nav_search_history_aria:     'פתח רשימת חיפושים ותכניות שיעור קודמות',
     nav_repo:                    'מאגר',
     nav_repo_aria:               'פתח מאגר חומרים',
 
@@ -476,6 +478,8 @@ const LANGUAGES = {
     nav_community_aria:          'Open community database',
     nav_archive:                 'Anthroposophical Archive',
     nav_archive_aria:            'Open anthroposophical knowledge archive',
+    nav_search_history:          'Previous searches',
+    nav_search_history_aria:     'Open your saved lesson plans and search history',
     nav_repo:                    'Repository',
     nav_repo_aria:               'Open materials repository',
 

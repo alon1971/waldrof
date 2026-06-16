@@ -293,6 +293,38 @@
       color: #fff;
       border-color: #C9A962;
     }
+    .step-pill.step-pill-history,
+    #search-history-open-btn.step-pill-history {
+      opacity: 1 !important;
+      border-color: rgba(122, 155, 118, 0.55);
+      background: linear-gradient(145deg, rgba(232, 240, 230, 0.98), rgba(255, 255, 255, 0.98));
+      color: #3d5c3a;
+      font-weight: 700;
+      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.14);
+      min-height: 48px;
+      padding: 0.75rem 1.25rem;
+      font-size: 0.9rem;
+    }
+    @media (min-width: 640px) {
+      .step-pill.step-pill-history,
+      #search-history-open-btn.step-pill-history {
+        min-height: 44px;
+        padding: 0.65rem 1.15rem;
+        font-size: 0.875rem;
+      }
+    }
+    .step-pill.step-pill-history:hover,
+    #search-history-open-btn.step-pill-history:hover {
+      background: linear-gradient(145deg, #fff, rgba(220, 236, 218, 1));
+      border-color: rgba(122, 155, 118, 0.75);
+      transform: translateY(-1px);
+    }
+    .step-pill.step-pill-history i,
+    #search-history-open-btn.step-pill-history i {
+      color: #5C7D58;
+      font-size: 1.05rem;
+    }
+    .search-history-nav-slot { display: contents; }
     /* ביטול מוחלט של דהיית טקסט ואנימציות fade בכל השלבים */
     .wizard-step,
     #grade-insights-panel,
@@ -392,6 +424,15 @@
       align-items: stretch;
       width: 100%;
     }
+    @media (min-width: 640px) {
+      .app-top-nav-inner > .step-pill-community,
+      .app-top-nav-inner > .step-pill-archive,
+      .app-top-nav-inner > #search-history-open-btn {
+        flex: 1 1 10rem;
+        min-width: 10rem;
+        max-width: 15rem;
+      }
+    }
     @media (max-width: 639px) {
       .app-top-nav-inner {
         flex-direction: column;
@@ -405,7 +446,8 @@
       }
       #step-progress .step-pill,
       .app-top-nav-inner > .step-pill-community,
-      .app-top-nav-inner > .step-pill-archive {
+      .app-top-nav-inner > .step-pill-archive,
+      .app-top-nav-inner > #search-history-open-btn {
         width: 100%;
         justify-content: center;
         font-size: var(--app-body-size) !important;
@@ -1106,6 +1148,9 @@
     }
 
     /* ── App shell: permanent left chat + main content ───────────────────── */
+    :root {
+      --app-sticky-nav-height: 4.75rem;
+    }
     .app-shell {
       display: flex;
       flex-direction: column;
@@ -1135,24 +1180,31 @@
       position: relative;
     }
 
-    /* ── Lesson chat sidebar (permanent left) ────────────────────────────── */
+    /* ── Lesson chat sidebar (permanent left, sticky on scroll) ─────────── */
     .lesson-chat-sidebar {
       width: 100%;
       flex-shrink: 0;
-      position: relative;
-      z-index: 20;
-      background: transparent;
+      position: sticky;
+      top: var(--app-sticky-nav-height);
+      align-self: flex-start;
+      z-index: 35;
+      background: linear-gradient(180deg, rgba(247, 243, 235, 0.97), rgba(253, 251, 247, 0.92));
+      backdrop-filter: blur(6px);
     }
     @media (min-width: 1024px) {
       .lesson-chat-sidebar {
         width: 360px;
         max-width: 360px;
-        position: sticky;
-        top: 4.75rem;
-        align-self: stretch;
-        min-height: calc(100vh - 4.75rem);
+        height: calc(100vh - var(--app-sticky-nav-height));
+        max-height: calc(100vh - var(--app-sticky-nav-height));
         border-inline-end: 1px solid rgba(201, 169, 98, 0.35);
-        background: linear-gradient(180deg, rgba(247, 243, 235, 0.55), rgba(253, 251, 247, 0.35));
+      }
+    }
+    @media (max-width: 1023px) {
+      .lesson-chat-sidebar {
+        top: calc(var(--app-sticky-nav-height) - 0.25rem);
+        box-shadow: 0 8px 24px rgba(92, 74, 58, 0.1);
+        border-bottom: 1px solid rgba(201, 169, 98, 0.35);
       }
     }
     .lesson-chat-sidebar--collapsed .lesson-chat-panel { display: none; }
@@ -1169,7 +1221,7 @@
     .lesson-chat-panel {
       display: flex;
       flex-direction: column;
-      height: min(52vh, 480px);
+      height: min(48vh, 440px);
       background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 55%, #EDE6D6 100%);
       border: 1px solid rgba(201, 169, 98, 0.5);
       border-radius: 1.25rem;
@@ -1179,11 +1231,11 @@
     }
     @media (min-width: 1024px) {
       .lesson-chat-panel {
-        height: calc(100vh - 5.5rem);
-        max-height: none;
-        margin: 0.75rem 0.65rem 0.75rem 0.75rem;
+        height: calc(100vh - var(--app-sticky-nav-height) - 1.25rem);
+        max-height: calc(100vh - var(--app-sticky-nav-height) - 1.25rem);
+        margin: 0.65rem 0.65rem 0.65rem 0.75rem;
         border-radius: 1rem 0 0 1rem;
-        box-shadow: 4px 0 24px rgba(92, 74, 58, 0.08);
+        box-shadow: 4px 0 24px rgba(92, 74, 58, 0.1);
       }
       html[dir="ltr"] .lesson-chat-panel {
         margin: 0.75rem 0.75rem 0.75rem 0.65rem;
@@ -1399,35 +1451,10 @@
       border: 1px solid rgba(139, 58, 58, 0.22);
     }
 
-    /* My recent searches — entry button + table overlay (app-main only) */
+    /* My recent searches — nav button + table overlay (app-main only) */
     .search-history-entry {
-      display: flex;
-      justify-content: center;
-      margin: 0.5rem 0 1rem;
+      display: contents;
     }
-    .search-history-open-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.65rem;
-      padding: 0.75rem 1.35rem;
-      border-radius: 9999px;
-      border: 1px solid rgba(122, 155, 118, 0.45);
-      background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(232, 240, 230, 0.92));
-      color: #5C7D58;
-      font-weight: 700;
-      font-size: 0.95rem;
-      box-shadow: 0 4px 16px rgba(92, 125, 88, 0.12);
-      cursor: pointer;
-      transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
-    }
-    .search-history-open-btn:hover {
-      background: linear-gradient(145deg, #fff, rgba(232, 240, 230, 1));
-      border-color: rgba(122, 155, 118, 0.65);
-      transform: translateY(-1px);
-    }
-    .search-history-open-btn i { font-size: 1.05rem; color: #7A9B76; }
-
     .search-history-overlay {
       position: absolute;
       inset: 0;
@@ -1745,6 +1772,7 @@
           <i class="fa-solid fa-users-rays text-base sm:text-sm"></i>
           <span data-i18n="nav_community">מאגר קהילתי</span>
         </button>
+        <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
         <button type="button" id="btn-nav-archive"
           class="step-pill step-pill-archive touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-gold/10"
           data-i18n-aria="nav_archive_aria">
@@ -1771,10 +1799,6 @@
         <span data-i18n="btn_new_research">מחקר חדש — איפוס והתחלה מכיתה ונושא</span>
       </button>
     </div>
-  </div>
-
-  <div class="max-w-6xl mx-auto px-3 sm:px-4">
-    <div id="search-history-mount"></div>
   </div>
 
   <!-- ========== WIZARD ========== -->
@@ -2053,7 +2077,7 @@
 
   <script src="auth-subscription.js?v=20250620"></script>
   <script src="share-materials.js?v=20250618"></script>
-  <script src="search-history.js?v=20250618"></script>
+  <script src="search-history.js?v=20250620"></script>
   <script src="chat-sidebar.js?v=20250616b"></script>
   <script>
     // =============================================================================

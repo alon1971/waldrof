@@ -289,13 +289,16 @@
     var mount = document.getElementById('search-history-mount');
     if (!mount) return;
 
+    var labelKey = 'nav_search_history';
+    var label = deps.t(labelKey);
+    if (!label || label === labelKey) label = deps.t('search_history_title');
+
     mount.innerHTML =
-      '<div class="search-history-entry">' +
-        '<button type="button" id="search-history-open-btn" class="search-history-open-btn touch-btn">' +
-          '<i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>' +
-          '<span>' + deps.escapeHtml(deps.t('search_history_title')) + '</span>' +
-        '</button>' +
-      '</div>';
+      '<button type="button" id="search-history-open-btn" class="step-pill step-pill-history search-history-open-btn touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer"' +
+        ' aria-label="' + deps.escapeHtml(deps.t('nav_search_history_aria') || label) + '">' +
+        '<i class="fa-solid fa-clock-rotate-left text-base sm:text-sm" aria-hidden="true"></i>' +
+        '<span data-i18n="nav_search_history">' + deps.escapeHtml(label) + '</span>' +
+      '</button>';
 
     var openBtn = document.getElementById('search-history-open-btn');
     if (openBtn) {
