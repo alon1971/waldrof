@@ -2050,7 +2050,7 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20250618"></script>
+  <script src="auth-subscription.js?v=20250620"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250618"></script>
   <script src="chat-sidebar.js?v=20250619"></script>
@@ -2079,9 +2079,6 @@
         const data = (json && json.data) || json || {};
         if (data.supabaseUrl) SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '');
         if (data.supabaseAnonKey) SUPABASE_ANON_KEY = String(data.supabaseAnonKey).trim();
-        if (json && json.meta && json.meta.supabaseReachable === false) {
-          console.error('[waldrof] Supabase project URL is unreachable (DNS or wrong SUPABASE_URL):', SUPABASE_URL);
-        }
         if (data.authRedirectUrl && !isLocalDevHost()) {
           window.__WALDROF_AUTH_REDIRECT__ = String(data.authRedirectUrl).replace(/\/$/, '');
         }

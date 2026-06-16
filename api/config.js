@@ -29,18 +29,12 @@ function getPublicConfigResponse() {
     data: config,
     meta: {
       cloudConfigured: Boolean(config.supabaseUrl && config.supabaseAnonKey),
-      supabaseReachable: null,
     },
   };
 }
 
 async function getPublicConfigResponseAsync() {
-  const payload = getPublicConfigResponse();
-  const url = payload.data && payload.data.supabaseUrl;
-  if (url) {
-    payload.meta.supabaseReachable = await env.isSupabaseUrlReachable(url);
-  }
-  return payload;
+  return getPublicConfigResponse();
 }
 
 async function legacyHandler(req, res) {

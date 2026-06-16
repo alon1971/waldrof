@@ -112,11 +112,17 @@
     return supabaseClient;
   }
 
+  function isValidSupabaseProjectUrl(url) {
+    var value = normalizeSupabaseConfigUrl(url);
+    if (!value) return false;
+    return /^https:\/\/[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+$/i.test(value);
+  }
+
   function assertSupabaseReadyForOAuth() {
     if (!isSupabaseConfigured()) {
       throw new Error(t('auth_err_supabase'));
     }
-    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(supabaseConfig.url)) {
+    if (!isValidSupabaseProjectUrl(supabaseConfig.url)) {
       throw new Error(t('auth_err_supabase_url'));
     }
   }
