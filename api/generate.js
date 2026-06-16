@@ -965,6 +965,9 @@ async function executeGenerate(body, apiKey) {
     const cached = await cacheDb.getCachedResult(body);
     if (cached) {
       console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
+      if (!body.skipKnowledgeIngest) {
+        knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
+      }
       return cached;
     }
     console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
@@ -1047,7 +1050,7 @@ async function executeGenerate(body, apiKey) {
 
   const savedCacheKey = body.skipCache ? null : cacheDb.buildCacheKey(body);
 
-  if (!body.skipKnowledgeIngest && !body.skipRag) {
+  if (!body.skipKnowledgeIngest) {
     knowledgeIngest.ingestFromGenerateResultAsync(body, data);
   }
 

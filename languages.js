@@ -117,7 +117,7 @@ const LANGUAGES = {
     cloud_research_on:           'חיפוש חי (Perplexity) — דרך שרת מאובטח ב-Vercel. מורים אינם מזינים מפתח API.',
     cloud_research_off:          'מחקר ענן כבוי',
     cloud_config_missing:        'הגדירו SUPABASE_URL ו-SUPABASE_ANON_KEY במשתני הסביבה של השרת (Render / .env)',
-    cloud_community_on:          'שיתוף קהילתי בענן פעיל',
+    cloud_community_on:          'למידה קהילתית אוטומטית פעילה — כל תכנית שיעור ושיחה נשמרות במאגר המשותף',
 
     confirm_new_research:        'להתחיל מחקר חדש? השינויים לא יישמרו.',
     personal_default_title:      'חומר אישי',
@@ -398,7 +398,7 @@ const LANGUAGES = {
     auth_err_sign_in_first:      'יש להתחבר לפני שדרוג',
     auth_signout:                'יציאה',
     auth_upgrade:                'שדרוג',
-    auth_google_btn:             'התחברות באמצעות גוגל',
+    auth_google_btn:             'התחברות דרך גוגל',
     auth_or_email:               'או עם דוא״ל',
     auth_loading:                'מתחברים...',
     auth_loading_session:        'בודקים חיבור...',
@@ -571,7 +571,7 @@ const LANGUAGES = {
     cloud_research_on:           'Live search (Perplexity) — via secure Vercel server. Teachers do not enter an API key.',
     cloud_research_off:          'Cloud research off',
     cloud_config_missing:        'Set SUPABASE_URL and SUPABASE_ANON_KEY in server environment variables (Render / .env)',
-    cloud_community_on:          'Cloud community sharing active',
+    cloud_community_on:          'Automatic community learning active — every lesson plan and chat is saved to the shared database',
 
     confirm_new_research:        'Start new research? Unsaved changes will be lost.',
     personal_default_title:      'Personal Material',
@@ -1003,7 +1003,7 @@ const LANGUAGES = {
 
     cloud_research_on:           'Cloud-Recherche aktiv',
     cloud_research_off:          'Cloud-Recherche inaktiv',
-    cloud_community_on:          'Cloud-Gemeinschaft aktiv',
+    cloud_community_on:          'Automatisches Gemeinschaftslernen aktiv — jeder Unterrichtsplan und Chat wird gespeichert',
 
     confirm_new_research:        'Neue Recherche starten? Nicht gespeicherte Änderungen gehen verloren.',
     personal_default_title:      'Persönliches Material',
@@ -1235,7 +1235,7 @@ const LANGUAGES = {
 
     cloud_research_on:           'Investigación en la nube activa',
     cloud_research_off:          'Investigación en la nube desactivada',
-    cloud_community_on:          'Comunidad en la nube activa',
+    cloud_community_on:          'Aprendizaje comunitario automático activo — cada plan y chat se guarda en la base compartida',
 
     confirm_new_research:        '¿Iniciar nueva investigación? Los cambios no guardados se perderán.',
     personal_default_title:      'Material personal',

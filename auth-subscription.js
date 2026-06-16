@@ -45,7 +45,35 @@
   var supabaseClient = null;
   var supabaseConfig = { url: '', anonKey: '' };
   var authUiLoading = false;
-  var useMockGoogleAuth = true;
+  var useMockGoogleAuth = false;
+  var authRedirectUrl = '';
+
+  function isLocalDevHost() {
+    try {
+      var host = String(window.location.hostname || '').toLowerCase();
+      if (window.location.protocol === 'file:') return true;
+      return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function resolveAuthRedirectUrl(explicit) {
+    if (explicit) return String(explicit).trim();
+    if (authRedirectUrl) return authRedirectUrl;
+    if (isLocalDevHost()) {
+      return window.location.origin + window.location.pathname + window.location.search;
+    }
+    return 'https://waldrof.onrender.com' + window.location.pathname + window.location.search;
+  }
+
+  function shouldAllowMockAuth() {
+    return useMockGoogleAuth && isLocalDevHost();
+  }
+
+  function isMockProvider(provider) {
+    return provider === 'mock' || provider === 'mock-google';
+  }
 
   function isSupabaseConfigured() {
     return Boolean(supabaseConfig.url && supabaseConfig.anonKey);
@@ -201,6 +229,14 @@
       if (!raw) return false;
       var data = JSON.parse(raw);
       if (!data || !data.user) return false;
+      if (isSupabaseConfigured() && isMockProvider(data.provider)) {
+        try { localStorage.removeItem(STORAGE_AUTH); } catch (e) { /* */ }
+        return false;
+      }
+      if (!shouldAllowMockAuth() && isMockProvider(data.provider)) {
+        try { localStorage.removeItem(STORAGE_AUTH); } catch (e) { /* */ }
+        return false;
+      }
       authState.isAuthenticated = true;
       authState.user = data.user;
       authState.tier = data.tier || 'trial';
@@ -278,7 +314,10 @@
     }
     clearAuthErrors();
     var client = getSupabaseClient();
-    if (!client) return mockSignIn(trimmed, password);
+    if (!client) {
+      if (shouldAllowMockAuth()) return mockSignIn(trimmed, password);
+      return Promise.reject(new Error(t('auth_err_supabase')));
+    }
 
     setAuthLoading(true, 'login');
     return client.auth.signInWithPassword({ email: trimmed, password: password })
@@ -298,7 +337,10 @@
     }
     clearAuthErrors();
     var client = getSupabaseClient();
-    if (!client) return mockSignUp(trimmed, password, displayName);
+    if (!client) {
+      if (shouldAllowMockAuth()) return mockSignUp(trimmed, password, displayName);
+      return Promise.reject(new Error(t('auth_err_supabase')));
+    }
 
     setAuthLoading(true, 'signup');
     return client.auth.signUp({
@@ -352,18 +394,18 @@
 
   function signInWithGoogle() {
     clearAuthErrors();
-    if (useMockGoogleAuth) {
+    if (shouldAllowMockAuth()) {
       return mockGoogleSignIn();
     }
     var client = getSupabaseClient();
     if (!client) {
-      return mockGoogleSignIn();
+      return Promise.reject(new Error(t('auth_err_supabase')));
     }
     setAuthLoading(true, 'google');
     return client.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin + window.location.pathname + window.location.search,
+        redirectTo: resolveAuthRedirectUrl(),
         queryParams: { access_type: 'offline', prompt: 'consent' },
       },
     })
@@ -827,20 +869,21 @@
     options = options || {};
     supabaseConfig.url = options.supabaseUrl || '';
     supabaseConfig.anonKey = options.supabaseAnonKey || '';
-    useMockGoogleAuth = options.useMockGoogleAuth !== false;
+    authRedirectUrl = options.authRedirectUrl || '';
+    useMockGoogleAuth = options.useMockGoogleAuth === true && isLocalDevHost();
     bindAuthUi();
 
     var useSupabase = isSupabaseConfigured() && typeof global.supabase !== 'undefined';
 
     if (useSupabase) {
+      clearAuth(false);
       showAuthOverlay();
       setAuthLoading(true, 'session');
       var client = options.supabaseClient || getSupabaseClient();
       initSupabaseAuth(client).then(function (session) {
         setAuthLoading(false, 'session');
         if (session && session.user) hideAuthOverlay();
-        else if (!authState.isAuthenticated) showAuthOverlay();
-        else hideAuthOverlay();
+        else showAuthOverlay();
       }).catch(function (e) {
         console.warn('[Auth] Supabase session check failed', e);
         setAuthLoading(false, 'session');
@@ -851,11 +894,12 @@
       return getPublicState();
     }
 
-    var restored = loadPersistedAuth();
+    var restored = shouldAllowMockAuth() && loadPersistedAuth();
     authState.sessionReady = true;
     if (options.firebaseAuth) initFirebaseAuth(options.firebaseAuth);
     if (!restored && !authState.isAuthenticated) showAuthOverlay();
-    else hideAuthOverlay();
+    else if (authState.isAuthenticated) hideAuthOverlay();
+    else showAuthOverlay();
     notifyListeners();
     return getPublicState();
   }

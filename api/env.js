@@ -61,6 +61,7 @@ function getPublicClientConfig() {
     apiGenerate: '/api/generate',
     apiSearchHistory: '/api/search-history',
     apiShareMaterial: '/api/share-material',
+    authRedirectUrl: process.env.AUTH_REDIRECT_URL || 'https://waldrof.onrender.com',
   };
 }
 

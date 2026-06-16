@@ -846,6 +846,8 @@
     body.auth-locked #workspace,
     body.auth-locked .app-top-nav,
     body.auth-locked #new-research-bar,
+    body.auth-locked #app-shell,
+    body.auth-locked #lesson-chat-sidebar,
     body.auth-locked footer { pointer-events: none; user-select: none; opacity: 0.35; filter: blur(1px); }
     body.auth-locked header { opacity: 0.5; }
     #auth-overlay {
@@ -1613,7 +1615,7 @@
         <div class="auth-social-block">
           <button type="button" id="auth-google-login" class="auth-google-btn" data-auth-google aria-label="התחברות באמצעות גוגל">
             <span class="auth-google-icon" aria-hidden="true"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Google"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg></span>
-            <span class="auth-google-label" data-i18n="auth_google_btn">התחברות באמצעות גוגל</span>
+            <span class="auth-google-label" data-i18n="auth_google_btn">התחברות דרך גוגל</span>
             <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
           </button>
         </div>
@@ -1638,7 +1640,7 @@
         <div class="auth-social-block">
           <button type="button" id="auth-google-signup" class="auth-google-btn" data-auth-google aria-label="התחברות באמצעות גוגל">
             <span class="auth-google-icon" aria-hidden="true"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Google"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg></span>
-            <span class="auth-google-label" data-i18n="auth_google_btn">התחברות באמצעות גוגל</span>
+            <span class="auth-google-label" data-i18n="auth_google_btn">התחברות דרך גוגל</span>
             <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
           </button>
         </div>
@@ -2077,11 +2079,33 @@
         const data = (json && json.data) || json || {};
         if (data.supabaseUrl) SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '');
         if (data.supabaseAnonKey) SUPABASE_ANON_KEY = String(data.supabaseAnonKey).trim();
+        if (data.authRedirectUrl && !isLocalDevHost()) {
+          window.__WALDROF_AUTH_REDIRECT__ = String(data.authRedirectUrl).replace(/\/$/, '');
+        }
       } catch (err) {
         console.warn('[waldrof] runtime config unavailable:', err && err.message ? err.message : err);
       }
     }
-    const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
+    function isLocalDevHost() {
+      try {
+        var host = String(window.location.hostname || '').toLowerCase();
+        if (window.location.protocol === 'file:') return true;
+        return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function getAuthRedirectUrl() {
+      if (window.__WALDROF_AUTH_REDIRECT__) {
+        return String(window.__WALDROF_AUTH_REDIRECT__).replace(/\/$/, '') + window.location.pathname + window.location.search;
+      }
+      if (isLocalDevHost()) {
+        return window.location.origin + window.location.pathname + window.location.search;
+      }
+      return 'https://waldrof.onrender.com' + window.location.pathname + window.location.search;
+    }
+
     const summaryJobsByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
 
@@ -2451,6 +2475,7 @@
       pedagogyRegistry: {},
       pedagogySummaries: {},
       lessonCacheKey: '',
+      communityAutoSync: true,
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -2516,6 +2541,10 @@
           p.userEmail = teacher.email;
         }
       }
+      if (appState.communityAutoSync !== false) {
+        p.communityAutoSync = true;
+        p.skipKnowledgeIngest = false;
+      }
       return p;
     }
 
@@ -2546,11 +2575,24 @@
           ragContext: session.ragContext || '',
           ragChunkIds: session.ragChunkIds || [],
           lessonSnapshot: buildLessonSnapshotForSave(),
+          gradeId: appState.grade || '',
+          gradeLabel: appState.gradeLabel || '',
+          topic: appState.topic || '',
+          communityAutoSync: appState.communityAutoSync !== false,
+          skipKnowledgeIngest: false,
           teacherUser: contributor,
         }),
       }).catch(function (err) {
         console.warn('[chat-session] save failed', err);
       });
+    }
+
+    function queueCommunityLessonSync() {
+      if (appState.communityAutoSync === false) return;
+      if (typeof LessonChatSidebar === 'undefined') return;
+      if (typeof LessonChatSidebar.persistSession === 'function') {
+        LessonChatSidebar.persistSession();
+      }
     }
 
     function isChatAmendmentsSection(sec) {
@@ -2681,6 +2723,7 @@
         }
         LessonChatSidebar.openForLesson(false);
         LessonChatSidebar.updateVisibility();
+        queueCommunityLessonSync();
       }
     }
 
@@ -4817,6 +4860,7 @@
       });
       try {
         syncChatIntoPrimaryPlan();
+        queueCommunityLessonSync();
         const data = collectPedagogySummaryDocumentData();
         const blob = buildPedagogyDocxBlob(data);
         const filename = buildPedagogyDocxFilename();
@@ -5734,7 +5778,9 @@
       }
       if (isCloudConfigured()) {
         html += '<div class="rounded-xl border border-sage/30 bg-white/60 px-4 py-3 text-sm text-sage-dark">' +
-          '<span class="inline-block w-2 h-2 rounded-full bg-sage animate-pulse ml-1"></span> ' + escapeHtml(t('cloud_community_on')) + '</div>';
+          '<span class="inline-block w-2 h-2 rounded-full bg-sage animate-pulse ml-1"></span> ' + escapeHtml(t('cloud_community_on')) +
+          '<input type="checkbox" id="community-auto-sync" checked disabled class="sr-only" aria-hidden="true" />' +
+          '</div>';
       }
       if (html) {
         el.innerHTML = html;
@@ -6388,6 +6434,7 @@
         if (typeof LessonChatSidebar !== 'undefined') {
           LessonChatSidebar.openForLesson(true);
         }
+        queueCommunityLessonSync();
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
       } catch (e) {
@@ -7533,6 +7580,7 @@
         activeProductTab: null,
         productTabsRendered: freshProductTabsRendered(),
         lessonCacheKey: '',
+        communityAutoSync: true,
       });
       resetSummarySession();
       abortAllInlineExpansions();
@@ -7829,7 +7877,8 @@
         WaldorfAuth.init({
           supabaseUrl: SUPABASE_URL,
           supabaseAnonKey: SUPABASE_ANON_KEY,
-          useMockGoogleAuth: true,
+          useMockGoogleAuth: isLocalDevHost(),
+          authRedirectUrl: getAuthRedirectUrl(),
         });
       }
       if (typeof WaldorfSearchHistory !== 'undefined') {
@@ -7889,7 +7938,10 @@
           getLessonCacheKey: function () { return appState.lessonCacheKey || ''; },
           onSessionPersist: persistLessonChatSession,
           onChatStateSync: function (payload) {
-            if (payload && payload.messages) applyChatToPrimaryPlan(payload.messages);
+            if (payload && payload.messages) {
+              applyChatToPrimaryPlan(payload.messages);
+              queueCommunityLessonSync();
+            }
           },
           getUserFirstName: function () {
             if (typeof WaldorfAuth === 'undefined') return '';

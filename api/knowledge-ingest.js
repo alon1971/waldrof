@@ -52,6 +52,8 @@ function buildRowsFromChunks(chunkList, meta) {
       author: author,
     };
     if (m.contributorEmail) row.contributor_email = m.contributorEmail;
+    if (m.gradeId) row.grade_id = m.gradeId;
+    if (m.topic) row.topic = m.topic;
     return row;
   });
 }
@@ -98,40 +100,92 @@ function collectStringsFromObject(obj, out, depth) {
   }
 }
 
-function extractLearnableText(phase, data) {
+function appendBlockPlanParts(plan, parts) {
+  if (!plan || typeof plan !== 'object') return;
+  if (plan.theory && Array.isArray(plan.theory.sections)) {
+    plan.theory.sections.forEach(function (sec) {
+      if (sec && sec.content) {
+        var heading = sec.heading ? sec.heading + ':\n' : '';
+        parts.push(heading + sec.content);
+      }
+    });
+  }
+  if (plan.inspiration && plan.inspiration.global) {
+    plan.inspiration.global.forEach(function (block) {
+      if (!block) return;
+      var items = Array.isArray(block.items) ? block.items.join(' ') : '';
+      parts.push((block.title || 'השראה') + ': ' + items);
+    });
+  }
+  if (Array.isArray(plan.curriculum)) {
+    plan.curriculum.slice(0, 15).forEach(function (day) {
+      if (!day) return;
+      parts.push(
+        'יום ' + (day.day || '') + ' — ' + (day.topic || '') + ': ' +
+        chunks.stripHtml(day.content || '') + (day.art ? ' | אמנות: ' + day.art : '')
+      );
+    });
+  }
+}
+
+function appendChatMessages(messages, parts) {
+  if (!Array.isArray(messages)) return;
+  messages.forEach(function (msg, i) {
+    if (!msg || msg.role !== 'assistant' || msg.isGreeting) return;
+    var body = msg.html || msg.text || msg.content || '';
+    if (body) parts.push('תיקון פדגוגי ' + (i + 1) + ':\n' + body);
+  });
+}
+
+function extractLearnableText(phase, data, body) {
   if (!data || typeof data !== 'object') return '';
   const parts = [];
 
   if (phase === 'topic') {
     if (data.webResearch && data.webResearch.summary) parts.push(data.webResearch.summary);
-    if (data.blockPlan && data.blockPlan.theory && Array.isArray(data.blockPlan.theory.sections)) {
-      data.blockPlan.theory.sections.forEach(function (sec) {
-        if (sec && sec.content) parts.push(sec.content);
-      });
-    }
+    if (data.blockPlan) appendBlockPlanParts(data.blockPlan, parts);
   } else if (phase === 'grade' && data.gradeInsights) {
     const gi = data.gradeInsights;
     ['part1AgePictureHtml', 'part2ClassroomIdeasHtml', 'archivesSynthesisHtml', 'part3CommunityExpansionsHtml']
       .forEach(function (key) {
         if (gi[key]) parts.push(gi[key]);
       });
-  } else if (phase === 'chat_followup' && data.chatReply) {
-    if (data.chatReply.answer) parts.push(data.chatReply.answer);
-    else if (data.chatReply.answerHtml) parts.push(data.chatReply.answerHtml);
+  } else if (phase === 'chat_followup') {
+    if (data.chatReply) {
+      if (data.chatReply.answer) parts.push(data.chatReply.answer);
+      else if (data.chatReply.answerHtml) parts.push(data.chatReply.answerHtml);
+    }
+    if (body && body.researchContext) {
+      parts.push(String(body.researchContext).slice(0, 4000));
+    }
   }
 
   if (!parts.length) {
     const fallback = [];
     collectStringsFromObject(data, fallback, 0);
-    parts.push(fallback.slice(0, 3).join('\n\n'));
+    parts.push(fallback.slice(0, 5).join('\n\n'));
   }
 
-  return chunks.stripHtml(parts.join('\n\n')).slice(0, 6000);
+  return chunks.stripHtml(parts.join('\n\n')).slice(0, 12000);
+}
+
+function extractLearnableFromLessonSnapshot(snapshot, chatMessages) {
+  if (!snapshot || typeof snapshot !== 'object') return '';
+  const parts = [];
+
+  if (snapshot.webResearch && snapshot.webResearch.summary) {
+    parts.push(snapshot.webResearch.summary);
+  }
+  if (snapshot.blockPlan) appendBlockPlanParts(snapshot.blockPlan, parts);
+  appendChatMessages(chatMessages || snapshot.chatHistory, parts);
+
+  return chunks.stripHtml(parts.join('\n\n')).slice(0, 14000);
 }
 
 function buildAiLearnMeta(body) {
   const topic = body.topic || body.archiveQuery || '';
   const gradeLabel = body.gradeLabel || body.currentGrade || body.gradeId || '';
+  const gradeId = body.gradeId || body.currentGrade || '';
   const titleParts = [];
   if (topic) titleParts.push('«' + topic + '»');
   if (gradeLabel) titleParts.push(gradeLabel);
@@ -141,6 +195,30 @@ function buildAiLearnMeta(body) {
     title: (titleParts.length ? titleParts.join(' · ') : phaseLabel) + ' — ' + phaseLabel,
     author: 'Waldrof AI',
     origin: 'ai_background',
+    gradeId: gradeId || null,
+    topic: topic || null,
+    chunkOptions: { minChars: 100, maxChars: 1400 },
+  };
+}
+
+function buildLessonSnapshotMeta(body, teacher) {
+  const topic = String((body && body.topic) || '').trim();
+  const gradeLabel = String((body && body.gradeLabel) || '').trim();
+  const gradeId = String((body && body.gradeId) || (body && body.currentGrade) || '').trim();
+  const titleParts = [];
+  if (topic) titleParts.push('«' + topic + '»');
+  if (gradeLabel) titleParts.push(gradeLabel);
+  const contributor = teacher || {};
+  const authorName = contributor.name || contributor.displayName || contributor.email || 'Waldrof מורה';
+
+  return {
+    title: (titleParts.length ? titleParts.join(' · ') : 'תכנית שיעור') + ' — תכנית שיעור מעודכנת',
+    author: authorName,
+    contributorEmail: contributor.email || null,
+    gradeId: gradeId || null,
+    topic: topic || null,
+    origin: 'lesson_auto_sync',
+    chunkOptions: { minChars: 100, maxChars: 1400 },
   };
 }
 
@@ -150,7 +228,7 @@ async function ingestFromGenerateResult(body, resultData) {
   }
   if (body.skipKnowledgeIngest) return { skipped: true };
 
-  const text = extractLearnableText(body.phase, resultData);
+  const text = extractLearnableText(body.phase, resultData, body);
   if (text.length < 120) return { skipped: true, reason: 'insufficient_text' };
 
   return insertKnowledgeText(text, buildAiLearnMeta(body));
@@ -162,11 +240,30 @@ function ingestFromGenerateResultAsync(body, resultData) {
   });
 }
 
+async function ingestLessonSnapshot(body, teacher, snapshot, chatMessages) {
+  if (!isIngestEnabled()) return { skipped: true, reason: 'ingest_disabled' };
+  if (body && body.skipKnowledgeIngest) return { skipped: true };
+
+  const text = extractLearnableFromLessonSnapshot(snapshot, chatMessages);
+  if (text.length < 120) return { skipped: true, reason: 'insufficient_text' };
+
+  return insertKnowledgeText(text, buildLessonSnapshotMeta(body, teacher));
+}
+
+function ingestLessonSnapshotAsync(body, teacher, snapshot, chatMessages) {
+  ingestLessonSnapshot(body, teacher, snapshot, chatMessages).catch(function (err) {
+    console.warn('[knowledge-ingest] lesson snapshot sync failed:', err.message || err);
+  });
+}
+
 module.exports = {
   TABLE_NAME,
   isIngestEnabled,
   insertKnowledgeText,
   ingestFromGenerateResult,
   ingestFromGenerateResultAsync,
+  ingestLessonSnapshot,
+  ingestLessonSnapshotAsync,
   extractLearnableText,
+  extractLearnableFromLessonSnapshot,
 };

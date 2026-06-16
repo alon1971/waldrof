@@ -2,6 +2,7 @@
  * GET/POST /api/search-history — list a teacher's cached lesson plans (phase=topic).
  */
 const cacheDb = require('./cache');
+const knowledgeIngest = require('./knowledge-ingest');
 const env = require('./env');
 
 const corsHeaders = {
@@ -122,6 +123,22 @@ async function executeSearchHistory(req) {
       err.statusCode = 404;
       throw err;
     }
+
+    if (body && body.lessonSnapshot) {
+      knowledgeIngest.ingestLessonSnapshotAsync(
+        {
+          topic: body.topic || (body.lessonSnapshot.webResearch && body.lessonSnapshot.webResearch.topic) || '',
+          gradeId: body.gradeId || '',
+          gradeLabel: body.gradeLabel || '',
+          currentGrade: body.gradeId || '',
+          skipKnowledgeIngest: body.skipKnowledgeIngest === true,
+        },
+        teacher,
+        body.lessonSnapshot,
+        body.messages
+      );
+    }
+
     return { ok: true, action: 'save_chat', cacheKey: cacheKey };
   }
 

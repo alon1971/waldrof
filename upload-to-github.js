@@ -18,7 +18,7 @@ const OWNER = 'alon1971';
 const REPO = 'waldrof';
 const BRANCH = 'main';
 const COMMIT_MESSAGE =
-  'Add permanent left chat sidebar, search-history table UI, Word export sync, and production API layer.';
+  'fix: restore mandatory Google auth on production with correct OAuth redirect';
 
 const ROOT = __dirname;
 
