@@ -4,6 +4,14 @@
 (function (global) {
   const LOCALE_STORAGE_KEY = 'masaot-ui-locale';
   const SUPPORTED = ['he', 'en'];
+  /** Used when languages.js failed to load or a key is missing from LANGUAGES. */
+  const I18N_FALLBACKS = {
+    chat_greeting: 'שלום! ברוכים הבאים למתכנן הפדגוגי.',
+    chat_sidebar_title: 'עוזר פדגוגי',
+    chat_input_placeholder: 'שאל שאלה פדגוגית...',
+    chat_send_btn: 'שלח שאלה',
+    meta_title: 'מתכנן תקופות לימוד | חינוך אנתרופוסופי',
+  };
   let currentLang = 'he';
   let onLanguageChange = null;
 
@@ -28,8 +36,11 @@
 
   function t(key, vars) {
     const dict = (typeof LANGUAGES !== 'undefined' && LANGUAGES[currentLang]) || {};
-    const fallback = (typeof LANGUAGES !== 'undefined' && LANGUAGES.he) || {};
-    const raw = dict[key] != null ? dict[key] : (fallback[key] != null ? fallback[key] : key);
+    const fallbackDict = (typeof LANGUAGES !== 'undefined' && LANGUAGES.he) || {};
+    let raw = dict[key] != null ? dict[key] : (fallbackDict[key] != null ? fallbackDict[key] : key);
+    if (raw === key && I18N_FALLBACKS[key] != null) {
+      raw = I18N_FALLBACKS[key];
+    }
     return interpolate(raw, vars);
   }
 

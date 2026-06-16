@@ -13,8 +13,18 @@
     ragChunkIds: [],
   };
 
+  var CHAT_GREETING_FALLBACK_HE = 'שלום! ברוכים הבאים למתכנן הפדגוגי.';
+  var chatInitialized = false;
+
   var deps = {
-    t: function (k) { return k; },
+    t: function (k, vars) {
+      if (typeof global.t === 'function') {
+        var translated = global.t(k, vars);
+        if (translated != null && translated !== '' && translated !== k) return translated;
+      }
+      if (k === 'chat_greeting') return CHAT_GREETING_FALLBACK_HE;
+      return k;
+    },
     isEnglish: function () { return false; },
     getAppState: function () { return {}; },
     getGradeAge: function () { return ''; },
@@ -48,10 +58,23 @@
     return deps.isEnglish() ? 'Alon' : 'אלון';
   }
 
+  function isUnresolvedTranslation(key, value) {
+    var text = String(value || '').trim();
+    return !text || text === key || text === '{' + key + '}';
+  }
+
+  function resolveChatGreetingText() {
+    var translated = deps.t('chat_greeting', { name: getUserFirstName() });
+    if (isUnresolvedTranslation('chat_greeting', translated)) {
+      return CHAT_GREETING_FALLBACK_HE;
+    }
+    return translated;
+  }
+
   function buildGreetingMessage() {
     return {
       role: 'assistant',
-      text: deps.t('chat_greeting', { name: getUserFirstName() }),
+      text: resolveChatGreetingText(),
       isGreeting: true,
     };
   }
@@ -318,14 +341,21 @@
     if (typeof options.onChatStateSync === 'function') deps.onChatStateSync = options.onChatStateSync;
     if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
-    bindUi();
-    state.messages = [buildGreetingMessage()];
-    renderMessages();
-    updateVisibility();
+    try {
+      bindUi();
+      state.messages = [buildGreetingMessage()];
+      renderMessages();
+      updateVisibility();
+      chatInitialized = true;
+    } catch (err) {
+      console.warn('[LessonChatSidebar] init failed:', err);
+      chatInitialized = false;
+    }
   }
 
   global.LessonChatSidebar = {
     init: init,
+    isReady: function () { return chatInitialized; },
     updateVisibility: updateVisibility,
     buildResearchContext: buildResearchContext,
     restoreSession: restoreSession,

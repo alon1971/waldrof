@@ -13,8 +13,9 @@
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
-  <script src="languages.js"></script>
-  <script src="i18n-core.js"></script>
+  <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
+  <script src="languages.js" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -2053,7 +2054,7 @@
   <script src="auth-subscription.js?v=20250620"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250618"></script>
-  <script src="chat-sidebar.js?v=20250619"></script>
+  <script src="chat-sidebar.js?v=20250616b"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
@@ -5869,8 +5870,10 @@
     }
 
     function renderStepProgress() {
+      const stepProgress = document.getElementById('step-progress');
+      if (!stepProgress) return;
       const inWs = isWorkspaceOpen();
-      document.getElementById('step-progress').innerHTML = STEP_NAV_KEYS.map(function (key, i) {
+      stepProgress.innerHTML = STEP_NAV_KEYS.map(function (key, i) {
         const n = i + 1;
         const label = t(key);
         const enabled = canNavigateToStep(n);
@@ -6114,6 +6117,7 @@
 
     function populateGradeSelect() {
       const sel = document.getElementById('grade-select');
+      if (!sel) return;
       const current = sel.value;
       while (sel.options.length > 1) sel.remove(1);
       GRADES.forEach(function (g) {
@@ -7859,7 +7863,9 @@
       const gradeLoadingText = document.getElementById('grade-research-loading-text');
       if (gradeLoadingText) gradeLoadingText.textContent = t('grade_insights_generating');
       if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.refreshI18n();
-      if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.refreshWelcome();
+      if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
+        LessonChatSidebar.refreshWelcome();
+      }
       if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
     }
 
@@ -7870,9 +7876,10 @@
     }
 
     async function init() {
+      try {
       await loadRuntimeConfig();
       setOnLanguageChange(refreshUiOnLanguageChange);
-      initI18n();
+      try { initI18n(); } catch (e) { console.warn('[waldrof] initI18n:', e); }
       if (typeof WaldorfAuth !== 'undefined') {
         WaldorfAuth.init({
           supabaseUrl: SUPABASE_URL,
@@ -7910,21 +7917,23 @@
         WaldorfAuth.subscribe(function () {
           if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
-          if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.refreshWelcome();
+          if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
+            LessonChatSidebar.refreshWelcome();
+          }
         });
       }
-      resetWizardOnPageLoad();
-      populateGradeSelect();
+      try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
+      try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
       const gradeSelAfterPopulate = document.getElementById('grade-select');
       if (gradeSelAfterPopulate) {
         gradeSelAfterPopulate.value = '';
         gradeSelAfterPopulate.selectedIndex = 0;
       }
-      renderStepProgress();
-      updateTopNavButtons();
-      updateCloudBanner();
-      updateTopicResearchButton();
-      bindEvents();
+      try { renderStepProgress(); } catch (e) { console.warn('[waldrof] renderStepProgress:', e); }
+      try { updateTopNavButtons(); } catch (e) { console.warn('[waldrof] updateTopNavButtons:', e); }
+      try { updateCloudBanner(); } catch (e) { console.warn('[waldrof] updateCloudBanner:', e); }
+      try { updateTopicResearchButton(); } catch (e) { console.warn('[waldrof] updateTopicResearchButton:', e); }
+      try { bindEvents(); } catch (e) { console.error('[waldrof] bindEvents failed — buttons may be inactive:', e); }
       if (typeof LessonChatSidebar !== 'undefined') {
         LessonChatSidebar.init({
           t: t,
@@ -7975,15 +7984,22 @@
         });
       }
       if (isCloudConfigured()) {
-        if (isCloudConfigured()) subscribeRealtime();
-        try { await loadCommunity(); } catch (e) { console.warn(e); }
+        try { subscribeRealtime(); } catch (e) { console.warn('[waldrof] subscribeRealtime:', e); }
+        try { await loadCommunity(); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
+      }
+      } catch (err) {
+        console.error('[waldrof] init failed:', err);
+        try { bindEvents(); } catch (bindErr) { console.error('[waldrof] bindEvents recovery failed:', bindErr); }
+        if (typeof LessonChatSidebar !== 'undefined') {
+          try { LessonChatSidebar.init({ t: typeof t === 'function' ? t : function (k) { return k; }, escapeHtml: escapeHtml }); } catch (chatErr) { console.warn('[waldrof] chat init recovery:', chatErr); }
+        }
       }
     }
     window.addEventListener('pageshow', function (e) {
       if (e.persisted) resetWizardOnPageLoad();
     });
 
-    init();
+    init().catch(function (err) { console.error('[waldrof] unhandled init error:', err); });
   </script>
 </body>
 </html>
