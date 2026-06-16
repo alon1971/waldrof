@@ -871,6 +871,29 @@
     });
   }
 
+  function getContributorProfile() {
+    if (!authState.isAuthenticated || !authState.user) return null;
+    return {
+      id: authState.user.id || null,
+      email: authState.user.email || '',
+      name: authState.user.displayName || authState.user.email || '',
+      displayName: authState.user.displayName || authState.user.email || '',
+    };
+  }
+
+  function getAccessToken() {
+    var client = getSupabaseClient();
+    if (!client || !client.auth || typeof client.auth.getSession !== 'function') {
+      return Promise.resolve(null);
+    }
+    return client.auth.getSession().then(function (result) {
+      var session = result && result.data && result.data.session;
+      return session && session.access_token ? session.access_token : null;
+    }).catch(function () {
+      return null;
+    });
+  }
+
   global.WaldorfAuth = {
     TIERS: TIERS,
     EXPERT_FAIR_USE_CAP: EXPERT_FAIR_USE_CAP,
@@ -899,5 +922,7 @@
     hidePricingModal: hidePricingModal,
     showAuthOverlay: showAuthOverlay,
     refreshI18n: refreshAuthI18n,
+    getContributorProfile: getContributorProfile,
+    getAccessToken: getAccessToken,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

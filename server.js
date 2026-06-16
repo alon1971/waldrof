@@ -8,7 +8,22 @@ const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
 
+(function loadDotEnv() {
+  const envPath = path.join(__dirname, '.env');
+  if (!fs.existsSync(envPath)) return;
+  fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach(function (line) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (m && process.env[m[1]] === undefined) {
+      process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+    }
+  });
+})();
+
 const generateApi = require('./api/generate');
+const shareMaterialApi = require('./api/share-material');
+const searchHistoryApi = require('./api/search-history');
+const configApi = require('./api/config');
+const knowledgeSeed = require('./api/knowledge-seed');
 const apiHandler = generateApi.legacyHandler;
 if (typeof apiHandler !== 'function') {
   console.error('api/generate.js must export legacyHandler for Node HTTP hosting.');
@@ -112,6 +127,80 @@ async function handleApiGenerate(req, res) {
   }
 }
 
+async function handleApiShareMaterial(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    await shareMaterialApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+async function handleApiSearchHistory(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    await searchHistoryApi.legacyHandler({
+      method: req.method,
+      headers: req.headers,
+      body: body,
+      url: req.url,
+      query: Object.fromEntries(parsedUrl.searchParams.entries()),
+    }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+async function handleApiConfig(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    await configApi.legacyHandler({ method: req.method, headers: req.headers }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
 const server = http.createServer(async function (req, res) {
   const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
 
@@ -124,12 +213,26 @@ const server = http.createServer(async function (req, res) {
     return handleApiGenerate(req, res);
   }
 
+  if (pathname === '/api/share-material') {
+    return handleApiShareMaterial(req, res);
+  }
+
+  if (pathname === '/api/search-history') {
+    return handleApiSearchHistory(req, res);
+  }
+
+  if (pathname === '/api/config') {
+    return handleApiConfig(req, res);
+  }
+
   serveStatic(req, res, pathname);
 });
 
 server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
-  console.log('API: POST /api/generate | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | POST /api/search-history | Health: GET /health');
+  console.log('Local: http://localhost:' + PORT);
+  knowledgeSeed.seedKnowledgeBaseIfEmptyAsync();
 });
 
 server.on('error', function (err) {

@@ -11,6 +11,9 @@
 const fs = require('fs');
 const path = require('path');
 const cacheDb = require('./cache');
+const ragDb = require('./rag');
+const knowledgeIngest = require('./knowledge-ingest');
+const env = require('./env');
 
 (function loadDotEnv() {
   const envPath = path.join(__dirname, '..', '.env');
@@ -105,6 +108,28 @@ const ACADEMIC_TONE_INSTRUCTION =
   'The main body must read as coherent pedagogical prose without promotional or repetitive attribution.\n' +
   '=== END ACADEMIC TONE & SOURCE DISCIPLINE ===\n';
 
+const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
+  '\n=== PEDAGOGICAL CHAT — STRICT GROUNDING (ABSOLUTE — MANDATORY) ===\n' +
+  'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — a supportive, highly accurate pedagogical peer.\n' +
+  'ANTI-GUESSING / NO FABRICATION:\n' +
+  'NEVER fabricate, infer, extrapolate, or "fill in" pedagogical connections, concepts, theories, temperament claims, ' +
+  'curriculum integrations, or Steiner/Waldorf methodology details.\n' +
+  'NEVER answer from general model knowledge, plausible pedagogy, or vague Waldorf associations when verified material is missing.\n' +
+  'TRUTH & VERIFICATION:\n' +
+  'Answer ONLY when EVERY substantive claim is explicitly grounded in at least one of:\n' +
+  '(1) WALDORF KNOWLEDGE BASE excerpts in the user message (Supabase knowledge_base / RAG),\n' +
+  '(2) ORIGINAL RESEARCH & LESSON CONTEXT in the user message,\n' +
+  '(3) a narrowly verified fact from web search for this specific question — never use web search to invent connections.\n' +
+  'If the teacher asks about a connection, integration, doctrine, temperament link, or curriculum detail and NONE of the above ' +
+  'contain explicit supporting material, you MUST NOT attempt an answer or extrapolate.\n' +
+  'SAFE FALLBACK (Hebrew — mandatory when declining):\n' +
+  'When uncertain or lacking verified material, respond ONLY with a humble, professional Hebrew decline. ' +
+  'Use this template (replace the bracketed phrase with the specific topic):\n' +
+  '"אין בידיי חומר מוסמך או מבוסס במאגר לגבי [נושא השאלה], ולכן לא אוכל להשיב כדי לא להטעות. אנא שתפו חומרים בנושא במאגר הקהילתי כדי שאוכל ללמוד."\n' +
+  'For fallback replies: set answer and answerHtml to the same Hebrew text; suggestedFollowUps may be [] or invite sharing materials.\n' +
+  'TONE: Grounded, authentic, authoritative yet humble. Warm and practical only when verified material supports the answer.\n' +
+  '=== END PEDAGOGICAL CHAT — STRICT GROUNDING ===\n';
+
 const SOURCES_CITATION_INSTRUCTION =
   '\n=== SOURCES, CITATIONS & VISUAL INSPIRATION (MANDATORY) ===\n' +
   'ALON YERUSHALMY — RELEVANCE-FIRST, SINGLE CITATION RULE:\n' +
@@ -146,6 +171,21 @@ function waldorfSystemPrompt(extra) {
   );
 }
 
+function pedagogicalChatSystemPrompt(extra) {
+  return (
+    'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers. ' +
+    'Help teachers with follow-up questions about their generated lesson plan as a supportive, highly accurate pedagogical peer. ' +
+    PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
+    FACTUAL_INTEGRITY_INSTRUCTION +
+    JSON_ONLY_INSTRUCTION +
+    JSON_VALID_SYNTAX_INSTRUCTION +
+    ' Write all chat replies in Hebrew. ' +
+    'Do NOT perform broad web research or synthesize general Waldorf pedagogy — ground every answer in provided sources only.' +
+    NO_LATEX_BLOCK +
+    (extra || '')
+  );
+}
+
 function resolvedGradeId(body) {
   return String(body.currentGrade ?? body.gradeId ?? '').trim();
 }
@@ -171,6 +211,44 @@ function buildGradeLockBlock(body) {
     'INSTRUCTION: ' + lockText + '\n' +
     'Reject or rewrite any idea, story, fairy tale, example, or pedagogical emphasis that belongs to a different grade.\n' +
     '=== END GRADE LOCK ===\n'
+  );
+}
+
+function buildRagContextBlock(body) {
+  const rag = String(body.ragContext || '').trim();
+  const isChat = body && body.phase === 'chat_followup';
+
+  if (!rag && isChat) {
+    return (
+      '\n=== WALDORF KNOWLEDGE BASE (RAG — NO EXCERPTS RETRIEVED) ===\n' +
+      'No knowledge base excerpts were retrieved for this question. ' +
+      'You may answer ONLY if the lesson context below explicitly contains verified material that directly answers the question. ' +
+      'Otherwise you MUST use the Hebrew fallback decline — do NOT rely on general Waldorf, Steiner, or temperament knowledge.\n' +
+      '=== END KNOWLEDGE BASE ===\n\n'
+    );
+  }
+
+  if (!rag) return '';
+
+  if (isChat) {
+    return (
+      '\n=== WALDORF KNOWLEDGE BASE (RAG — PRIMARY AUTHORITATIVE SOURCE) ===\n' +
+      'The excerpts below are from curated Anthroposophical articles, Waldorf lectures, pedagogical texts, ' +
+      'and materials shared by teachers in the community (Supabase knowledge_base). ' +
+      'These excerpts are your PRIMARY authority. Answer ONLY from these excerpts plus the lesson context when they apply. ' +
+      'If the question cannot be answered from these sources and the lesson context, use the Hebrew fallback decline — never guess.\n' +
+      'Reference document titles when citing. Do not contradict these sources. Do not add unstated Steiner/Waldorf connections.\n\n' +
+      rag + '\n=== END KNOWLEDGE BASE ===\n\n'
+    );
+  }
+
+  return (
+    '\n=== WALDORF KNOWLEDGE BASE (RAG — MANDATORY GROUNDING) ===\n' +
+    'The excerpts below are from curated Anthroposophical articles, Waldorf lectures, pedagogical texts, ' +
+    'and materials shared by teachers in the community. ' +
+    'Treat them as authoritative for tone and doctrine. Prioritize them over general web search when they apply. ' +
+    'Reference document titles when citing. Do not contradict these sources.\n\n' +
+    rag + '\n=== END KNOWLEDGE BASE ===\n\n'
   );
 }
 
@@ -476,6 +554,7 @@ function parseJsonFromModel(text) {
 
 function buildUserPrompt(body) {
   const phase = body.phase;
+  const ragBlock = buildRagContextBlock(body);
 
   if (phase === 'test') {
     return 'Return JSON only: {"ok":true,"message":"אישור קצר בעברית שהחיבור עובד"}';
@@ -490,6 +569,7 @@ function buildUserPrompt(body) {
       : '\nDo NOT include internet URLs in sources or HTML.\n';
 
     return (
+      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
@@ -542,6 +622,7 @@ function buildUserPrompt(body) {
       : '\nDo NOT include internet URLs in bibliography, HTML, summaries, or recommendations.\n';
 
     return (
+      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
@@ -590,6 +671,7 @@ function buildUserPrompt(body) {
     const expand = body.expandInstruction ||
       'הרחב ל: (1) הסבר מלא של מהות הפעילות, (2) הקשר פדגוגי אנתרופוסופי לגיל ולתקופה, (3) שלבי ביצוע פרקטיים שלב-אחר-שלב בכיתה עבור המורה.';
     return (
+      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
@@ -641,6 +723,7 @@ function buildUserPrompt(body) {
   if (phase === 'archive_search') {
     const q = (body.archiveQuery || '').replace(/"/g, "'");
     return (
+      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
@@ -697,6 +780,7 @@ function buildUserPrompt(body) {
         'Produce an exceptionally broad, deep pedagogical summary grounded in the named source. Text only.\n'
       : '';
     return (
+      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
@@ -748,27 +832,36 @@ function buildUserPrompt(body) {
         }).join('\n') + '\n'
       : '';
 
+    const hasContext = Boolean(context.trim());
+    const hasRag = Boolean(String(body.ragContext || '').trim());
+
     return (
+      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
-      'You are a Waldorf pedagogy assistant helping a teacher with follow-up questions about their generated lesson plan.\n' +
+      'You are the Pedagogical Chat Assistant helping a teacher with follow-up questions about their generated lesson plan.\n' +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + (body.gradeLabel || '') + ' (age ' + (body.age || '') + ')\n' +
-      'Block topic: ' + (body.topic || '') + '\n\n' +
-      '=== ORIGINAL RESEARCH & LESSON CONTEXT (MANDATORY — ground every answer in this text) ===\n' +
-      context + '\n' +
+      'Block topic: ' + (body.topic || '') + '\n' +
+      'Verified sources available: knowledge_base=' + (hasRag ? 'yes' : 'no') + ', lesson_context=' + (hasContext ? 'yes' : 'no') + '\n\n' +
+      '=== ORIGINAL RESEARCH & LESSON CONTEXT (ground answers here when explicit) ===\n' +
+      (hasContext ? context : '(empty — no lesson context provided)') + '\n' +
       '=== END CONTEXT ===\n' +
       historyBlock +
       'Teacher follow-up question: «' + question + '»\n\n' +
-      'Answer ONLY based on the context above plus verified Waldorf pedagogy when needed. ' +
-      'Be practical, warm, and specific to the grade and topic. Do not invent sources.\n' +
+      'STRICT GROUNDING RULES (MANDATORY):\n' +
+      '1. Answer ONLY from KNOWLEDGE BASE excerpts and/or explicit lesson context above — never from general Waldorf/Steiner training.\n' +
+      '2. NEVER fabricate connections (temperaments, curriculum integrations, anthroposophic links, GA citations) not stated in those sources.\n' +
+      '3. If the question cannot be answered from verified material, respond ONLY with the Hebrew fallback decline from system instructions.\n' +
+      '4. When grounded: be practical, warm, specific to grade and topic; honor recent chat for continuity. Do not invent sources.\n' +
+      '5. When declining: use ONLY the fallback sentence — no partial guesses, no "likely" or "typically in Waldorf" filler.\n' +
       JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
       '{\n' +
       '  "chatReply": {\n' +
-      '    "answer": "Full Hebrew answer in clear prose (2-6 paragraphs as needed)",\n' +
-      '    "answerHtml": "<p>Optional HTML paragraphs matching answer</p>",\n' +
-      '    "suggestedFollowUps": ["2-3 short Hebrew follow-up question suggestions"]\n' +
+      '    "answer": "Full Hebrew answer when grounded (2-6 paragraphs), OR the Hebrew fallback decline when not grounded",\n' +
+      '    "answerHtml": "<p>HTML matching answer</p>",\n' +
+      '    "suggestedFollowUps": ["2-3 short Hebrew follow-ups when grounded, or [] when using fallback"]\n' +
       '  }\n' +
       '}'
     );
@@ -777,7 +870,11 @@ function buildUserPrompt(body) {
   throw new Error('Unknown phase');
 }
 
-async function callPerplexity(apiKey, userPrompt, extraSystem) {
+async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
+  const opts = options || {};
+  const systemBuilder = typeof opts.systemPrompt === 'function' ? opts.systemPrompt : waldorfSystemPrompt;
+  const temperature = opts.temperature !== undefined ? opts.temperature : 0.35;
+
   const res = await fetch(PERPLEXITY_URL, {
     method: 'POST',
     headers: {
@@ -786,9 +883,9 @@ async function callPerplexity(apiKey, userPrompt, extraSystem) {
     },
     body: JSON.stringify({
       model: PERPLEXITY_MODEL,
-      temperature: 0.35,
+      temperature: temperature,
       messages: [
-        { role: 'system', content: waldorfSystemPrompt(extraSystem) },
+        { role: 'system', content: systemBuilder(extraSystem) },
         { role: 'user', content: userPrompt },
       ],
     }),
@@ -820,16 +917,8 @@ async function callPerplexity(apiKey, userPrompt, extraSystem) {
 }
 
 function resolveApiKey() {
-  const candidates = [
-    process.env.AI_API_KEY,
-    process.env.PERPLEXITY_API_KEY,
-    process.env.PPLX_API_KEY,
-  ];
-  for (let i = 0; i < candidates.length; i++) {
-    const key = candidates[i];
-    if (key && String(key).trim()) return String(key).trim();
-  }
-  return null;
+  const key = env.getPerplexityApiKey();
+  return key || null;
 }
 
 function setCors(res) {
@@ -873,12 +962,42 @@ async function executeGenerate(body, apiKey) {
   }
 
   if (!body.skipCache) {
-    const cached = cacheDb.getCachedResult(body);
+    const cached = await cacheDb.getCachedResult(body);
     if (cached) {
-      console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12));
+      console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
       return cached;
     }
-    console.log('[cached_results] MISS', body.phase);
+    console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
+  }
+
+  let ragMeta = {
+    enabled: ragDb.isRagEnabled(),
+    chunkCount: 0,
+    method: 'skipped',
+    contextChars: 0,
+  };
+
+  if (!body.skipRag && ragDb.shouldRetrieveForPhase(body.phase)) {
+    try {
+      const ragResult = await ragDb.retrieveForRequest(body);
+      body.ragContext = ragResult.context || '';
+      if (Array.isArray(ragResult.chunkIds)) body.ragChunkIds = ragResult.chunkIds;
+      ragMeta = Object.assign({}, ragResult.meta || {}, {
+        contextChars: (body.ragContext || '').length,
+      });
+      if (ragMeta.chunkCount > 0) {
+        console.log('[rag] retrieved', ragMeta.chunkCount, 'chunks via', ragMeta.method || 'unknown');
+      }
+    } catch (ragErr) {
+      console.warn('[rag] retrieval failed:', ragErr.message || ragErr);
+      ragMeta = {
+        enabled: ragDb.isRagEnabled(),
+        chunkCount: 0,
+        method: 'error',
+        error: ragErr.message || String(ragErr),
+        contextChars: String(body.ragContext || '').length,
+      };
+    }
   }
 
   const gradeLockSystem =
@@ -887,18 +1006,30 @@ async function executeGenerate(body, apiKey) {
       : '';
 
   const searchPhases = new Set([
-    'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary', 'chat_followup',
+    'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary',
   ]);
+  const isChatFollowup = body.phase === 'chat_followup';
   const extraSystem =
     gradeLockSystem +
+    (isChatFollowup
+      ? ' STRICT PEDAGOGICAL CHAT: Do NOT use broad web search to fabricate answers. ' +
+        'Ground every claim in knowledge_base excerpts and/or lesson context only. ' +
+        'When material is missing, use the Hebrew fallback decline — never extrapolate Steiner/Waldorf doctrine.'
+      : body.ragContext
+        ? ' When WALDORF KNOWLEDGE BASE excerpts are provided in the user message, treat them as primary authoritative context.'
+        : '') +
     (searchPhases.has(body.phase)
       ? ' Perform a broad internet search for general educational and pedagogical answers. ' +
         'Check Alon Yerushalmy, «מסעות בחינוך», and educationpace.com only for genuinely relevant matches — ' +
         'never force a citation; omit entirely when search data offers no substantial topic-specific material.'
       : '');
 
+  const perplexityOptions = isChatFollowup
+    ? { systemPrompt: pedagogicalChatSystemPrompt, temperature: 0.2 }
+    : {};
+
   const userPrompt = buildUserPrompt(body);
-  const raw = await callPerplexity(apiKey, userPrompt, extraSystem);
+  const raw = await callPerplexity(apiKey, userPrompt, extraSystem, perplexityOptions);
   let data;
   try {
     data = body.phase === 'grade'
@@ -911,10 +1042,27 @@ async function executeGenerate(body, apiKey) {
   }
 
   if (!body.skipCache) {
-    cacheDb.setCachedResult(body, data);
+    cacheDb.saveCachedResultAsync(body, data);
   }
 
-  return { data: data, meta: { fromCache: false, table: cacheDb.TABLE_NAME } };
+  const savedCacheKey = body.skipCache ? null : cacheDb.buildCacheKey(body);
+
+  if (!body.skipKnowledgeIngest && !body.skipRag) {
+    knowledgeIngest.ingestFromGenerateResultAsync(body, data);
+  }
+
+  return {
+    data: data,
+    meta: {
+      fromCache: false,
+      cacheKey: savedCacheKey || undefined,
+      table: cacheDb.TABLE_NAME,
+      source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
+      rag: ragMeta,
+      ragContext: body.ragContext || '',
+      ragChunkIds: Array.isArray(body.ragChunkIds) ? body.ragChunkIds : [],
+    },
+  };
 }
 
 function sendJson(res, statusCode, payload) {

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "upload-knowledge": "node scripts/upload-text.js"
   }
 }

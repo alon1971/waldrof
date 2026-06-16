@@ -1102,53 +1102,99 @@
       border: 1px solid rgba(201, 169, 98, 0.45); background: transparent; color: #5C4A3A;
     }
 
-    /* ── Workspace + lesson chat sidebar ─────────────────────────────────── */
-    .workspace-layout {
+    /* ── App shell: permanent left chat + main content ───────────────────── */
+    .app-shell {
       display: flex;
       flex-direction: column;
-      gap: 1rem;
       align-items: stretch;
+      width: 100%;
+      max-width: 100%;
+      gap: 0;
     }
     @media (min-width: 1024px) {
-      .workspace-layout {
+      .app-shell {
         flex-direction: row;
-        align-items: flex-start;
+        align-items: stretch;
+        min-height: calc(100vh - 9rem);
       }
+      html[dir="rtl"] .app-main { order: 1; }
+      html[dir="rtl"] .lesson-chat-sidebar { order: 2; }
+      html[dir="ltr"] .lesson-chat-sidebar { order: 1; }
+      html[dir="ltr"] .app-main { order: 2; }
     }
-    .workspace-main { flex: 1; min-width: 0; width: 100%; }
+    @media (max-width: 1023px) {
+      .lesson-chat-sidebar { order: -1; }
+    }
+    .app-main {
+      flex: 1;
+      min-width: 0;
+      width: 100%;
+      position: relative;
+    }
 
+    /* ── Lesson chat sidebar (permanent left) ────────────────────────────── */
     .lesson-chat-sidebar {
       width: 100%;
       flex-shrink: 0;
       position: relative;
       z-index: 20;
+      background: transparent;
     }
     @media (min-width: 1024px) {
       .lesson-chat-sidebar {
-        width: 340px;
+        width: 360px;
+        max-width: 360px;
         position: sticky;
-        top: 5.5rem;
-        max-height: calc(100vh - 6.5rem);
+        top: 4.75rem;
+        align-self: stretch;
+        min-height: calc(100vh - 4.75rem);
+        border-inline-end: 1px solid rgba(201, 169, 98, 0.35);
+        background: linear-gradient(180deg, rgba(247, 243, 235, 0.55), rgba(253, 251, 247, 0.35));
       }
     }
     .lesson-chat-sidebar--collapsed .lesson-chat-panel { display: none; }
-    .lesson-chat-sidebar--collapsed { width: auto; }
+    .lesson-chat-sidebar--collapsed {
+      width: 100%;
+    }
     @media (min-width: 1024px) {
-      .lesson-chat-sidebar--collapsed { width: 3rem; }
+      .lesson-chat-sidebar--collapsed {
+        width: 3.25rem;
+        max-width: 3.25rem;
+      }
     }
 
     .lesson-chat-panel {
       display: flex;
       flex-direction: column;
-      height: min(72vh, 640px);
+      height: min(52vh, 480px);
       background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 55%, #EDE6D6 100%);
       border: 1px solid rgba(201, 169, 98, 0.5);
       border-radius: 1.25rem;
       box-shadow: 0 12px 36px rgba(92, 74, 58, 0.14);
       overflow: hidden;
+      margin: 0.65rem;
     }
     @media (min-width: 1024px) {
-      .lesson-chat-panel { height: calc(100vh - 7rem); max-height: 720px; }
+      .lesson-chat-panel {
+        height: calc(100vh - 5.5rem);
+        max-height: none;
+        margin: 0.75rem 0.65rem 0.75rem 0.75rem;
+        border-radius: 1rem 0 0 1rem;
+        box-shadow: 4px 0 24px rgba(92, 74, 58, 0.08);
+      }
+      html[dir="ltr"] .lesson-chat-panel {
+        margin: 0.75rem 0.75rem 0.75rem 0.65rem;
+        border-radius: 0 1rem 1rem 0;
+        box-shadow: -4px 0 24px rgba(92, 74, 58, 0.08);
+      }
+    }
+
+    .workspace-main { flex: 1; min-width: 0; width: 100%; }
+
+    /* legacy workspace-layout kept for inner workspace only */
+    .workspace-layout {
+      display: block;
+      width: 100%;
     }
 
     .lesson-chat-header {
@@ -1172,6 +1218,7 @@
       color: #5C4A3A; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
     }
     .lesson-chat-icon-btn:hover { background: rgba(122, 155, 118, 0.12); }
+    html[dir="ltr"] .lesson-chat-toggle-icon { transform: scaleX(-1); }
 
     .lesson-chat-messages {
       flex: 1; overflow-y: auto; padding: 0.85rem;
@@ -1240,17 +1287,312 @@
     }
     #lesson-chat-send:disabled { opacity: 0.55; cursor: wait; }
 
-    .lesson-chat-fab {
-      position: fixed; bottom: 1.25rem; left: 1.25rem; z-index: 35;
-      width: 3.25rem; height: 3.25rem; border-radius: 50%;
-      border: none; cursor: pointer;
-      background: linear-gradient(145deg, #7A9B76, #5C7D58);
-      color: #fff; box-shadow: 0 8px 24px rgba(92, 125, 88, 0.35);
-      display: none;
+    .lesson-chat-fab { display: none !important; }
+
+    /* Share materials — community knowledge contribution */
+    .share-materials-card {
+      margin-bottom: 1.5rem;
+      padding: 1.25rem 1.35rem;
+      border-radius: 1.25rem;
+      border: 1px solid rgba(122, 155, 118, 0.35);
+      background: linear-gradient(145deg, rgba(247, 243, 235, 0.98), rgba(232, 240, 230, 0.92));
+      box-shadow: 0 4px 18px rgba(92, 74, 58, 0.06);
     }
-    html[dir="ltr"] .lesson-chat-fab { left: auto; right: 1.25rem; }
-    .lesson-chat-sidebar--collapsed ~ .lesson-chat-fab,
-    .lesson-chat-fab.lesson-chat-fab--visible { display: flex; align-items: center; justify-content: center; }
+    .share-materials-header {
+      display: flex;
+      gap: 0.85rem;
+      align-items: flex-start;
+      margin-bottom: 0.85rem;
+    }
+    .share-materials-icon { font-size: 1.75rem; line-height: 1; }
+    .share-materials-title {
+      font-family: var(--font-display, inherit);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #5C7D58;
+      margin: 0 0 0.25rem;
+    }
+    .share-materials-lead {
+      margin: 0;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      color: rgba(92, 74, 58, 0.82);
+    }
+    .share-materials-contributor {
+      font-size: 0.85rem;
+      color: rgba(92, 74, 58, 0.75);
+      margin: 0 0 0.75rem;
+    }
+    .share-materials-form { display: flex; flex-direction: column; gap: 0.65rem; }
+    .share-materials-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #5C4A3A;
+      margin-bottom: 0.2rem;
+    }
+    .share-materials-input,
+    .share-materials-textarea {
+      width: 100%;
+      border-radius: 0.85rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: rgba(255, 255, 255, 0.92);
+      padding: 0.7rem 0.9rem;
+      font-size: 1rem;
+      color: #5C4A3A;
+      outline: none;
+    }
+    .share-materials-input:focus,
+    .share-materials-textarea:focus {
+      border-color: rgba(122, 155, 118, 0.65);
+      box-shadow: 0 0 0 3px rgba(122, 155, 118, 0.15);
+    }
+    .share-materials-textarea { min-height: 9rem; resize: vertical; line-height: 1.55; }
+    .share-materials-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.65rem;
+    }
+    @media (min-width: 640px) {
+      .share-materials-row { grid-template-columns: 1fr 1fr; }
+    }
+    .share-materials-hint {
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: rgba(92, 74, 58, 0.68);
+      margin: 0;
+    }
+    .share-materials-actions { margin-top: 0.25rem; }
+    .share-materials-submit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      padding: 0.75rem 1.35rem;
+      border-radius: 0.85rem;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.28);
+    }
+    .share-materials-submit:hover { filter: brightness(1.03); }
+    .share-materials-submit:disabled { opacity: 0.65; cursor: wait; }
+    .share-materials-status {
+      font-size: 0.88rem;
+      margin: 0.25rem 0 0;
+      padding: 0.55rem 0.75rem;
+      border-radius: 0.65rem;
+    }
+    .share-materials-status--ok {
+      color: #3D5E44;
+      background: rgba(122, 155, 118, 0.14);
+      border: 1px solid rgba(122, 155, 118, 0.3);
+    }
+    .share-materials-status--err {
+      color: #8B3A3A;
+      background: rgba(139, 58, 58, 0.08);
+      border: 1px solid rgba(139, 58, 58, 0.22);
+    }
+
+    /* My recent searches — entry button + table overlay (app-main only) */
+    .search-history-entry {
+      display: flex;
+      justify-content: center;
+      margin: 0.5rem 0 1rem;
+    }
+    .search-history-open-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.65rem;
+      padding: 0.75rem 1.35rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(122, 155, 118, 0.45);
+      background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(232, 240, 230, 0.92));
+      color: #5C7D58;
+      font-weight: 700;
+      font-size: 0.95rem;
+      box-shadow: 0 4px 16px rgba(92, 125, 88, 0.12);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+    }
+    .search-history-open-btn:hover {
+      background: linear-gradient(145deg, #fff, rgba(232, 240, 230, 1));
+      border-color: rgba(122, 155, 118, 0.65);
+      transform: translateY(-1px);
+    }
+    .search-history-open-btn i { font-size: 1.05rem; color: #7A9B76; }
+
+    .search-history-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      background: rgba(247, 243, 235, 0.97);
+      backdrop-filter: blur(4px);
+      overflow: auto;
+      padding: 1rem 0.75rem 2rem;
+    }
+    .search-history-overlay.hidden { display: none !important; }
+
+    .search-history-view {
+      max-width: 56rem;
+      margin: 0 auto;
+      background: rgba(255,255,255,0.96);
+      border: 1px solid rgba(201, 169, 98, 0.4);
+      border-radius: 1.25rem;
+      box-shadow: 0 16px 48px rgba(92, 74, 58, 0.1);
+      overflow: hidden;
+    }
+    .search-history-view-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 1.35rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.35);
+      background: linear-gradient(180deg, rgba(122, 155, 118, 0.1), transparent);
+    }
+    .search-history-view-heading {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.85rem;
+      min-width: 0;
+    }
+    .search-history-view-icon {
+      font-size: 1.5rem;
+      color: #7A9B76;
+      margin-top: 0.15rem;
+      flex-shrink: 0;
+    }
+    .search-history-view-title {
+      font-family: var(--font-display, inherit);
+      font-size: 1.25rem !important;
+      font-weight: 700;
+      color: #8B3A3A;
+      margin: 0 0 0.35rem;
+    }
+    .search-history-view-lead {
+      margin: 0;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      color: rgba(92, 74, 58, 0.72);
+      max-width: 36rem;
+    }
+    .search-history-view-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .search-history-refresh {
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: rgba(255,255,255,0.9);
+      border-radius: 0.65rem;
+      width: 2.5rem;
+      height: 2.5rem;
+      cursor: pointer;
+      color: #5C7D58;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .search-history-close {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.5rem 0.9rem;
+      border-radius: 0.65rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: rgba(255,255,255,0.9);
+      color: #5C4A3A;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .search-history-table-wrap {
+      overflow-x: auto;
+      padding: 0.5rem 0.75rem 1.25rem;
+    }
+    .search-history-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.9rem;
+    }
+    .search-history-table thead th {
+      text-align: start;
+      padding: 0.85rem 1rem;
+      font-weight: 700;
+      color: #5C4A3A;
+      background: rgba(247, 243, 235, 0.85);
+      border-bottom: 2px solid rgba(201, 169, 98, 0.35);
+      white-space: nowrap;
+    }
+    .search-history-table tbody td {
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.22);
+      vertical-align: middle;
+      color: #5C4A3A;
+    }
+    .search-history-table tbody tr:hover td {
+      background: rgba(122, 155, 118, 0.06);
+    }
+    .search-history-table-topic { font-weight: 600; min-width: 8rem; }
+    .search-history-table-grade { white-space: nowrap; color: #5C7D58; font-weight: 600; }
+    .search-history-table-date { white-space: nowrap; font-size: 0.85rem; color: rgba(92, 74, 58, 0.75); }
+    .search-history-table-action { text-align: end; white-space: nowrap; }
+    .search-history-load-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 0.6rem;
+      border: 1px solid rgba(122, 155, 118, 0.45);
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .search-history-load-btn:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+    .search-history-table-empty {
+      text-align: center;
+      padding: 2.5rem 1rem !important;
+      color: rgba(92, 74, 58, 0.65);
+    }
+    .search-history-table-empty--err { color: #8B3A3A; }
+
+    @media (max-width: 720px) {
+      .search-history-table thead { display: none; }
+      .search-history-table tbody tr {
+        display: block;
+        margin-bottom: 0.75rem;
+        border: 1px solid rgba(201, 169, 98, 0.3);
+        border-radius: 0.85rem;
+        overflow: hidden;
+        background: rgba(255,255,255,0.85);
+      }
+      .search-history-table tbody td {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 1px solid rgba(201, 169, 98, 0.15);
+        padding: 0.65rem 0.85rem;
+      }
+      .search-history-table tbody td::before {
+        content: attr(data-label);
+        font-weight: 700;
+        color: rgba(92, 74, 58, 0.65);
+        flex-shrink: 0;
+      }
+      .search-history-table-action { justify-content: flex-end; }
+    }
   </style>
 </head>
 <body class="app-typography bg-cream text-walnut min-h-screen waldorf-pattern pb-[env(safe-area-inset-bottom)]">
@@ -1415,6 +1757,9 @@
       </div>
     </div>
   </nav>
+
+  <div id="app-shell" class="app-shell">
+  <div id="app-main" class="app-main">
   <div class="max-w-6xl mx-auto px-3 sm:px-4">
     <div id="new-research-bar" class="hidden mt-3 flex justify-center pb-2">
       <button type="button" id="btn-new-research"
@@ -1423,6 +1768,10 @@
         <span data-i18n="btn_new_research">מחקר חדש — איפוס והתחלה מכיתה ונושא</span>
       </button>
     </div>
+  </div>
+
+  <div class="max-w-6xl mx-auto px-3 sm:px-4">
+    <div id="search-history-mount"></div>
   </div>
 
   <!-- ========== WIZARD ========== -->
@@ -1577,6 +1926,7 @@
             <span data-i18n="catalog_title">מאגר קהילתי</span>
           </h2>
           <p class="text-sm text-walnut/70 mb-5" data-i18n="catalog_desc">בחרו כיתה, העלו חומרים לנושא חדש — או היכנסו לרובריקות שנוצרו על ידי מורים בקהילה.</p>
+          <div id="share-materials-mount"></div>
           <nav id="catalog-breadcrumb" class="flex flex-wrap items-center gap-2 text-sm text-walnut/70 mb-6" data-i18n-aria="catalog_title"></nav>
           <div id="catalog-status" class="hidden text-sm mb-4"></div>
           <div id="catalog-grades" class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4"></div>
@@ -1663,14 +2013,17 @@
         </div>
       </section>
     </main>
+    </div>
+  </div>
+  </div>
 
-    <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar hidden pb-8 lg:pb-16" aria-label="">
+  <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar" aria-label="">
       <div class="lesson-chat-panel">
         <header class="lesson-chat-header">
           <h3><i class="fa-solid fa-comments text-sage" aria-hidden="true"></i> <span data-i18n="chat_sidebar_title">עוזר פדגוגי</span></h3>
           <div class="lesson-chat-header-actions">
             <button type="button" id="lesson-chat-toggle" class="lesson-chat-icon-btn" aria-expanded="true" data-i18n-aria="chat_sidebar_collapse">
-              <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+              <i class="fa-solid fa-chevron-left lesson-chat-toggle-icon" aria-hidden="true"></i>
             </button>
             <button type="button" id="lesson-chat-close" class="lesson-chat-icon-btn lg:hidden" data-i18n-aria="chat_sidebar_close">
               <i class="fa-solid fa-xmark" aria-hidden="true"></i>
@@ -1688,24 +2041,22 @@
         </footer>
       </div>
     </aside>
-    </div>
+  </div>
 
-    <button type="button" id="lesson-chat-fab" class="lesson-chat-fab hidden" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי">
-      <i class="fa-solid fa-comments" aria-hidden="true"></i>
-    </button>
-
-    <footer class="border-t border-gold/20 bg-parchment/50 py-5 text-center text-xs text-walnut/60">
+  <footer class="border-t border-gold/20 bg-parchment/50 py-5 text-center text-xs text-walnut/60">
       <button type="button" id="refresh-community" class="touch-target text-sage-dark hover:underline px-4 py-3 text-sm"><i class="fa-solid fa-arrows-rotate icon-inline"></i> <span data-i18n="refresh_cloud">רענן מהענן</span></button>
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
-  </div>
 
-  <script src="auth-subscription.js?v=20250615"></script>
-  <script src="chat-sidebar.js?v=20250615"></script>
+  <script src="auth-subscription.js?v=20250618"></script>
+  <script src="share-materials.js?v=20250618"></script>
+  <script src="search-history.js?v=20250618"></script>
+  <script src="chat-sidebar.js?v=20250619"></script>
   <script>
     // =============================================================================
-    const SUPABASE_URL = 'https://xlgufjewvwitvvsvbkmu.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_K-PfhHxkz15w-dHtD1KeEA_y-16pzja';
+    // Runtime config — loaded from server env via GET /api/config (Render / local .env)
+    let SUPABASE_URL = '';
+    let SUPABASE_ANON_KEY = '';
     const SUPABASE_TABLE = 'community_materials';
     /** עמודת מטא-דאטה אופציונלית — שנה ל-'description' אם כך נקראת בטבלה */
     const COMMUNITY_META_FIELD = 'notes';
@@ -1717,6 +2068,19 @@
     const USE_DIRECT_PERPLEXITY = false;
     const PERPLEXITY_API_KEY_DIRECT = '';
     const AI_GENERATE_ENDPOINT = '/api/generate';
+
+    async function loadRuntimeConfig() {
+      try {
+        const res = await fetch('/api/config', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        const data = (json && json.data) || json || {};
+        if (data.supabaseUrl) SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '');
+        if (data.supabaseAnonKey) SUPABASE_ANON_KEY = String(data.supabaseAnonKey).trim();
+      } catch (err) {
+        console.warn('[waldrof] runtime config unavailable:', err && err.message ? err.message : err);
+      }
+    }
     const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
     const summaryJobsByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
@@ -2086,6 +2450,7 @@
       bibliographySummaries: {},
       pedagogyRegistry: {},
       pedagogySummaries: {},
+      lessonCacheKey: '',
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -2143,7 +2508,180 @@
       if (!p.prioritySearchInstruction) p.prioritySearchInstruction = getPrioritySourcesSearchInstruction();
       if (!p.lazyLoadInstruction) p.lazyLoadInstruction = getLazyLoadExpansionInstruction();
       if (!p.gradeLockInstruction) p.gradeLockInstruction = getGradeLockInstruction();
+      if (typeof WaldorfAuth !== 'undefined') {
+        const teacher = WaldorfAuth.getContributorProfile();
+        if (teacher) {
+          p.teacherUser = teacher;
+          p.userId = teacher.id;
+          p.userEmail = teacher.email;
+        }
+      }
       return p;
+    }
+
+    async function persistLessonChatSession(session) {
+      const cacheKey = (session && session.cacheKey) || appState.lessonCacheKey;
+      if (!cacheKey || !session || !Array.isArray(session.messages) || !session.messages.length) return;
+      if (typeof WaldorfAuth === 'undefined' || !WaldorfAuth.getState().isAuthenticated) return;
+
+      applyChatToPrimaryPlan(session.messages);
+
+      let token = null;
+      try { token = await WaldorfAuth.getAccessToken(); } catch (e) { return; }
+      const contributor = WaldorfAuth.getContributorProfile();
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = 'Bearer ' + token;
+
+      const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/search-history'
+        : '/api/search-history';
+
+      fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          action: 'save_chat',
+          cacheKey: cacheKey,
+          messages: session.messages,
+          ragContext: session.ragContext || '',
+          ragChunkIds: session.ragChunkIds || [],
+          lessonSnapshot: buildLessonSnapshotForSave(),
+          teacherUser: contributor,
+        }),
+      }).catch(function (err) {
+        console.warn('[chat-session] save failed', err);
+      });
+    }
+
+    function isChatAmendmentsSection(sec) {
+      return !!(sec && sec._chatAmendments === true);
+    }
+
+    function applyChatToPrimaryPlan(messages) {
+      if (!appState.aiGeneratedPlan || !Array.isArray(messages) || !messages.length) return false;
+      var assistantNotes = messages.filter(function (m) {
+        return m && m.role === 'assistant' && !m.isGreeting;
+      });
+      if (!assistantNotes.length) return false;
+
+      var heading = t('chat_plan_amendments_heading');
+      var htmlParts = assistantNotes.map(function (m, i) {
+        var body = m.html || ('<p>' + escapeHtml(m.text || '') + '</p>');
+        return '<h4>' + escapeHtml(t('chat_amendment_item', { n: i + 1 })) + '</h4>' + body;
+      }).join('');
+
+      var plan = appState.aiGeneratedPlan;
+      if (!plan.theory) plan.theory = { title: '', sections: [], bibliography: {} };
+      if (!Array.isArray(plan.theory.sections)) plan.theory.sections = [];
+
+      plan.theory.sections = plan.theory.sections.filter(function (sec) {
+        return !isChatAmendmentsSection(sec);
+      });
+      plan.theory.sections.push({
+        heading: heading,
+        content: ensureAiHtml(htmlParts),
+        _chatAmendments: true,
+      });
+
+      appState.activePlan = JSON.parse(JSON.stringify(plan));
+      if (appState.productTabsRendered && appState.productTabsRendered.theory) {
+        renderProductTabContent('theory');
+      }
+      return true;
+    }
+
+    function syncChatIntoPrimaryPlan() {
+      if (typeof LessonChatSidebar === 'undefined') return;
+      if (typeof LessonChatSidebar.getPersistableMessages !== 'function') return;
+      applyChatToPrimaryPlan(LessonChatSidebar.getPersistableMessages());
+    }
+
+    function buildLessonSnapshotForSave() {
+      return {
+        blockPlan: appState.aiGeneratedPlan
+          ? JSON.parse(JSON.stringify(appState.aiGeneratedPlan))
+          : null,
+        webResearch: appState.webResearch
+          ? JSON.parse(JSON.stringify(appState.webResearch))
+          : null,
+        gallery: appState.visualGallery
+          ? JSON.parse(JSON.stringify(appState.visualGallery))
+          : null,
+      };
+    }
+
+    async function applyLessonPlanFromHistory(item) {
+      if (!item || !item.resultData || !item.resultData.blockPlan) {
+        throw new Error(t('search_history_error'));
+      }
+      const data = item.resultData;
+      const topic = (item.topic || data.webResearch?.topic || '').trim();
+      const gradeId = item.gradeId || appState.grade;
+      if (!gradeId || !topic) throw new Error(t('search_history_error'));
+
+      if (topicResearchAbort) topicResearchAbort.abort();
+      topicResearchAbort = null;
+      abortAllInlineExpansions();
+      invalidateProductTabRenders();
+      resetSummarySession();
+
+      appState.lessonCacheKey = item.cacheKey || appState.lessonCacheKey || '';
+      appState.grade = gradeId;
+      appState.gradeLabel = item.gradeLabel || getGradeLabelById(gradeId);
+      appState.topic = topic;
+      appState.topicResearchCompleted = true;
+
+      const gradeSelect = document.getElementById('grade-select');
+      if (gradeSelect) gradeSelect.value = gradeId;
+      const topicInput = document.getElementById('topic-input');
+      if (topicInput) topicInput.value = topic;
+
+      appState.webResearch = data.webResearch || { topic: topic, summary: '', connections: [], highlights: [] };
+      const mergedPlan = mergeBlockPlanBibliography(data.blockPlan, data);
+      appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topic, appState.gradeLabel);
+      appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+      appState.productTabsRendered = freshProductTabsRendered();
+      appState.visualGallery = normalizeGallery(data.gallery, topic);
+
+      appState.step = 3;
+      appState.navSection = 'products';
+      showWorkspaceShell();
+      document.getElementById('synthesis-banner').classList.remove('hidden');
+      renderSynthesisBanner();
+      renderStepProgress();
+      updateWorkspaceChrome();
+      updateNewResearchBarVisibility();
+      updateTopicResearchButton();
+      document.getElementById('btn-to-workspace').disabled = false;
+
+      await initStreaming();
+      setupThemeActionButtons();
+      holdPageScroll(function () {
+        renderWebResearchResult();
+      });
+      updatePedagogyExportButtonsVisibility();
+      ensurePedagogySuggestionEvents();
+      scrollToWorkspaceTop('smooth');
+      nudgeGoogleTranslate();
+
+      if (isCloudConfigured()) {
+        try { await loadCommunity(); } catch (e) { /* ignore */ }
+      }
+
+      const sessionKey = String(gradeId) + '|' + topic.trim().toLowerCase();
+      if (typeof LessonChatSidebar !== 'undefined') {
+        LessonChatSidebar.restoreSession({
+          messages: data.chatHistory || [],
+          ragContext: data.chatRagContext || '',
+          ragChunkIds: data.chatRagChunkIds || [],
+          sessionKey: sessionKey,
+        });
+        if ((data.chatHistory || []).length) {
+          applyChatToPrimaryPlan(data.chatHistory);
+        }
+        LessonChatSidebar.openForLesson(false);
+        LessonChatSidebar.updateVisibility();
+      }
     }
 
     function researchFunctionUrl() {
@@ -2382,7 +2920,10 @@
         throw new Error(json.error || json.message || ('שגיאת שרת ' + res.status));
       }
       const result = json.data !== undefined ? json.data : json;
-      if (json.meta && json.meta.fromCache && result && typeof result === 'object') {
+      if (json.meta && result && typeof result === 'object') {
+        result._meta = json.meta;
+        if (json.meta.fromCache) result._fromCache = true;
+      } else if (json.meta && json.meta.fromCache && result && typeof result === 'object') {
         result._fromCache = true;
       }
       if (typeof WaldorfAuth !== 'undefined' && !(json.meta && json.meta.fromCache)) {
@@ -4275,6 +4816,7 @@
         if (label) label.textContent = t('export_doc_generating');
       });
       try {
+        syncChatIntoPrimaryPlan();
         const data = collectPedagogySummaryDocumentData();
         const blob = buildPedagogyDocxBlob(data);
         const filename = buildPedagogyDocxFilename();
@@ -5446,6 +5988,7 @@
       }
       renderStepProgress();
       updateWorkspaceChrome();
+      if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
     }
 
     function openArchiveNav() {
@@ -5810,6 +6353,10 @@
         const data = await fetchTopicResearchAI(topic, signal);
         if (runId !== topicResearchRunId || signal.aborted) return;
 
+        if (data && data._meta && data._meta.cacheKey) {
+          appState.lessonCacheKey = data._meta.cacheKey;
+        }
+
         appState.webResearch = data.webResearch || { topic: topic, summary: '', connections: [], highlights: [] };
         if (!data.blockPlan) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
 
@@ -5838,6 +6385,10 @@
         scrollToWorkspaceTop('smooth');
         await checkAndShowCommunityTopicAlert();
         nudgeGoogleTranslate();
+        if (typeof LessonChatSidebar !== 'undefined') {
+          LessonChatSidebar.openForLesson(true);
+        }
+        if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
       } catch (e) {
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
@@ -6981,6 +7532,7 @@
         pedagogyRegistry: {},
         activeProductTab: null,
         productTabsRendered: freshProductTabsRendered(),
+        lessonCacheKey: '',
       });
       resetSummarySession();
       abortAllInlineExpansions();
@@ -7259,6 +7811,8 @@
       const gradeLoadingText = document.getElementById('grade-research-loading-text');
       if (gradeLoadingText) gradeLoadingText.textContent = t('grade_insights_generating');
       if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.refreshI18n();
+      if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.refreshWelcome();
+      if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
     }
 
     if ('serviceWorker' in navigator) {
@@ -7268,6 +7822,7 @@
     }
 
     async function init() {
+      await loadRuntimeConfig();
       setOnLanguageChange(refreshUiOnLanguageChange);
       initI18n();
       if (typeof WaldorfAuth !== 'undefined') {
@@ -7275,6 +7830,38 @@
           supabaseUrl: SUPABASE_URL,
           supabaseAnonKey: SUPABASE_ANON_KEY,
           useMockGoogleAuth: true,
+        });
+      }
+      if (typeof WaldorfSearchHistory !== 'undefined') {
+        WaldorfSearchHistory.init({
+          t: t,
+          escapeHtml: escapeHtml,
+          isAuthenticated: function () {
+            return typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated;
+          },
+          getContributor: function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getContributorProfile() : null;
+          },
+          getAccessToken: function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getAccessToken() : Promise.resolve(null);
+          },
+          showAuth: function () {
+            if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.showAuthOverlay();
+          },
+          getGradeLabel: getGradeLabelById,
+          onReload: function (item) {
+            applyLessonPlanFromHistory(item).catch(function (err) {
+              console.error('[search-history] apply failed:', err);
+              alert((err && err.message) || t('search_history_error'));
+            });
+          },
+        });
+      }
+      if (typeof WaldorfAuth !== 'undefined') {
+        WaldorfAuth.subscribe(function () {
+          if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
+          if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
+          if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.refreshWelcome();
         });
       }
       resetWizardOnPageLoad();
@@ -7294,7 +7881,44 @@
           t: t,
           isEnglish: isEnglish,
           getAppState: function () { return appState; },
+          getGradeAge: function () {
+            var g = GRADES.find(function (x) { return x.id === appState.grade; });
+            return g ? g.age : '';
+          },
           sendResearch: invokeWaldorfResearch,
+          getLessonCacheKey: function () { return appState.lessonCacheKey || ''; },
+          onSessionPersist: persistLessonChatSession,
+          onChatStateSync: function (payload) {
+            if (payload && payload.messages) applyChatToPrimaryPlan(payload.messages);
+          },
+          getUserFirstName: function () {
+            if (typeof WaldorfAuth === 'undefined') return '';
+            var profile = WaldorfAuth.getContributorProfile();
+            if (!profile) return '';
+            var full = String(profile.displayName || profile.name || '').trim();
+            if (!full) return '';
+            return full.split(/\s+/)[0];
+          },
+          escapeHtml: escapeHtml,
+        });
+      }
+      if (typeof WaldorfShareMaterials !== 'undefined') {
+        WaldorfShareMaterials.init({
+          t: t,
+          getAppState: function () { return appState; },
+          getGrades: function () { return GRADES; },
+          getContributor: function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getContributorProfile() : null;
+          },
+          getAccessToken: function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getAccessToken() : Promise.resolve(null);
+          },
+          isAuthenticated: function () {
+            return typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated;
+          },
+          showAuth: function () {
+            if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.showAuthOverlay();
+          },
           escapeHtml: escapeHtml,
         });
       }

@@ -1,5 +1,5 @@
 /**
- * chat-sidebar.js — Collapsible lesson-plan chat assistant with research context.
+ * chat-sidebar.js — Permanent left pedagogy chat assistant.
  */
 (function (global) {
   'use strict';
@@ -9,17 +9,83 @@
     open: true,
     loading: false,
     sessionKey: '',
+    ragContext: '',
+    ragChunkIds: [],
   };
 
   var deps = {
     t: function (k) { return k; },
     isEnglish: function () { return false; },
     getAppState: function () { return {}; },
+    getGradeAge: function () { return ''; },
+    getUserFirstName: function () { return ''; },
     sendResearch: null,
+    onSessionPersist: null,
+    onChatStateSync: null,
+    getLessonCacheKey: function () { return ''; },
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
   };
+
+  function normalizeMessages(messages) {
+    return (messages || []).map(function (m) {
+      return {
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        text: m.text || m.content || '',
+        html: m.html || null,
+        fromCache: Boolean(m.fromCache),
+        isGreeting: Boolean(m.isGreeting),
+      };
+    });
+  }
+
+  function getUserFirstName() {
+    if (typeof deps.getUserFirstName === 'function') {
+      var name = String(deps.getUserFirstName() || '').trim();
+      if (name) return name;
+    }
+    return deps.isEnglish() ? 'Alon' : 'אלון';
+  }
+
+  function buildGreetingMessage() {
+    return {
+      role: 'assistant',
+      text: deps.t('chat_greeting', { name: getUserFirstName() }),
+      isGreeting: true,
+    };
+  }
+
+  function hasOnlyGreeting() {
+    return state.messages.length === 1 && state.messages[0] && state.messages[0].isGreeting;
+  }
+
+  function ensureWelcomeMessage() {
+    if (!state.messages.length) {
+      state.messages = [buildGreetingMessage()];
+    } else if (hasOnlyGreeting()) {
+      state.messages[0] = buildGreetingMessage();
+    }
+  }
+
+  function getPersistableMessages() {
+    return state.messages.filter(function (m) {
+      return m && !m.isGreeting;
+    });
+  }
+
+  function persistSession() {
+    if (typeof deps.onSessionPersist !== 'function') return;
+    var persistable = getPersistableMessages();
+    if (!persistable.length) return;
+    deps.onSessionPersist({
+      messages: persistable,
+      ragContext: state.ragContext || '',
+      ragChunkIds: state.ragChunkIds || [],
+      sessionKey: state.sessionKey || '',
+      cacheKey: typeof deps.getLessonCacheKey === 'function' ? deps.getLessonCacheKey() : '',
+    });
+  }
 
   function stripHtml(html) {
     var el = document.createElement('div');
@@ -47,6 +113,7 @@
     if (plan) {
       if (plan.theory && plan.theory.sections) {
         plan.theory.sections.forEach(function (sec) {
+          if (sec && sec._chatAmendments) return;
           chunks.push((sec.heading || 'תיאוריה') + ':\n' + stripHtml(sec.content || ''));
         });
       }
@@ -70,12 +137,10 @@
   }
 
   function renderMessages() {
+    ensureWelcomeMessage();
     var list = document.getElementById('lesson-chat-messages');
     if (!list) return;
-    if (!state.messages.length) {
-      list.innerHTML = '<p class="lesson-chat-empty">' + deps.escapeHtml(deps.t('chat_empty_hint')) + '</p>';
-      return;
-    }
+
     list.innerHTML = state.messages.map(function (msg) {
       var roleClass = msg.role === 'user' ? 'lesson-chat-bubble--user' : 'lesson-chat-bubble--assistant';
       var cacheTag = msg.fromCache
@@ -111,8 +176,11 @@
     if (!text) return;
     if (typeof deps.sendResearch !== 'function') return;
 
-    var app = deps.getAppState();
-    if (!app || !app.aiGeneratedPlan) return;
+    var app = deps.getAppState() || {};
+
+    if (hasOnlyGreeting()) {
+      state.messages = [];
+    }
 
     state.messages.push({ role: 'user', text: text });
     input.value = '';
@@ -123,12 +191,14 @@
       phase: 'chat_followup',
       userMessage: text,
       researchContext: buildResearchContext(app),
+      ragContext: state.ragContext || '',
+      ragChunkIds: state.ragChunkIds || [],
       currentGrade: app.grade,
       gradeId: app.grade,
       gradeLabel: app.gradeLabel,
       topic: app.topic,
-      age: app.gradeAge,
-      chatHistory: state.messages.slice(-8).map(function (m) {
+      age: app.gradeAge || deps.getGradeAge() || '',
+      chatHistory: getPersistableMessages().slice(-8).map(function (m) {
         return { role: m.role, content: m.text || stripHtml(m.html) };
       }),
     };
@@ -137,6 +207,9 @@
       var reply = (result && result.chatReply) || {};
       var answer = reply.answer || reply.answerHtml || '';
       var fromCache = Boolean(result && result._fromCache);
+      var meta = (result && result._meta) || {};
+      if (meta.ragContext) state.ragContext = meta.ragContext;
+      if (Array.isArray(meta.ragChunkIds)) state.ragChunkIds = meta.ragChunkIds;
       if (!answer) throw new Error(deps.t('chat_error_empty'));
       state.messages.push({
         role: 'assistant',
@@ -145,6 +218,13 @@
         fromCache: fromCache,
       });
       renderMessages();
+      if (typeof deps.onChatStateSync === 'function') {
+        deps.onChatStateSync({
+          messages: getPersistableMessages(),
+          lastReply: state.messages[state.messages.length - 1] || null,
+        });
+      }
+      persistSession();
     }).catch(function (err) {
       if (err && err.code === 'RATE_LIMIT') return;
       state.messages.push({
@@ -157,50 +237,34 @@
     });
   }
 
-  function updateFabVisibility() {
-    var fab = document.getElementById('lesson-chat-fab');
-    var sidebar = document.getElementById('lesson-chat-sidebar');
-    if (!fab || !sidebar) return;
-    var app = deps.getAppState();
-    var showFab = Boolean(
-      app && app.aiGeneratedPlan && app.navSection === 'products' &&
-      (sidebar.classList.contains('hidden') || sidebar.classList.contains('lesson-chat-sidebar--collapsed'))
-    );
-    fab.classList.toggle('hidden', !showFab);
-    fab.classList.toggle('lesson-chat-fab--visible', showFab);
-  }
-
   function toggleOpen() {
     state.open = !state.open;
     var sidebar = document.getElementById('lesson-chat-sidebar');
     if (sidebar) sidebar.classList.toggle('lesson-chat-sidebar--collapsed', !state.open);
     var toggle = document.getElementById('lesson-chat-toggle');
     if (toggle) toggle.setAttribute('aria-expanded', state.open ? 'true' : 'false');
-    updateFabVisibility();
+  }
+
+  function syncSessionFromApp(app) {
+    if (!app) return;
+    var key = sessionKeyFromApp(app);
+    if (!key || key === '|') return;
+    if (key === state.sessionKey) return;
+    state.sessionKey = key;
+    state.messages = [buildGreetingMessage()];
+    state.ragContext = '';
+    state.ragChunkIds = [];
+    renderMessages();
   }
 
   function updateVisibility() {
     var sidebar = document.getElementById('lesson-chat-sidebar');
-    var app = deps.getAppState();
-    var productsShell = document.getElementById('product-panels-shell');
-    var show = Boolean(
-      app && app.aiGeneratedPlan &&
-      productsShell && !productsShell.hidden &&
-      app.navSection === 'products'
-    );
     if (sidebar) {
-      sidebar.classList.toggle('hidden', !show);
-      if (show && state.open) sidebar.classList.remove('lesson-chat-sidebar--collapsed');
+      sidebar.classList.remove('hidden');
+      if (state.open) sidebar.classList.remove('lesson-chat-sidebar--collapsed');
     }
-    if (show) {
-      var key = sessionKeyFromApp(app);
-      if (key !== state.sessionKey) {
-        state.sessionKey = key;
-        state.messages = [];
-        renderMessages();
-      }
-    }
-    updateFabVisibility();
+    var app = deps.getAppState();
+    syncSessionFromApp(app);
   }
 
   function bindUi() {
@@ -208,15 +272,11 @@
     var closeBtn = document.getElementById('lesson-chat-close');
     var sendBtn = document.getElementById('lesson-chat-send');
     var input = document.getElementById('lesson-chat-input');
-    var openFab = document.getElementById('lesson-chat-fab');
+    var sidebar = document.getElementById('lesson-chat-sidebar');
 
+    if (sidebar) sidebar.classList.remove('hidden');
     if (toggle) toggle.addEventListener('click', toggleOpen);
     if (closeBtn) closeBtn.addEventListener('click', toggleOpen);
-    if (openFab) openFab.addEventListener('click', function () {
-      state.open = true;
-      var sidebar = document.getElementById('lesson-chat-sidebar');
-      if (sidebar) sidebar.classList.remove('lesson-chat-sidebar--collapsed');
-    });
     if (sendBtn) sendBtn.addEventListener('click', sendMessage);
     if (input) {
       input.addEventListener('keydown', function (e) {
@@ -228,25 +288,73 @@
     }
   }
 
+  function restoreSession(options) {
+    options = options || {};
+    var restored = normalizeMessages(options.messages || []);
+    state.messages = restored.length ? restored : [buildGreetingMessage()];
+    state.sessionKey = options.sessionKey || '';
+    state.ragContext = options.ragContext || '';
+    state.ragChunkIds = Array.isArray(options.ragChunkIds) ? options.ragChunkIds.slice() : [];
+    state.open = true;
+    renderMessages();
+  }
+
+  function refreshWelcome() {
+    if (!state.messages.length || hasOnlyGreeting()) {
+      state.messages = [buildGreetingMessage()];
+      renderMessages();
+    }
+  }
+
   function init(options) {
     options = options || {};
     if (typeof options.t === 'function') deps.t = options.t;
     if (typeof options.isEnglish === 'function') deps.isEnglish = options.isEnglish;
     if (typeof options.getAppState === 'function') deps.getAppState = options.getAppState;
+    if (typeof options.getGradeAge === 'function') deps.getGradeAge = options.getGradeAge;
+    if (typeof options.getUserFirstName === 'function') deps.getUserFirstName = options.getUserFirstName;
     if (typeof options.sendResearch === 'function') deps.sendResearch = options.sendResearch;
+    if (typeof options.onSessionPersist === 'function') deps.onSessionPersist = options.onSessionPersist;
+    if (typeof options.onChatStateSync === 'function') deps.onChatStateSync = options.onChatStateSync;
+    if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     bindUi();
-    updateVisibility();
+    state.messages = [buildGreetingMessage()];
     renderMessages();
+    updateVisibility();
   }
 
   global.LessonChatSidebar = {
     init: init,
     updateVisibility: updateVisibility,
     buildResearchContext: buildResearchContext,
+    restoreSession: restoreSession,
+    persistSession: persistSession,
+    getPersistableMessages: getPersistableMessages,
+    refreshWelcome: refreshWelcome,
+    openForLesson: function (resetChat) {
+      state.open = true;
+      var sidebar = document.getElementById('lesson-chat-sidebar');
+      if (sidebar) {
+        sidebar.classList.remove('hidden', 'lesson-chat-sidebar--collapsed');
+      }
+      var toggle = document.getElementById('lesson-chat-toggle');
+      if (toggle) toggle.setAttribute('aria-expanded', 'true');
+      if (resetChat) {
+        var app = deps.getAppState() || {};
+        state.sessionKey = sessionKeyFromApp(app);
+        state.messages = [buildGreetingMessage()];
+        state.ragContext = '';
+        state.ragChunkIds = [];
+        renderMessages();
+      }
+      updateVisibility();
+    },
     reset: function () {
-      state.messages = [];
+      state.messages = [buildGreetingMessage()];
       state.sessionKey = '';
+      state.ragContext = '';
+      state.ragChunkIds = [];
       renderMessages();
     },
   };
