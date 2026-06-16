@@ -10,6 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const cacheDb = require('./cache');
 
 (function loadDotEnv() {
   const envPath = path.join(__dirname, '..', '.env');
@@ -737,6 +738,42 @@ function buildUserPrompt(body) {
     );
   }
 
+  if (phase === 'chat_followup') {
+    const question = (body.userMessage || '').replace(/"/g, "'");
+    const context = String(body.researchContext || '').slice(0, 12000);
+    const history = Array.isArray(body.chatHistory) ? body.chatHistory.slice(-6) : [];
+    const historyBlock = history.length
+      ? '\nRECENT CHAT (for continuity):\n' + history.map(function (m) {
+          return (m.role || 'user') + ': ' + String(m.content || '').slice(0, 800);
+        }).join('\n') + '\n'
+      : '';
+
+    return (
+      buildGradeLockBlock(body) +
+      buildLanguageBlock(body) +
+      buildNoLatexBlock(body) +
+      'You are a Waldorf pedagogy assistant helping a teacher with follow-up questions about their generated lesson plan.\n' +
+      'currentGrade: ' + resolvedGradeId(body) + '\n' +
+      'Grade: ' + (body.gradeLabel || '') + ' (age ' + (body.age || '') + ')\n' +
+      'Block topic: ' + (body.topic || '') + '\n\n' +
+      '=== ORIGINAL RESEARCH & LESSON CONTEXT (MANDATORY — ground every answer in this text) ===\n' +
+      context + '\n' +
+      '=== END CONTEXT ===\n' +
+      historyBlock +
+      'Teacher follow-up question: «' + question + '»\n\n' +
+      'Answer ONLY based on the context above plus verified Waldorf pedagogy when needed. ' +
+      'Be practical, warm, and specific to the grade and topic. Do not invent sources.\n' +
+      JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
+      '{\n' +
+      '  "chatReply": {\n' +
+      '    "answer": "Full Hebrew answer in clear prose (2-6 paragraphs as needed)",\n' +
+      '    "answerHtml": "<p>Optional HTML paragraphs matching answer</p>",\n' +
+      '    "suggestedFollowUps": ["2-3 short Hebrew follow-up question suggestions"]\n' +
+      '  }\n' +
+      '}'
+    );
+  }
+
   throw new Error('Unknown phase');
 }
 
@@ -835,13 +872,22 @@ async function executeGenerate(body, apiKey) {
     throw err;
   }
 
+  if (!body.skipCache) {
+    const cached = cacheDb.getCachedResult(body);
+    if (cached) {
+      console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12));
+      return cached;
+    }
+    console.log('[cached_results] MISS', body.phase);
+  }
+
   const gradeLockSystem =
     resolvedGradeId(body) || body.gradeLabel
       ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.'
       : '';
 
   const searchPhases = new Set([
-    'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary',
+    'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary', 'chat_followup',
   ]);
   const extraSystem =
     gradeLockSystem +
@@ -853,8 +899,9 @@ async function executeGenerate(body, apiKey) {
 
   const userPrompt = buildUserPrompt(body);
   const raw = await callPerplexity(apiKey, userPrompt, extraSystem);
+  let data;
   try {
-    return body.phase === 'grade'
+    data = body.phase === 'grade'
       ? parseGradeJsonFromModel(raw)
       : parseJsonFromModel(raw);
   } catch (parseErr) {
@@ -862,6 +909,12 @@ async function executeGenerate(body, apiKey) {
     console.error('Model output preview:', String(raw).slice(0, 600));
     throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
   }
+
+  if (!body.skipCache) {
+    cacheDb.setCachedResult(body, data);
+  }
+
+  return { data: data, meta: { fromCache: false, table: cacheDb.TABLE_NAME } };
 }
 
 function sendJson(res, statusCode, payload) {
@@ -895,8 +948,11 @@ async function legacyHandler(req, res) {
   }
 
   try {
-    const data = await executeGenerate(body, apiKey);
-    return sendJson(res, 200, { data });
+    const result = await executeGenerate(body, apiKey);
+    const payload = result && result.data !== undefined
+      ? { data: result.data, meta: result.meta || { fromCache: false } }
+      : { data: result, meta: { fromCache: false } };
+    return sendJson(res, 200, payload);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;
@@ -932,8 +988,11 @@ async function fetchHandler(request) {
   }
 
   try {
-    const data = await executeGenerate(body, apiKey);
-    return Response.json({ data }, { status: 200, headers });
+    const result = await executeGenerate(body, apiKey);
+    const payload = result && result.data !== undefined
+      ? { data: result.data, meta: result.meta || { fromCache: false } }
+      : { data: result, meta: { fromCache: false } };
+    return Response.json(payload, { status: 200, headers });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;

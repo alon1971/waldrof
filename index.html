@@ -1101,6 +1101,156 @@
     #rate-limit-close {
       border: 1px solid rgba(201, 169, 98, 0.45); background: transparent; color: #5C4A3A;
     }
+
+    /* ── Workspace + lesson chat sidebar ─────────────────────────────────── */
+    .workspace-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: stretch;
+    }
+    @media (min-width: 1024px) {
+      .workspace-layout {
+        flex-direction: row;
+        align-items: flex-start;
+      }
+    }
+    .workspace-main { flex: 1; min-width: 0; width: 100%; }
+
+    .lesson-chat-sidebar {
+      width: 100%;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 20;
+    }
+    @media (min-width: 1024px) {
+      .lesson-chat-sidebar {
+        width: 340px;
+        position: sticky;
+        top: 5.5rem;
+        max-height: calc(100vh - 6.5rem);
+      }
+    }
+    .lesson-chat-sidebar--collapsed .lesson-chat-panel { display: none; }
+    .lesson-chat-sidebar--collapsed { width: auto; }
+    @media (min-width: 1024px) {
+      .lesson-chat-sidebar--collapsed { width: 3rem; }
+    }
+
+    .lesson-chat-panel {
+      display: flex;
+      flex-direction: column;
+      height: min(72vh, 640px);
+      background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 55%, #EDE6D6 100%);
+      border: 1px solid rgba(201, 169, 98, 0.5);
+      border-radius: 1.25rem;
+      box-shadow: 0 12px 36px rgba(92, 74, 58, 0.14);
+      overflow: hidden;
+    }
+    @media (min-width: 1024px) {
+      .lesson-chat-panel { height: calc(100vh - 7rem); max-height: 720px; }
+    }
+
+    .lesson-chat-header {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.35);
+      background: linear-gradient(180deg, rgba(122, 155, 118, 0.14), transparent);
+    }
+    .lesson-chat-header h3 {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1rem !important;
+      font-weight: 700;
+      color: #8B3A3A;
+      margin: 0;
+      display: flex; align-items: center; gap: 0.45rem;
+    }
+    .lesson-chat-header-actions { display: flex; gap: 0.35rem; }
+    .lesson-chat-icon-btn {
+      width: 2rem; height: 2rem; border-radius: 0.5rem;
+      border: 1px solid rgba(201, 169, 98, 0.45); background: rgba(255,255,255,0.75);
+      color: #5C4A3A; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .lesson-chat-icon-btn:hover { background: rgba(122, 155, 118, 0.12); }
+
+    .lesson-chat-messages {
+      flex: 1; overflow-y: auto; padding: 0.85rem;
+      display: flex; flex-direction: column; gap: 0.65rem;
+      background: rgba(255,255,255,0.35);
+    }
+    .lesson-chat-empty {
+      color: rgba(92, 74, 58, 0.65);
+      font-size: 0.875rem !important;
+      line-height: 1.55;
+      text-align: center;
+      padding: 1.5rem 0.75rem;
+    }
+    .lesson-chat-bubble {
+      position: relative;
+      max-width: 95%;
+      padding: 0.65rem 0.8rem;
+      border-radius: 0.85rem;
+      font-size: 0.875rem !important;
+      line-height: 1.55;
+    }
+    .lesson-chat-bubble--user {
+      align-self: flex-end;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff;
+      border-bottom-left-radius: 0.25rem;
+    }
+    .lesson-chat-bubble--assistant {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      color: #5C4A3A;
+      border-bottom-right-radius: 0.25rem;
+    }
+    .lesson-chat-cache-tag {
+      position: absolute; top: 0.35rem; left: 0.35rem;
+      color: #C9A962; font-size: 0.7rem !important;
+    }
+    html[dir="ltr"] .lesson-chat-cache-tag { left: auto; right: 0.35rem; }
+    .lesson-chat-bubble-body { margin: 0; }
+    .lesson-chat-bubble--assistant .lesson-chat-bubble-body { padding-top: 0.15rem; }
+
+    .lesson-chat-status {
+      padding: 0.35rem 1rem;
+      font-size: 0.8rem !important;
+      color: #5C7D58;
+      text-align: center;
+    }
+    .lesson-chat-input-row {
+      display: flex; gap: 0.5rem; align-items: flex-end;
+      padding: 0.75rem; border-top: 1px solid rgba(201, 169, 98, 0.35);
+      background: rgba(255,255,255,0.55);
+    }
+    #lesson-chat-input {
+      flex: 1; resize: none; min-height: 2.75rem; max-height: 6rem;
+      padding: 0.6rem 0.75rem; border-radius: 0.75rem;
+      border: 1px solid rgba(201, 169, 98, 0.45); background: #fff;
+      color: #5C4A3A; outline: none;
+      font-size: 0.875rem !important;
+    }
+    #lesson-chat-input:focus { border-color: #7A9B76; box-shadow: 0 0 0 3px rgba(122, 155, 118, 0.18); }
+    #lesson-chat-send {
+      width: 2.75rem; height: 2.75rem; flex-shrink: 0;
+      border: none; border-radius: 0.75rem; cursor: pointer;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff;
+    }
+    #lesson-chat-send:disabled { opacity: 0.55; cursor: wait; }
+
+    .lesson-chat-fab {
+      position: fixed; bottom: 1.25rem; left: 1.25rem; z-index: 35;
+      width: 3.25rem; height: 3.25rem; border-radius: 50%;
+      border: none; cursor: pointer;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff; box-shadow: 0 8px 24px rgba(92, 125, 88, 0.35);
+      display: none;
+    }
+    html[dir="ltr"] .lesson-chat-fab { left: auto; right: 1.25rem; }
+    .lesson-chat-sidebar--collapsed ~ .lesson-chat-fab,
+    .lesson-chat-fab.lesson-chat-fab--visible { display: flex; align-items: center; justify-content: center; }
   </style>
 </head>
 <body class="app-typography bg-cream text-walnut min-h-screen waldorf-pattern pb-[env(safe-area-inset-bottom)]">
@@ -1418,7 +1568,8 @@
       </div>
     </nav>
 
-    <main class="max-w-6xl mx-auto px-4 py-8 pb-16">
+    <div class="workspace-layout max-w-7xl mx-auto px-4">
+    <main class="workspace-main py-8 pb-16">
       <section id="panel-catalog" class="tab-panel hidden">
         <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-5 sm:p-8 shadow-sm">
           <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
@@ -1513,6 +1664,36 @@
       </section>
     </main>
 
+    <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar hidden pb-8 lg:pb-16" aria-label="">
+      <div class="lesson-chat-panel">
+        <header class="lesson-chat-header">
+          <h3><i class="fa-solid fa-comments text-sage" aria-hidden="true"></i> <span data-i18n="chat_sidebar_title">עוזר פדגוגי</span></h3>
+          <div class="lesson-chat-header-actions">
+            <button type="button" id="lesson-chat-toggle" class="lesson-chat-icon-btn" aria-expanded="true" data-i18n-aria="chat_sidebar_collapse">
+              <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+            </button>
+            <button type="button" id="lesson-chat-close" class="lesson-chat-icon-btn lg:hidden" data-i18n-aria="chat_sidebar_close">
+              <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+          </div>
+        </header>
+        <div id="lesson-chat-messages" class="lesson-chat-messages" role="log" aria-live="polite"></div>
+        <p id="lesson-chat-status" class="lesson-chat-status hidden" role="status"></p>
+        <footer class="lesson-chat-input-row">
+          <label for="lesson-chat-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
+          <textarea id="lesson-chat-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
+          <button type="button" id="lesson-chat-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
+            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+          </button>
+        </footer>
+      </div>
+    </aside>
+    </div>
+
+    <button type="button" id="lesson-chat-fab" class="lesson-chat-fab hidden" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי">
+      <i class="fa-solid fa-comments" aria-hidden="true"></i>
+    </button>
+
     <footer class="border-t border-gold/20 bg-parchment/50 py-5 text-center text-xs text-walnut/60">
       <button type="button" id="refresh-community" class="touch-target text-sage-dark hover:underline px-4 py-3 text-sm"><i class="fa-solid fa-arrows-rotate icon-inline"></i> <span data-i18n="refresh_cloud">רענן מהענן</span></button>
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
@@ -1520,6 +1701,7 @@
   </div>
 
   <script src="auth-subscription.js?v=20250615"></script>
+  <script src="chat-sidebar.js?v=20250615"></script>
   <script>
     // =============================================================================
     const SUPABASE_URL = 'https://xlgufjewvwitvvsvbkmu.supabase.co';
@@ -2200,7 +2382,12 @@
         throw new Error(json.error || json.message || ('שגיאת שרת ' + res.status));
       }
       const result = json.data !== undefined ? json.data : json;
-      if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.recordSearch();
+      if (json.meta && json.meta.fromCache && result && typeof result === 'object') {
+        result._fromCache = true;
+      }
+      if (typeof WaldorfAuth !== 'undefined' && !(json.meta && json.meta.fromCache)) {
+        WaldorfAuth.recordSearch();
+      }
       return result;
     }
 
@@ -4116,6 +4303,7 @@
     }
 
     function updatePedagogyExportButtonsVisibility() {
+      if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.updateVisibility();
       const show = canShowPedagogyExport() && !isArchiveView();
       const topBtn = document.getElementById('btn-pedagogy-export-top');
       if (topBtn) topBtn.classList.toggle('hidden', !show);
@@ -6798,6 +6986,7 @@
       abortAllInlineExpansions();
       invalidateProductTabRenders();
       resetProductTabsNeutral();
+      if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.reset();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
       document.getElementById('grade-insights-panel').classList.add('hidden');
@@ -7100,6 +7289,15 @@
       updateCloudBanner();
       updateTopicResearchButton();
       bindEvents();
+      if (typeof LessonChatSidebar !== 'undefined') {
+        LessonChatSidebar.init({
+          t: t,
+          isEnglish: isEnglish,
+          getAppState: function () { return appState; },
+          sendResearch: invokeWaldorfResearch,
+          escapeHtml: escapeHtml,
+        });
+      }
       if (isCloudConfigured()) {
         if (isCloudConfigured()) subscribeRealtime();
         try { await loadCommunity(); } catch (e) { console.warn(e); }

@@ -401,6 +401,19 @@ const LANGUAGES = {
     rate_limit_exceeded:         'חרגתם ממכסת החיפושים היומית — שדרגו את המסלול',
     rate_limit_upgrade:          'צפו במסלולים ושדרגו',
     rate_limit_dismiss:          'הבנתי',
+
+    chat_sidebar_title:          'עוזר פדגוגי',
+    chat_sidebar_collapse:       'כווץ חלון צ׳אט',
+    chat_sidebar_close:          'סגור חלון צ׳אט',
+    chat_sidebar_open:           'פתח עוזר פדגוגי',
+    chat_input_label:            'שאלת המשך על התוכן',
+    chat_input_placeholder:      'שאלו שאלת המשך על תוכנית השיעור...',
+    chat_send_btn:               'שלח שאלה',
+    chat_empty_hint:             'שאלו שאלות המשך על תוכנית השיעור — התשובות מבוססות על המחקר שיוצרתם.',
+    chat_thinking:                 'חושב ומחפש תשובה...',
+    chat_error_generic:          'לא ניתן לקבל תשובה כעת — נסו שוב.',
+    chat_error_empty:            'לא התקבלה תשובה מהמערכת.',
+    chat_cache_hit:              'תשובה מהמטמון — חיסכון בעלות API',
   },
 
   /* ── English ─────────────────────────────────────────────────────────────── */
@@ -797,6 +810,19 @@ const LANGUAGES = {
     rate_limit_exceeded:         'Daily search limit exceeded — please upgrade your plan',
     rate_limit_upgrade:          'View plans & upgrade',
     rate_limit_dismiss:          'Got it',
+
+    chat_sidebar_title:          'Pedagogy Assistant',
+    chat_sidebar_collapse:       'Collapse chat panel',
+    chat_sidebar_close:          'Close chat panel',
+    chat_sidebar_open:           'Open pedagogy assistant',
+    chat_input_label:            'Follow-up question',
+    chat_input_placeholder:      'Ask a follow-up about your lesson plan...',
+    chat_send_btn:               'Send question',
+    chat_empty_hint:             'Ask follow-up questions about your lesson plan — answers are grounded in your generated research.',
+    chat_thinking:               'Thinking...',
+    chat_error_generic:          'Could not get an answer — please try again.',
+    chat_error_empty:            'No answer received from the system.',
+    chat_cache_hit:              'Answer from cache — API cost saved',
   },
 
   /* ── German ──────────────────────────────────────────────────────────────── */
