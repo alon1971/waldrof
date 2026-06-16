@@ -2107,6 +2107,8 @@
       return 'https://waldrof.onrender.com' + window.location.pathname + window.location.search;
     }
 
+    const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
+
     const summaryJobsByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
 
@@ -2345,7 +2347,20 @@
       payload.gradeLabel = appState.gradeLabel || payload.gradeLabel || (g ? getGradeLabelById(g.id) : '');
       payload.age = (g ? g.age : '') || payload.age || '';
       payload.gradeLockInstruction = getGradeLockInstruction();
+      var topicFromState = resolveLessonTopic();
+      if (topicFromState && !String(payload.topic || '').trim()) payload.topic = topicFromState;
       return payload;
+    }
+
+    function resolveLessonTopic() {
+      var fromInput = '';
+      var inputEl = document.getElementById('topic-input');
+      if (inputEl) fromInput = inputEl.value.trim();
+      var topic = String(
+        appState.topic || fromInput || (appState.webResearch && appState.webResearch.topic) || ''
+      ).trim();
+      if (topic) appState.topic = topic;
+      return topic;
     }
 
     function resetWizardOnPageLoad() {
@@ -3473,6 +3488,11 @@
     }
 
     async function fetchTopicResearchAI(topic, signal) {
+      const topicStr = String(topic || resolveLessonTopic() || '').trim();
+      if (!topicStr) {
+        throw new Error(isEnglish() ? 'Topic is required for lesson research.' : 'נדרש נושא למחקר השיעור.');
+      }
+      appState.topic = topicStr;
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
       const gradeCtx = appState.gradeResearch
         ? JSON.stringify(appState.gradeResearch.gradeInsights || appState.gradeResearch).slice(0, 2000)
@@ -3482,11 +3502,11 @@
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
-        topic: topic,
+        topic: topicStr,
         gradeContext: gradeCtx,
-        theoryPrompt: buildTheoryTabPrompt(topic, appState.gradeLabel),
-        inspirationPrompt: buildInspirationTabPrompt(topic, appState.gradeLabel),
-        curriculumPrompt: buildCurriculumTabPrompt(topic, appState.gradeLabel),
+        theoryPrompt: buildTheoryTabPrompt(topicStr, appState.gradeLabel),
+        inspirationPrompt: buildInspirationTabPrompt(topicStr, appState.gradeLabel),
+        curriculumPrompt: buildCurriculumTabPrompt(topicStr, appState.gradeLabel),
         bibliographyRequirements: getTheoryBibliographyPrompt(),
         bibliographySectionTitle: getTheoryBibliographySectionTitle(),
         requireTheoryBibliography: true,
@@ -5361,10 +5381,7 @@
     }
 
     function hasLessonReady() {
-      return Boolean(
-        appState.grade && appState.topic &&
-        (appState.aiGeneratedPlan || appState.topicResearchCompleted)
-      );
+      return Boolean(appState.grade && resolveLessonTopic() && appState.aiGeneratedPlan);
     }
 
     async function fetchCommunityMaterials() {
@@ -5806,13 +5823,12 @@
     function canNavigateToStep(n) {
       if (n === 1) return true;
       if (n === 2) return Boolean(appState.grade);
-      if (n === 3) return Boolean(appState.grade && appState.topic && (appState.aiGeneratedPlan || appState.topicResearchCompleted));
+      if (n === 3) return Boolean(appState.grade && resolveLessonTopic() && appState.aiGeneratedPlan);
       return false;
     }
 
     function syncTopicFromInput() {
-      const topicVal = document.getElementById('topic-input').value.trim();
-      if (topicVal) appState.topic = topicVal;
+      resolveLessonTopic();
     }
 
     function getMaxCompletedWizardStep() {
@@ -6010,12 +6026,13 @@
 
     function openProductsWorkspace(fromWizard) {
       syncTopicFromInput();
-      if (!appState.grade || !appState.topic || !appState.aiGeneratedPlan) return;
+      var topic = resolveLessonTopic();
+      if (!appState.grade || !topic || !appState.aiGeneratedPlan) return;
       appState.step = 3;
       appState.navSection = 'products';
       if (!appState.activePlan) appState.activePlan = buildActivePlan();
       showWorkspaceShell();
-      ensureAllProductTabsMounted();
+      ensureProductTabsHydrated();
       switchTab(appState.activeProductTab || 'theory');
       document.getElementById('synthesis-banner').classList.remove('hidden');
       renderSynthesisBanner();
@@ -6273,9 +6290,7 @@
 
     function initStreaming() {
       return new Promise(function (resolve) {
-        clearProductPanelDom();
-        appState.productTabsRendered.curriculum = false;
-        ensureAllProductTabsMounted();
+        ensureProductTabsHydrated(true);
         setupThemeActionButtons();
         switchTab('theory');
         setupThemeActionButtons();
@@ -6408,6 +6423,7 @@
         }
 
         appState.webResearch = data.webResearch || { topic: topic, summary: '', connections: [], highlights: [] };
+        if (!appState.webResearch.topic) appState.webResearch.topic = topic;
         if (!data.blockPlan) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
 
         var mergedPlan = mergeBlockPlanBibliography(data.blockPlan, data);
@@ -6415,6 +6431,7 @@
         appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
         appState.productTabsRendered = freshProductTabsRendered();
         appState.visualGallery = normalizeGallery(data.gallery, topic);
+        appState.topicResearchCompleted = true;
         resetSummarySession();
 
         appState.step = 3;
@@ -6452,7 +6469,6 @@
         updateTopicResearchButton();
       } finally {
         if (runId !== topicResearchRunId) return;
-        appState.topicResearchCompleted = true;
         topicResearchAbort = null;
         setTopicResearchLoadingUi(false);
         if (!signal.aborted) btn.disabled = false;
@@ -6657,8 +6673,6 @@
     }
 
     // ---------- Workspace render ----------
-    const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
-
     function freshProductTabsRendered() {
       return { theory: false, inspiration: false, curriculum: false };
     }
@@ -6727,6 +6741,17 @@
       } else if (tabId === 'curriculum' && r.curriculum) {
         setupThemeActionButtons();
       }
+    }
+
+    function ensureProductTabsHydrated(forceRemount) {
+      if (!appState.aiGeneratedPlan) return;
+      ensureActivePlan();
+      var theoryEl = document.getElementById('theoretical-content');
+      var domEmpty = theoryEl && !theoryEl.innerHTML.trim();
+      if (forceRemount || domEmpty) {
+        invalidateProductTabRenders();
+      }
+      ensureAllProductTabsMounted();
     }
 
     function ensureAllProductTabsMounted() {
@@ -7539,6 +7564,7 @@
         resetProductTabsNeutral();
       } else if (isProductTab(id)) {
         if (!appState.aiGeneratedPlan) return;
+        resolveLessonTopic();
         appState.navSection = 'products';
         appState.activeProductTab = id;
         syncProductTabButtons(id);
@@ -7547,7 +7573,7 @@
             p.classList.add('hidden');
           }
         });
-        ensureAllProductTabsMounted();
+        ensureProductTabsHydrated();
         revealProductTabPanel(id);
         if (id === 'curriculum') setupPhase3ActionButtons();
         updateWorkspaceChrome();

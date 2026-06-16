@@ -611,6 +611,12 @@ function buildUserPrompt(body) {
     const theoryExtra = body.theoryPrompt
       ? '\nTHEORY TAB INSTRUCTIONS:\n' + body.theoryPrompt + '\n'
       : '';
+    const inspirationExtra = body.inspirationPrompt
+      ? '\nINSPIRATION TAB INSTRUCTIONS:\n' + body.inspirationPrompt + '\n'
+      : '';
+    const curriculumExtra = body.curriculumPrompt
+      ? '\nCURRICULUM TAB INSTRUCTIONS:\n' + body.curriculumPrompt + '\n'
+      : '';
     const bibExtra = body.bibliographyRequirements
       ? '\nBIBLIOGRAPHY REQUIREMENTS (MANDATORY):\n' + body.bibliographyRequirements + '\n'
       : '';
@@ -633,6 +639,8 @@ function buildUserPrompt(body) {
       'Block topic: «' + topic + '»\n' +
       'Grade context: ' + (body.gradeContext || '') + '\n' +
       theoryExtra +
+      inspirationExtra +
+      curriculumExtra +
       bibExtra +
       pedagogyHint +
       WEB_SEARCH_PRIORITY_INSTRUCTION +

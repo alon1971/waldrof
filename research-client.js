@@ -356,13 +356,15 @@
     if (phase === 'topic') {
       const topic = (body.topic || '').replace(/"/g, '');
       const theoryExtra = body.theoryPrompt ? '\nTHEORY TAB INSTRUCTIONS:\n' + body.theoryPrompt + '\n' : '';
+      const inspirationExtra = body.inspirationPrompt ? '\nINSPIRATION TAB INSTRUCTIONS:\n' + body.inspirationPrompt + '\n' : '';
+      const curriculumExtra = body.curriculumPrompt ? '\nCURRICULUM TAB INSTRUCTIONS:\n' + body.curriculumPrompt + '\n' : '';
       const bibExtra = body.bibliographyRequirements ? '\nBIBLIOGRAPHY REQUIREMENTS (MANDATORY):\n' + body.bibliographyRequirements + '\n' : '';
       const pedagogyHint = body.pedagogyExpandHint ? '\nINSPIRATION & CURRICULUM FORMAT:\n' + body.pedagogyExpandHint + '\n' : '';
       const noUrls = body.noUrlsInstruction ? '\nNO URLS (MANDATORY):\n' + body.noUrlsInstruction + '\n' : '\nDo NOT include internet URLs.\n';
       return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) + noUrls +
         'Live web research: Waldorf main lesson block planning.\ncurrentGrade: ' + resolvedGradeId(body) +
         '\nGrade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\nBlock topic: «' + topic + '»\nGrade context: ' + (body.gradeContext || '') + '\n' +
-        theoryExtra + bibExtra + pedagogyHint + WEB_SEARCH_PRIORITY_INSTRUCTION +
+        theoryExtra + inspirationExtra + curriculumExtra + bibExtra + pedagogyHint + WEB_SEARCH_PRIORITY_INSTRUCTION +
         LAZY_LOAD_NOTE + JSON_ONLY_INSTRUCTION + '\nReturn JSON with webResearch, blockPlan (theory, inspiration, curriculum 15 days), gallery (4-8 Pinterest entries).';
     }
     if (phase === 'pedagogy_deep_dive') {
