@@ -365,7 +365,30 @@
         'Live web research: Waldorf main lesson block planning.\ncurrentGrade: ' + resolvedGradeId(body) +
         '\nGrade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\nBlock topic: «' + topic + '»\nGrade context: ' + (body.gradeContext || '') + '\n' +
         theoryExtra + inspirationExtra + curriculumExtra + bibExtra + pedagogyHint + WEB_SEARCH_PRIORITY_INSTRUCTION +
-        LAZY_LOAD_NOTE + JSON_ONLY_INSTRUCTION + '\nReturn JSON with webResearch, blockPlan (theory, inspiration, curriculum 15 days), gallery (4-8 Pinterest entries).';
+        'Every field in blockPlan MUST be written for currentGrade only.\n' +
+        'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
+        'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string).\n' +
+        'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
+        LAZY_LOAD_NOTE + JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
+        '{\n' +
+        '  "webResearch": {\n' +
+        '    "topic": "' + topic + '",\n' +
+        '    "summary": "Rich Hebrew paragraph",\n' +
+        '    "connections": ["Hebrew phrases tied to currentGrade"],\n' +
+        '    "highlights": ["Hebrew highlights for this grade only"]\n' +
+        '  },\n' +
+        '  "blockPlan": {\n' +
+        '    "theory": { "title": "Hebrew", "sections": [{ "heading": "Hebrew", "icon": "fa-compass", "content": "<p>Rich Hebrew HTML</p>", "quotes": [] }], "bibliography": { "books": [], "articles": [], "websites": [] } },\n' +
+        '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": ["paragraph"] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "paragraph" }] }, "narrative": ["paragraph"] },\n' +
+        '    "curriculum": [\n' +
+        '      { "day": 1, "topic": "Hebrew day title", "content": "4-6 Hebrew sentences", "art": "2-4 Hebrew sentences", "hint": "optional" },\n' +
+        '      { "day": 2, "topic": "Hebrew", "content": "...", "art": "...", "hint": "" }\n' +
+        '    ]\n' +
+        '  },\n' +
+        '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase", "src": "" }]\n' +
+        '}\n' +
+        'curriculum array MUST contain exactly 15 entries (days 1 through 15) with distinct topics and rich Hebrew content.\n' +
+        'gallery MUST include 4–8 Pinterest visual inspiration entries.';
     }
     if (phase === 'pedagogy_deep_dive') {
       const title = (body.activityTitle || '').replace(/"/g, "'");

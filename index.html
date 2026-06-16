@@ -2695,7 +2695,7 @@
       if (topicInput) topicInput.value = topic;
 
       appState.webResearch = data.webResearch || { topic: topic, summary: '', connections: [], highlights: [] };
-      const mergedPlan = mergeBlockPlanBibliography(data.blockPlan, data);
+      const mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
       appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topic, appState.gradeLabel);
       appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       appState.productTabsRendered = freshProductTabsRendered();
@@ -3156,6 +3156,93 @@
       return blockPlan;
     }
 
+    function coerceCurriculumRows(raw) {
+      if (!raw) return [];
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw !== 'object') return [];
+      var listKeys = ['days', 'items', 'lessons', 'dailyPlan', 'rows', 'entries', 'schedule', 'plan'];
+      for (var i = 0; i < listKeys.length; i++) {
+        if (Array.isArray(raw[listKeys[i]])) return raw[listKeys[i]];
+      }
+      var numKeys = Object.keys(raw).filter(function (k) { return /^\d+$/.test(String(k)); });
+      if (numKeys.length) {
+        return numKeys.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); }).map(function (k) {
+          var row = raw[k];
+          if (row && typeof row === 'object' && row.day == null && row.dayNumber == null) {
+            return Object.assign({ day: parseInt(k, 10) }, row);
+          }
+          return row;
+        });
+      }
+      return [];
+    }
+
+    function extractCurriculumFromPlan(plan, dataRoot) {
+      var sources = [];
+      if (plan) {
+        sources.push(
+          plan.curriculum,
+          plan.dailyPlan,
+          plan.days,
+          plan.lessons,
+          plan.blockPlan && plan.blockPlan.curriculum,
+          plan.blockPlan && plan.blockPlan.dailyPlan,
+          plan.blockPlan && plan.blockPlan.days
+        );
+      }
+      if (dataRoot && dataRoot !== plan) {
+        sources.push(dataRoot.curriculum, dataRoot.dailyPlan, dataRoot.days, dataRoot.lessons);
+        if (dataRoot.blockPlan && dataRoot.blockPlan !== plan) {
+          sources.push(
+            dataRoot.blockPlan.curriculum,
+            dataRoot.blockPlan.dailyPlan,
+            dataRoot.blockPlan.days,
+            dataRoot.blockPlan.lessons
+          );
+        }
+      }
+      for (var i = 0; i < sources.length; i++) {
+        var rows = coerceCurriculumRows(sources[i]);
+        if (rows.length) return rows;
+      }
+      return [];
+    }
+
+    function normalizeCurriculumRow(row, index) {
+      if (row == null) return null;
+      if (typeof row === 'string') {
+        var text = row.trim();
+        if (!text) return null;
+        return { day: index + 1, topic: text, content: '', art: '', hint: '' };
+      }
+      if (typeof row !== 'object') return null;
+      var day = parseInt(row.day || row.dayNumber || row.n || row.number || row.index, 10);
+      if (!day || isNaN(day)) day = index + 1;
+      var topic = String(
+        row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
+      ).trim();
+      var content = row.content || row.story || row.lesson || row.lessonContent ||
+        row.text || row.body || row.description || row.narrative || '';
+      var art = row.art || row.artActivity || row.craft || row.artAndCraft ||
+        row.handwork || row.artCraft || '';
+      var hint = row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '';
+      if (!topic && !content && !art && !hint) return null;
+      return {
+        day: day,
+        topic: topic || ('יום ' + day),
+        content: content,
+        art: art,
+        hint: hint,
+      };
+    }
+
+    function mergeBlockPlanCurriculum(blockPlan, dataRoot) {
+      if (!blockPlan) return blockPlan;
+      var rows = extractCurriculumFromPlan(blockPlan, dataRoot);
+      if (rows.length) blockPlan.curriculum = rows;
+      return blockPlan;
+    }
+
     function enrichBibliographyFromWebResearch(bib) {
       return {
         books: (bib.books || []).slice(),
@@ -3193,7 +3280,9 @@
         plan.inspiration = { title: '', global: [], podcast: { title: '', episodes: [] }, narrative: [] };
       }
       if (!Array.isArray(plan.inspiration.global)) plan.inspiration.global = [];
-      if (!Array.isArray(plan.curriculum)) plan.curriculum = [];
+      var curriculumRows = extractCurriculumFromPlan(plan);
+      plan.curriculum = Array.isArray(plan.curriculum) ? plan.curriculum : coerceCurriculumRows(plan.curriculum);
+      if (!plan.curriculum.length && curriculumRows.length) plan.curriculum = curriculumRows;
     }
 
     function normalizeBlockPlan(plan, topic, gradeLabel) {
@@ -3224,13 +3313,18 @@
       plan.inspiration.narrative = (plan.inspiration.narrative || []).map(function (n) {
         return typeof n === 'string' ? n : (n.text || n.preview || '');
       });
-      plan.curriculum = plan.curriculum.slice(0, 15).map(function (row, i) {
+      var rawCurriculum = extractCurriculumFromPlan(plan);
+      if (!rawCurriculum.length && Array.isArray(plan.curriculum)) rawCurriculum = plan.curriculum;
+      plan.curriculum = rawCurriculum.slice(0, 15).map(function (row, i) {
+        var norm = normalizeCurriculumRow(row, i) || {
+          day: i + 1, topic: 'יום ' + (i + 1), content: '', art: '', hint: '',
+        };
         return {
-          day: row.day || i + 1,
-          topic: row.topic || ('יום ' + (i + 1)),
-          content: ensureAiHtml(row.content || ''),
-          art: ensureAiHtml(row.art || ''),
-          hint: row.hint || '',
+          day: norm.day || (i + 1),
+          topic: norm.topic || ('יום ' + (i + 1)),
+          content: ensureAiHtml(norm.content || ''),
+          art: ensureAiHtml(norm.art || ''),
+          hint: norm.hint || '',
         };
       });
       return plan;
@@ -6426,7 +6520,7 @@
         if (!appState.webResearch.topic) appState.webResearch.topic = topic;
         if (!data.blockPlan) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
 
-        var mergedPlan = mergeBlockPlanBibliography(data.blockPlan, data);
+        var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
         appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topic, appState.gradeLabel);
         appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
         appState.productTabsRendered = freshProductTabsRendered();
@@ -7059,12 +7153,27 @@
     }
 
     function renderCurriculum() {
-      const plan = appState.activePlan.curriculum;
+      const plan = appState.activePlan.curriculum || [];
       Object.keys(appState.pedagogyRegistry).forEach(function (k) {
         if (k.indexOf('ped-curr-') === 0) delete appState.pedagogyRegistry[k];
       });
 
       const cardsEl = document.getElementById('curriculum-cards');
+      const tbody = document.getElementById('curriculum-body');
+      if (!plan.length) {
+        var emptyMsg = '<p class="text-sm text-terracotta bg-parchment/60 rounded-xl border border-terracotta/25 p-4">' +
+          escapeHtml(isEnglish()
+            ? 'No daily plan rows were found. Run topic research again — the AI must return blockPlan.curriculum as an array of 15 objects: { day, topic, content, art, hint }.'
+            : 'לא נמצאו שורות בתכנון התקופה. הריצו מחקר נושא מחדש — ה-AI חייב להחזיר blockPlan.curriculum כמערך של 15 אובייקטים: { day, topic, content, art, hint }.') +
+          '</p>';
+        holdPageScroll(function () {
+          if (cardsEl) cardsEl.innerHTML = emptyMsg;
+          if (tbody) tbody.innerHTML = '<tr><td colspan="4">' + emptyMsg + '</td></tr>';
+        });
+        setupThemeActionButtons();
+        return;
+      }
+
       const cardsHtml = cardsEl ? plan.map(function (row, i) {
         const contentItem = buildCurriculumPedagogyItem(row, 'content', row.content, 'card');
         const artItem = buildCurriculumPedagogyItem(row, 'art', row.art, 'card');
@@ -7086,7 +7195,6 @@
         );
       }).join('') : '';
 
-      const tbody = document.getElementById('curriculum-body');
       if (!tbody && !cardsEl) {
         setupPhase3ActionButtons();
         return;

@@ -653,6 +653,9 @@ function buildUserPrompt(body) {
       'PINTEREST: populate gallery with 4–8 visual inspiration entries (experiments, main-lesson drawings, classroom displays) — Hebrew titles and precise Pinterest search phrases in "pin".\n' +
       LAZY_LOAD_NOTE +
       'The UI shows a «הרחבה ואספקטים פרקטיים 📝» button — expansions load on demand.\n' +
+      'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
+      'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string).\n' +
+      'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
       JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
       '{\n' +
       '  "webResearch": {\n' +
@@ -668,7 +671,8 @@ function buildUserPrompt(body) {
       '  },\n' +
       '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase only — no URL required", "src": "" }]\n' +
       '}\n' +
-      'curriculum MUST have exactly 15 days with distinct topics and rich Hebrew content appropriate to currentGrade.\n' +
+      'curriculum MUST be a flat ARRAY of exactly 15 objects (days 1–15) — never wrap in { days: [...] } or similar.\n' +
+      'Each curriculum item MUST include day, topic, content, and art fields using those exact key names.\n' +
       'gallery MUST include 4–8 Pinterest visual inspiration options with varied angles for the block topic.'
     );
   }
