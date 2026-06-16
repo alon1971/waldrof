@@ -61,10 +61,11 @@
   function resolveAuthRedirectUrl(explicit) {
     if (explicit) return String(explicit).trim();
     if (authRedirectUrl) return authRedirectUrl;
-    if (isLocalDevHost()) {
+    try {
       return window.location.origin + window.location.pathname + window.location.search;
+    } catch (e) {
+      return 'https://waldrof.onrender.com/';
     }
-    return 'https://waldrof.onrender.com' + window.location.pathname + window.location.search;
   }
 
   function shouldAllowMockAuth() {
@@ -75,20 +76,49 @@
     return provider === 'mock' || provider === 'mock-google';
   }
 
+  function normalizeSupabaseConfigUrl(url) {
+    var value = String(url || '').trim().replace(/\/$/, '');
+    if (!value) return '';
+    if (!/^https?:\/\//i.test(value)) {
+      value = 'https://' + value.replace(/^\/+/, '');
+    }
+    return value.replace(/\/$/, '');
+  }
+
   function isSupabaseConfigured() {
     return Boolean(supabaseConfig.url && supabaseConfig.anonKey);
+  }
+
+  function resetSupabaseClient() {
+    supabaseClient = null;
   }
 
   function getSupabaseClient() {
     if (supabaseClient) return supabaseClient;
     if (!isSupabaseConfigured() || typeof global.supabase === 'undefined') return null;
     try {
-      supabaseClient = global.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey);
+      supabaseClient = global.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+        auth: {
+          flowType: 'pkce',
+          detectSessionInUrl: true,
+          persistSession: true,
+          autoRefreshToken: true,
+        },
+      });
     } catch (e) {
       console.warn('[Auth] Supabase client creation failed', e);
       return null;
     }
     return supabaseClient;
+  }
+
+  function assertSupabaseReadyForOAuth() {
+    if (!isSupabaseConfigured()) {
+      throw new Error(t('auth_err_supabase'));
+    }
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(supabaseConfig.url)) {
+      throw new Error(t('auth_err_supabase_url'));
+    }
   }
 
   function normalizeAuthError(err) {
@@ -397,21 +427,29 @@
     if (shouldAllowMockAuth()) {
       return mockGoogleSignIn();
     }
+    assertSupabaseReadyForOAuth();
     var client = getSupabaseClient();
     if (!client) {
       return Promise.reject(new Error(t('auth_err_supabase')));
     }
     setAuthLoading(true, 'google');
+    var oauthRedirectTo = resolveAuthRedirectUrl();
     return client.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: resolveAuthRedirectUrl(),
+        redirectTo: oauthRedirectTo,
+        skipBrowserRedirect: false,
         queryParams: { access_type: 'offline', prompt: 'consent' },
       },
     })
       .then(function (result) {
         if (result.error) throw result.error;
-        /* Browser redirects to Google — keep loading state until navigation */
+        var oauthUrl = result.data && result.data.url;
+        if (oauthUrl) {
+          global.location.assign(oauthUrl);
+          return result;
+        }
+        throw new Error(t('auth_err_supabase_oauth'));
       })
       .catch(function (err) {
         setAuthLoading(false, 'google');
@@ -867,9 +905,13 @@
 
   function initAuthSubscription(options) {
     options = options || {};
-    supabaseConfig.url = String(options.supabaseUrl || '')
-      .replace('xlgufjewwitivvsvbku.supabase.co', 'xlgufjewwitivvsvbkmu.supabase.co');
-    supabaseConfig.anonKey = options.supabaseAnonKey || '';
+    var nextUrl = normalizeSupabaseConfigUrl(options.supabaseUrl || '');
+    var nextKey = options.supabaseAnonKey || '';
+    if (nextUrl !== supabaseConfig.url || nextKey !== supabaseConfig.anonKey) {
+      resetSupabaseClient();
+    }
+    supabaseConfig.url = nextUrl;
+    supabaseConfig.anonKey = nextKey;
     authRedirectUrl = options.authRedirectUrl || '';
     useMockGoogleAuth = options.useMockGoogleAuth === true && isLocalDevHost();
     bindAuthUi();

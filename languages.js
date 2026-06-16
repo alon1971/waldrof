@@ -403,6 +403,8 @@ const LANGUAGES = {
     auth_loading:                'מתחברים...',
     auth_loading_session:        'בודקים חיבור...',
     auth_err_supabase:           'שגיאת התחברות — נסו שוב',
+    auth_err_supabase_url:       'כתובת Supabase שגויה — בדקו את SUPABASE_URL ב-Render',
+    auth_err_supabase_oauth:    'לא התקבלה כתובת התחברות מ-Supabase — בדקו את הגדרות Google OAuth',
     auth_confirm_email:          'נשלח אימייל לאימות — אשרו את החשבון ואז התחברו',
 
     tier_trial_name:             'ניסיון 7 ימים',
@@ -853,6 +855,8 @@ const LANGUAGES = {
     auth_loading:                'Signing in...',
     auth_loading_session:        'Checking session...',
     auth_err_supabase:           'Sign-in failed — please try again',
+    auth_err_supabase_url:       'Invalid Supabase URL — check SUPABASE_URL in Render',
+    auth_err_supabase_oauth:    'No OAuth URL from Supabase — verify Google provider settings',
     auth_confirm_email:          'Confirmation email sent — verify your account, then sign in',
 
     tier_trial_name:             '7-Day Free Trial',

@@ -2077,11 +2077,11 @@
         if (!res.ok) return;
         const json = await res.json();
         const data = (json && json.data) || json || {};
-        if (data.supabaseUrl) {
-          SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '')
-            .replace('xlgufjewwitivvsvbku.supabase.co', 'xlgufjewwitivvsvbkmu.supabase.co');
-        }
+        if (data.supabaseUrl) SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '');
         if (data.supabaseAnonKey) SUPABASE_ANON_KEY = String(data.supabaseAnonKey).trim();
+        if (json && json.meta && json.meta.supabaseReachable === false) {
+          console.error('[waldrof] Supabase project URL is unreachable (DNS or wrong SUPABASE_URL):', SUPABASE_URL);
+        }
         if (data.authRedirectUrl && !isLocalDevHost()) {
           window.__WALDROF_AUTH_REDIRECT__ = String(data.authRedirectUrl).replace(/\/$/, '');
         }

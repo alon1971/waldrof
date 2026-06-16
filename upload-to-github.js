@@ -18,7 +18,7 @@ const OWNER = 'alon1971';
 const REPO = 'waldrof';
 const BRANCH = 'main';
 const COMMIT_MESSAGE =
-  'fix: auto-correct Supabase project URL typo (bku → bkmu) in runtime config';
+  'fix: harden Google OAuth via Supabase PKCE and validate project URL reachability';
 
 const ROOT = __dirname;
 

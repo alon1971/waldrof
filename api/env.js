@@ -11,19 +11,35 @@ function cleanKey(value) {
   return String(value || '').trim();
 }
 
-/** Correct known typo: xlgufjewwitivvsvbku → xlgufjewwitivvsvbkmu (missing "m"). */
-function fixSupabaseProjectUrlTypo(url) {
-  return String(url || '').replace(
-    'xlgufjewwitivvsvbku.supabase.co',
-    'xlgufjewwitivvsvbkmu.supabase.co'
-  );
+/** Ensure a valid https Supabase project URL (no host typo rewrites). */
+function normalizeSupabaseUrl(url) {
+  let value = cleanUrl(url);
+  if (!value) return '';
+  if (!/^https?:\/\//i.test(value)) {
+    value = 'https://' + value.replace(/^\/+/, '');
+  }
+  return value.replace(/\/$/, '');
 }
 
 function getSupabaseUrl() {
-  return fixSupabaseProjectUrlTypo(cleanUrl(
+  return normalizeSupabaseUrl(
     process.env.SUPABASE_URL ||
     process.env.NEXT_PUBLIC_SUPABASE_URL
-  ));
+  );
+}
+
+async function isSupabaseUrlReachable(url) {
+  const base = normalizeSupabaseUrl(url);
+  if (!base) return false;
+  try {
+    const res = await fetch(base + '/auth/v1/health', {
+      method: 'GET',
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok;
+  } catch (err) {
+    return false;
+  }
 }
 
 function getSupabaseAnonKey() {
@@ -81,4 +97,6 @@ module.exports = {
   getPerplexityApiKey,
   getOpenAiApiKey,
   getPublicClientConfig,
+  normalizeSupabaseUrl,
+  isSupabaseUrlReachable,
 };

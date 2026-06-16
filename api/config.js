@@ -29,8 +29,18 @@ function getPublicConfigResponse() {
     data: config,
     meta: {
       cloudConfigured: Boolean(config.supabaseUrl && config.supabaseAnonKey),
+      supabaseReachable: null,
     },
   };
+}
+
+async function getPublicConfigResponseAsync() {
+  const payload = getPublicConfigResponse();
+  const url = payload.data && payload.data.supabaseUrl;
+  if (url) {
+    payload.meta.supabaseReachable = await env.isSupabaseUrlReachable(url);
+  }
+  return payload;
 }
 
 async function legacyHandler(req, res) {
@@ -43,7 +53,7 @@ async function legacyHandler(req, res) {
     return sendJson(res, 405, { error: 'Method not allowed' });
   }
 
-  return sendJson(res, 200, getPublicConfigResponse());
+  return sendJson(res, 200, await getPublicConfigResponseAsync());
 }
 
 async function fetchHandler(request) {
@@ -57,11 +67,12 @@ async function fetchHandler(request) {
     return Response.json({ error: 'Method not allowed' }, { status: 405, headers });
   }
 
-  return Response.json(getPublicConfigResponse(), { status: 200, headers });
+  return Response.json(await getPublicConfigResponseAsync(), { status: 200, headers });
 }
 
 module.exports = {
   legacyHandler,
   fetch: fetchHandler,
   getPublicConfigResponse,
+  getPublicConfigResponseAsync,
 };
