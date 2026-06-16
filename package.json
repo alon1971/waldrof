@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "upload-knowledge": "node scripts/upload-text.js"
+    "upload-knowledge": "node scripts/upload-text.js",
+    "sync-render": "node scripts/sync-render-env.js"
   }
 }

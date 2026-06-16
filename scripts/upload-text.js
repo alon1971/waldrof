@@ -28,7 +28,7 @@ const embeddings = require('../api/embeddings');
 
 function getSupabaseConfig() {
   return {
-    url: String(process.env.SUPABASE_URL || '').replace(/\/$/, ''),
+    url: String(process.env.SUPABASE_URI || process.env.SUPABASE_URL || '').replace(/\/$/, ''),
     key: String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '').trim(),
   };
 }

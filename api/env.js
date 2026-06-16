@@ -23,6 +23,7 @@ function normalizeSupabaseUrl(url) {
 
 function getSupabaseUrl() {
   return normalizeSupabaseUrl(
+    process.env.SUPABASE_URI ||
     process.env.SUPABASE_URL ||
     process.env.NEXT_PUBLIC_SUPABASE_URL
   );
