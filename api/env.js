@@ -11,11 +11,19 @@ function cleanKey(value) {
   return String(value || '').trim();
 }
 
+/** Correct known typo: xlgufjewwitivvsvbku → xlgufjewwitivvsvbkmu (missing "m"). */
+function fixSupabaseProjectUrlTypo(url) {
+  return String(url || '').replace(
+    'xlgufjewwitivvsvbku.supabase.co',
+    'xlgufjewwitivvsvbkmu.supabase.co'
+  );
+}
+
 function getSupabaseUrl() {
-  return cleanUrl(
+  return fixSupabaseProjectUrlTypo(cleanUrl(
     process.env.SUPABASE_URL ||
     process.env.NEXT_PUBLIC_SUPABASE_URL
-  );
+  ));
 }
 
 function getSupabaseAnonKey() {

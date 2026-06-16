@@ -18,7 +18,7 @@ const OWNER = 'alon1971';
 const REPO = 'waldrof';
 const BRANCH = 'main';
 const COMMIT_MESSAGE =
-  'fix: restore mandatory Google auth on production with correct OAuth redirect';
+  'fix: auto-correct Supabase project URL typo (bku → bkmu) in runtime config';
 
 const ROOT = __dirname;
 

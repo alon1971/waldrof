@@ -2077,7 +2077,10 @@
         if (!res.ok) return;
         const json = await res.json();
         const data = (json && json.data) || json || {};
-        if (data.supabaseUrl) SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '');
+        if (data.supabaseUrl) {
+          SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '')
+            .replace('xlgufjewwitivvsvbku.supabase.co', 'xlgufjewwitivvsvbkmu.supabase.co');
+        }
         if (data.supabaseAnonKey) SUPABASE_ANON_KEY = String(data.supabaseAnonKey).trim();
         if (data.authRedirectUrl && !isLocalDevHost()) {
           window.__WALDROF_AUTH_REDIRECT__ = String(data.authRedirectUrl).replace(/\/$/, '');

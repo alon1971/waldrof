@@ -867,7 +867,8 @@
 
   function initAuthSubscription(options) {
     options = options || {};
-    supabaseConfig.url = options.supabaseUrl || '';
+    supabaseConfig.url = String(options.supabaseUrl || '')
+      .replace('xlgufjewwitivvsvbku.supabase.co', 'xlgufjewwitivvsvbkmu.supabase.co');
     supabaseConfig.anonKey = options.supabaseAnonKey || '';
     authRedirectUrl = options.authRedirectUrl || '';
     useMockGoogleAuth = options.useMockGoogleAuth === true && isLocalDevHost();
