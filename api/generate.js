@@ -48,6 +48,16 @@ const JSON_ONLY_INSTRUCTION =
   'Do not include any markdown formatting, do not wrap the response in ```json ... ``` blocks, ' +
   'and do not append any text, explanations, or extra characters before or after the JSON structure.';
 
+const JSON_RESPONSE_ENFORCEMENT =
+  '\n=== OUTPUT: RAW JSON ONLY (ABSOLUTE — MANDATORY) ===\n' +
+  'Your ENTIRE reply MUST be exactly ONE valid JSON object — nothing before it, nothing after it.\n' +
+  'FORBIDDEN: markdown code fences (```json, ```), preamble ("הנה התשובה", "Here is the JSON"), postamble, comments, // notes, trailing commas.\n' +
+  'The server runs JSON.parse() on your full reply — ANY extra character outside the {…} object causes a fatal error and cached results cannot be saved.\n' +
+  'Start with { and end with } — no leading or trailing prose, labels, or whitespace-only wrappers.\n' +
+  'Inside every string value: escape every literal double quote (") as \\"; prefer « » for Hebrew inner quotations; escape newlines as \\n.\n' +
+  'Verify mentally that JSON.parse(your_entire_reply) succeeds with zero syntax errors before you finish.\n' +
+  '=== END OUTPUT: RAW JSON ONLY ===\n';
+
 const JSON_VALID_SYNTAX_INSTRUCTION =
   '\n=== JSON STRING ESCAPING (MANDATORY) ===\n' +
   'The entire response MUST pass JSON.parse() with zero syntax errors.\n' +
@@ -80,6 +90,28 @@ const WEB_SEARCH_PRIORITY_INSTRUCTION =
   'Also actively search for diverse Waldorf/anthroposophic authors, global curriculum boards, international researchers, ' +
   'and prominent Israeli Waldorf educators beyond the priority sources — to build a broad, credible source landscape.\n' +
   '=== END WEB SEARCH STRATEGY ===\n';
+
+const STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION =
+  '\n=== STEINER / ANTHROPOSOPHIC SOURCE FIDELITY (CRITICAL — ABSOLUTE — ALL OUTPUTS) ===\n' +
+  'This rule binds EVERY response in the application: Step A (age portrait / תמונת גיל), Step B (topic research / מחקר נושא), ' +
+  'Step C (period planning / תכנון תקופה), and the Pedagogical AI Chat Assistant (עוזר ה-AI).\n' +
+  'AUTHORITATIVE SOURCES ONLY:\n' +
+  'Base ALL pedagogical and anthroposophic content EXCLUSIVELY on reliable, established, proven material from Rudolf Steiner\'s anthroposophy and Waldorf pedagogy — ' +
+  'including foundation lectures (GA / Gesamtausgabe), core pedagogical writings, and verified anthroposophic literature faithfully grounded in Steiner\'s corpus.\n' +
+  'Primary anchors: Steiner Archive, official GA education lecture cycles (e.g. The Foundations of Human Experience, Practical Advice to Teachers, Discussions with Teachers), ' +
+  'and recognized anthroposophic pedagogical scholarship derived directly from Steiner — not popular summaries or unverified reinterpretations.\n' +
+  'When WALDORF KNOWLEDGE BASE (RAG) excerpts or retrieved web sources are provided, treat them as the ONLY permissible basis for substantive claims; ' +
+  'Steiner/GA material takes precedence over secondary sources when they conflict.\n' +
+  'ABSOLUTE PROHIBITION — NO HALLUCINATION:\n' +
+  'You are STRICTLY FORBIDDEN to hallucinate, guess, speculate, invent concepts, doctrines, developmental claims, temperament links, ' +
+  'curriculum sequences, main-lesson practices, or classroom activities.\n' +
+  'You are STRICTLY FORBIDDEN to offer free personal interpretations, modern spins, intuitive associations, or plausible-sounding Waldorf ideas ' +
+  'that lack DIRECT backing in Steiner\'s foundational lectures, core writings, or explicitly retrieved official anthroposophic sources.\n' +
+  'If a claim cannot be traced to such verified material — OMIT it entirely. Never pad, never improvise, never "fill gaps" with model knowledge.\n' +
+  'QUALITY STANDARD:\n' +
+  'Every sentence must be accurate, professionally grounded, and faithful to the original anthroposophic-pedagogical source. ' +
+  'Write as a careful translator of established Steiner-based pedagogy — not as a creative interpreter.\n' +
+  '=== END STEINER / ANTHROPOSOPHIC SOURCE FIDELITY ===\n';
 
 const FACTUAL_INTEGRITY_INSTRUCTION =
   '\n=== FACTUAL INTEGRITY & ACCURACY (ABSOLUTE — MANDATORY) ===\n' +
@@ -157,15 +189,18 @@ function waldorfSystemPrompt(extra) {
   return (
     'You are an expert Waldorf / Steiner-Waldorf pedagogy researcher and curriculum designer. ' +
     'Use live web search to gather broad, high-quality educational and pedagogical material for every query. ' +
+    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     WEB_SEARCH_PRIORITY_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
     ACADEMIC_TONE_INSTRUCTION +
     SOURCES_CITATION_INSTRUCTION +
     JSON_ONLY_INSTRUCTION +
+    JSON_RESPONSE_ENFORCEMENT +
     JSON_VALID_SYNTAX_INSTRUCTION +
     ' Write pedagogical content in Hebrew. ' +
+    'Ground every claim in verified Steiner/anthroposophic sources — never general model knowledge or invented pedagogy. ' +
     'Base claims on real Waldorf principles: child development (body/soul/spirit), main lesson blocks, biography, artistic integration. ' +
-    'Cite Steiner/GA when appropriate. Be specific, warm, and practical for classroom teachers.' +
+    'Cite Steiner/GA when appropriate. Be specific, warm, and practical for classroom teachers — only where sources support it.' +
     NO_LATEX_BLOCK +
     (extra || '')
   );
@@ -175,6 +210,7 @@ function pedagogicalChatSystemPrompt(extra) {
   return (
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers. ' +
     'Help teachers with follow-up questions about their generated lesson plan as a supportive, highly accurate pedagogical peer. ' +
+    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
     JSON_ONLY_INSTRUCTION +
@@ -267,18 +303,27 @@ function buildNoLatexBlock(body) {
 const LAZY_LOAD_NOTE =
   'Do NOT include expansion, contentExpansion, artExpansion, or nested practical-expansion objects — expansions load on-demand via pedagogy_deep_dive.\n';
 
-/** Strip ```json ... ``` markdown fences if the model wrapped the response. */
+/** Strip markdown fences, json: labels, and leading prose before the JSON payload. */
 function stripMarkdownJsonFences(text) {
   let raw = String(text || '').replace(/^\uFEFF/, '').trim();
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) return fenced[1].trim();
-  return raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  const fenced = raw.match(/```(?:json|javascript|js)?\s*([\s\S]*?)```/i);
+  if (fenced) raw = fenced[1].trim();
+  else {
+    raw = raw.replace(/^```(?:json|javascript|js)?\s*/i, '').replace(/```\s*$/gi, '').trim();
+  }
+  raw = raw.replace(/^json\s*:/i, '').trim();
+  // Model sometimes wraps the whole object in extra ASCII/smart quotes.
+  if (/^["'\u201c\u201d]/.test(raw) && /["'\u201c\u201d]\s*$/.test(raw)) {
+    const unwrapped = raw.replace(/^["'\u201c\u201d]+/, '').replace(/["'\u201c\u201d]+\s*$/, '').trim();
+    if (unwrapped.indexOf('{') >= 0 || unwrapped.indexOf('[') >= 0) raw = unwrapped;
+  }
+  return raw;
 }
 
-/** Normalize curly/smart quotes; keep Hebrew gershayim (״) out of ASCII ". */
+/** Normalize curly/smart quotes; map Hebrew gershayim (״) to ASCII ". */
 function normalizeJsonSmartQuotes(raw) {
   return String(raw || '')
-    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u201c\u201d\u05f4]/g, '"')
     .replace(/[\u2018\u2019\u05f3]/g, "'");
 }
 
@@ -472,12 +517,16 @@ function repairTruncatedJson(raw) {
 }
 
 function parseJsonLenient(text) {
-  const stripped = stripMarkdownJsonFences(text);
-  try {
-    return JSON.parse(stripped);
-  } catch (firstErr) {
-    return JSON.parse(repairTruncatedJson(stripped));
+  const attempts = buildJsonParseAttempts(text);
+  let lastErr = null;
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      return JSON.parse(attempts[i]);
+    } catch (err) {
+      lastErr = err;
+    }
   }
+  throw lastErr || new Error('Invalid JSON from model');
 }
 
 function unwrapParsedModelPayload(parsed) {
@@ -497,8 +546,8 @@ function unwrapParsedModelPayload(parsed) {
   return parsed;
 }
 
-/** Build repair candidates for grade / age-picture (תמונת גיל) model output. */
-function buildGradeJsonParseAttempts(text) {
+/** Build repair candidates for model JSON (grade, topic/curriculum, and other phases). */
+function buildJsonParseAttempts(text) {
   const stripped = stripMarkdownJsonFences(text);
   const normalized = normalizeJsonSmartQuotes(stripped);
   const extracted = extractJsonPayload(normalized) || normalized;
@@ -529,27 +578,18 @@ function buildGradeJsonParseAttempts(text) {
 }
 
 /**
- * Bulletproof JSON parse for phase === 'grade' (תמונת גיל / Age/Class).
- * Sanitizes Hebrew inner quotes, repairs literals, and closes truncated brackets.
+ * Bulletproof JSON parse for model output (grade / topic / all phases).
+ * Strips ```json fences, sanitizes Hebrew inner quotes, repairs literals, closes truncated brackets.
  */
-function parseGradeJsonFromModel(text) {
-  if (!text || !String(text).trim()) throw new Error('Empty model response');
-  const attempts = buildGradeJsonParseAttempts(text);
-  let lastErr = null;
-  for (let i = 0; i < attempts.length; i++) {
-    try {
-      return unwrapParsedModelPayload(JSON.parse(attempts[i]));
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  throw lastErr || new Error('Invalid JSON from model');
-}
-
 function parseJsonFromModel(text) {
   if (!text || !String(text).trim()) throw new Error('Empty model response');
   const parsed = parseJsonLenient(text);
   return unwrapParsedModelPayload(parsed);
+}
+
+/** @deprecated alias — grade phase uses the same pipeline as parseJsonFromModel */
+function parseGradeJsonFromModel(text) {
+  return parseJsonFromModel(text);
 }
 
 function buildUserPrompt(body) {
@@ -582,7 +622,9 @@ function buildUserPrompt(body) {
       'All insights MUST match currentGrade only — never mix content from other grades.\n' +
       'Produce inspiring content — keep response fast. Uniform 16px text in UI.\n' +
       LAZY_LOAD_NOTE +
-      JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
+      JSON_ONLY_INSTRUCTION +
+      JSON_RESPONSE_ENFORCEMENT +
+      '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
       '{\n' +
       '  "gradeInsights": {\n' +
       '    "part1AgePictureHtml": "<p>Rich Hebrew HTML: age picture & pedagogical emphases (4–6 paragraphs)</p>",\n' +
@@ -656,7 +698,9 @@ function buildUserPrompt(body) {
       'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
       'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string).\n' +
       'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
-      JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
+      JSON_ONLY_INSTRUCTION +
+      JSON_RESPONSE_ENFORCEMENT +
+      '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
       '{\n' +
       '  "webResearch": {\n' +
       '    "topic": "' + topic + '",\n' +
@@ -887,23 +931,36 @@ async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
   const systemBuilder = typeof opts.systemPrompt === 'function' ? opts.systemPrompt : waldorfSystemPrompt;
   const temperature = opts.temperature !== undefined ? opts.temperature : 0.35;
 
-  const res = await fetch(PERPLEXITY_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + apiKey,
-    },
-    body: JSON.stringify({
-      model: PERPLEXITY_MODEL,
-      temperature: temperature,
-      messages: [
-        { role: 'system', content: systemBuilder(extraSystem) },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-  });
+  let res;
+  try {
+    res = await fetch(PERPLEXITY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify({
+        model: PERPLEXITY_MODEL,
+        temperature: temperature,
+        messages: [
+          { role: 'system', content: systemBuilder(extraSystem) },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    });
+  } catch (netErr) {
+    const msg = netErr instanceof Error ? netErr.message : String(netErr);
+    throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + msg);
+  }
 
-  const responseText = await res.text();
+  let responseText = '';
+  try {
+    responseText = await res.text();
+  } catch (readErr) {
+    const msg = readErr instanceof Error ? readErr.message : String(readErr);
+    throw new Error('לא ניתן לקרוא את תשובת Perplexity: ' + msg);
+  }
+
   if (!res.ok) {
     console.error('Perplexity error', res.status, responseText.slice(0, 400));
     if (res.status === 401 || res.status === 403) {
@@ -923,9 +980,58 @@ async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
       'Perplexity API returned non-JSON (HTTP ' + res.status + '): ' + responseText.slice(0, 200)
     );
   }
-  const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-  if (!content) throw new Error('No content in Perplexity response');
+
+  const content = extractPerplexityMessageContent(data);
+  if (!content) {
+    console.error('Perplexity empty content. Keys:', data ? Object.keys(data).join(',') : 'null');
+    if (data && data.choices && data.choices[0]) {
+      console.error('First choice keys:', Object.keys(data.choices[0]).join(','));
+    }
+    throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+  }
   return content;
+}
+
+/** Extract assistant text from Perplexity / OpenAI-compatible chat completion payloads. */
+function extractPerplexityMessageContent(data) {
+  if (!data || typeof data !== 'object') return '';
+
+  if (typeof data.output === 'string' && data.output.trim()) return data.output.trim();
+  if (typeof data.text === 'string' && data.text.trim()) return data.text.trim();
+
+  const choice = data.choices && data.choices[0];
+  if (!choice) return '';
+
+  const message = choice.message || choice.delta || choice;
+  if (!message || typeof message !== 'object') return '';
+
+  const content = message.content != null ? message.content : message.text;
+  if (typeof content === 'string') return content.trim();
+
+  if (Array.isArray(content)) {
+    return content.map(function (part) {
+      if (!part) return '';
+      if (typeof part === 'string') return part;
+      if (typeof part.text === 'string') return part.text;
+      if (typeof part.content === 'string') return part.content;
+      return '';
+    }).join('').trim();
+  }
+
+  return '';
+}
+
+function validatePhaseResult(phase, data) {
+  if (!data || typeof data !== 'object') return false;
+  if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
+  if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
+  if (phase === 'chat_followup') return Boolean(data.chatReply && typeof data.chatReply === 'object');
+  if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
+  if (phase === 'archive_search') return Boolean(data.archiveSearch);
+  if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
+  if (phase === 'drive') return Boolean(data.driveMerge);
+  if (phase === 'test') return data.ok === true;
+  return true;
 }
 
 function resolveApiKey() {
@@ -942,8 +1048,10 @@ function setCors(res) {
 const MISSING_KEY_ERROR =
   'מפתח Perplexity לא מוגדר. הוסיפו AI_API_KEY או PERPLEXITY_API_KEY ב-Vercel (Settings → Environment Variables) ופרסמו מחדש.';
 
-/** Parse JSON body from Vercel/Node request helpers (req.body getter can throw). */
+/** Parse JSON body from Node mock req ({ body }) or legacy HTTP adapters. */
 function parseRequestBody(req) {
+  if (!req) return null;
+
   let rawBody;
   try {
     rawBody = req.body;
@@ -1026,6 +1134,9 @@ async function executeGenerate(body, apiKey) {
   const isChatFollowup = body.phase === 'chat_followup';
   const extraSystem =
     gradeLockSystem +
+    (body.phase === 'grade' || body.phase === 'topic'
+      ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
+      : '') +
     (isChatFollowup
       ? ' STRICT PEDAGOGICAL CHAT: Do NOT use broad web search to fabricate answers. ' +
         'Ground every claim in knowledge_base excerpts and/or lesson context only. ' +
@@ -1044,20 +1155,38 @@ async function executeGenerate(body, apiKey) {
     : {};
 
   const userPrompt = buildUserPrompt(body);
-  const raw = await callPerplexity(apiKey, userPrompt, extraSystem, perplexityOptions);
+  let raw;
+  try {
+    raw = await callPerplexity(apiKey, userPrompt, extraSystem, perplexityOptions);
+  } catch (aiErr) {
+    const msg = aiErr instanceof Error ? aiErr.message : String(aiErr);
+    console.error('[generate] Perplexity call failed for phase', body.phase, msg);
+    throw new Error(msg || 'שגיאה בקריאה ל-AI — נסו שוב בעוד רגע.');
+  }
+
   let data;
   try {
-    data = body.phase === 'grade'
-      ? parseGradeJsonFromModel(raw)
-      : parseJsonFromModel(raw);
+    data = parseJsonFromModel(raw);
   } catch (parseErr) {
     console.error('JSON parse failed for phase', body.phase, parseErr instanceof Error ? parseErr.message : parseErr);
     console.error('Model output preview:', String(raw).slice(0, 600));
     throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
   }
 
+  if (!validatePhaseResult(body.phase, data)) {
+    console.error('[generate] Parsed JSON missing required fields for phase', body.phase);
+    throw new Error('המודל החזיר מבנה נתונים חסר. נסו שוב בעוד רגע.');
+  }
+
   if (!body.skipCache) {
-    cacheDb.saveCachedResultAsync(body, data);
+    try {
+      const savedKey = await cacheDb.setCachedResult(body, data);
+      if (savedKey) {
+        console.log('[cached_results] SAVED', body.phase, savedKey.slice(0, 12), cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)');
+      }
+    } catch (cacheErr) {
+      console.warn('[cached_results] save failed:', cacheErr.message || cacheErr);
+    }
   }
 
   const savedCacheKey = body.skipCache ? null : cacheDb.buildCacheKey(body);
@@ -1088,6 +1217,13 @@ function sendJson(res, statusCode, payload) {
 
 /** Legacy Node (req, res) handler — used by dev-server.js locally. */
 async function legacyHandler(req, res) {
+  if (!res || typeof res.status !== 'function') {
+    throw new Error('legacyHandler: invalid response object');
+  }
+  if (!req) {
+    return sendJson(res, 500, { error: 'שגיאת שרת פנימית: בקשה לא תקינה.' });
+  }
+
   if (req.method === 'OPTIONS') {
     setCors(res);
     return res.status(200).end();
@@ -1164,4 +1300,6 @@ async function fetchHandler(request) {
   }
 }
 
-module.exports = { fetch: fetchHandler, legacyHandler };
+module.exports = fetchHandler;
+module.exports.fetch = fetchHandler;
+module.exports.legacyHandler = legacyHandler;

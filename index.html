@@ -3400,9 +3400,10 @@
     }
 
     function renderGradeInsightsExpandableItem(item, prefix, index) {
+      if (item == null) return '';
       const isStr = typeof item === 'string';
-      const title = !isStr && item.title ? item.title : '';
-      const detail = isStr ? item : (item.detail || item.body || item.description || item.text || '');
+      const title = !isStr && item && item.title ? item.title : '';
+      const detail = isStr ? item : ((item && (item.detail || item.body || item.description || item.text)) || '');
       const id = buildPedagogyItemId('grade', prefix, index, (title || '') + detail);
       return renderPedagogySuggestionCard({
         id: id,
@@ -3495,6 +3496,21 @@
       );
     }
 
+    function getJsonOutputInstruction() {
+      if (isEnglish()) {
+        return (
+          'OUTPUT FORMAT (MANDATORY): Return ONLY one valid JSON object — no markdown ```json fences, no preamble or postamble. ' +
+          'The server runs JSON.parse() on your full reply; start with { and end with }. ' +
+          'Escape every " inside string values as \\"; prefer « » for Hebrew inner quotes.'
+        );
+      }
+      return (
+        'פורמט פלט (חובה): החזר אובייקט JSON תקין אחד בלבד — ללא ```json, ללא טקסט לפני או אחרי. ' +
+        'השרת מריץ JSON.parse() על כל התשובה; התחל ב-{ וסיים ב-}. ' +
+        'הוסף \\" לכל מרכאה (") בתוך מחרוזות; העדף « » לציטוטים פנימיים בעברית.'
+      );
+    }
+
     function buildGradeInsightsPrompt() {
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
@@ -3508,7 +3524,8 @@
           'PART 1 — Age picture: part1AgePictureHtml (4–6 HTML paragraphs), part1DevelopmentBullets (8–12 concise Hebrew bullets as strings or {text}), archivesSynthesisHtml, developmentBullets.\n' +
           'PART 2 — Classroom ideas: part2ClassroomIdeasHtml (5–8 HTML paragraphs), part2ClassroomIdeas (6–10 objects: {title, detail} only).\n' +
           'PART 3 — Community: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 objects: {title, detail} only).\n' +
-          'Also: globalCurricula (6–10 bullet strings), typicalBlocks, sources (names only — NO URLs).'
+          'Also: globalCurricula (6–10 bullet strings), typicalBlocks, sources (names only — NO URLs). ' +
+          getJsonOutputInstruction()
         );
       }
       return (
@@ -3517,7 +3534,8 @@
         'חלק 1 — תמונת גיל: part1AgePictureHtml (4–6 פסקאות HTML), part1DevelopmentBullets (8–12 נקודות כמחרוזות או {text}), archivesSynthesisHtml, developmentBullets.\n' +
         'חלק 2 — רעיונות כיתה: part2ClassroomIdeasHtml (5–8 פסקאות HTML), part2ClassroomIdeas (6–10 אובייקטים: {title, detail} בלבד).\n' +
         'חלק 3 — קהילה: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 אובייקטים: {title, detail} בלבד).\n' +
-        'גם: globalCurricula (6–10 נקודות), typicalBlocks, sources (שמות בלבד — ללא URLs).'
+        'גם: globalCurricula (6–10 נקודות), typicalBlocks, sources (שמות בלבד — ללא URLs). ' +
+        getJsonOutputInstruction()
       );
     }
 
@@ -3594,14 +3612,16 @@
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
           gradeLock + ' ' + noUrls + ' ' + lazy + ' ' +
           'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint — no expansion fields. ' +
-          '3-week arc. Grade-locked. 16px UI.'
+          '3-week arc. Grade-locked. 16px UI. ' +
+          getJsonOutputInstruction()
         );
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
         gradeLock + ' ' + noUrls + ' ' + lazy + ' ' +
         'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי — ללא שדות הרחבה. ' +
-        'קשת 3 שבועות. אך ורק לכיתה זו. גופן 16px.'
+        'קשת 3 שבועות. אך ורק לכיתה זו. גופן 16px. ' +
+        getJsonOutputInstruction()
       );
     }
 
@@ -4352,6 +4372,7 @@
 
     function mapGlobalCurriculaForExport(items) {
       return (items || []).map(function (item, index) {
+        if (item == null) return null;
         const isStr = typeof item === 'string';
         const title = !isStr && item.title ? item.title : '';
         const detail = isStr ? item : (item.detail || item.body || item.description || item.text || '');
@@ -4360,7 +4381,7 @@
           detail: detail,
           sourceId: buildPedagogyItemId('grade', 'curricula', index, (title || '') + detail),
         };
-      });
+      }).filter(Boolean);
     }
 
     function collectStepCPlanData() {
@@ -4429,12 +4450,13 @@
 
     function normalizeInsightBullets(items) {
       return (items || []).map(function (item) {
+        if (item == null) return null;
         if (typeof item === 'string') return { title: '', detail: item };
         return {
           title: item.title || '',
           detail: item.detail || item.body || item.description || item.text || '',
         };
-      }).filter(function (item) { return item.title || item.detail; });
+      }).filter(function (item) { return item && (item.title || item.detail); });
     }
 
     function extractGradeInsightsFromDom() {
@@ -6376,6 +6398,11 @@
         const data = await fetchGradeInsightsAI(signal);
         if (runId !== gradeResearchRunId || signal.aborted) return;
         appState.gradeResearch = data;
+        if (!data || !data.gradeInsights) {
+          throw new Error(isEnglish()
+            ? 'Incomplete AI response — grade insights missing. Please try again.'
+            : 'תשובת AI לא שלמה — חסרה תמונת גיל. נסו שוב.');
+        }
         renderGradeInsightsPanel(grade, data);
       } catch (err) {
         if (runId !== gradeResearchRunId || signal.aborted || isGradeResearchAbortError(err)) return;
