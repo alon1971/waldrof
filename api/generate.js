@@ -1169,6 +1169,9 @@ async function handleGeneratePost(parsedBody) {
     err.statusCode = 400;
     throw err;
   }
+  if (parsedBody.phase === 'grade') {
+    cacheDb.normalizeGradeCacheRequest(parsedBody);
+  }
   const apiKey = resolveApiKey();
   if (!apiKey) {
     const err = new Error(MISSING_KEY_ERROR);
@@ -1211,9 +1214,10 @@ async function executeGenerate(body, apiKey) {
     throw err;
   }
 
-  // Step A (grade) must always consult Supabase cache — never bypass.
+  // Step A (grade): stable cache key (phase + gradeId only) — always consult Supabase.
   if (body.phase === 'grade') {
     body.skipCache = false;
+    cacheDb.normalizeGradeCacheRequest(body);
   }
 
   if (!body.skipCache) {

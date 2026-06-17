@@ -141,6 +141,10 @@ async function handleApiGenerate(req, res) {
     return writeJsonResponse(res, 400, { error: message || 'Invalid JSON body' });
   }
 
+  if (parsedBody && parsedBody.phase === 'grade') {
+    cacheDb.normalizeGradeCacheRequest(parsedBody);
+  }
+
   try {
     const result = await generateApi.handleGeneratePost(parsedBody);
     const payload = generateApi.buildGenerateHttpPayload
@@ -244,6 +248,7 @@ const server = http.createServer(async function (req, res) {
       runtime: 'render-node',
       generateHandler: 'handleGeneratePost',
       cacheBackend: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+      gradeCacheKey: 'phase+gradeId',
       perplexityKey: Boolean(process.env.PERPLEXITY_API_KEY || process.env.AI_API_KEY),
     }));
   }

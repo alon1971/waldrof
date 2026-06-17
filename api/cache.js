@@ -41,10 +41,32 @@ function hashString(text) {
   return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
 }
 
+/**
+ * Step A (grade): stable cache identity — grade id only.
+ * Strips fields that must not affect the key (topic leaks, label language/geresh variants).
+ */
+function normalizeGradeCacheRequest(body) {
+  if (!body || body.phase !== 'grade') return body;
+  const gradeId = body.currentGrade ?? body.gradeId ?? null;
+  body.currentGrade = gradeId;
+  body.gradeId = gradeId;
+  body.topic = null;
+  body.archiveQuery = null;
+  body.activityTitle = null;
+  body.sourceTitle = null;
+  return body;
+}
+
 /** Build a deterministic cache key for pedagogical API requests. */
 function buildCacheKey(body) {
   if (!body || !body.phase) return null;
   if (body.phase === 'test') return null;
+
+  if (body.phase === 'grade') {
+    const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
+    if (!gradeId) return null;
+    return hashString(['grade', gradeId].join('|'));
+  }
 
   const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
   const gradeLabel = stableNormalize(body.gradeLabel ?? '');
@@ -67,13 +89,16 @@ function buildCacheKey(body) {
 }
 
 function buildRow(cacheKey, body, resultData) {
+  const isGrade = body.phase === 'grade';
   return {
     cache_key: cacheKey,
     phase: body.phase,
     grade_id: body.currentGrade ?? body.gradeId ?? null,
     grade_label: body.gradeLabel || null,
-    topic: body.topic || null,
-    query_text: body.userMessage || body.archiveQuery || body.topic || body.gradeLabel || null,
+    topic: isGrade ? null : (body.topic || null),
+    query_text: isGrade
+      ? (body.gradeLabel || null)
+      : (body.userMessage || body.archiveQuery || body.topic || body.gradeLabel || null),
     result_data: resultData,
     user_id: body.userId || (body.teacherUser && body.teacherUser.id) || null,
     user_email: body.userEmail || (body.teacherUser && body.teacherUser.email) || null,
@@ -207,6 +232,22 @@ function coerceCachedResultData(raw) {
   return data;
 }
 
+/** Normalize grade cache payloads to { gradeInsights } for save, validation, and API responses. */
+function normalizeGradeResultForCache(raw) {
+  const data = coerceCachedResultData(raw);
+  if (!data || typeof data !== 'object') return null;
+
+  let gi = data.gradeInsights;
+  if ((!gi || typeof gi !== 'object' || Array.isArray(gi)) && data.data && typeof data.data === 'object') {
+    gi = data.data.gradeInsights;
+  }
+  if (!gi || typeof gi !== 'object' || Array.isArray(gi)) return null;
+
+  const cloned = cloneJsonSafe(gi);
+  if (!cloned) return null;
+  return { gradeInsights: cloned };
+}
+
 function cloneJsonSafe(value) {
   try {
     return JSON.parse(JSON.stringify(value));
@@ -217,7 +258,7 @@ function cloneJsonSafe(value) {
 
 function isValidCachedPayload(phase, data) {
   if (!data || typeof data !== 'object') return false;
-  if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
+  if (phase === 'grade') return Boolean(normalizeGradeResultForCache(data));
   if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
   if (phase === 'chat_followup') {
     return Boolean(
@@ -239,10 +280,10 @@ function buildCachedGeneratePayload(cached, phase) {
   if (!cached) return null;
   const data = coerceCachedResultData(cached.data);
   if (!data || !isValidCachedPayload(phase, data)) return null;
-  const cloned = cloneJsonSafe(data);
-  if (!cloned) return null;
+  const payload = phase === 'grade' ? normalizeGradeResultForCache(data) : cloneJsonSafe(data);
+  if (!payload) return null;
   return {
-    data: cloned,
+    data: payload,
     meta: Object.assign({}, cached.meta || {}, { fromCache: true }),
   };
 }
@@ -540,6 +581,10 @@ async function lookupChatPriorAnswer(body) {
  * Lookup cached result. Returns { data, meta } or null.
  */
 async function getCachedResult(body) {
+  if (body && body.phase === 'grade') {
+    normalizeGradeCacheRequest(body);
+  }
+
   const cacheKey = buildCacheKey(body);
   if (!cacheKey) return null;
 
@@ -554,10 +599,12 @@ async function getCachedResult(body) {
     const fallbackRaw = getFallbackCached(cacheKey);
     data = fallbackRaw ? coerceCachedResultData(fallbackRaw) : null;
     if (!data || !isValidCachedPayload(body.phase, data)) return null;
-    const cloned = cloneJsonSafe(data);
-    if (!cloned) return null;
+    const payload = body.phase === 'grade'
+      ? normalizeGradeResultForCache(data)
+      : cloneJsonSafe(data);
+    if (!payload) return null;
     return {
-      data: cloned,
+      data: payload,
       meta: {
         fromCache: true,
         cacheKey: cacheKey,
@@ -570,10 +617,12 @@ async function getCachedResult(body) {
   if (!isValidCachedPayload(body.phase, data)) return null;
 
   bumpHitCountAsync(cacheKey, row.hit_count);
-  const cloned = cloneJsonSafe(data);
-  if (!cloned) return null;
+  const payload = body.phase === 'grade'
+    ? normalizeGradeResultForCache(data)
+    : cloneJsonSafe(data);
+  if (!payload) return null;
   return {
-    data: cloned,
+    data: payload,
     meta: {
       fromCache: true,
       cacheKey: cacheKey,
@@ -587,6 +636,12 @@ async function getCachedResult(body) {
  * Persist a fresh Perplexity result (awaitable).
  */
 async function setCachedResult(body, resultData) {
+  if (body && body.phase === 'grade') {
+    normalizeGradeCacheRequest(body);
+    resultData = normalizeGradeResultForCache(resultData);
+    if (!resultData) return null;
+  }
+
   const cacheKey = buildCacheKey(body);
   if (!cacheKey || !resultData) return null;
 
@@ -940,6 +995,8 @@ async function saveTopicChatSession(teacher, cacheKey, session) {
 module.exports = {
   TABLE_NAME,
   buildCacheKey,
+  normalizeGradeCacheRequest,
+  normalizeGradeResultForCache,
   coerceCachedResultData,
   buildCachedGeneratePayload,
   getCachedResult,
