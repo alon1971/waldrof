@@ -201,7 +201,10 @@
     list.innerHTML = state.messages.map(renderMessageBubble).join('');
     list.scrollTop = list.scrollHeight;
     syncExportBarVisibility();
-    if (state.displayMode === 'fullscreen') renderFullscreenContent();
+    if (state.displayMode === 'fullscreen') {
+      renderFullscreenContent();
+      syncExportBarVisibility();
+    }
   }
 
   function renderFullscreenContent() {
@@ -347,7 +350,35 @@
     if (label.textContent === 'chat_download_word') label.textContent = 'הורד למסמך וורד';
   }
 
+  function ensureFullscreenExportBar() {
+    var fsBar = document.getElementById('lesson-chat-fullscreen-export-bar');
+    if (fsBar) return fsBar;
+
+    var footer = document.querySelector('.lesson-chat-fullscreen-footer');
+    var stack = footer && footer.closest('.lesson-chat-panel-footer-stack');
+    if (!stack && footer) {
+      stack = document.createElement('div');
+      stack.className = 'lesson-chat-panel-footer-stack';
+      footer.parentNode.insertBefore(stack, footer);
+      stack.appendChild(footer);
+    }
+    if (!stack) return null;
+
+    fsBar = document.createElement('div');
+    fsBar.id = 'lesson-chat-fullscreen-export-bar';
+    fsBar.className = 'lesson-chat-export-bar hidden';
+    fsBar.setAttribute('dir', 'rtl');
+    fsBar.innerHTML =
+      '<button type="button" id="lesson-chat-fullscreen-export-word" class="lesson-chat-export-btn" dir="rtl">' +
+        '<i class="fa-solid fa-file-word" aria-hidden="true"></i>' +
+        '<span class="lesson-chat-export-label">' + deps.escapeHtml(deps.t('chat_download_word')) + '</span>' +
+      '</button>';
+    stack.insertBefore(fsBar, stack.firstChild);
+    return fsBar;
+  }
+
   function ensureChatExportBar() {
+    ensureFullscreenExportBar();
     var panelBar = document.getElementById('lesson-chat-export-bar');
     var fsBar = document.getElementById('lesson-chat-fullscreen-export-bar');
     syncChatExportLabel(document.getElementById('lesson-chat-export-word'));
@@ -494,8 +525,12 @@
     if (drawer) drawer.classList.toggle('hidden', !state.historyOpen);
     if (mainView) mainView.classList.toggle('hidden', state.historyOpen);
 
-    if (state.displayMode === 'fullscreen') renderFullscreenContent();
-    syncExportBarVisibility();
+    if (state.displayMode === 'fullscreen') {
+      renderFullscreenContent();
+      syncExportBarVisibility();
+    } else {
+      syncExportBarVisibility();
+    }
   }
 
   function syncSessionFromApp(app) {

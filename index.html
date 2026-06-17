@@ -1579,6 +1579,9 @@
       background: rgba(255, 255, 255, 0.92);
       border-top: 1px solid rgba(201, 169, 98, 0.35);
     }
+    body.lesson-chat-mode-fullscreen #lesson-chat-fullscreen-export-bar:not(.hidden) {
+      display: block;
+    }
     .lesson-chat-fullscreen-footer {
       display: flex;
       gap: 0.5rem;
@@ -2409,7 +2412,7 @@
   <script src="auth-subscription.js?v=20250617b"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250617g"></script>
+  <script src="chat-sidebar.js?v=20250618a"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
@@ -2806,12 +2809,12 @@
     };
 
     const GRADES = [
-      { id: '1', label: "כיתה א׳", age: '7–8' },
-      { id: '2', label: "כיתה ב׳", age: '8–9' },
-      { id: '3', label: "כיתה ג׳", age: '9–10' },
-      { id: '4', label: "כיתה ד׳", age: '10–11' },
-      { id: '5', label: "כיתה ה׳", age: '11–12' },
-      { id: '6', label: "כיתה ו׳", age: '12' },
+      { id: '1', label: "כיתה א׳", age: '6–7' },
+      { id: '2', label: "כיתה ב׳", age: '7–8' },
+      { id: '3', label: "כיתה ג׳", age: '8–9' },
+      { id: '4', label: "כיתה ד׳", age: '9–10' },
+      { id: '5', label: "כיתה ה׳", age: '10–11' },
+      { id: '6', label: "כיתה ו׳", age: '11–12' },
       { id: '7', label: "כיתה ז׳", age: '12–13' },
       { id: '8', label: "כיתה ח׳", age: '13–14' },
     ];
@@ -3870,6 +3873,8 @@
     }
 
     function buildGradeInsightsPrompt() {
+      const g = GRADES.find(function (x) { return x.id === appState.grade; });
+      const ageRange = g ? g.age : '';
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
       const noLatex = getNoLatexInstruction();
@@ -3878,6 +3883,7 @@
       if (isEnglish()) {
         return (
           gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + lazy + ' ' + prioritySearch + ' ' +
+          (ageRange ? 'Age range for this grade: ' + ageRange + '. ' : '') +
           'Generate a rich anthroposophic Waldorf portrait for currentGrade ONLY. Uniform 16px in UI. Keep response fast — no nested expansions.\n' +
           'PART 1 — Age picture: part1AgePictureHtml (4–6 HTML paragraphs), part1DevelopmentBullets (8–12 concise Hebrew bullets as strings or {text}), archivesSynthesisHtml, developmentBullets.\n' +
           'PART 2 — Classroom ideas: part2ClassroomIdeasHtml (5–8 HTML paragraphs), part2ClassroomIdeas (6–10 objects: {title, detail} only).\n' +
@@ -3888,6 +3894,7 @@
       }
       return (
         gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + lazy + ' ' + prioritySearch + ' ' +
+        (ageRange ? 'טווח גיל לכיתה זו: ' + ageRange + '. ' : '') +
         'הפק תמונת גיל ולדורפית עשירה עבור currentGrade בלבד. גופן אחיד 16px. שמור על תשובה מהירה — ללא הרחבות מקוננות.\n' +
         'חלק 1 — תמונת גיל: part1AgePictureHtml (4–6 פסקאות HTML), part1DevelopmentBullets (8–12 נקודות כמחרוזות או {text}), archivesSynthesisHtml, developmentBullets.\n' +
         'חלק 2 — רעיונות כיתה: part2ClassroomIdeasHtml (5–8 פסקאות HTML), part2ClassroomIdeas (6–10 אובייקטים: {title, detail} בלבד).\n' +
@@ -6501,7 +6508,12 @@
         if (insightsPanel) insightsPanel.classList.remove('hidden');
       }
       var step2GradeLabel = document.getElementById('step2-grade-label');
-      if (step2GradeLabel) step2GradeLabel.textContent = appState.gradeLabel || '';
+      if (step2GradeLabel) {
+        var step2Grade = GRADES.find(function (x) { return x.id === appState.grade; });
+        step2GradeLabel.textContent = appState.gradeLabel
+          ? appState.gradeLabel + (step2Grade ? ' (' + t('grade_age_prefix') + ' ' + step2Grade.age + ')' : '')
+          : '';
+      }
       var apiHint = document.getElementById('api-hint-step2');
       if (apiHint) {
         if (!isResearchAvailable()) apiHint.classList.remove('hidden');

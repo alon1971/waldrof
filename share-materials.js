@@ -31,7 +31,8 @@
     var grades = deps.getGrades() || [];
     return grades.map(function (g) {
       var sel = g.id === selectedId ? ' selected' : '';
-      return '<option value="' + deps.escapeHtml(g.id) + '"' + sel + '>' + deps.escapeHtml(g.label || g.id) + '</option>';
+      var ageSuffix = g.age ? ' (' + deps.escapeHtml(deps.t('grade_age_prefix')) + ' ' + deps.escapeHtml(g.age) + ')' : '';
+      return '<option value="' + deps.escapeHtml(g.id) + '"' + sel + '>' + deps.escapeHtml(g.label || g.id) + ageSuffix + '</option>';
     }).join('');
   }
 
