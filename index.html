@@ -161,13 +161,36 @@
     /* שלב ג׳ — שלושת טאבי התוצרים ככפתורי כרטיס אופקיים */
     .product-tabs-nav {
       position: sticky;
-      top: calc(var(--app-sticky-nav-height) + env(safe-area-inset-top, 0px));
-      z-index: 35;
+      top: calc(var(--app-sticky-nav-height, 4rem) + env(safe-area-inset-top, 0px));
+      z-index: 50;
       background: linear-gradient(180deg, rgba(237, 244, 248, 0.98), rgba(232, 240, 230, 0.96));
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
       border-bottom: 2px solid rgba(122, 155, 118, 0.32);
       box-shadow: 0 4px 18px rgba(92, 125, 88, 0.12);
+    }
+    /* מצב דו״ח/תוצרים — fixed כדי שלא יישבר מ-overflow של אבות */
+    body.ws-products-view #workspace-products-nav:not(.hidden) {
+      position: fixed;
+      left: 0;
+      right: 0;
+      width: 100%;
+      top: calc(var(--app-sticky-nav-height, 4rem) + env(safe-area-inset-top, 0px));
+      z-index: 50;
+    }
+    body.lesson-chat-mode-panel.ws-products-view #workspace-products-nav:not(.hidden) {
+      left: var(--lesson-chat-layout-inset);
+      right: 0;
+      width: auto;
+    }
+    .product-tabs-nav-spacer {
+      display: none;
+      height: 0;
+      pointer-events: none;
+    }
+    body.ws-products-view .product-tabs-nav-spacer:not(.hidden) {
+      display: block;
+      height: var(--product-tabs-nav-height, 4.25rem);
     }
     .product-tabs-row {
       display: grid;
@@ -418,8 +441,15 @@
       padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
       padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
     }
-    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-    body.app-typography { overflow-x: hidden; }
+    html {
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+      overflow-x: clip;
+    }
+    @supports not (overflow: clip) {
+      html { overflow-x: hidden; }
+    }
+    body.app-typography { overflow-x: visible; }
     .app-top-nav-inner {
       display: flex;
       flex-wrap: wrap;
@@ -1156,7 +1186,7 @@
 
     /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
-      --app-sticky-nav-height: 4.75rem;
+      --app-sticky-nav-height: 4rem;
       --lesson-chat-panel-width: 360px;
       --lesson-chat-layout-inset: 360px;
     }
@@ -1166,6 +1196,7 @@
       max-width: 100%;
       box-sizing: border-box;
       transition: padding-left 0.22s ease;
+      overflow: visible;
     }
     .app-main {
       width: 100%;
@@ -1173,6 +1204,10 @@
       max-width: 100%;
       position: relative;
       box-sizing: border-box;
+      overflow: visible;
+    }
+    #workspace {
+      overflow: visible;
     }
     body.lesson-chat-mode-panel #app-shell {
       padding-left: var(--lesson-chat-layout-inset);
@@ -2221,6 +2256,7 @@
         </button>
       </div>
     </nav>
+    <div id="workspace-products-nav-spacer" class="product-tabs-nav-spacer hidden" aria-hidden="true"></div>
 
     <div class="workspace-layout max-w-7xl mx-auto px-4">
     <main class="workspace-main py-8 pb-16">
@@ -6435,9 +6471,26 @@
       });
     }
 
+    function syncProductTabsStickyLayout() {
+      var root = document.documentElement;
+      var topNav = document.querySelector('.app-top-nav');
+      var tabsNav = document.getElementById('workspace-products-nav');
+      if (topNav) {
+        root.style.setProperty('--app-sticky-nav-height', topNav.offsetHeight + 'px');
+      }
+      if (tabsNav && !tabsNav.classList.contains('hidden')) {
+        root.style.setProperty('--product-tabs-nav-height', tabsNav.offsetHeight + 'px');
+      }
+    }
+
     function updateWorkspaceChrome() {
       const productsNav = document.getElementById('workspace-products-nav');
-      if (productsNav) productsNav.classList.toggle('hidden', !isProductsView());
+      const productsSpacer = document.getElementById('workspace-products-nav-spacer');
+      const inProducts = isProductsView();
+      if (productsNav) productsNav.classList.toggle('hidden', !inProducts);
+      if (productsSpacer) productsSpacer.classList.toggle('hidden', !inProducts);
+      document.body.classList.toggle('ws-products-view', inProducts);
+      requestAnimationFrame(syncProductTabsStickyLayout);
       renderWorkspaceBreadcrumb();
       updateTopNavButtons();
     }
@@ -8616,6 +8669,7 @@
     window.addEventListener('pageshow', function (e) {
       if (e.persisted) resetWizardOnPageLoad();
     });
+    window.addEventListener('resize', syncProductTabsStickyLayout, { passive: true });
 
     init().catch(function (err) { console.error('[waldrof] unhandled init error:', err); });
   </script>
