@@ -750,6 +750,100 @@ async function listTeacherSearchHistory(teacher, options) {
   return listFallbackTeacherHistory(teacher, limit);
 }
 
+function formatChatHistoryItem(row) {
+  const data = coerceCachedResultData(row && row.result_data);
+  const answer = extractChatAnswerText(data);
+  if (!answer && !(data && data.chatReply)) return null;
+  return {
+    cacheKey: row.cache_key,
+    phase: row.phase,
+    gradeId: row.grade_id || null,
+    gradeLabel: row.grade_label || null,
+    topic: row.topic || null,
+    question: row.query_text || '',
+    createdAt: row.created_at || null,
+    lastHitAt: row.last_hit_at || null,
+    hitCount: row.hit_count || 0,
+    answerPreview: answer.slice(0, 280),
+    answerHtml: data && data.chatReply ? (data.chatReply.answerHtml || null) : null,
+  };
+}
+
+function listFallbackTeacherChatHistory(teacher, limit, filters) {
+  loadFallbackStore();
+  const userId = String(teacher && teacher.id || '').trim();
+  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const gradeId = filters && filters.gradeId ? String(filters.gradeId) : '';
+  const topic = filters && filters.topic ? stableNormalize(filters.topic) : '';
+
+  const rows = Array.from(fallbackStore.rows.values())
+    .filter(function (row) {
+      if (!row || row.phase !== 'chat_followup' || !row.result_data) return false;
+      if (!teacherOwnsRow(teacher, row)) return false;
+      if (gradeId && String(row.grade_id || '') !== gradeId) return false;
+      if (topic && stableNormalize(row.topic || '') !== topic) return false;
+      return Boolean(formatChatHistoryItem(row));
+    })
+    .sort(function (a, b) {
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    })
+    .slice(0, limit || 30);
+
+  return rows.map(formatChatHistoryItem).filter(Boolean);
+}
+
+/**
+ * List cached chat_followup Q&A for a teacher (newest first).
+ */
+async function listTeacherChatHistory(teacher, options) {
+  const opts = options || {};
+  const limit = Math.min(Number(opts.limit) || 30, 50);
+  const userId = String(teacher && teacher.id || '').trim();
+  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const gradeId = opts.gradeId ? String(opts.gradeId) : '';
+  const topic = opts.topic ? String(opts.topic).trim() : '';
+
+  if (!userId && !userEmail) return [];
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const params = new URLSearchParams();
+      params.set('select', 'cache_key,phase,grade_id,grade_label,topic,query_text,result_data,hit_count,created_at,last_hit_at');
+      params.set('phase', 'eq.chat_followup');
+      params.set('order', 'created_at.desc');
+      params.set('limit', String(limit));
+
+      if (userId && userEmail) {
+        params.set('or', '(user_id.eq.' + userId + ',user_email.eq.' + userEmail + ')');
+      } else if (userId) {
+        params.set('user_id', 'eq.' + userId);
+      } else {
+        params.set('user_email', 'eq.' + userEmail);
+      }
+      if (gradeId) params.set('grade_id', 'eq.' + gradeId);
+      if (topic) params.set('topic', 'ilike.*' + topic.slice(0, 60) + '*');
+
+      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+        method: 'GET',
+      });
+
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows)) {
+          return rows.map(formatChatHistoryItem).filter(Boolean);
+        }
+      } else {
+        const errText = await res.text();
+        console.warn('[cached_results] chat history read error', res.status, errText.slice(0, 200));
+      }
+    } catch (err) {
+      console.warn('[cached_results] chat history read failed:', err.message || err);
+    }
+  }
+
+  return listFallbackTeacherChatHistory(teacher, limit, { gradeId: gradeId, topic: topic });
+}
+
 async function fetchCachedRowByKey(cacheKey) {
   if (!cacheKey) return null;
 
@@ -859,6 +953,7 @@ module.exports = {
   saveCachedResultAsync,
   isSupabaseCacheEnabled,
   listTeacherSearchHistory,
+  listTeacherChatHistory,
   getTeacherLessonByCacheKey,
   saveTopicChatSession,
 };

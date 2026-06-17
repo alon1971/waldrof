@@ -142,6 +142,22 @@ async function executeSearchHistory(req) {
     return { ok: true, action: 'save_chat', cacheKey: cacheKey };
   }
 
+  if (action === 'list_chat') {
+    const limit = Math.min(Number((body && body.limit) || 30), 50);
+    const items = await cacheDb.listTeacherChatHistory(teacher, {
+      limit: limit,
+      gradeId: body && body.gradeId ? String(body.gradeId) : '',
+      topic: body && body.topic ? String(body.topic).trim() : '',
+    });
+    return {
+      ok: true,
+      action: 'list_chat',
+      count: items.length,
+      items: items,
+      teacher: { id: teacher.id, email: teacher.email },
+    };
+  }
+
   const limit = Math.min(
     Number((body && body.limit) || (req.query && req.query.limit)) || 20,
     40

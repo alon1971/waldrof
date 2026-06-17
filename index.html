@@ -1149,131 +1149,205 @@
       border: 1px solid rgba(201, 169, 98, 0.45); background: transparent; color: #5C4A3A;
     }
 
-    /* ── App shell: permanent left chat + main content ───────────────────── */
+    /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
       --app-sticky-nav-height: 4.75rem;
     }
     .app-shell {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
+      display: block;
       width: 100%;
       max-width: 100%;
-      gap: 0;
-    }
-    @media (min-width: 1024px) {
-      .app-shell {
-        flex-direction: row;
-        align-items: stretch;
-        min-height: calc(100vh - 9rem);
-      }
-      html[dir="rtl"] .app-main { order: 1; }
-      html[dir="rtl"] .lesson-chat-sidebar { order: 2; }
-      html[dir="ltr"] .lesson-chat-sidebar { order: 1; }
-      html[dir="ltr"] .app-main { order: 2; }
-    }
-    @media (max-width: 1023px) {
-      .lesson-chat-sidebar { order: -1; }
     }
     .app-main {
-      flex: 1;
-      min-width: 0;
       width: 100%;
+      min-width: 0;
       position: relative;
     }
 
-    /* ── Lesson chat sidebar (permanent left, sticky on scroll) ─────────── */
+    .workspace-main { flex: 1; min-width: 0; width: 100%; }
+    .workspace-layout { display: block; width: 100%; }
+
+    /* ── Pedagogy assistant: 3 display modes ─────────────────────────────── */
+    body.lesson-chat-mode-bubble .lesson-chat-sidebar,
+    body.lesson-chat-mode-bubble .lesson-chat-fullscreen { display: none !important; }
+    body.lesson-chat-mode-panel .lesson-chat-fab-wrap,
+    body.lesson-chat-mode-panel .lesson-chat-fullscreen { display: none !important; }
+    body.lesson-chat-mode-fullscreen .lesson-chat-fab-wrap,
+    body.lesson-chat-mode-fullscreen .lesson-chat-sidebar { display: none !important; }
+
+    .lesson-chat-fab-wrap {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 1.5rem;
+      z-index: 50;
+      pointer-events: none;
+    }
+    .lesson-chat-fab-wrap.hidden { display: none !important; }
+
+    .lesson-chat-fab {
+      position: relative;
+      width: 9.5rem;
+      height: 9.5rem;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid rgba(201, 169, 98, 0.5);
+      box-shadow: 0 20px 25px -5px rgba(92, 74, 58, 0.18), 0 8px 10px -6px rgba(0, 0, 0, 0.12);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      text-align: center;
+      font-family: inherit;
+      font-size: 0.95rem !important;
+      font-weight: 700;
+      line-height: 1.35;
+      color: #5C4A3A;
+      pointer-events: auto;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .lesson-chat-fab:hover {
+      transform: scale(1.04);
+      box-shadow: 0 25px 30px -5px rgba(92, 74, 58, 0.22), 0 10px 14px -6px rgba(0, 0, 0, 0.14);
+    }
+    .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
+    .lesson-chat-fab-label { display: block; pointer-events: none; max-width: 7rem; }
+
     .lesson-chat-sidebar {
-      width: 100%;
-      flex-shrink: 0;
-      position: sticky;
+      position: fixed;
       top: var(--app-sticky-nav-height);
-      align-self: flex-start;
-      z-index: 35;
-      background: linear-gradient(180deg, rgba(247, 243, 235, 0.97), rgba(253, 251, 247, 0.92));
-      backdrop-filter: blur(6px);
+      left: 0;
+      bottom: 0;
+      width: min(380px, 94vw);
+      z-index: 45;
+      display: flex;
+      flex-direction: column;
+      padding: 0.5rem;
+      pointer-events: none;
     }
-    @media (min-width: 1024px) {
-      .lesson-chat-sidebar {
-        width: 360px;
-        max-width: 360px;
-        height: calc(100vh - var(--app-sticky-nav-height));
-        max-height: calc(100vh - var(--app-sticky-nav-height));
-        border-inline-end: 1px solid rgba(201, 169, 98, 0.35);
-      }
-    }
-    @media (max-width: 1023px) {
-      .lesson-chat-sidebar {
-        top: calc(var(--app-sticky-nav-height) - 0.25rem);
-        box-shadow: 0 8px 24px rgba(92, 74, 58, 0.1);
-        border-bottom: 1px solid rgba(201, 169, 98, 0.35);
-      }
-    }
-    .lesson-chat-sidebar--collapsed {
-      display: none !important;
-    }
+    .lesson-chat-sidebar.hidden { display: none !important; }
+    .lesson-chat-sidebar > .lesson-chat-panel { pointer-events: auto; }
 
     .lesson-chat-panel {
       display: flex;
       flex-direction: column;
-      height: min(48vh, 440px);
+      flex: 1;
+      min-height: 0;
       background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 55%, #EDE6D6 100%);
       border: 1px solid rgba(201, 169, 98, 0.5);
-      border-radius: 1.25rem;
-      box-shadow: 0 12px 36px rgba(92, 74, 58, 0.14);
+      border-radius: 0 1rem 1rem 0;
+      box-shadow: 4px 0 28px rgba(92, 74, 58, 0.14);
       overflow: hidden;
-      margin: 0.65rem;
-    }
-    @media (min-width: 1024px) {
-      .lesson-chat-panel {
-        height: calc(100vh - var(--app-sticky-nav-height) - 1.25rem);
-        max-height: calc(100vh - var(--app-sticky-nav-height) - 1.25rem);
-        margin: 0.65rem 0.65rem 0.65rem 0.75rem;
-        border-radius: 1rem 0 0 1rem;
-        box-shadow: 4px 0 24px rgba(92, 74, 58, 0.1);
-      }
-      html[dir="ltr"] .lesson-chat-panel {
-        margin: 0.75rem 0.75rem 0.75rem 0.65rem;
-        border-radius: 0 1rem 1rem 0;
-        box-shadow: -4px 0 24px rgba(92, 74, 58, 0.08);
-      }
-    }
-
-    .workspace-main { flex: 1; min-width: 0; width: 100%; }
-
-    /* legacy workspace-layout kept for inner workspace only */
-    .workspace-layout {
-      display: block;
-      width: 100%;
     }
 
     .lesson-chat-header {
       display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
-      padding: 0.85rem 1rem;
+      padding: 0.75rem 0.85rem;
       border-bottom: 1px solid rgba(201, 169, 98, 0.35);
       background: linear-gradient(180deg, rgba(122, 155, 118, 0.14), transparent);
+      flex-shrink: 0;
     }
     .lesson-chat-header h3 {
       font-family: 'Frank Ruhl Libre', serif;
-      font-size: 1rem !important;
+      font-size: 0.95rem !important;
       font-weight: 700;
       color: #8B3A3A;
       margin: 0;
-      display: flex; align-items: center; gap: 0.45rem;
+      display: flex; align-items: center; gap: 0.4rem;
     }
-    .lesson-chat-header-actions { display: flex; gap: 0.35rem; }
+    .lesson-chat-header-actions { display: flex; gap: 0.3rem; align-items: center; }
     .lesson-chat-icon-btn {
       width: 2rem; height: 2rem; border-radius: 0.5rem;
-      border: 1px solid rgba(201, 169, 98, 0.45); background: rgba(255,255,255,0.75);
+      border: 1px solid rgba(201, 169, 98, 0.45); background: rgba(255,255,255,0.85);
       color: #5C4A3A; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.85rem !important;
     }
-    .lesson-chat-icon-btn:hover { background: rgba(122, 155, 118, 0.12); }
-    html[dir="ltr"] .lesson-chat-toggle-icon { transform: scaleX(-1); }
+    .lesson-chat-icon-btn:hover { background: rgba(122, 155, 118, 0.14); }
+
+    .lesson-chat-main-view {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .lesson-chat-main-view.hidden { display: none !important; }
+
+    .lesson-chat-history-drawer {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      background: rgba(255, 255, 255, 0.55);
+    }
+    .lesson-chat-history-drawer.hidden { display: none !important; }
+    .lesson-chat-history-header {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.3);
+      flex-shrink: 0;
+    }
+    .lesson-chat-history-header h4 {
+      margin: 0;
+      font-size: 0.875rem !important;
+      font-weight: 700;
+      color: #5C4A3A;
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+    .lesson-chat-history-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .lesson-chat-history-status {
+      text-align: center;
+      color: rgba(92, 74, 58, 0.7);
+      font-size: 0.85rem !important;
+      padding: 1.25rem 0.75rem;
+      margin: 0;
+    }
+    .lesson-chat-history-status--err { color: #8B3A3A; }
+    .lesson-chat-history-item {
+      width: 100%;
+      text-align: right;
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      border-radius: 0.75rem;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 0.65rem 0.75rem;
+      cursor: pointer;
+      font-family: inherit;
+      color: #5C4A3A;
+    }
+    .lesson-chat-history-item:hover { border-color: rgba(122, 155, 118, 0.55); }
+    .lesson-chat-history-item--open { border-color: #7A9B76; background: #fff; }
+    .lesson-chat-history-item-q {
+      display: block;
+      font-size: 0.875rem !important;
+      font-weight: 600;
+      line-height: 1.45;
+      margin-bottom: 0.25rem;
+    }
+    .lesson-chat-history-item-meta {
+      display: block;
+      font-size: 0.75rem !important;
+      color: rgba(92, 74, 58, 0.65);
+    }
+    .lesson-chat-history-answer {
+      margin-top: 0.5rem;
+      font-size: 0.8rem !important;
+      line-height: 1.5;
+      color: #5C4A3A;
+      border-top: 1px dashed rgba(201, 169, 98, 0.35);
+      padding-top: 0.5rem;
+    }
 
     .lesson-chat-messages {
-      flex: 1; overflow-y: auto; padding: 0.85rem;
-      display: flex; flex-direction: column; gap: 0.65rem;
+      flex: 1; overflow-y: auto; padding: 0.75rem;
+      display: flex; flex-direction: column; gap: 0.6rem;
       background: rgba(255,255,255,0.35);
+      min-height: 0;
     }
     .lesson-chat-empty {
       color: rgba(92, 74, 58, 0.65);
@@ -1337,55 +1411,6 @@
     }
     #lesson-chat-send:disabled { opacity: 0.55; cursor: wait; }
 
-    .lesson-chat-fab-wrap {
-      position: fixed;
-      bottom: 1.5rem;
-      left: 1.5rem;
-      z-index: 50;
-      pointer-events: none;
-    }
-    .lesson-chat-fab-wrap.hidden { display: none !important; }
-
-    .lesson-chat-fab {
-      position: relative;
-      width: 14rem;
-      height: 14rem;
-      border-radius: 50%;
-      background: #fff;
-      border: 2px solid rgba(201, 169, 98, 0.45);
-      box-shadow:
-        0 20px 25px -5px rgba(92, 74, 58, 0.18),
-        0 8px 10px -6px rgba(0, 0, 0, 0.12);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1.25rem;
-      text-align: center;
-      font-family: inherit;
-      font-size: 1.2rem !important;
-      font-weight: 700;
-      line-height: 1.35;
-      color: #5C4A3A;
-      pointer-events: auto;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    .lesson-chat-fab:hover {
-      transform: scale(1.04);
-      box-shadow:
-        0 25px 30px -5px rgba(92, 74, 58, 0.22),
-        0 10px 14px -6px rgba(0, 0, 0, 0.14);
-    }
-    .lesson-chat-fab:focus-visible {
-      outline: 2px solid #7A9B76;
-      outline-offset: 4px;
-    }
-    .lesson-chat-fab-label {
-      display: block;
-      pointer-events: none;
-      max-width: 9.5rem;
-    }
-
     .lesson-chat-export-bar {
       flex-shrink: 0;
       padding: 0.65rem 0.85rem;
@@ -1420,6 +1445,109 @@
     }
     .lesson-chat-export-btn:active { transform: scale(0.98); }
     .lesson-chat-export-btn:disabled { opacity: 0.55; cursor: wait; }
+
+    .lesson-chat-fullscreen {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .lesson-chat-fullscreen.hidden { display: none !important; }
+    .lesson-chat-fullscreen-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(45, 36, 28, 0.45);
+      backdrop-filter: blur(3px);
+    }
+    .lesson-chat-fullscreen-dialog {
+      position: relative;
+      z-index: 1;
+      width: min(920px, 96vw);
+      max-height: min(88vh, 900px);
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 55%, #EDE6D6 100%);
+      border: 1px solid rgba(201, 169, 98, 0.55);
+      border-radius: 1.25rem;
+      box-shadow: 0 24px 48px rgba(92, 74, 58, 0.22);
+      overflow: hidden;
+    }
+    .lesson-chat-fullscreen-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.35);
+      background: linear-gradient(180deg, rgba(122, 155, 118, 0.14), transparent);
+      flex-shrink: 0;
+    }
+    .lesson-chat-fullscreen-header h3 {
+      margin: 0;
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.05rem !important;
+      font-weight: 700;
+      color: #8B3A3A;
+    }
+    .lesson-chat-fullscreen-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.25rem 1.5rem;
+      min-height: 12rem;
+    }
+    .lesson-chat-fullscreen-empty {
+      text-align: center;
+      color: rgba(92, 74, 58, 0.7);
+      font-size: 0.95rem !important;
+      margin: 2rem 0;
+    }
+    .lesson-chat-fullscreen-q {
+      font-size: 1rem !important;
+      color: #5C4A3A;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.35);
+    }
+    .lesson-chat-fullscreen-a {
+      font-size: 1rem !important;
+      line-height: 1.65;
+      color: #5C4A3A;
+    }
+    .lesson-chat-fullscreen-footer {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-end;
+      padding: 0.75rem 1rem;
+      border-top: 1px solid rgba(201, 169, 98, 0.35);
+      background: rgba(255, 255, 255, 0.55);
+      flex-shrink: 0;
+    }
+    #lesson-chat-fullscreen-input {
+      flex: 1;
+      resize: none;
+      min-height: 2.75rem;
+      max-height: 6rem;
+      padding: 0.6rem 0.75rem;
+      border-radius: 0.75rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: #fff;
+      color: #5C4A3A;
+      outline: none;
+      font-size: 0.875rem !important;
+    }
+    #lesson-chat-fullscreen-send {
+      width: 2.75rem;
+      height: 2.75rem;
+      flex-shrink: 0;
+      border: none;
+      border-radius: 0.75rem;
+      cursor: pointer;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff;
+    }
 
     /* Share materials — community knowledge contribution */
     .share-materials-card {
@@ -2121,19 +2249,32 @@
   </div>
   </div>
 
-  <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar lesson-chat-sidebar--collapsed hidden" aria-label="">
-      <div class="lesson-chat-panel">
-        <header class="lesson-chat-header">
-          <h3><i class="fa-solid fa-comments text-sage" aria-hidden="true"></i> <span data-i18n="chat_sidebar_title">עוזר פדגוגי</span></h3>
-          <div class="lesson-chat-header-actions">
-            <button type="button" id="lesson-chat-toggle" class="lesson-chat-icon-btn" aria-expanded="false" data-i18n-aria="chat_sidebar_collapse">
-              <i class="fa-solid fa-chevron-left lesson-chat-toggle-icon" aria-hidden="true"></i>
-            </button>
-            <button type="button" id="lesson-chat-close" class="lesson-chat-icon-btn lg:hidden" data-i18n-aria="chat_sidebar_close">
-              <i class="fa-solid fa-xmark" aria-hidden="true"></i>
-            </button>
-          </div>
-        </header>
+  <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar hidden" aria-label="">
+    <div class="lesson-chat-panel">
+      <header class="lesson-chat-header">
+        <h3><i class="fa-solid fa-comments text-sage" aria-hidden="true"></i> <span data-i18n="chat_sidebar_title">עוזר פדגוגי</span></h3>
+        <div class="lesson-chat-header-actions">
+          <button type="button" id="lesson-chat-history-btn" class="lesson-chat-icon-btn" data-i18n-aria="chat_history_btn" title="היסטוריית שאילתות">
+            <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+          </button>
+          <button type="button" id="lesson-chat-expand" class="lesson-chat-icon-btn" data-i18n-aria="chat_expand_btn" title="הרחבה">
+            <i class="fa-solid fa-up-right-and-down-left-from-center" aria-hidden="true"></i>
+          </button>
+          <button type="button" id="lesson-chat-close" class="lesson-chat-icon-btn" data-i18n-aria="chat_close_to_bubble" title="סגור">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+      </header>
+      <div id="lesson-chat-history-drawer" class="lesson-chat-history-drawer hidden" aria-hidden="true">
+        <div class="lesson-chat-history-header">
+          <h4><i class="fa-solid fa-clock-rotate-left text-sage" aria-hidden="true"></i> <span data-i18n="chat_history_title">היסטוריית שאילתות</span></h4>
+          <button type="button" id="lesson-chat-history-close" class="lesson-chat-icon-btn" data-i18n-aria="chat_sidebar_close">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div id="lesson-chat-history-list" class="lesson-chat-history-list" role="list"></div>
+      </div>
+      <div id="lesson-chat-main-view" class="lesson-chat-main-view">
         <div id="lesson-chat-messages" class="lesson-chat-messages" role="log" aria-live="polite"></div>
         <p id="lesson-chat-status" class="lesson-chat-status hidden" role="status"></p>
         <footer class="lesson-chat-input-row">
@@ -2144,12 +2285,33 @@
           </button>
         </footer>
       </div>
-    </aside>
+    </div>
+  </aside>
 
   <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
     <button type="button" id="lesson-chat-fab" class="lesson-chat-fab" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי">
       <span class="lesson-chat-fab-label" data-i18n="chat_fab_label">עוזר פדגוגי לחץ עלי</span>
     </button>
+  </div>
+
+  <div id="lesson-chat-fullscreen" class="lesson-chat-fullscreen hidden" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="lesson-chat-fullscreen-backdrop" aria-hidden="true"></div>
+    <div class="lesson-chat-fullscreen-dialog">
+      <header class="lesson-chat-fullscreen-header">
+        <h3 data-i18n="chat_fullscreen_title">תשובת העוזר הפדגוגי</h3>
+        <button type="button" id="lesson-chat-collapse" class="lesson-chat-icon-btn" data-i18n-aria="chat_collapse_btn" title="כיווץ">
+          <i class="fa-solid fa-minus" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div id="lesson-chat-fullscreen-body" class="lesson-chat-fullscreen-body"></div>
+      <footer class="lesson-chat-fullscreen-footer">
+        <label for="lesson-chat-fullscreen-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
+        <textarea id="lesson-chat-fullscreen-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
+        <button type="button" id="lesson-chat-fullscreen-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
+          <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+        </button>
+      </footer>
+    </div>
   </div>
   </div>
 
@@ -2161,7 +2323,7 @@
   <script src="auth-subscription.js?v=20250617b"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250617f"></script>
+  <script src="chat-sidebar.js?v=20250617g"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
@@ -2687,8 +2849,6 @@
       if (!cacheKey || !session || !Array.isArray(session.messages) || !session.messages.length) return;
       if (typeof WaldorfAuth === 'undefined' || !WaldorfAuth.getState().isAuthenticated) return;
 
-      applyChatToPrimaryPlan(session.messages);
-
       let token = null;
       try { token = await WaldorfAuth.getAccessToken(); } catch (e) { return; }
       const contributor = WaldorfAuth.getContributorProfile();
@@ -2852,9 +3012,6 @@
           ragChunkIds: data.chatRagChunkIds || [],
           sessionKey: sessionKey,
         });
-        if ((data.chatHistory || []).length) {
-          applyChatToPrimaryPlan(data.chatHistory);
-        }
         LessonChatSidebar.openForLesson(false);
         LessonChatSidebar.updateVisibility();
         queueCommunityLessonSync();
@@ -3549,15 +3706,9 @@
     }
 
     function renderGradeInsightsPanel(gradeId, data, options) {
-      const opts = options || {};
       syncGradeInsightsTitle(gradeId);
       const gi = (data && data.gradeInsights) ? data.gradeInsights : {};
       let html = '';
-
-      if (opts.fromCache) {
-        html += '<p class="text-sm text-sage-dark font-semibold mb-3"><i class="fa-solid fa-bolt ml-1"></i> ' +
-          escapeHtml(t('grade_cache_hit')) + '</p>';
-      }
 
       const part1Html = gi.part1AgePictureHtml || gi.archivesSynthesisHtml || '';
       const part1Bullets = gi.part1DevelopmentBullets || gi.developmentBullets || [];
@@ -3588,7 +3739,7 @@
       if (sources.length) {
         html += '<p class="mt-3 text-walnut/60"><strong>' + escapeHtml(t('sources_label')) + ':</strong> ' + sources.map(escapeHtml).join(' · ') + '</p>';
       }
-      html += renderGradeInsightsChatEnrichments(gi.chatEnrichments);
+      html += renderGradeInsightsChatEnrichments([]);
       if (!html.trim()) {
         html = '<p class="text-walnut/70">' + escapeHtml(t('grade_insights_empty')) + '</p>';
       }
@@ -4675,6 +4826,19 @@
       return merged;
     }
 
+    function collectChatMessagesForExport() {
+      if (typeof LessonChatSidebar === 'undefined' || typeof LessonChatSidebar.getPersistableMessages !== 'function') {
+        return [];
+      }
+      return LessonChatSidebar.getPersistableMessages().map(function (m) {
+        return {
+          role: m.role,
+          text: m.text || '',
+          html: m.html || '',
+        };
+      });
+    }
+
     function collectPedagogySummaryDocumentData() {
       // שלבים א׳–ג׳ בלבד — ללא ארכיון הרצאות (#panel-archive)
       if (appState.aiGeneratedPlan) {
@@ -4709,6 +4873,7 @@
           connections: wr.connections || [],
         } : null,
         stepC: collectStepCPlanData(),
+        chatMessages: collectChatMessagesForExport(),
       };
     }
 
@@ -4788,8 +4953,7 @@
       const gi = docData.gradeInsights;
       const hasGradeContent = gi && (
         gi.part1Html || gi.part1Bullets.length || gi.part2Html || gi.part2Ideas.length ||
-        gi.part3Html || gi.part3Ideas.length || gi.globalCurricula.length || gi.typicalBlocks.length ||
-        (gi.chatEnrichments && gi.chatEnrichments.length)
+        gi.part3Html || gi.part3Ideas.length || gi.globalCurricula.length || gi.typicalBlocks.length
       );
       if (hasGradeContent) {
         docH2(t('export_doc_section_grade'));
@@ -4815,15 +4979,22 @@
         if (gi.typicalBlocks && gi.typicalBlocks.length) {
           docP(t('typical_blocks') + ': ' + gi.typicalBlocks.join(' · '));
         }
-        if (gi.chatEnrichments && gi.chatEnrichments.length) {
-          docH2(t('grade_chat_enrichments_title'));
-          gi.chatEnrichments.forEach(function (entry, index) {
-            if (!entry) return;
-            docH3(t('grade_chat_enrichment_q', { n: index + 1 }) + ': ' + (entry.question || ''));
-            if (entry.answerHtml) docHtmlBlock(entry.answerHtml);
-            else docP(entry.answer || '');
-          });
-        }
+      }
+
+      var chatMsgs = docData.chatMessages || [];
+      if (chatMsgs.length) {
+        docH2(t('chat_sidebar_title'));
+        var qNum = 0;
+        chatMsgs.forEach(function (m) {
+          if (!m) return;
+          if (m.role === 'user') {
+            qNum++;
+            docH3(t('grade_chat_enrichment_q', { n: qNum }) + ': ' + (m.text || ''));
+          } else if (m.role === 'assistant') {
+            if (m.html) docHtmlBlock(m.html);
+            else docP(m.text || '');
+          }
+        });
       }
 
       const wr = docData.webResearch;
@@ -5162,7 +5333,6 @@
       if (chatExportBtn) chatExportBtn.disabled = true;
       if (chatExportLabel) chatExportLabel.textContent = t('export_doc_generating');
       try {
-        syncChatIntoPrimaryPlan();
         queueCommunityLessonSync();
         const data = collectPedagogySummaryDocumentData();
         const blob = buildPedagogyDocxBlob(data);
@@ -8277,15 +8447,21 @@
           sendResearch: invokeWaldorfResearch,
           getLessonCacheKey: function () { return appState.lessonCacheKey || ''; },
           onSessionPersist: persistLessonChatSession,
-          onChatStateSync: function (payload) {
-            if (payload && payload.messages) {
-              applyChatToPrimaryPlan(payload.messages);
-              queueCommunityLessonSync();
-            }
+          onChatStateSync: function () {
+            queueCommunityLessonSync();
           },
           onGradeCacheUpdated: syncGradeCacheFromChat,
           canExportPedagogyDoc: canShowPedagogyExport,
           downloadPedagogyDocx: downloadPedagogySummaryDocx,
+          getAccessToken: function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getAccessToken() : Promise.resolve(null);
+          },
+          getTeacherProfile: function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getContributorProfile() : null;
+          },
+          isAuthenticated: function () {
+            return typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated;
+          },
           getUserFirstName: function () {
             if (typeof WaldorfAuth === 'undefined') return '';
             var profile = WaldorfAuth.getContributorProfile();
