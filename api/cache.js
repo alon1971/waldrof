@@ -1258,10 +1258,48 @@ function saveCachedResultAsync(body, resultData) {
   });
 }
 
+/** Dedupe key: same grade + normalized topic; falls back to cache_key when topic is empty. */
+function searchHistoryDedupeKey(item) {
+  if (!item) return '';
+  const gradeId = stableNormalize(item.gradeId || '');
+  const topicNorm = normalizeTopicQuery(item.topic || '');
+  if (topicNorm) return gradeId + '|' + topicNorm;
+  const cacheKey = String(item.cacheKey || '').trim();
+  if (cacheKey) return 'key|' + cacheKey;
+  return gradeId + '|' + stableNormalize(item.topic || '');
+}
+
+/**
+ * Keep one row per dedupe key (newest createdAt wins). Topic text comes from that row.
+ */
+function dedupeSearchHistoryItems(items, limit) {
+  const max = Math.max(Number(limit) || 20, 1);
+  const seen = new Set();
+  const out = [];
+  const sorted = (items || []).slice().sort(function (a, b) {
+    return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  });
+  for (let i = 0; i < sorted.length && out.length < max; i++) {
+    const item = sorted[i];
+    if (!item) continue;
+    const key = searchHistoryDedupeKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function searchHistoryFetchLimit(displayLimit) {
+  const limit = Math.max(Number(displayLimit) || 20, 1);
+  return Math.min(Math.max(limit * 5, 80), 200);
+}
+
 function listFallbackTeacherHistory(teacher, limit) {
   loadFallbackStore();
   const userId = String(teacher && teacher.id || '').trim();
   const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const fetchLimit = searchHistoryFetchLimit(limit);
   const rows = Array.from(fallbackStore.rows.values())
     .filter(function (row) {
       if (!row || row.phase !== 'topic' || !row.result_data) return false;
@@ -1272,9 +1310,9 @@ function listFallbackTeacherHistory(teacher, limit) {
     .sort(function (a, b) {
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     })
-    .slice(0, limit || 20);
+    .slice(0, fetchLimit);
 
-  return rows.map(formatHistoryItem);
+  return dedupeSearchHistoryItems(rows.map(formatHistoryItem), limit || 20);
 }
 
 function teacherOwnsRow(teacher, row) {
@@ -1310,6 +1348,7 @@ function formatHistoryItem(row, options) {
  */
 async function listTeacherSearchHistory(teacher, options) {
   const limit = (options && options.limit) || 20;
+  const fetchLimit = searchHistoryFetchLimit(limit);
   const userId = String(teacher && teacher.id || '').trim();
   const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
 
@@ -1321,7 +1360,7 @@ async function listTeacherSearchHistory(teacher, options) {
       params.set('select', 'cache_key,phase,grade_id,grade_label,topic,query_text,result_data,hit_count,created_at,last_hit_at');
       params.set('phase', 'eq.topic');
       params.set('order', 'created_at.desc');
-      params.set('limit', String(limit));
+      params.set('limit', String(fetchLimit));
 
       if (userId && userEmail) {
         params.set('or', '(user_id.eq.' + userId + ',user_email.eq.' + userEmail + ')');
@@ -1338,9 +1377,10 @@ async function listTeacherSearchHistory(teacher, options) {
       if (res.ok) {
         const rows = await res.json();
         if (Array.isArray(rows)) {
-          return rows
+          const items = rows
             .filter(function (row) { return row && row.result_data && row.result_data.blockPlan; })
             .map(formatHistoryItem);
+          return dedupeSearchHistoryItems(items, limit);
         }
       } else {
         const errText = await res.text();
