@@ -111,7 +111,11 @@ function serveStatic(req, res, pathname) {
       return res.end('Not found');
     }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+    if (ext === '.js' || ext === '.html') {
+      headers['Cache-Control'] = 'no-cache';
+    }
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
@@ -232,7 +236,14 @@ const server = http.createServer(async function (req, res) {
 
   if (pathname === '/health' || pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify({ ok: true, service: 'waldrof' }));
+    return res.end(JSON.stringify({
+      ok: true,
+      service: 'waldrof',
+      runtime: 'render-node',
+      generateHandler: 'handleGeneratePost',
+      cacheBackend: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+      perplexityKey: Boolean(process.env.PERPLEXITY_API_KEY || process.env.AI_API_KEY),
+    }));
   }
 
   if (pathname === '/api/generate') {

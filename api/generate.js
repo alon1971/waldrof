@@ -1327,10 +1327,10 @@ async function fetchHandler(request) {
   }
 }
 
-module.exports = {
-  executeGenerate: executeGenerate,
-  handleGeneratePost: handleGeneratePost,
-  legacyHandler: legacyHandler,
-  fetch: fetchHandler,
-  resolveApiKey: resolveApiKey,
-};
+// Default export for Vercel serverless; named props for Render (server.js → handleGeneratePost).
+module.exports = fetchHandler;
+module.exports.fetch = fetchHandler;
+module.exports.legacyHandler = legacyHandler;
+module.exports.handleGeneratePost = handleGeneratePost;
+module.exports.executeGenerate = executeGenerate;
+module.exports.resolveApiKey = resolveApiKey;
