@@ -2128,7 +2128,7 @@
   <script src="auth-subscription.js?v=20250617b"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250617d"></script>
+  <script src="chat-sidebar.js?v=20250617e"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
@@ -2616,8 +2616,19 @@
     }
 
     /** Attach Waldorf pedagogical guardrails to every research request sent to the server. */
+    function syncGradeCacheFromChat(payload) {
+      if (!payload || !payload.gradeInsights || !appState.grade) return;
+      if (!appState.gradeResearch) appState.gradeResearch = { gradeInsights: {} };
+      if (!appState.gradeResearch.gradeInsights) appState.gradeResearch.gradeInsights = {};
+      appState.gradeResearch.gradeInsights.chatEnrichments = payload.gradeInsights.chatEnrichments || [];
+      appState.gradeResearch.gradeInsights.lastChatEnrichmentAt = payload.gradeInsights.lastChatEnrichmentAt || null;
+      renderGradeInsightsPanel(appState.grade, appState.gradeResearch);
+      updatePedagogyExportButtonsVisibility();
+    }
+
     function prepareResearchPayload(payload) {
       const p = withAiLanguage(Object.assign({}, payload || {}));
+      if (p.skipCache) delete p.skipCache;
       if (!p.noUrlsInstruction) p.noUrlsInstruction = getNoUrlsInstruction();
       if (!p.noLatexInstruction) p.noLatexInstruction = getNoLatexInstruction();
       if (!p.prioritySearchInstruction) p.prioritySearchInstruction = getPrioritySourcesSearchInstruction();
@@ -3056,6 +3067,8 @@
       if (json.meta && result && typeof result === 'object') {
         result._meta = json.meta;
         if (json.meta.fromCache) result._fromCache = true;
+        if (json.meta.gradeCacheUpdated) result._gradeCacheUpdated = true;
+        if (json.meta.updatedGradeInsights) result._updatedGradeInsights = json.meta.updatedGradeInsights;
       } else if (json.meta && json.meta.fromCache && result && typeof result === 'object') {
         result._fromCache = true;
       }
@@ -3484,10 +3497,34 @@
         '</article>';
     }
 
-    function renderGradeInsightsPanel(gradeId, data) {
+    function renderGradeInsightsChatEnrichments(enrichments) {
+      if (!enrichments || !enrichments.length) return '';
+      let html = '<article class="grade-insights-part grade-insights-part--chat-enrichments">' +
+        '<h4 class="grade-insights-part-title"><i class="fa-solid fa-comments text-sage"></i> ' +
+        escapeHtml(t('grade_chat_enrichments_title')) + '</h4><div class="space-y-3">';
+      enrichments.slice().reverse().forEach(function (entry, index) {
+        if (!entry) return;
+        const q = entry.question || '';
+        const body = entry.answerHtml || ('<p>' + escapeHtml(entry.answer || '') + '</p>');
+        html += '<div class="rounded-xl border border-gold/30 bg-white/70 p-3">' +
+          '<p class="text-sm font-semibold text-walnut mb-2">' + escapeHtml(t('grade_chat_enrichment_q', { n: enrichments.length - index })) +
+          ': ' + escapeHtml(q) + '</p>' +
+          '<div class="leading-relaxed prose-ai">' + ensureAiHtml(body) + '</div></div>';
+      });
+      html += '</div></article>';
+      return html;
+    }
+
+    function renderGradeInsightsPanel(gradeId, data, options) {
+      const opts = options || {};
       syncGradeInsightsTitle(gradeId);
       const gi = (data && data.gradeInsights) ? data.gradeInsights : {};
       let html = '';
+
+      if (opts.fromCache) {
+        html += '<p class="text-sm text-sage-dark font-semibold mb-3"><i class="fa-solid fa-bolt ml-1"></i> ' +
+          escapeHtml(t('grade_cache_hit')) + '</p>';
+      }
 
       const part1Html = gi.part1AgePictureHtml || gi.archivesSynthesisHtml || '';
       const part1Bullets = gi.part1DevelopmentBullets || gi.developmentBullets || [];
@@ -3518,6 +3555,7 @@
       if (sources.length) {
         html += '<p class="mt-3 text-walnut/60"><strong>' + escapeHtml(t('sources_label')) + ':</strong> ' + sources.map(escapeHtml).join(' · ') + '</p>';
       }
+      html += renderGradeInsightsChatEnrichments(gi.chatEnrichments);
       if (!html.trim()) {
         html = '<p class="text-walnut/70">' + escapeHtml(t('grade_insights_empty')) + '</p>';
       }
@@ -4584,6 +4622,13 @@
         part3Ideas: mapGradeIdeasForExport(gi.part3CommunityIdeas || [], 'community'),
         globalCurricula: mapGlobalCurriculaForExport(gi.globalCurricula || []),
         typicalBlocks: gi.typicalBlocks || [],
+        chatEnrichments: (gi.chatEnrichments || []).map(function (entry) {
+          return {
+            question: entry.question || '',
+            answer: entry.answer || '',
+            answerHtml: entry.answerHtml || '',
+          };
+        }),
       };
       if (!domGi) return merged;
       if (!merged.part1Html && domGi.part1Html) merged.part1Html = domGi.part1Html;
@@ -4710,7 +4755,8 @@
       const gi = docData.gradeInsights;
       const hasGradeContent = gi && (
         gi.part1Html || gi.part1Bullets.length || gi.part2Html || gi.part2Ideas.length ||
-        gi.part3Html || gi.part3Ideas.length || gi.globalCurricula.length || gi.typicalBlocks.length
+        gi.part3Html || gi.part3Ideas.length || gi.globalCurricula.length || gi.typicalBlocks.length ||
+        (gi.chatEnrichments && gi.chatEnrichments.length)
       );
       if (hasGradeContent) {
         docH2(t('export_doc_section_grade'));
@@ -4735,6 +4781,15 @@
         }
         if (gi.typicalBlocks && gi.typicalBlocks.length) {
           docP(t('typical_blocks') + ': ' + gi.typicalBlocks.join(' · '));
+        }
+        if (gi.chatEnrichments && gi.chatEnrichments.length) {
+          docH2(t('grade_chat_enrichments_title'));
+          gi.chatEnrichments.forEach(function (entry, index) {
+            if (!entry) return;
+            docH3(t('grade_chat_enrichment_q', { n: index + 1 }) + ': ' + (entry.question || ''));
+            if (entry.answerHtml) docHtmlBlock(entry.answerHtml);
+            else docP(entry.answer || '');
+          });
         }
       }
 
@@ -6453,7 +6508,7 @@
             ? 'Incomplete AI response — grade insights missing. Please try again.'
             : 'תשובת AI לא שלמה — חסרה תמונת גיל. נסו שוב.');
         }
-        renderGradeInsightsPanel(grade, data);
+        renderGradeInsightsPanel(grade, data, { fromCache: Boolean(data && data._fromCache) });
       } catch (err) {
         if (runId !== gradeResearchRunId || signal.aborted || isGradeResearchAbortError(err)) return;
         if (isRateLimitError(err)) return;
@@ -8189,6 +8244,7 @@
               queueCommunityLessonSync();
             }
           },
+          onGradeCacheUpdated: syncGradeCacheFromChat,
           getUserFirstName: function () {
             if (typeof WaldorfAuth === 'undefined') return '';
             var profile = WaldorfAuth.getContributorProfile();

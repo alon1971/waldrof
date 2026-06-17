@@ -174,6 +174,155 @@ function extractChatAnswerText(resultData) {
   return '';
 }
 
+function stripHtmlSimple(html) {
+  return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function buildGradeCacheBody(body) {
+  const gradeId = body.currentGrade ?? body.gradeId;
+  if (!gradeId) return null;
+  return {
+    phase: 'grade',
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: body.gradeLabel || '',
+    age: body.age || '',
+  };
+}
+
+function buildTopicCacheBody(body) {
+  const topic = String(body.topic || '').trim();
+  const gradeId = body.currentGrade ?? body.gradeId;
+  if (!topic || !gradeId) return null;
+  return {
+    phase: 'topic',
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: body.gradeLabel || '',
+    topic: topic,
+    age: body.age || '',
+  };
+}
+
+function extractGradeInsightsText(resultData) {
+  if (!resultData || typeof resultData !== 'object') return '';
+  const gi = resultData.gradeInsights;
+  if (!gi || typeof gi !== 'object') return '';
+  const chunks = [];
+  if (gi.part1AgePictureHtml) chunks.push(stripHtmlSimple(gi.part1AgePictureHtml));
+  if (gi.archivesSynthesisHtml) chunks.push(stripHtmlSimple(gi.archivesSynthesisHtml));
+  if (gi.part2ClassroomIdeasHtml) chunks.push(stripHtmlSimple(gi.part2ClassroomIdeasHtml));
+  if (gi.part3CommunityExpansionsHtml) chunks.push(stripHtmlSimple(gi.part3CommunityExpansionsHtml));
+  (gi.part1DevelopmentBullets || gi.developmentBullets || []).forEach(function (item) {
+    if (typeof item === 'string') chunks.push(item);
+    else if (item && (item.text || item.detail || item.title)) {
+      chunks.push([item.title, item.text || item.detail].filter(Boolean).join(': '));
+    }
+  });
+  (gi.chatEnrichments || []).slice(-5).forEach(function (entry) {
+    if (!entry) return;
+    chunks.push('שאלת מורה: ' + (entry.question || '') + '\nתשובה מעודכנת: ' + (entry.answer || stripHtmlSimple(entry.answerHtml)));
+  });
+  return chunks.filter(Boolean).join('\n\n').slice(0, 10000);
+}
+
+/**
+ * Load cached grade insights for the current grade (step A record).
+ */
+async function lookupGradeCachedContext(body) {
+  const gradeBody = buildGradeCacheBody(body);
+  if (!gradeBody) return null;
+  const cacheKey = buildCacheKey(gradeBody);
+  const row = await fetchCachedRowByKey(cacheKey);
+  if (!row || !row.result_data || !extractGradeInsightsText(row.result_data)) return null;
+  bumpHitCountAsync(cacheKey, row.hit_count);
+  return {
+    cacheKey: cacheKey,
+    data: row.result_data,
+    matchType: 'grade',
+    queryText: row.query_text || gradeBody.gradeLabel || '',
+    hitCount: row.hit_count || 0,
+  };
+}
+
+/**
+ * Load cached topic lesson plan when grade + topic are set.
+ */
+async function lookupTopicCachedContext(body) {
+  const topicBody = buildTopicCacheBody(body);
+  if (!topicBody) return null;
+  const cacheKey = buildCacheKey(topicBody);
+  const row = await fetchCachedRowByKey(cacheKey);
+  if (!row || !row.result_data) return null;
+  bumpHitCountAsync(cacheKey, row.hit_count);
+  return {
+    cacheKey: cacheKey,
+    data: row.result_data,
+    matchType: 'topic',
+    queryText: row.query_text || topicBody.topic || '',
+    hitCount: row.hit_count || 0,
+  };
+}
+
+/**
+ * Merge an enriched chat reply back into the grade cache row (step A sync).
+ */
+async function mergeChatEnrichmentIntoGradeCache(body, chatResultData) {
+  const gradeBody = buildGradeCacheBody(body);
+  if (!gradeBody || !chatResultData || !chatResultData.chatReply) return null;
+
+  const answer = extractChatAnswerText(chatResultData);
+  const userMessage = String(body.userMessage || '').trim();
+  if (!answer || !userMessage) return null;
+
+  const cacheKey = buildCacheKey(gradeBody);
+  const existing = await fetchCachedRowByKey(cacheKey);
+  const resultData = existing && existing.result_data
+    ? JSON.parse(JSON.stringify(existing.result_data))
+    : { gradeInsights: {} };
+
+  if (!resultData.gradeInsights || typeof resultData.gradeInsights !== 'object') {
+    resultData.gradeInsights = {};
+  }
+
+  const enrichment = {
+    question: userMessage,
+    answer: answer,
+    answerHtml: chatResultData.chatReply.answerHtml || null,
+    topic: body.topic || null,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!Array.isArray(resultData.gradeInsights.chatEnrichments)) {
+    resultData.gradeInsights.chatEnrichments = [];
+  }
+
+  const normQ = stableNormalize(userMessage);
+  let replaced = false;
+  resultData.gradeInsights.chatEnrichments = resultData.gradeInsights.chatEnrichments.filter(function (entry) {
+    if (!entry) return false;
+    if (stableNormalize(entry.question) === normQ) {
+      replaced = true;
+      return false;
+    }
+    return true;
+  });
+  resultData.gradeInsights.chatEnrichments.push(enrichment);
+  if (resultData.gradeInsights.chatEnrichments.length > 24) {
+    resultData.gradeInsights.chatEnrichments = resultData.gradeInsights.chatEnrichments.slice(-24);
+  }
+  resultData.gradeInsights.lastChatEnrichmentAt = enrichment.updatedAt;
+  if (!replaced) {
+    resultData.gradeInsights.chatEnrichmentCount = (Number(resultData.gradeInsights.chatEnrichmentCount) || 0) + 1;
+  }
+
+  await setCachedResult(gradeBody, resultData);
+  return {
+    cacheKey: cacheKey,
+    gradeInsights: resultData.gradeInsights,
+  };
+}
+
 function scoreChatQuestionSimilarity(questionA, questionB) {
   const a = stableNormalize(questionA);
   const b = stableNormalize(questionB);
@@ -593,7 +742,11 @@ module.exports = {
   buildCacheKey,
   getCachedResult,
   lookupChatPriorAnswer,
+  lookupGradeCachedContext,
+  lookupTopicCachedContext,
   extractChatAnswerText,
+  extractGradeInsightsText,
+  mergeChatEnrichmentIntoGradeCache,
   setCachedResult,
   saveCachedResultAsync,
   isSupabaseCacheEnabled,

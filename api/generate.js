@@ -317,6 +317,42 @@ function buildPriorChatAnswerBlock(prior) {
   );
 }
 
+function buildPriorGradeCacheBlock(gradePrior) {
+  if (!gradePrior || !gradePrior.data) return '';
+  const priorText = cacheDb.extractGradeInsightsText(gradePrior.data);
+  if (!priorText) return '';
+
+  return (
+    '\n=== CACHED GRADE INSIGHTS (STEP A — SUPABASE cached_results) ===\n' +
+    'להלן תמונת הגיל והידע הקיים במאגר לכיתה שנבחרה. השתמש בזה כבסיס, חפש ברשת חומר נוסף מאומת, והרחב/עדכן כדי לייצר תשובה עשירה ומדויקת יותר.\n' +
+    'Do NOT discard verified prior content — refine, deepen, and extend it with live Steiner/anthroposophic search.\n\n' +
+    priorText +
+    '\n=== END CACHED GRADE INSIGHTS ===\n\n'
+  );
+}
+
+function buildPriorTopicCacheBlock(topicPrior) {
+  if (!topicPrior || !topicPrior.data) return '';
+  const data = topicPrior.data;
+  const chunks = [];
+  if (data.webResearch && data.webResearch.summary) {
+    chunks.push('סיכום מחקר נושא:\n' + String(data.webResearch.summary).replace(/<[^>]+>/g, ' ').trim());
+  }
+  if (data.blockPlan && data.blockPlan.theory && Array.isArray(data.blockPlan.theory.sections)) {
+    data.blockPlan.theory.sections.slice(0, 4).forEach(function (sec) {
+      if (sec && sec.content) chunks.push((sec.heading || 'תיאוריה') + ':\n' + String(sec.content).replace(/<[^>]+>/g, ' ').trim());
+    });
+  }
+  const text = chunks.filter(Boolean).join('\n\n').slice(0, 8000);
+  if (!text) return '';
+
+  return (
+    '\n=== CACHED TOPIC LESSON PLAN (SUPABASE cached_results) ===\n' +
+    text +
+    '\n=== END CACHED TOPIC PLAN ===\n\n'
+  );
+}
+
 const LAZY_LOAD_NOTE =
   'Do NOT include expansion, contentExpansion, artExpansion, or nested practical-expansion objects — expansions load on-demand via pedagogy_deep_dive.\n';
 
@@ -908,12 +944,16 @@ function buildUserPrompt(body) {
     const hasContext = Boolean(context.trim());
     const hasRag = Boolean(String(body.ragContext || '').trim());
     const priorBlock = buildPriorChatAnswerBlock(body.priorCachedAnswer);
+    const gradePriorBlock = buildPriorGradeCacheBlock(body.priorGradeCache);
+    const topicPriorBlock = buildPriorTopicCacheBlock(body.priorTopicCache);
 
     return (
       ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
+      gradePriorBlock +
+      topicPriorBlock +
       priorBlock +
       'You are the Pedagogical Chat Assistant helping a teacher with follow-up questions about their generated lesson plan.\n' +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
@@ -926,8 +966,14 @@ function buildUserPrompt(body) {
       historyBlock +
       'Teacher follow-up question: «' + question + '»\n\n' +
       'ANSWER STRATEGY (MANDATORY):\n' +
+      (gradePriorBlock
+        ? '0a. CACHED GRADE INSIGHTS (step A) are above — treat as authoritative baseline; enrich with live web search.\n'
+        : '') +
+      (topicPriorBlock
+        ? '0b. CACHED TOPIC LESSON PLAN is above — integrate when relevant.\n'
+        : '') +
       (priorBlock
-        ? '0. You have an EXISTING DATABASE ANSWER above — refine, correct, deepen, and expand it with live web search; output must be clearly richer than the prior version.\n'
+        ? '0c. You have an EXISTING DATABASE ANSWER above — refine, correct, deepen, and expand it with live web search; output must be clearly richer than the prior version.\n'
         : '') +
       '1. Perform LIVE WEB SEARCH for verified Rudolf Steiner / anthroposophic pedagogical material on this question.\n' +
       '2. Integrate lesson context and any knowledge_base excerpts when they add verified detail.\n' +
@@ -1144,6 +1190,11 @@ async function executeGenerate(body, apiKey) {
     throw err;
   }
 
+  // Step A (grade) must always consult Supabase cache — never bypass.
+  if (body.phase === 'grade') {
+    body.skipCache = false;
+  }
+
   if (!body.skipCache) {
     if (body.phase === 'chat_followup') {
       try {
@@ -1156,6 +1207,16 @@ async function executeGenerate(body, apiKey) {
             prior.cacheKey.slice(0, 12),
             prior.matchType === 'similar' ? ('sim=' + (prior.similarity || 0).toFixed(2)) : ''
           );
+        }
+        const gradePrior = await cacheDb.lookupGradeCachedContext(body);
+        if (gradePrior) {
+          body.priorGradeCache = gradePrior;
+          console.log('[cached_results] CHAT GRADE CONTEXT', gradePrior.cacheKey.slice(0, 12));
+        }
+        const topicPrior = await cacheDb.lookupTopicCachedContext(body);
+        if (topicPrior) {
+          body.priorTopicCache = topicPrior;
+          console.log('[cached_results] CHAT TOPIC CONTEXT', topicPrior.cacheKey.slice(0, 12));
         }
       } catch (priorErr) {
         console.warn('[cached_results] chat prior lookup failed:', priorErr.message || priorErr);
@@ -1219,8 +1280,8 @@ async function executeGenerate(body, apiKey) {
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (isChatFollowup
-      ? (body.priorCachedAnswer
-        ? ' PEDAGOGICAL CHAT ENRICHMENT: A prior answer exists in our database — refine, correct, deepen, and expand it using live Steiner/anthroposophic web search. Output must surpass the prior version.'
+      ? (body.priorCachedAnswer || body.priorGradeCache
+        ? ' PEDAGOGICAL CHAT ENRICHMENT: Prior cached grade insights and/or chat answers exist — refine, correct, deepen, and expand using live Steiner/anthroposophic web search. Output must surpass prior versions.'
         : ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
           'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.')
       : body.ragContext
@@ -1260,6 +1321,7 @@ async function executeGenerate(body, apiKey) {
     throw new Error('המודל החזיר מבנה נתונים חסר. נסו שוב בעוד רגע.');
   }
 
+  let gradeCachePatch = null;
   if (!body.skipCache) {
     try {
       if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
@@ -1267,11 +1329,20 @@ async function executeGenerate(body, apiKey) {
           data.chatReply.enrichedFromPrior = true;
           data.chatReply.priorMatchType = body.priorCachedAnswer.matchType || 'exact';
         }
+        if (body.priorGradeCache) {
+          data.chatReply.enrichedFromGradeCache = true;
+        }
       }
       const savedKey = await cacheDb.setCachedResult(body, data);
       if (savedKey) {
-        const action = body.priorCachedAnswer ? 'ENRICHED+SAVED' : 'SAVED';
+        const action = body.priorCachedAnswer || body.priorGradeCache ? 'ENRICHED+SAVED' : 'SAVED';
         console.log('[cached_results]', action, body.phase, savedKey.slice(0, 12), cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)');
+      }
+      if (body.phase === 'chat_followup' && data.chatReply) {
+        gradeCachePatch = await cacheDb.mergeChatEnrichmentIntoGradeCache(body, data);
+        if (gradeCachePatch) {
+          console.log('[cached_results] GRADE SYNC', gradeCachePatch.cacheKey.slice(0, 12));
+        }
       }
     } catch (cacheErr) {
       console.warn('[cached_results] save failed:', cacheErr.message || cacheErr);
@@ -1279,7 +1350,7 @@ async function executeGenerate(body, apiKey) {
   }
 
   const savedCacheKey = body.skipCache ? null : cacheDb.buildCacheKey(body);
-  const priorEnriched = Boolean(body.priorCachedAnswer);
+  const priorEnriched = Boolean(body.priorCachedAnswer || body.priorGradeCache);
 
   if (!body.skipKnowledgeIngest) {
     knowledgeIngest.ingestFromGenerateResultAsync(body, data);
@@ -1290,7 +1361,12 @@ async function executeGenerate(body, apiKey) {
     meta: {
       fromCache: false,
       priorCacheEnriched: priorEnriched,
-      priorMatchType: priorEnriched ? (body.priorCachedAnswer.matchType || 'exact') : undefined,
+      priorMatchType: priorEnriched
+        ? ((body.priorCachedAnswer && body.priorCachedAnswer.matchType) || (body.priorGradeCache ? 'grade' : 'exact'))
+        : undefined,
+      gradeCacheUpdated: Boolean(gradeCachePatch),
+      gradeCacheKey: gradeCachePatch ? gradeCachePatch.cacheKey : undefined,
+      updatedGradeInsights: gradeCachePatch ? gradeCachePatch.gradeInsights : undefined,
       cacheKey: savedCacheKey || undefined,
       table: cacheDb.TABLE_NAME,
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',

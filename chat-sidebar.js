@@ -32,6 +32,7 @@
     sendResearch: null,
     onSessionPersist: null,
     onChatStateSync: null,
+    onGradeCacheUpdated: null,
     getLessonCacheKey: function () { return ''; },
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -250,6 +251,12 @@
           lastReply: state.messages[state.messages.length - 1] || null,
         });
       }
+      if (meta.gradeCacheUpdated && typeof deps.onGradeCacheUpdated === 'function') {
+        deps.onGradeCacheUpdated({
+          gradeInsights: meta.updatedGradeInsights || null,
+          cacheKey: meta.gradeCacheKey || '',
+        });
+      }
       persistSession();
     }).catch(function (err) {
       if (err && err.code === 'RATE_LIMIT') return;
@@ -356,6 +363,7 @@
     if (typeof options.sendResearch === 'function') deps.sendResearch = options.sendResearch;
     if (typeof options.onSessionPersist === 'function') deps.onSessionPersist = options.onSessionPersist;
     if (typeof options.onChatStateSync === 'function') deps.onChatStateSync = options.onChatStateSync;
+    if (typeof options.onGradeCacheUpdated === 'function') deps.onGradeCacheUpdated = options.onGradeCacheUpdated;
     if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     try {
