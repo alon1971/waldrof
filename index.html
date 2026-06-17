@@ -1253,36 +1253,45 @@
 
     .lesson-chat-fab {
       position: relative;
-      width: 4.5rem;
-      height: 4.5rem;
-      border-radius: 50%;
+      min-height: 4rem;
+      border-radius: 9999px;
       background: linear-gradient(145deg, #7A9B76, #5C7D58);
       border: 2px solid rgba(255, 255, 255, 0.4);
       box-shadow:
         0 10px 25px -5px rgba(92, 125, 88, 0.5),
         0 8px 16px -4px rgba(92, 74, 58, 0.22);
       cursor: pointer;
-      display: flex;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0;
+      padding: 0.75rem 2rem;
       color: #fff;
+      font-family: inherit;
+      font-size: 1.125rem !important;
+      font-weight: 700;
+      line-height: 1.35;
+      text-align: center;
+      white-space: nowrap;
       pointer-events: auto;
       transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     .lesson-chat-fab:hover {
-      transform: scale(1.06);
+      transform: scale(1.03);
       box-shadow:
         0 14px 32px -5px rgba(92, 125, 88, 0.55),
         0 10px 20px -6px rgba(92, 74, 58, 0.26);
     }
     .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
-    .lesson-chat-fab-icon {
-      font-size: 1.875rem;
-      line-height: 1;
-      pointer-events: none;
+    .lesson-chat-fab-label { display: block; pointer-events: none; }
+    @media (max-width: 480px) {
+      .lesson-chat-fab {
+        min-height: 3.5rem;
+        padding: 0.65rem 1.5rem;
+        font-size: 1rem !important;
+        white-space: normal;
+        max-width: min(18rem, calc(100vw - 2rem));
+      }
     }
-    .lesson-chat-fab-label { display: block; pointer-events: none; max-width: 7.5rem; }
 
     .lesson-chat-sidebar {
       position: fixed;
@@ -2418,9 +2427,8 @@
   </aside>
 
   <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
-    <button type="button" id="lesson-chat-fab" class="lesson-chat-fab" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי">
-      <i class="fa-solid fa-comments lesson-chat-fab-icon" aria-hidden="true"></i>
-      <span class="sr-only lesson-chat-fab-label" data-i18n="chat_fab_label">עוזר פדגוגי לחץ עלי</span>
+    <button type="button" id="lesson-chat-fab" class="lesson-chat-fab" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
+      <span class="lesson-chat-fab-label" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
     </button>
   </div>
 
