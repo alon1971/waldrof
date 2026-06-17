@@ -20,8 +20,30 @@ function isIngestEnabled() {
   return Boolean(cfg.url && cfg.key);
 }
 
-async function supabaseInsert(rows) {
+async function supabaseInsert(rows, schema) {
   const cfg = getSupabaseConfig();
+  const payload = rows.map(function (row) {
+    if (schema === 'legacy') {
+      return {
+        content: row.content,
+        document_title: row.title,
+        source_author: row.author || null,
+        source_type: 'article',
+      };
+    }
+    if (schema === 'minimal') {
+      return {
+        content: row.content,
+        title: row.title,
+      };
+    }
+    return {
+      content: row.content,
+      title: row.title,
+      author: row.author || null,
+    };
+  });
+
   const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME, {
     method: 'POST',
     headers: {
@@ -30,14 +52,41 @@ async function supabaseInsert(rows) {
       Authorization: 'Bearer ' + cfg.key,
       Prefer: 'return=representation',
     },
-    body: JSON.stringify(rows),
+    body: JSON.stringify(payload),
   });
 
   const text = await res.text();
   if (!res.ok) {
-    throw new Error('knowledge_base insert failed (' + res.status + '): ' + text.slice(0, 300));
+    const err = new Error('knowledge_base insert failed (' + res.status + '): ' + text.slice(0, 300));
+    err.statusCode = res.status;
+    err.responseText = text;
+    throw err;
   }
   return text ? JSON.parse(text) : [];
+}
+async function supabaseInsertRows(rows) {
+  try {
+    return await supabaseInsert(rows, 'app');
+  } catch (err) {
+    if (isMissingAuthorColumn(err)) {
+      return supabaseInsert(rows, 'minimal');
+    }
+    if (isMissingAppColumns(err)) {
+      return supabaseInsert(rows, 'legacy');
+    }
+    throw err;
+  }
+}
+
+function isMissingAuthorColumn(err) {
+  const msg = String((err && err.message) || err || '');
+  return /Could not find the 'author' column/i.test(msg);
+}
+
+function isMissingAppColumns(err) {
+  const msg = String((err && err.message) || err || '');
+  return /Could not find the '(title|author)' column/i.test(msg)
+    || /PGRST204.*(title|author)/i.test(msg);
 }
 
 function buildRowsFromChunks(chunkList, meta) {
@@ -74,7 +123,7 @@ async function insertKnowledgeText(text, meta) {
   let inserted = 0;
 
   for (let i = 0; i < rows.length; i += batchSize) {
-    const saved = await supabaseInsert(rows.slice(i, i + batchSize));
+    const saved = await supabaseInsertRows(rows.slice(i, i + batchSize));
     inserted += Array.isArray(saved) ? saved.length : 0;
   }
 

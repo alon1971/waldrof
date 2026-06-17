@@ -9,18 +9,18 @@
   var STORAGE_USAGE = 'waldorf_search_usage_v1';
 
   /** Hidden fair-use cap for Expert tier (not shown in UI). */
-  var EXPERT_FAIR_USE_CAP = 400;
+  var EXPERT_FAIR_USE_CAP = 1000;
 
   var TIERS = {
     trial: {
       id: 'trial',
-      dailyLimit: 20,
+      dailyLimit: 1000,
       displayUnlimited: false,
       prices: { monthly: 0, yearly: 0 },
     },
     educator: {
       id: 'educator',
-      dailyLimit: 50,
+      dailyLimit: 1000,
       displayUnlimited: false,
       prices: { monthly: 50, yearly: 400 },
     },
