@@ -360,7 +360,7 @@ async function lookupGradeCachedContext(body) {
   const gradeBody = buildGradeCacheBody(body);
   if (!gradeBody) return null;
   const cacheKey = buildCacheKey(gradeBody);
-  const row = await fetchCachedRowByKey(cacheKey);
+  const row = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
   const data = coerceCachedResultData(row && row.result_data);
   if (!row || !data || !extractGradeInsightsText(data)) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
@@ -405,7 +405,7 @@ async function mergeChatEnrichmentIntoGradeCache(body, chatResultData) {
   if (!answer || !userMessage) return null;
 
   const cacheKey = buildCacheKey(gradeBody);
-  const existing = await fetchCachedRowByKey(cacheKey);
+  const existing = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
   const coerced = existing && existing.result_data
     ? coerceCachedResultData(existing.result_data)
     : null;
@@ -471,6 +471,166 @@ function scoreChatQuestionSimilarity(questionA, questionB) {
   return overlap / Math.max(wordsA.length, wordsB.size);
 }
 
+const GRADE_LABEL_BY_ID = {
+  '1': 'כיתה א׳',
+  '2': 'כיתה ב׳',
+  '3': 'כיתה ג׳',
+  '4': 'כיתה ד׳',
+  '5': 'כיתה ה׳',
+  '6': 'כיתה ו׳',
+  '7': 'כיתה ז׳',
+  '8': 'כיתה ח׳',
+};
+
+const LEGACY_ROW_SELECT =
+  'cache_key,phase,grade_id,grade_label,topic,query_text,result_data,hit_count,created_at,last_hit_at,user_id,user_email';
+
+function gradeLabelSearchVariants(gradeId, gradeLabel) {
+  const variants = [];
+  const seen = new Set();
+  function add(value) {
+    const text = String(value || '').trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    variants.push(text);
+  }
+  const id = String(gradeId || '').trim();
+  if (id && GRADE_LABEL_BY_ID[id]) add(GRADE_LABEL_BY_ID[id]);
+  add(gradeLabel);
+  return variants;
+}
+
+function pickValidLegacyGradeRow(rows, newCacheKey) {
+  if (!Array.isArray(rows)) return null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !row.result_data || row.cache_key === newCacheKey) continue;
+    if (normalizeGradeResultForCache(coerceCachedResultData(row.result_data))) return row;
+  }
+  return null;
+}
+
+function lookupLegacyGradeInFallback(body, newCacheKey) {
+  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
+  if (!gradeId) return null;
+  const labels = gradeLabelSearchVariants(gradeId, body.gradeLabel);
+  loadFallbackStore();
+  let best = null;
+  fallbackStore.rows.forEach(function (row) {
+    if (!row || row.phase !== 'grade' || !row.result_data || row.cache_key === newCacheKey) return;
+    const rowGradeId = String(row.grade_id || '').trim();
+    const matchesId = rowGradeId === gradeId;
+    const matchesText = labels.some(function (lbl) {
+      const qt = String(row.query_text || '');
+      const gl = String(row.grade_label || '');
+      return qt.indexOf(lbl) >= 0 || gl.indexOf(lbl) >= 0;
+    });
+    if (!matchesId && !matchesText) return;
+    if (!normalizeGradeResultForCache(coerceCachedResultData(row.result_data))) return;
+    best = row;
+  });
+  return best;
+}
+
+/**
+ * Fallback for rows saved under the old cache-key scheme (or keyed only by Hebrew label text).
+ */
+async function lookupLegacyGradeCachedRow(body, newCacheKey) {
+  if (!body || body.phase !== 'grade' || !newCacheKey) return null;
+  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
+  if (!gradeId) return null;
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const byIdParams = new URLSearchParams();
+      byIdParams.set('select', LEGACY_ROW_SELECT);
+      byIdParams.set('phase', 'eq.grade');
+      byIdParams.set('grade_id', 'eq.' + gradeId);
+      byIdParams.set('order', 'hit_count.desc,created_at.desc');
+      byIdParams.set('limit', '8');
+
+      const byIdRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + byIdParams.toString(), {
+        method: 'GET',
+      });
+      if (byIdRes.ok) {
+        const match = pickValidLegacyGradeRow(await byIdRes.json(), newCacheKey);
+        if (match) return match;
+      }
+
+      const labels = gradeLabelSearchVariants(gradeId, body.gradeLabel);
+      for (let i = 0; i < labels.length; i++) {
+        const label = labels[i];
+        const textParams = new URLSearchParams();
+        textParams.set('select', LEGACY_ROW_SELECT);
+        textParams.set('phase', 'eq.grade');
+        textParams.set('or', '(query_text.ilike.*' + label + '*,grade_label.ilike.*' + label + '*)');
+        textParams.set('order', 'hit_count.desc,created_at.desc');
+        textParams.set('limit', '8');
+
+        const textRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + textParams.toString(), {
+          method: 'GET',
+        });
+        if (!textRes.ok) continue;
+        const textMatch = pickValidLegacyGradeRow(await textRes.json(), newCacheKey);
+        if (textMatch) return textMatch;
+      }
+    } catch (err) {
+      console.warn('[cached_results] legacy grade lookup failed:', err.message || err);
+    }
+  }
+
+  return lookupLegacyGradeInFallback(body, newCacheKey);
+}
+
+/**
+ * Re-key a legacy row to the simplified cache_key (upsert). Never deletes the legacy row's data.
+ */
+async function migrateLegacyRowCacheKey(legacyRow, body, newCacheKey) {
+  if (!legacyRow || !newCacheKey || legacyRow.cache_key === newCacheKey) return false;
+
+  const data = normalizeGradeResultForCache(coerceCachedResultData(legacyRow.result_data));
+  if (!data) return false;
+
+  const existingNew = await fetchCachedRowByKey(newCacheKey);
+  if (existingNew && existingNew.result_data && normalizeGradeResultForCache(coerceCachedResultData(existingNew.result_data))) {
+    return false;
+  }
+
+  const row = buildRow(newCacheKey, body, data);
+  row.hit_count = Number(legacyRow.hit_count) || 0;
+  if (legacyRow.user_id) row.user_id = legacyRow.user_id;
+  if (legacyRow.user_email) row.user_email = legacyRow.user_email;
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const upsertRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?on_conflict=cache_key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(row),
+      });
+      if (upsertRes.ok) {
+        console.log(
+          '[cached_results] LEGACY MIGRATE',
+          String(legacyRow.cache_key).slice(0, 12),
+          '->',
+          newCacheKey.slice(0, 12)
+        );
+        return true;
+      }
+      const errText = await upsertRes.text();
+      console.warn('[cached_results] legacy migrate upsert error', upsertRes.status, errText.slice(0, 200));
+    } catch (err) {
+      console.warn('[cached_results] legacy migrate failed:', err.message || err);
+    }
+  }
+
+  loadFallbackStore();
+  row.created_at = legacyRow.created_at || new Date().toISOString();
+  fallbackStore.rows.set(newCacheKey, row);
+  persistFallbackStore();
+  return true;
+}
+
 async function fetchCachedRowByKey(cacheKey) {
   if (!cacheKey) return null;
 
@@ -479,22 +639,34 @@ async function fetchCachedRowByKey(cacheKey) {
       const res = await supabaseRequest(
         '/rest/v1/' + TABLE_NAME +
         '?cache_key=eq.' + encodeURIComponent(cacheKey) +
-        '&select=cache_key,query_text,result_data,hit_count,phase,topic,grade_id&limit=1',
+        '&select=' + LEGACY_ROW_SELECT + '&limit=1',
         { method: 'GET' }
       );
       if (res.ok) {
         const rows = await res.json();
-        const row = Array.isArray(rows) ? rows[0] : null;
-        if (row && row.result_data) return row;
+        if (Array.isArray(rows) && rows[0]) return rows[0];
       }
     } catch (err) {
-      console.warn('[cached_results] row fetch failed:', err.message || err);
+      console.warn('[cached_results] fetch by key failed:', err.message || err);
     }
   }
 
   loadFallbackStore();
-  const fallback = fallbackStore.rows.get(cacheKey);
-  if (fallback && fallback.result_data) return fallback;
+  return fallbackStore.rows.get(cacheKey) || null;
+}
+
+async function resolveCachedRowWithLegacyFallback(body, cacheKey) {
+  const row = await fetchCachedRowByKey(cacheKey);
+  if (row && row.result_data) return row;
+
+  if (body && body.phase === 'grade') {
+    const legacyRow = await lookupLegacyGradeCachedRow(body, cacheKey);
+    if (legacyRow && legacyRow.result_data) {
+      await migrateLegacyRowCacheKey(legacyRow, body, cacheKey);
+      return legacyRow;
+    }
+  }
+
   return null;
 }
 
@@ -592,7 +764,7 @@ async function getCachedResult(body) {
     return null;
   }
 
-  const row = await fetchCachedRowByKey(cacheKey);
+  const row = await resolveCachedRowWithLegacyFallback(body, cacheKey);
   let data = row && row.result_data ? coerceCachedResultData(row.result_data) : null;
 
   if (!data) {
@@ -628,6 +800,7 @@ async function getCachedResult(body) {
       cacheKey: cacheKey,
       table: TABLE_NAME,
       source: isSupabaseCacheEnabled() ? 'supabase' : 'fallback',
+      legacyMigrated: row.cache_key !== cacheKey,
     },
   };
 }
@@ -897,30 +1070,6 @@ async function listTeacherChatHistory(teacher, options) {
   }
 
   return listFallbackTeacherChatHistory(teacher, limit, { gradeId: gradeId, topic: topic });
-}
-
-async function fetchCachedRowByKey(cacheKey) {
-  if (!cacheKey) return null;
-
-  if (isSupabaseCacheEnabled()) {
-    try {
-      const res = await supabaseRequest(
-        '/rest/v1/' + TABLE_NAME +
-        '?cache_key=eq.' + encodeURIComponent(cacheKey) +
-        '&select=cache_key,phase,grade_id,grade_label,topic,query_text,result_data,hit_count,created_at,last_hit_at,user_id,user_email&limit=1',
-        { method: 'GET' }
-      );
-      if (res.ok) {
-        const rows = await res.json();
-        if (Array.isArray(rows) && rows[0]) return rows[0];
-      }
-    } catch (err) {
-      console.warn('[cached_results] fetch by key failed:', err.message || err);
-    }
-  }
-
-  loadFallbackStore();
-  return fallbackStore.rows.get(cacheKey) || null;
 }
 
 /**
