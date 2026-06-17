@@ -199,17 +199,11 @@ function coerceCachedResultData(raw) {
   if (typeof data === 'string') {
     const text = data.trim();
     if (!text) return null;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      return null;
-    }
+    data = tryParseCachedJsonText(text);
+    if (data == null) return null;
     if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data.trim());
-      } catch (e2) {
-        return null;
-      }
+      data = tryParseCachedJsonText(data);
+      if (data == null) return null;
     }
   }
 
@@ -254,6 +248,91 @@ function cloneJsonSafe(value) {
   } catch (e) {
     return null;
   }
+}
+
+/** Strip bytes/surrogates that break JSON.stringify or corrupt Supabase jsonb. */
+function sanitizeJsonString(text) {
+  if (text == null) return text;
+  return String(text)
+    .replace(/\u0000/g, '')
+    .replace(/[\uD800-\uDFFF]/g, '');
+}
+
+/**
+ * Deep-clone a value into JSON-safe plain data (no undefined, no BigInt, no cycles).
+ */
+function sanitizeForJsonStorage(value, depth) {
+  if (depth == null) depth = 0;
+  if (depth > 40) return null;
+  if (value == null) return value;
+  if (typeof value === 'string') return sanitizeJsonString(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'bigint') return String(value);
+  if (Array.isArray(value)) {
+    return value.map(function (item) {
+      return sanitizeForJsonStorage(item, depth + 1);
+    });
+  }
+  if (typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach(function (key) {
+      const v = value[key];
+      if (v === undefined) return;
+      out[key] = sanitizeForJsonStorage(v, depth + 1);
+    });
+    return out;
+  }
+  return sanitizeJsonString(value);
+}
+
+function tryParseCachedJsonText(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return null;
+  const attempts = [
+    trimmed,
+    trimmed.replace(/,\s*([}\]])/g, '$1'),
+    trimmed
+      .replace(/[\u201c\u201d\u05f4]/g, '"')
+      .replace(/[\u2018\u2019\u05f3]/g, "'")
+      .replace(/,\s*([}\]])/g, '$1'),
+  ];
+  const seen = new Set();
+  for (let i = 0; i < attempts.length; i++) {
+    const candidate = attempts[i];
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {
+      /* try next repair candidate */
+    }
+  }
+  return null;
+}
+
+/** JSON.stringify with sanitization — never throws. */
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(sanitizeForJsonStorage(value));
+  } catch (e) {
+    try {
+      return JSON.stringify({ error: 'serialize_failed' });
+    } catch (e2) {
+      return '{}';
+    }
+  }
+}
+
+function sanitizeChatEnrichmentEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  return {
+    question: sanitizeJsonString(entry.question || ''),
+    answer: sanitizeJsonString(entry.answer || ''),
+    answerHtml: entry.answerHtml != null ? sanitizeJsonString(entry.answerHtml) : null,
+    topic: entry.topic != null ? sanitizeJsonString(entry.topic) : null,
+    updatedAt: entry.updatedAt || new Date().toISOString(),
+  };
 }
 
 function isValidCachedPayload(phase, data) {
@@ -357,20 +436,26 @@ function extractGradeInsightsText(resultData) {
  * Load cached grade insights for the current grade (step A record).
  */
 async function lookupGradeCachedContext(body) {
-  const gradeBody = buildGradeCacheBody(body);
-  if (!gradeBody) return null;
-  const cacheKey = buildCacheKey(gradeBody);
-  const row = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
-  const data = coerceCachedResultData(row && row.result_data);
-  if (!row || !data || !extractGradeInsightsText(data)) return null;
-  bumpHitCountAsync(cacheKey, row.hit_count);
-  return {
-    cacheKey: cacheKey,
-    data: data,
-    matchType: 'grade',
-    queryText: row.query_text || gradeBody.gradeLabel || '',
-    hitCount: row.hit_count || 0,
-  };
+  try {
+    const gradeBody = buildGradeCacheBody(body);
+    if (!gradeBody) return null;
+    const cacheKey = buildCacheKey(gradeBody);
+    const row = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
+    const data = coerceCachedResultData(row && row.result_data);
+    if (!row || !data || !extractGradeInsightsText(data)) return null;
+    bumpHitCountAsync(cacheKey, row.hit_count);
+    const safeData = sanitizeForJsonStorage(data);
+    return {
+      cacheKey: cacheKey,
+      data: safeData || data,
+      matchType: 'grade',
+      queryText: row.query_text || gradeBody.gradeLabel || '',
+      hitCount: row.hit_count || 0,
+    };
+  } catch (err) {
+    console.warn('[cached_results] grade context lookup failed:', err.message || err);
+    return null;
+  }
 }
 
 /**
@@ -397,62 +482,82 @@ async function lookupTopicCachedContext(body) {
  * Merge an enriched chat reply back into the grade cache row (step A sync).
  */
 async function mergeChatEnrichmentIntoGradeCache(body, chatResultData) {
-  const gradeBody = buildGradeCacheBody(body);
-  if (!gradeBody || !chatResultData || !chatResultData.chatReply) return null;
+  try {
+    const gradeBody = buildGradeCacheBody(body);
+    if (!gradeBody || !chatResultData || !chatResultData.chatReply) return null;
 
-  const answer = extractChatAnswerText(chatResultData);
-  const userMessage = String(body.userMessage || '').trim();
-  if (!answer || !userMessage) return null;
+    const answer = extractChatAnswerText(chatResultData);
+    const userMessage = sanitizeJsonString(String(body.userMessage || '').trim());
+    if (!answer || !userMessage) return null;
 
-  const cacheKey = buildCacheKey(gradeBody);
-  const existing = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
-  const coerced = existing && existing.result_data
-    ? coerceCachedResultData(existing.result_data)
-    : null;
-  const resultData = coerced
-    ? cloneJsonSafe(coerced) || coerced
-    : { gradeInsights: {} };
+    const cacheKey = buildCacheKey(gradeBody);
+    const existing = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
+    const coerced = existing && existing.result_data
+      ? coerceCachedResultData(existing.result_data)
+      : null;
 
-  if (!resultData.gradeInsights || typeof resultData.gradeInsights !== 'object') {
-    resultData.gradeInsights = {};
-  }
-
-  const enrichment = {
-    question: userMessage,
-    answer: answer,
-    answerHtml: chatResultData.chatReply.answerHtml || null,
-    topic: body.topic || null,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (!Array.isArray(resultData.gradeInsights.chatEnrichments)) {
-    resultData.gradeInsights.chatEnrichments = [];
-  }
-
-  const normQ = stableNormalize(userMessage);
-  let replaced = false;
-  resultData.gradeInsights.chatEnrichments = resultData.gradeInsights.chatEnrichments.filter(function (entry) {
-    if (!entry) return false;
-    if (stableNormalize(entry.question) === normQ) {
-      replaced = true;
-      return false;
+    if (existing && existing.result_data && !coerced) {
+      console.warn('[cached_results] grade merge skipped — unreadable cached row', cacheKey.slice(0, 12));
+      return null;
     }
-    return true;
-  });
-  resultData.gradeInsights.chatEnrichments.push(enrichment);
-  if (resultData.gradeInsights.chatEnrichments.length > 24) {
-    resultData.gradeInsights.chatEnrichments = resultData.gradeInsights.chatEnrichments.slice(-24);
-  }
-  resultData.gradeInsights.lastChatEnrichmentAt = enrichment.updatedAt;
-  if (!replaced) {
-    resultData.gradeInsights.chatEnrichmentCount = (Number(resultData.gradeInsights.chatEnrichmentCount) || 0) + 1;
-  }
 
-  await setCachedResult(gradeBody, resultData);
-  return {
-    cacheKey: cacheKey,
-    gradeInsights: resultData.gradeInsights,
-  };
+    const resultData = coerced
+      ? sanitizeForJsonStorage(cloneJsonSafe(coerced) || coerced)
+      : { gradeInsights: {} };
+    if (!resultData || typeof resultData !== 'object') return null;
+
+    if (!resultData.gradeInsights || typeof resultData.gradeInsights !== 'object' || Array.isArray(resultData.gradeInsights)) {
+      resultData.gradeInsights = {};
+    }
+
+    const enrichment = sanitizeChatEnrichmentEntry({
+      question: userMessage,
+      answer: sanitizeJsonString(answer),
+      answerHtml: chatResultData.chatReply.answerHtml || null,
+      topic: body.topic || null,
+      updatedAt: new Date().toISOString(),
+    });
+    if (!enrichment) return null;
+
+    if (!Array.isArray(resultData.gradeInsights.chatEnrichments)) {
+      resultData.gradeInsights.chatEnrichments = [];
+    } else {
+      resultData.gradeInsights.chatEnrichments = resultData.gradeInsights.chatEnrichments
+        .map(sanitizeChatEnrichmentEntry)
+        .filter(Boolean);
+    }
+
+    const normQ = stableNormalize(userMessage);
+    let replaced = false;
+    resultData.gradeInsights.chatEnrichments = resultData.gradeInsights.chatEnrichments.filter(function (entry) {
+      if (!entry) return false;
+      if (stableNormalize(entry.question) === normQ) {
+        replaced = true;
+        return false;
+      }
+      return true;
+    });
+    resultData.gradeInsights.chatEnrichments.push(enrichment);
+    if (resultData.gradeInsights.chatEnrichments.length > 24) {
+      resultData.gradeInsights.chatEnrichments = resultData.gradeInsights.chatEnrichments.slice(-24);
+    }
+    resultData.gradeInsights.lastChatEnrichmentAt = enrichment.updatedAt;
+    if (!replaced) {
+      resultData.gradeInsights.chatEnrichmentCount = (Number(resultData.gradeInsights.chatEnrichmentCount) || 0) + 1;
+    }
+
+    const savedKey = await setCachedResult(gradeBody, resultData);
+    if (!savedKey) return null;
+
+    const safeInsights = sanitizeForJsonStorage(resultData.gradeInsights);
+    return {
+      cacheKey: cacheKey,
+      gradeInsights: safeInsights || resultData.gradeInsights,
+    };
+  } catch (err) {
+    console.warn('[cached_results] grade chat enrichment merge failed:', err.message || err);
+    return null;
+  }
 }
 
 function scoreChatQuestionSimilarity(questionA, questionB) {
@@ -890,7 +995,10 @@ async function setCachedResult(body, resultData) {
   const cacheKey = buildCacheKey(body);
   if (!cacheKey || !resultData) return null;
 
-  const row = buildRow(cacheKey, body, resultData);
+  const safeResultData = sanitizeForJsonStorage(resultData);
+  if (!safeResultData) return null;
+
+  const row = buildRow(cacheKey, body, safeResultData);
   const existing = await fetchCachedRowByKey(cacheKey);
   if (existing && existing.hit_count != null) {
     row.hit_count = Number(existing.hit_count) || 0;
@@ -904,7 +1012,7 @@ async function setCachedResult(body, resultData) {
         headers: {
           Prefer: 'resolution=merge-duplicates,return=minimal',
         },
-        body: JSON.stringify(row),
+        body: safeJsonStringify(row),
       });
 
       if (res.ok) {
@@ -920,7 +1028,7 @@ async function setCachedResult(body, resultData) {
         {
           method: 'PATCH',
           headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({
+          body: safeJsonStringify({
             phase: row.phase,
             grade_id: row.grade_id,
             grade_label: row.grade_label,
@@ -943,7 +1051,7 @@ async function setCachedResult(body, resultData) {
     }
   }
 
-  setFallbackCached(cacheKey, body, resultData);
+  setFallbackCached(cacheKey, body, safeResultData);
   return cacheKey;
 }
 
@@ -1164,7 +1272,7 @@ async function saveTopicChatSession(teacher, cacheKey, session) {
   if (!row || row.phase !== 'topic') return false;
   if (!teacherOwnsRow(teacher, row)) return false;
 
-  const data = Object.assign({}, row.result_data || {});
+  const data = Object.assign({}, coerceCachedResultData(row.result_data) || {});
   const messages = Array.isArray(session && session.messages) ? session.messages : [];
   data.chatHistory = messages.slice(-40).map(function (m) {
     return {
@@ -1219,6 +1327,8 @@ module.exports = {
   normalizeGradeCacheRequest,
   normalizeGradeResultForCache,
   coerceCachedResultData,
+  sanitizeForJsonStorage,
+  safeJsonStringify,
   buildCachedGeneratePayload,
   getCachedResult,
   lookupChatPriorAnswer,

@@ -1135,7 +1135,7 @@ function buildGenerateHttpPayload(result) {
   }
 
   const meta = result.meta && typeof result.meta === 'object'
-    ? Object.assign({}, result.meta)
+    ? cacheDb.sanitizeForJsonStorage(Object.assign({}, result.meta))
     : { fromCache: false };
 
   let data = result.data !== undefined ? result.data : result;
@@ -1144,6 +1144,8 @@ function buildGenerateHttpPayload(result) {
   if (typeof data === 'string') {
     data = cacheDb.coerceCachedResultData(data);
   }
+
+  data = cacheDb.sanitizeForJsonStorage(data);
 
   if (meta.fromCache) {
     if (!data || typeof data !== 'object') {
@@ -1305,7 +1307,8 @@ async function executeGenerate(body, apiKey) {
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (isChatFollowup
-      ? (body.priorCachedAnswer || body.priorGradeCache
+      ? JSON_RESPONSE_ENFORCEMENT +
+        (body.priorCachedAnswer || body.priorGradeCache
         ? ' PEDAGOGICAL CHAT ENRICHMENT: Prior cached grade insights and/or chat answers exist — refine, correct, deepen, and expand using live Steiner/anthroposophic web search. Output must surpass prior versions.'
         : ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
           'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.')
@@ -1344,6 +1347,10 @@ async function executeGenerate(body, apiKey) {
   if (!validatePhaseResult(body.phase, data)) {
     console.error('[generate] Parsed JSON missing required fields for phase', body.phase);
     throw new Error('המודל החזיר מבנה נתונים חסר. נסו שוב בעוד רגע.');
+  }
+
+  if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
+    data.chatReply = cacheDb.sanitizeForJsonStorage(data.chatReply);
   }
 
   let gradeCachePatch = null;
@@ -1405,7 +1412,7 @@ async function executeGenerate(body, apiKey) {
 function sendJson(res, statusCode, payload) {
   setCors(res);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  return res.status(statusCode).json(payload);
+  return res.status(statusCode).send(cacheDb.safeJsonStringify(payload));
 }
 
 /** Legacy Node (req, res) handler — used by dev-server.js locally. */
@@ -1478,7 +1485,11 @@ async function fetchHandler(request) {
 
   try {
     const result = await handleGeneratePost(body);
-    return Response.json(buildGenerateHttpPayload(result), { status: 200, headers });
+    const payload = buildGenerateHttpPayload(result);
+    return new Response(cacheDb.safeJsonStringify(payload), {
+      status: 200,
+      headers: Object.assign({}, corsHeaders, { 'Content-Type': 'application/json; charset=utf-8' }),
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;

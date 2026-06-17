@@ -20,6 +20,7 @@ const { URL } = require('url');
 })();
 
 const generateApi = require('./api/generate');
+const cacheDb = require('./api/cache');
 const shareMaterialApi = require('./api/share-material');
 const searchHistoryApi = require('./api/search-history');
 const configApi = require('./api/config');
@@ -47,7 +48,7 @@ function writeJsonResponse(nativeRes, statusCode, payload) {
     { 'Content-Type': 'application/json; charset=utf-8' },
     API_CORS_HEADERS
   ));
-  nativeRes.end(JSON.stringify(payload));
+  nativeRes.end(cacheDb.safeJsonStringify(payload));
 }
 
 const MIME = {
