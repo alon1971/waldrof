@@ -33,6 +33,8 @@
     onSessionPersist: null,
     onChatStateSync: null,
     onGradeCacheUpdated: null,
+    canExportPedagogyDoc: null,
+    downloadPedagogyDocx: null,
     getLessonCacheKey: function () { return ''; },
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -178,6 +180,58 @@
       );
     }).join('');
     list.scrollTop = list.scrollHeight;
+    syncExportBarVisibility();
+  }
+
+  function ensureChatExportBar() {
+    var panel = document.querySelector('.lesson-chat-panel');
+    var messages = document.getElementById('lesson-chat-messages');
+    if (!panel || !messages) return null;
+
+    var bar = document.getElementById('lesson-chat-export-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'lesson-chat-export-bar';
+      bar.className = 'lesson-chat-export-bar hidden';
+      bar.setAttribute('dir', 'rtl');
+      bar.innerHTML =
+        '<button type="button" id="lesson-chat-export-word" class="lesson-chat-export-btn" dir="rtl">' +
+        '<i class="fa-solid fa-file-word" aria-hidden="true"></i>' +
+        '<span class="lesson-chat-export-label"></span>' +
+        '</button>';
+      var status = document.getElementById('lesson-chat-status');
+      if (status && status.parentNode === panel) {
+        panel.insertBefore(bar, status);
+      } else {
+        panel.insertBefore(bar, messages.nextSibling);
+      }
+    }
+
+    var label = bar.querySelector('.lesson-chat-export-label');
+    if (label) {
+      label.textContent = deps.t('chat_download_word');
+      if (label.textContent === 'chat_download_word') label.textContent = 'הורד למסמך וורד';
+    }
+
+    var btn = document.getElementById('lesson-chat-export-word');
+    if (btn && !btn.dataset.bound) {
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', function () {
+        if (typeof deps.downloadPedagogyDocx === 'function') {
+          deps.downloadPedagogyDocx();
+        }
+      });
+    }
+    return bar;
+  }
+
+  function syncExportBarVisibility() {
+    var bar = ensureChatExportBar();
+    if (!bar) return;
+    var canExport = typeof deps.canExportPedagogyDoc === 'function'
+      ? Boolean(deps.canExportPedagogyDoc())
+      : Boolean((deps.getAppState() || {}).grade);
+    bar.classList.toggle('hidden', !canExport);
   }
 
   function setLoading(loading) {
@@ -283,6 +337,7 @@
       fabWrap.setAttribute('aria-hidden', state.isOpen ? 'true' : 'false');
     }
     if (toggle) toggle.setAttribute('aria-expanded', state.isOpen ? 'true' : 'false');
+    syncExportBarVisibility();
   }
 
   function toggleOpen() {
@@ -306,9 +361,11 @@
     syncOpenUi();
     var app = deps.getAppState();
     syncSessionFromApp(app);
+    syncExportBarVisibility();
   }
 
   function bindUi() {
+    ensureChatExportBar();
     var toggle = document.getElementById('lesson-chat-toggle');
     var closeBtn = document.getElementById('lesson-chat-close');
     var sendBtn = document.getElementById('lesson-chat-send');
@@ -364,6 +421,8 @@
     if (typeof options.onSessionPersist === 'function') deps.onSessionPersist = options.onSessionPersist;
     if (typeof options.onChatStateSync === 'function') deps.onChatStateSync = options.onChatStateSync;
     if (typeof options.onGradeCacheUpdated === 'function') deps.onGradeCacheUpdated = options.onGradeCacheUpdated;
+    if (typeof options.canExportPedagogyDoc === 'function') deps.canExportPedagogyDoc = options.canExportPedagogyDoc;
+    if (typeof options.downloadPedagogyDocx === 'function') deps.downloadPedagogyDocx = options.downloadPedagogyDocx;
     if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     try {
@@ -387,6 +446,7 @@
     persistSession: persistSession,
     getPersistableMessages: getPersistableMessages,
     refreshWelcome: refreshWelcome,
+    syncExportBar: syncExportBarVisibility,
     openForLesson: function (resetChat) {
       state.isOpen = true;
       syncOpenUi();
