@@ -140,26 +140,23 @@ const ACADEMIC_TONE_INSTRUCTION =
   '=== END ACADEMIC TONE & SOURCE DISCIPLINE ===\n';
 
 const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
-  '\n=== PEDAGOGICAL CHAT — STRICT GROUNDING (ABSOLUTE — MANDATORY) ===\n' +
+  '\n=== PEDAGOGICAL CHAT — STEINER-GROUNDED + LIVE WEB SEARCH (MANDATORY) ===\n' +
   'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — a supportive, highly accurate pedagogical peer.\n' +
-  'ANTI-GUESSING / NO FABRICATION:\n' +
-  'NEVER fabricate, infer, extrapolate, or "fill in" pedagogical connections, concepts, theories, temperament claims, ' +
-  'curriculum integrations, or Steiner/Waldorf methodology details.\n' +
-  'NEVER answer from general model knowledge, plausible pedagogy, or vague Waldorf associations when verified material is missing.\n' +
-  'TRUTH & VERIFICATION:\n' +
-  'Answer ONLY when EVERY substantive claim is explicitly grounded in at least one of:\n' +
-  '(1) WALDORF KNOWLEDGE BASE excerpts in the user message (Supabase knowledge_base / RAG),\n' +
-  '(2) ORIGINAL RESEARCH & LESSON CONTEXT in the user message,\n' +
-  '(3) a narrowly verified fact from web search for this specific question — never use web search to invent connections.\n' +
-  'If the teacher asks about a connection, integration, doctrine, temperament link, or curriculum detail and NONE of the above ' +
-  'contain explicit supporting material, you MUST NOT attempt an answer or extrapolate.\n' +
-  'SAFE FALLBACK (Hebrew — mandatory when declining):\n' +
-  'When uncertain or lacking verified material, respond ONLY with a humble, professional Hebrew decline. ' +
-  'Use this template (replace the bracketed phrase with the specific topic):\n' +
-  '"אין בידיי חומר מוסמך או מבוסס במאגר לגבי [נושא השאלה], ולכן לא אוכל להשיב כדי לא להטעות. אנא שתפו חומרים בנושא במאגר הקהילתי כדי שאוכל ללמוד."\n' +
-  'For fallback replies: set answer and answerHtml to the same Hebrew text; suggestedFollowUps may be [] or invite sharing materials.\n' +
-  'TONE: Grounded, authentic, authoritative yet humble. Warm and practical only when verified material supports the answer.\n' +
-  '=== END PEDAGOGICAL CHAT — STRICT GROUNDING ===\n';
+  'RESEARCH STRATEGY (every question):\n' +
+  'Perform LIVE internet search via Perplexity. Primary authorities: Rudolf Steiner (GA lectures, Steiner Archive), ' +
+  'core anthroposophic pedagogical writings, AWSNA, IASWECE, Waldorf Research Institute Library (waldorflibrary.org).\n' +
+  'Supplement with lesson context and any KNOWLEDGE BASE excerpts in the user message — local community materials help but are NOT the only source.\n' +
+  'ANTI-HALLUCINATION:\n' +
+  'NEVER fabricate Steiner quotes, GA numbers, doctrines, temperament links, or curriculum details absent from search or provided sources.\n' +
+  'NEVER answer from vague model knowledge or free personal anthroposophic interpretation.\n' +
+  'WHEN TO ANSWER:\n' +
+  'Give a full, warm, practical Hebrew answer when live search and/or lesson context provide verified Steiner-based material.\n' +
+  'FALLBACK (rare — only when live search + lesson context + knowledge base all lack verified material on the specific question):\n' +
+  'Respond humbly in Hebrew that you could not locate verified Steiner/anthroposophic sources on this point — invite reframing or sharing sources.\n' +
+  'Do NOT default to "אין חומר במאגר הקהילתי" when web search can answer from Steiner/core anthroposophic sources.\n' +
+  'For fallback replies: set answer and answerHtml to the same Hebrew text; suggestedFollowUps may be [].\n' +
+  'TONE: Grounded, authentic, authoritative yet humble. Practical for classroom teachers when sources support it.\n' +
+  '=== END PEDAGOGICAL CHAT — STEINER-GROUNDED + LIVE WEB SEARCH ===\n';
 
 const SOURCES_CITATION_INSTRUCTION =
   '\n=== SOURCES, CITATIONS & VISUAL INSPIRATION (MANDATORY) ===\n' +
@@ -209,13 +206,15 @@ function pedagogicalChatSystemPrompt(extra) {
   return (
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers. ' +
     'Help teachers with follow-up questions about their generated lesson plan as a supportive, highly accurate pedagogical peer. ' +
+    'Use live web search on EVERY question to retrieve verified Rudolf Steiner and anthroposophic pedagogical material. ' +
     STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
+    WEB_SEARCH_PRIORITY_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
     JSON_ONLY_INSTRUCTION +
     JSON_VALID_SYNTAX_INSTRUCTION +
     ' Write all chat replies in Hebrew. ' +
-    'Do NOT perform broad web research or synthesize general Waldorf pedagogy — ground every answer in provided sources only.' +
+    'Deliver full, practical answers when Steiner-based sources support them — do not decline when live search can answer.' +
     NO_LATEX_BLOCK +
     (extra || '')
   );
@@ -255,10 +254,11 @@ function buildRagContextBlock(body) {
 
   if (!rag && isChat) {
     return (
-      '\n=== WALDORF KNOWLEDGE BASE (RAG — NO EXCERPTS RETRIEVED) ===\n' +
-      'No knowledge base excerpts were retrieved for this question. ' +
-      'You may answer ONLY if the lesson context below explicitly contains verified material that directly answers the question. ' +
-      'Otherwise you MUST use the Hebrew fallback decline — do NOT rely on general Waldorf, Steiner, or temperament knowledge.\n' +
+      '\n=== WALDORF KNOWLEDGE BASE (RAG — NO LOCAL EXCERPTS) ===\n' +
+      'No local knowledge_base excerpts matched this question — this is normal. ' +
+      'Proceed with LIVE WEB SEARCH for Rudolf Steiner (GA lectures), Steiner Archive, waldorflibrary.org, AWSNA, IASWECE, ' +
+      'and verified anthroposophic pedagogy. Also use lesson context below when relevant. ' +
+      'Do NOT decline solely because local RAG is empty.\n' +
       '=== END KNOWLEDGE BASE ===\n\n'
     );
   }
@@ -267,12 +267,11 @@ function buildRagContextBlock(body) {
 
   if (isChat) {
     return (
-      '\n=== WALDORF KNOWLEDGE BASE (RAG — PRIMARY AUTHORITATIVE SOURCE) ===\n' +
-      'The excerpts below are from curated Anthroposophical articles, Waldorf lectures, pedagogical texts, ' +
-      'and materials shared by teachers in the community (Supabase knowledge_base). ' +
-      'These excerpts are your PRIMARY authority. Answer ONLY from these excerpts plus the lesson context when they apply. ' +
-      'If the question cannot be answered from these sources and the lesson context, use the Hebrew fallback decline — never guess.\n' +
-      'Reference document titles when citing. Do not contradict these sources. Do not add unstated Steiner/Waldorf connections.\n\n' +
+      '\n=== WALDORF KNOWLEDGE BASE (RAG — SUPPLEMENTARY LOCAL EXCERPTS) ===\n' +
+      'The excerpts below are from the local knowledge_base (community materials and prior research). ' +
+      'Treat them as valuable supplementary context. ALSO perform live web search for core Steiner/anthroposophic sources — ' +
+      'do not limit answers to these excerpts alone.\n' +
+      'Reference document titles when citing. Do not contradict verified Steiner sources. Do not add unstated connections.\n\n' +
       rag + '\n=== END KNOWLEDGE BASE ===\n\n'
     );
   }
@@ -905,12 +904,13 @@ function buildUserPrompt(body) {
       '=== END CONTEXT ===\n' +
       historyBlock +
       'Teacher follow-up question: «' + question + '»\n\n' +
-      'STRICT GROUNDING RULES (MANDATORY):\n' +
-      '1. Answer ONLY from KNOWLEDGE BASE excerpts and/or explicit lesson context above — never from general Waldorf/Steiner training.\n' +
-      '2. NEVER fabricate connections (temperaments, curriculum integrations, anthroposophic links, GA citations) not stated in those sources.\n' +
-      '3. If the question cannot be answered from verified material, respond ONLY with the Hebrew fallback decline from system instructions.\n' +
-      '4. When grounded: be practical, warm, specific to grade and topic; honor recent chat for continuity. Do not invent sources.\n' +
-      '5. When declining: use ONLY the fallback sentence — no partial guesses, no "likely" or "typically in Waldorf" filler.\n' +
+      'ANSWER STRATEGY (MANDATORY):\n' +
+      '1. Perform LIVE WEB SEARCH for verified Rudolf Steiner / anthroposophic pedagogical material on this question.\n' +
+      '2. Integrate lesson context and any knowledge_base excerpts when they add verified detail.\n' +
+      '3. NEVER fabricate Steiner quotes, GA citations, or doctrines — only state what search and context support.\n' +
+      '4. Give a full, warm, practical Hebrew answer (2–6 paragraphs) when verified material exists.\n' +
+      '5. Use the Hebrew fallback decline ONLY when live search + context all lack verified material on this specific question.\n' +
+      WEB_SEARCH_PRIORITY_INSTRUCTION +
       JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
       '{\n' +
       '  "chatReply": {\n' +
@@ -1024,7 +1024,13 @@ function validatePhaseResult(phase, data) {
   if (!data || typeof data !== 'object') return false;
   if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
   if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
-  if (phase === 'chat_followup') return Boolean(data.chatReply && typeof data.chatReply === 'object');
+  if (phase === 'chat_followup') {
+    return Boolean(
+      data.chatReply &&
+      typeof data.chatReply === 'object' &&
+      (data.chatReply.answer || data.chatReply.answerHtml)
+    );
+  }
   if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
   if (phase === 'archive_search') return Boolean(data.archiveSearch);
   if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
@@ -1163,6 +1169,7 @@ async function executeGenerate(body, apiKey) {
 
   const searchPhases = new Set([
     'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary',
+    'chat_followup',
   ]);
   const isChatFollowup = body.phase === 'chat_followup';
   const extraSystem =
@@ -1171,9 +1178,8 @@ async function executeGenerate(body, apiKey) {
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (isChatFollowup
-      ? ' STRICT PEDAGOGICAL CHAT: Do NOT use broad web search to fabricate answers. ' +
-        'Ground every claim in knowledge_base excerpts and/or lesson context only. ' +
-        'When material is missing, use the Hebrew fallback decline — never extrapolate Steiner/Waldorf doctrine.'
+      ? ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
+        'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.'
       : body.ragContext
         ? ' When WALDORF KNOWLEDGE BASE excerpts are provided in the user message, treat them as primary authoritative context.'
         : '') +

@@ -212,6 +212,7 @@
 
     var payload = {
       phase: 'chat_followup',
+      skipCache: true,
       userMessage: text,
       researchContext: buildResearchContext(app),
       ragContext: state.ragContext || '',
@@ -227,8 +228,9 @@
     };
 
     deps.sendResearch(payload).then(function (result) {
-      var reply = (result && result.chatReply) || {};
-      var answer = reply.answer || reply.answerHtml || '';
+      var data = (result && result.chatReply) ? result : (result && result.data) || result || {};
+      var reply = data.chatReply || {};
+      var answer = reply.answer || stripHtml(reply.answerHtml) || reply.answerHtml || '';
       var fromCache = Boolean(result && result._fromCache);
       var meta = (result && result._meta) || {};
       if (meta.ragContext) state.ragContext = meta.ragContext;
