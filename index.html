@@ -1153,6 +1153,7 @@
     /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
       --app-sticky-nav-height: 4.75rem;
+      --lesson-chat-panel-width: 360px;
     }
     .app-shell {
       display: block;
@@ -1163,6 +1164,15 @@
       width: 100%;
       min-width: 0;
       position: relative;
+      transition: margin-left 0.22s ease;
+    }
+    body.lesson-chat-mode-panel #app-main {
+      margin-left: min(var(--lesson-chat-panel-width), 94vw);
+    }
+    @media (max-width: 640px) {
+      :root {
+        --lesson-chat-panel-width: min(300px, 82vw);
+      }
     }
 
     .workspace-main { flex: 1; min-width: 0; width: 100%; }
@@ -1178,7 +1188,7 @@
 
     .lesson-chat-fab-wrap {
       position: fixed;
-      bottom: 1.5rem;
+      bottom: 7rem;
       left: 1.5rem;
       z-index: 50;
       pointer-events: none;
@@ -1187,8 +1197,8 @@
 
     .lesson-chat-fab {
       position: relative;
-      width: 9.5rem;
-      height: 9.5rem;
+      width: 9rem;
+      height: 9rem;
       border-radius: 50%;
       background: #fff;
       border: 2px solid rgba(201, 169, 98, 0.5);
@@ -1197,10 +1207,10 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1rem;
+      padding: 1.1rem;
       text-align: center;
       font-family: inherit;
-      font-size: 0.95rem !important;
+      font-size: 1.05rem !important;
       font-weight: 700;
       line-height: 1.35;
       color: #5C4A3A;
@@ -1212,14 +1222,15 @@
       box-shadow: 0 25px 30px -5px rgba(92, 74, 58, 0.22), 0 10px 14px -6px rgba(0, 0, 0, 0.14);
     }
     .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
-    .lesson-chat-fab-label { display: block; pointer-events: none; max-width: 7rem; }
+    .lesson-chat-fab-label { display: block; pointer-events: none; max-width: 7.5rem; }
 
     .lesson-chat-sidebar {
       position: fixed;
       top: var(--app-sticky-nav-height);
       left: 0;
       bottom: 0;
-      width: min(380px, 94vw);
+      width: var(--lesson-chat-panel-width);
+      max-width: 94vw;
       z-index: 45;
       display: flex;
       flex-direction: column;
@@ -1234,11 +1245,14 @@
       flex-direction: column;
       flex: 1;
       min-height: 0;
-      background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 55%, #EDE6D6 100%);
+      background: linear-gradient(165deg, rgba(253, 251, 247, 0.92) 0%, rgba(247, 243, 235, 0.9) 55%, rgba(237, 230, 214, 0.88) 100%);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(201, 169, 98, 0.5);
       border-radius: 0 1rem 1rem 0;
       box-shadow: 4px 0 28px rgba(92, 74, 58, 0.14);
       overflow: hidden;
+      position: relative;
     }
 
     .lesson-chat-header {
@@ -1392,10 +1406,22 @@
       color: #5C7D58;
       text-align: center;
     }
+    .lesson-chat-panel-footer {
+      flex-shrink: 0;
+      margin-top: auto;
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-top: 1px solid rgba(201, 169, 98, 0.35);
+      box-shadow: 0 -6px 18px rgba(92, 74, 58, 0.08);
+    }
     .lesson-chat-input-row {
       display: flex; gap: 0.5rem; align-items: flex-end;
-      padding: 0.75rem; border-top: 1px solid rgba(201, 169, 98, 0.35);
-      background: rgba(255,255,255,0.55);
+      padding: 0.75rem;
+      background: transparent;
     }
     #lesson-chat-input {
       flex: 1; resize: none; min-height: 2.75rem; max-height: 6rem;
@@ -1414,9 +1440,9 @@
 
     .lesson-chat-export-bar {
       flex-shrink: 0;
-      padding: 0.65rem 0.85rem;
-      border-top: 1px solid rgba(201, 169, 98, 0.3);
-      background: rgba(255, 255, 255, 0.5);
+      padding: 0.65rem 0.85rem 0;
+      border-top: none;
+      background: transparent;
     }
     .lesson-chat-export-bar.hidden { display: none !important; }
     .lesson-chat-export-btn {
@@ -1498,6 +1524,11 @@
       overflow-y: auto;
       padding: 1.25rem 1.5rem;
       min-height: 12rem;
+    }
+    .lesson-chat-fullscreen-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
     }
     .lesson-chat-fullscreen-empty {
       text-align: center;
@@ -2278,13 +2309,21 @@
       <div id="lesson-chat-main-view" class="lesson-chat-main-view">
         <div id="lesson-chat-messages" class="lesson-chat-messages" role="log" aria-live="polite"></div>
         <p id="lesson-chat-status" class="lesson-chat-status hidden" role="status"></p>
-        <footer class="lesson-chat-input-row">
-          <label for="lesson-chat-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
-          <textarea id="lesson-chat-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
-          <button type="button" id="lesson-chat-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
-            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-          </button>
-        </footer>
+        <div class="lesson-chat-panel-footer">
+          <div id="lesson-chat-export-bar" class="lesson-chat-export-bar hidden" dir="rtl">
+            <button type="button" id="lesson-chat-export-word" class="lesson-chat-export-btn" dir="rtl">
+              <i class="fa-solid fa-file-word" aria-hidden="true"></i>
+              <span class="lesson-chat-export-label" data-i18n="chat_download_word">הורד למסמך וורד</span>
+            </button>
+          </div>
+          <footer class="lesson-chat-input-row">
+            <label for="lesson-chat-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
+            <textarea id="lesson-chat-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
+            <button type="button" id="lesson-chat-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
+              <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+            </button>
+          </footer>
+        </div>
       </div>
     </div>
   </aside>

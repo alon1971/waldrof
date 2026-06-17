@@ -207,21 +207,15 @@
   function renderFullscreenContent() {
     var body = document.getElementById('lesson-chat-fullscreen-body');
     if (!body) return;
-    var exchange = getLastExchange();
-    if (!exchange.assistant) {
+    ensureWelcomeMessage();
+    if (!state.messages.length) {
       body.innerHTML = '<p class="lesson-chat-fullscreen-empty">' + deps.escapeHtml(deps.t('chat_empty_hint')) + '</p>';
       return;
     }
-    var html = '';
-    if (exchange.user) {
-      html += '<div class="lesson-chat-fullscreen-q"><strong>' + deps.escapeHtml(exchange.user.text) + '</strong></div>';
-    }
-    if (exchange.assistant.html) {
-      html += '<div class="lesson-chat-fullscreen-a prose-ai">' + exchange.assistant.html + '</div>';
-    } else {
-      html += '<div class="lesson-chat-fullscreen-a">' + deps.escapeHtml(exchange.assistant.text) + '</div>';
-    }
-    body.innerHTML = html;
+    body.innerHTML = '<div class="lesson-chat-fullscreen-thread">' +
+      state.messages.map(renderMessageBubble).join('') +
+      '</div>';
+    body.scrollTop = body.scrollHeight;
   }
 
   function formatHistoryDate(iso) {
@@ -338,28 +332,8 @@
   }
 
   function ensureChatExportBar() {
-    var panel = document.querySelector('.lesson-chat-panel');
-    var messages = document.getElementById('lesson-chat-messages');
-    if (!panel || !messages) return null;
-
     var bar = document.getElementById('lesson-chat-export-bar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.id = 'lesson-chat-export-bar';
-      bar.className = 'lesson-chat-export-bar hidden';
-      bar.setAttribute('dir', 'rtl');
-      bar.innerHTML =
-        '<button type="button" id="lesson-chat-export-word" class="lesson-chat-export-btn" dir="rtl">' +
-        '<i class="fa-solid fa-file-word" aria-hidden="true"></i>' +
-        '<span class="lesson-chat-export-label"></span>' +
-        '</button>';
-      var inputRow = panel.querySelector('.lesson-chat-input-row');
-      if (inputRow && inputRow.parentNode === panel) {
-        panel.insertBefore(bar, inputRow);
-      } else {
-        panel.appendChild(bar);
-      }
-    }
+    if (!bar) return null;
 
     var label = bar.querySelector('.lesson-chat-export-label');
     if (label) {
