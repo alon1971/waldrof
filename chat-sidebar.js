@@ -44,7 +44,6 @@
     canExportPedagogyDoc: null,
     downloadPedagogyDocx: null,
     getLessonCacheKey: function () { return ''; },
-    loadSharedSearchHistory: null,
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
@@ -244,29 +243,16 @@
     historyListTargets().forEach(function (list) { list.innerHTML = html; });
   }
 
-  function normalizeSearchHistoryForChat(items) {
+  function normalizeChatHistoryItems(items) {
     return (items || []).map(function (item) {
-      var data = item.resultData || {};
-      var preview = '';
-      var html = null;
-      if (data.chatReply) {
-        html = data.chatReply.answerHtml || null;
-        preview = data.chatReply.answer || '';
-      }
-      if (!preview && data.webResearch && data.webResearch.summary) {
-        html = data.webResearch.summary;
-        preview = stripHtml(data.webResearch.summary);
-      }
       return {
         cacheKey: item.cacheKey,
         gradeLabel: item.gradeLabel,
         topic: item.topic,
-        question: item.topic || item.question || deps.t('search_history_untitled'),
+        question: item.question || deps.t('chat_history_untitled'),
         createdAt: item.createdAt,
-        hitCount: item.hitCount || 0,
-        answerPreview: preview.slice(0, 280),
-        answerHtml: html,
-        resultData: data,
+        answerPreview: String(item.answerPreview || '').slice(0, 280),
+        answerHtml: item.answerHtml || null,
       };
     });
   }
@@ -285,7 +271,7 @@
     }
 
     if (!state.historyItems.length) {
-      setHistoryListHtml('<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('search_history_empty')) + '</p>');
+      setHistoryListHtml('<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('chat_history_empty')) + '</p>');
       return;
     }
 
@@ -294,7 +280,6 @@
       var meta = [];
       if (item.gradeLabel) meta.push(item.gradeLabel);
       if (item.topic) meta.push(item.topic);
-      if (item.hitCount > 1) meta.push('×' + item.hitCount);
       var answerBlock = '';
       if (expanded) {
         if (item.answerHtml) {
@@ -314,13 +299,7 @@
     }).join(''));
   }
 
-  function fetchTeacherSearchHistoryItems() {
-    if (typeof deps.loadSharedSearchHistory === 'function') {
-      return Promise.resolve(deps.loadSharedSearchHistory(true)).then(function (items) {
-        return normalizeSearchHistoryForChat(items || []);
-      });
-    }
-
+  function fetchTeacherChatHistoryItems() {
     var headers = { 'Content-Type': 'application/json' };
     var tokenPromise = typeof deps.getAccessToken === 'function'
       ? Promise.resolve(deps.getAccessToken())
@@ -328,7 +307,7 @@
 
     return tokenPromise.then(function (token) {
       if (token) headers.Authorization = 'Bearer ' + token;
-      var body = { limit: 40 };
+      var body = { action: 'list_chat', limit: 40 };
       if (typeof deps.getTeacherProfile === 'function') {
         var teacher = deps.getTeacherProfile();
         if (teacher) body.teacherUser = teacher;
@@ -341,7 +320,7 @@
       return res.json().then(function (json) {
         if (!res.ok || json.error) throw new Error(json.error || deps.t('chat_history_error'));
         var data = json.data || json;
-        return normalizeSearchHistoryForChat(Array.isArray(data.items) ? data.items : []);
+        return normalizeChatHistoryItems(Array.isArray(data.items) ? data.items : []);
       });
     });
   }
@@ -350,7 +329,7 @@
     state.historyLoading = true;
     renderHistoryList();
 
-    fetchTeacherSearchHistoryItems().then(function (items) {
+    fetchTeacherChatHistoryItems().then(function (items) {
       state.historyItems = items;
     }).catch(function () {
       state.historyItems = [];
@@ -738,7 +717,6 @@
     if (typeof options.canExportPedagogyDoc === 'function') deps.canExportPedagogyDoc = options.canExportPedagogyDoc;
     if (typeof options.downloadPedagogyDocx === 'function') deps.downloadPedagogyDocx = options.downloadPedagogyDocx;
     if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
-    if (typeof options.loadSharedSearchHistory === 'function') deps.loadSharedSearchHistory = options.loadSharedSearchHistory;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     try {
       bindUi();
