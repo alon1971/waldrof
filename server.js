@@ -25,7 +25,6 @@ const shareMaterialApi = require('./api/share-material');
 const searchHistoryApi = require('./api/search-history');
 const configApi = require('./api/config');
 const knowledgeSeed = require('./api/knowledge-seed');
-const cacheDb = require('./api/cache');
 const env = require('./api/env');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
