@@ -331,33 +331,43 @@
     syncDisplayUi();
   }
 
+  function bindChatExportButton(btn) {
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function () {
+      if (typeof deps.downloadPedagogyDocx === 'function') deps.downloadPedagogyDocx();
+    });
+  }
+
+  function syncChatExportLabel(btn) {
+    if (!btn) return;
+    var label = btn.querySelector('.lesson-chat-export-label');
+    if (!label) return;
+    label.textContent = deps.t('chat_download_word');
+    if (label.textContent === 'chat_download_word') label.textContent = 'הורד למסמך וורד';
+  }
+
   function ensureChatExportBar() {
-    var bar = document.getElementById('lesson-chat-export-bar');
-    if (!bar) return null;
-
-    var label = bar.querySelector('.lesson-chat-export-label');
-    if (label) {
-      label.textContent = deps.t('chat_download_word');
-      if (label.textContent === 'chat_download_word') label.textContent = 'הורד למסמך וורד';
-    }
-
-    var btn = document.getElementById('lesson-chat-export-word');
-    if (btn && !btn.dataset.bound) {
-      btn.dataset.bound = '1';
-      btn.addEventListener('click', function () {
-        if (typeof deps.downloadPedagogyDocx === 'function') deps.downloadPedagogyDocx();
-      });
-    }
-    return bar;
+    var panelBar = document.getElementById('lesson-chat-export-bar');
+    var fsBar = document.getElementById('lesson-chat-fullscreen-export-bar');
+    syncChatExportLabel(document.getElementById('lesson-chat-export-word'));
+    syncChatExportLabel(document.getElementById('lesson-chat-fullscreen-export-word'));
+    bindChatExportButton(document.getElementById('lesson-chat-export-word'));
+    bindChatExportButton(document.getElementById('lesson-chat-fullscreen-export-word'));
+    return { panelBar: panelBar, fsBar: fsBar };
   }
 
   function syncExportBarVisibility() {
-    var bar = ensureChatExportBar();
-    if (!bar) return;
+    var bars = ensureChatExportBar();
     var canExport = typeof deps.canExportPedagogyDoc === 'function'
       ? Boolean(deps.canExportPedagogyDoc())
       : Boolean((deps.getAppState() || {}).grade);
-    bar.classList.toggle('hidden', !canExport || state.displayMode === 'fullscreen');
+    if (bars.panelBar) {
+      bars.panelBar.classList.toggle('hidden', !canExport || state.displayMode !== 'panel');
+    }
+    if (bars.fsBar) {
+      bars.fsBar.classList.toggle('hidden', !canExport || state.displayMode !== 'fullscreen');
+    }
   }
 
   function setLoading(loading) {

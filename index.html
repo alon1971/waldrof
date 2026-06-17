@@ -1573,14 +1573,23 @@
       line-height: 1.65;
       color: #5C4A3A;
     }
+    .lesson-chat-fullscreen-footer-wrap {
+      flex-shrink: 0;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.92);
+      border-top: 1px solid rgba(201, 169, 98, 0.35);
+    }
     .lesson-chat-fullscreen-footer {
       display: flex;
       gap: 0.5rem;
       align-items: flex-end;
+      flex: 0 0 auto;
+      width: 100%;
       padding: 0.75rem 1rem;
-      border-top: 1px solid rgba(201, 169, 98, 0.35);
+      margin: 0;
+      border-top: none;
       background: rgba(255, 255, 255, 0.55);
-      flex-shrink: 0;
+      box-sizing: border-box;
     }
     #lesson-chat-fullscreen-input {
       flex: 1;
@@ -2371,13 +2380,23 @@
         </button>
       </header>
       <div id="lesson-chat-fullscreen-body" class="lesson-chat-fullscreen-body"></div>
-      <footer class="lesson-chat-fullscreen-footer">
-        <label for="lesson-chat-fullscreen-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
-        <textarea id="lesson-chat-fullscreen-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
-        <button type="button" id="lesson-chat-fullscreen-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
-          <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-        </button>
-      </footer>
+      <div class="lesson-chat-fullscreen-footer-wrap">
+        <div class="lesson-chat-panel-footer-stack">
+          <div id="lesson-chat-fullscreen-export-bar" class="lesson-chat-export-bar hidden" dir="rtl">
+            <button type="button" id="lesson-chat-fullscreen-export-word" class="lesson-chat-export-btn" dir="rtl">
+              <i class="fa-solid fa-file-word" aria-hidden="true"></i>
+              <span class="lesson-chat-export-label" data-i18n="chat_download_word">הורד למסמך וורד</span>
+            </button>
+          </div>
+          <footer class="lesson-chat-fullscreen-footer">
+            <label for="lesson-chat-fullscreen-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
+            <textarea id="lesson-chat-fullscreen-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
+            <button type="button" id="lesson-chat-fullscreen-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
+              <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+            </button>
+          </footer>
+        </div>
+      </div>
     </div>
   </div>
   </div>
@@ -5392,6 +5411,8 @@
       const btns = document.querySelectorAll('[data-pedagogy-export]');
       const chatExportBtn = document.getElementById('lesson-chat-export-word');
       const chatExportLabel = chatExportBtn ? chatExportBtn.querySelector('.lesson-chat-export-label') : null;
+      const chatFsExportBtn = document.getElementById('lesson-chat-fullscreen-export-word');
+      const chatFsExportLabel = chatFsExportBtn ? chatFsExportBtn.querySelector('.lesson-chat-export-label') : null;
       btns.forEach(function (b) {
         b.disabled = true;
         const label = b.querySelector('[data-i18n]');
@@ -5399,6 +5420,8 @@
       });
       if (chatExportBtn) chatExportBtn.disabled = true;
       if (chatExportLabel) chatExportLabel.textContent = t('export_doc_generating');
+      if (chatFsExportBtn) chatFsExportBtn.disabled = true;
+      if (chatFsExportLabel) chatFsExportLabel.textContent = t('export_doc_generating');
       try {
         queueCommunityLessonSync();
         const data = collectPedagogySummaryDocumentData();
@@ -5423,6 +5446,8 @@
         });
         if (chatExportBtn) chatExportBtn.disabled = false;
         if (chatExportLabel) chatExportLabel.textContent = t('chat_download_word');
+        if (chatFsExportBtn) chatFsExportBtn.disabled = false;
+        if (chatFsExportLabel) chatFsExportLabel.textContent = t('chat_download_word');
       }
     }
 
