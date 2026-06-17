@@ -1600,6 +1600,26 @@
       background: linear-gradient(180deg, rgba(122, 155, 118, 0.14), transparent);
       flex-shrink: 0;
     }
+    .lesson-chat-fullscreen-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+    .lesson-chat-fullscreen-main-view {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .lesson-chat-fullscreen-main-view.hidden { display: none !important; }
+    #lesson-chat-fullscreen-history-drawer {
+      flex: 1;
+      min-height: 0;
+    }
+    body.lesson-chat-mode-fullscreen .search-history-overlay {
+      z-index: 65;
+    }
     .lesson-chat-fullscreen-header h3 {
       margin: 0;
       font-family: 'Frank Ruhl Libre', serif;
@@ -2400,7 +2420,7 @@
       </header>
       <div id="lesson-chat-history-drawer" class="lesson-chat-history-drawer hidden" aria-hidden="true">
         <div class="lesson-chat-history-header">
-          <h4><i class="fa-solid fa-clock-rotate-left text-sage" aria-hidden="true"></i> <span data-i18n="chat_history_title">היסטוריית שאילתות</span></h4>
+          <h4><i class="fa-solid fa-clock-rotate-left text-sage" aria-hidden="true"></i> <span data-i18n="search_history_title">החיפושים האחרונים שלי</span></h4>
           <button type="button" id="lesson-chat-history-close" class="lesson-chat-icon-btn" data-i18n-aria="chat_sidebar_close">
             <i class="fa-solid fa-xmark" aria-hidden="true"></i>
           </button>
@@ -2442,10 +2462,25 @@
     <div class="lesson-chat-fullscreen-dialog">
       <header class="lesson-chat-fullscreen-header">
         <h3 data-i18n="chat_fullscreen_title">תשובת העוזר הפדגוגי</h3>
-        <button type="button" id="lesson-chat-collapse" class="lesson-chat-icon-btn" data-i18n-aria="chat_collapse_btn" title="כיווץ">
-          <i class="fa-solid fa-minus" aria-hidden="true"></i>
-        </button>
+        <div class="lesson-chat-fullscreen-header-actions">
+          <button type="button" id="lesson-chat-fullscreen-history-btn" class="lesson-chat-icon-btn" data-i18n-aria="nav_search_history_aria" title="חיפושים קודמים">
+            <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+          </button>
+          <button type="button" id="lesson-chat-collapse" class="lesson-chat-icon-btn" data-i18n-aria="chat_collapse_btn" title="כיווץ">
+            <i class="fa-solid fa-minus" aria-hidden="true"></i>
+          </button>
+        </div>
       </header>
+      <div id="lesson-chat-fullscreen-history-drawer" class="lesson-chat-history-drawer hidden" aria-hidden="true">
+        <div class="lesson-chat-history-header">
+          <h4><i class="fa-solid fa-clock-rotate-left text-sage" aria-hidden="true"></i> <span data-i18n="search_history_title">החיפושים האחרונים שלי</span></h4>
+          <button type="button" id="lesson-chat-fullscreen-history-close" class="lesson-chat-icon-btn" data-i18n-aria="chat_sidebar_close">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div id="lesson-chat-fullscreen-history-list" class="lesson-chat-history-list" role="list"></div>
+      </div>
+      <div id="lesson-chat-fullscreen-main-view" class="lesson-chat-fullscreen-main-view">
       <div id="lesson-chat-fullscreen-body" class="lesson-chat-fullscreen-body"></div>
       <div class="lesson-chat-fullscreen-footer-wrap">
         <div class="lesson-chat-panel-footer-stack">
@@ -2464,6 +2499,7 @@
           </footer>
         </div>
       </div>
+      </div>
     </div>
   </div>
   </div>
@@ -2476,7 +2512,7 @@
   <script src="auth-subscription.js?v=20250617b"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250618a"></script>
+  <script src="chat-sidebar.js?v=20250620"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
@@ -8656,6 +8692,12 @@
             return full.split(/\s+/)[0];
           },
           escapeHtml: escapeHtml,
+          loadSharedSearchHistory: function (force) {
+            if (typeof WaldorfSearchHistory === 'undefined') return Promise.resolve([]);
+            return WaldorfSearchHistory.loadHistory(force).then(function () {
+              return WaldorfSearchHistory.getItems();
+            });
+          },
         });
       }
       if (typeof WaldorfShareMaterials !== 'undefined') {

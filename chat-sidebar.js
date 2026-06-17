@@ -44,6 +44,7 @@
     canExportPedagogyDoc: null,
     downloadPedagogyDocx: null,
     getLessonCacheKey: function () { return ''; },
+    loadSharedSearchHistory: null,
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
@@ -232,26 +233,63 @@
     }
   }
 
+  function historyListTargets() {
+    return [
+      document.getElementById('lesson-chat-history-list'),
+      document.getElementById('lesson-chat-fullscreen-history-list'),
+    ].filter(Boolean);
+  }
+
+  function setHistoryListHtml(html) {
+    historyListTargets().forEach(function (list) { list.innerHTML = html; });
+  }
+
+  function normalizeSearchHistoryForChat(items) {
+    return (items || []).map(function (item) {
+      var data = item.resultData || {};
+      var preview = '';
+      var html = null;
+      if (data.chatReply) {
+        html = data.chatReply.answerHtml || null;
+        preview = data.chatReply.answer || '';
+      }
+      if (!preview && data.webResearch && data.webResearch.summary) {
+        html = data.webResearch.summary;
+        preview = stripHtml(data.webResearch.summary);
+      }
+      return {
+        cacheKey: item.cacheKey,
+        gradeLabel: item.gradeLabel,
+        topic: item.topic,
+        question: item.topic || item.question || deps.t('search_history_untitled'),
+        createdAt: item.createdAt,
+        hitCount: item.hitCount || 0,
+        answerPreview: preview.slice(0, 280),
+        answerHtml: html,
+        resultData: data,
+      };
+    });
+  }
+
   function renderHistoryList() {
-    var list = document.getElementById('lesson-chat-history-list');
-    if (!list) return;
+    if (!historyListTargets().length) return;
 
     if (state.historyLoading) {
-      list.innerHTML = '<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('chat_history_loading')) + '</p>';
+      setHistoryListHtml('<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('chat_history_loading')) + '</p>');
       return;
     }
 
     if (!deps.isAuthenticated()) {
-      list.innerHTML = '<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('chat_history_signin')) + '</p>';
+      setHistoryListHtml('<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('chat_history_signin')) + '</p>');
       return;
     }
 
     if (!state.historyItems.length) {
-      list.innerHTML = '<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('chat_history_empty')) + '</p>';
+      setHistoryListHtml('<p class="lesson-chat-history-status">' + deps.escapeHtml(deps.t('search_history_empty')) + '</p>');
       return;
     }
 
-    list.innerHTML = state.historyItems.map(function (item) {
+    setHistoryListHtml(state.historyItems.map(function (item) {
       var expanded = state.historyExpandedKey === item.cacheKey;
       var meta = [];
       if (item.gradeLabel) meta.push(item.gradeLabel);
@@ -273,27 +311,24 @@
         answerBlock +
         '</button>'
       );
-    }).join('');
+    }).join(''));
   }
 
-  function loadChatHistory() {
-    state.historyLoading = true;
-    renderHistoryList();
+  function fetchTeacherSearchHistoryItems() {
+    if (typeof deps.loadSharedSearchHistory === 'function') {
+      return Promise.resolve(deps.loadSharedSearchHistory(true)).then(function (items) {
+        return normalizeSearchHistoryForChat(items || []);
+      });
+    }
 
     var headers = { 'Content-Type': 'application/json' };
     var tokenPromise = typeof deps.getAccessToken === 'function'
       ? Promise.resolve(deps.getAccessToken())
       : Promise.resolve(null);
 
-    tokenPromise.then(function (token) {
+    return tokenPromise.then(function (token) {
       if (token) headers.Authorization = 'Bearer ' + token;
-      var app = deps.getAppState() || {};
-      var body = {
-        action: 'list_chat',
-        gradeId: app.grade || '',
-        topic: app.topic || '',
-        limit: 30,
-      };
+      var body = { limit: 40 };
       if (typeof deps.getTeacherProfile === 'function') {
         var teacher = deps.getTeacherProfile();
         if (teacher) body.teacherUser = teacher;
@@ -306,15 +341,21 @@
       return res.json().then(function (json) {
         if (!res.ok || json.error) throw new Error(json.error || deps.t('chat_history_error'));
         var data = json.data || json;
-        state.historyItems = Array.isArray(data.items) ? data.items : [];
+        return normalizeSearchHistoryForChat(Array.isArray(data.items) ? data.items : []);
       });
+    });
+  }
+
+  function loadChatHistory() {
+    state.historyLoading = true;
+    renderHistoryList();
+
+    fetchTeacherSearchHistoryItems().then(function (items) {
+      state.historyItems = items;
     }).catch(function () {
       state.historyItems = [];
-      var list = document.getElementById('lesson-chat-history-list');
-      if (list) {
-        list.innerHTML = '<p class="lesson-chat-history-status lesson-chat-history-status--err">' +
-          deps.escapeHtml(deps.t('chat_history_error')) + '</p>';
-      }
+      setHistoryListHtml('<p class="lesson-chat-history-status lesson-chat-history-status--err">' +
+        deps.escapeHtml(deps.t('chat_history_error')) + '</p>');
     }).finally(function () {
       state.historyLoading = false;
       renderHistoryList();
@@ -401,12 +442,33 @@
     }
   }
 
+  function ensureSessionKey() {
+    var app = deps.getAppState() || {};
+    var key = sessionKeyFromApp(app);
+    if (key && key !== '|') state.sessionKey = key;
+  }
+
+  function syncChatInputs(fromMode, toMode) {
+    var input = document.getElementById('lesson-chat-input');
+    var fsInput = document.getElementById('lesson-chat-fullscreen-input');
+    if (!input || !fsInput) return;
+    if (fromMode === 'panel' && toMode === 'fullscreen') {
+      fsInput.value = input.value;
+    } else if (fromMode === 'fullscreen' && toMode === 'panel') {
+      input.value = fsInput.value;
+    }
+  }
+
   function setLoading(loading) {
     state.loading = loading;
     var btn = document.getElementById('lesson-chat-send');
     var input = document.getElementById('lesson-chat-input');
+    var fsBtn = document.getElementById('lesson-chat-fullscreen-send');
+    var fsInput = document.getElementById('lesson-chat-fullscreen-input');
     if (btn) btn.disabled = loading;
     if (input) input.disabled = loading;
+    if (fsBtn) fsBtn.disabled = loading;
+    if (fsInput) fsInput.disabled = loading;
     var status = document.getElementById('lesson-chat-status');
     if (status) {
       status.classList.toggle('hidden', !loading);
@@ -423,6 +485,7 @@
     if (!text) return;
     if (typeof deps.sendResearch !== 'function') return;
 
+    ensureSessionKey();
     var app = deps.getAppState() || {};
     if (hasOnlyGreeting()) state.messages = [];
 
@@ -493,14 +556,19 @@
 
   function setDisplayMode(mode) {
     if (mode !== 'bubble' && mode !== 'panel' && mode !== 'fullscreen') mode = 'bubble';
+    var prevMode = state.displayMode;
+    if (prevMode === 'panel' && mode === 'fullscreen') syncChatInputs('panel', 'fullscreen');
+    if (prevMode === 'fullscreen' && mode === 'panel') syncChatInputs('fullscreen', 'panel');
     state.displayMode = mode;
-    if (mode !== 'panel') state.historyOpen = false;
+    if (mode === 'bubble') state.historyOpen = false;
+    ensureSessionKey();
     var body = document.body;
     if (body) {
       BODY_MODE_CLASSES.forEach(function (cls) { body.classList.remove(cls); });
       body.classList.add('lesson-chat-mode-' + mode);
     }
     syncDisplayUi();
+    renderMessages();
   }
 
   function syncDisplayUi() {
@@ -509,6 +577,8 @@
     var fullscreen = document.getElementById('lesson-chat-fullscreen');
     var drawer = document.getElementById('lesson-chat-history-drawer');
     var mainView = document.getElementById('lesson-chat-main-view');
+    var fsDrawer = document.getElementById('lesson-chat-fullscreen-history-drawer');
+    var fsMain = document.getElementById('lesson-chat-fullscreen-main-view');
 
     if (fabWrap) {
       fabWrap.classList.toggle('hidden', state.displayMode !== 'bubble');
@@ -522,15 +592,22 @@
       fullscreen.classList.toggle('hidden', state.displayMode !== 'fullscreen');
       fullscreen.setAttribute('aria-hidden', state.displayMode === 'fullscreen' ? 'false' : 'true');
     }
-    if (drawer) drawer.classList.toggle('hidden', !state.historyOpen);
-    if (mainView) mainView.classList.toggle('hidden', state.historyOpen);
-
-    if (state.displayMode === 'fullscreen') {
-      renderFullscreenContent();
-      syncExportBarVisibility();
-    } else {
-      syncExportBarVisibility();
+    if (drawer) {
+      drawer.classList.toggle('hidden', !state.historyOpen || state.displayMode !== 'panel');
+      drawer.setAttribute('aria-hidden', (!state.historyOpen || state.displayMode !== 'panel') ? 'true' : 'false');
     }
+    if (mainView) {
+      mainView.classList.toggle('hidden', state.historyOpen && state.displayMode === 'panel');
+    }
+    if (fsDrawer) {
+      fsDrawer.classList.toggle('hidden', !state.historyOpen || state.displayMode !== 'fullscreen');
+      fsDrawer.setAttribute('aria-hidden', (!state.historyOpen || state.displayMode !== 'fullscreen') ? 'true' : 'false');
+    }
+    if (fsMain) {
+      fsMain.classList.toggle('hidden', state.historyOpen && state.displayMode === 'fullscreen');
+    }
+
+    syncExportBarVisibility();
   }
 
   function syncSessionFromApp(app) {
@@ -538,11 +615,14 @@
     var key = sessionKeyFromApp(app);
     if (!key || key === '|') return;
     if (key === state.sessionKey) return;
+    var preserveConversation = !hasOnlyGreeting();
     state.sessionKey = key;
-    state.messages = [buildGreetingMessage()];
-    state.ragContext = '';
-    state.ragChunkIds = [];
-    renderMessages();
+    if (!preserveConversation) {
+      state.messages = [buildGreetingMessage()];
+      state.ragContext = '';
+      state.ragChunkIds = [];
+      renderMessages();
+    }
   }
 
   function updateVisibility() {
@@ -560,8 +640,11 @@
     var expandBtn = document.getElementById('lesson-chat-expand');
     var collapseBtn = document.getElementById('lesson-chat-collapse');
     var historyBtn = document.getElementById('lesson-chat-history-btn');
+    var fsHistoryBtn = document.getElementById('lesson-chat-fullscreen-history-btn');
     var historyClose = document.getElementById('lesson-chat-history-close');
+    var fsHistoryClose = document.getElementById('lesson-chat-fullscreen-history-close');
     var historyList = document.getElementById('lesson-chat-history-list');
+    var fsHistoryList = document.getElementById('lesson-chat-fullscreen-history-list');
     var sendBtn = document.getElementById('lesson-chat-send');
     var input = document.getElementById('lesson-chat-input');
     var fsSendBtn = document.getElementById('lesson-chat-fullscreen-send');
@@ -569,17 +652,23 @@
 
     if (fab) fab.addEventListener('click', function () { setDisplayMode('panel'); });
     if (closeBtn) closeBtn.addEventListener('click', function () { closeHistory(); setDisplayMode('bubble'); });
-    if (expandBtn) expandBtn.addEventListener('click', function () { closeHistory(); setDisplayMode('fullscreen'); });
+    if (expandBtn) expandBtn.addEventListener('click', function () { setDisplayMode('fullscreen'); });
     if (collapseBtn) collapseBtn.addEventListener('click', function () { setDisplayMode('panel'); });
     if (historyBtn) historyBtn.addEventListener('click', function () {
       if (state.historyOpen) closeHistory();
       else openHistory();
     });
+    if (fsHistoryBtn) fsHistoryBtn.addEventListener('click', function () {
+      if (state.historyOpen) closeHistory();
+      else openHistory();
+    });
     if (historyClose) historyClose.addEventListener('click', closeHistory);
+    if (fsHistoryClose) fsHistoryClose.addEventListener('click', closeHistory);
 
-    if (historyList && !historyList.dataset.bound) {
-      historyList.dataset.bound = '1';
-      historyList.addEventListener('click', function (e) {
+    function bindHistoryListClick(list) {
+      if (!list || list.dataset.bound) return;
+      list.dataset.bound = '1';
+      list.addEventListener('click', function (e) {
         var btn = e.target && e.target.closest ? e.target.closest('.lesson-chat-history-item') : null;
         if (!btn) return;
         var key = btn.getAttribute('data-cache-key') || '';
@@ -587,6 +676,9 @@
         renderHistoryList();
       });
     }
+
+    bindHistoryListClick(historyList);
+    bindHistoryListClick(fsHistoryList);
 
     if (sendBtn) sendBtn.addEventListener('click', sendMessage);
     if (input) {
@@ -646,6 +738,7 @@
     if (typeof options.canExportPedagogyDoc === 'function') deps.canExportPedagogyDoc = options.canExportPedagogyDoc;
     if (typeof options.downloadPedagogyDocx === 'function') deps.downloadPedagogyDocx = options.downloadPedagogyDocx;
     if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
+    if (typeof options.loadSharedSearchHistory === 'function') deps.loadSharedSearchHistory = options.loadSharedSearchHistory;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     try {
       bindUi();
