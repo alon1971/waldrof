@@ -1245,7 +1245,17 @@
     .lesson-chat-fab-wrap {
       position: fixed;
       bottom: 220px;
-      left: 1.5rem;
+      --lesson-chat-fab-card-left: calc(
+        (100vw - min(72rem, 100vw)) / 2
+        + 1rem
+        + (min(72rem, 100vw) - 2rem - min(36rem, min(72rem, 100vw) - 2rem)) / 2
+      );
+      left: clamp(
+        1.5rem,
+        calc(var(--lesson-chat-fab-card-left) / 2),
+        calc(var(--lesson-chat-fab-card-left) - 1rem)
+      );
+      transform: translateX(-50%);
       z-index: 50;
       pointer-events: none;
     }
@@ -1287,6 +1297,8 @@
     @media (max-width: 480px) {
       .lesson-chat-fab-wrap {
         bottom: 9rem;
+        left: 1.5rem;
+        transform: none;
       }
       .lesson-chat-fab {
         min-width: 13.5rem;
