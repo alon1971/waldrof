@@ -1209,8 +1209,14 @@
     #workspace {
       overflow: visible;
     }
-    body.lesson-chat-mode-panel #app-shell {
+    body.lesson-chat-mode-panel header,
+    body.lesson-chat-mode-panel #cloud-status,
+    body.lesson-chat-mode-panel .app-top-nav,
+    body.lesson-chat-mode-panel #app-shell,
+    body.lesson-chat-mode-panel > footer {
       padding-left: var(--lesson-chat-layout-inset);
+      box-sizing: border-box;
+      transition: padding-left 0.22s ease;
     }
     body.lesson-chat-mode-panel #app-main {
       margin-left: 0;
