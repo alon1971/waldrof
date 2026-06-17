@@ -141,10 +141,6 @@ async function handleApiGenerate(req, res) {
     return writeJsonResponse(res, 400, { error: message || 'Invalid JSON body' });
   }
 
-  if (parsedBody.phase === 'chat_followup') {
-    parsedBody.skipCache = true;
-  }
-
   try {
     const result = await generateApi.handleGeneratePost(parsedBody);
     const payload = result && result.data !== undefined

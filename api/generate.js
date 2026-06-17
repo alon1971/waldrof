@@ -298,6 +298,25 @@ function buildNoLatexBlock(body) {
   return '';
 }
 
+function buildPriorChatAnswerBlock(prior) {
+  if (!prior || !prior.data) return '';
+  const priorText = cacheDb.extractChatAnswerText(prior.data);
+  if (!priorText) return '';
+
+  const matchNote = prior.matchType === 'similar'
+    ? ' (נמצאה תשובה דומה במאגר — ' + (prior.queryText || '') + ')'
+    : '';
+
+  return (
+    '\n=== EXISTING ANSWER IN OUR PEDAGOGICAL DATABASE' + matchNote + ' ===\n' +
+    'זו התשובה הקיימת במאגר שלנו בנושא זה. המטרה שלך היא לאפס, לדייק, להעמיק ולהרחיב אותה על בסיס מקורות אנתרופוסופיים נוספים, ' +
+    'כדי להפוך אותה לעשירה ומומחית יותר מהגרסה הקודמת.\n' +
+    'Do NOT copy verbatim. Refine inaccuracies, add verified Steiner/anthroposophic depth, and expand practical classroom value.\n\n' +
+    priorText +
+    '\n=== END EXISTING ANSWER ===\n\n'
+  );
+}
+
 const LAZY_LOAD_NOTE =
   'Do NOT include expansion, contentExpansion, artExpansion, or nested practical-expansion objects — expansions load on-demand via pedagogy_deep_dive.\n';
 
@@ -888,12 +907,14 @@ function buildUserPrompt(body) {
 
     const hasContext = Boolean(context.trim());
     const hasRag = Boolean(String(body.ragContext || '').trim());
+    const priorBlock = buildPriorChatAnswerBlock(body.priorCachedAnswer);
 
     return (
       ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
+      priorBlock +
       'You are the Pedagogical Chat Assistant helping a teacher with follow-up questions about their generated lesson plan.\n' +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + (body.gradeLabel || '') + ' (age ' + (body.age || '') + ')\n' +
@@ -905,6 +926,9 @@ function buildUserPrompt(body) {
       historyBlock +
       'Teacher follow-up question: «' + question + '»\n\n' +
       'ANSWER STRATEGY (MANDATORY):\n' +
+      (priorBlock
+        ? '0. You have an EXISTING DATABASE ANSWER above — refine, correct, deepen, and expand it with live web search; output must be clearly richer than the prior version.\n'
+        : '') +
       '1. Perform LIVE WEB SEARCH for verified Rudolf Steiner / anthroposophic pedagogical material on this question.\n' +
       '2. Integrate lesson context and any knowledge_base excerpts when they add verified detail.\n' +
       '3. NEVER fabricate Steiner quotes, GA citations, or doctrines — only state what search and context support.\n' +
@@ -1121,15 +1145,32 @@ async function executeGenerate(body, apiKey) {
   }
 
   if (!body.skipCache) {
-    const cached = await cacheDb.getCachedResult(body);
-    if (cached) {
-      console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
-      if (!body.skipKnowledgeIngest) {
-        knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
+    if (body.phase === 'chat_followup') {
+      try {
+        const prior = await cacheDb.lookupChatPriorAnswer(body);
+        if (prior && cacheDb.extractChatAnswerText(prior.data)) {
+          body.priorCachedAnswer = prior;
+          console.log(
+            '[cached_results] CHAT PRIOR',
+            prior.matchType,
+            prior.cacheKey.slice(0, 12),
+            prior.matchType === 'similar' ? ('sim=' + (prior.similarity || 0).toFixed(2)) : ''
+          );
+        }
+      } catch (priorErr) {
+        console.warn('[cached_results] chat prior lookup failed:', priorErr.message || priorErr);
       }
-      return cached;
+    } else {
+      const cached = await cacheDb.getCachedResult(body);
+      if (cached) {
+        console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
+        if (!body.skipKnowledgeIngest) {
+          knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
+        }
+        return cached;
+      }
+      console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
     }
-    console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
   }
 
   let ragMeta = {
@@ -1178,8 +1219,10 @@ async function executeGenerate(body, apiKey) {
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (isChatFollowup
-      ? ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
-        'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.'
+      ? (body.priorCachedAnswer
+        ? ' PEDAGOGICAL CHAT ENRICHMENT: A prior answer exists in our database — refine, correct, deepen, and expand it using live Steiner/anthroposophic web search. Output must surpass the prior version.'
+        : ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
+          'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.')
       : body.ragContext
         ? ' When WALDORF KNOWLEDGE BASE excerpts are provided in the user message, treat them as primary authoritative context.'
         : '') +
@@ -1219,9 +1262,16 @@ async function executeGenerate(body, apiKey) {
 
   if (!body.skipCache) {
     try {
+      if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
+        if (body.priorCachedAnswer) {
+          data.chatReply.enrichedFromPrior = true;
+          data.chatReply.priorMatchType = body.priorCachedAnswer.matchType || 'exact';
+        }
+      }
       const savedKey = await cacheDb.setCachedResult(body, data);
       if (savedKey) {
-        console.log('[cached_results] SAVED', body.phase, savedKey.slice(0, 12), cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)');
+        const action = body.priorCachedAnswer ? 'ENRICHED+SAVED' : 'SAVED';
+        console.log('[cached_results]', action, body.phase, savedKey.slice(0, 12), cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)');
       }
     } catch (cacheErr) {
       console.warn('[cached_results] save failed:', cacheErr.message || cacheErr);
@@ -1229,6 +1279,7 @@ async function executeGenerate(body, apiKey) {
   }
 
   const savedCacheKey = body.skipCache ? null : cacheDb.buildCacheKey(body);
+  const priorEnriched = Boolean(body.priorCachedAnswer);
 
   if (!body.skipKnowledgeIngest) {
     knowledgeIngest.ingestFromGenerateResultAsync(body, data);
@@ -1238,6 +1289,8 @@ async function executeGenerate(body, apiKey) {
     data: data,
     meta: {
       fromCache: false,
+      priorCacheEnriched: priorEnriched,
+      priorMatchType: priorEnriched ? (body.priorCachedAnswer.matchType || 'exact') : undefined,
       cacheKey: savedCacheKey || undefined,
       table: cacheDb.TABLE_NAME,
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',

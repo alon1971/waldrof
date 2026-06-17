@@ -891,6 +891,7 @@
     body.auth-locked #new-research-bar,
     body.auth-locked #app-shell,
     body.auth-locked #lesson-chat-sidebar,
+    body.auth-locked #lesson-chat-fab,
     body.auth-locked footer { pointer-events: none; user-select: none; opacity: 0.35; filter: blur(1px); }
     body.auth-locked header { opacity: 0.5; }
     #auth-overlay {
@@ -1207,15 +1208,8 @@
         border-bottom: 1px solid rgba(201, 169, 98, 0.35);
       }
     }
-    .lesson-chat-sidebar--collapsed .lesson-chat-panel { display: none; }
     .lesson-chat-sidebar--collapsed {
-      width: 100%;
-    }
-    @media (min-width: 1024px) {
-      .lesson-chat-sidebar--collapsed {
-        width: 3.25rem;
-        max-width: 3.25rem;
-      }
+      display: none !important;
     }
 
     .lesson-chat-panel {
@@ -1342,7 +1336,40 @@
     }
     #lesson-chat-send:disabled { opacity: 0.55; cursor: wait; }
 
-    .lesson-chat-fab { display: none !important; }
+    .lesson-chat-fab {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      z-index: 50;
+      width: 5.5rem;
+      height: 5.5rem;
+      border-radius: 50%;
+      background: #fff;
+      border: 1px solid rgba(201, 169, 98, 0.4);
+      box-shadow: 0 4px 20px rgba(92, 74, 58, 0.16), 0 2px 8px rgba(0, 0, 0, 0.06);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.45rem;
+      text-align: center;
+      font-family: inherit;
+      font-size: 0.68rem !important;
+      font-weight: 600;
+      line-height: 1.25;
+      color: #5C4A3A;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .lesson-chat-fab:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 24px rgba(92, 74, 58, 0.2), 0 3px 10px rgba(0, 0, 0, 0.08);
+    }
+    .lesson-chat-fab:focus-visible {
+      outline: 2px solid #7A9B76;
+      outline-offset: 3px;
+    }
+    .lesson-chat-fab.hidden { display: none !important; }
+    .lesson-chat-fab-label { display: block; pointer-events: none; }
 
     /* Share materials — community knowledge contribution */
     .share-materials-card {
@@ -2044,12 +2071,12 @@
   </div>
   </div>
 
-  <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar" aria-label="">
+  <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar lesson-chat-sidebar--collapsed hidden" aria-label="">
       <div class="lesson-chat-panel">
         <header class="lesson-chat-header">
           <h3><i class="fa-solid fa-comments text-sage" aria-hidden="true"></i> <span data-i18n="chat_sidebar_title">עוזר פדגוגי</span></h3>
           <div class="lesson-chat-header-actions">
-            <button type="button" id="lesson-chat-toggle" class="lesson-chat-icon-btn" aria-expanded="true" data-i18n-aria="chat_sidebar_collapse">
+            <button type="button" id="lesson-chat-toggle" class="lesson-chat-icon-btn" aria-expanded="false" data-i18n-aria="chat_sidebar_collapse">
               <i class="fa-solid fa-chevron-left lesson-chat-toggle-icon" aria-hidden="true"></i>
             </button>
             <button type="button" id="lesson-chat-close" class="lesson-chat-icon-btn lg:hidden" data-i18n-aria="chat_sidebar_close">
@@ -2068,6 +2095,10 @@
         </footer>
       </div>
     </aside>
+
+  <button type="button" id="lesson-chat-fab" class="lesson-chat-fab" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי">
+    <span class="lesson-chat-fab-label" data-i18n="chat_fab_label">עוזר פדגוגי לחץ עלי</span>
+  </button>
   </div>
 
   <footer class="border-t border-gold/20 bg-parchment/50 py-5 text-center text-xs text-walnut/60">
@@ -2078,7 +2109,7 @@
   <script src="auth-subscription.js?v=20250617b"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250617c"></script>
+  <script src="chat-sidebar.js?v=20250617d"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)

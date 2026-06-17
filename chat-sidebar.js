@@ -6,7 +6,7 @@
 
   var state = {
     messages: [],
-    open: true,
+    isOpen: false,
     loading: false,
     sessionKey: '',
     ragContext: '',
@@ -212,7 +212,6 @@
 
     var payload = {
       phase: 'chat_followup',
-      skipCache: true,
       userMessage: text,
       researchContext: buildResearchContext(app),
       ragContext: state.ragContext || '',
@@ -233,6 +232,7 @@
       var answer = reply.answer || stripHtml(reply.answerHtml) || reply.answerHtml || '';
       var fromCache = Boolean(result && result._fromCache);
       var meta = (result && result._meta) || {};
+      var enriched = Boolean(meta.priorCacheEnriched || (reply && reply.enrichedFromPrior));
       if (meta.ragContext) state.ragContext = meta.ragContext;
       if (Array.isArray(meta.ragChunkIds)) state.ragChunkIds = meta.ragChunkIds;
       if (!answer) throw new Error(deps.t('chat_error_empty'));
@@ -240,7 +240,8 @@
         role: 'assistant',
         text: stripHtml(answer) || answer,
         html: reply.answerHtml || null,
-        fromCache: fromCache,
+        fromCache: fromCache && !enriched,
+        enriched: enriched,
       });
       renderMessages();
       if (typeof deps.onChatStateSync === 'function') {
@@ -262,12 +263,21 @@
     });
   }
 
-  function toggleOpen() {
-    state.open = !state.open;
+  function syncOpenUi() {
     var sidebar = document.getElementById('lesson-chat-sidebar');
-    if (sidebar) sidebar.classList.toggle('lesson-chat-sidebar--collapsed', !state.open);
+    var fab = document.getElementById('lesson-chat-fab');
     var toggle = document.getElementById('lesson-chat-toggle');
-    if (toggle) toggle.setAttribute('aria-expanded', state.open ? 'true' : 'false');
+    if (sidebar) {
+      sidebar.classList.toggle('lesson-chat-sidebar--collapsed', !state.isOpen);
+      sidebar.classList.toggle('hidden', !state.isOpen);
+    }
+    if (fab) fab.classList.toggle('hidden', state.isOpen);
+    if (toggle) toggle.setAttribute('aria-expanded', state.isOpen ? 'true' : 'false');
+  }
+
+  function toggleOpen() {
+    state.isOpen = !state.isOpen;
+    syncOpenUi();
   }
 
   function syncSessionFromApp(app) {
@@ -283,11 +293,7 @@
   }
 
   function updateVisibility() {
-    var sidebar = document.getElementById('lesson-chat-sidebar');
-    if (sidebar) {
-      sidebar.classList.remove('hidden');
-      if (state.open) sidebar.classList.remove('lesson-chat-sidebar--collapsed');
-    }
+    syncOpenUi();
     var app = deps.getAppState();
     syncSessionFromApp(app);
   }
@@ -297,11 +303,16 @@
     var closeBtn = document.getElementById('lesson-chat-close');
     var sendBtn = document.getElementById('lesson-chat-send');
     var input = document.getElementById('lesson-chat-input');
-    var sidebar = document.getElementById('lesson-chat-sidebar');
+    var fab = document.getElementById('lesson-chat-fab');
 
-    if (sidebar) sidebar.classList.remove('hidden');
     if (toggle) toggle.addEventListener('click', toggleOpen);
     if (closeBtn) closeBtn.addEventListener('click', toggleOpen);
+    if (fab) fab.addEventListener('click', function () {
+      if (!state.isOpen) {
+        state.isOpen = true;
+        syncOpenUi();
+      }
+    });
     if (sendBtn) sendBtn.addEventListener('click', sendMessage);
     if (input) {
       input.addEventListener('keydown', function (e) {
@@ -320,7 +331,8 @@
     state.sessionKey = options.sessionKey || '';
     state.ragContext = options.ragContext || '';
     state.ragChunkIds = Array.isArray(options.ragChunkIds) ? options.ragChunkIds.slice() : [];
-    state.open = true;
+    state.isOpen = true;
+    syncOpenUi();
     renderMessages();
   }
 
@@ -365,13 +377,8 @@
     getPersistableMessages: getPersistableMessages,
     refreshWelcome: refreshWelcome,
     openForLesson: function (resetChat) {
-      state.open = true;
-      var sidebar = document.getElementById('lesson-chat-sidebar');
-      if (sidebar) {
-        sidebar.classList.remove('hidden', 'lesson-chat-sidebar--collapsed');
-      }
-      var toggle = document.getElementById('lesson-chat-toggle');
-      if (toggle) toggle.setAttribute('aria-expanded', 'true');
+      state.isOpen = true;
+      syncOpenUi();
       if (resetChat) {
         var app = deps.getAppState() || {};
         state.sessionKey = sessionKeyFromApp(app);

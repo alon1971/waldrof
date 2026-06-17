@@ -57,11 +57,6 @@ function buildCacheKey(body) {
 
   if (body.phase === 'chat_followup') {
     parts.push(userMessage);
-    parts.push(hashString(String(body.researchContext || '').slice(0, 8000)));
-    parts.push(hashString(String(body.ragContext || '').slice(0, 4000)));
-    if (Array.isArray(body.ragChunkIds) && body.ragChunkIds.length) {
-      parts.push(body.ragChunkIds.slice(0, 24).join(','));
-    }
   }
 
   if (body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_summary') {
@@ -168,11 +163,34 @@ function setFallbackCached(cacheKey, body, resultData) {
 
 /* ── Public API ───────────────────────────────────────────────────────── */
 
-/**
- * Lookup cached result. Returns { data, meta } or null.
- */
-async function getCachedResult(body) {
-  const cacheKey = buildCacheKey(body);
+function extractChatAnswerText(resultData) {
+  if (!resultData || typeof resultData !== 'object') return '';
+  const reply = resultData.chatReply;
+  if (!reply || typeof reply !== 'object') return '';
+  if (reply.answer) return String(reply.answer).trim();
+  if (reply.answerHtml) {
+    return String(reply.answerHtml).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}
+
+function scoreChatQuestionSimilarity(questionA, questionB) {
+  const a = stableNormalize(questionA);
+  const b = stableNormalize(questionB);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return 0.88;
+  const wordsA = a.split(' ').filter(function (w) { return w.length > 2; });
+  const wordsB = new Set(b.split(' ').filter(function (w) { return w.length > 2; }));
+  if (!wordsA.length || !wordsB.size) return 0;
+  let overlap = 0;
+  wordsA.forEach(function (w) {
+    if (wordsB.has(w)) overlap++;
+  });
+  return overlap / Math.max(wordsA.length, wordsB.size);
+}
+
+async function fetchCachedRowByKey(cacheKey) {
   if (!cacheKey) return null;
 
   if (isSupabaseCacheEnabled()) {
@@ -180,46 +198,132 @@ async function getCachedResult(body) {
       const res = await supabaseRequest(
         '/rest/v1/' + TABLE_NAME +
         '?cache_key=eq.' + encodeURIComponent(cacheKey) +
-        '&select=cache_key,result_data,hit_count&limit=1',
+        '&select=cache_key,query_text,result_data,hit_count,phase,topic,grade_id&limit=1',
         { method: 'GET' }
       );
-
-      if (res.status === 404 || res.status === 406) {
-        /* table may not exist yet — fall through */
-      } else if (!res.ok) {
-        const errText = await res.text();
-        console.warn('[cached_results] Supabase read error', res.status, errText.slice(0, 200));
-      } else {
+      if (res.ok) {
         const rows = await res.json();
         const row = Array.isArray(rows) ? rows[0] : null;
-        if (row && row.result_data) {
-          bumpHitCountAsync(cacheKey, row.hit_count);
-          return {
-            data: row.result_data,
-            meta: {
-              fromCache: true,
-              cacheKey: cacheKey,
-              table: TABLE_NAME,
-              source: 'supabase',
-            },
-          };
-        }
+        if (row && row.result_data) return row;
       }
     } catch (err) {
-      console.warn('[cached_results] Supabase read failed:', err.message || err);
+      console.warn('[cached_results] row fetch failed:', err.message || err);
     }
   }
 
-  const fallbackData = getFallbackCached(cacheKey);
-  if (!fallbackData) return null;
+  loadFallbackStore();
+  const fallback = fallbackStore.rows.get(cacheKey);
+  if (fallback && fallback.result_data) return fallback;
+  return null;
+}
 
+/**
+ * Find a prior chat_followup answer for enrichment (exact or similar) — never returns as final response.
+ */
+async function lookupChatPriorAnswer(body) {
+  if (!body || body.phase !== 'chat_followup') return null;
+  const userMessage = String(body.userMessage || '').trim();
+  if (!userMessage) return null;
+
+  const cacheKey = buildCacheKey(body);
+  const exactRow = await fetchCachedRowByKey(cacheKey);
+  if (exactRow && exactRow.result_data) {
+    bumpHitCountAsync(cacheKey, exactRow.hit_count);
+    return {
+      cacheKey: cacheKey,
+      data: exactRow.result_data,
+      queryText: exactRow.query_text || userMessage,
+      matchType: 'exact',
+      hitCount: exactRow.hit_count || 0,
+    };
+  }
+
+  if (!isSupabaseCacheEnabled() || userMessage.length < 4) return null;
+
+  try {
+    const params = new URLSearchParams();
+    params.set('select', 'cache_key,query_text,result_data,hit_count,topic,grade_id');
+    params.set('phase', 'eq.chat_followup');
+    params.set('order', 'hit_count.desc,created_at.desc');
+    params.set('limit', '40');
+    const gradeId = body.currentGrade ?? body.gradeId;
+    if (gradeId) params.set('grade_id', 'eq.' + gradeId);
+    const topic = String(body.topic || '').trim();
+    if (topic) params.set('topic', 'ilike.*' + topic.slice(0, 60) + '*');
+
+    const words = stableNormalize(userMessage).split(' ').filter(function (w) { return w.length > 2; });
+    if (words.length >= 2) {
+      params.set('query_text', 'ilike.*' + words.slice(0, 4).join('*') + '*');
+    }
+
+    const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+    if (!res.ok) return null;
+
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length) return null;
+
+    let best = null;
+    let bestScore = 0.55;
+    rows.forEach(function (row) {
+      if (!row || !row.result_data || !extractChatAnswerText(row.result_data)) return;
+      const score = scoreChatQuestionSimilarity(userMessage, row.query_text || '');
+      if (score > bestScore) {
+        bestScore = score;
+        best = row;
+      }
+    });
+
+    if (!best) return null;
+
+    bumpHitCountAsync(best.cache_key, best.hit_count);
+    return {
+      cacheKey: best.cache_key,
+      data: best.result_data,
+      queryText: best.query_text || userMessage,
+      matchType: 'similar',
+      similarity: bestScore,
+      hitCount: best.hit_count || 0,
+    };
+  } catch (err) {
+    console.warn('[cached_results] chat prior lookup failed:', err.message || err);
+    return null;
+  }
+}
+
+/**
+ * Lookup cached result. Returns { data, meta } or null.
+ */
+async function getCachedResult(body) {
+  const cacheKey = buildCacheKey(body);
+  if (!cacheKey) return null;
+
+  if (body && body.phase === 'chat_followup') {
+    return null;
+  }
+
+  const row = await fetchCachedRowByKey(cacheKey);
+  if (!row || !row.result_data) {
+    const fallbackData = getFallbackCached(cacheKey);
+    if (!fallbackData) return null;
+    return {
+      data: fallbackData,
+      meta: {
+        fromCache: true,
+        cacheKey: cacheKey,
+        table: TABLE_NAME,
+        source: 'fallback',
+      },
+    };
+  }
+
+  bumpHitCountAsync(cacheKey, row.hit_count);
   return {
-    data: fallbackData,
+    data: row.result_data,
     meta: {
       fromCache: true,
       cacheKey: cacheKey,
       table: TABLE_NAME,
-      source: 'fallback',
+      source: isSupabaseCacheEnabled() ? 'supabase' : 'fallback',
     },
   };
 }
@@ -232,6 +336,10 @@ async function setCachedResult(body, resultData) {
   if (!cacheKey || !resultData) return null;
 
   const row = buildRow(cacheKey, body, resultData);
+  const existing = await fetchCachedRowByKey(cacheKey);
+  if (existing && existing.hit_count != null) {
+    row.hit_count = Number(existing.hit_count) || 0;
+  }
 
   if (isSupabaseCacheEnabled()) {
     try {
@@ -484,6 +592,8 @@ module.exports = {
   TABLE_NAME,
   buildCacheKey,
   getCachedResult,
+  lookupChatPriorAnswer,
+  extractChatAnswerText,
   setCachedResult,
   saveCachedResultAsync,
   isSupabaseCacheEnabled,
