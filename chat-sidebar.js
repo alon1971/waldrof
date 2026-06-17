@@ -265,13 +265,16 @@
 
   function syncOpenUi() {
     var sidebar = document.getElementById('lesson-chat-sidebar');
-    var fab = document.getElementById('lesson-chat-fab');
+    var fabWrap = document.getElementById('lesson-chat-fab-wrap');
     var toggle = document.getElementById('lesson-chat-toggle');
     if (sidebar) {
       sidebar.classList.toggle('lesson-chat-sidebar--collapsed', !state.isOpen);
       sidebar.classList.toggle('hidden', !state.isOpen);
     }
-    if (fab) fab.classList.toggle('hidden', state.isOpen);
+    if (fabWrap) {
+      fabWrap.classList.toggle('hidden', state.isOpen);
+      fabWrap.setAttribute('aria-hidden', state.isOpen ? 'true' : 'false');
+    }
     if (toggle) toggle.setAttribute('aria-expanded', state.isOpen ? 'true' : 'false');
   }
 
