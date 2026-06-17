@@ -37,6 +37,76 @@ function stableNormalize(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/** Hebrew filler / pedagogy words stripped before topic cache-key hashing (step B). */
+const HEBREW_TOPIC_STOP_WORDS = new Set([
+  'לימוד', 'ללמוד', 'לימודי', 'לימודית', 'הוראת', 'הוראה', 'ללמד', 'מלמד', 'מלמדת',
+  'שיעור', 'שיעורי', 'שיעורים', 'יחידת', 'יחידה', 'נושא', 'בנושא', 'בעניין', 'בנוגע', 'לנושא',
+  'על', 'את', 'של', 'עם', 'או', 'גם', 'כי', 'אם', 'זה', 'זו', 'הוא', 'היא', 'הם', 'אני', 'אתה',
+  'כיתה', 'שכבה', 'שכבת', 'גיל', 'לכיתה', 'בכיתה', 'בשכבה',
+  'פעילות', 'פעילויות', 'עבודה', 'תרגול', 'תרגיל', 'תרגילים', 'משימה', 'משימות',
+  'דרך', 'מתוך', 'איך', 'כיצד', 'מה', 'למה', 'מתי', 'איפה', 'כאן', 'שם',
+  'תלמיד', 'תלמידים', 'תלמידה', 'ילדים', 'ילד', 'ילדה', 'מורה', 'המורה',
+  'ב', 'ל', 'מ', 'כ', 'ו', 'ש',
+]);
+
+function isHebrewTopicStopWord(word) {
+  const w = String(word || '').trim();
+  if (!w) return true;
+  if (HEBREW_TOPIC_STOP_WORDS.has(w)) return true;
+  if (w.charAt(0) === 'ה' && w.length > 2 && HEBREW_TOPIC_STOP_WORDS.has(w.slice(1))) return true;
+  return false;
+}
+
+function stripDefiniteArticle(word) {
+  const w = String(word || '');
+  if (w.charAt(0) === 'ה' && w.length > 2) {
+    const stem = w.slice(1);
+    if (stem && !isHebrewTopicStopWord(stem)) return stem;
+  }
+  return w;
+}
+
+function removeGradePhrasesFromTopic(text) {
+  return String(text || '')
+    .replace(/(?:^|\s)(?:ב|ל|ש)?כיתה\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
+    .replace(/(?:^|\s)שכב(?:ה|ת)\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
+    .replace(/(?:^|\s)גיל\s+\d[\d\-]*(?:\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Normalize a topic search string to its core keyword(s) for cache-key hashing (step B).
+ * e.g. "הוראת האותיות", "לימוד אותיות", "לימוד האותיות בכיתה א'" → "אותיות"
+ */
+function normalizeTopicQuery(raw) {
+  let text = stableNormalize(raw);
+  if (!text) return '';
+
+  text = text
+    .replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  text = removeGradePhrasesFromTopic(text);
+
+  const words = [];
+  text.split(/\s+/).filter(Boolean).forEach(function (word) {
+    if (isHebrewTopicStopWord(word)) return;
+    const cleaned = stripDefiniteArticle(word);
+    if (!cleaned || isHebrewTopicStopWord(cleaned)) return;
+    words.push(cleaned);
+  });
+
+  const normalized = words.join(' ').trim();
+  if (normalized) return normalized;
+
+  return text
+    .replace(/[^א-תa-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function hashString(text) {
   return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
 }
@@ -70,7 +140,9 @@ function buildCacheKey(body) {
 
   const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
   const gradeLabel = stableNormalize(body.gradeLabel ?? '');
-  const topic = stableNormalize(body.topic ?? '');
+  const topic = body.phase === 'topic'
+    ? normalizeTopicQuery(body.topic ?? '')
+    : stableNormalize(body.topic ?? '');
   const archiveQuery = stableNormalize(body.archiveQuery ?? '');
   const activityTitle = stableNormalize(body.activityTitle ?? body.sourceTitle ?? '');
   const userMessage = stableNormalize(body.userMessage ?? '');
@@ -470,7 +542,7 @@ async function lookupTopicCachedContext(body) {
   const topicBody = buildTopicCacheBody(body);
   if (!topicBody) return null;
   const cacheKey = buildCacheKey(topicBody);
-  const row = await fetchCachedRowByKey(cacheKey);
+  const row = await resolveCachedRowWithLegacyFallback(topicBody, cacheKey);
   const data = coerceCachedResultData(row && row.result_data);
   if (!row || !data) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
@@ -748,6 +820,117 @@ async function lookupLegacyGradeCachedRow(body, newCacheKey) {
   return fallbackRow;
 }
 
+function topicCacheTextsMatch(body, row) {
+  if (!body || !row) return false;
+  const wanted = normalizeTopicQuery(body.topic || '');
+  if (!wanted) return false;
+  const candidates = [row.topic, row.query_text];
+  for (let i = 0; i < candidates.length; i++) {
+    if (normalizeTopicQuery(candidates[i] || '') === wanted) return true;
+  }
+  return false;
+}
+
+function pickValidLegacyTopicRow(rows, body, newCacheKey) {
+  if (!Array.isArray(rows)) return null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !row.result_data || row.cache_key === newCacheKey) continue;
+    if (!isValidCachedPayload('topic', coerceCachedResultData(row.result_data))) continue;
+    if (!topicCacheTextsMatch(body, row)) continue;
+    return row;
+  }
+  return null;
+}
+
+function lookupLegacyTopicInFallback(body, newCacheKey) {
+  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
+  if (!gradeId) return null;
+  loadFallbackStore();
+  let best = null;
+  fallbackStore.rows.forEach(function (row) {
+    if (!row || row.phase !== 'topic' || !row.result_data || row.cache_key === newCacheKey) return;
+    if (String(row.grade_id || '').trim() !== gradeId) return;
+    if (!topicCacheTextsMatch(body, row)) return;
+    if (!isValidCachedPayload('topic', coerceCachedResultData(row.result_data))) return;
+    best = row;
+  });
+  return best;
+}
+
+/**
+ * Fallback for topic rows saved under the old (non-normalized) cache-key scheme.
+ */
+async function lookupLegacyTopicCachedRow(body, newCacheKey) {
+  if (!body || body.phase !== 'topic' || !newCacheKey) return null;
+  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
+  const wanted = normalizeTopicQuery(body.topic || '');
+  if (!gradeId || !wanted) return null;
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const params = new URLSearchParams();
+      params.set('select', LEGACY_ROW_SELECT);
+      params.set('phase', 'eq.topic');
+      params.set('grade_id', 'eq.' + gradeId);
+      params.set('order', 'hit_count.desc,created_at.desc');
+      params.set('limit', '20');
+
+      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+      if (res.ok) {
+        const rows = await res.json();
+        const match = pickValidLegacyTopicRow(rows, body, newCacheKey);
+        if (match) return match;
+      }
+    } catch (err) {
+      console.warn('[cached_results] legacy topic lookup failed:', err.message || err);
+    }
+  }
+
+  return lookupLegacyTopicInFallback(body, newCacheKey);
+}
+
+async function migrateLegacyTopicRowCacheKey(legacyRow, body, newCacheKey) {
+  if (!legacyRow || !newCacheKey || legacyRow.cache_key === newCacheKey) return false;
+
+  const data = coerceCachedResultData(legacyRow.result_data);
+  if (!data || !isValidCachedPayload('topic', data)) return false;
+
+  const existingNew = await fetchCachedRowByKey(newCacheKey);
+  if (existingNew && existingNew.result_data && isValidCachedPayload('topic', coerceCachedResultData(existingNew.result_data))) {
+    return false;
+  }
+
+  const row = buildRow(newCacheKey, body, cloneJsonSafe(data) || data);
+  row.hit_count = Number(legacyRow.hit_count) || 0;
+  if (legacyRow.user_id) row.user_id = legacyRow.user_id;
+  if (legacyRow.user_email) row.user_email = legacyRow.user_email;
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const upsertRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?on_conflict=cache_key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(row),
+      });
+      if (upsertRes.ok) {
+        console.log(
+          '[cached_results] LEGACY TOPIC MIGRATE',
+          String(legacyRow.cache_key).slice(0, 12),
+          '->',
+          newCacheKey.slice(0, 12)
+        );
+        return true;
+      }
+    } catch (err) {
+      console.warn('[cached_results] legacy topic migrate failed:', err.message || err);
+    }
+  }
+
+  setFallbackCached(newCacheKey, body, data);
+  return true;
+}
+
 /**
  * Re-key a legacy row to the simplified cache_key (upsert). Never deletes the legacy row's data.
  */
@@ -845,6 +1028,14 @@ async function resolveCachedRowWithLegacyFallback(body, cacheKey) {
       const migrated = await migrateLegacyRowCacheKey(legacyRow, body, cacheKey);
       console.log('[CACHE_DEBUG] Legacy migration attempted:', migrated);
       return legacyRow;
+    }
+  }
+
+  if (body && body.phase === 'topic') {
+    const legacyTopicRow = await lookupLegacyTopicCachedRow(body, cacheKey);
+    if (legacyTopicRow && legacyTopicRow.result_data) {
+      await migrateLegacyTopicRowCacheKey(legacyTopicRow, body, cacheKey);
+      return legacyTopicRow;
     }
   }
 
@@ -1330,6 +1521,7 @@ module.exports = {
   TABLE_NAME,
   buildCacheKey,
   normalizeGradeCacheRequest,
+  normalizeTopicQuery,
   normalizeGradeResultForCache,
   coerceCachedResultData,
   sanitizeForJsonStorage,
