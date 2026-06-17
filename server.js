@@ -143,9 +143,11 @@ async function handleApiGenerate(req, res) {
 
   try {
     const result = await generateApi.handleGeneratePost(parsedBody);
-    const payload = result && result.data !== undefined
-      ? { data: result.data, meta: result.meta || { fromCache: false } }
-      : { data: result, meta: { fromCache: false } };
+    const payload = generateApi.buildGenerateHttpPayload
+      ? generateApi.buildGenerateHttpPayload(result)
+      : (result && result.data !== undefined
+        ? { data: result.data, meta: result.meta || { fromCache: false } }
+        : { data: result, meta: { fromCache: false } });
     return writeJsonResponse(res, 200, payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

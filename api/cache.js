@@ -163,9 +163,94 @@ function setFallbackCached(cacheKey, body, resultData) {
 
 /* ── Public API ───────────────────────────────────────────────────────── */
 
+/**
+ * Parse cached result_data from Supabase without markdown/JSON repair heuristics.
+ * Handles jsonb stored as a JSON string or accidental { data, meta } wrappers.
+ */
+function coerceCachedResultData(raw) {
+  if (raw == null) return null;
+
+  let data = raw;
+  if (typeof data === 'string') {
+    const text = data.trim();
+    if (!text) return null;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data.trim());
+      } catch (e2) {
+        return null;
+      }
+    }
+  }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+  if (
+    data.data != null &&
+    typeof data.data === 'object' &&
+    !Array.isArray(data.data) &&
+    !data.gradeInsights &&
+    !data.blockPlan &&
+    !data.chatReply &&
+    !data.pedagogyDeepDive &&
+    !data.webResearch &&
+    !data.archiveSearch
+  ) {
+    data = data.data;
+  }
+
+  return data;
+}
+
+function cloneJsonSafe(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (e) {
+    return null;
+  }
+}
+
+function isValidCachedPayload(phase, data) {
+  if (!data || typeof data !== 'object') return false;
+  if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
+  if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
+  if (phase === 'chat_followup') {
+    return Boolean(
+      data.chatReply &&
+      typeof data.chatReply === 'object' &&
+      (data.chatReply.answer || data.chatReply.answerHtml)
+    );
+  }
+  if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
+  if (phase === 'archive_search') return Boolean(data.archiveSearch);
+  if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
+  if (phase === 'drive') return Boolean(data.driveMerge);
+  if (phase === 'test') return data.ok === true;
+  return true;
+}
+
+/** Ready-to-send cache hit — original object only, never re-parsed through model cleaners. */
+function buildCachedGeneratePayload(cached, phase) {
+  if (!cached) return null;
+  const data = coerceCachedResultData(cached.data);
+  if (!data || !isValidCachedPayload(phase, data)) return null;
+  const cloned = cloneJsonSafe(data);
+  if (!cloned) return null;
+  return {
+    data: cloned,
+    meta: Object.assign({}, cached.meta || {}, { fromCache: true }),
+  };
+}
+
 function extractChatAnswerText(resultData) {
-  if (!resultData || typeof resultData !== 'object') return '';
-  const reply = resultData.chatReply;
+  const data = coerceCachedResultData(resultData);
+  if (!data || typeof data !== 'object') return '';
+  const reply = data.chatReply;
   if (!reply || typeof reply !== 'object') return '';
   if (reply.answer) return String(reply.answer).trim();
   if (reply.answerHtml) {
@@ -205,8 +290,9 @@ function buildTopicCacheBody(body) {
 }
 
 function extractGradeInsightsText(resultData) {
-  if (!resultData || typeof resultData !== 'object') return '';
-  const gi = resultData.gradeInsights;
+  const data = coerceCachedResultData(resultData);
+  if (!data || typeof data !== 'object') return '';
+  const gi = data.gradeInsights;
   if (!gi || typeof gi !== 'object') return '';
   const chunks = [];
   if (gi.part1AgePictureHtml) chunks.push(stripHtmlSimple(gi.part1AgePictureHtml));
@@ -234,11 +320,12 @@ async function lookupGradeCachedContext(body) {
   if (!gradeBody) return null;
   const cacheKey = buildCacheKey(gradeBody);
   const row = await fetchCachedRowByKey(cacheKey);
-  if (!row || !row.result_data || !extractGradeInsightsText(row.result_data)) return null;
+  const data = coerceCachedResultData(row && row.result_data);
+  if (!row || !data || !extractGradeInsightsText(data)) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
   return {
     cacheKey: cacheKey,
-    data: row.result_data,
+    data: data,
     matchType: 'grade',
     queryText: row.query_text || gradeBody.gradeLabel || '',
     hitCount: row.hit_count || 0,
@@ -253,11 +340,12 @@ async function lookupTopicCachedContext(body) {
   if (!topicBody) return null;
   const cacheKey = buildCacheKey(topicBody);
   const row = await fetchCachedRowByKey(cacheKey);
-  if (!row || !row.result_data) return null;
+  const data = coerceCachedResultData(row && row.result_data);
+  if (!row || !data) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
   return {
     cacheKey: cacheKey,
-    data: row.result_data,
+    data: data,
     matchType: 'topic',
     queryText: row.query_text || topicBody.topic || '',
     hitCount: row.hit_count || 0,
@@ -277,8 +365,11 @@ async function mergeChatEnrichmentIntoGradeCache(body, chatResultData) {
 
   const cacheKey = buildCacheKey(gradeBody);
   const existing = await fetchCachedRowByKey(cacheKey);
-  const resultData = existing && existing.result_data
-    ? JSON.parse(JSON.stringify(existing.result_data))
+  const coerced = existing && existing.result_data
+    ? coerceCachedResultData(existing.result_data)
+    : null;
+  const resultData = coerced
+    ? cloneJsonSafe(coerced) || coerced
     : { gradeInsights: {} };
 
   if (!resultData.gradeInsights || typeof resultData.gradeInsights !== 'object') {
@@ -377,14 +468,17 @@ async function lookupChatPriorAnswer(body) {
   const cacheKey = buildCacheKey(body);
   const exactRow = await fetchCachedRowByKey(cacheKey);
   if (exactRow && exactRow.result_data) {
-    bumpHitCountAsync(cacheKey, exactRow.hit_count);
-    return {
-      cacheKey: cacheKey,
-      data: exactRow.result_data,
-      queryText: exactRow.query_text || userMessage,
-      matchType: 'exact',
-      hitCount: exactRow.hit_count || 0,
-    };
+    const data = coerceCachedResultData(exactRow.result_data);
+    if (data && extractChatAnswerText(data)) {
+      bumpHitCountAsync(cacheKey, exactRow.hit_count);
+      return {
+        cacheKey: cacheKey,
+        data: data,
+        queryText: exactRow.query_text || userMessage,
+        matchType: 'exact',
+        hitCount: exactRow.hit_count || 0,
+      };
+    }
   }
 
   if (!isSupabaseCacheEnabled() || userMessage.length < 4) return null;
@@ -424,10 +518,13 @@ async function lookupChatPriorAnswer(body) {
 
     if (!best) return null;
 
+    const bestData = coerceCachedResultData(best.result_data);
+    if (!bestData) return null;
+
     bumpHitCountAsync(best.cache_key, best.hit_count);
     return {
       cacheKey: best.cache_key,
-      data: best.result_data,
+      data: bestData,
       queryText: best.query_text || userMessage,
       matchType: 'similar',
       similarity: bestScore,
@@ -451,11 +548,16 @@ async function getCachedResult(body) {
   }
 
   const row = await fetchCachedRowByKey(cacheKey);
-  if (!row || !row.result_data) {
-    const fallbackData = getFallbackCached(cacheKey);
-    if (!fallbackData) return null;
+  let data = row && row.result_data ? coerceCachedResultData(row.result_data) : null;
+
+  if (!data) {
+    const fallbackRaw = getFallbackCached(cacheKey);
+    data = fallbackRaw ? coerceCachedResultData(fallbackRaw) : null;
+    if (!data || !isValidCachedPayload(body.phase, data)) return null;
+    const cloned = cloneJsonSafe(data);
+    if (!cloned) return null;
     return {
-      data: fallbackData,
+      data: cloned,
       meta: {
         fromCache: true,
         cacheKey: cacheKey,
@@ -465,9 +567,13 @@ async function getCachedResult(body) {
     };
   }
 
+  if (!isValidCachedPayload(body.phase, data)) return null;
+
   bumpHitCountAsync(cacheKey, row.hit_count);
+  const cloned = cloneJsonSafe(data);
+  if (!cloned) return null;
   return {
-    data: row.result_data,
+    data: cloned,
     meta: {
       fromCache: true,
       cacheKey: cacheKey,
@@ -740,6 +846,8 @@ async function saveTopicChatSession(teacher, cacheKey, session) {
 module.exports = {
   TABLE_NAME,
   buildCacheKey,
+  coerceCachedResultData,
+  buildCachedGeneratePayload,
   getCachedResult,
   lookupChatPriorAnswer,
   lookupGradeCachedContext,

@@ -1130,10 +1130,31 @@ const MISSING_KEY_ERROR =
 
 /** Build success payload for /api/generate HTTP responses. */
 function buildGenerateHttpPayload(result) {
-  if (result && result.data !== undefined) {
-    return { data: result.data, meta: result.meta || { fromCache: false } };
+  if (!result || typeof result !== 'object') {
+    return { data: null, meta: { fromCache: false } };
   }
-  return { data: result, meta: { fromCache: false } };
+
+  const meta = result.meta && typeof result.meta === 'object'
+    ? Object.assign({}, result.meta)
+    : { fromCache: false };
+
+  let data = result.data !== undefined ? result.data : result;
+
+  // Cached rows may store JSON text — parse once; never run model fence/repair heuristics.
+  if (typeof data === 'string') {
+    data = cacheDb.coerceCachedResultData(data);
+  }
+
+  if (meta.fromCache) {
+    if (!data || typeof data !== 'object') {
+      const err = new Error('מבנה נתוני cache לא תקין');
+      err.statusCode = 500;
+      throw err;
+    }
+    return { data: data, meta: meta };
+  }
+
+  return { data: data, meta: meta };
 }
 
 /** Core handler — used by Render (server.js) with a pre-parsed JSON body. */
@@ -1469,3 +1490,4 @@ module.exports.legacyHandler = legacyHandler;
 module.exports.handleGeneratePost = handleGeneratePost;
 module.exports.executeGenerate = executeGenerate;
 module.exports.resolveApiKey = resolveApiKey;
+module.exports.buildGenerateHttpPayload = buildGenerateHttpPayload;
