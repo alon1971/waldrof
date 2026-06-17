@@ -536,9 +536,20 @@ function lookupLegacyGradeInFallback(body, newCacheKey) {
  * Fallback for rows saved under the old cache-key scheme (or keyed only by Hebrew label text).
  */
 async function lookupLegacyGradeCachedRow(body, newCacheKey) {
-  if (!body || body.phase !== 'grade' || !newCacheKey) return null;
+  console.log('[CACHE_DEBUG] lookupLegacyGradeCachedRow called, newCacheKey:', newCacheKey);
+  console.log('[CACHE_DEBUG] lookupLegacyGradeCachedRow body:', JSON.stringify(body));
+  console.log('[CACHE_DEBUG] Supabase cache enabled:', isSupabaseCacheEnabled());
+
+  if (!body || body.phase !== 'grade' || !newCacheKey) {
+    console.log('[CACHE_DEBUG] Legacy lookup skipped — invalid body/phase/newCacheKey');
+    return null;
+  }
   const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
-  if (!gradeId) return null;
+  if (!gradeId) {
+    console.log('[CACHE_DEBUG] Legacy lookup skipped — empty gradeId');
+    return null;
+  }
+  console.log('[CACHE_DEBUG] Legacy lookup gradeId:', gradeId, 'gradeLabel:', body.gradeLabel);
 
   if (isSupabaseCacheEnabled()) {
     try {
@@ -549,15 +560,35 @@ async function lookupLegacyGradeCachedRow(body, newCacheKey) {
       byIdParams.set('order', 'hit_count.desc,created_at.desc');
       byIdParams.set('limit', '8');
 
-      const byIdRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + byIdParams.toString(), {
-        method: 'GET',
-      });
-      if (byIdRes.ok) {
-        const match = pickValidLegacyGradeRow(await byIdRes.json(), newCacheKey);
+      const byIdUrl = '/rest/v1/' + TABLE_NAME + '?' + byIdParams.toString();
+      console.log('[CACHE_DEBUG] Legacy byId query URL:', byIdUrl);
+      const byIdRes = await supabaseRequest(byIdUrl, { method: 'GET' });
+      console.log('[CACHE_DEBUG] Legacy byId response status:', byIdRes.status, byIdRes.ok);
+      if (!byIdRes.ok) {
+        const errText = await byIdRes.text();
+        console.log('[CACHE_DEBUG] Supabase error (byId):', errText.slice(0, 500));
+      } else {
+        const legacyRows = await byIdRes.json();
+        console.log('[CACHE_DEBUG] Legacy query results count (byId):', legacyRows?.length);
+        if (legacyRows?.length) {
+          legacyRows.forEach(function (r, idx) {
+            console.log('[CACHE_DEBUG] Legacy byId row[' + idx + ']:', JSON.stringify({
+              cache_key: r.cache_key ? r.cache_key.slice(0, 16) : null,
+              phase: r.phase,
+              grade_id: r.grade_id,
+              grade_label: r.grade_label,
+              query_text: r.query_text,
+              has_result_data: Boolean(r.result_data),
+            }));
+          });
+        }
+        const match = pickValidLegacyGradeRow(legacyRows, newCacheKey);
+        console.log('[CACHE_DEBUG] Legacy byId valid match:', match ? match.cache_key.slice(0, 16) : null);
         if (match) return match;
       }
 
       const labels = gradeLabelSearchVariants(gradeId, body.gradeLabel);
+      console.log('[CACHE_DEBUG] Legacy label search variants:', labels);
       for (let i = 0; i < labels.length; i++) {
         const label = labels[i];
         const textParams = new URLSearchParams();
@@ -567,19 +598,44 @@ async function lookupLegacyGradeCachedRow(body, newCacheKey) {
         textParams.set('order', 'hit_count.desc,created_at.desc');
         textParams.set('limit', '8');
 
-        const textRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + textParams.toString(), {
-          method: 'GET',
-        });
-        if (!textRes.ok) continue;
-        const textMatch = pickValidLegacyGradeRow(await textRes.json(), newCacheKey);
+        const textUrl = '/rest/v1/' + TABLE_NAME + '?' + textParams.toString();
+        console.log('[CACHE_DEBUG] Legacy byLabel query URL:', textUrl);
+        const textRes = await supabaseRequest(textUrl, { method: 'GET' });
+        console.log('[CACHE_DEBUG] Legacy byLabel response status:', textRes.status, 'label:', label);
+        if (!textRes.ok) {
+          const errText = await textRes.text();
+          console.log('[CACHE_DEBUG] Supabase error (byLabel):', errText.slice(0, 500));
+          continue;
+        }
+        const labelRows = await textRes.json();
+        console.log('[CACHE_DEBUG] Legacy query results count (byLabel):', labelRows?.length);
+        if (labelRows?.length) {
+          labelRows.forEach(function (r, idx) {
+            console.log('[CACHE_DEBUG] Legacy byLabel row[' + idx + ']:', JSON.stringify({
+              cache_key: r.cache_key ? r.cache_key.slice(0, 16) : null,
+              phase: r.phase,
+              grade_id: r.grade_id,
+              grade_label: r.grade_label,
+              query_text: r.query_text,
+              has_result_data: Boolean(r.result_data),
+            }));
+          });
+        }
+        const textMatch = pickValidLegacyGradeRow(labelRows, newCacheKey);
+        console.log('[CACHE_DEBUG] Legacy byLabel valid match:', textMatch ? textMatch.cache_key.slice(0, 16) : null);
         if (textMatch) return textMatch;
       }
     } catch (err) {
+      console.log('[CACHE_DEBUG] Supabase error:', err);
       console.warn('[cached_results] legacy grade lookup failed:', err.message || err);
     }
+  } else {
+    console.log('[CACHE_DEBUG] Supabase disabled — trying local fallback only');
   }
 
-  return lookupLegacyGradeInFallback(body, newCacheKey);
+  const fallbackRow = lookupLegacyGradeInFallback(body, newCacheKey);
+  console.log('[CACHE_DEBUG] Local fallback legacy match:', fallbackRow ? fallbackRow.cache_key.slice(0, 16) : null);
+  return fallbackRow;
 }
 
 /**
@@ -656,17 +712,33 @@ async function fetchCachedRowByKey(cacheKey) {
 }
 
 async function resolveCachedRowWithLegacyFallback(body, cacheKey) {
-  const row = await fetchCachedRowByKey(cacheKey);
-  if (row && row.result_data) return row;
+  console.log('[CACHE_DEBUG] Checking new key:', cacheKey);
+  console.log('[CACHE_DEBUG] Body data received:', JSON.stringify(body));
 
+  const row = await fetchCachedRowByKey(cacheKey);
+  console.log('[CACHE_DEBUG] Direct key lookup result:', row
+    ? { cache_key: row.cache_key ? row.cache_key.slice(0, 16) : null, has_result_data: Boolean(row.result_data) }
+    : null);
+
+  if (row && row.result_data) {
+    console.log('[CACHE_DEBUG] Cache HIT on new key');
+    return row;
+  }
+
+  console.log('[CACHE_DEBUG] Cache MISS on new key — trying legacy fallback');
   if (body && body.phase === 'grade') {
     const legacyRow = await lookupLegacyGradeCachedRow(body, cacheKey);
+    console.log('[CACHE_DEBUG] Legacy fallback result:', legacyRow
+      ? { cache_key: legacyRow.cache_key ? legacyRow.cache_key.slice(0, 16) : null, has_result_data: Boolean(legacyRow.result_data) }
+      : null);
     if (legacyRow && legacyRow.result_data) {
-      await migrateLegacyRowCacheKey(legacyRow, body, cacheKey);
+      const migrated = await migrateLegacyRowCacheKey(legacyRow, body, cacheKey);
+      console.log('[CACHE_DEBUG] Legacy migration attempted:', migrated);
       return legacyRow;
     }
   }
 
+  console.log('[CACHE_DEBUG] No cache row found (new key + legacy)');
   return null;
 }
 
