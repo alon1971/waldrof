@@ -1244,7 +1244,7 @@
 
     .lesson-chat-fab-wrap {
       position: fixed;
-      bottom: 5rem;
+      bottom: 220px;
       left: 1.5rem;
       z-index: 50;
       pointer-events: none;
@@ -1253,6 +1253,7 @@
 
     .lesson-chat-fab {
       position: relative;
+      min-width: 15rem;
       min-height: 4rem;
       border-radius: 9999px;
       background: linear-gradient(145deg, #7A9B76, #5C7D58);
@@ -1264,7 +1265,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0.75rem 2rem;
+      padding: 0.75rem 2.25rem;
       color: #fff;
       font-family: inherit;
       font-size: 1.125rem !important;
@@ -1284,12 +1285,16 @@
     .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
     .lesson-chat-fab-label { display: block; pointer-events: none; }
     @media (max-width: 480px) {
+      .lesson-chat-fab-wrap {
+        bottom: 9rem;
+      }
       .lesson-chat-fab {
+        min-width: 13.5rem;
         min-height: 3.5rem;
-        padding: 0.65rem 1.5rem;
+        padding: 0.65rem 1.75rem;
         font-size: 1rem !important;
         white-space: normal;
-        max-width: min(18rem, calc(100vw - 2rem));
+        max-width: min(20rem, calc(100vw - 2rem));
       }
     }
 
