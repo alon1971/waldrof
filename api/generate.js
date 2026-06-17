@@ -154,7 +154,7 @@ const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
   'FALLBACK (rare — only when live search + lesson context + knowledge base all lack verified material on the specific question):\n' +
   'Respond humbly in Hebrew that you could not locate verified Steiner/anthroposophic sources on this point — invite reframing or sharing sources.\n' +
   'Do NOT default to "אין חומר במאגר הקהילתי" when web search can answer from Steiner/core anthroposophic sources.\n' +
-  'For fallback replies: set answer and answerHtml to the same Hebrew text; suggestedFollowUps may be [].\n' +
+  'For fallback replies: write the same humble Hebrew decline as plain prose.\n' +
   'TONE: Grounded, authentic, authoritative yet humble. Practical for classroom teachers when sources support it.\n' +
   '=== END PEDAGOGICAL CHAT — STEINER-GROUNDED + LIVE WEB SEARCH ===\n';
 
@@ -202,6 +202,13 @@ function waldorfSystemPrompt(extra) {
   );
 }
 
+const CHAT_FREE_TEXT_OUTPUT_INSTRUCTION =
+  '\n=== CHAT OUTPUT: FREE TEXT / MARKDOWN (MANDATORY) ===\n' +
+  'Reply with warm, pedagogical Hebrew prose — plain text or light Markdown only.\n' +
+  'Use paragraphs, **bold**, bullet lists, and headings when helpful. Do NOT return JSON, code fences, or schema wrappers.\n' +
+  'Write 2–6 rich paragraphs when verified sources support a full answer.\n' +
+  '=== END CHAT OUTPUT ===\n';
+
 function pedagogicalChatSystemPrompt(extra) {
   return (
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers. ' +
@@ -211,8 +218,7 @@ function pedagogicalChatSystemPrompt(extra) {
     PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
     WEB_SEARCH_PRIORITY_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
-    JSON_ONLY_INSTRUCTION +
-    JSON_VALID_SYNTAX_INSTRUCTION +
+    CHAT_FREE_TEXT_OUTPUT_INSTRUCTION +
     ' Write all chat replies in Hebrew. ' +
     'Deliver full, practical answers when Steiner-based sources support them — do not decline when live search can answer.' +
     NO_LATEX_BLOCK +
@@ -640,6 +646,35 @@ function parseJsonFromModel(text) {
   return unwrapParsedModelPayload(parsed);
 }
 
+/**
+ * chat_followup: accept free text / Markdown from the model.
+ * If the model still returns JSON, unwrap it; otherwise treat the full reply as the answer.
+ */
+function normalizeChatFollowupFromModel(raw) {
+  const text = String(raw || '').trim();
+  if (!text) throw new Error('Empty model response');
+
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = unwrapParsedModelPayload(parseJsonLenient(text));
+      if (parsed && parsed.chatReply && typeof parsed.chatReply === 'object') {
+        return parsed;
+      }
+      if (parsed && parsed.reply) {
+        return { chatReply: { answer: String(parsed.reply).trim() } };
+      }
+      if (parsed && (parsed.answer || parsed.answerHtml)) {
+        return { chatReply: parsed };
+      }
+    } catch (jsonErr) {
+      console.warn('[generate] chat_followup JSON unwrap failed, using free text:', jsonErr.message || jsonErr);
+    }
+  }
+
+  return { chatReply: { answer: text } };
+}
+
 /** @deprecated alias — grade phase uses the same pipeline as parseJsonFromModel */
 function parseGradeJsonFromModel(text) {
   return parseJsonFromModel(text);
@@ -981,14 +1016,9 @@ function buildUserPrompt(body) {
       '4. Give a full, warm, practical Hebrew answer (2–6 paragraphs) when verified material exists.\n' +
       '5. Use the Hebrew fallback decline ONLY when live search + context all lack verified material on this specific question.\n' +
       WEB_SEARCH_PRIORITY_INSTRUCTION +
-      JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
-      '{\n' +
-      '  "chatReply": {\n' +
-      '    "answer": "Full Hebrew answer when grounded (2-6 paragraphs), OR the Hebrew fallback decline when not grounded",\n' +
-      '    "answerHtml": "<p>HTML matching answer</p>",\n' +
-      '    "suggestedFollowUps": ["2-3 short Hebrew follow-ups when grounded, or [] when using fallback"]\n' +
-      '  }\n' +
-      '}'
+      CHAT_FREE_TEXT_OUTPUT_INSTRUCTION +
+      'Write your full Hebrew answer directly as warm pedagogical prose (plain text or light Markdown). ' +
+      'Do NOT wrap the reply in JSON or code blocks.'
     );
   }
 
@@ -1095,11 +1125,7 @@ function validatePhaseResult(phase, data) {
   if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
   if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
   if (phase === 'chat_followup') {
-    return Boolean(
-      data.chatReply &&
-      typeof data.chatReply === 'object' &&
-      (data.chatReply.answer || data.chatReply.answerHtml)
-    );
+    return Boolean(cacheDb.extractChatAnswerText(data));
   }
   if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
   if (phase === 'archive_search') return Boolean(data.archiveSearch);
@@ -1307,8 +1333,7 @@ async function executeGenerate(body, apiKey) {
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (isChatFollowup
-      ? JSON_RESPONSE_ENFORCEMENT +
-        (body.priorCachedAnswer || body.priorGradeCache
+      ? (body.priorCachedAnswer || body.priorGradeCache
         ? ' PEDAGOGICAL CHAT ENRICHMENT: Prior cached grade insights and/or chat answers exist — refine, correct, deepen, and expand using live Steiner/anthroposophic web search. Output must surpass prior versions.'
         : ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
           'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.')
@@ -1336,12 +1361,23 @@ async function executeGenerate(body, apiKey) {
   }
 
   let data;
-  try {
-    data = parseJsonFromModel(raw);
-  } catch (parseErr) {
-    console.error('JSON parse failed for phase', body.phase, parseErr instanceof Error ? parseErr.message : parseErr);
-    console.error('Model output preview:', String(raw).slice(0, 600));
-    throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
+  if (isChatFollowup) {
+    try {
+      data = normalizeChatFollowupFromModel(raw);
+    } catch (chatErr) {
+      const msg = chatErr instanceof Error ? chatErr.message : String(chatErr);
+      console.error('[generate] chat_followup normalize failed:', msg);
+      console.error('Model output preview:', String(raw).slice(0, 600));
+      throw new Error('המודל לא החזיר תשובה. נסו שוב בעוד רגע.');
+    }
+  } else {
+    try {
+      data = parseJsonFromModel(raw);
+    } catch (parseErr) {
+      console.error('JSON parse failed for phase', body.phase, parseErr instanceof Error ? parseErr.message : parseErr);
+      console.error('Model output preview:', String(raw).slice(0, 600));
+      throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
+    }
   }
 
   if (!validatePhaseResult(body.phase, data)) {
@@ -1365,7 +1401,8 @@ async function executeGenerate(body, apiKey) {
           data.chatReply.enrichedFromGradeCache = true;
         }
       }
-      const savedKey = await cacheDb.setCachedResult(body, data);
+      const cachePayload = isChatFollowup ? cacheDb.packChatFollowupForCache(data) : data;
+      const savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
       if (savedKey) {
         const action = body.priorCachedAnswer || body.priorGradeCache ? 'ENRICHED+SAVED' : 'SAVED';
         console.log('[cached_results]', action, body.phase, savedKey.slice(0, 12), cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)');

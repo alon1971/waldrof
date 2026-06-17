@@ -216,6 +216,7 @@ function coerceCachedResultData(raw) {
     !data.gradeInsights &&
     !data.blockPlan &&
     !data.chatReply &&
+    !data.reply &&
     !data.pedagogyDeepDive &&
     !data.webResearch &&
     !data.archiveSearch
@@ -340,11 +341,7 @@ function isValidCachedPayload(phase, data) {
   if (phase === 'grade') return Boolean(normalizeGradeResultForCache(data));
   if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
   if (phase === 'chat_followup') {
-    return Boolean(
-      data.chatReply &&
-      typeof data.chatReply === 'object' &&
-      (data.chatReply.answer || data.chatReply.answerHtml)
-    );
+    return Boolean(extractChatAnswerText(data));
   }
   if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
   if (phase === 'archive_search') return Boolean(data.archiveSearch);
@@ -370,6 +367,7 @@ function buildCachedGeneratePayload(cached, phase) {
 function extractChatAnswerText(resultData) {
   const data = coerceCachedResultData(resultData);
   if (!data || typeof data !== 'object') return '';
+  if (data.reply) return String(data.reply).trim();
   const reply = data.chatReply;
   if (!reply || typeof reply !== 'object') return '';
   if (reply.answer) return String(reply.answer).trim();
@@ -377,6 +375,13 @@ function extractChatAnswerText(resultData) {
     return String(reply.answerHtml).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   }
   return '';
+}
+
+/** Pack a live chat_followup API payload into a simple { reply } object for Supabase storage. */
+function packChatFollowupForCache(chatResultData) {
+  const text = extractChatAnswerText(chatResultData);
+  if (!text) return null;
+  return { reply: sanitizeJsonString(text) };
 }
 
 function stripHtmlSimple(html) {
@@ -484,7 +489,7 @@ async function lookupTopicCachedContext(body) {
 async function mergeChatEnrichmentIntoGradeCache(body, chatResultData) {
   try {
     const gradeBody = buildGradeCacheBody(body);
-    if (!gradeBody || !chatResultData || !chatResultData.chatReply) return null;
+    if (!gradeBody || !chatResultData) return null;
 
     const answer = extractChatAnswerText(chatResultData);
     const userMessage = sanitizeJsonString(String(body.userMessage || '').trim());
@@ -513,7 +518,7 @@ async function mergeChatEnrichmentIntoGradeCache(body, chatResultData) {
     const enrichment = sanitizeChatEnrichmentEntry({
       question: userMessage,
       answer: sanitizeJsonString(answer),
-      answerHtml: chatResultData.chatReply.answerHtml || null,
+      answerHtml: chatResultData.chatReply ? (chatResultData.chatReply.answerHtml || null) : null,
       topic: body.topic || null,
       updatedAt: new Date().toISOString(),
     });
@@ -1161,7 +1166,7 @@ async function listTeacherSearchHistory(teacher, options) {
 function formatChatHistoryItem(row) {
   const data = coerceCachedResultData(row && row.result_data);
   const answer = extractChatAnswerText(data);
-  if (!answer && !(data && data.chatReply)) return null;
+  if (!answer && !(data && (data.chatReply || data.reply))) return null;
   return {
     cacheKey: row.cache_key,
     phase: row.phase,
@@ -1336,6 +1341,7 @@ module.exports = {
   lookupTopicCachedContext,
   extractChatAnswerText,
   extractGradeInsightsText,
+  packChatFollowupForCache,
   mergeChatEnrichmentIntoGradeCache,
   setCachedResult,
   saveCachedResultAsync,
