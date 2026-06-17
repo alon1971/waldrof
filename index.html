@@ -893,6 +893,7 @@
     body.auth-locked #lesson-chat-sidebar,
     body.auth-locked #lesson-chat-fab-wrap,
     body.auth-locked #lesson-chat-fab,
+    body.auth-locked #lesson-chat-fullscreen,
     body.auth-locked footer { pointer-events: none; user-select: none; opacity: 0.35; filter: blur(1px); }
     body.auth-locked header { opacity: 0.5; }
     #auth-overlay {
@@ -1830,7 +1831,7 @@
     }
   </style>
 </head>
-<body class="app-typography bg-cream text-walnut min-h-screen waldorf-pattern pb-[env(safe-area-inset-bottom)]">
+<body class="app-typography bg-cream text-walnut min-h-screen waldorf-pattern pb-[env(safe-area-inset-bottom)] lesson-chat-mode-bubble">
 
   <!-- Auth overlay (login / signup) -->
   <div id="auth-overlay" class="hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="auth-card-title">
