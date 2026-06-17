@@ -1,11 +1,10 @@
 /**
  * Waldorf research API — secure Perplexity proxy.
  * Perplexity API key is read server-side only (never exposed to the browser).
- * Set AI_API_KEY or PERPLEXITY_API_KEY in the host environment (Render, Vercel, .env for local).
+ * Set PERPLEXITY_API_KEY or AI_API_KEY in Render Environment (or .env locally).
  *
- * Exports:
- * - legacyHandler(req, res) — Node HTTP servers (server.js, Render)
- * - fetch(request) — Vercel serverless (Web Standard)
+ * Primary runtime: Render / Node.js via server.js → executeGenerate().
+ * Optional: legacyHandler(req, res) for adapters; fetch(request) for Vercel serverless.
  */
 
 const fs = require('fs');
@@ -1035,8 +1034,13 @@ function validatePhaseResult(phase, data) {
 }
 
 function resolveApiKey() {
-  const key = env.getPerplexityApiKey();
-  return key || null;
+  const key =
+    process.env.PERPLEXITY_API_KEY ||
+    process.env.AI_API_KEY ||
+    process.env.PPLX_API_KEY ||
+    env.getPerplexityApiKey();
+  const trimmed = key ? String(key).trim() : '';
+  return trimmed || null;
 }
 
 function setCors(res) {
@@ -1046,9 +1050,38 @@ function setCors(res) {
 }
 
 const MISSING_KEY_ERROR =
-  'מפתח Perplexity לא מוגדר. הוסיפו AI_API_KEY או PERPLEXITY_API_KEY ב-Vercel (Settings → Environment Variables) ופרסמו מחדש.';
+  'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY (או AI_API_KEY) ב-Render → Environment ופרסמו מחדש.';
 
-/** Parse JSON body from Node mock req ({ body }) or legacy HTTP adapters. */
+/** Build success payload for /api/generate HTTP responses. */
+function buildGenerateHttpPayload(result) {
+  if (result && result.data !== undefined) {
+    return { data: result.data, meta: result.meta || { fromCache: false } };
+  }
+  return { data: result, meta: { fromCache: false } };
+}
+
+/** Core handler — used by Render (server.js) with a pre-parsed JSON body. */
+async function handleGeneratePost(parsedBody) {
+  if (!parsedBody || typeof parsedBody !== 'object') {
+    const err = new Error('Missing JSON body');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!parsedBody.phase) {
+    const err = new Error('Missing phase');
+    err.statusCode = 400;
+    throw err;
+  }
+  const apiKey = resolveApiKey();
+  if (!apiKey) {
+    const err = new Error(MISSING_KEY_ERROR);
+    err.statusCode = 500;
+    throw err;
+  }
+  return executeGenerate(parsedBody, apiKey);
+}
+
+/** Parse JSON body from adapters that attach req.body (legacy mock requests). */
 function parseRequestBody(req) {
   if (!req) return null;
 
@@ -1247,11 +1280,8 @@ async function legacyHandler(req, res) {
   }
 
   try {
-    const result = await executeGenerate(body, apiKey);
-    const payload = result && result.data !== undefined
-      ? { data: result.data, meta: result.meta || { fromCache: false } }
-      : { data: result, meta: { fromCache: false } };
-    return sendJson(res, 200, payload);
+    const result = await handleGeneratePost(body);
+    return sendJson(res, 200, buildGenerateHttpPayload(result));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;
@@ -1287,11 +1317,8 @@ async function fetchHandler(request) {
   }
 
   try {
-    const result = await executeGenerate(body, apiKey);
-    const payload = result && result.data !== undefined
-      ? { data: result.data, meta: result.meta || { fromCache: false } }
-      : { data: result, meta: { fromCache: false } };
-    return Response.json(payload, { status: 200, headers });
+    const result = await handleGeneratePost(body);
+    return Response.json(buildGenerateHttpPayload(result), { status: 200, headers });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;
@@ -1300,6 +1327,10 @@ async function fetchHandler(request) {
   }
 }
 
-module.exports = fetchHandler;
-module.exports.fetch = fetchHandler;
-module.exports.legacyHandler = legacyHandler;
+module.exports = {
+  executeGenerate: executeGenerate,
+  handleGeneratePost: handleGeneratePost,
+  legacyHandler: legacyHandler,
+  fetch: fetchHandler,
+  resolveApiKey: resolveApiKey,
+};

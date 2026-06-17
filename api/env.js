@@ -61,8 +61,8 @@ function getSupabaseServerKey() {
 
 function getPerplexityApiKey() {
   const candidates = [
-    process.env.AI_API_KEY,
     process.env.PERPLEXITY_API_KEY,
+    process.env.AI_API_KEY,
     process.env.PPLX_API_KEY,
   ];
   for (let i = 0; i < candidates.length; i++) {

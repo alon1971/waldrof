@@ -235,7 +235,8 @@ async function setCachedResult(body, resultData) {
 
   if (isSupabaseCacheEnabled()) {
     try {
-      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME, {
+      const upsertPath = '/rest/v1/' + TABLE_NAME + '?on_conflict=cache_key';
+      const res = await supabaseRequest(upsertPath, {
         method: 'POST',
         headers: {
           Prefer: 'resolution=merge-duplicates,return=minimal',
@@ -248,7 +249,32 @@ async function setCachedResult(body, resultData) {
       }
 
       const errText = await res.text();
-      console.warn('[cached_results] Supabase write error', res.status, errText.slice(0, 300));
+      console.warn('[cached_results] Supabase upsert error', res.status, errText.slice(0, 300));
+
+      // Fallback: update existing row by cache_key
+      const patchRes = await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?cache_key=eq.' + encodeURIComponent(cacheKey),
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            phase: row.phase,
+            grade_id: row.grade_id,
+            grade_label: row.grade_label,
+            topic: row.topic,
+            query_text: row.query_text,
+            result_data: row.result_data,
+            user_id: row.user_id,
+            user_email: row.user_email,
+          }),
+        }
+      );
+      if (patchRes.ok) {
+        console.log('[cached_results] PATCH ok for', cacheKey.slice(0, 12));
+        return cacheKey;
+      }
+      const patchErr = await patchRes.text();
+      console.warn('[cached_results] Supabase PATCH error', patchRes.status, patchErr.slice(0, 200));
     } catch (err) {
       console.warn('[cached_results] Supabase write failed:', err.message || err);
     }

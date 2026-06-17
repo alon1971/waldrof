@@ -24,15 +24,31 @@ const shareMaterialApi = require('./api/share-material');
 const searchHistoryApi = require('./api/search-history');
 const configApi = require('./api/config');
 const knowledgeSeed = require('./api/knowledge-seed');
-const apiHandler = generateApi.legacyHandler;
-if (typeof apiHandler !== 'function') {
-  console.error('api/generate.js must export legacyHandler for Node HTTP hosting.');
+const cacheDb = require('./api/cache');
+const env = require('./api/env');
+
+if (typeof generateApi.handleGeneratePost !== 'function') {
+  console.error('api/generate.js must export handleGeneratePost for Render Node hosting.');
   process.exit(1);
 }
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = __dirname;
+
+const API_CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function writeJsonResponse(nativeRes, statusCode, payload) {
+  nativeRes.writeHead(statusCode, Object.assign(
+    { 'Content-Type': 'application/json; charset=utf-8' },
+    API_CORS_HEADERS
+  ));
+  nativeRes.end(JSON.stringify(payload));
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -101,28 +117,38 @@ function serveStatic(req, res, pathname) {
 }
 
 async function handleApiGenerate(req, res) {
-  const apiRes = createApiResponse(res);
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, API_CORS_HEADERS);
+    return res.end();
+  }
+  if (req.method !== 'POST') {
+    return writeJsonResponse(res, 405, { error: 'Method not allowed' });
+  }
+
+  let parsedBody = null;
   try {
-    let body;
-    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-      const raw = await readBody(req);
-      if (raw && raw.trim()) {
-        try {
-          body = JSON.parse(raw);
-        } catch (parseErr) {
-          apiRes.status(400).json({
-            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
-          });
-          return;
-        }
-      }
+    const raw = await readBody(req);
+    if (!raw || !String(raw).trim()) {
+      return writeJsonResponse(res, 400, { error: 'Missing JSON body' });
     }
-    await apiHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+    parsedBody = JSON.parse(raw);
+  } catch (parseErr) {
+    const message = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    return writeJsonResponse(res, 400, { error: message || 'Invalid JSON body' });
+  }
+
+  try {
+    const result = await generateApi.handleGeneratePost(parsedBody);
+    const payload = result && result.data !== undefined
+      ? { data: result.data, meta: result.meta || { fromCache: false } }
+      : { data: result, meta: { fromCache: false } };
+    return writeJsonResponse(res, 200, payload);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const statusCode = err && err.statusCode ? err.statusCode : 500;
+    console.error('[api/generate]', statusCode, message);
     if (!res.headersSent) {
-      apiRes.status(500).json({
-        error: err instanceof Error ? err.message : String(err),
-      });
+      return writeJsonResponse(res, statusCode, { error: message });
     }
   }
 }
@@ -230,8 +256,13 @@ const server = http.createServer(async function (req, res) {
 
 server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
+  console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
   console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | POST /api/search-history | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
+  console.log('[env] PERPLEXITY_API_KEY:', process.env.PERPLEXITY_API_KEY ? 'set' : (process.env.AI_API_KEY ? 'set (AI_API_KEY)' : 'MISSING'));
+  console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
+  console.log('[env] SUPABASE_SERVICE_ROLE_KEY:', env.getSupabaseServiceRoleKey() ? 'set' : (env.getSupabaseAnonKey() ? 'anon only' : 'MISSING'));
+  console.log('[cache] Supabase cached_results:', cacheDb.isSupabaseCacheEnabled() ? 'enabled' : 'local fallback only');
   knowledgeSeed.seedKnowledgeBaseIfEmptyAsync();
 });
 
