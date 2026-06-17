@@ -160,8 +160,12 @@
     }
     /* שלב ג׳ — שלושת טאבי התוצרים ככפתורי כרטיס אופקיים */
     .product-tabs-nav {
+      position: sticky;
+      top: calc(var(--app-sticky-nav-height) + env(safe-area-inset-top, 0px));
+      z-index: 35;
       background: linear-gradient(180deg, rgba(237, 244, 248, 0.98), rgba(232, 240, 230, 0.96));
       backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       border-bottom: 2px solid rgba(122, 155, 118, 0.32);
       box-shadow: 0 4px 18px rgba(92, 125, 88, 0.12);
     }
@@ -2197,7 +2201,7 @@
       </div>
     </div>
 
-    <nav id="workspace-products-nav" class="product-tabs-nav sticky top-0 z-30 safe-top" role="tablist" data-i18n-aria="products_tablist_aria">
+    <nav id="workspace-products-nav" class="product-tabs-nav" role="tablist" data-i18n-aria="products_tablist_aria">
       <div class="product-tabs-row max-w-6xl mx-auto px-3 sm:px-4 py-3">
         <button type="button" role="tab" id="product-tab-theory" data-tab="theory" aria-selected="false" aria-controls="panel-theory"
           class="product-tab-btn touch-target">
