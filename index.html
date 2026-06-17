@@ -1154,24 +1154,35 @@
     :root {
       --app-sticky-nav-height: 4.75rem;
       --lesson-chat-panel-width: 360px;
+      --lesson-chat-layout-inset: 360px;
     }
     .app-shell {
       display: block;
       width: 100%;
       max-width: 100%;
+      box-sizing: border-box;
+      transition: padding-left 0.22s ease;
     }
     .app-main {
       width: 100%;
       min-width: 0;
+      max-width: 100%;
       position: relative;
-      transition: margin-left 0.22s ease;
+      box-sizing: border-box;
+    }
+    body.lesson-chat-mode-panel #app-shell {
+      padding-left: var(--lesson-chat-layout-inset);
     }
     body.lesson-chat-mode-panel #app-main {
-      margin-left: min(var(--lesson-chat-panel-width), 94vw);
+      margin-left: 0;
+      padding-left: 0;
+      width: 100%;
+      max-width: 100%;
     }
     @media (max-width: 640px) {
       :root {
         --lesson-chat-panel-width: min(300px, 82vw);
+        --lesson-chat-layout-inset: min(300px, 82vw);
       }
     }
 
@@ -1284,6 +1295,7 @@
       flex-direction: column;
       flex: 1;
       min-height: 0;
+      overflow: hidden;
     }
     .lesson-chat-main-view.hidden { display: none !important; }
 
@@ -1401,27 +1413,37 @@
     .lesson-chat-bubble--assistant .lesson-chat-bubble-body { padding-top: 0.15rem; }
 
     .lesson-chat-status {
+      flex-shrink: 0;
       padding: 0.35rem 1rem;
       font-size: 0.8rem !important;
       color: #5C7D58;
       text-align: center;
     }
     .lesson-chat-panel-footer {
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 auto;
       flex-shrink: 0;
-      margin-top: auto;
-      position: sticky;
-      bottom: 0;
-      z-index: 3;
-      background: rgba(255, 255, 255, 0.82);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      width: 100%;
+      background: rgba(255, 255, 255, 0.92);
       border-top: 1px solid rgba(201, 169, 98, 0.35);
-      box-shadow: 0 -6px 18px rgba(92, 74, 58, 0.08);
+      box-shadow: 0 -4px 14px rgba(92, 74, 58, 0.06);
+    }
+    .lesson-chat-panel-footer-stack {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
     }
     .lesson-chat-input-row {
-      display: flex; gap: 0.5rem; align-items: flex-end;
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-end;
+      flex: 0 0 auto;
+      width: 100%;
       padding: 0.75rem;
-      background: transparent;
+      margin: 0;
+      background: rgba(255, 255, 255, 0.55);
+      box-sizing: border-box;
     }
     #lesson-chat-input {
       flex: 1; resize: none; min-height: 2.75rem; max-height: 6rem;
@@ -1439,10 +1461,13 @@
     #lesson-chat-send:disabled { opacity: 0.55; cursor: wait; }
 
     .lesson-chat-export-bar {
-      flex-shrink: 0;
-      padding: 0.65rem 0.85rem 0;
-      border-top: none;
+      flex: 0 0 auto;
+      width: 100%;
+      padding: 0.65rem 0.75rem 0.5rem;
+      margin: 0;
+      border: 0;
       background: transparent;
+      box-sizing: border-box;
     }
     .lesson-chat-export-bar.hidden { display: none !important; }
     .lesson-chat-export-btn {
@@ -2310,19 +2335,21 @@
         <div id="lesson-chat-messages" class="lesson-chat-messages" role="log" aria-live="polite"></div>
         <p id="lesson-chat-status" class="lesson-chat-status hidden" role="status"></p>
         <div class="lesson-chat-panel-footer">
-          <div id="lesson-chat-export-bar" class="lesson-chat-export-bar hidden" dir="rtl">
-            <button type="button" id="lesson-chat-export-word" class="lesson-chat-export-btn" dir="rtl">
-              <i class="fa-solid fa-file-word" aria-hidden="true"></i>
-              <span class="lesson-chat-export-label" data-i18n="chat_download_word">הורד למסמך וורד</span>
-            </button>
+          <div class="lesson-chat-panel-footer-stack">
+            <div id="lesson-chat-export-bar" class="lesson-chat-export-bar hidden" dir="rtl">
+              <button type="button" id="lesson-chat-export-word" class="lesson-chat-export-btn" dir="rtl">
+                <i class="fa-solid fa-file-word" aria-hidden="true"></i>
+                <span class="lesson-chat-export-label" data-i18n="chat_download_word">הורד למסמך וורד</span>
+              </button>
+            </div>
+            <footer class="lesson-chat-input-row">
+              <label for="lesson-chat-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
+              <textarea id="lesson-chat-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
+              <button type="button" id="lesson-chat-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
+                <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+              </button>
+            </footer>
           </div>
-          <footer class="lesson-chat-input-row">
-            <label for="lesson-chat-input" class="sr-only" data-i18n="chat_input_label">שאלת המשך</label>
-            <textarea id="lesson-chat-input" rows="2" maxlength="2000" data-i18n-placeholder="chat_input_placeholder" placeholder=""></textarea>
-            <button type="button" id="lesson-chat-send" data-i18n-aria="chat_send_btn" aria-label="שלח">
-              <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-            </button>
-          </footer>
         </div>
       </div>
     </div>
