@@ -2384,6 +2384,7 @@
       <p class="mt-1 text-walnut/75 text-sm max-w-3xl" data-i18n="header_subtitle">כיתה ← נושא ← תוצרים, מערכי שיעור ועוד | מאגר קהילתי | ארכיון ידע</p>
     </div>
   </header>
+  <div id="page-focus-sentinel" tabindex="-1" aria-hidden="true" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
 
   <div id="cloud-status" class="hidden max-w-6xl mx-auto px-4 pt-4"></div>
 
@@ -7061,9 +7062,70 @@
     }
 
     var pageLoadFocusGuard = true;
+    var pageLoadScrollGuardsBound = false;
+    var gradeSelectTabIndexRestore = null;
+
+    function focusPageTopSentinel() {
+      var sentinel = document.getElementById('page-focus-sentinel');
+      if (!sentinel || typeof sentinel.focus !== 'function') return;
+      try {
+        sentinel.focus({ preventScroll: true });
+      } catch (e) {
+        sentinel.focus();
+      }
+    }
+
+    function defocusGradeSelectDuringPageLoad() {
+      var gradeSel = document.getElementById('grade-select');
+      if (!gradeSel) return;
+      if (pageLoadFocusGuard) gradeSel.setAttribute('tabindex', '-1');
+      if (document.activeElement === gradeSel && typeof gradeSel.blur === 'function') {
+        gradeSel.blur();
+      }
+    }
 
     function clearPageLoadFocusGuard() {
       pageLoadFocusGuard = false;
+      var gradeSel = document.getElementById('grade-select');
+      if (gradeSel) {
+        if (gradeSelectTabIndexRestore) {
+          gradeSel.setAttribute('tabindex', gradeSelectTabIndexRestore);
+        } else {
+          gradeSel.removeAttribute('tabindex');
+        }
+      }
+      gradeSelectTabIndexRestore = null;
+    }
+
+    function bindPageLoadScrollGuards() {
+      if (pageLoadScrollGuardsBound) {
+        defocusGradeSelectDuringPageLoad();
+        return;
+      }
+      pageLoadScrollGuardsBound = true;
+
+      var gradeSel = document.getElementById('grade-select');
+      if (!gradeSel) return;
+
+      gradeSelectTabIndexRestore = gradeSel.hasAttribute('tabindex')
+        ? gradeSel.getAttribute('tabindex')
+        : null;
+      defocusGradeSelectDuringPageLoad();
+
+      gradeSel.addEventListener('focus', function () {
+        if (!pageLoadFocusGuard) return;
+        this.blur();
+        focusPageTopSentinel();
+        ensurePageAtTop();
+      });
+
+      document.addEventListener('focusin', function (e) {
+        if (!pageLoadFocusGuard) return;
+        if (!e.target || e.target.id !== 'grade-select') return;
+        e.target.blur();
+        focusPageTopSentinel();
+        ensurePageAtTop();
+      }, true);
     }
 
     function ensurePageAtTop() {
@@ -7074,18 +7136,26 @@
     window.ensurePageAtTop = ensurePageAtTop;
 
     function scheduleInitialPageScrollReset() {
+      defocusGradeSelectDuringPageLoad();
+      focusPageTopSentinel();
       ensurePageAtTop();
       requestAnimationFrame(function () {
+        defocusGradeSelectDuringPageLoad();
+        focusPageTopSentinel();
         ensurePageAtTop();
         requestAnimationFrame(function () {
+          defocusGradeSelectDuringPageLoad();
           ensurePageAtTop();
           setTimeout(function () {
+            defocusGradeSelectDuringPageLoad();
+            focusPageTopSentinel();
             ensurePageAtTop();
             clearPageLoadFocusGuard();
-          }, 150);
+          }, 300);
         });
       });
     }
+    window.scheduleInitialPageScrollReset = scheduleInitialPageScrollReset;
 
     function holdPageScroll(fn) {
       var y = window.scrollY || window.pageYOffset || 0;
@@ -7111,6 +7181,7 @@
 
     function scrollToWizardStep(n, behavior) {
       if (behavior === false || behavior === 'none') return;
+      if (pageLoadFocusGuard && n === 1) return;
       if (n === 2) {
         scrollToStepB(behavior);
         return;
@@ -9134,11 +9205,6 @@
       bindWizardNavClick(document.getElementById('ws-crumb-community'), function () { openCommunityRepo(); });
       bindWizardNavClick(document.getElementById('ws-crumb-archive'), function () { openArchiveNav(); });
       var gradeSelectEl = document.getElementById('grade-select');
-      gradeSelectEl.addEventListener('focus', function () {
-        if (!pageLoadFocusGuard) return;
-        this.blur();
-        ensurePageAtTop();
-      });
       gradeSelectEl.addEventListener('change', function () {
         const loadingEl = document.getElementById('grade-research-loading');
         const gradeLoading = loadingEl && !loadingEl.classList.contains('hidden');
@@ -9253,6 +9319,7 @@
     async function init() {
       try {
       ensurePageAtTop();
+      bindPageLoadScrollGuards();
       await loadRuntimeConfig();
       setOnLanguageChange(refreshUiOnLanguageChange);
       try { initI18n(); } catch (e) { console.warn('[waldrof] initI18n:', e); }
@@ -9398,6 +9465,8 @@
     }
     window.addEventListener('pageshow', function (e) {
       pageLoadFocusGuard = true;
+      bindPageLoadScrollGuards();
+      defocusGradeSelectDuringPageLoad();
       ensurePageAtTop();
       if (e.persisted) resetWizardOnPageLoad();
       scheduleInitialPageScrollReset();

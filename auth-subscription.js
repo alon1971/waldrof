@@ -921,7 +921,21 @@
     if (active && el && el.contains(active) && typeof active.blur === 'function') {
       active.blur();
     }
-    if (typeof global.ensurePageAtTop === 'function') {
+    var gradeSel = document.getElementById('grade-select');
+    if (gradeSel && document.activeElement === gradeSel && typeof gradeSel.blur === 'function') {
+      gradeSel.blur();
+    }
+    var sentinel = document.getElementById('page-focus-sentinel');
+    if (sentinel && typeof sentinel.focus === 'function') {
+      try {
+        sentinel.focus({ preventScroll: true });
+      } catch (e) {
+        sentinel.focus();
+      }
+    }
+    if (typeof global.scheduleInitialPageScrollReset === 'function') {
+      global.scheduleInitialPageScrollReset();
+    } else if (typeof global.ensurePageAtTop === 'function') {
       global.ensurePageAtTop();
     } else {
       global.scrollTo(0, 0);
