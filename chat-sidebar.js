@@ -769,7 +769,6 @@
     syncExportBar: syncExportBarVisibility,
     setDisplayMode: setDisplayMode,
     openForLesson: function (resetChat) {
-      setDisplayMode(openChatModeForViewport());
       if (resetChat) {
         var app = deps.getAppState() || {};
         state.sessionKey = sessionKeyFromApp(app);
@@ -778,6 +777,7 @@
         state.ragChunkIds = [];
         renderMessages();
       }
+      setDisplayMode(isMobileViewport() ? 'bubble' : 'panel');
       updateVisibility();
     },
     reset: function () {

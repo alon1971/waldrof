@@ -1256,27 +1256,25 @@
 
     .lesson-chat-fab-wrap {
       position: fixed;
-      bottom: 220px;
-      --lesson-chat-fab-card-left: calc(
-        (100vw - min(72rem, 100vw)) / 2
-        + 1rem
-        + (min(72rem, 100vw) - 2rem - min(36rem, min(72rem, 100vw) - 2rem)) / 2
-      );
-      left: clamp(
-        1.5rem,
-        calc(var(--lesson-chat-fab-card-left) / 2),
-        calc(var(--lesson-chat-fab-card-left) - 1rem)
-      );
-      transform: translateX(-50%);
-      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+      left: 1.5rem;
+      z-index: 60;
       pointer-events: none;
+    }
+    body.lesson-chat-mode-bubble .lesson-chat-fab-wrap:not(.hidden) {
+      display: flex !important;
     }
     .lesson-chat-fab-wrap.hidden { display: none !important; }
 
     .lesson-chat-fab {
       position: relative;
-      min-width: 15rem;
-      min-height: 4rem;
+      width: 3rem;
+      height: 3rem;
+      min-width: 0;
+      min-height: 0;
       border-radius: 9999px;
       background: linear-gradient(145deg, #7A9B76, #5C7D58);
       border: 2px solid rgba(255, 255, 255, 0.4);
@@ -1287,12 +1285,12 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0.75rem 2.25rem;
+      padding: 0;
       color: #fff;
       font-family: inherit;
       font-size: 1.125rem !important;
       font-weight: 700;
-      line-height: 1.35;
+      line-height: 1;
       text-align: center;
       white-space: nowrap;
       pointer-events: auto;
@@ -1305,29 +1303,21 @@
         0 10px 20px -6px rgba(92, 74, 58, 0.26);
     }
     .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
-    .lesson-chat-fab-label { display: block; pointer-events: none; }
+    .lesson-chat-fab-label { display: none; pointer-events: none; }
     .lesson-chat-fab-icon {
-      display: none;
+      display: block;
       font-size: 1.25rem;
       line-height: 1;
       pointer-events: none;
     }
     @media (max-width: 767px) {
       .lesson-chat-fab-wrap {
-        bottom: 1rem;
-        left: 1rem;
+        bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+        left: 1.5rem;
+        right: auto;
         transform: none;
+        z-index: 60;
       }
-      .lesson-chat-fab {
-        width: 3rem;
-        height: 3rem;
-        min-width: 0;
-        min-height: 0;
-        padding: 0;
-        border-radius: 9999px;
-      }
-      .lesson-chat-fab-label { display: none !important; }
-      .lesson-chat-fab-icon { display: block; }
 
       .lesson-chat-fullscreen {
         padding: 0;
@@ -1365,6 +1355,30 @@
       }
     }
     @media (min-width: 768px) {
+      .lesson-chat-fab-wrap {
+        bottom: 220px;
+        --lesson-chat-fab-card-left: calc(
+          (100vw - min(72rem, 100vw)) / 2
+          + 1rem
+          + (min(72rem, 100vw) - 2rem - min(36rem, min(72rem, 100vw) - 2rem)) / 2
+        );
+        left: clamp(
+          1.5rem,
+          calc(var(--lesson-chat-fab-card-left) / 2),
+          calc(var(--lesson-chat-fab-card-left) - 1rem)
+        );
+        transform: translateX(-50%);
+        z-index: 50;
+      }
+      .lesson-chat-fab {
+        width: auto;
+        height: auto;
+        min-width: 15rem;
+        min-height: 4rem;
+        padding: 0.75rem 2.25rem;
+        line-height: 1.35;
+      }
+      .lesson-chat-fab-label { display: block; }
       .lesson-chat-fab-icon { display: none !important; }
       .lesson-chat-mobile-close { display: none !important; }
     }
@@ -2490,6 +2504,7 @@
   </div>
   </div>
 
+  <!-- Pedagogy chat — body-level overlay for reliable mobile fixed positioning -->
   <aside id="lesson-chat-sidebar" class="lesson-chat-sidebar hidden" aria-label="">
     <div class="lesson-chat-panel">
       <header class="lesson-chat-header">
@@ -2539,10 +2554,10 @@
     </div>
   </aside>
 
-  <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
-    <button type="button" id="lesson-chat-fab" class="lesson-chat-fab" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
+  <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap flex fixed bottom-6 left-6 z-[60]" aria-hidden="false">
+    <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-12 h-12 rounded-full md:rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
       <i class="lesson-chat-fab-icon fa-solid fa-comments" aria-hidden="true"></i>
-      <span class="lesson-chat-fab-label" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
+      <span class="lesson-chat-fab-label hidden md:block" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
     </button>
   </div>
 
@@ -2594,7 +2609,6 @@
       </div>
     </div>
   </div>
-  </div>
 
   <footer class="border-t border-gold/20 bg-parchment/50 py-5 text-center text-xs text-walnut/60">
       <button type="button" id="refresh-community" class="touch-target text-sage-dark hover:underline px-4 py-3 text-sm"><i class="fa-solid fa-arrows-rotate icon-inline"></i> <span data-i18n="refresh_cloud">רענן מהענן</span></button>
@@ -2604,7 +2618,7 @@
   <script src="auth-subscription.js?v=20250617b"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250622"></script>
+  <script src="chat-sidebar.js?v=20250623"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
