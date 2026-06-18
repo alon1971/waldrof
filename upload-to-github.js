@@ -28,6 +28,7 @@ const FILES_TO_UPLOAD = [
   'languages.js',
   'chat-sidebar.js',
   'search-history.js',
+  'hebrew-topic-match.js',
   'share-materials.js',
   'auth-subscription.js',
   'package.json',

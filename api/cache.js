@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const env = require('./env');
 
+const hebrewTopicMatch = require('../hebrew-topic-match');
+
 const TABLE_NAME = 'cached_results';
 
 function resolveFallbackPath() {
@@ -673,26 +675,14 @@ function archiveTopicDisplayName(row, data) {
 
 /**
  * Score how closely a search query matches an archived topic label.
- * Returns 1 for equivalent topics, ~0.88 for partial/substring matches.
+ * Returns 1 for equivalent topics, ~0.88 for partial/substring matches,
+ * ~0.72–0.88 for Hebrew morphological / pedagogical-cluster matches.
  */
 function scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText) {
-  const queryKey = normalizeTopicQuery(queryRaw);
-  const topicKey = normalizeTopicQuery(candidateTopic || candidateQueryText || '');
-  if (queryKey && topicKey && queryKey === topicKey) return 1;
-
-  const queryNorm = stableNormalize(queryRaw);
-  const topicNorm = stableNormalize(candidateTopic || '');
-  const queryTextNorm = stableNormalize(candidateQueryText || '');
-  if (!queryNorm) return 0;
-  if (topicNorm && queryNorm === topicNorm) return 1;
-  if (queryTextNorm && queryNorm === queryTextNorm) return 1;
-
-  if (queryNorm.length >= 2) {
-    if (topicNorm && topicNorm.indexOf(queryNorm) >= 0) return 0.88;
-    if (queryTextNorm && queryTextNorm.indexOf(queryNorm) >= 0) return 0.86;
-  }
-
-  return scoreChatQuestionSimilarity(queryRaw, candidateTopic || candidateQueryText || '');
+  return hebrewTopicMatch.scoreHebrewTopicSimilarity(queryRaw, candidateTopic, candidateQueryText, {
+    normalizeTopicQuery: normalizeTopicQuery,
+    scoreChatQuestionSimilarity: scoreChatQuestionSimilarity,
+  });
 }
 
 function pickBestArchiveTopicRow(rows, query, options) {
@@ -762,16 +752,8 @@ async function findArchiveTopicSuggestion(options) {
         params.set('limit', '80');
 
         if (withTermFilter) {
-          const searchTerms = [];
-          const rawWords = stableNormalize(topic).split(' ').filter(function (w) { return w.length >= 2; });
-          rawWords.forEach(function (w) { searchTerms.push(w); });
-          const queryKey = normalizeTopicQuery(topic);
-          if (queryKey) {
-            queryKey.split(' ').filter(function (w) { return w.length >= 2; }).forEach(function (w) {
-              searchTerms.push(w);
-            });
-          }
-          const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 4);
+          const searchTerms = hebrewTopicMatch.expandHebrewSearchTerms(topic, 8);
+          const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 6);
           if (uniqueTerms.length) {
             const orParts = uniqueTerms.map(function (term) {
               return 'topic.ilike.*' + term + '*,query_text.ilike.*' + term + '*';

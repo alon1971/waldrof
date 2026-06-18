@@ -2804,6 +2804,7 @@
   <script src="auth-subscription.js?v=20250627"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
+  <script src="hebrew-topic-match.js?v=20250618"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -6411,6 +6412,9 @@
     }
 
     function scoreArchiveTopicSimilarity(query, candidateTopic) {
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined' && WaldorfHebrewTopicMatch.scoreHebrewTopicSimilarity) {
+        return WaldorfHebrewTopicMatch.scoreHebrewTopicSimilarity(query, candidateTopic, '');
+      }
       const q = String(query || '').trim().toLowerCase();
       const c = String(candidateTopic || '').trim().toLowerCase();
       if (!q || !c) return 0;
