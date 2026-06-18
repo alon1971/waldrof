@@ -189,33 +189,81 @@ async function fetchSubscriptionRow(userId) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
-async function upsertSubscriptionRow(user, patch) {
+function subscriptionRowFromPatch(user, patch, existing) {
+  const prev = existing || {};
   const now = new Date().toISOString();
-  const base = {
+  return {
     user_id: user.id,
-    user_email: user.email || '',
-    tier: normalizeTier((patch && patch.tier) || user.tier || 'trial'),
-    billing_cycle: (patch && patch.billing_cycle) != null ? patch.billing_cycle : null,
-    trial_searches_used: (patch && patch.trial_searches_used) != null ? patch.trial_searches_used : 0,
-    word_downloads_count: (patch && patch.word_downloads_count) != null ? patch.word_downloads_count : 0,
-    monthly_searches_used: (patch && patch.monthly_searches_used) != null ? patch.monthly_searches_used : 0,
-    usage_month: (patch && patch.usage_month) || currentMonthKey(),
-    auto_renew: (patch && patch.auto_renew) != null ? patch.auto_renew : true,
+    user_email: user.email || prev.user_email || '',
+    tier: normalizeTier((patch && patch.tier) || prev.tier || user.tier || 'trial'),
+    billing_cycle: (patch && patch.billing_cycle) != null
+      ? patch.billing_cycle
+      : (prev.billing_cycle != null ? prev.billing_cycle : null),
+    trial_searches_used: (patch && patch.trial_searches_used) != null
+      ? patch.trial_searches_used
+      : (Number(prev.trial_searches_used) || 0),
+    word_downloads_count: (patch && patch.word_downloads_count) != null
+      ? patch.word_downloads_count
+      : (Number(prev.word_downloads_count) || 0),
+    monthly_searches_used: (patch && patch.monthly_searches_used) != null
+      ? patch.monthly_searches_used
+      : (Number(prev.monthly_searches_used) || 0),
+    usage_month: (patch && patch.usage_month) || prev.usage_month || currentMonthKey(),
+    auto_renew: (patch && patch.auto_renew) != null
+      ? patch.auto_renew
+      : (prev.auto_renew !== false),
     updated_at: now,
   };
+}
+
+async function insertSubscriptionRow(user, patch) {
+  const now = new Date().toISOString();
+  const row = subscriptionRowFromPatch(user, patch, null);
+  row.created_at = now;
 
   const res = await supabaseRequest('/rest/v1/' + TABLE, {
     method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-    body: JSON.stringify(base),
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(row),
   });
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(errText || 'subscription upsert failed');
+    throw new Error(errText || 'subscription insert failed');
   }
   const rows = await res.json();
-  return Array.isArray(rows) && rows.length ? rows[0] : base;
+  return Array.isArray(rows) && rows.length ? rows[0] : row;
+}
+
+async function updateSubscriptionRow(userId, patch, existing) {
+  const params = new URLSearchParams();
+  params.set('user_id', 'eq.' + userId);
+  const body = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+  delete body.user_id;
+  delete body.created_at;
+
+  const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(errText || 'subscription update failed');
+  }
+  const rows = await res.json();
+  if (Array.isArray(rows) && rows.length) return rows[0];
+  return subscriptionRowFromPatch({ id: userId }, patch, existing);
+}
+
+async function upsertSubscriptionRow(user, patch) {
+  const existing = await fetchSubscriptionRow(user.id);
+  const merged = subscriptionRowFromPatch(user, patch, existing);
+  if (existing) {
+    return updateSubscriptionRow(user.id, merged, existing);
+  }
+  return insertSubscriptionRow(user, patch);
 }
 
 async function ensureSubscription(user) {
@@ -273,7 +321,7 @@ async function recordSearch(user) {
       : 1;
   }
 
-  const updated = await upsertSubscriptionRow(user, Object.assign({}, row, patch));
+  const updated = await updateSubscriptionRow(user.id, patch, row);
   return { ok: true, action: 'record_search', usage: buildUsagePayload(updated) };
 }
 
@@ -299,9 +347,9 @@ async function recordWordDownload(user) {
     throw err;
   }
 
-  const updated = await upsertSubscriptionRow(user, Object.assign({}, row, {
+  const updated = await updateSubscriptionRow(user.id, {
     word_downloads_count: (Number(row.word_downloads_count) || 0) + 1,
-  }));
+  }, row);
   return {
     ok: true,
     action: 'record_word_download',
@@ -316,7 +364,7 @@ async function cancelRenewal(user) {
     err.statusCode = 400;
     throw err;
   }
-  const updated = await upsertSubscriptionRow(user, Object.assign({}, row, { auto_renew: false }));
+  const updated = await updateSubscriptionRow(user.id, { auto_renew: false }, row);
   return {
     ok: true,
     action: 'cancel_renewal',
@@ -334,6 +382,9 @@ async function executeSubscription(req) {
   const action = body && body.action ? String(body.action).trim() : 'status';
 
   if (!isEnabled()) {
+    if (action === 'record_search' || action === 'record_word_download') {
+      return { ok: true, action: action, fallback: true };
+    }
     return {
       ok: true,
       action: action,
@@ -381,9 +432,19 @@ async function legacyHandler(req, res) {
   }
 }
 
+/** Record one live search from an HTTP request (e.g. after /api/generate succeeds). */
+async function recordLiveSearchFromRequest(req) {
+  const body = req && req.body;
+  const user = await resolveUser(req, body);
+  return recordSearch(user);
+}
+
 module.exports = {
   legacyHandler,
   executeSubscription,
+  recordLiveSearchFromRequest,
+  recordSearch,
+  resolveUser,
   TIER_LIMITS,
   normalizeTier,
 };

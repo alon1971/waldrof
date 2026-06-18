@@ -12,6 +12,7 @@ const path = require('path');
 const cacheDb = require('./cache');
 const ragDb = require('./rag');
 const knowledgeIngest = require('./knowledge-ingest');
+const subscriptionApi = require('./subscription');
 const env = require('./env');
 
 (function loadDotEnv() {
@@ -1186,7 +1187,7 @@ function buildGenerateHttpPayload(result) {
 }
 
 /** Core handler — used by Render (server.js) with a pre-parsed JSON body. */
-async function handleGeneratePost(parsedBody) {
+async function handleGeneratePost(parsedBody, requestContext) {
   if (!parsedBody || typeof parsedBody !== 'object') {
     const err = new Error('Missing JSON body');
     err.statusCode = 400;
@@ -1206,7 +1207,30 @@ async function handleGeneratePost(parsedBody) {
     err.statusCode = 500;
     throw err;
   }
-  return executeGenerate(parsedBody, apiKey);
+  const result = await executeGenerate(parsedBody, apiKey);
+  const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
+  const billable = result &&
+    result.meta &&
+    !result.meta.fromCache &&
+    !result.meta.needsArchiveConfirmation &&
+    result.data != null;
+
+  if (billable && typeof subscriptionApi.recordLiveSearchFromRequest === 'function') {
+    try {
+      const billed = await subscriptionApi.recordLiveSearchFromRequest({
+        method: 'POST',
+        headers: ctx.headers || {},
+        body: parsedBody,
+      });
+      if (billed && billed.usage) {
+        result.meta = Object.assign({}, result.meta, { usage: billed.usage });
+      }
+    } catch (billErr) {
+      console.warn('[generate] live search usage record failed:', billErr.message || billErr);
+    }
+  }
+
+  return result;
 }
 
 /** Parse JSON body from adapters that attach req.body (legacy mock requests). */
@@ -1513,7 +1537,7 @@ async function legacyHandler(req, res) {
   }
 
   try {
-    const result = await handleGeneratePost(body);
+    const result = await handleGeneratePost(body, { headers: req.headers || {} });
     return sendJson(res, 200, buildGenerateHttpPayload(result));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -1550,7 +1574,9 @@ async function fetchHandler(request) {
   }
 
   try {
-    const result = await handleGeneratePost(body);
+    const result = await handleGeneratePost(body, {
+      headers: Object.fromEntries(request.headers.entries()),
+    });
     const payload = buildGenerateHttpPayload(result);
     return new Response(cacheDb.safeJsonStringify(payload), {
       status: 200,

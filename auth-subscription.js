@@ -368,7 +368,15 @@
     });
   }
 
+  function applyUsageFromServer(usage) {
+    applyServerUsage(usage);
+    persistAuth();
+    notifyListeners();
+  }
+
   function refreshSubscriptionFromServer() {
+    authState.searchesUsed = null;
+    authState.wordDownloadsUsed = null;
     return fetchSubscriptionAction('status').then(function (data) {
       if (!data) return null;
       if (data.subscription && data.subscription.tier) {
@@ -835,22 +843,25 @@
         notifyListeners();
         return data.usage.searchesUsed;
       }
-      var usage = readUsage();
-      var tier = normalizeTierId(authState.tier);
-      if (tier === 'trial') {
-        usage.lifetime = (Number(usage.lifetime) || 0) + 1;
-        usage.count = usage.lifetime;
-      } else {
-        if (usage.period !== monthKey()) {
-          usage.period = monthKey();
-          usage.count = 0;
+      if (data && data.fallback) {
+        var usage = readUsage();
+        var tier = normalizeTierId(authState.tier);
+        if (tier === 'trial') {
+          usage.lifetime = (Number(usage.lifetime) || 0) + 1;
+          usage.count = usage.lifetime;
+        } else {
+          if (usage.period !== monthKey()) {
+            usage.period = monthKey();
+            usage.count = 0;
+          }
+          usage.count += 1;
         }
-        usage.count += 1;
+        writeUsage(usage);
+        authState.searchesUsed = usage.count;
+        notifyListeners();
+        return usage.count;
       }
-      writeUsage(usage);
-      authState.searchesUsed = usage.count;
-      notifyListeners();
-      return usage.count;
+      return getSearchesUsed();
     });
   }
 
@@ -1488,6 +1499,7 @@
     showUserSettingsModal: showUserSettingsModal,
     hideUserSettingsModal: hideUserSettingsModal,
     refreshSubscriptionFromServer: refreshSubscriptionFromServer,
+    applyUsageFromServer: applyUsageFromServer,
     showAuthOverlay: showAuthOverlay,
     refreshI18n: refreshAuthI18n,
     getContributorProfile: getContributorProfile,

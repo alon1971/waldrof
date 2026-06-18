@@ -3671,6 +3671,19 @@
       const opts = options || {};
       const researchPayload = prepareResearchPayload(payload);
 
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        const profile = WaldorfAuth.getContributorProfile();
+        if (profile) {
+          researchPayload.teacherUser = {
+            id: profile.id,
+            email: profile.email,
+            name: profile.name,
+            displayName: profile.displayName,
+            tier: WaldorfAuth.getState().tier,
+          };
+        }
+      }
+
       if (!usesLivePerplexityResearch()) {
         throw new Error(isEnglish()
           ? 'Live research requires a Perplexity API key (direct mode) or a backend (/api/generate on Vercel or npm run dev).'
@@ -3680,7 +3693,7 @@
       if (usesDirectPerplexityClient()) {
         try {
           const directResult = await WaldorfResearchClient.run(researchPayload, PERPLEXITY_API_KEY_DIRECT, opts);
-          if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.recordSearch();
+          if (typeof WaldorfAuth !== 'undefined') await WaldorfAuth.recordSearch();
           return directResult;
         } catch (directErr) {
           if (directErr && directErr.name === 'AbortError') throw directErr;
@@ -3694,10 +3707,18 @@
         }
       }
 
+      const headers = { 'Content-Type': 'application/json' };
+      if (typeof WaldorfAuth !== 'undefined') {
+        try {
+          const token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (authTokErr) { /* optional */ }
+      }
+
       let res;
       const fetchInit = {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify(researchPayload),
       };
       if (opts.signal) fetchInit.signal = opts.signal;
@@ -3755,7 +3776,11 @@
         result._fromCache = true;
       }
       if (typeof WaldorfAuth !== 'undefined' && !(json.meta && json.meta.fromCache) && !(json.meta && json.meta.needsArchiveConfirmation)) {
-        WaldorfAuth.recordSearch();
+        if (json.meta && json.meta.usage) {
+          WaldorfAuth.applyUsageFromServer(json.meta.usage);
+        } else {
+          await WaldorfAuth.recordSearch();
+        }
       }
       return result;
     }
