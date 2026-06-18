@@ -307,6 +307,9 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
 
   const rows = await readSupabaseResponse(res, 'subscription update');
   if (Array.isArray(rows) && rows.length) return rows[0];
+  // PATCH may return [] when RLS blocks the write — re-fetch the real row instead of guessing.
+  const refetched = await fetchSubscriptionRow(userId, userToken);
+  if (refetched) return refetched;
   const baseUser = user || { id: userId, email: existing && existing.user_email };
   return subscriptionRowFromPatch(baseUser, patch, existing);
 }
@@ -376,6 +379,13 @@ async function recordSearch(user, userToken) {
 
   const updated = await updateSubscriptionRow(user.id, patch, row, user, userToken);
   const usage = buildUsagePayload(updated);
+  if (usage.searchesUsed <= usageBefore.searchesUsed) {
+    const err = new Error('לא ניתן לשמור את ספירת החיפושים — נסו שוב או פנו לתמיכה');
+    err.statusCode = 500;
+    err.code = 'USAGE_PERSIST_FAILED';
+    err.usage = usage;
+    throw err;
+  }
   console.log('[subscription] record_search user=%s searchesUsed=%s', user.id, usage.searchesUsed);
   return { ok: true, action: 'record_search', usage: usage };
 }
@@ -500,12 +510,39 @@ async function recordLiveSearchFromRequest(req) {
   return recordSearch(user, userToken);
 }
 
+/** Block live searches when the teacher has exhausted their quota (server-side enforcement). */
+async function assertSearchAllowedFromRequest(req) {
+  if (!isEnabled()) return { allowed: true, skipped: true };
+  const body = req && req.body;
+  const userToken = extractUserToken(req);
+  let user;
+  try {
+    user = await resolveUser(req, body);
+  } catch (authErr) {
+    if (authErr && authErr.statusCode === 401) return { allowed: true, unauthenticated: true };
+    throw authErr;
+  }
+  const row = await ensureSubscription(user, userToken);
+  const usage = buildUsagePayload(row);
+  if (!usage.allowed) {
+    const err = new Error('חרגתם ממכסת החיפושים — שדרגו את המסלול');
+    err.statusCode = 429;
+    err.code = 'RATE_LIMIT';
+    err.usage = usage;
+    throw err;
+  }
+  return { allowed: true, usage: usage };
+}
+
 module.exports = {
   legacyHandler,
   executeSubscription,
   recordLiveSearchFromRequest,
+  assertSearchAllowedFromRequest,
   recordSearch,
   resolveUser,
+  extractUserToken,
+  isEnabled,
   TIER_LIMITS,
   normalizeTier,
 };

@@ -1207,8 +1207,15 @@ async function handleGeneratePost(parsedBody, requestContext) {
     err.statusCode = 500;
     throw err;
   }
-  const result = await executeGenerate(parsedBody, apiKey);
   const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
+  if (typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
+    await subscriptionApi.assertSearchAllowedFromRequest({
+      method: 'POST',
+      headers: ctx.headers || {},
+      body: parsedBody,
+    });
+  }
+  const result = await executeGenerate(parsedBody, apiKey);
   const billable = result &&
     result.meta &&
     !result.meta.fromCache &&
@@ -1547,7 +1554,11 @@ async function legacyHandler(req, res) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;
     console.error(message);
-    return sendJson(res, statusCode, { error: message });
+    return sendJson(res, statusCode, {
+      error: message,
+      code: e && e.code ? e.code : undefined,
+      usage: e && e.usage ? e.usage : undefined,
+    });
   }
 }
 
@@ -1590,7 +1601,11 @@ async function fetchHandler(request) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;
     console.error(message);
-    return Response.json({ error: message }, { status: statusCode, headers });
+    return Response.json({
+      error: message,
+      code: e && e.code ? e.code : undefined,
+      usage: e && e.usage ? e.usage : undefined,
+    }, { status: statusCode, headers });
   }
 }
 

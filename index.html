@@ -4034,6 +4034,12 @@
         throw new Error(parseMsg || ('תשובה לא תקינה מהשרת (' + res.status + '): ' + preview));
       }
       if (!res.ok || json.error) {
+        if (res.status === 429 || (json && json.code === 'RATE_LIMIT')) {
+          if (typeof WaldorfAuth !== 'undefined') {
+            if (json.usage) WaldorfAuth.applyUsageFromServer(json.usage);
+            try { WaldorfAuth.assertSearchAllowed(); } catch (limitErr) { throw limitErr; }
+          }
+        }
         if (res.status === 404) {
           throw new Error(
             'נתיב /api/generate לא נמצא. הריצו מקומית: npm run dev — או פרסמו ל-Vercel עם תיקיית api/generate.js'
@@ -4067,21 +4073,10 @@
         result._fromCache = true;
       }
       if (typeof WaldorfAuth !== 'undefined' && !(json.meta && json.meta.fromCache) && !(json.meta && json.meta.needsArchiveConfirmation)) {
-        if (json.meta && json.meta.usage) {
-          WaldorfAuth.applyUsageFromServer(json.meta.usage);
-        } else if (!(json.meta && json.meta.searchBilled)) {
-          try {
-            await WaldorfAuth.recordSearch();
-          } catch (usageErr) {
-            console.warn('[usage] recordSearch failed after generate:', usageErr && usageErr.message ? usageErr.message : usageErr);
-          }
-        }
-        if (!(json.meta && json.meta.usage) && typeof WaldorfAuth.refreshSubscriptionFromServer === 'function') {
-          try {
-            await WaldorfAuth.refreshSubscriptionFromServer();
-          } catch (refreshErr) {
-            console.warn('[usage] refreshSubscriptionFromServer failed:', refreshErr && refreshErr.message ? refreshErr.message : refreshErr);
-          }
+        try {
+          await WaldorfAuth.syncUsageAfterLiveSearch(json.meta || {});
+        } catch (usageErr) {
+          console.warn('[usage] syncUsageAfterLiveSearch failed:', usageErr && usageErr.message ? usageErr.message : usageErr);
         }
       }
       return result;

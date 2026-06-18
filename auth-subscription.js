@@ -58,7 +58,7 @@
     autoRenew: true,
     billingCycle: null,
     usagePeriod: 'lifetime',
-    searchesUsed: 0,
+    searchesUsed: null,
     searchLimit: 10,
     wordDownloadsUsed: 0,
     wordDownloadLimit: 10,
@@ -881,6 +881,23 @@
     });
   }
 
+  /** After a successful live /api/generate response — sync usage from server, never trust stale client cache. */
+  function syncUsageAfterLiveSearch(meta) {
+    var m = meta || {};
+    var chain = Promise.resolve();
+    if (m.usage) {
+      applyServerUsage(m.usage);
+    } else if (!m.searchBilled) {
+      chain = recordSearch().catch(function (usageErr) {
+        console.warn('[usage] recordSearch failed after generate:', usageErr && usageErr.message ? usageErr.message : usageErr);
+        return null;
+      });
+    }
+    return chain.then(function () {
+      return refreshSubscriptionFromServer();
+    });
+  }
+
   function assertSearchAllowed() {
     var check = canPerformSearch();
     if (!check.allowed) {
@@ -1530,6 +1547,7 @@
     hideUserSettingsModal: hideUserSettingsModal,
     refreshSubscriptionFromServer: refreshSubscriptionFromServer,
     applyUsageFromServer: applyUsageFromServer,
+    syncUsageAfterLiveSearch: syncUsageAfterLiveSearch,
     showAuthOverlay: showAuthOverlay,
     refreshI18n: refreshAuthI18n,
     getContributorProfile: getContributorProfile,
