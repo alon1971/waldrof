@@ -1,0 +1,11 @@
+-- Production user_subscriptions schema (as deployed on Supabase).
+-- API code maps: plan_type <-> tier, search_count_monthly <-> searchesUsed.
+
+-- id uuid PK
+-- user_id uuid FK -> users(id)
+-- plan_type text (trial | standard | pro)
+-- search_count_monthly integer
+-- word_downloads_count integer
+-- auto_renew boolean
+-- expires_at timestamptz nullable
+-- created_at, updated_at timestamptz

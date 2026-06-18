@@ -1224,15 +1224,28 @@ async function handleGeneratePost(parsedBody, requestContext) {
       headers: ctx.headers || {},
       body: billingBody,
     };
+    console.log('[generate] billable live search — before recordSearch', {
+      phase: parsedBody.phase,
+      user_id: verifiedUser && verifiedUser.id,
+      has_auth: Boolean(billReq.headers && (billReq.headers.authorization || billReq.headers.Authorization)),
+      fromCache: false,
+    });
     try {
       const billed = await subscriptionApi.recordLiveSearchFromRequest(billReq, verifiedUser);
+      console.log('[generate] billable live search — after recordSearch', {
+        user_id: verifiedUser && verifiedUser.id,
+        searchBilled: Boolean(billed && billed.usage),
+        searchesUsed: billed && billed.usage ? billed.usage.searchesUsed : null,
+      });
       if (billed && billed.usage) {
         result.meta = Object.assign({}, result.meta, { usage: billed.usage, searchBilled: true });
       } else if (typeof subscriptionApi.recordSearch === 'function' && verifiedUser && verifiedUser.id) {
         const token = typeof subscriptionApi.extractUserToken === 'function'
           ? subscriptionApi.extractUserToken(billReq)
           : '';
+        console.log('[generate] recordSearch direct fallback for user_id', verifiedUser.id);
         const directBill = await subscriptionApi.recordSearch(verifiedUser, token);
+        console.log('[generate] direct fallback result searchesUsed', directBill && directBill.usage && directBill.usage.searchesUsed);
         if (directBill && directBill.usage) {
           result.meta = Object.assign({}, result.meta, { usage: directBill.usage, searchBilled: true });
         } else {
@@ -1241,16 +1254,20 @@ async function handleGeneratePost(parsedBody, requestContext) {
         }
       } else {
         result.meta = Object.assign({}, result.meta, { searchBilled: false });
-        console.warn('[generate] live search usage not recorded — no usage payload returned');
+        console.warn('[generate] live search usage not recorded — no verified user', {
+          verifiedUser: verifiedUser && verifiedUser.id,
+        });
       }
     } catch (billErr) {
+      console.error('[generate] billable live search — recordSearch FAILED', {
+        user_id: verifiedUser && verifiedUser.id,
+        message: billErr && billErr.message,
+        code: billErr && billErr.code,
+        supabaseBody: billErr && billErr.supabaseBody,
+        usage: billErr && billErr.usage,
+      });
       if (billErr && billErr.statusCode === 429) {
         throw billErr;
-      }
-      if (isNonBlockingSubscriptionDbError(billErr)) {
-        console.warn('[generate] live search usage skipped (non-blocking):', billErr.message || billErr);
-      } else {
-        console.error('[generate] live search usage record failed:', billErr.message || billErr);
       }
       if (billErr && billErr.usage) {
         result.meta = Object.assign({}, result.meta, { usage: billErr.usage, searchBilled: false });

@@ -1,10 +1,26 @@
 /**
  * POST /api/subscription — tier limits, usage tracking, auto_renew.
+ *
+ * Production Supabase schema (verified 2026-06-18):
+ *   user_id, plan_type, search_count_monthly, word_downloads_count,
+ *   auto_renew, expires_at, created_at, updated_at
  */
 const env = require('./env');
 const cacheDb = require('./cache');
 
 const TABLE = 'user_subscriptions';
+const LOG_PREFIX = '[subscription]';
+
+/** Columns that exist in production user_subscriptions — never send tier/trial_searches_used. */
+const SUBSCRIPTION_WRITE_COLUMNS = [
+  'user_id',
+  'plan_type',
+  'search_count_monthly',
+  'word_downloads_count',
+  'auto_renew',
+  'expires_at',
+  'updated_at',
+];
 
 const TIER_LIMITS = {
   trial: { lifetime: 10, monthly: null, wordDownloads: 10 },
@@ -22,6 +38,14 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+function logUsage(event, detail) {
+  try {
+    console.log(LOG_PREFIX, event, typeof detail === 'string' ? detail : JSON.stringify(detail));
+  } catch (e) {
+    console.log(LOG_PREFIX, event, detail);
+  }
+}
 
 function getSupabaseConfig() {
   return {
@@ -45,6 +69,39 @@ function normalizeTier(tier) {
   const t = String(tier || 'trial').trim().toLowerCase();
   if (LEGACY_TIER_MAP[t]) return LEGACY_TIER_MAP[t];
   return TIER_LIMITS[t] ? t : 'trial';
+}
+
+function planTypeFromRow(row) {
+  return normalizeTier((row && (row.plan_type || row.tier)) || 'trial');
+}
+
+function monthFromRow(row) {
+  if (row && row.usage_month) return String(row.usage_month);
+  if (row && row.updated_at) return String(row.updated_at).slice(0, 7);
+  return currentMonthKey();
+}
+
+/** Read live search count from production or legacy column names. */
+function readSearchCountFromRow(row, tier) {
+  const plan = tier || planTypeFromRow(row);
+  const raw = Number(
+    row && (row.search_count_monthly != null ? row.search_count_monthly : row.trial_searches_used)
+  ) || 0;
+  if (plan === 'trial') return raw;
+  const month = currentMonthKey();
+  const rowMonth = monthFromRow(row);
+  if (row && row.monthly_searches_used != null && row.usage_month) {
+    return row.usage_month === month ? (Number(row.monthly_searches_used) || 0) : 0;
+  }
+  return rowMonth === month ? raw : 0;
+}
+
+function pickSubscriptionWriteFields(obj) {
+  const out = {};
+  SUBSCRIPTION_WRITE_COLUMNS.forEach(function (key) {
+    if (obj && obj[key] !== undefined) out[key] = obj[key];
+  });
+  return out;
 }
 
 function setCors(res) {
@@ -73,7 +130,6 @@ function pickDefinedFields(obj) {
   return out;
 }
 
-/** Read Supabase REST bodies safely — never call res.json() on empty/non-JSON responses. */
 async function readSupabaseResponse(res, label) {
   const text = await res.text();
   if (!res.ok) {
@@ -85,7 +141,10 @@ async function readSupabaseResponse(res, label) {
         if (parsed && parsed.message) message = String(parsed.message);
       } catch (e) { /* keep raw detail */ }
     }
-    throw new Error(message);
+    const err = new Error(message);
+    err.statusCode = res.status;
+    err.supabaseBody = detail;
+    throw err;
   }
   const trimmed = (text || '').trim();
   if (!trimmed) return null;
@@ -117,7 +176,6 @@ function extractUserToken(req) {
   return String(raw).replace(/^Bearer\s+/i, '').trim();
 }
 
-/** Service role bypasses RLS; otherwise use the signed-in teacher JWT for RLS policies. */
 function buildSupabaseAuthHeaders(userToken) {
   const cfg = getSupabaseConfig();
   const apiKey = cfg.serviceKey || cfg.anonKey;
@@ -167,7 +225,7 @@ async function verifySupabaseToken(token) {
   }
   if (!user || !user.id) return null;
   const meta = user.user_metadata || {};
-  const tier = normalizeTier(meta.tier || meta.subscription_tier || 'trial');
+  const tier = normalizeTier(meta.tier || meta.subscription_tier || meta.plan_type || 'trial');
   return {
     id: user.id,
     email: user.email || '',
@@ -188,7 +246,7 @@ async function resolveUser(req, body) {
       id: fromBody.id,
       email: String(fromBody.email || '').trim(),
       name: fromBody.name || fromBody.displayName || '',
-      tier: normalizeTier(fromBody.tier || 'trial'),
+      tier: normalizeTier(fromBody.tier || fromBody.plan_type || 'trial'),
     };
   }
 
@@ -198,20 +256,17 @@ async function resolveUser(req, body) {
 }
 
 function buildUsagePayload(row) {
-  const tier = normalizeTier(row.tier);
+  const tier = planTypeFromRow(row);
   const limits = TIER_LIMITS[tier];
   const month = currentMonthKey();
-  let used = 0;
+  const used = readSearchCountFromRow(row, tier);
   let limit = null;
   let period = 'lifetime';
 
   if (tier === 'trial') {
-    used = Number(row.trial_searches_used) || 0;
     limit = limits.lifetime;
     period = 'lifetime';
   } else {
-    const usageMonth = row.usage_month || month;
-    used = usageMonth === month ? (Number(row.monthly_searches_used) || 0) : 0;
     limit = limits.monthly;
     period = 'monthly';
   }
@@ -229,7 +284,7 @@ function buildUsagePayload(row) {
     searchesUsed: used,
     searchLimit: limit,
     usagePeriod: period,
-    usageMonth: row.usage_month || month,
+    usageMonth: monthFromRow(row) || month,
     remaining: limit === null ? null : Math.max(0, limit - used),
     allowed: limit === null ? true : used < limit,
     wordDownloadsUsed: wordDownloadsUsed,
@@ -247,42 +302,57 @@ async function fetchSubscriptionRow(userId, userToken) {
   params.set('user_id', 'eq.' + userId);
   params.set('limit', '1');
 
+  logUsage('fetch:before', { user_id: userId });
+
   const res = await supabaseRequest(
     '/rest/v1/' + TABLE + '?' + params.toString(),
     { method: 'GET' },
     userToken
   );
   const rows = await readSupabaseResponse(res, 'subscription read');
-  return Array.isArray(rows) && rows.length ? rows[0] : null;
+  const row = Array.isArray(rows) && rows.length ? rows[0] : null;
+
+  logUsage('fetch:after', {
+    user_id: userId,
+    found: Boolean(row),
+    search_count_monthly: row ? row.search_count_monthly : null,
+    plan_type: row ? row.plan_type : null,
+  });
+
+  return row;
 }
 
 function subscriptionRowFromPatch(user, patch, existing) {
   const prev = existing || {};
-  const now = new Date().toISOString();
-  return {
+  const tier = normalizeTier((patch && patch.plan_type) || (patch && patch.tier) || prev.plan_type || prev.tier || user.tier || 'trial');
+  const prevCount = readSearchCountFromRow(prev, tier);
+  const nextCount = (patch && patch.search_count_monthly != null)
+    ? Number(patch.search_count_monthly)
+    : prevCount;
+
+  return pickSubscriptionWriteFields({
     user_id: user.id,
-    tier: normalizeTier((patch && patch.tier) || prev.tier || user.tier || 'trial'),
-    trial_searches_used: (patch && patch.trial_searches_used) != null
-      ? patch.trial_searches_used
-      : (Number(prev.trial_searches_used) || 0),
+    plan_type: tier,
+    search_count_monthly: nextCount,
     word_downloads_count: (patch && patch.word_downloads_count) != null
       ? patch.word_downloads_count
       : (Number(prev.word_downloads_count) || 0),
-    monthly_searches_used: (patch && patch.monthly_searches_used) != null
-      ? patch.monthly_searches_used
-      : (Number(prev.monthly_searches_used) || 0),
-    usage_month: (patch && patch.usage_month) || prev.usage_month || currentMonthKey(),
     auto_renew: (patch && patch.auto_renew) != null
       ? patch.auto_renew
       : (prev.auto_renew !== false),
-    updated_at: now,
-  };
+    expires_at: (patch && patch.expires_at !== undefined) ? patch.expires_at : (prev.expires_at || null),
+    updated_at: new Date().toISOString(),
+  });
 }
 
 async function insertSubscriptionRow(user, patch, userToken) {
-  const now = new Date().toISOString();
-  const row = subscriptionRowFromPatch(user, patch, null);
-  row.created_at = now;
+  const row = subscriptionRowFromPatch(user, Object.assign({
+    search_count_monthly: 0,
+    word_downloads_count: 0,
+    auto_renew: true,
+  }, patch || {}), null);
+
+  logUsage('insert:before', { user_id: user.id, row: row });
 
   const res = await supabaseRequest('/rest/v1/' + TABLE, {
     method: 'POST',
@@ -291,46 +361,79 @@ async function insertSubscriptionRow(user, patch, userToken) {
   }, userToken);
 
   const rows = await readSupabaseResponse(res, 'subscription insert');
-  return Array.isArray(rows) && rows.length ? rows[0] : row;
+  const inserted = Array.isArray(rows) && rows.length ? rows[0] : row;
+
+  logUsage('insert:after', {
+    user_id: user.id,
+    status: 'ok',
+    rows_returned: Array.isArray(rows) ? rows.length : 0,
+    search_count_monthly: inserted.search_count_monthly,
+  });
+
+  return inserted;
 }
 
 async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const params = new URLSearchParams();
   params.set('user_id', 'eq.' + userId);
-  const body = pickDefinedFields(Object.assign({}, patch, { updated_at: new Date().toISOString() }));
-  delete body.user_id;
-  delete body.created_at;
+
+  const writePatch = pickSubscriptionWriteFields(
+    Object.assign({}, patch, {
+      plan_type: patch.plan_type || patch.tier,
+      updated_at: new Date().toISOString(),
+    })
+  );
+  delete writePatch.user_id;
+
+  logUsage('update:before', {
+    user_id: userId,
+    patch: writePatch,
+    before_count: existing ? readSearchCountFromRow(existing) : null,
+  });
 
   const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(writePatch),
   }, userToken);
 
   const rows = await readSupabaseResponse(res, 'subscription update');
-  if (Array.isArray(rows) && rows.length) return rows[0];
+  const rowsAffected = Array.isArray(rows) ? rows.length : 0;
 
-  // PATCH returned no rows — merge and upsert so trial_searches_used always persists.
+  logUsage('update:after', {
+    user_id: userId,
+    rows_affected: rowsAffected,
+    response: rows,
+  });
+
+  if (rowsAffected > 0) return rows[0];
+
   if (existing) {
     const merged = subscriptionRowFromPatch(
-      user || { id: userId, tier: (existing && existing.tier) || 'trial' },
+      user || { id: userId, tier: planTypeFromRow(existing) },
       patch,
       existing
     );
+    logUsage('update:upsert_fallback', { user_id: userId, merged: merged });
+
     const upsertRes = await supabaseRequest('/rest/v1/' + TABLE + '?on_conflict=user_id', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
       body: JSON.stringify(merged),
     }, userToken);
     const upsertRows = await readSupabaseResponse(upsertRes, 'subscription upsert');
+    logUsage('update:upsert_after', {
+      user_id: userId,
+      rows_affected: Array.isArray(upsertRows) ? upsertRows.length : 0,
+      response: upsertRows,
+    });
     if (Array.isArray(upsertRows) && upsertRows.length) return upsertRows[0];
     return merged;
   }
 
   const refetched = await fetchSubscriptionRow(userId, userToken);
   if (refetched) return refetched;
-  const baseUser = user || { id: userId, tier: (existing && existing.tier) || 'trial' };
-  return subscriptionRowFromPatch(baseUser, patch, existing);
+  return subscriptionRowFromPatch(user || { id: userId, tier: 'trial' }, patch, existing);
 }
 
 async function upsertSubscriptionRow(user, patch, userToken) {
@@ -344,12 +447,11 @@ async function upsertSubscriptionRow(user, patch, userToken) {
 async function ensureSubscription(user, userToken) {
   let row = await fetchSubscriptionRow(user.id, userToken);
   if (!row) {
-    row = await upsertSubscriptionRow(user, {
-      tier: user.tier || 'trial',
-      trial_searches_used: 0,
+    logUsage('ensure:create_row', { user_id: user.id });
+    row = await insertSubscriptionRow(user, {
+      plan_type: normalizeTier(user.tier || 'trial'),
+      search_count_monthly: 0,
       word_downloads_count: 0,
-      monthly_searches_used: 0,
-      usage_month: currentMonthKey(),
       auto_renew: true,
     }, userToken);
   }
@@ -372,8 +474,22 @@ async function getStatus(user, userToken) {
 }
 
 async function recordSearch(user, userToken) {
+  logUsage('record_search:start', {
+    user_id: user && user.id,
+    has_token: Boolean(userToken),
+    service_role: Boolean(getSupabaseConfig().serviceKey),
+  });
+
   const row = await ensureSubscription(user, userToken);
   const usageBefore = buildUsagePayload(row);
+
+  logUsage('record_search:before_increment', {
+    user_id: user.id,
+    searchesUsed_before: usageBefore.searchesUsed,
+    search_count_monthly_raw: row.search_count_monthly,
+    plan_type: row.plan_type,
+  });
+
   if (!usageBefore.allowed) {
     const err = new Error('חרגתם ממכסת החיפושים — שדרגו את המסלול');
     err.statusCode = 429;
@@ -382,36 +498,54 @@ async function recordSearch(user, userToken) {
     throw err;
   }
 
-  const tier = normalizeTier(row.tier);
+  const tier = planTypeFromRow(row);
   const month = currentMonthKey();
-  const patch = { tier: tier };
+  const currentCount = readSearchCountFromRow(row, tier);
+  let nextCount = currentCount + 1;
 
-  if (tier === 'trial') {
-    patch.trial_searches_used = (Number(row.trial_searches_used) || 0) + 1;
-  } else {
-    const sameMonth = row.usage_month === month;
-    patch.usage_month = month;
-    patch.monthly_searches_used = sameMonth
-      ? (Number(row.monthly_searches_used) || 0) + 1
-      : 1;
+  if (tier !== 'trial') {
+    const rowMonth = monthFromRow(row);
+    if (rowMonth !== month) {
+      nextCount = 1;
+    }
   }
+
+  const patch = {
+    plan_type: tier,
+    search_count_monthly: nextCount,
+  };
 
   const updated = await updateSubscriptionRow(user.id, patch, row, user, userToken);
   const usage = buildUsagePayload(updated);
+
+  logUsage('record_search:after_increment', {
+    user_id: user.id,
+    searchesUsed_after: usage.searchesUsed,
+    search_count_monthly_raw: updated.search_count_monthly,
+    rows_match: usage.searchesUsed === nextCount,
+  });
+
   if (usage.searchesUsed <= usageBefore.searchesUsed) {
     const err = new Error('לא ניתן לשמור את ספירת החיפושים — נסו שוב או פנו לתמיכה');
     err.statusCode = 500;
     err.code = 'USAGE_PERSIST_FAILED';
     err.usage = usage;
+    logUsage('record_search:FAILED', {
+      user_id: user.id,
+      before: usageBefore.searchesUsed,
+      after: usage.searchesUsed,
+      patch: patch,
+    });
     throw err;
   }
-  console.log('[subscription] record_search user=%s searchesUsed=%s', user.id, usage.searchesUsed);
+
+  logUsage('record_search:OK', { user_id: user.id, searchesUsed: usage.searchesUsed });
   return { ok: true, action: 'record_search', usage: usage };
 }
 
 async function recordWordDownload(user, userToken) {
   const row = await ensureSubscription(user, userToken);
-  const tier = normalizeTier(row.tier);
+  const tier = planTypeFromRow(row);
 
   if (tier !== 'trial') {
     return {
@@ -443,7 +577,7 @@ async function recordWordDownload(user, userToken) {
 
 async function cancelRenewal(user, userToken) {
   const row = await ensureSubscription(user, userToken);
-  if (normalizeTier(row.tier) === 'trial') {
+  if (planTypeFromRow(row) === 'trial') {
     const err = new Error('אין מנוי בתשלום לביטול');
     err.statusCode = 400;
     throw err;
@@ -453,7 +587,7 @@ async function cancelRenewal(user, userToken) {
     ok: true,
     action: 'cancel_renewal',
     subscription: {
-      tier: normalizeTier(updated.tier),
+      tier: planTypeFromRow(updated),
       billingCycle: null,
       autoRenew: false,
     },
@@ -508,7 +642,7 @@ async function legacyHandler(req, res) {
     return sendJson(res, 200, { data: data });
   } catch (err) {
     const status = err.statusCode || 500;
-    console.warn('[subscription]', status, err.message || err);
+    console.warn(LOG_PREFIX, status, err.message || err);
     return sendJson(res, status, {
       error: err.message || String(err),
       code: err.code || undefined,
@@ -517,7 +651,6 @@ async function legacyHandler(req, res) {
   }
 }
 
-/** Record one live search from an HTTP request (e.g. after /api/generate succeeds). */
 async function recordLiveSearchFromRequest(req, explicitUser) {
   const body = req && req.body;
   const userToken = extractUserToken(req);
@@ -525,13 +658,17 @@ async function recordLiveSearchFromRequest(req, explicitUser) {
     ? explicitUser
     : await resolveUser(req, body);
   if (!isEnabled()) {
-    console.warn('[subscription] recordLiveSearch skipped — Supabase not configured');
+    console.warn(LOG_PREFIX, 'recordLiveSearch skipped — Supabase not configured');
     return null;
   }
+  logUsage('recordLiveSearchFromRequest', {
+    user_id: user.id,
+    has_auth_header: Boolean(userToken),
+    explicit_user: Boolean(explicitUser && explicitUser.id),
+  });
   return recordSearch(user, userToken);
 }
 
-/** Block live searches when the teacher has exhausted their quota (server-side enforcement). */
 async function assertSearchAllowedFromRequest(req) {
   if (!isEnabled()) return { allowed: true, skipped: true };
   const body = req && req.body;
@@ -568,7 +705,6 @@ module.exports = {
   normalizeTier,
 };
 
-/** Web Standard fetch handler — Vercel serverless. */
 async function fetchHandler(request) {
   const headers = new Headers(corsHeaders);
 
@@ -600,7 +736,7 @@ async function fetchHandler(request) {
     return Response.json({ data: data }, { status: 200, headers });
   } catch (err) {
     const status = err.statusCode || 500;
-    console.warn('[subscription]', status, err.message || err);
+    console.warn(LOG_PREFIX, status, err.message || err);
     return Response.json({
       error: err.message || String(err),
       code: err.code || undefined,
