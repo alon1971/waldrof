@@ -1646,6 +1646,10 @@
         transform: none;
         z-index: 50;
       }
+      body.lesson-chat-mode-bubble #wizard,
+      body.lesson-chat-mode-bubble #workspace {
+        padding-bottom: 5rem;
+      }
       .lesson-chat-fab {
         width: 3rem;
         height: 3rem;
@@ -1694,19 +1698,11 @@
     }
     @media (min-width: 768px) {
       #lesson-chat-fab-wrap.lesson-chat-fab-wrap {
-        bottom: 220px;
-        --lesson-chat-fab-card-left: calc(
-          (100vw - min(72rem, 100vw)) / 2
-          + 1rem
-          + (min(72rem, 100vw) - 2rem - min(36rem, min(72rem, 100vw) - 2rem)) / 2
-        );
-        left: clamp(
-          1.5rem,
-          calc(var(--lesson-chat-fab-card-left) / 2),
-          calc(var(--lesson-chat-fab-card-left) - 1rem)
-        );
+        --app-content-gutter: max(1rem, calc((100vw - min(72rem, 100vw)) / 2));
+        bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+        left: max(0.5rem, calc(var(--app-content-gutter) - 17rem));
         right: auto;
-        transform: translateX(-50%);
+        transform: none;
         z-index: 50;
       }
       .lesson-chat-fab {
@@ -2725,7 +2721,7 @@
 
     <!-- STEP 1 -->
     <section id="step-1" class="wizard-step">
-      <div class="bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full max-w-xl mx-auto text-center box-border">
+      <div id="step-a-container" class="bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full max-w-xl mx-auto text-center box-border">
         <span class="inline-block bg-sage/15 text-sage-dark text-xs font-bold px-3 py-1 rounded-full mb-4" data-i18n="step_a_badge">שלב א׳</span>
         <h2 class="app-page-title font-display font-bold text-burgundy mb-2" data-i18n="step1_title">בחירת כיתה מבוקשת</h2>
         <p class="text-sm text-walnut/70 mb-6" data-i18n="step1_desc">בחרו את שכבת הגיל — לאחר מכן יוצג מיד תמונת הגיל והחומרים השיתופיים לכיתה זו.</p>
@@ -7414,25 +7410,20 @@
     }
 
     function scrollPageToTopThen(fn) {
-      var y = window.scrollY || window.pageYOffset || 0;
       setHeaderCompact(false);
+      var y = window.scrollY || window.pageYOffset || 0;
       if (y <= 1) {
-        if (fn) fn();
+        requestAnimationFrame(function () {
+          syncProductTabsStickyLayout();
+          if (fn) fn();
+        });
         return;
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      var done = false;
-      function finish() {
-        if (done) return;
-        done = true;
-        window.removeEventListener('scroll', onScroll);
+      runAfterSmoothScroll(function () {
+        syncProductTabsStickyLayout();
         if (fn) fn();
-      }
-      function onScroll() {
-        if ((window.scrollY || window.pageYOffset || 0) <= 1) finish();
-      }
-      window.addEventListener('scroll', onScroll, { passive: true });
-      setTimeout(finish, 900);
+      });
     }
 
     function highlightWizardField(el) {
@@ -7460,26 +7451,13 @@
 
     function navigateCompactHeaderToGrade() {
       goToStep(1, false);
-      scrollPageToTopThen(focusGradeSelect);
+      scrollToStepAAndFocus({ expandHeader: true, scrollToTopFirst: true, behavior: 'smooth' });
     }
 
     function navigateCompactHeaderToTopic() {
-      ensureStepBWizardView();
-      var anchor = document.getElementById('step-b-wrapper');
-      if (anchor) {
-        anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-      var topicInput = document.getElementById('topic-input');
-      if (topicInput) {
-        setTimeout(function () {
-          try {
-            topicInput.focus({ preventScroll: true });
-          } catch (e) {
-            topicInput.focus();
-          }
-          highlightWizardField(topicInput);
-        }, 450);
-      }
+      if (!canNavigateToStep(2)) return;
+      goToStep(2, false);
+      scrollToStepBAndFocus({ expandHeader: true, behavior: 'smooth' });
     }
 
     function setHeaderCompact(compact) {
@@ -7670,11 +7648,62 @@
       return isNaN(parsed) ? 0 : parsed;
     }
 
+    function getStepAScrollAnchor() {
+      return document.getElementById('grade-select') ||
+        document.getElementById('step-a-container');
+    }
+
     function getStepBScrollAnchor() {
-      return document.getElementById('step-b-wrapper') ||
-        document.getElementById('step-b-container') ||
+      return document.getElementById('step-b-container') ||
         document.getElementById('step-b-topic-entry') ||
-        document.getElementById('topic-input');
+        document.getElementById('topic-input') ||
+        document.getElementById('step-b-wrapper');
+    }
+
+    function runAfterLayout(fn) {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(fn);
+      });
+    }
+
+    function scrollToStepAAndFocus(options) {
+      options = options || {};
+      var gradeSel = document.getElementById('grade-select');
+      var anchor = getStepAScrollAnchor();
+      if (!anchor) return;
+      if (options.expandHeader) setHeaderCompact(false);
+      var behavior = options.behavior == null ? 'smooth' : options.behavior;
+      runAfterLayout(function () {
+        syncProductTabsStickyLayout();
+        var focusGrade = function () {
+          if (!gradeSel) return;
+          try {
+            gradeSel.focus({ preventScroll: true });
+          } catch (e) {
+            gradeSel.focus();
+          }
+          highlightWizardField(gradeSel);
+        };
+        var scrollToGrade = function () {
+          scrollElementIntoViewWithChrome(anchor, behavior, 'center');
+          if (behavior === 'smooth' || behavior === true) {
+            runAfterSmoothScroll(focusGrade);
+          } else {
+            focusGrade();
+          }
+        };
+        if (options.scrollToTopFirst) {
+          var y = window.scrollY || window.pageYOffset || 0;
+          if (y <= 1) {
+            scrollToGrade();
+            return;
+          }
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          runAfterSmoothScroll(scrollToGrade);
+        } else {
+          scrollToGrade();
+        }
+      });
     }
 
     function runAfterSmoothScroll(fn) {
@@ -7703,7 +7732,7 @@
       if (!anchor) return;
       if (options.expandHeader) setHeaderCompact(false);
       var behavior = options.behavior == null ? 'smooth' : options.behavior;
-      requestAnimationFrame(function () {
+      runAfterLayout(function () {
         syncProductTabsStickyLayout();
         scrollElementIntoViewWithChrome(anchor, behavior, 'center');
         var focusField = function () {
@@ -7757,10 +7786,17 @@
       if (behavior === false || behavior === 'none') return;
       if (pageLoadFocusGuard && n === 1) return;
       if (n === 2) {
-        scrollToStepB(behavior);
+        scrollToStepBAndFocus({ behavior: behavior });
         return;
       }
-      scrollToSectionStart(document.getElementById('step-' + n), behavior);
+      if (n === 1) {
+        scrollToStepAAndFocus({ behavior: behavior });
+        return;
+      }
+      runAfterLayout(function () {
+        syncProductTabsStickyLayout();
+        scrollToSectionStart(document.getElementById('step-' + n), behavior);
+      });
     }
 
     function scrollToWorkspaceTop(behavior) {
@@ -7843,6 +7879,16 @@
         e.stopPropagation();
       }
       if (!canNavigateToStep(n)) return;
+      if (n === 2) {
+        goToStep(2, false);
+        scrollToStepBAndFocus({ behavior: 'smooth' });
+        return;
+      }
+      if (n === 1) {
+        goToStep(1, false);
+        scrollToStepAAndFocus({ behavior: 'smooth' });
+        return;
+      }
       goToStep(n, 'smooth');
     }
 
