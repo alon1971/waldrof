@@ -6,6 +6,30 @@ const cacheDb = require('./cache');
 
 const TABLE = 'user_subscriptions';
 
+/** Columns present in production user_subscriptions (billing_cycle omitted until migrated). */
+const SUBSCRIPTION_DB_COLUMNS = [
+  'user_id',
+  'user_email',
+  'tier',
+  'trial_searches_used',
+  'word_downloads_count',
+  'monthly_searches_used',
+  'usage_month',
+  'auto_renew',
+  'created_at',
+  'updated_at',
+];
+
+const SUBSCRIPTION_SELECT_COLUMNS = SUBSCRIPTION_DB_COLUMNS.join(',');
+
+function pickSubscriptionDbFields(obj) {
+  const out = {};
+  SUBSCRIPTION_DB_COLUMNS.forEach(function (key) {
+    if (obj && obj[key] !== undefined) out[key] = obj[key];
+  });
+  return out;
+}
+
 const TIER_LIMITS = {
   trial: { lifetime: 10, monthly: null, wordDownloads: 10 },
   standard: { lifetime: null, monthly: 200, wordDownloads: null },
@@ -224,7 +248,7 @@ function buildUsagePayload(row) {
 
   return {
     tier: tier,
-    billingCycle: row.billing_cycle || null,
+    billingCycle: null,
     autoRenew: row.auto_renew !== false,
     searchesUsed: used,
     searchLimit: limit,
@@ -243,7 +267,7 @@ function buildUsagePayload(row) {
 
 async function fetchSubscriptionRow(userId, userToken) {
   const params = new URLSearchParams();
-  params.set('select', '*');
+  params.set('select', SUBSCRIPTION_SELECT_COLUMNS);
   params.set('user_id', 'eq.' + userId);
   params.set('limit', '1');
 
@@ -263,9 +287,6 @@ function subscriptionRowFromPatch(user, patch, existing) {
     user_id: user.id,
     user_email: user.email || prev.user_email || '',
     tier: normalizeTier((patch && patch.tier) || prev.tier || user.tier || 'trial'),
-    billing_cycle: (patch && patch.billing_cycle) != null
-      ? patch.billing_cycle
-      : (prev.billing_cycle != null ? prev.billing_cycle : null),
     trial_searches_used: (patch && patch.trial_searches_used) != null
       ? patch.trial_searches_used
       : (Number(prev.trial_searches_used) || 0),
@@ -291,7 +312,7 @@ async function insertSubscriptionRow(user, patch, userToken) {
   const res = await supabaseRequest('/rest/v1/' + TABLE, {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(row),
+    body: JSON.stringify(pickSubscriptionDbFields(row)),
   }, userToken);
 
   const rows = await readSupabaseResponse(res, 'subscription insert');
@@ -301,7 +322,9 @@ async function insertSubscriptionRow(user, patch, userToken) {
 async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const params = new URLSearchParams();
   params.set('user_id', 'eq.' + userId);
-  const body = pickDefinedFields(Object.assign({}, patch, { updated_at: new Date().toISOString() }));
+  const body = pickSubscriptionDbFields(
+    pickDefinedFields(Object.assign({}, patch, { updated_at: new Date().toISOString() }))
+  );
   delete body.user_id;
   delete body.created_at;
 
@@ -441,7 +464,7 @@ async function cancelRenewal(user, userToken) {
     action: 'cancel_renewal',
     subscription: {
       tier: normalizeTier(updated.tier),
-      billingCycle: updated.billing_cycle || null,
+      billingCycle: null,
       autoRenew: false,
     },
   };
