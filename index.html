@@ -1055,6 +1055,8 @@
     .auth-google-btn--loading { color: #5C4A3A; }
 
     #user-account-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .header-user-identity { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .header-user-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .user-tier-badge {
       display: inline-flex; align-items: center; padding: 0.2rem 0.6rem;
       border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
@@ -1303,6 +1305,103 @@
       min-height: 1.75rem;
       padding: 0.15rem 0.45rem;
       font-size: 0.7rem !important;
+    }
+    .header-compact-context {
+      display: none;
+    }
+    .app-site-chrome.header-compact {
+      box-shadow: 0 1px 6px rgba(92, 74, 58, 0.1);
+    }
+    .app-site-chrome.header-compact header {
+      border-bottom-color: rgba(201, 169, 98, 0.25);
+    }
+    .app-site-chrome.header-compact header > .max-w-6xl {
+      padding-top: 0.2rem !important;
+      padding-bottom: 0.2rem !important;
+    }
+    .app-site-chrome.header-compact header .app-brand-title,
+    .app-site-chrome.header-compact header .app-chrome-subtitle,
+    .app-site-chrome.header-compact header .app-chrome-tagline,
+    .app-site-chrome.header-compact .app-top-nav {
+      display: none !important;
+    }
+    .app-site-chrome.header-compact header .app-chrome-tagline-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0 !important;
+      min-height: 2.75rem;
+      max-height: 3.5rem;
+      flex-wrap: nowrap;
+    }
+    .app-site-chrome.header-compact .app-chrome-actions-row {
+      display: contents;
+    }
+    .app-site-chrome.header-compact #user-account-bar {
+      display: contents;
+    }
+    .app-site-chrome.header-compact .header-user-identity {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+      min-width: 0;
+      max-width: 42%;
+    }
+    .app-site-chrome.header-compact .header-user-identity #user-display-name {
+      font-size: 0.75rem !important;
+      max-width: 7rem;
+    }
+    .app-site-chrome.header-compact .header-compact-context {
+      display: block;
+      flex: 1 1 auto;
+      min-width: 0;
+      text-align: center;
+      font-size: 0.72rem;
+      line-height: 1.25;
+      font-weight: 600;
+      color: rgba(92, 74, 58, 0.82);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding-inline: 0.25rem;
+    }
+    .app-site-chrome.header-compact .header-user-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-shrink: 0;
+      margin-inline-start: auto;
+    }
+    .app-site-chrome.header-compact #search-usage-label,
+    .app-site-chrome.header-compact .search-usage-track,
+    .app-site-chrome.header-compact #user-tier-badge,
+    .app-site-chrome.header-compact #btn-user-settings {
+      display: none !important;
+    }
+    .app-site-chrome.header-compact #search-usage-meter:not(.hidden) {
+      display: inline-flex !important;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0;
+      border: none;
+      background: transparent;
+      font-size: 0.7rem !important;
+    }
+    .app-site-chrome.header-compact .user-action-btn {
+      min-height: 1.6rem;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.68rem !important;
+    }
+    .app-site-chrome.header-compact .user-action-btn span {
+      display: inline;
+    }
+    .app-site-chrome.header-compact .lang-toggle {
+      min-width: 2rem;
+      min-height: 1.6rem;
+      padding: 0.1rem 0.4rem;
+      font-size: 0.68rem !important;
+      flex-shrink: 0;
     }
     .app-site-chrome-spacer {
       display: block;
@@ -2419,27 +2518,32 @@
   <header class="border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="max-w-6xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5">
       <div class="app-chrome-tagline-row flex flex-wrap items-center justify-between gap-2 mb-1">
-        <p class="text-sage-dark text-sm font-medium"><i class="fa-solid fa-seedling icon-inline"></i> <span data-i18n="header_tagline">חינוך ולדורף · תקופת לימוד ראשית</span></p>
-        <div class="flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
+        <p class="app-chrome-tagline text-sage-dark text-sm font-medium"><i class="fa-solid fa-seedling icon-inline"></i> <span data-i18n="header_tagline">חינוך ולדורף · תקופת לימוד ראשית</span></p>
+        <span id="header-compact-context" class="header-compact-context" aria-hidden="true"></span>
+        <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
           <div id="user-account-bar" class="hidden">
-            <div id="search-usage-meter" class="hidden" title="">
-              <span id="search-usage-label" data-i18n="search_usage_label">חיפושים היום</span>
-              <div class="search-usage-track" aria-hidden="true"><div id="search-usage-fill" class="search-usage-fill" style="width:0%"></div></div>
-              <span id="search-usage-count">0 / 10</span>
+            <div class="header-user-identity">
+              <span id="user-display-name" class="text-sm text-walnut/80 max-w-[8rem] truncate"></span>
+              <div id="search-usage-meter" class="hidden" title="">
+                <span id="search-usage-label" data-i18n="search_usage_label">חיפושים היום</span>
+                <div class="search-usage-track" aria-hidden="true"><div id="search-usage-fill" class="search-usage-fill" style="width:0%"></div></div>
+                <span id="search-usage-count">0 / 10</span>
+              </div>
             </div>
-            <span id="user-display-name" class="text-sm text-walnut/80 max-w-[8rem] truncate"></span>
-            <span id="user-tier-badge" class="user-tier-badge user-tier-badge--trial"></span>
-            <button type="button" id="btn-user-settings" class="user-action-btn" data-i18n-aria="user_settings_title" title="הגדרות חשבון">
-              <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
-            </button>
-            <button type="button" id="btn-open-pricing" class="user-action-btn user-action-btn--upgrade">
-              <i class="fa-solid fa-arrow-up-right-dots" aria-hidden="true"></i>
-              <span data-i18n="auth_upgrade">שדרוג</span>
-            </button>
-            <button type="button" id="btn-auth-signout" class="user-action-btn">
-              <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
-              <span data-i18n="auth_signout">יציאה</span>
-            </button>
+            <div class="header-user-actions">
+              <span id="user-tier-badge" class="user-tier-badge user-tier-badge--trial"></span>
+              <button type="button" id="btn-user-settings" class="user-action-btn" data-i18n-aria="user_settings_title" title="הגדרות חשבון">
+                <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
+              </button>
+              <button type="button" id="btn-open-pricing" class="user-action-btn user-action-btn--upgrade">
+                <i class="fa-solid fa-arrow-up-right-dots" aria-hidden="true"></i>
+                <span data-i18n="auth_upgrade">שדרוג</span>
+              </button>
+              <button type="button" id="btn-auth-signout" class="user-action-btn">
+                <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+                <span data-i18n="auth_signout">יציאה</span>
+              </button>
+            </div>
           </div>
           <button type="button" id="lang-toggle" class="lang-toggle lang-toggle--he-active notranslate" aria-label="החלף שפה">
             <span class="lang-toggle-label">EN</span>
@@ -2856,7 +2960,7 @@
   <script src="auth-subscription.js?v=20250627"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="hebrew-topic-match.js?v=20250618"></script>
+  <script src="hebrew-topic-match.js?v=20250618b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -6481,6 +6585,30 @@
       const items = WaldorfSearchHistory.getItems().filter(function (item) {
         return String(item.gradeId || '') === String(gradeId || '') && item.hasLessonPlan !== false;
       });
+
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+          WaldorfHebrewTopicMatch.shouldProbeCanonicalArchiveTopic &&
+          WaldorfHebrewTopicMatch.getGradeCanonicalArchiveTopic &&
+          WaldorfHebrewTopicMatch.shouldProbeCanonicalArchiveTopic(gradeId, topic)) {
+        const canonicalTopic = WaldorfHebrewTopicMatch.getGradeCanonicalArchiveTopic(gradeId);
+        const canonicalItem = items.find(function (item) {
+          const candidate = archiveLessonDisplayTopic(item);
+          return String(candidate || '').trim() === String(canonicalTopic || '').trim();
+        });
+        if (canonicalItem) {
+          const archiveTitle = archiveLessonDisplayTopic(canonicalItem) || canonicalTopic;
+          return {
+            matchType: 'partial',
+            similarity: scoreArchiveTopicSimilarity(topic, archiveTitle),
+            cacheKey: canonicalItem.cacheKey,
+            suggestedTopic: archiveTitle,
+            topic: archiveTitle,
+            gradeId: gradeId,
+            gradeLabel: canonicalItem.gradeLabel || null,
+          };
+        }
+      }
+
       let best = null;
       let bestScore = 0.5;
       items.forEach(function (item) {
@@ -7089,6 +7217,7 @@
       const topicEl = document.getElementById('ws-topic');
       if (gradeEl) gradeEl.textContent = appState.gradeLabel || '—';
       if (topicEl) topicEl.textContent = appState.topic || '—';
+      updateHeaderCompactContext();
       const crumbs = [
         { id: 'ws-crumb-grade', section: 'wizard' },
         { id: 'ws-crumb-topic', section: 'wizard' },
@@ -7119,6 +7248,72 @@
       if (tabsNav && !tabsNav.classList.contains('hidden')) {
         root.style.setProperty('--product-tabs-nav-height', tabsNav.offsetHeight + 'px');
       }
+    }
+
+    var HEADER_COMPACT_SCROLL_THRESHOLD = 100;
+    var headerCompactScrollBound = false;
+
+    function getHeaderCompactContextText() {
+      if (isWorkspaceOpen()) {
+        if (isCommunityView()) return t('nav_community');
+        if (isArchiveView()) return t('nav_archive');
+        if (isProductsView()) {
+          var grade = appState.gradeLabel || appState.grade || '';
+          var topic = appState.topic || '';
+          if (grade && topic) return grade + ' · ' + topic;
+          if (grade) return grade;
+          return t('step_prefix') + ' ' + t('step_nav_c');
+        }
+        var wsGrade = appState.gradeLabel || appState.grade || '';
+        var wsTopic = appState.topic || '';
+        if (wsGrade && wsTopic) return wsGrade + ' · ' + wsTopic;
+        if (wsGrade) return wsGrade;
+      }
+      var stepIdx = Math.max(0, Math.min(STEP_NAV_KEYS.length - 1, (appState.step || 1) - 1));
+      var stepKey = STEP_NAV_KEYS[stepIdx];
+      return stepKey ? (t('step_prefix') + ' ' + t(stepKey)) : '';
+    }
+
+    function updateHeaderCompactContext() {
+      var el = document.getElementById('header-compact-context');
+      if (!el) return;
+      var text = getHeaderCompactContextText();
+      el.textContent = text;
+      el.setAttribute('aria-hidden', text ? 'false' : 'true');
+    }
+
+    function setHeaderCompact(compact) {
+      var siteChrome = document.getElementById('app-site-chrome');
+      if (!siteChrome) return;
+      var isCompact = siteChrome.classList.contains('header-compact');
+      if (isCompact === compact) return;
+      var scrollY = window.scrollY || window.pageYOffset || 0;
+      var oldHeight = siteChrome.offsetHeight;
+      if (compact) updateHeaderCompactContext();
+      siteChrome.classList.toggle('header-compact', compact);
+      requestAnimationFrame(function () {
+        var newHeight = siteChrome.offsetHeight;
+        syncProductTabsStickyLayout();
+        if (compact && scrollY > 0 && newHeight < oldHeight) {
+          window.scrollTo(0, scrollY - (oldHeight - newHeight));
+        }
+      });
+    }
+
+    function onHeaderCompactScroll() {
+      var y = window.scrollY || window.pageYOffset || 0;
+      if (y === 0) {
+        setHeaderCompact(false);
+      } else if (y > HEADER_COMPACT_SCROLL_THRESHOLD) {
+        setHeaderCompact(true);
+      }
+    }
+
+    function bindHeaderCompactScroll() {
+      if (headerCompactScrollBound) return;
+      headerCompactScrollBound = true;
+      window.addEventListener('scroll', onHeaderCompactScroll, { passive: true });
+      onHeaderCompactScroll();
     }
 
     function updateWorkspaceChrome() {
@@ -7155,6 +7350,7 @@
           (enabled ? '' : ' disabled') + '>' + escapeHtml(t('step_prefix') + ' ' + label) + '</button>';
       }).join('');
       updateTopNavButtons();
+      updateHeaderCompactContext();
       requestAnimationFrame(syncProductTabsStickyLayout);
     }
 
@@ -7229,6 +7425,7 @@
       window.scrollTo(0, 0);
       if (document.documentElement) document.documentElement.scrollTop = 0;
       if (document.body) document.body.scrollTop = 0;
+      setHeaderCompact(false);
     }
     window.ensurePageAtTop = ensurePageAtTop;
 
@@ -9598,6 +9795,7 @@
       scheduleInitialPageScrollReset();
     });
     window.addEventListener('resize', syncProductTabsStickyLayout, { passive: true });
+    bindHeaderCompactScroll();
 
     init().catch(function (err) { console.error('[waldrof] unhandled init error:', err); });
   </script>
