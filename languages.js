@@ -419,6 +419,9 @@ const LANGUAGES = {
     tier_searches_lifetime:      'עד {count} חיפושים בסך הכל',
     tier_expert_searches:        'חיפושים ללא הגבלה',
     tier_trial_feature:          '20 חיפושים להתנסות מלאה במערכת',
+    tier_trial_feature_searches: 'עד 10 חיפושים חיים בסך הכל',
+    tier_trial_feature_downloads:'עד 10 הורדות קבצי Word בסך הכל',
+    tier_trial_feature_archive:  'שימוש חופשי וחינמי בחומרים קיימים מהארכיון',
     tier_standard_feature_1:     '300 חיפושים בחודש — מסלול יומיומי למורים',
     tier_standard_feature_2:     'מאגר קהילתי, ארכיון ידע ועוזר פדגוגי',
     tier_pro_feature_1:          '600 חיפושים בחודש — לצוותים פעילים',
@@ -456,6 +459,9 @@ const LANGUAGES = {
     rate_limit_exceeded:         'חרגתם ממכסת החיפושים היומית — שדרגו את המסלול',
     rate_limit_upgrade:          'צפו במסלולים ושדרגו',
     rate_limit_dismiss:          'הבנתי',
+
+    word_download_limit_notice:  'הגעת למגבלת ההורדות במסלול החינמי. כדי להמשיך להוריד קבצים מעוצבים, יש לשדרג למסלול סטנדרט או פרו',
+    word_download_limit_exceeded:'הגעת למגבלת ההורדות במסלול החינמי',
 
     chat_sidebar_title:          'עוזר פדגוגי',
     chat_sidebar_collapse:       'כווץ חלון צ׳אט',
@@ -929,6 +935,9 @@ const LANGUAGES = {
     tier_searches_lifetime:      'Up to {count} searches total',
     tier_expert_searches:        'Unlimited searches',
     tier_trial_feature:          '20 searches to fully explore the platform',
+    tier_trial_feature_searches: 'Up to 10 live searches total',
+    tier_trial_feature_downloads:'Up to 10 Word file downloads total',
+    tier_trial_feature_archive:  'Free unlimited access to existing archive materials',
     tier_standard_feature_1:     '300 searches/month — daily classroom workflow',
     tier_standard_feature_2:     'Community database, archive & pedagogy assistant',
     tier_pro_feature_1:          '600 searches/month — for active teams',
@@ -966,6 +975,9 @@ const LANGUAGES = {
     rate_limit_exceeded:         'Daily search limit exceeded — please upgrade your plan',
     rate_limit_upgrade:          'View plans & upgrade',
     rate_limit_dismiss:          'Got it',
+
+    word_download_limit_notice:  'You reached the free plan download limit. Upgrade to Standard or Pro to keep downloading formatted Word files.',
+    word_download_limit_exceeded:'Free plan Word download limit reached',
 
     chat_sidebar_title:          'Pedagogy Assistant',
     chat_sidebar_collapse:       'Collapse chat panel',

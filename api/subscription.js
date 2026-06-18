@@ -6,9 +6,9 @@ const env = require('./env');
 const TABLE = 'user_subscriptions';
 
 const TIER_LIMITS = {
-  trial: { lifetime: 20, monthly: null },
-  standard: { lifetime: null, monthly: 300 },
-  pro: { lifetime: null, monthly: 600 },
+  trial: { lifetime: 10, monthly: null, wordDownloads: 10 },
+  standard: { lifetime: null, monthly: 300, wordDownloads: null },
+  pro: { lifetime: null, monthly: 600, wordDownloads: null },
 };
 
 const LEGACY_TIER_MAP = {
@@ -149,6 +149,12 @@ function buildUsagePayload(row) {
     period = 'monthly';
   }
 
+  const wordDownloadsUsed = Number(row.word_downloads_count) || 0;
+  const wordDownloadLimit = limits.wordDownloads;
+  const wordDownloadsAllowed = wordDownloadLimit == null
+    ? true
+    : wordDownloadsUsed < wordDownloadLimit;
+
   return {
     tier: tier,
     billingCycle: row.billing_cycle || null,
@@ -159,6 +165,12 @@ function buildUsagePayload(row) {
     usageMonth: row.usage_month || month,
     remaining: limit === null ? null : Math.max(0, limit - used),
     allowed: limit === null ? true : used < limit,
+    wordDownloadsUsed: wordDownloadsUsed,
+    wordDownloadLimit: wordDownloadLimit,
+    wordDownloadsRemaining: wordDownloadLimit == null
+      ? null
+      : Math.max(0, wordDownloadLimit - wordDownloadsUsed),
+    wordDownloadsAllowed: wordDownloadsAllowed,
   };
 }
 
@@ -185,6 +197,7 @@ async function upsertSubscriptionRow(user, patch) {
     tier: normalizeTier((patch && patch.tier) || user.tier || 'trial'),
     billing_cycle: (patch && patch.billing_cycle) != null ? patch.billing_cycle : null,
     trial_searches_used: (patch && patch.trial_searches_used) != null ? patch.trial_searches_used : 0,
+    word_downloads_count: (patch && patch.word_downloads_count) != null ? patch.word_downloads_count : 0,
     monthly_searches_used: (patch && patch.monthly_searches_used) != null ? patch.monthly_searches_used : 0,
     usage_month: (patch && patch.usage_month) || currentMonthKey(),
     auto_renew: (patch && patch.auto_renew) != null ? patch.auto_renew : true,
@@ -211,6 +224,7 @@ async function ensureSubscription(user) {
     row = await upsertSubscriptionRow(user, {
       tier: user.tier || 'trial',
       trial_searches_used: 0,
+      word_downloads_count: 0,
       monthly_searches_used: 0,
       usage_month: currentMonthKey(),
       auto_renew: true,
@@ -263,6 +277,38 @@ async function recordSearch(user) {
   return { ok: true, action: 'record_search', usage: buildUsagePayload(updated) };
 }
 
+async function recordWordDownload(user) {
+  const row = await ensureSubscription(user);
+  const tier = normalizeTier(row.tier);
+
+  if (tier !== 'trial') {
+    return {
+      ok: true,
+      action: 'record_word_download',
+      usage: buildUsagePayload(row),
+      unlimited: true,
+    };
+  }
+
+  const usageBefore = buildUsagePayload(row);
+  if (!usageBefore.wordDownloadsAllowed) {
+    const err = new Error('הגעת למגבלת ההורדות במסלול החינמי. כדי להמשיך להוריד קבצים מעוצבים, יש לשדרג למסלול סטנדרט או פרו');
+    err.statusCode = 429;
+    err.code = 'WORD_DOWNLOAD_LIMIT';
+    err.usage = usageBefore;
+    throw err;
+  }
+
+  const updated = await upsertSubscriptionRow(user, Object.assign({}, row, {
+    word_downloads_count: (Number(row.word_downloads_count) || 0) + 1,
+  }));
+  return {
+    ok: true,
+    action: 'record_word_download',
+    usage: buildUsagePayload(updated),
+  };
+}
+
 async function cancelRenewal(user) {
   const row = await ensureSubscription(user);
   if (normalizeTier(row.tier) === 'trial') {
@@ -300,11 +346,15 @@ async function executeSubscription(req) {
         remaining: TIER_LIMITS.trial.lifetime,
         allowed: true,
         autoRenew: true,
+        wordDownloadsUsed: 0,
+        wordDownloadLimit: TIER_LIMITS.trial.wordDownloads,
+        wordDownloadsAllowed: true,
       },
     };
   }
 
   if (action === 'record_search') return recordSearch(user);
+  if (action === 'record_word_download') return recordWordDownload(user);
   if (action === 'cancel_renewal') return cancelRenewal(user);
   return getStatus(user);
 }

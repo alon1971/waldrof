@@ -7,6 +7,7 @@
 
   var STORAGE_AUTH = 'waldorf_auth_v1';
   var STORAGE_USAGE = 'waldorf_search_usage_v2';
+  var STORAGE_WORD_DOWNLOADS = 'waldorf_word_downloads_v1';
   var SUPPORT_WHATSAPP = '';
 
   var LEGACY_TIER_MAP = {
@@ -17,7 +18,8 @@
   var TIERS = {
     trial: {
       id: 'trial',
-      lifetimeLimit: 20,
+      lifetimeLimit: 10,
+      wordDownloadLimit: 10,
       monthlyLimit: null,
       displayUnlimited: false,
       prices: { monthly: 0, yearly: 0 },
@@ -50,7 +52,9 @@
     billingCycle: null,
     usagePeriod: 'lifetime',
     searchesUsed: 0,
-    searchLimit: 20,
+    searchLimit: 10,
+    wordDownloadsUsed: 0,
+    wordDownloadLimit: 10,
   };
 
   var listeners = [];
@@ -236,6 +240,33 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   }
 
+  function readWordDownloads() {
+    try {
+      var raw = localStorage.getItem(STORAGE_WORD_DOWNLOADS);
+      return Number(raw) || 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function writeWordDownloads(count) {
+    try {
+      localStorage.setItem(STORAGE_WORD_DOWNLOADS, String(Number(count) || 0));
+    } catch (e) { /* */ }
+  }
+
+  function getWordDownloadsUsed() {
+    if (authState.wordDownloadsUsed != null) return authState.wordDownloadsUsed;
+    return readWordDownloads();
+  }
+
+  function getWordDownloadLimit() {
+    var tier = normalizeTierId(authState.tier);
+    if (tier !== 'trial') return null;
+    if (authState.wordDownloadLimit != null) return authState.wordDownloadLimit;
+    return getTierConfig('trial').wordDownloadLimit || 10;
+  }
+
   function readUsage() {
     try {
       var raw = localStorage.getItem(STORAGE_USAGE);
@@ -272,6 +303,11 @@
     authState.usagePeriod = usage.usagePeriod || authState.usagePeriod;
     if (usage.autoRenew != null) authState.autoRenew = usage.autoRenew !== false;
     if (usage.billingCycle != null) authState.billingCycle = usage.billingCycle;
+    if (usage.wordDownloadsUsed != null) {
+      authState.wordDownloadsUsed = Number(usage.wordDownloadsUsed) || 0;
+      writeWordDownloads(authState.wordDownloadsUsed);
+    }
+    if (usage.wordDownloadLimit != null) authState.wordDownloadLimit = usage.wordDownloadLimit;
     var tier = normalizeTierId(authState.tier);
     if (tier === 'trial') {
       writeUsage({ count: authState.searchesUsed, lifetime: authState.searchesUsed });
@@ -427,6 +463,13 @@
       searchLimit: displayLimit,
       effectiveLimit: effectiveLimit,
       remaining: displayLimit === null ? null : Math.max(0, displayLimit - used),
+      wordDownloadsUsed: getWordDownloadsUsed(),
+      wordDownloadLimit: getWordDownloadLimit(),
+      wordDownloadsRemaining: (function () {
+        var limit = getWordDownloadLimit();
+        if (limit == null) return null;
+        return Math.max(0, limit - getWordDownloadsUsed());
+      })(),
       tierConfig: getTierConfig(authState.tier),
     };
   }
@@ -731,6 +774,52 @@
     return { allowed: true, usage: used, limit: limit };
   }
 
+  function canPerformWordDownload() {
+    if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
+    var tier = normalizeTierId(authState.tier);
+    if (tier !== 'trial') return { allowed: true, unlimited: true };
+    var used = getWordDownloadsUsed();
+    var limit = getWordDownloadLimit();
+    if (used >= limit) {
+      return { allowed: false, reason: 'word_limit', usage: used, limit: limit };
+    }
+    return { allowed: true, usage: used, limit: limit };
+  }
+
+  function assertWordDownloadAllowed() {
+    var check = canPerformWordDownload();
+    if (!check.allowed) {
+      if (check.reason === 'auth') showAuthOverlay();
+      else {
+        showPricingModal('word_download_limit_notice');
+      }
+      var err = new Error(t('word_download_limit_exceeded'));
+      err.code = 'WORD_DOWNLOAD_LIMIT';
+      err.details = check;
+      throw err;
+    }
+    return check;
+  }
+
+  function recordWordDownload() {
+    var tier = normalizeTierId(authState.tier);
+    if (tier !== 'trial') {
+      return Promise.resolve(getWordDownloadsUsed());
+    }
+    return fetchSubscriptionAction('record_word_download').then(function (data) {
+      if (data && data.usage) {
+        applyServerUsage(data.usage);
+        notifyListeners();
+        return data.usage.wordDownloadsUsed;
+      }
+      var used = getWordDownloadsUsed() + 1;
+      authState.wordDownloadsUsed = used;
+      writeWordDownloads(used);
+      notifyListeners();
+      return used;
+    });
+  }
+
   function recordSearch() {
     return fetchSubscriptionAction('record_search').then(function (data) {
       if (data && data.usage) {
@@ -811,8 +900,18 @@
     }
   }
 
-  function showPricingModal() {
+  function showPricingModal(noticeKey) {
     var el = document.getElementById('pricing-modal');
+    var notice = document.getElementById('pricing-modal-notice');
+    if (notice) {
+      if (noticeKey) {
+        notice.textContent = t(noticeKey);
+        notice.classList.remove('hidden');
+      } else {
+        notice.textContent = '';
+        notice.classList.add('hidden');
+      }
+    }
     if (el) {
       renderPricingCards();
       el.classList.remove('hidden');
@@ -822,6 +921,11 @@
 
   function hidePricingModal() {
     var el = document.getElementById('pricing-modal');
+    var notice = document.getElementById('pricing-modal-notice');
+    if (notice) {
+      notice.textContent = '';
+      notice.classList.add('hidden');
+    }
     if (el) {
       el.classList.add('hidden');
       el.setAttribute('aria-hidden', 'true');
@@ -999,6 +1103,13 @@
       var limitText = tier.lifetimeLimit != null
         ? t('tier_searches_lifetime', { count: tier.lifetimeLimit })
         : t('tier_searches_per_month', { count: tier.monthlyLimit });
+      var trialLimitLine = tierId === 'trial' ? '' :
+        '<p class="pricing-tier-limit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> ' + escapeHtml(limitText) + '</p>';
+      var trialFeatures = tierId === 'trial'
+        ? '<li>' + escapeHtml(t('tier_trial_feature_searches')) + '</li>' +
+          '<li>' + escapeHtml(t('tier_trial_feature_downloads')) + '</li>' +
+          '<li>' + escapeHtml(t('tier_trial_feature_archive')) + '</li>'
+        : '';
 
       return (
         '<article class="pricing-tier-card' + (featured ? ' pricing-tier-card--featured' : '') + (isCurrent ? ' pricing-tier-card--current' : '') + '" data-tier="' + tierId + '">' +
@@ -1008,9 +1119,9 @@
           '<p class="pricing-tier-price font-display">' + escapeHtml(price) + '</p>' +
           (altPrice ? '<p class="pricing-tier-alt">' + escapeHtml(altPrice) + '</p>' : '') +
           savings +
-          '<p class="pricing-tier-limit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> ' + escapeHtml(limitText) + '</p>' +
+          trialLimitLine +
           '<ul class="pricing-tier-features">' +
-            (tierId === 'trial' ? '<li>' + escapeHtml(t('tier_trial_feature')) + '</li>' : '') +
+            trialFeatures +
             (tierId === 'standard' ? '<li>' + escapeHtml(t('tier_standard_feature_1')) + '</li><li>' + escapeHtml(t('tier_standard_feature_2')) + '</li>' : '') +
             (tierId === 'pro' ? '<li>' + escapeHtml(t('tier_pro_feature_1')) + '</li><li>' + escapeHtml(t('tier_pro_feature_2')) + '</li>' : '') +
           '</ul>' +
@@ -1302,7 +1413,10 @@
     getState: getPublicState,
     canPerformSearch: canPerformSearch,
     assertSearchAllowed: assertSearchAllowed,
+    canPerformWordDownload: canPerformWordDownload,
+    assertWordDownloadAllowed: assertWordDownloadAllowed,
     recordSearch: recordSearch,
+    recordWordDownload: recordWordDownload,
     wrapResearchCall: wrapResearchCall,
     setTier: setTier,
     signInWithEmail: signInWithEmail,

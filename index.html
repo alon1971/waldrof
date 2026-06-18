@@ -1114,6 +1114,18 @@
     .pricing-header { text-align: center; margin-bottom: 1.5rem; }
     .pricing-header h2 { font-family: 'Frank Ruhl Libre', serif; font-size: 1.5rem; color: #8B3A3A; margin: 0; }
     .pricing-header p { color: rgba(92, 74, 58, 0.7); margin-top: 0.35rem; font-size: 0.9rem; }
+    .pricing-modal-notice {
+      margin: 0 0 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.75rem;
+      background: rgba(139, 58, 58, 0.08);
+      border: 1px solid rgba(139, 58, 58, 0.25);
+      color: #8B3A3A;
+      font-size: 0.88rem;
+      line-height: 1.45;
+      text-align: center;
+    }
+    .pricing-modal-notice.hidden { display: none !important; }
     .billing-toggle {
       display: flex; justify-content: center; gap: 0.5rem; margin-bottom: 1.5rem;
     }
@@ -2224,6 +2236,7 @@
         <h2 id="pricing-title" class="font-display" data-i18n="pricing_title">בחרו את המסלול שלכם</h2>
         <p data-i18n="pricing_subtitle">תמחור שקוף למורים ולצוותים פדגוגיים</p>
       </div>
+      <p id="pricing-modal-notice" class="pricing-modal-notice hidden" role="status" aria-live="polite"></p>
       <div class="billing-toggle" role="group" aria-label="Billing cycle">
         <button type="button" class="billing-toggle-btn billing-toggle-btn--active" data-billing-cycle="monthly" data-i18n="pricing_billing_monthly">חודשי</button>
         <button type="button" class="billing-toggle-btn" data-billing-cycle="yearly" data-i18n="pricing_billing_yearly">שנתי</button>
@@ -2322,7 +2335,7 @@
             <div id="search-usage-meter" class="hidden" title="">
               <span id="search-usage-label" data-i18n="search_usage_label">חיפושים היום</span>
               <div class="search-usage-track" aria-hidden="true"><div id="search-usage-fill" class="search-usage-fill" style="width:0%"></div></div>
-              <span id="search-usage-count">0 / 20</span>
+              <span id="search-usage-count">0 / 10</span>
             </div>
             <span id="user-display-name" class="text-sm text-walnut/80 max-w-[8rem] truncate"></span>
             <span id="user-tier-badge" class="user-tier-badge user-tier-badge--trial"></span>
@@ -2745,7 +2758,7 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20250624"></script>
+  <script src="auth-subscription.js?v=20250625"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="chat-sidebar.js?v=20250624"></script>
@@ -5704,10 +5717,29 @@
       }
     }
 
+    function assertWordDownloadForExport() {
+      if (typeof WaldorfAuth === 'undefined') return;
+      WaldorfAuth.assertWordDownloadAllowed();
+    }
+
+    async function trackWordDownloadAfterExport() {
+      if (typeof WaldorfAuth === 'undefined') return;
+      try {
+        await WaldorfAuth.recordWordDownload();
+      } catch (err) {
+        console.warn('[word-download] track failed', err);
+      }
+    }
+
     async function handleArchiveLectureExportClick(sourceId) {
       const targetId = sourceId || resolveArchiveLectureExportTarget();
       if (!targetId) {
         alert('לא נמצאו תוצאות בארכיון לייצוא. חפשו הרצאה תחילה.');
+        return;
+      }
+      try {
+        assertWordDownloadForExport();
+      } catch (err) {
         return;
       }
       appState.archiveActiveExportId = targetId;
@@ -5736,7 +5768,9 @@
         a.click();
         document.body.removeChild(a);
         setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+        await trackWordDownloadAfterExport();
       } catch (err) {
+        if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
         console.error('Lecture DOC export failed:', err);
         alert(t('export_doc_error') + ': ' + (err.message || String(err)));
       } finally {
@@ -5758,6 +5792,11 @@
     async function downloadPedagogySummaryDocx() {
       if (!appState.grade) {
         alert(t('export_doc_need_grade'));
+        return;
+      }
+      try {
+        assertWordDownloadForExport();
+      } catch (err) {
         return;
       }
       const btns = document.querySelectorAll('[data-pedagogy-export]');
@@ -5787,7 +5826,9 @@
         a.click();
         document.body.removeChild(a);
         setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+        await trackWordDownloadAfterExport();
       } catch (err) {
+        if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
         console.error('DOCX export failed:', err);
         alert(t('export_doc_error') + ': ' + (err.message || String(err)));
       } finally {
