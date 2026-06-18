@@ -411,6 +411,15 @@
       from { opacity: 0; }
       to { opacity: 1; }
     }
+    #topic-input.topic-input--highlight {
+      animation: topicInputFlash 0.55s ease-in-out 3;
+      border-color: #C9A962 !important;
+    }
+    @keyframes topicInputFlash {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(201, 169, 98, 0.35); }
+      50% { box-shadow: 0 0 0 7px rgba(201, 169, 98, 0.55); }
+    }
+    .lesson-chat-bubble-body--pre { white-space: pre-line; }
     .day-row:hover { background: rgba(122,155,118,.08); }
     .pin-card {
       cursor: pointer;
@@ -7477,6 +7486,23 @@
       };
     }
 
+    function focusStepBTopicInput() {
+      ensureStepBWizardView();
+      const topicInput = document.getElementById('topic-input');
+      if (!topicInput) return;
+      requestAnimationFrame(function () {
+        topicInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        topicInput.focus({ preventScroll: true });
+        topicInput.select();
+        topicInput.classList.remove('topic-input--highlight');
+        void topicInput.offsetWidth;
+        topicInput.classList.add('topic-input--highlight');
+        setTimeout(function () {
+          topicInput.classList.remove('topic-input--highlight');
+        }, 2200);
+      });
+    }
+
     function presentArchivePartialMatch(topic, archiveMatch) {
       const match = normalizeArchiveSuggestionMatch(archiveMatch);
       if (!match || !match.cacheKey || !match.suggestedTopic) return false;
@@ -7512,7 +7538,16 @@
           },
           onReject: function () {
             appState.archiveSuggestionPending = false;
-            generateLesson({ skipArchiveProbe: true, confirmArchiveBypass: true });
+            setTopicResearchLoadingUi(false);
+            const rejectBtn = document.getElementById('btn-topic-research');
+            if (rejectBtn) {
+              rejectBtn.disabled = false;
+              updateTopicResearchButton();
+            }
+            topicResearchAbort = null;
+            LessonChatSidebar.showArchiveRefineHint({
+              onAfterShow: focusStepBTopicInput,
+            });
           },
         });
       }

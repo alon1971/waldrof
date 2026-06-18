@@ -223,7 +223,8 @@
     } else if (msg.role === 'assistant' && msg.html) {
       body = '<div class="lesson-chat-bubble-body prose-ai">' + msg.html + '</div>';
     } else {
-      body = '<div class="lesson-chat-bubble-body">' + deps.escapeHtml(msg.text) + '</div>';
+      var preClass = msg.preserveLineBreaks ? ' lesson-chat-bubble-body--pre' : '';
+      body = '<div class="lesson-chat-bubble-body' + preClass + '">' + deps.escapeHtml(msg.text) + '</div>';
     }
     return '<div class="lesson-chat-bubble ' + roleClass + '"' +
       (msg.archiveSuggestId ? ' data-archive-suggest-id="' + deps.escapeHtml(msg.archiveSuggestId) + '"' : '') +
@@ -294,12 +295,18 @@
     }
   }
 
-  function showArchiveRefineHint() {
+  function showArchiveRefineHint(options) {
+    options = options || {};
     state.messages.push({
       role: 'assistant',
       text: deps.t('archive_suggest_refine'),
+      preserveLineBreaks: true,
     });
     renderMessages();
+    if (typeof options.onAfterShow === 'function') {
+      options.onAfterShow();
+      return;
+    }
     var input = document.getElementById('lesson-chat-input');
     var fsInput = document.getElementById('lesson-chat-fullscreen-input');
     var activeInput = (state.displayMode === 'fullscreen' && fsInput) ? fsInput : input;
