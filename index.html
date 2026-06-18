@@ -44,6 +44,12 @@
       --app-subhead-size: 18px;
       --app-page-title-size: 20px;
       --app-brand-title-size: 24px;
+      --app-content-size: 1.125rem;
+      --app-content-line: 1.6;
+      --app-content-h3-size: 1.375rem;
+      --app-content-h4-size: 1.25rem;
+      --app-content-h5-size: 1.1875rem;
+      --app-content-h6-size: 1.125rem;
     }
     @media (min-width: 640px) {
       :root { --app-brand-title-size: 26px; }
@@ -155,6 +161,79 @@
       padding: 0;
     }
     body.app-typography .prose-ai li { margin-bottom: 0.35rem; }
+    /* Workspace tabs — larger readable pedagogical body text (not site header/chrome) */
+    #workspace .product-tab-panel {
+      font-size: var(--app-content-size);
+      line-height: var(--app-content-line);
+      --app-body-size: var(--app-content-size);
+      --app-body-line: var(--app-content-line);
+      --app-subhead-size: var(--app-content-h3-size);
+    }
+    #workspace .product-tab-panel p,
+    #workspace .product-tab-panel li,
+    #workspace .product-tab-panel td,
+    #workspace .product-tab-panel th,
+    #workspace .product-tab-panel dd,
+    #workspace .product-tab-panel dt,
+    #workspace .product-tab-panel .prose-ai,
+    #workspace .product-tab-panel .prose-ai p,
+    #workspace .product-tab-panel .prose-ai li,
+    #workspace .product-tab-panel .prose-ai td,
+    #workspace .product-tab-panel .prose-ai th,
+    #workspace .product-tab-panel .prose-ai blockquote,
+    #workspace .product-tab-panel .prose-ai strong,
+    #workspace .product-tab-panel .theory-bibliography-card,
+    #workspace .product-tab-panel .theory-bibliography-card p,
+    #workspace .product-tab-panel .theory-bibliography-card li,
+    #workspace .product-tab-panel .theory-bib-list,
+    #workspace .product-tab-panel .theory-bib-source-text,
+    #workspace .product-tab-panel .pedagogy-suggestion-card,
+    #workspace .product-tab-panel .pedagogy-suggestion-label,
+    #workspace .product-tab-panel .inline-expand-panel,
+    #workspace .product-tab-panel .inline-expand-inner,
+    #workspace .product-tab-panel .inline-expand-inner p,
+    #workspace .product-tab-panel .inline-expand-inner li,
+    #workspace .product-tab-panel .inline-expand-inner ol,
+    #workspace .product-tab-panel .inline-expand-inner ul,
+    #workspace .product-tab-panel .curriculum-card-detail p,
+    #workspace .product-tab-panel .curriculum-card-detail li {
+      font-size: var(--app-content-size) !important;
+      line-height: var(--app-content-line) !important;
+    }
+    #workspace .product-tab-panel h3,
+    #workspace .product-tab-panel h3.app-subhead,
+    #workspace .product-tab-panel .prose-ai h1,
+    #workspace .product-tab-panel .prose-ai h2,
+    #workspace .product-tab-panel .prose-ai h3,
+    #workspace .product-tab-panel .theory-bib-main-title,
+    #workspace .product-tab-panel .theory-bib-category-title {
+      font-size: var(--app-content-h3-size) !important;
+      line-height: 1.45 !important;
+    }
+    #workspace .product-tab-panel h4,
+    #workspace .product-tab-panel h4.app-subhead,
+    #workspace .product-tab-panel .prose-ai h4 {
+      font-size: var(--app-content-h4-size) !important;
+      line-height: 1.45 !important;
+    }
+    #workspace .product-tab-panel h5,
+    #workspace .product-tab-panel h5.app-subhead,
+    #workspace .product-tab-panel .prose-ai h5 {
+      font-size: var(--app-content-h5-size) !important;
+      line-height: 1.45 !important;
+    }
+    #workspace .product-tab-panel h6,
+    #workspace .product-tab-panel h6.app-subhead,
+    #workspace .product-tab-panel .prose-ai h6 {
+      font-size: var(--app-content-h6-size) !important;
+      line-height: 1.45 !important;
+      font-weight: 600;
+    }
+    #workspace .product-tab-panel .app-micro,
+    #workspace .product-tab-panel .text-xs {
+      font-size: 0.8125rem !important;
+      line-height: 1.4 !important;
+    }
     .waldorf-pattern {
       background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23C9A962' fill-opacity='0.08'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E");
     }
