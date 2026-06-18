@@ -27,7 +27,6 @@ const searchHistoryApi = require('./api/search-history');
 const subscriptionApi = require('./api/subscription');
 const configApi = require('./api/config');
 const knowledgeSeed = require('./api/knowledge-seed');
-const env = require('./api/env');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
   console.error('api/generate.js must export handleGeneratePost for Render Node hosting.');
