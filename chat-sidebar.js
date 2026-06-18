@@ -20,6 +20,17 @@
   var CHAT_GREETING_FALLBACK_HE = 'שלום! ברוכים הבאים למתכנן הפדגוגי.';
   var chatInitialized = false;
   var BODY_MODE_CLASSES = ['lesson-chat-mode-bubble', 'lesson-chat-mode-panel', 'lesson-chat-mode-fullscreen'];
+  var MOBILE_CHAT_MQ = typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(max-width: 767px)')
+    : null;
+
+  function isMobileViewport() {
+    return MOBILE_CHAT_MQ ? MOBILE_CHAT_MQ.matches : false;
+  }
+
+  function openChatModeForViewport() {
+    return isMobileViewport() ? 'fullscreen' : 'panel';
+  }
 
   var deps = {
     t: function (k, vars) {
@@ -618,6 +629,7 @@
     var closeBtn = document.getElementById('lesson-chat-close');
     var expandBtn = document.getElementById('lesson-chat-expand');
     var collapseBtn = document.getElementById('lesson-chat-collapse');
+    var mobileCloseBtn = document.getElementById('lesson-chat-fullscreen-mobile-close');
     var historyBtn = document.getElementById('lesson-chat-history-btn');
     var fsHistoryBtn = document.getElementById('lesson-chat-fullscreen-history-btn');
     var historyClose = document.getElementById('lesson-chat-history-close');
@@ -629,10 +641,11 @@
     var fsSendBtn = document.getElementById('lesson-chat-fullscreen-send');
     var fsInput = document.getElementById('lesson-chat-fullscreen-input');
 
-    if (fab) fab.addEventListener('click', function () { setDisplayMode('panel'); });
+    if (fab) fab.addEventListener('click', function () { setDisplayMode(openChatModeForViewport()); });
     if (closeBtn) closeBtn.addEventListener('click', function () { closeHistory(); setDisplayMode('bubble'); });
     if (expandBtn) expandBtn.addEventListener('click', function () { setDisplayMode('fullscreen'); });
     if (collapseBtn) collapseBtn.addEventListener('click', function () { setDisplayMode('panel'); });
+    if (mobileCloseBtn) mobileCloseBtn.addEventListener('click', function () { closeHistory(); setDisplayMode('bubble'); });
     if (historyBtn) historyBtn.addEventListener('click', function () {
       if (state.historyOpen) closeHistory();
       else openHistory();
@@ -680,6 +693,20 @@
     }
 
     setDisplayMode('bubble');
+
+    if (MOBILE_CHAT_MQ && typeof MOBILE_CHAT_MQ.addEventListener === 'function') {
+      MOBILE_CHAT_MQ.addEventListener('change', function () {
+        if (isMobileViewport() && state.displayMode === 'panel') {
+          setDisplayMode('fullscreen');
+        }
+      });
+    } else if (MOBILE_CHAT_MQ && typeof MOBILE_CHAT_MQ.addListener === 'function') {
+      MOBILE_CHAT_MQ.addListener(function () {
+        if (isMobileViewport() && state.displayMode === 'panel') {
+          setDisplayMode('fullscreen');
+        }
+      });
+    }
   }
 
   function restoreSession(options) {
@@ -689,7 +716,7 @@
     state.sessionKey = options.sessionKey || '';
     state.ragContext = options.ragContext || '';
     state.ragChunkIds = Array.isArray(options.ragChunkIds) ? options.ragChunkIds.slice() : [];
-    setDisplayMode('panel');
+    setDisplayMode(openChatModeForViewport());
     renderMessages();
   }
 
@@ -742,7 +769,7 @@
     syncExportBar: syncExportBarVisibility,
     setDisplayMode: setDisplayMode,
     openForLesson: function (resetChat) {
-      setDisplayMode('panel');
+      setDisplayMode(openChatModeForViewport());
       if (resetChat) {
         var app = deps.getAppState() || {};
         state.sessionKey = sessionKeyFromApp(app);

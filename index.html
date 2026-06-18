@@ -1227,7 +1227,19 @@
     @media (max-width: 640px) {
       :root {
         --lesson-chat-panel-width: min(300px, 82vw);
-        --lesson-chat-layout-inset: min(300px, 82vw);
+        --lesson-chat-layout-inset: 0;
+      }
+    }
+    @media (max-width: 767px) {
+      body.lesson-chat-mode-panel header,
+      body.lesson-chat-mode-panel #cloud-status,
+      body.lesson-chat-mode-panel .app-top-nav,
+      body.lesson-chat-mode-panel #app-shell,
+      body.lesson-chat-mode-panel > footer {
+        padding-left: 0 !important;
+      }
+      body.lesson-chat-mode-panel .lesson-chat-sidebar {
+        display: none !important;
       }
     }
 
@@ -1294,20 +1306,67 @@
     }
     .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
     .lesson-chat-fab-label { display: block; pointer-events: none; }
-    @media (max-width: 480px) {
+    .lesson-chat-fab-icon {
+      display: none;
+      font-size: 1.25rem;
+      line-height: 1;
+      pointer-events: none;
+    }
+    @media (max-width: 767px) {
       .lesson-chat-fab-wrap {
-        bottom: 9rem;
-        left: 1.5rem;
+        bottom: 1rem;
+        left: 1rem;
         transform: none;
       }
       .lesson-chat-fab {
-        min-width: 13.5rem;
-        min-height: 3.5rem;
-        padding: 0.65rem 1.75rem;
-        font-size: 1rem !important;
-        white-space: normal;
-        max-width: min(20rem, calc(100vw - 2rem));
+        width: 3rem;
+        height: 3rem;
+        min-width: 0;
+        min-height: 0;
+        padding: 0;
+        border-radius: 9999px;
       }
+      .lesson-chat-fab-label { display: none !important; }
+      .lesson-chat-fab-icon { display: block; }
+
+      .lesson-chat-fullscreen {
+        padding: 0;
+        z-index: 50;
+        align-items: stretch;
+        justify-content: stretch;
+      }
+      .lesson-chat-fullscreen-backdrop { display: none; }
+      .lesson-chat-fullscreen-dialog {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+      }
+      .lesson-chat-fullscreen-header {
+        padding: 0.85rem 1rem;
+      }
+      #lesson-chat-collapse { display: none !important; }
+      .lesson-chat-mobile-close {
+        display: inline-flex !important;
+        width: 2.75rem;
+        height: 2.75rem;
+        font-size: 1.15rem !important;
+        border-color: rgba(139, 58, 58, 0.35);
+        color: #8B3A3A;
+        background: rgba(255, 255, 255, 0.95);
+      }
+      .lesson-chat-fullscreen-body {
+        padding: 1rem;
+      }
+      .lesson-chat-fullscreen-footer {
+        padding: 0.65rem 0.75rem;
+      }
+    }
+    @media (min-width: 768px) {
+      .lesson-chat-fab-icon { display: none !important; }
+      .lesson-chat-mobile-close { display: none !important; }
     }
 
     .lesson-chat-sidebar {
@@ -1967,6 +2026,23 @@
     }
     .search-history-table-empty--err { color: #8B3A3A; }
 
+    @media (max-width: 767px) {
+      .search-history-overlay {
+        padding: 0.5rem 0.5rem 1.25rem;
+      }
+      .search-history-view {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 1rem;
+      }
+      .search-history-view-header {
+        padding: 1rem;
+      }
+      .search-history-table-wrap {
+        padding: 0.35rem 0.5rem 1rem;
+      }
+    }
+
     @media (max-width: 720px) {
       .search-history-table thead { display: none; }
       .search-history-table tbody tr {
@@ -2171,11 +2247,11 @@
   </div>
 
   <!-- ========== WIZARD ========== -->
-  <div id="wizard" class="max-w-6xl mx-auto px-4 pb-12">
+  <div id="wizard" class="max-w-6xl mx-auto px-3 sm:px-4 pb-12 w-full box-border">
 
     <!-- STEP 1 -->
     <section id="step-1" class="wizard-step">
-      <div class="bg-white/85 rounded-2xl border border-gold/30 p-6 sm:p-8 shadow-sm max-w-xl mx-auto text-center">
+      <div class="bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full max-w-xl mx-auto text-center box-border">
         <span class="inline-block bg-sage/15 text-sage-dark text-xs font-bold px-3 py-1 rounded-full mb-4" data-i18n="step_a_badge">שלב א׳</span>
         <h2 class="app-page-title font-display font-bold text-burgundy mb-2" data-i18n="step1_title">בחירת כיתה מבוקשת</h2>
         <p class="text-sm text-walnut/70 mb-6" data-i18n="step1_desc">בחרו את שכבת הגיל — לאחר מכן יוצג מיד תמונת הגיל והחומרים השיתופיים לכיתה זו.</p>
@@ -2190,7 +2266,7 @@
       </div>
 
       <div id="grade-insights-panel" class="hidden mt-8">
-        <div class="bg-white/80 rounded-2xl border border-sage/30 p-6 shadow-sm">
+        <div class="bg-white/80 rounded-2xl border border-sage/30 p-4 sm:p-6 shadow-sm w-full box-border">
           <h3 class="app-subhead font-display font-bold text-burgundy mb-1 flex items-center gap-2">
             <i class="fa-solid fa-globe text-sage"></i>
             <span id="grade-insights-title" data-i18n="grade_insights_default">תמונת גיל — מאגר עולמי</span>
@@ -2211,7 +2287,7 @@
           <div id="grade-insights-body" class="space-y-4 leading-relaxed"></div>
         </div>
 
-        <div class="mt-6 bg-white/80 rounded-2xl border border-gold/30 p-6 shadow-sm">
+        <div class="mt-6 bg-white/80 rounded-2xl border border-gold/30 p-4 sm:p-6 shadow-sm w-full box-border">
           <h3 class="app-subhead font-display font-bold text-walnut mb-3">
             <i class="fa-solid fa-seedling text-sage icon-inline"></i>
             <span data-i18n="community_materials_title">העשרה פדגוגית וחומרים מהקהילה</span>
@@ -2231,7 +2307,7 @@
 
     <!-- STEP 2 -->
     <section id="step-2" class="wizard-step hidden">
-      <div id="step-b-container" class="bg-white/85 rounded-2xl border border-gold/30 p-6 sm:p-8 shadow-sm max-w-2xl mx-auto">
+      <div id="step-b-container" class="bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full max-w-2xl mx-auto box-border">
         <span class="inline-block bg-terracotta/15 text-terracotta text-xs font-bold px-3 py-1 rounded-full mb-4" data-i18n="step_b_badge">שלב ב׳</span>
         <h2 class="app-page-title font-display font-bold text-burgundy mb-2" data-i18n="step2_title">מה הנושא המבוקש לתקופת הלימוד?</h2>
         <p class="text-sm text-walnut/70 mb-4">
@@ -2269,8 +2345,8 @@
 
   <!-- ========== WORKSPACE (שלב ג׳ + רובריקות עצמאיות) ========== -->
   <div id="workspace" class="hidden">
-    <div class="max-w-6xl mx-auto px-4 mb-4">
-      <div class="bg-white/80 rounded-2xl border border-gold/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+    <div class="max-w-6xl mx-auto px-3 sm:px-4 mb-4 w-full box-border">
+      <div class="bg-white/80 rounded-2xl border border-gold/40 px-3 py-2.5 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-3 text-sm w-full box-border">
         <nav id="ws-breadcrumb" class="flex flex-wrap items-center gap-1.5 leading-relaxed" data-i18n-aria="breadcrumb_aria">
           <button type="button" id="ws-crumb-grade" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_grade">כיתה</button>
           <span class="text-walnut/45 ws-crumb-sep" aria-hidden="true">←</span>
@@ -2314,10 +2390,10 @@
     </nav>
     <div id="workspace-products-nav-spacer" class="product-tabs-nav-spacer hidden" aria-hidden="true"></div>
 
-    <div class="workspace-layout max-w-7xl mx-auto px-4">
-    <main class="workspace-main py-8 pb-16">
+    <div class="workspace-layout max-w-7xl mx-auto px-3 sm:px-4 w-full box-border">
+    <main class="workspace-main py-6 sm:py-8 pb-16 w-full box-border">
       <section id="panel-catalog" class="tab-panel hidden">
-        <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-5 sm:p-8 shadow-sm">
+        <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
           <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
             <i class="fa-solid fa-users-rays text-gold"></i>
             <span data-i18n="catalog_title">מאגר קהילתי</span>
@@ -2340,7 +2416,7 @@
         <div id="teacher-drive-inspiration-slot" class="hidden mb-6"></div>
         <div id="inspiration-content"></div>
 
-        <div class="mt-8 bg-white/85 rounded-2xl border border-burgundy/20 p-6 shadow-sm">
+        <div class="mt-8 bg-white/85 rounded-2xl border border-burgundy/20 p-4 sm:p-6 shadow-sm w-full box-border">
           <h3 class="app-subhead font-display font-bold text-burgundy mb-2">
             <i class="fa-brands fa-pinterest text-terracotta icon-inline"></i>
             <span data-i18n="pinterest_title">השראה חזותית ומחברות תקופה</span>
@@ -2385,7 +2461,7 @@
       </div>
 
       <section id="panel-archive" class="tab-panel hidden">
-        <div class="bg-white/90 rounded-2xl border border-burgundy/25 p-5 sm:p-8 shadow-sm">
+        <div class="bg-white/90 rounded-2xl border border-burgundy/25 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
           <h2 class="app-page-title font-display font-bold text-burgundy mb-2 flex items-center gap-2">
             <i class="fa-solid fa-book-bookmark text-gold"></i>
             <span data-i18n="archive_title">ארכיון ידע אנתרופוסופי</span>
@@ -2465,6 +2541,7 @@
 
   <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
     <button type="button" id="lesson-chat-fab" class="lesson-chat-fab" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
+      <i class="lesson-chat-fab-icon fa-solid fa-comments" aria-hidden="true"></i>
       <span class="lesson-chat-fab-label" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
     </button>
   </div>
@@ -2475,6 +2552,9 @@
       <header class="lesson-chat-fullscreen-header">
         <h3 data-i18n="chat_fullscreen_title">תשובת העוזר הפדגוגי</h3>
         <div class="lesson-chat-fullscreen-header-actions">
+          <button type="button" id="lesson-chat-fullscreen-mobile-close" class="lesson-chat-icon-btn lesson-chat-mobile-close" data-i18n-aria="chat_close_to_bubble" title="סגור" aria-label="סגור צ'אט">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
           <button type="button" id="lesson-chat-fullscreen-history-btn" class="lesson-chat-icon-btn" data-i18n-aria="chat_history_btn" title="היסטוריית שאילתות">
             <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
           </button>
@@ -2524,7 +2604,7 @@
   <script src="auth-subscription.js?v=20250617b"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250621"></script>
+  <script src="chat-sidebar.js?v=20250622"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
