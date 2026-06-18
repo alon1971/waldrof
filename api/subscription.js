@@ -2,6 +2,7 @@
  * POST /api/subscription — tier limits, usage tracking, auto_renew.
  */
 const env = require('./env');
+const cacheDb = require('./cache');
 
 const TABLE = 'user_subscriptions';
 
@@ -55,7 +56,41 @@ function setCors(res) {
 function sendJson(res, statusCode, payload) {
   setCors(res);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  return res.status(statusCode).json(payload);
+  return res.status(statusCode).send(cacheDb.safeJsonStringify(payload));
+}
+
+function pickDefinedFields(obj) {
+  const out = {};
+  Object.keys(obj || {}).forEach(function (key) {
+    if (obj[key] !== undefined) out[key] = obj[key];
+  });
+  return out;
+}
+
+/** Read Supabase REST bodies safely — never call res.json() on empty/non-JSON responses. */
+async function readSupabaseResponse(res, label) {
+  const text = await res.text();
+  if (!res.ok) {
+    const detail = (text || '').trim();
+    let message = detail || (label || 'Supabase') + ' request failed';
+    if (detail) {
+      try {
+        const parsed = JSON.parse(detail);
+        if (parsed && parsed.message) message = String(parsed.message);
+      } catch (e) { /* keep raw detail */ }
+    }
+    throw new Error(message);
+  }
+  const trimmed = (text || '').trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch (parseErr) {
+    const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    throw new Error(
+      (label || 'Supabase') + ' returned invalid JSON (' + msg + '): ' + trimmed.slice(0, 160)
+    );
+  }
 }
 
 function parseRequestBody(req) {
@@ -97,7 +132,13 @@ async function verifySupabaseToken(token) {
     headers: { Authorization: 'Bearer ' + token, apikey: apiKey },
   });
   if (!res.ok) return null;
-  const user = await res.json();
+  let user;
+  try {
+    const text = await res.text();
+    user = text && text.trim() ? JSON.parse(text) : null;
+  } catch (e) {
+    return null;
+  }
   if (!user || !user.id) return null;
   const meta = user.user_metadata || {};
   const tier = normalizeTier(meta.tier || meta.subscription_tier || 'trial');
@@ -181,11 +222,7 @@ async function fetchSubscriptionRow(userId) {
   params.set('limit', '1');
 
   const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), { method: 'GET' });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || 'subscription read failed');
-  }
-  const rows = await res.json();
+  const rows = await readSupabaseResponse(res, 'subscription read');
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
@@ -227,18 +264,14 @@ async function insertSubscriptionRow(user, patch) {
     body: JSON.stringify(row),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || 'subscription insert failed');
-  }
-  const rows = await res.json();
+  const rows = await readSupabaseResponse(res, 'subscription insert');
   return Array.isArray(rows) && rows.length ? rows[0] : row;
 }
 
-async function updateSubscriptionRow(userId, patch, existing) {
+async function updateSubscriptionRow(userId, patch, existing, user) {
   const params = new URLSearchParams();
   params.set('user_id', 'eq.' + userId);
-  const body = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+  const body = pickDefinedFields(Object.assign({}, patch, { updated_at: new Date().toISOString() }));
   delete body.user_id;
   delete body.created_at;
 
@@ -248,20 +281,16 @@ async function updateSubscriptionRow(userId, patch, existing) {
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || 'subscription update failed');
-  }
-  const rows = await res.json();
+  const rows = await readSupabaseResponse(res, 'subscription update');
   if (Array.isArray(rows) && rows.length) return rows[0];
-  return subscriptionRowFromPatch({ id: userId }, patch, existing);
+  const baseUser = user || { id: userId, email: existing && existing.user_email };
+  return subscriptionRowFromPatch(baseUser, patch, existing);
 }
 
 async function upsertSubscriptionRow(user, patch) {
   const existing = await fetchSubscriptionRow(user.id);
-  const merged = subscriptionRowFromPatch(user, patch, existing);
   if (existing) {
-    return updateSubscriptionRow(user.id, merged, existing);
+    return updateSubscriptionRow(user.id, patch, existing, user);
   }
   return insertSubscriptionRow(user, patch);
 }
@@ -321,7 +350,7 @@ async function recordSearch(user) {
       : 1;
   }
 
-  const updated = await updateSubscriptionRow(user.id, patch, row);
+  const updated = await updateSubscriptionRow(user.id, patch, row, user);
   return { ok: true, action: 'record_search', usage: buildUsagePayload(updated) };
 }
 
@@ -349,7 +378,7 @@ async function recordWordDownload(user) {
 
   const updated = await updateSubscriptionRow(user.id, {
     word_downloads_count: (Number(row.word_downloads_count) || 0) + 1,
-  }, row);
+  }, row, user);
   return {
     ok: true,
     action: 'record_word_download',
@@ -364,7 +393,7 @@ async function cancelRenewal(user) {
     err.statusCode = 400;
     throw err;
   }
-  const updated = await updateSubscriptionRow(user.id, { auto_renew: false }, row);
+  const updated = await updateSubscriptionRow(user.id, { auto_renew: false }, row, user);
   return {
     ok: true,
     action: 'cancel_renewal',

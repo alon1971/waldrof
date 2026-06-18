@@ -86,7 +86,7 @@ function createApiResponse(nativeRes) {
     json: function (payload) {
       state.headers['Content-Type'] = 'application/json; charset=utf-8';
       nativeRes.writeHead(state.statusCode, state.headers);
-      nativeRes.end(JSON.stringify(payload));
+      nativeRes.end(cacheDb.safeJsonStringify(payload));
     },
     end: function () {
       nativeRes.writeHead(state.statusCode, state.headers);

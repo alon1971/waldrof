@@ -161,7 +161,7 @@
     /* שלב ג׳ — שלושת טאבי התוצרים ככפתורי כרטיס אופקיים */
     .product-tabs-nav {
       position: sticky;
-      top: calc(var(--app-sticky-nav-height, 4rem) + env(safe-area-inset-top, 0px));
+      top: var(--app-sticky-nav-height, 11rem);
       z-index: 50;
       background: linear-gradient(180deg, rgba(237, 244, 248, 0.98), rgba(232, 240, 230, 0.96));
       backdrop-filter: blur(10px);
@@ -175,7 +175,7 @@
       left: 0;
       right: 0;
       width: 100%;
-      top: calc(var(--app-sticky-nav-height, 4rem) + env(safe-area-inset-top, 0px));
+      top: var(--app-sticky-nav-height, 11rem);
       z-index: 50;
     }
     body.lesson-chat-mode-panel.ws-products-view #workspace-products-nav:not(.hidden) {
@@ -930,7 +930,7 @@
     /* ── Auth, pricing & subscription UI ─────────────────────────────────── */
     body.auth-locked #wizard,
     body.auth-locked #workspace,
-    body.auth-locked .app-top-nav,
+    body.auth-locked .app-site-chrome,
     body.auth-locked #new-research-bar,
     body.auth-locked #app-shell,
     body.auth-locked #lesson-chat-sidebar,
@@ -938,7 +938,6 @@
     body.auth-locked #lesson-chat-fab,
     body.auth-locked #lesson-chat-fullscreen,
     body.auth-locked footer { pointer-events: none; user-select: none; opacity: 0.35; filter: blur(1px); }
-    body.auth-locked header { opacity: 0.5; }
     #auth-overlay {
       position: fixed; inset: 0; z-index: 100;
       display: flex; align-items: flex-start; justify-content: center;
@@ -1238,9 +1237,29 @@
 
     /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
-      --app-sticky-nav-height: 4rem;
+      --app-site-chrome-height: 11rem;
+      --app-sticky-nav-height: var(--app-site-chrome-height);
       --lesson-chat-panel-width: 360px;
       --lesson-chat-layout-inset: 360px;
+    }
+    .app-site-chrome {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+      z-index: 60;
+      padding-top: env(safe-area-inset-top, 0px);
+      box-sizing: border-box;
+      background: linear-gradient(180deg, rgba(247, 243, 235, 0.99) 0%, rgba(250, 248, 244, 0.98) 100%);
+      box-shadow: 0 4px 16px rgba(92, 74, 58, 0.1);
+    }
+    .app-site-chrome-spacer {
+      display: block;
+      width: 100%;
+      height: var(--app-site-chrome-height, 11rem);
+      pointer-events: none;
+      flex-shrink: 0;
     }
     .app-shell {
       display: block;
@@ -1261,9 +1280,7 @@
     #workspace {
       overflow: visible;
     }
-    body.lesson-chat-mode-panel header,
-    body.lesson-chat-mode-panel #cloud-status,
-    body.lesson-chat-mode-panel .app-top-nav,
+    body.lesson-chat-mode-panel .app-site-chrome,
     body.lesson-chat-mode-panel #app-shell,
     body.lesson-chat-mode-panel > footer {
       padding-left: var(--lesson-chat-layout-inset);
@@ -1283,9 +1300,7 @@
       }
     }
     @media (max-width: 767px) {
-      body.lesson-chat-mode-panel header,
-      body.lesson-chat-mode-panel #cloud-status,
-      body.lesson-chat-mode-panel .app-top-nav,
+      body.lesson-chat-mode-panel .app-site-chrome,
       body.lesson-chat-mode-panel #app-shell,
       body.lesson-chat-mode-panel > footer {
         padding-left: 0 !important;
@@ -3777,7 +3792,11 @@
         if (json.meta && json.meta.usage) {
           WaldorfAuth.applyUsageFromServer(json.meta.usage);
         } else {
-          await WaldorfAuth.recordSearch();
+          try {
+            await WaldorfAuth.recordSearch();
+          } catch (usageErr) {
+            console.warn('[usage] recordSearch failed after generate:', usageErr && usageErr.message ? usageErr.message : usageErr);
+          }
         }
       }
       return result;
@@ -6449,7 +6468,14 @@
       }
       try {
         const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
-        const json = await res.json();
+        const bodyText = await res.text();
+        let json;
+        try {
+          json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
+        } catch (parseErr) {
+          console.warn('[archive-probe] non-JSON response:', parseErr && parseErr.message ? parseErr.message : parseErr);
+          return probeArchiveTopicMatchLocal(topic, gradeId);
+        }
         if (res.ok && !json.error) {
           const data = json.data || json;
           if (data && data.match) return data.match;
@@ -6476,7 +6502,13 @@
         if (contributor) body.teacherUser = contributor;
       }
       const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
-      const json = await res.json();
+      const bodyText = await res.text();
+      let json;
+      try {
+        json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
+      } catch (parseErr) {
+        throw new Error(parseErr && parseErr.message ? parseErr.message : t('search_history_error'));
+      }
       if (!res.ok || json.error) throw new Error(json.error || t('search_history_error'));
       const data = json.data || json;
       return data && data.item ? data.item : null;

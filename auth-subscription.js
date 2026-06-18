@@ -352,7 +352,14 @@
         headers: headers,
         body: JSON.stringify(body),
       }).then(function (res) {
-        return res.json().then(function (json) {
+        return res.text().then(function (bodyText) {
+          var json;
+          try {
+            json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
+          } catch (parseErr) {
+            var parseMsg = parseErr && parseErr.message ? parseErr.message : 'subscription response invalid';
+            throw new Error(parseMsg);
+          }
           if (!res.ok) {
             var err = new Error((json && json.error) || 'subscription error');
             err.code = json && json.code;
