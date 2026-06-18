@@ -373,6 +373,17 @@
     .step-pill { font-family: inherit; line-height: inherit; }
     .step-pill.done { background: #7A9B76; color: #fff; }
     .step-pill.active { background: #8B3A3A; color: #fff; box-shadow: 0 0 0 2px #C9A962; }
+    #step-progress .step-pill:hover:not(:disabled):not(.done):not(.active) {
+      background: rgba(255, 255, 255, 0.92);
+    }
+    #step-progress .step-pill.done:hover:not(:disabled) {
+      background: #5C7D58;
+      color: #fff;
+    }
+    #step-progress .step-pill.active:hover:not(:disabled) {
+      background: #6E2E2E;
+      color: #fff;
+    }
     .step-pill.step-pill-community {
       opacity: 1 !important;
       border-color: rgba(139, 58, 58, 0.45);
@@ -7517,7 +7528,7 @@
           (n === 2 && Boolean(appState.grade && appState.topic) && (appState.step > 2 || inWs))
         );
         let cls = 'step-pill touch-btn inline-flex items-center justify-center px-4 py-2.5 sm:px-3 sm:py-1.5 rounded-full border border-gold/30 bg-white/60 text-sm sm:text-xs ';
-        if (enabled) cls += 'cursor-pointer hover:bg-white/90 ';
+        if (enabled) cls += 'cursor-pointer ';
         else cls += 'opacity-50 cursor-not-allowed ';
         if (isActive) cls += ' active font-bold';
         else if (isDone) cls += ' done';
