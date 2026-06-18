@@ -23,7 +23,6 @@ const {
   parseJsonLenient,
   parseJsonFromModel,
   unwrapParsedModelPayload,
-  isJsonSyntaxError,
 } = jsonRepair;
 
 (function loadDotEnv() {
@@ -823,6 +822,97 @@ function validatePhaseResult(phase, data) {
   return true;
 }
 
+const MODEL_PARSE_MAX_ATTEMPTS = 2;
+const JSON_RETRY_SYSTEM_SUFFIX =
+  ' CRITICAL RETRY: Your previous reply was rejected — invalid JSON or missing required fields. ' +
+  'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
+  'No ```json fences, no Hebrew/English preamble, no trailing commas.';
+const GENERIC_GENERATION_ERROR = 'לא הצלחנו ליצור את התוכן הפדגוגי. נסו שוב בעוד רגע.';
+
+function isRetriablePerplexityCallError(err) {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return !/API key|unauthorized|PERPLEXITY_API_KEY|not configured|Method not allowed/i.test(msg);
+}
+
+/**
+ * Fetch from Perplexity, parse model JSON, and validate phase shape.
+ * On parse/validation failure, silently retries once with a stricter JSON system prompt
+ * while the client request stays open (spinner remains active).
+ */
+async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup) {
+  const phase = body.phase;
+  const baseOpts = perplexityOptions || {};
+  let lastPreview = '';
+
+  for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
+    const isRetry = attempt > 1;
+    const retrySuffix = isRetry && !isChatFollowup ? JSON_RETRY_SYSTEM_SUFFIX : '';
+    const callOpts = Object.assign({}, baseOpts, {
+      temperature: isRetry
+        ? 0.2
+        : (baseOpts.temperature !== undefined ? baseOpts.temperature : 0.35),
+    });
+
+    let raw;
+    try {
+      if (isRetry) {
+        console.warn('[generate] Silent Perplexity retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
+      }
+      raw = await callPerplexity(apiKey, userPrompt, extraSystem + retrySuffix, callOpts);
+    } catch (aiErr) {
+      const msg = aiErr instanceof Error ? aiErr.message : String(aiErr);
+      console.error('[generate] Perplexity call failed for phase', phase, '(attempt', attempt + '):', msg);
+      if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(aiErr)) {
+        continue;
+      }
+      throw new Error(msg || 'שגיאה בקריאה ל-AI — נסו שוב בעוד רגע.');
+    }
+
+    let data;
+    try {
+      data = isChatFollowup ? normalizeChatFollowupFromModel(raw) : parseJsonFromModel(raw);
+    } catch (parseErr) {
+      const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      lastPreview = String(raw).slice(0, 600);
+      console.error(
+        '[generate] JSON parse failed for phase',
+        phase,
+        '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + '):',
+        parseMsg
+      );
+      console.error('Model output preview:', lastPreview);
+      if (!isChatFollowup && attempt < MODEL_PARSE_MAX_ATTEMPTS) {
+        continue;
+      }
+      if (isChatFollowup) {
+        throw new Error('המודל לא החזיר תשובה. נסו שוב בעוד רגע.');
+      }
+      throw new Error(GENERIC_GENERATION_ERROR);
+    }
+
+    if (!validatePhaseResult(phase, data)) {
+      lastPreview = String(raw).slice(0, 600);
+      console.error(
+        '[generate] Parsed JSON missing required fields for phase',
+        phase,
+        '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')'
+      );
+      console.error('Model output preview:', lastPreview);
+      if (!isChatFollowup && attempt < MODEL_PARSE_MAX_ATTEMPTS) {
+        continue;
+      }
+      throw new Error(GENERIC_GENERATION_ERROR);
+    }
+
+    if (isRetry) {
+      console.log('[generate] Silent retry succeeded for phase', phase);
+    }
+    return data;
+  }
+
+  throw new Error(GENERIC_GENERATION_ERROR);
+}
+
 function resolveApiKey() {
   return perplexityClient.resolveApiKey();
 }
@@ -1179,60 +1269,14 @@ async function executeGenerate(body, apiKey) {
     : {};
 
   const userPrompt = buildUserPrompt(body);
-  let raw;
-  try {
-    raw = await callPerplexity(apiKey, userPrompt, extraSystem, perplexityOptions);
-  } catch (aiErr) {
-    const msg = aiErr instanceof Error ? aiErr.message : String(aiErr);
-    console.error('[generate] Perplexity call failed for phase', body.phase, msg);
-    throw new Error(msg || 'שגיאה בקריאה ל-AI — נסו שוב בעוד רגע.');
-  }
-
-  let data;
-  let parseAttempt = 0;
-  while (parseAttempt < 2) {
-    parseAttempt += 1;
-    try {
-      if (isChatFollowup) {
-        data = normalizeChatFollowupFromModel(raw);
-      } else {
-        data = parseJsonFromModel(raw);
-      }
-      break;
-    } catch (parseErr) {
-      const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-      console.error(
-        '[generate] JSON parse failed for phase',
-        body.phase,
-        '(attempt ' + parseAttempt + '):',
-        parseMsg
-      );
-      console.error('Model output preview:', String(raw).slice(0, 600));
-
-      const canRetry = !isChatFollowup && parseAttempt < 2 && isJsonSyntaxError(parseErr);
-      if (canRetry) {
-        console.warn('[generate] Retrying Perplexity after malformed JSON stream output');
-        try {
-          raw = await callPerplexity(apiKey, userPrompt, extraSystem, perplexityOptions);
-          continue;
-        } catch (retryAiErr) {
-          const retryMsg = retryAiErr instanceof Error ? retryAiErr.message : String(retryAiErr);
-          console.error('[generate] Perplexity retry failed:', retryMsg);
-          throw new Error(retryMsg || 'שגיאה בקריאה ל-AI — נסו שוב בעוד רגע.');
-        }
-      }
-
-      if (isChatFollowup) {
-        throw new Error('המודל לא החזיר תשובה. נסו שוב בעוד רגע.');
-      }
-      throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
-    }
-  }
-
-  if (!validatePhaseResult(body.phase, data)) {
-    console.error('[generate] Parsed JSON missing required fields for phase', body.phase);
-    throw new Error('המודל החזיר מבנה נתונים חסר. נסו שוב בעוד רגע.');
-  }
+  const data = await fetchParsedModelWithRetry(
+    body,
+    apiKey,
+    userPrompt,
+    extraSystem,
+    perplexityOptions,
+    isChatFollowup
+  );
 
   if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
     data.chatReply = cacheDb.sanitizeForJsonStorage(data.chatReply);
