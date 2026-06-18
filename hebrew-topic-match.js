@@ -23,9 +23,17 @@
     'ב', 'ל', 'מ', 'כ', 'ו', 'ש',
   ]);
 
+  /**
+   * Grade-scoped canonical archive lesson titles (step B semantic redirect).
+   * Partial / morphological queries map to these titles for confirmation in chat.
+   */
+  var GRADE_CANONICAL_ARCHIVE_TOPICS = {
+    '7': 'תקופת מגלי עולם',
+  };
+
   /** Pedagogical synonym clusters — same Waldorf block / core topic in different word forms. */
   var PEDAGOGICAL_TOPIC_CLUSTERS = [
-    ['גילוי', 'גילויים', 'מגלים', 'מגלי', 'מגלה', 'גילה', 'תגלית', 'תגליות', 'גלי', 'עולם'],
+    ['גילוי', 'גילויים', 'מגלים', 'מגלי', 'מגלה', 'גילה', 'תגלית', 'תגליות', 'גלי', 'עולם', 'מסעות'],
     ['אותיות', 'אות', 'אלף', 'אלפא', 'אלפבית', 'כתיבה', 'קריאה'],
     ['חשבון', 'מתמטיקה', 'מספרים', 'מספר', 'חישוב', 'כפל', 'חיבור'],
     ['צמחים', 'צמח', 'בוטניקה', 'גינה', 'גינון', 'זרעים', 'זרע'],
@@ -80,7 +88,7 @@
 
   function removeGradePhrasesFromTopic(text) {
     return String(text || '')
-      .replace(/(?:^|\s)(?:ב|ל|ש)?כיתה\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
+      .replace(/(?:^|\s)(?:ו|ב|ל|ש)?כיתה\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
       .replace(/(?:^|\s)שכב(?:ה|ת)\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
       .replace(/(?:^|\s)גיל\s+\d[\d\-]*(?:\s|$)/g, ' ')
       .replace(/\s+/g, ' ')
@@ -340,6 +348,24 @@
     return 0;
   }
 
+  function getGradeCanonicalArchiveTopic(gradeId) {
+    return GRADE_CANONICAL_ARCHIVE_TOPICS[String(gradeId || '').trim()] || '';
+  }
+
+  /**
+   * True when a grade has a canonical archive topic and the query is a partial variant
+   * that should halt step B and ask for confirmation (not an exact title match).
+   */
+  function shouldProbeCanonicalArchiveTopic(gradeId, queryRaw) {
+    var canonical = getGradeCanonicalArchiveTopic(gradeId);
+    if (!canonical) return false;
+    var queryNorm = stableNormalize(queryRaw);
+    var canonicalNorm = stableNormalize(canonical);
+    if (!queryNorm || queryNorm === canonicalNorm) return false;
+    var score = scoreHebrewTopicSimilarity(queryRaw, canonical, '');
+    return score >= 0.5 && score < 0.99;
+  }
+
   return {
     stableNormalize: stableNormalize,
     extractMeaningfulTokens: extractMeaningfulTokens,
@@ -349,5 +375,7 @@
     expandHebrewSearchTerms: expandHebrewSearchTerms,
     scoreMorphologicalTopicMatch: scoreMorphologicalTopicMatch,
     scoreHebrewTopicSimilarity: scoreHebrewTopicSimilarity,
+    getGradeCanonicalArchiveTopic: getGradeCanonicalArchiveTopic,
+    shouldProbeCanonicalArchiveTopic: shouldProbeCanonicalArchiveTopic,
   };
 }));

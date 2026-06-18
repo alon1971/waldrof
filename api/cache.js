@@ -70,7 +70,7 @@ function stripDefiniteArticle(word) {
 
 function removeGradePhrasesFromTopic(text) {
   return String(text || '')
-    .replace(/(?:^|\s)(?:ב|ל|ש)?כיתה\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
+    .replace(/(?:^|\s)(?:ו|ב|ל|ש)?כיתה\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
     .replace(/(?:^|\s)שכב(?:ה|ת)\s+[א-ת]['׳]?(?:\s|$)/g, ' ')
     .replace(/(?:^|\s)גיל\s+\d[\d\-]*(?:\s|$)/g, ' ')
     .replace(/\s+/g, ' ')
@@ -716,6 +716,71 @@ function findArchiveTopicInFallback(query, gradeId, partialOnly) {
   return pickBestArchiveTopicRow(rows, query, { partialOnly: partialOnly });
 }
 
+async function fetchCanonicalGradeArchiveRow(gradeId, canonicalTopic) {
+  if (!gradeId || !canonicalTopic) return null;
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const params = new URLSearchParams();
+      params.set('select', LEGACY_ROW_SELECT);
+      params.set('phase', 'eq.topic');
+      params.set('grade_id', 'eq.' + gradeId);
+      params.set('topic', 'eq.' + canonicalTopic);
+      params.set('order', 'hit_count.desc,created_at.desc');
+      params.set('limit', '1');
+
+      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows[0] && rows[0].result_data) {
+          const data = coerceCachedResultData(rows[0].result_data);
+          if (data && isValidCachedPayload('topic', data)) return rows[0];
+        }
+      }
+    } catch (err) {
+      console.warn('[cached_results] canonical grade archive lookup failed:', err.message || err);
+    }
+  }
+
+  loadFallbackStore();
+  let best = null;
+  fallbackStore.rows.forEach(function (row) {
+    if (!row || row.phase !== 'topic' || !row.result_data) return;
+    if (String(row.grade_id || '').trim() !== String(gradeId || '').trim()) return;
+    if (stableNormalize(row.topic || '') !== stableNormalize(canonicalTopic)) return;
+    if (!isValidCachedPayload('topic', coerceCachedResultData(row.result_data))) return;
+    best = row;
+  });
+  return best;
+}
+
+/**
+ * Strict grade-scoped redirect: partial discovery-topic queries always suggest the
+ * canonical archive title (e.g. כיתה ז׳ → «תקופת מגלי עולם»).
+ */
+async function findCanonicalGradeArchiveSuggestion(gradeId, topic) {
+  if (!hebrewTopicMatch.shouldProbeCanonicalArchiveTopic || !hebrewTopicMatch.getGradeCanonicalArchiveTopic) {
+    return null;
+  }
+  if (!hebrewTopicMatch.shouldProbeCanonicalArchiveTopic(gradeId, topic)) return null;
+
+  const canonicalTopic = hebrewTopicMatch.getGradeCanonicalArchiveTopic(gradeId);
+  const row = await fetchCanonicalGradeArchiveRow(gradeId, canonicalTopic);
+  if (!row) return null;
+
+  const data = coerceCachedResultData(row.result_data);
+  if (!data || !isValidCachedPayload('topic', data)) return null;
+
+  return {
+    matchType: 'partial',
+    similarity: scoreTopicSimilarity(topic, canonicalTopic, row.query_text || ''),
+    cacheKey: row.cache_key,
+    topic: archiveTopicDisplayName(row, data) || canonicalTopic,
+    gradeId: gradeId,
+    gradeLabel: row.grade_label || null,
+  };
+}
+
 /**
  * Find an exact or partial community-archive topic match before a live API search.
  * Exact matches include full resultData; partial matches return metadata only.
@@ -737,6 +802,9 @@ async function findArchiveTopicSuggestion(options) {
       resultData: cached.data,
     };
   }
+
+  const canonicalSuggestion = await findCanonicalGradeArchiveSuggestion(gradeId, topic);
+  if (canonicalSuggestion) return canonicalSuggestion;
 
   const partialOnly = true;
   let best = null;
