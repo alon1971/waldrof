@@ -745,36 +745,44 @@ async function findArchiveTopicSuggestion(options) {
 
   if (isSupabaseCacheEnabled()) {
     try {
-      const params = new URLSearchParams();
-      params.set('select', LEGACY_ROW_SELECT);
-      params.set('phase', 'eq.topic');
-      params.set('grade_id', 'eq.' + gradeId);
-      params.set('order', 'hit_count.desc,created_at.desc');
-      params.set('limit', '80');
+      async function fetchArchiveRowsForGrade(withTermFilter) {
+        const params = new URLSearchParams();
+        params.set('select', LEGACY_ROW_SELECT);
+        params.set('phase', 'eq.topic');
+        params.set('grade_id', 'eq.' + gradeId);
+        params.set('order', 'hit_count.desc,created_at.desc');
+        params.set('limit', '80');
 
-      const searchTerms = [];
-      const rawWords = stableNormalize(topic).split(' ').filter(function (w) { return w.length >= 2; });
-      rawWords.forEach(function (w) { searchTerms.push(w); });
-      const queryKey = normalizeTopicQuery(topic);
-      if (queryKey) {
-        queryKey.split(' ').filter(function (w) { return w.length >= 2; }).forEach(function (w) {
-          searchTerms.push(w);
-        });
-      }
-      const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 4);
-      if (uniqueTerms.length) {
-        const orParts = uniqueTerms.map(function (term) {
-          return 'topic.ilike.*' + term + '*,query_text.ilike.*' + term + '*';
-        });
-        params.set('or', '(' + orParts.join(',') + ')');
-      }
-
-      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
-      if (res.ok) {
-        const rows = await res.json();
-        if (Array.isArray(rows) && rows.length) {
-          best = pickBestArchiveTopicRow(rows, topic, { partialOnly: partialOnly });
+        if (withTermFilter) {
+          const searchTerms = [];
+          const rawWords = stableNormalize(topic).split(' ').filter(function (w) { return w.length >= 2; });
+          rawWords.forEach(function (w) { searchTerms.push(w); });
+          const queryKey = normalizeTopicQuery(topic);
+          if (queryKey) {
+            queryKey.split(' ').filter(function (w) { return w.length >= 2; }).forEach(function (w) {
+              searchTerms.push(w);
+            });
+          }
+          const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 4);
+          if (uniqueTerms.length) {
+            const orParts = uniqueTerms.map(function (term) {
+              return 'topic.ilike.*' + term + '*,query_text.ilike.*' + term + '*';
+            });
+            params.set('or', '(' + orParts.join(',') + ')');
+          }
         }
+
+        const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+        if (!res.ok) return [];
+        const rows = await res.json();
+        return Array.isArray(rows) ? rows : [];
+      }
+
+      let rows = await fetchArchiveRowsForGrade(true);
+      best = pickBestArchiveTopicRow(rows, topic, { partialOnly: partialOnly });
+      if (!best) {
+        rows = await fetchArchiveRowsForGrade(false);
+        best = pickBestArchiveTopicRow(rows, topic, { partialOnly: partialOnly });
       }
     } catch (err) {
       console.warn('[cached_results] archive topic suggestion failed:', err.message || err);

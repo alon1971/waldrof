@@ -1283,6 +1283,34 @@ async function executeGenerate(body, apiKey) {
         }
         return cached;
       }
+      if (body.phase === 'topic' && !body.confirmArchiveBypass) {
+        const suggestion = await cacheDb.findArchiveTopicSuggestion({
+          topic: body.topic,
+          gradeId: body.currentGrade ?? body.gradeId,
+        });
+        if (suggestion && suggestion.matchType === 'partial') {
+          console.log(
+            '[cached_results] PARTIAL archive topic — awaiting confirmation:',
+            suggestion.topic,
+            suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : ''
+          );
+          return {
+            data: null,
+            meta: {
+              fromCache: false,
+              needsArchiveConfirmation: true,
+              archiveSuggestion: {
+                matchType: 'partial',
+                suggestedTopic: suggestion.topic,
+                cacheKey: suggestion.cacheKey,
+                similarity: suggestion.similarity,
+                gradeId: suggestion.gradeId,
+                gradeLabel: suggestion.gradeLabel || null,
+              },
+            },
+          };
+        }
+      }
       console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
     }
   }

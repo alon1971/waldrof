@@ -106,7 +106,15 @@
     return state.messages.length === 1 && state.messages[0] && state.messages[0].isGreeting;
   }
 
+  function hasUnresolvedArchiveSuggestion() {
+    if (state.pendingArchiveSuggestion && !state.pendingArchiveSuggestion.resolved) return true;
+    return state.messages.some(function (m) {
+      return m && m.archiveSuggest && !m.archiveSuggestResolved;
+    });
+  }
+
   function ensureWelcomeMessage() {
+    if (hasUnresolvedArchiveSuggestion()) return;
     if (!state.messages.length) {
       state.messages = [buildGreetingMessage()];
     } else if (hasOnlyGreeting()) {
@@ -254,16 +262,7 @@
     var cacheKey = String(options.cacheKey || '').trim();
     if (!suggestedTopic || !cacheKey) return;
 
-    var wasBubble = state.displayMode === 'bubble';
-    if (wasBubble) setDisplayMode(openChatModeForViewport());
-
-    if (!hasOnlyGreeting()) {
-      state.messages = state.messages.filter(function (m) {
-        return !m.archiveSuggest;
-      });
-    } else {
-      state.messages = [];
-    }
+    setDisplayMode(openChatModeForViewport());
 
     var suggestId = 'archive-' + Date.now();
     state.pendingArchiveSuggestion = {
@@ -276,14 +275,14 @@
       onReject: options.onReject || null,
     };
 
-    state.messages.push({
+    state.messages = [{
       role: 'assistant',
       text: deps.t('archive_suggest_prompt', { topic: suggestedTopic }),
       archiveSuggest: true,
       archiveSuggestId: suggestId,
       archiveSuggestResolved: false,
       fromCache: true,
-    });
+    }];
     renderMessages();
 
     var list = document.getElementById('lesson-chat-messages');
@@ -724,6 +723,7 @@
 
   function syncSessionFromApp(app) {
     if (!app) return;
+    if (hasUnresolvedArchiveSuggestion()) return;
     var key = sessionKeyFromApp(app);
     if (!key || key === '|') return;
     if (key === state.sessionKey) return;
@@ -851,6 +851,7 @@
   }
 
   function refreshWelcome() {
+    if (hasUnresolvedArchiveSuggestion()) return;
     if (!state.messages.length || hasOnlyGreeting()) {
       state.messages = [buildGreetingMessage()];
       renderMessages();
@@ -902,7 +903,7 @@
     getDisplayMode: function () { return state.displayMode; },
     isHistoryOpen: function () { return state.historyOpen; },
     openForLesson: function (resetChat) {
-      if (resetChat) {
+      if (resetChat && !hasUnresolvedArchiveSuggestion()) {
         var app = deps.getAppState() || {};
         state.sessionKey = sessionKeyFromApp(app);
         state.messages = [buildGreetingMessage()];
@@ -911,9 +912,12 @@
         state.pendingArchiveSuggestion = null;
         renderMessages();
       }
-      setDisplayMode(isMobileViewport() ? 'bubble' : 'panel');
+      if (!hasUnresolvedArchiveSuggestion()) {
+        setDisplayMode(isMobileViewport() ? 'bubble' : 'panel');
+      }
       updateVisibility();
     },
+    hasPendingArchiveSuggestion: hasUnresolvedArchiveSuggestion,
     showArchiveTopicSuggestion: showArchiveTopicSuggestion,
     showArchiveRefineHint: showArchiveRefineHint,
     reset: function () {
