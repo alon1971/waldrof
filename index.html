@@ -3987,20 +3987,117 @@
       return result;
     }
 
-    function repairJsonText(raw) {
+    function repairCommonJsonDefects(raw) {
       if (!raw) return '';
       var text = String(raw);
       text = text.replace(/,\s*([}\]])/g, '$1');
+      text = text.replace(/([{\[])\s*,+/g, '$1');
+      text = text.replace(/,\s*,+/g, ',');
+      text = text.replace(/:\s*,/g, ': null,');
+      text = text.replace(/:\s*undefined\b/g, ': null');
+      text = text.replace(/:\s*NaN\b/g, ': null');
+      text = text.replace(/:\s*-?Infinity\b/g, ': null');
       text = text.replace(/([{,]\s*)'([^'\\]*(?:\\.[^'\\]*)*)'(\s*:)/g, '$1"$2"$3');
-      return repairJsonStringLiterals(text);
+      return text;
+    }
+
+    function repairTruncatedJson(raw) {
+      var s = String(raw || '').trim();
+      if (!s) return s;
+      var inString = false;
+      var escaped = false;
+      var closers = [];
+      for (var i = 0; i < s.length; i++) {
+        var ch = s[i];
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (ch === '\\') escaped = true;
+          else if (ch === '"') inString = false;
+          continue;
+        }
+        if (ch === '"') inString = true;
+        else if (ch === '{') closers.push('}');
+        else if (ch === '[') closers.push(']');
+        else if ((ch === '}' || ch === ']') && closers.length && closers[closers.length - 1] === ch) closers.pop();
+      }
+      if (escaped) s = s.slice(0, -1);
+      if (inString) s += '"';
+      s = s.replace(/:\s*$/u, ': null');
+      s = s.replace(/,\s*$/u, '');
+      while (closers.length) s += closers.pop();
+      return s;
+    }
+
+    function repairUnescapedInnerQuotesInJsonStrings(raw) {
+      if (!raw) return '';
+      var result = '';
+      var inString = false;
+      var escaped = false;
+      for (var i = 0; i < raw.length; i++) {
+        var c = raw[i];
+        if (inString) {
+          if (escaped) { result += c; escaped = false; continue; }
+          if (c === '\\') { result += c; escaped = true; continue; }
+          if (c === '"') {
+            var j = i + 1;
+            while (j < raw.length && /[\s\n\r\t]/.test(raw[j])) j++;
+            var next = raw[j];
+            if (next === undefined || next === ',' || next === '}' || next === ']' || next === ':') {
+              inString = false;
+              result += c;
+            } else {
+              result += "'";
+            }
+            continue;
+          }
+          result += c;
+          continue;
+        }
+        if (c === '"') { inString = true; result += c; continue; }
+        result += c;
+      }
+      return result;
+    }
+
+    function buildJsonParseAttempts(text) {
+      var base = sanitizeJsonResponseText(text);
+      var quoteFixed = repairUnescapedInnerQuotesInJsonStrings(base);
+      var literalFixed = repairJsonText(base);
+      var quoteAndLiteral = repairJsonText(quoteFixed);
+      return [
+        base,
+        quoteFixed,
+        literalFixed,
+        quoteAndLiteral,
+        repairTruncatedJson(base),
+        repairTruncatedJson(quoteFixed),
+        repairTruncatedJson(literalFixed),
+        repairTruncatedJson(quoteAndLiteral),
+      ];
+    }
+
+    function isJsonSyntaxErrorMessage(msg) {
+      return /JSON|Unexpected token|position \d+|property name/i.test(String(msg || ''));
+    }
+
+    function friendlyJsonParseError(err) {
+      if (isJsonSyntaxErrorMessage(err && err.message ? err.message : err)) {
+        return isEnglish()
+          ? 'The AI returned malformed JSON. Please try again in a moment.'
+          : 'המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.';
+      }
+      return err && err.message ? String(err.message) : (isEnglish() ? 'Invalid server response.' : 'תשובת JSON לא תקינה מהשרת');
+    }
+    function repairJsonText(raw) {
+      if (!raw) return '';
+      return repairJsonStringLiterals(repairCommonJsonDefects(raw));
     }
 
     function parseJsonSafely(text, unwrapDepth) {
       var depth = unwrapDepth || 0;
-      if (depth > 4) throw new Error('תשובת JSON לא תקינה מהשרת');
+      if (depth > 4) throw new Error(friendlyJsonParseError('depth'));
       var lastErr = null;
-      var base = sanitizeJsonResponseText(text);
-      var attempts = [base, repairJsonText(base)];
+      var attempts = buildJsonParseAttempts(text);
       for (var i = 0; i < attempts.length; i++) {
         if (!attempts[i]) continue;
         try {
@@ -4010,6 +4107,7 @@
         }
       }
       try {
+        var base = sanitizeJsonResponseText(text);
         var wrapped = JSON.parse(base);
         if (typeof wrapped === 'string') {
           return parseJsonSafely(wrapped, depth + 1);
@@ -4018,7 +4116,7 @@
       } catch (err2) {
         lastErr = err2;
       }
-      throw lastErr || new Error('תשובת JSON לא תקינה מהשרת');
+      throw new Error(friendlyJsonParseError(lastErr));
     }
 
     function isRateLimitError(err) {
@@ -4092,9 +4190,9 @@
       try {
         json = parseApiJsonResponse(bodyText);
       } catch (parseErr) {
-        var parseMsg = parseErr && parseErr.message ? String(parseErr.message) : '';
+        var parseMsg = friendlyJsonParseError(parseErr);
         var preview = String(bodyText || '').trim().slice(0, 160);
-        if (/^Unexpected token/i.test(parseMsg) && !/^\s*[{[]/.test(preview)) {
+        if (/timeout|non-JSON|Vercel/i.test(parseMsg) === false && /^Unexpected token/i.test(parseErr && parseErr.message ? parseErr.message : '') && !/^\s*[{[]/.test(preview)) {
           throw new Error(isEnglish()
             ? 'Server returned a non-JSON response (often a Vercel timeout). Confirm AI_API_KEY is set, redeploy after env changes, and allow up to 60s for live search.'
             : 'השרת החזיר תשובה שאינה JSON (לעיתים timeout של Vercel). ודאו ש-AI_API_KEY מוגדר, פרסמו מחדש אחרי עדכון משתני סביבה, והמתינו עד 60 שניות לחיפוש חי.');

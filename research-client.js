@@ -301,6 +301,12 @@
   function repairJsonText(raw) {
     let text = String(raw || '');
     text = text.replace(/,\s*([}\]])/g, '$1');
+    text = text.replace(/([{\[])\s*,+/g, '$1');
+    text = text.replace(/,\s*,+/g, ',');
+    text = text.replace(/:\s*,/g, ': null,');
+    text = text.replace(/:\s*undefined\b/g, ': null');
+    text = text.replace(/:\s*NaN\b/g, ': null');
+    text = text.replace(/:\s*-?Infinity\b/g, ': null');
     text = text.replace(/([{,]\s*)'([^'\\]*(?:\\.[^'\\]*)*)'(\s*:)/g, '$1"$2"$3');
     return repairJsonStringLiterals(text);
   }
@@ -561,7 +567,11 @@
       }
       return parsed;
     } catch (parseErr) {
-      throw new Error(parseErr instanceof Error ? parseErr.message : 'המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      if (/JSON|Unexpected token|position \d+|property name/i.test(msg)) {
+        throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
+      }
+      throw new Error(msg || 'המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
     }
   }
 

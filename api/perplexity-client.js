@@ -3,6 +3,7 @@
  */
 const https = require('https');
 const env = require('./env');
+const jsonRepair = require('./json-repair');
 
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 const PERPLEXITY_MODEL = 'sonar-pro';
@@ -72,6 +73,10 @@ function appendStreamDelta(content, json) {
   return content;
 }
 
+function parseSsePayload(payload) {
+  return jsonRepair.parseSseJsonPayload(payload);
+}
+
 async function readStreamResponse(res) {
   if (!res.body || typeof res.body.getReader !== 'function') {
     const text = await res.text();
@@ -94,9 +99,8 @@ async function readStreamResponse(res) {
       if (!line || line.indexOf('data:') !== 0) continue;
       const payload = line.slice(5).trim();
       if (!payload || payload === '[DONE]') continue;
-      try {
-        content = appendStreamDelta(content, JSON.parse(payload));
-      } catch (e) { /* skip malformed SSE chunk */ }
+      const parsed = parseSsePayload(payload);
+      if (parsed) content = appendStreamDelta(content, parsed);
     }
   }
 
@@ -105,9 +109,8 @@ async function readStreamResponse(res) {
     if (tail.indexOf('data:') === 0) {
       const payload = tail.slice(5).trim();
       if (payload && payload !== '[DONE]') {
-        try {
-          content = appendStreamDelta(content, JSON.parse(payload));
-        } catch (e) { /* ignore */ }
+        const parsed = parseSsePayload(payload);
+        if (parsed) content = appendStreamDelta(content, parsed);
       }
     }
   }
@@ -122,9 +125,8 @@ function parseSseText(text) {
     if (!trimmed || trimmed.indexOf('data:') !== 0) return;
     const payload = trimmed.slice(5).trim();
     if (!payload || payload === '[DONE]') return;
-    try {
-      content = appendStreamDelta(content, JSON.parse(payload));
-    } catch (e) { /* ignore */ }
+    const parsed = parseSsePayload(payload);
+    if (parsed) content = appendStreamDelta(content, parsed);
   });
   return content.trim();
 }
@@ -200,10 +202,8 @@ async function fetchPerplexity(apiKey, body, useStream) {
     }
 
     const responseText = await res.text();
-    let data;
-    try {
-      data = responseText ? JSON.parse(responseText) : null;
-    } catch (parseErr) {
+    const data = jsonRepair.safeParseJson(responseText);
+    if (!data) {
       throw new Error('Perplexity API returned non-JSON: ' + responseText.slice(0, 200));
     }
     const content = extractMessageContent(data);
@@ -221,10 +221,8 @@ async function httpsPerplexity(apiKey, body) {
   if (result.status < 200 || result.status >= 300) {
     throw mapHttpError(result.status, result.text);
   }
-  let data;
-  try {
-    data = result.text ? JSON.parse(result.text) : null;
-  } catch (parseErr) {
+  const data = jsonRepair.safeParseJson(result.text);
+  if (!data) {
     throw new Error('Perplexity API returned non-JSON: ' + String(result.text || '').slice(0, 200));
   }
   const content = extractMessageContent(data);
