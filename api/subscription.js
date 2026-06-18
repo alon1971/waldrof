@@ -309,7 +309,24 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
 
   const rows = await readSupabaseResponse(res, 'subscription update');
   if (Array.isArray(rows) && rows.length) return rows[0];
-  // PATCH may return [] when RLS blocks the write — re-fetch the real row instead of guessing.
+
+  // PATCH returned no rows — merge and upsert so trial_searches_used always persists.
+  if (existing) {
+    const merged = subscriptionRowFromPatch(
+      user || { id: userId, tier: (existing && existing.tier) || 'trial' },
+      patch,
+      existing
+    );
+    const upsertRes = await supabaseRequest('/rest/v1/' + TABLE + '?on_conflict=user_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(merged),
+    }, userToken);
+    const upsertRows = await readSupabaseResponse(upsertRes, 'subscription upsert');
+    if (Array.isArray(upsertRows) && upsertRows.length) return upsertRows[0];
+    return merged;
+  }
+
   const refetched = await fetchSubscriptionRow(userId, userToken);
   if (refetched) return refetched;
   const baseUser = user || { id: userId, tier: (existing && existing.tier) || 'trial' };
@@ -501,10 +518,12 @@ async function legacyHandler(req, res) {
 }
 
 /** Record one live search from an HTTP request (e.g. after /api/generate succeeds). */
-async function recordLiveSearchFromRequest(req) {
+async function recordLiveSearchFromRequest(req, explicitUser) {
   const body = req && req.body;
   const userToken = extractUserToken(req);
-  const user = await resolveUser(req, body);
+  const user = explicitUser && explicitUser.id
+    ? explicitUser
+    : await resolveUser(req, body);
   if (!isEnabled()) {
     console.warn('[subscription] recordLiveSearch skipped — Supabase not configured');
     return null;

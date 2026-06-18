@@ -1651,8 +1651,10 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+      top: 50%;
+      bottom: auto;
       left: 1.5rem;
+      transform: translateY(-50%);
       z-index: 60;
       pointer-events: none;
     }
@@ -1704,7 +1706,8 @@
     }
     @media (max-width: 767px) {
       .lesson-chat-fab-wrap {
-        bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+        top: auto;
+        bottom: calc(20% + env(safe-area-inset-bottom, 0px));
         left: 1.5rem;
         right: auto;
         transform: none;
@@ -1763,10 +1766,11 @@
     @media (min-width: 768px) {
       #lesson-chat-fab-wrap.lesson-chat-fab-wrap {
         --app-content-gutter: max(1rem, calc((100vw - min(72rem, 100vw)) / 2));
-        bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+        top: 50%;
+        bottom: auto;
         left: max(0.5rem, calc(var(--app-content-gutter) - 17rem));
         right: auto;
-        transform: none;
+        transform: translateY(-50%);
         z-index: 50;
       }
       .lesson-chat-fab {

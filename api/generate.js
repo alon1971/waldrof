@@ -1209,21 +1209,54 @@ async function handleGeneratePost(parsedBody, requestContext) {
     result.data != null;
 
   if (billable && typeof subscriptionApi.recordLiveSearchFromRequest === 'function') {
+    const billingBody = Object.assign({}, parsedBody);
+    if (verifiedUser && verifiedUser.id) {
+      billingBody.teacherUser = Object.assign({}, billingBody.teacherUser || {}, {
+        id: verifiedUser.id,
+        email: verifiedUser.email || '',
+        name: verifiedUser.name || verifiedUser.displayName || '',
+        displayName: verifiedUser.displayName || verifiedUser.name || '',
+        tier: (billingBody.teacherUser && billingBody.teacherUser.tier) || verifiedUser.tier || 'trial',
+      });
+    }
+    const billReq = {
+      method: 'POST',
+      headers: ctx.headers || {},
+      body: billingBody,
+    };
     try {
-      const billed = await subscriptionApi.recordLiveSearchFromRequest(reqShape);
+      const billed = await subscriptionApi.recordLiveSearchFromRequest(billReq, verifiedUser);
       if (billed && billed.usage) {
         result.meta = Object.assign({}, result.meta, { usage: billed.usage, searchBilled: true });
+      } else if (typeof subscriptionApi.recordSearch === 'function' && verifiedUser && verifiedUser.id) {
+        const token = typeof subscriptionApi.extractUserToken === 'function'
+          ? subscriptionApi.extractUserToken(billReq)
+          : '';
+        const directBill = await subscriptionApi.recordSearch(verifiedUser, token);
+        if (directBill && directBill.usage) {
+          result.meta = Object.assign({}, result.meta, { usage: directBill.usage, searchBilled: true });
+        } else {
+          result.meta = Object.assign({}, result.meta, { searchBilled: false });
+          console.warn('[generate] live search usage not recorded — no usage payload returned');
+        }
       } else {
         result.meta = Object.assign({}, result.meta, { searchBilled: false });
         console.warn('[generate] live search usage not recorded — no usage payload returned');
       }
     } catch (billErr) {
+      if (billErr && billErr.statusCode === 429) {
+        throw billErr;
+      }
       if (isNonBlockingSubscriptionDbError(billErr)) {
         console.warn('[generate] live search usage skipped (non-blocking):', billErr.message || billErr);
       } else {
         console.error('[generate] live search usage record failed:', billErr.message || billErr);
       }
-      result.meta = Object.assign({}, result.meta, { searchBilled: false });
+      if (billErr && billErr.usage) {
+        result.meta = Object.assign({}, result.meta, { usage: billErr.usage, searchBilled: false });
+      } else {
+        result.meta = Object.assign({}, result.meta, { searchBilled: false });
+      }
     }
   }
 
