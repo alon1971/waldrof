@@ -62,6 +62,8 @@
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
   };
+
+  function normalizeMessages(messages) {
     return (messages || []).map(function (m) {
       return {
         role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -324,6 +326,9 @@
     setLoading(false);
     if (typeof deps.resetTopicResearchLoading === 'function') {
       deps.resetTopicResearchLoading();
+    }
+    if (state.displayMode === 'bubble') {
+      setDisplayMode(openChatModeForViewport());
     }
     state.messages.push({
       role: 'assistant',
@@ -871,10 +876,9 @@
     state.sessionKey = options.sessionKey || '';
     state.ragContext = options.ragContext || '';
     state.ragChunkIds = Array.isArray(options.ragChunkIds) ? options.ragChunkIds.slice() : [];
-    if (options.openChat !== false) {
+    renderMessages();
+    if (options.openChat === true) {
       setDisplayMode(openChatModeForViewport());
-    } else {
-      renderMessages();
     }
   }
 
@@ -941,9 +945,6 @@
         state.ragChunkIds = [];
         state.pendingArchiveSuggestion = null;
         renderMessages();
-      }
-      if (!hasUnresolvedArchiveSuggestion()) {
-        setDisplayMode(isMobileViewport() ? 'bubble' : 'panel');
       }
       updateVisibility();
     },

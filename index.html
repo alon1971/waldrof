@@ -2790,6 +2790,8 @@
   <script src="search-history.js?v=20250620"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
     let SUPABASE_URL = '';
@@ -3495,8 +3497,8 @@
           ragContext: data.chatRagContext || '',
           ragChunkIds: data.chatRagChunkIds || [],
           sessionKey: sessionKey,
+          openChat: false,
         });
-        LessonChatSidebar.openForLesson(false);
         LessonChatSidebar.updateVisibility();
         queueCommunityLessonSync();
       }
@@ -7036,6 +7038,33 @@
       updateTopNavButtons();
     }
 
+    var pageLoadFocusGuard = true;
+
+    function clearPageLoadFocusGuard() {
+      pageLoadFocusGuard = false;
+    }
+
+    function ensurePageAtTop() {
+      window.scrollTo(0, 0);
+      if (document.documentElement) document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+    }
+    window.ensurePageAtTop = ensurePageAtTop;
+
+    function scheduleInitialPageScrollReset() {
+      ensurePageAtTop();
+      requestAnimationFrame(function () {
+        ensurePageAtTop();
+        requestAnimationFrame(function () {
+          ensurePageAtTop();
+          setTimeout(function () {
+            ensurePageAtTop();
+            clearPageLoadFocusGuard();
+          }, 150);
+        });
+      });
+    }
+
     function holdPageScroll(fn) {
       var y = window.scrollY || window.pageYOffset || 0;
       fn();
@@ -7643,9 +7672,6 @@
         scrollToWorkspaceTop('smooth');
         await checkAndShowCommunityTopicAlert();
         nudgeGoogleTranslate();
-        if (typeof LessonChatSidebar !== 'undefined' && !LessonChatSidebar.hasPendingArchiveSuggestion()) {
-          LessonChatSidebar.openForLesson(true);
-        }
         queueCommunityLessonSync();
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
@@ -9085,7 +9111,13 @@
       });
       bindWizardNavClick(document.getElementById('ws-crumb-community'), function () { openCommunityRepo(); });
       bindWizardNavClick(document.getElementById('ws-crumb-archive'), function () { openArchiveNav(); });
-      document.getElementById('grade-select').addEventListener('change', function () {
+      var gradeSelectEl = document.getElementById('grade-select');
+      gradeSelectEl.addEventListener('focus', function () {
+        if (!pageLoadFocusGuard) return;
+        this.blur();
+        ensurePageAtTop();
+      });
+      gradeSelectEl.addEventListener('change', function () {
         const loadingEl = document.getElementById('grade-research-loading');
         const gradeLoading = loadingEl && !loadingEl.classList.contains('hidden');
         document.getElementById('btn-grade-submit').disabled = !this.value || gradeLoading;
@@ -9198,6 +9230,7 @@
 
     async function init() {
       try {
+      ensurePageAtTop();
       await loadRuntimeConfig();
       setOnLanguageChange(refreshUiOnLanguageChange);
       try { initI18n(); } catch (e) { console.warn('[waldrof] initI18n:', e); }
@@ -9236,11 +9269,16 @@
         });
       }
       if (typeof WaldorfAuth !== 'undefined') {
-        WaldorfAuth.subscribe(function () {
+        var didSessionScrollReset = false;
+        WaldorfAuth.subscribe(function (authState) {
           if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
           if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
             LessonChatSidebar.refreshWelcome();
+          }
+          if (authState && authState.sessionReady && !didSessionScrollReset) {
+            didSessionScrollReset = true;
+            scheduleInitialPageScrollReset();
           }
         });
       }
@@ -9327,6 +9365,7 @@
         try { subscribeRealtime(); } catch (e) { console.warn('[waldrof] subscribeRealtime:', e); }
         try { await loadCommunity(); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
       }
+      scheduleInitialPageScrollReset();
       } catch (err) {
         console.error('[waldrof] init failed:', err);
         try { bindEvents(); } catch (bindErr) { console.error('[waldrof] bindEvents recovery failed:', bindErr); }
@@ -9336,7 +9375,10 @@
       }
     }
     window.addEventListener('pageshow', function (e) {
+      pageLoadFocusGuard = true;
+      ensurePageAtTop();
       if (e.persisted) resetWizardOnPageLoad();
+      scheduleInitialPageScrollReset();
     });
     window.addEventListener('resize', syncProductTabsStickyLayout, { passive: true });
 

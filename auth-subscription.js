@@ -906,6 +906,15 @@
       el.setAttribute('aria-hidden', 'true');
       document.body.classList.remove('auth-locked');
     }
+    var active = document.activeElement;
+    if (active && el && el.contains(active) && typeof active.blur === 'function') {
+      active.blur();
+    }
+    if (typeof global.ensurePageAtTop === 'function') {
+      global.ensurePageAtTop();
+    } else {
+      global.scrollTo(0, 0);
+    }
   }
 
   function showPricingModal(noticeKey) {
