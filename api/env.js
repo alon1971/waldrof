@@ -21,7 +21,7 @@ function cleanUrl(value) {
 }
 
 function cleanKey(value) {
-  return String(value || '').trim();
+  return String(value || '').trim().replace(/^["']|["']$/g, '');
 }
 
 /** Ensure a valid https Supabase project URL (no host typo rewrites). */

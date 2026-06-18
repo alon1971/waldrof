@@ -20,6 +20,7 @@ const { URL } = require('url');
 })();
 
 const generateApi = require('./api/generate');
+const env = require('./api/env');
 const cacheDb = require('./api/cache');
 const shareMaterialApi = require('./api/share-material');
 const searchHistoryApi = require('./api/search-history');
@@ -289,7 +290,7 @@ const server = http.createServer(async function (req, res) {
       generateHandler: 'handleGeneratePost',
       cacheBackend: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
       gradeCacheKey: 'phase+gradeId',
-      perplexityKey: Boolean(process.env.PERPLEXITY_API_KEY || process.env.AI_API_KEY),
+      perplexityKey: Boolean(env.getPerplexityApiKey()),
     }));
   }
 
@@ -321,7 +322,7 @@ server.listen(PORT, HOST, function () {
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
   console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | POST /api/search-history | POST /api/subscription | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
-  console.log('[env] PERPLEXITY_API_KEY:', process.env.PERPLEXITY_API_KEY ? 'set' : (process.env.AI_API_KEY ? 'set (AI_API_KEY)' : 'MISSING'));
+  console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_SERVICE_ROLE_KEY:', env.getSupabaseServiceRoleKey() ? 'set' : (env.getSupabaseAnonKey() ? 'anon only' : 'MISSING'));
   console.log('[cache] Supabase cached_results:', cacheDb.isSupabaseCacheEnabled() ? 'enabled' : 'local fallback only');

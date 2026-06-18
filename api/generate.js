@@ -15,6 +15,7 @@ const knowledgeIngest = require('./knowledge-ingest');
 const subscriptionApi = require('./subscription');
 const searchLogs = require('./search-logs');
 const authContext = require('./auth-context');
+const perplexityClient = require('./perplexity-client');
 const env = require('./env');
 
 (function loadDotEnv() {
@@ -28,8 +29,8 @@ const env = require('./env');
   });
 })();
 
-const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
-const PERPLEXITY_MODEL = 'sonar-pro';
+const PERPLEXITY_URL = perplexityClient.PERPLEXITY_URL;
+const PERPLEXITY_MODEL = perplexityClient.PERPLEXITY_MODEL;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1032,66 +1033,26 @@ async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
   const opts = options || {};
   const systemBuilder = typeof opts.systemPrompt === 'function' ? opts.systemPrompt : waldorfSystemPrompt;
   const temperature = opts.temperature !== undefined ? opts.temperature : 0.35;
+  const useStream = opts.stream !== false;
 
-  let res;
   try {
-    res = await fetch(PERPLEXITY_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + apiKey,
-      },
-      body: JSON.stringify({
-        model: PERPLEXITY_MODEL,
-        temperature: temperature,
-        messages: [
-          { role: 'system', content: systemBuilder(extraSystem) },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
+    return await perplexityClient.callPerplexityChat({
+      apiKey: apiKey,
+      model: PERPLEXITY_MODEL,
+      temperature: temperature,
+      stream: useStream,
+      messages: [
+        { role: 'system', content: systemBuilder(extraSystem) },
+        { role: 'user', content: userPrompt },
+      ],
     });
-  } catch (netErr) {
-    const msg = netErr instanceof Error ? netErr.message : String(netErr);
-    throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + msg);
-  }
-
-  let responseText = '';
-  try {
-    responseText = await res.text();
-  } catch (readErr) {
-    const msg = readErr instanceof Error ? readErr.message : String(readErr);
-    throw new Error('לא ניתן לקרוא את תשובת Perplexity: ' + msg);
-  }
-
-  if (!res.ok) {
-    console.error('Perplexity error', res.status, responseText.slice(0, 400));
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(
-        'Perplexity API key invalid or unauthorized (HTTP ' + res.status + '). ' +
-        'Verify PERPLEXITY_API_KEY in .env or Vercel Environment Variables.'
-      );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/שגיאת רשת בחיבור ל-Perplexity|PERPLEXITY_API_KEY is not configured/i.test(msg)) {
+      throw err;
     }
-    throw new Error('Perplexity API ' + res.status + ': ' + responseText.slice(0, 400));
+    throw new Error(msg || 'שגיאה בקריאה ל-Perplexity — נסו שוב בעוד רגע.');
   }
-
-  let data;
-  try {
-    data = responseText ? JSON.parse(responseText) : null;
-  } catch (parseErr) {
-    throw new Error(
-      'Perplexity API returned non-JSON (HTTP ' + res.status + '): ' + responseText.slice(0, 200)
-    );
-  }
-
-  const content = extractPerplexityMessageContent(data);
-  if (!content) {
-    console.error('Perplexity empty content. Keys:', data ? Object.keys(data).join(',') : 'null');
-    if (data && data.choices && data.choices[0]) {
-      console.error('First choice keys:', Object.keys(data.choices[0]).join(','));
-    }
-    throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
-  }
-  return content;
 }
 
 /** Extract assistant text from Perplexity / OpenAI-compatible chat completion payloads. */
@@ -1139,8 +1100,7 @@ function validatePhaseResult(phase, data) {
 }
 
 function resolveApiKey() {
-  const trimmed = env.getPerplexityApiKey();
-  return trimmed || null;
+  return perplexityClient.resolveApiKey();
 }
 
 function setCors(res) {
