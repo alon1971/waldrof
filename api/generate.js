@@ -1223,10 +1223,14 @@ async function handleGeneratePost(parsedBody, requestContext) {
         body: parsedBody,
       });
       if (billed && billed.usage) {
-        result.meta = Object.assign({}, result.meta, { usage: billed.usage });
+        result.meta = Object.assign({}, result.meta, { usage: billed.usage, searchBilled: true });
+      } else {
+        result.meta = Object.assign({}, result.meta, { searchBilled: false });
+        console.warn('[generate] live search usage not recorded — no usage payload returned');
       }
     } catch (billErr) {
-      console.warn('[generate] live search usage record failed:', billErr.message || billErr);
+      console.error('[generate] live search usage record failed:', billErr.message || billErr);
+      result.meta = Object.assign({}, result.meta, { searchBilled: false });
     }
   }
 

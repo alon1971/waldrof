@@ -370,6 +370,10 @@
         });
       });
     }).catch(function (err) {
+      if (action === 'record_search' || action === 'record_word_download') {
+        console.warn('[Auth] subscription', action, 'failed:', err.message || err);
+        throw err;
+      }
       console.warn('[Auth] subscription sync failed', err.message || err);
       return null;
     });
@@ -869,6 +873,11 @@
         return usage.count;
       }
       return getSearchesUsed();
+    }).catch(function () {
+      return refreshSubscriptionFromServer().then(function (data) {
+        if (data && data.usage) return data.usage.searchesUsed;
+        return getSearchesUsed();
+      });
     });
   }
 

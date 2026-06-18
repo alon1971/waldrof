@@ -33,7 +33,7 @@ function getSupabaseConfig() {
 
 function isEnabled() {
   const cfg = getSupabaseConfig();
-  return Boolean(cfg.url && cfg.serviceKey);
+  return Boolean(cfg.url && (cfg.serviceKey || cfg.anonKey));
 }
 
 function currentMonthKey() {
@@ -105,18 +105,38 @@ function parseRequestBody(req) {
   return rawBody;
 }
 
-async function supabaseRequest(pathSuffix, options) {
+function extractUserToken(req) {
+  if (!req || !req.headers) return '';
+  const raw = req.headers.authorization || req.headers.Authorization || '';
+  return String(raw).replace(/^Bearer\s+/i, '').trim();
+}
+
+/** Service role bypasses RLS; otherwise use the signed-in teacher JWT for RLS policies. */
+function buildSupabaseAuthHeaders(userToken) {
   const cfg = getSupabaseConfig();
   const apiKey = cfg.serviceKey || cfg.anonKey;
   if (!cfg.url || !apiKey) throw new Error('Supabase not configured');
+  const bearer = cfg.serviceKey || userToken || apiKey;
+  if (!cfg.serviceKey && !userToken) {
+    throw new Error('Supabase subscription write requires SUPABASE_SERVICE_ROLE_KEY or a signed-in user token');
+  }
+  return {
+    apikey: apiKey,
+    Authorization: 'Bearer ' + bearer,
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation',
+  };
+}
+
+async function supabaseRequest(pathSuffix, options, userToken) {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !(cfg.serviceKey || cfg.anonKey)) throw new Error('Supabase not configured');
 
   const res = await fetch(cfg.url + pathSuffix, Object.assign({
-    headers: Object.assign({
-      apikey: apiKey,
-      Authorization: 'Bearer ' + apiKey,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    }, (options && options.headers) || {}),
+    headers: Object.assign(
+      buildSupabaseAuthHeaders(userToken),
+      (options && options.headers) || {}
+    ),
   }, options || {}));
 
   return res;
@@ -215,13 +235,17 @@ function buildUsagePayload(row) {
   };
 }
 
-async function fetchSubscriptionRow(userId) {
+async function fetchSubscriptionRow(userId, userToken) {
   const params = new URLSearchParams();
   params.set('select', '*');
   params.set('user_id', 'eq.' + userId);
   params.set('limit', '1');
 
-  const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), { method: 'GET' });
+  const res = await supabaseRequest(
+    '/rest/v1/' + TABLE + '?' + params.toString(),
+    { method: 'GET' },
+    userToken
+  );
   const rows = await readSupabaseResponse(res, 'subscription read');
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
@@ -253,7 +277,7 @@ function subscriptionRowFromPatch(user, patch, existing) {
   };
 }
 
-async function insertSubscriptionRow(user, patch) {
+async function insertSubscriptionRow(user, patch, userToken) {
   const now = new Date().toISOString();
   const row = subscriptionRowFromPatch(user, patch, null);
   row.created_at = now;
@@ -262,13 +286,13 @@ async function insertSubscriptionRow(user, patch) {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify(row),
-  });
+  }, userToken);
 
   const rows = await readSupabaseResponse(res, 'subscription insert');
   return Array.isArray(rows) && rows.length ? rows[0] : row;
 }
 
-async function updateSubscriptionRow(userId, patch, existing, user) {
+async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const params = new URLSearchParams();
   params.set('user_id', 'eq.' + userId);
   const body = pickDefinedFields(Object.assign({}, patch, { updated_at: new Date().toISOString() }));
@@ -279,7 +303,7 @@ async function updateSubscriptionRow(userId, patch, existing, user) {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify(body),
-  });
+  }, userToken);
 
   const rows = await readSupabaseResponse(res, 'subscription update');
   if (Array.isArray(rows) && rows.length) return rows[0];
@@ -287,16 +311,16 @@ async function updateSubscriptionRow(userId, patch, existing, user) {
   return subscriptionRowFromPatch(baseUser, patch, existing);
 }
 
-async function upsertSubscriptionRow(user, patch) {
-  const existing = await fetchSubscriptionRow(user.id);
+async function upsertSubscriptionRow(user, patch, userToken) {
+  const existing = await fetchSubscriptionRow(user.id, userToken);
   if (existing) {
-    return updateSubscriptionRow(user.id, patch, existing, user);
+    return updateSubscriptionRow(user.id, patch, existing, user, userToken);
   }
-  return insertSubscriptionRow(user, patch);
+  return insertSubscriptionRow(user, patch, userToken);
 }
 
-async function ensureSubscription(user) {
-  let row = await fetchSubscriptionRow(user.id);
+async function ensureSubscription(user, userToken) {
+  let row = await fetchSubscriptionRow(user.id, userToken);
   if (!row) {
     row = await upsertSubscriptionRow(user, {
       tier: user.tier || 'trial',
@@ -305,13 +329,13 @@ async function ensureSubscription(user) {
       monthly_searches_used: 0,
       usage_month: currentMonthKey(),
       auto_renew: true,
-    });
+    }, userToken);
   }
   return row;
 }
 
-async function getStatus(user) {
-  const row = await ensureSubscription(user);
+async function getStatus(user, userToken) {
+  const row = await ensureSubscription(user, userToken);
   const usage = buildUsagePayload(row);
   return {
     ok: true,
@@ -325,8 +349,8 @@ async function getStatus(user) {
   };
 }
 
-async function recordSearch(user) {
-  const row = await ensureSubscription(user);
+async function recordSearch(user, userToken) {
+  const row = await ensureSubscription(user, userToken);
   const usageBefore = buildUsagePayload(row);
   if (!usageBefore.allowed) {
     const err = new Error('חרגתם ממכסת החיפושים — שדרגו את המסלול');
@@ -350,12 +374,14 @@ async function recordSearch(user) {
       : 1;
   }
 
-  const updated = await updateSubscriptionRow(user.id, patch, row, user);
-  return { ok: true, action: 'record_search', usage: buildUsagePayload(updated) };
+  const updated = await updateSubscriptionRow(user.id, patch, row, user, userToken);
+  const usage = buildUsagePayload(updated);
+  console.log('[subscription] record_search user=%s searchesUsed=%s', user.id, usage.searchesUsed);
+  return { ok: true, action: 'record_search', usage: usage };
 }
 
-async function recordWordDownload(user) {
-  const row = await ensureSubscription(user);
+async function recordWordDownload(user, userToken) {
+  const row = await ensureSubscription(user, userToken);
   const tier = normalizeTier(row.tier);
 
   if (tier !== 'trial') {
@@ -378,7 +404,7 @@ async function recordWordDownload(user) {
 
   const updated = await updateSubscriptionRow(user.id, {
     word_downloads_count: (Number(row.word_downloads_count) || 0) + 1,
-  }, row, user);
+  }, row, user, userToken);
   return {
     ok: true,
     action: 'record_word_download',
@@ -386,14 +412,14 @@ async function recordWordDownload(user) {
   };
 }
 
-async function cancelRenewal(user) {
-  const row = await ensureSubscription(user);
+async function cancelRenewal(user, userToken) {
+  const row = await ensureSubscription(user, userToken);
   if (normalizeTier(row.tier) === 'trial') {
     const err = new Error('אין מנוי בתשלום לביטול');
     err.statusCode = 400;
     throw err;
   }
-  const updated = await updateSubscriptionRow(user.id, { auto_renew: false }, row, user);
+  const updated = await updateSubscriptionRow(user.id, { auto_renew: false }, row, user, userToken);
   return {
     ok: true,
     action: 'cancel_renewal',
@@ -407,6 +433,7 @@ async function cancelRenewal(user) {
 
 async function executeSubscription(req) {
   const body = req.method === 'GET' ? null : parseRequestBody(req);
+  const userToken = extractUserToken(req);
   const user = await resolveUser(req, body);
   const action = body && body.action ? String(body.action).trim() : 'status';
 
@@ -433,10 +460,10 @@ async function executeSubscription(req) {
     };
   }
 
-  if (action === 'record_search') return recordSearch(user);
-  if (action === 'record_word_download') return recordWordDownload(user);
-  if (action === 'cancel_renewal') return cancelRenewal(user);
-  return getStatus(user);
+  if (action === 'record_search') return recordSearch(user, userToken);
+  if (action === 'record_word_download') return recordWordDownload(user, userToken);
+  if (action === 'cancel_renewal') return cancelRenewal(user, userToken);
+  return getStatus(user, userToken);
 }
 
 async function legacyHandler(req, res) {
@@ -464,8 +491,13 @@ async function legacyHandler(req, res) {
 /** Record one live search from an HTTP request (e.g. after /api/generate succeeds). */
 async function recordLiveSearchFromRequest(req) {
   const body = req && req.body;
+  const userToken = extractUserToken(req);
   const user = await resolveUser(req, body);
-  return recordSearch(user);
+  if (!isEnabled()) {
+    console.warn('[subscription] recordLiveSearch skipped — Supabase not configured');
+    return null;
+  }
+  return recordSearch(user, userToken);
 }
 
 module.exports = {
