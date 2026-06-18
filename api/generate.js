@@ -1283,7 +1283,7 @@ async function executeGenerate(body, apiKey) {
         }
         return cached;
       }
-      if (body.phase === 'topic' && !body.confirmArchiveBypass) {
+      if (body.phase === 'topic') {
         const suggestion = await cacheDb.findArchiveTopicSuggestion({
           topic: body.topic,
           gradeId: body.currentGrade ?? body.gradeId,

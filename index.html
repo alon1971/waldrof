@@ -3296,9 +3296,18 @@
       updatePedagogyExportButtonsVisibility();
     }
 
+    function resetArchiveSearchFlowState() {
+      appState.archiveSuggestionPending = false;
+      if (typeof LessonChatSidebar !== 'undefined' && typeof LessonChatSidebar.clearArchiveSuggestionState === 'function') {
+        LessonChatSidebar.clearArchiveSuggestionState();
+      }
+    }
+
     function prepareResearchPayload(payload) {
       const p = withAiLanguage(Object.assign({}, payload || {}));
       if (p.skipCache) delete p.skipCache;
+      delete p.confirmArchiveBypass;
+      delete p.skipArchiveProbe;
       if (!p.noUrlsInstruction) p.noUrlsInstruction = getNoUrlsInstruction();
       if (!p.noLatexInstruction) p.noLatexInstruction = getNoLatexInstruction();
       if (!p.prioritySearchInstruction) p.prioritySearchInstruction = getPrioritySourcesSearchInstruction();
@@ -4383,13 +4392,12 @@
       );
     }
 
-    async function fetchTopicResearchAI(topic, signal, options) {
+    async function fetchTopicResearchAI(topic, signal) {
       const topicStr = String(topic || resolveLessonTopic() || '').trim();
       if (!topicStr) {
         throw new Error(isEnglish() ? 'Topic is required for lesson research.' : 'נדרש נושא למחקר השיעור.');
       }
       appState.topic = topicStr;
-      const opts = options || {};
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
       const gradeCtx = appState.gradeResearch
         ? JSON.stringify(appState.gradeResearch.gradeInsights || appState.gradeResearch).slice(0, 2000)
@@ -4411,7 +4419,6 @@
         gradeLockInstruction: getGradeLockInstruction(),
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
-        confirmArchiveBypass: opts.confirmArchiveBypass === true,
         pedagogyExpandHint: isEnglish()
           ? getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getLazyLoadExpansionInstruction() + ' Generate rich blockPlan.inspiration and blockPlan.curriculum for currentGrade ' + appState.grade + ' (' + appState.gradeLabel + ') only. No nested expansions — fast response. Bibliography: 3+ books, 3+ articles, 3+ websites. Expansions load on button click.'
           : getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getLazyLoadExpansionInstruction() + ' ייצר blockPlan.inspiration ו-blockPlan.curriculum עשירים ל-currentGrade ' + appState.grade + ' («' + appState.gradeLabel + '») בלבד. ללא הרחבות מקוננות — תשובה מהירה. ביבליוגרפיה: 3+ ספרים, 3+ מאמרים, 3+ אתרים. הרחבות בלחיצה על כפתור.',
@@ -7567,20 +7574,16 @@
               rejectBtn.disabled = false;
               updateTopicResearchButton();
             }
-            if (typeof LessonChatSidebar !== 'undefined') {
-              LessonChatSidebar.setDisplayMode('bubble');
-              LessonChatSidebar.showArchiveRefineHint({
-                onAfterShow: focusStepBTopicInput,
-              });
-            }
+            LessonChatSidebar.showArchiveRefineHint({
+              onAfterShow: focusStepBTopicInput,
+            });
           },
         });
       }
       return true;
     }
 
-    async function runTopicResearchGeneration(topic, runId, signal, options) {
-      const opts = options || {};
+    async function runTopicResearchGeneration(topic, runId, signal) {
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
       const topicSlot = document.getElementById('topic-community-slot');
@@ -7594,9 +7597,7 @@
       }
 
       try {
-        const data = await fetchTopicResearchAI(topic, signal, {
-          confirmArchiveBypass: opts.confirmArchiveBypass === true,
-        });
+        const data = await fetchTopicResearchAI(topic, signal);
         if (runId !== topicResearchRunId || signal.aborted) return;
 
         if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
@@ -7666,13 +7667,12 @@
       }
     }
 
-    async function generateLesson(options) {
-      options = options || {};
-      const skipArchiveProbe = options.skipArchiveProbe === true;
+    async function generateLesson() {
+      resetArchiveSearchFlowState();
+
       const topic = document.getElementById('topic-input').value.trim();
       const currentGrade = appState.grade;
       if (!topic || !currentGrade) return;
-      if (appState.archiveSuggestionPending) return;
 
       document.getElementById('api-hint-step2').classList.add('hidden');
       if (topicResearchAbort) topicResearchAbort.abort();
@@ -7682,36 +7682,35 @@
 
       appState.topic = topic;
 
-      if (!skipArchiveProbe) {
-        let archiveMatch = null;
+      let archiveMatch = null;
+      try {
+        if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.refresh === 'function') {
+          try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
+        }
+        archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+      } catch (probeErr) {
+        console.warn('[archive-probe] failed:', probeErr);
+      }
+      if (runId !== topicResearchRunId || signal.aborted) return;
+
+      if (archiveMatch && archiveMatch.matchType === 'exact') {
+        topicResearchAbort = null;
         try {
-          if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.refresh === 'function') {
-            try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
+          await applyArchiveTopicMatch(archiveMatch, { closeChat: false });
+        } catch (archiveErr) {
+          const out = document.getElementById('web-research-result');
+          if (out) {
+            out.classList.remove('hidden');
+            out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(archiveErr.message || String(archiveErr)) + '</p>';
           }
-          archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-        } catch (probeErr) {
-          console.warn('[archive-probe] failed:', probeErr);
         }
-        if (runId !== topicResearchRunId || signal.aborted) return;
+        return;
+      }
 
-        if (archiveMatch && archiveMatch.matchType === 'exact') {
-          topicResearchAbort = null;
-          try {
-            await applyArchiveTopicMatch(archiveMatch, { closeChat: false });
-          } catch (archiveErr) {
-            const out = document.getElementById('web-research-result');
-            if (out) {
-              out.classList.remove('hidden');
-              out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(archiveErr.message || String(archiveErr)) + '</p>';
-            }
-          }
-          return;
-        }
-
-        if (archiveMatch && archiveMatch.matchType === 'partial') {
-          presentArchivePartialMatch(topic, archiveMatch);
-          return;
-        }
+      if (archiveMatch && archiveMatch.matchType === 'partial') {
+        topicResearchAbort = null;
+        presentArchivePartialMatch(topic, archiveMatch);
+        return;
       }
 
       appState.topicResearchCompleted = false;
@@ -7751,9 +7750,7 @@
         return;
       }
 
-      await runTopicResearchGeneration(topic, runId, signal, {
-        confirmArchiveBypass: options.confirmArchiveBypass === true,
-      });
+      await runTopicResearchGeneration(topic, runId, signal);
     }
 
     function renderPersonalList() {

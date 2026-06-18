@@ -252,11 +252,16 @@
         pending.onConfirm(pending);
       } else if (action === 'no') {
         setLoading(false);
-        if (typeof pending.onReject === 'function') {
-          pending.onReject(pending);
+        var rejectHandler = pending.onReject;
+        pending.onConfirm = null;
+        pending.onReject = null;
+        state.pendingArchiveSuggestion = null;
+        if (typeof rejectHandler === 'function') {
+          rejectHandler(pending);
         } else {
           showArchiveRefineHint();
         }
+        return;
       }
       state.pendingArchiveSuggestion = null;
     });
@@ -298,6 +303,20 @@
       var fsThread = fsBody.querySelector('.lesson-chat-fullscreen-thread');
       bindArchiveSuggestClicks(fsThread || fsBody);
     }
+  }
+
+  function clearArchiveSuggestionState() {
+    if (state.pendingArchiveSuggestion) {
+      state.pendingArchiveSuggestion.resolved = true;
+      state.pendingArchiveSuggestion.onConfirm = null;
+      state.pendingArchiveSuggestion.onReject = null;
+      state.pendingArchiveSuggestion = null;
+    }
+    state.messages.forEach(function (m) {
+      if (m && m.archiveSuggest && !m.archiveSuggestResolved) {
+        m.archiveSuggestResolved = true;
+      }
+    });
   }
 
   function showArchiveRefineHint(options) {
@@ -929,9 +948,11 @@
       updateVisibility();
     },
     hasPendingArchiveSuggestion: hasUnresolvedArchiveSuggestion,
+    clearArchiveSuggestionState: clearArchiveSuggestionState,
     showArchiveTopicSuggestion: showArchiveTopicSuggestion,
     showArchiveRefineHint: showArchiveRefineHint,
     reset: function () {
+      clearArchiveSuggestionState();
       state.messages = [buildGreetingMessage()];
       state.sessionKey = '';
       state.ragContext = '';
