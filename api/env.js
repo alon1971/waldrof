@@ -2,6 +2,19 @@
  * Central environment variable access for Waldrof server APIs.
  * Supports standard Render/Vercel names and NEXT_PUBLIC_* aliases for portability.
  */
+const fs = require('fs');
+const path = require('path');
+
+(function loadDotEnv() {
+  const envPath = path.join(__dirname, '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+  fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach(function (line) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (m && process.env[m[1]] === undefined) {
+      process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+    }
+  });
+})();
 
 function cleanUrl(value) {
   return String(value || '').trim().replace(/\/$/, '');

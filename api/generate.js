@@ -1137,12 +1137,7 @@ function validatePhaseResult(phase, data) {
 }
 
 function resolveApiKey() {
-  const key =
-    process.env.PERPLEXITY_API_KEY ||
-    process.env.AI_API_KEY ||
-    process.env.PPLX_API_KEY ||
-    env.getPerplexityApiKey();
-  const trimmed = key ? String(key).trim() : '';
+  const trimmed = env.getPerplexityApiKey();
   return trimmed || null;
 }
 

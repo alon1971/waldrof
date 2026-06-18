@@ -88,6 +88,13 @@ function createApiResponse(nativeRes) {
       nativeRes.writeHead(state.statusCode, state.headers);
       nativeRes.end(cacheDb.safeJsonStringify(payload));
     },
+    send: function (payload) {
+      if (!state.headers['Content-Type']) {
+        state.headers['Content-Type'] = 'application/json; charset=utf-8';
+      }
+      nativeRes.writeHead(state.statusCode, state.headers);
+      nativeRes.end(typeof payload === 'string' ? payload : cacheDb.safeJsonStringify(payload));
+    },
     end: function () {
       nativeRes.writeHead(state.statusCode, state.headers);
       nativeRes.end();

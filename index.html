@@ -45,11 +45,11 @@
       --app-page-title-size: 20px;
       --app-brand-title-size: 24px;
       --app-content-size: 1.125rem;
-      --app-content-line: 1.6;
-      --app-content-h3-size: 1.375rem;
-      --app-content-h4-size: 1.25rem;
-      --app-content-h5-size: 1.1875rem;
-      --app-content-h6-size: 1.125rem;
+      --app-content-line: 1.65;
+      --app-content-h3-size: 1.5rem;
+      --app-content-h4-size: 1.3125rem;
+      --app-content-h5-size: 1.25rem;
+      --app-content-h6-size: 1.1875rem;
     }
     @media (min-width: 640px) {
       :root { --app-brand-title-size: 26px; }
@@ -162,7 +162,8 @@
     }
     body.app-typography .prose-ai li { margin-bottom: 0.35rem; }
     /* Workspace tabs — larger readable pedagogical body text (not site header/chrome) */
-    #workspace .product-tab-panel {
+    #workspace .product-tab-panel,
+    #product-panels-shell .product-tab-panel {
       font-size: var(--app-content-size);
       line-height: var(--app-content-line);
       --app-body-size: var(--app-content-size);
@@ -175,6 +176,9 @@
     #workspace .product-tab-panel th,
     #workspace .product-tab-panel dd,
     #workspace .product-tab-panel dt,
+    #workspace .product-tab-panel span,
+    #workspace .product-tab-panel blockquote,
+    #workspace .product-tab-panel .leading-relaxed,
     #workspace .product-tab-panel .prose-ai,
     #workspace .product-tab-panel .prose-ai p,
     #workspace .product-tab-panel .prose-ai li,
@@ -196,7 +200,38 @@
     #workspace .product-tab-panel .inline-expand-inner ol,
     #workspace .product-tab-panel .inline-expand-inner ul,
     #workspace .product-tab-panel .curriculum-card-detail p,
-    #workspace .product-tab-panel .curriculum-card-detail li {
+    #workspace .product-tab-panel .curriculum-card-detail li,
+    #product-panels-shell .product-tab-panel p,
+    #product-panels-shell .product-tab-panel li,
+    #product-panels-shell .product-tab-panel td,
+    #product-panels-shell .product-tab-panel th,
+    #product-panels-shell .product-tab-panel dd,
+    #product-panels-shell .product-tab-panel dt,
+    #product-panels-shell .product-tab-panel span,
+    #product-panels-shell .product-tab-panel blockquote,
+    #product-panels-shell .product-tab-panel .leading-relaxed,
+    #product-panels-shell .product-tab-panel .prose-ai,
+    #product-panels-shell .product-tab-panel .prose-ai p,
+    #product-panels-shell .product-tab-panel .prose-ai li,
+    #product-panels-shell .product-tab-panel .prose-ai td,
+    #product-panels-shell .product-tab-panel .prose-ai th,
+    #product-panels-shell .product-tab-panel .prose-ai blockquote,
+    #product-panels-shell .product-tab-panel .prose-ai strong,
+    #product-panels-shell .product-tab-panel .theory-bibliography-card,
+    #product-panels-shell .product-tab-panel .theory-bibliography-card p,
+    #product-panels-shell .product-tab-panel .theory-bibliography-card li,
+    #product-panels-shell .product-tab-panel .theory-bib-list,
+    #product-panels-shell .product-tab-panel .theory-bib-source-text,
+    #product-panels-shell .product-tab-panel .pedagogy-suggestion-card,
+    #product-panels-shell .product-tab-panel .pedagogy-suggestion-label,
+    #product-panels-shell .product-tab-panel .inline-expand-panel,
+    #product-panels-shell .product-tab-panel .inline-expand-inner,
+    #product-panels-shell .product-tab-panel .inline-expand-inner p,
+    #product-panels-shell .product-tab-panel .inline-expand-inner li,
+    #product-panels-shell .product-tab-panel .inline-expand-inner ol,
+    #product-panels-shell .product-tab-panel .inline-expand-inner ul,
+    #product-panels-shell .product-tab-panel .curriculum-card-detail p,
+    #product-panels-shell .product-tab-panel .curriculum-card-detail li {
       font-size: var(--app-content-size) !important;
       line-height: var(--app-content-line) !important;
     }
@@ -206,31 +241,49 @@
     #workspace .product-tab-panel .prose-ai h2,
     #workspace .product-tab-panel .prose-ai h3,
     #workspace .product-tab-panel .theory-bib-main-title,
-    #workspace .product-tab-panel .theory-bib-category-title {
+    #workspace .product-tab-panel .theory-bib-category-title,
+    #product-panels-shell .product-tab-panel h3,
+    #product-panels-shell .product-tab-panel h3.app-subhead,
+    #product-panels-shell .product-tab-panel .prose-ai h1,
+    #product-panels-shell .product-tab-panel .prose-ai h2,
+    #product-panels-shell .product-tab-panel .prose-ai h3,
+    #product-panels-shell .product-tab-panel .theory-bib-main-title,
+    #product-panels-shell .product-tab-panel .theory-bib-category-title {
       font-size: var(--app-content-h3-size) !important;
       line-height: 1.45 !important;
     }
     #workspace .product-tab-panel h4,
     #workspace .product-tab-panel h4.app-subhead,
-    #workspace .product-tab-panel .prose-ai h4 {
+    #workspace .product-tab-panel .prose-ai h4,
+    #product-panels-shell .product-tab-panel h4,
+    #product-panels-shell .product-tab-panel h4.app-subhead,
+    #product-panels-shell .product-tab-panel .prose-ai h4 {
       font-size: var(--app-content-h4-size) !important;
       line-height: 1.45 !important;
     }
     #workspace .product-tab-panel h5,
     #workspace .product-tab-panel h5.app-subhead,
-    #workspace .product-tab-panel .prose-ai h5 {
+    #workspace .product-tab-panel .prose-ai h5,
+    #product-panels-shell .product-tab-panel h5,
+    #product-panels-shell .product-tab-panel h5.app-subhead,
+    #product-panels-shell .product-tab-panel .prose-ai h5 {
       font-size: var(--app-content-h5-size) !important;
       line-height: 1.45 !important;
     }
     #workspace .product-tab-panel h6,
     #workspace .product-tab-panel h6.app-subhead,
-    #workspace .product-tab-panel .prose-ai h6 {
+    #workspace .product-tab-panel .prose-ai h6,
+    #product-panels-shell .product-tab-panel h6,
+    #product-panels-shell .product-tab-panel h6.app-subhead,
+    #product-panels-shell .product-tab-panel .prose-ai h6 {
       font-size: var(--app-content-h6-size) !important;
       line-height: 1.45 !important;
       font-weight: 600;
     }
     #workspace .product-tab-panel .app-micro,
-    #workspace .product-tab-panel .text-xs {
+    #workspace .product-tab-panel .text-xs,
+    #product-panels-shell .product-tab-panel .app-micro,
+    #product-panels-shell .product-tab-panel .text-xs {
       font-size: 0.8125rem !important;
       line-height: 1.4 !important;
     }
@@ -4507,7 +4560,7 @@
       if (!bodyHtml && !listHtml) return '';
       return '<article class="grade-insights-part">' +
         '<h4 class="grade-insights-part-title"><i class="fa-solid ' + icon + ' text-sage"></i> ' + escapeHtml(t(titleKey)) + '</h4>' +
-        (bodyHtml ? '<div class="leading-relaxed">' + bodyHtml + '</div>' : '') +
+        (bodyHtml ? '<div class="text-lg leading-relaxed">' + bodyHtml + '</div>' : '') +
         listHtml +
         '</article>';
     }
@@ -4524,7 +4577,7 @@
         html += '<div class="rounded-xl border border-gold/30 bg-white/70 p-3">' +
           '<p class="text-sm font-semibold text-walnut mb-2">' + escapeHtml(t('grade_chat_enrichment_q', { n: enrichments.length - index })) +
           ': ' + escapeHtml(q) + '</p>' +
-          '<div class="leading-relaxed prose-ai">' + ensureAiHtml(body) + '</div></div>';
+          '<div class="text-lg leading-relaxed prose-ai">' + ensureAiHtml(body) + '</div></div>';
       });
       html += '</div></article>';
       return html;
@@ -8959,7 +9012,7 @@
         const secId = buildPedagogyItemId('theory', 'sec', i, sec.heading);
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + sec.icon + ' text-sage-dark"></i></span>' + escapeHtml(sec.heading) + '</h3>' +
-          '<div class="leading-relaxed">' + ensureAiHtml(sec.content) + '</div>';
+          '<div class="text-lg leading-relaxed prose-ai">' + ensureAiHtml(sec.content) + '</div>';
         if (sec.quotes) {
           sec.quotes.forEach(function (q) {
             html += '<blockquote class="border-r-4 border-terracotta bg-parchment/60 rounded-l-xl px-4 py-3 mt-3 italic">«' + escapeHtml(q.text) + '»<footer class="text-walnut/60 mt-1">— ' + escapeHtml(q.source) + '</footer></blockquote>';

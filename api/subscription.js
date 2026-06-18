@@ -56,7 +56,13 @@ function setCors(res) {
 function sendJson(res, statusCode, payload) {
   setCors(res);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  return res.status(statusCode).send(cacheDb.safeJsonStringify(payload));
+  if (typeof res.json === 'function') {
+    return res.status(statusCode).json(payload);
+  }
+  if (typeof res.send === 'function') {
+    return res.status(statusCode).send(cacheDb.safeJsonStringify(payload));
+  }
+  throw new Error('sendJson: response adapter missing json/send');
 }
 
 function pickDefinedFields(obj) {
@@ -132,13 +138,13 @@ async function supabaseRequest(pathSuffix, options, userToken) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !(cfg.serviceKey || cfg.anonKey)) throw new Error('Supabase not configured');
 
-  const res = await fetch(cfg.url + pathSuffix, Object.assign({
-    headers: Object.assign(
-      buildSupabaseAuthHeaders(userToken),
-      (options && options.headers) || {}
-    ),
-  }, options || {}));
-
+  const opts = options || {};
+  const headers = Object.assign(
+    {},
+    buildSupabaseAuthHeaders(userToken),
+    opts.headers || {}
+  );
+  const res = await fetch(cfg.url + pathSuffix, Object.assign({}, opts, { headers }));
   return res;
 }
 
