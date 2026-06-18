@@ -6,30 +6,37 @@
   'use strict';
 
   var STORAGE_AUTH = 'waldorf_auth_v1';
-  var STORAGE_USAGE = 'waldorf_search_usage_v1';
+  var STORAGE_USAGE = 'waldorf_search_usage_v2';
+  var SUPPORT_WHATSAPP = '';
 
-  /** Hidden fair-use cap for Expert tier (not shown in UI). */
-  var EXPERT_FAIR_USE_CAP = 1000;
+  var LEGACY_TIER_MAP = {
+    educator: 'standard',
+    expert: 'pro',
+  };
 
   var TIERS = {
     trial: {
       id: 'trial',
-      dailyLimit: 1000,
+      lifetimeLimit: 20,
+      monthlyLimit: null,
       displayUnlimited: false,
       prices: { monthly: 0, yearly: 0 },
     },
-    educator: {
-      id: 'educator',
-      dailyLimit: 1000,
+    standard: {
+      id: 'standard',
+      monthlyLimit: 300,
+      lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 50, yearly: 400 },
+      prices: { monthly: 50, yearly: 500 },
+      yearlySavingsKey: 'pricing_standard_yearly_deal',
     },
-    expert: {
-      id: 'expert',
-      dailyLimit: null,
-      fairUseCap: EXPERT_FAIR_USE_CAP,
-      displayUnlimited: true,
-      prices: { monthly: 100, yearly: 900 },
+    pro: {
+      id: 'pro',
+      monthlyLimit: 600,
+      lifetimeLimit: null,
+      displayUnlimited: false,
+      prices: { monthly: 80, yearly: 640 },
+      yearlySavingsKey: 'pricing_pro_yearly_deal',
     },
   };
 
@@ -39,6 +46,11 @@
     tier: 'trial',
     provider: 'mock',
     sessionReady: false,
+    autoRenew: true,
+    billingCycle: null,
+    usagePeriod: 'lifetime',
+    searchesUsed: 0,
+    searchLimit: 20,
   };
 
   var listeners = [];
@@ -133,10 +145,16 @@
     return new Error(err.message || t('auth_err_supabase'));
   }
 
+  function normalizeTierId(tierId) {
+    var t = String(tierId || 'trial').trim().toLowerCase();
+    if (LEGACY_TIER_MAP[t]) return LEGACY_TIER_MAP[t];
+    return TIERS[t] ? t : 'trial';
+  }
+
   function resolveTierFromUser(user) {
     var meta = (user && user.user_metadata) || {};
     var tier = meta.tier || meta.subscription_tier;
-    return tier && TIERS[tier] ? tier : 'trial';
+    return normalizeTierId(tier);
   }
 
   function mapSupabaseUser(user) {
@@ -157,7 +175,9 @@
     authState.tier = resolveTierFromUser(user);
     persistAuth();
     hideAuthOverlay();
-    notifyListeners();
+    refreshSubscriptionFromServer().finally(function () {
+      notifyListeners();
+    });
   }
 
   function clearAuthErrors() {
@@ -211,38 +231,134 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
+  function monthKey() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
   function readUsage() {
     try {
       var raw = localStorage.getItem(STORAGE_USAGE);
-      if (!raw) return { date: todayKey(), count: 0 };
+      if (!raw) return { period: monthKey(), count: 0, lifetime: 0 };
       var data = JSON.parse(raw);
-      if (!data || data.date !== todayKey()) return { date: todayKey(), count: 0 };
-      return { date: data.date, count: Number(data.count) || 0 };
+      var tier = normalizeTierId(authState.tier);
+      if (tier === 'trial') {
+        return { period: 'lifetime', count: Number(data.lifetime) || 0, lifetime: Number(data.lifetime) || 0 };
+      }
+      if (!data || data.period !== monthKey()) return { period: monthKey(), count: 0, lifetime: Number(data.lifetime) || 0 };
+      return { period: data.period, count: Number(data.count) || 0, lifetime: Number(data.lifetime) || 0 };
     } catch (e) {
-      return { date: todayKey(), count: 0 };
+      return { period: monthKey(), count: 0, lifetime: 0 };
     }
   }
 
-  function writeUsage(count) {
+  function writeUsage(usage) {
     try {
-      localStorage.setItem(STORAGE_USAGE, JSON.stringify({ date: todayKey(), count: count }));
+      var tier = normalizeTierId(authState.tier);
+      var payload = {
+        period: tier === 'trial' ? 'lifetime' : monthKey(),
+        count: usage.count || 0,
+        lifetime: usage.lifetime != null ? usage.lifetime : (usage.count || 0),
+      };
+      localStorage.setItem(STORAGE_USAGE, JSON.stringify(payload));
     } catch (e) { /* quota */ }
   }
 
-  function getTierConfig(tierId) {
-    return TIERS[tierId] || TIERS.trial;
+  function applyServerUsage(usage) {
+    if (!usage) return;
+    authState.tier = normalizeTierId(usage.tier || authState.tier);
+    authState.searchesUsed = Number(usage.searchesUsed) || 0;
+    authState.searchLimit = usage.searchLimit != null ? usage.searchLimit : authState.searchLimit;
+    authState.usagePeriod = usage.usagePeriod || authState.usagePeriod;
+    if (usage.autoRenew != null) authState.autoRenew = usage.autoRenew !== false;
+    if (usage.billingCycle != null) authState.billingCycle = usage.billingCycle;
+    var tier = normalizeTierId(authState.tier);
+    if (tier === 'trial') {
+      writeUsage({ count: authState.searchesUsed, lifetime: authState.searchesUsed });
+    } else {
+      writeUsage({ count: authState.searchesUsed, lifetime: readUsage().lifetime });
+    }
   }
 
-  function getDailyLimit(tierId) {
+  function subscriptionApiUrl() {
+    try {
+      if (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:') {
+        return location.origin + '/api/subscription';
+      }
+    } catch (e) { /* */ }
+    return '/api/subscription';
+  }
+
+  function fetchSubscriptionAction(action) {
+    if (!authState.isAuthenticated) return Promise.resolve(null);
+    return getAccessToken().then(function (token) {
+      var headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = 'Bearer ' + token;
+      var body = { action: action || 'status' };
+      if (authState.user) {
+        body.teacherUser = {
+          id: authState.user.id,
+          email: authState.user.email,
+          displayName: authState.user.displayName,
+          tier: authState.tier,
+        };
+      }
+      return fetch(subscriptionApiUrl(), {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body),
+      }).then(function (res) {
+        return res.json().then(function (json) {
+          if (!res.ok) {
+            var err = new Error((json && json.error) || 'subscription error');
+            err.code = json && json.code;
+            err.usage = json && json.usage;
+            throw err;
+          }
+          return (json && json.data) || json;
+        });
+      });
+    }).catch(function (err) {
+      console.warn('[Auth] subscription sync failed', err.message || err);
+      return null;
+    });
+  }
+
+  function refreshSubscriptionFromServer() {
+    return fetchSubscriptionAction('status').then(function (data) {
+      if (!data) return null;
+      if (data.subscription && data.subscription.tier) {
+        authState.tier = normalizeTierId(data.subscription.tier);
+        authState.autoRenew = data.subscription.autoRenew !== false;
+        authState.billingCycle = data.subscription.billingCycle || null;
+      }
+      if (data.usage) applyServerUsage(data.usage);
+      persistAuth();
+      notifyListeners();
+      return data;
+    });
+  }
+
+  function getTierConfig(tierId) {
+    return TIERS[normalizeTierId(tierId)] || TIERS.trial;
+  }
+
+  function getEffectiveLimit(tierId) {
     var tier = getTierConfig(tierId || authState.tier);
-    if (tier.displayUnlimited) return tier.fairUseCap || EXPERT_FAIR_USE_CAP;
-    return tier.dailyLimit;
+    if (authState.searchLimit != null && normalizeTierId(tierId || authState.tier) === normalizeTierId(authState.tier)) {
+      return authState.searchLimit;
+    }
+    if (tier.lifetimeLimit != null) return tier.lifetimeLimit;
+    return tier.monthlyLimit;
   }
 
   function getDisplayLimit(tierId) {
-    var tier = getTierConfig(tierId || authState.tier);
-    if (tier.displayUnlimited) return null;
-    return tier.dailyLimit;
+    return getEffectiveLimit(tierId);
+  }
+
+  function getSearchesUsed() {
+    if (authState.searchesUsed != null) return authState.searchesUsed;
+    return readUsage().count;
   }
 
   function persistAuth() {
@@ -275,7 +391,7 @@
       }
       authState.isAuthenticated = true;
       authState.user = data.user;
-      authState.tier = data.tier || 'trial';
+      authState.tier = normalizeTierId(data.tier || 'trial');
       authState.provider = data.provider || 'mock';
       return true;
     } catch (e) {
@@ -294,17 +410,23 @@
   function getPublicState() {
     var usage = readUsage();
     var displayLimit = getDisplayLimit();
-    var effectiveLimit = getDailyLimit();
+    var used = getSearchesUsed();
+  var effectiveLimit = getEffectiveLimit();
     return {
       isAuthenticated: authState.isAuthenticated,
       user: authState.user ? Object.assign({}, authState.user) : null,
-      tier: authState.tier,
+      tier: normalizeTierId(authState.tier),
       provider: authState.provider,
       sessionReady: authState.sessionReady,
-      searchesToday: usage.count,
+      autoRenew: authState.autoRenew,
+      billingCycle: authState.billingCycle,
+      usagePeriod: authState.usagePeriod || (normalizeTierId(authState.tier) === 'trial' ? 'lifetime' : 'monthly'),
+      searchesToday: used,
+      searchesUsed: used,
       dailyLimit: displayLimit,
+      searchLimit: displayLimit,
       effectiveLimit: effectiveLimit,
-      remaining: displayLimit === null ? null : Math.max(0, displayLimit - usage.count),
+      remaining: displayLimit === null ? null : Math.max(0, displayLimit - used),
       tierConfig: getTierConfig(authState.tier),
     };
   }
@@ -509,7 +631,7 @@
       email: externalUser.email || '',
       displayName: externalUser.displayName || externalUser.user_metadata && externalUser.user_metadata.full_name || '',
     };
-    authState.tier = tier && TIERS[tier] ? tier : authState.tier || 'trial';
+    authState.tier = tier && TIERS[normalizeTierId(tier)] ? normalizeTierId(tier) : authState.tier || 'trial';
     persistAuth();
     hideAuthOverlay();
     notifyListeners();
@@ -575,47 +697,74 @@
   }
 
   function setTier(tierId) {
-    if (!TIERS[tierId]) return;
-    authState.tier = tierId;
+    var normalized = normalizeTierId(tierId);
+    if (!TIERS[normalized]) return;
+    authState.tier = normalized;
     persistAuth();
     notifyListeners();
   }
 
   function mockUpgrade(tierId, billingCycle) {
     if (!authState.isAuthenticated) return Promise.reject(new Error(t('auth_err_sign_in_first')));
-    if (!TIERS[tierId]) return Promise.reject(new Error('Invalid tier'));
-    authState.tier = tierId;
-    persistAuth();
-    hidePricingModal();
-    notifyListeners();
-    return Promise.resolve({ tier: tierId, billingCycle: billingCycle || 'monthly' });
+    var normalized = normalizeTierId(tierId);
+    if (!TIERS[normalized]) return Promise.reject(new Error('Invalid tier'));
+    if (normalized === 'trial') {
+      authState.tier = normalized;
+      persistAuth();
+      hidePricingModal();
+      notifyListeners();
+      return Promise.resolve({ tier: normalized, billingCycle: billingCycle || 'monthly' });
+    }
+    showCheckoutSoonModal(normalized, billingCycle || pricingBillingCycle);
+    return Promise.resolve({ tier: normalized, billingCycle: billingCycle || pricingBillingCycle, pendingCheckout: true });
   }
 
   /* ── Rate limiter ────────────────────────────────────────────────────── */
 
   function canPerformSearch() {
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
-    var usage = readUsage();
-    var limit = getDailyLimit();
-    if (usage.count >= limit) {
-      return { allowed: false, reason: 'limit', usage: usage.count, limit: limit };
+    var used = getSearchesUsed();
+    var limit = getEffectiveLimit();
+    if (used >= limit) {
+      return { allowed: false, reason: 'limit', usage: used, limit: limit };
     }
-    return { allowed: true, usage: usage.count, limit: limit };
+    return { allowed: true, usage: used, limit: limit };
   }
 
   function recordSearch() {
-    var usage = readUsage();
-    usage.count += 1;
-    writeUsage(usage.count);
-    notifyListeners();
-    return usage.count;
+    return fetchSubscriptionAction('record_search').then(function (data) {
+      if (data && data.usage) {
+        applyServerUsage(data.usage);
+        notifyListeners();
+        return data.usage.searchesUsed;
+      }
+      var usage = readUsage();
+      var tier = normalizeTierId(authState.tier);
+      if (tier === 'trial') {
+        usage.lifetime = (Number(usage.lifetime) || 0) + 1;
+        usage.count = usage.lifetime;
+      } else {
+        if (usage.period !== monthKey()) {
+          usage.period = monthKey();
+          usage.count = 0;
+        }
+        usage.count += 1;
+      }
+      writeUsage(usage);
+      authState.searchesUsed = usage.count;
+      notifyListeners();
+      return usage.count;
+    });
   }
 
   function assertSearchAllowed() {
     var check = canPerformSearch();
     if (!check.allowed) {
       if (check.reason === 'auth') showAuthOverlay();
-      else showRateLimitModal(check);
+      else {
+        showRateLimitModal(check);
+        showPricingModal();
+      }
       var err = new Error(t('rate_limit_exceeded'));
       err.code = 'RATE_LIMIT';
       err.details = check;
@@ -630,8 +779,7 @@
       var args = arguments;
       var self = this;
       return Promise.resolve(fn.apply(self, args)).then(function (result) {
-        recordSearch();
-        return result;
+        return recordSearch().then(function () { return result; });
       });
     };
   }
@@ -685,9 +833,10 @@
     var msg = document.getElementById('rate-limit-message');
     if (msg) {
       var displayLimit = getDisplayLimit();
+      var used = check && check.usage != null ? check.usage : getSearchesUsed();
       var text = t('rate_limit_body', {
-        used: check && check.usage != null ? check.usage : readUsage().count,
-        limit: displayLimit != null ? displayLimit : getDailyLimit(),
+        used: used,
+        limit: displayLimit != null ? displayLimit : getEffectiveLimit(),
       });
       msg.textContent = text;
     }
@@ -715,26 +864,141 @@
     return amount + ' ₪' + suffix;
   }
 
+  function whatsAppSupportUrl(message) {
+    var phone = String(SUPPORT_WHATSAPP || '').replace(/\D/g, '');
+    if (!phone) return 'https://wa.me/?text=' + encodeURIComponent(message || '');
+    return 'https://wa.me/' + phone + '?text=' + encodeURIComponent(message || '');
+  }
+
+  function showCheckoutSoonModal(tierId, billingCycle) {
+    var el = document.getElementById('checkout-soon-modal');
+    var msg = document.getElementById('checkout-soon-message');
+    var link = document.getElementById('checkout-soon-whatsapp');
+    if (msg) {
+      msg.textContent = t('checkout_soon_body');
+    }
+    if (link) {
+      var tierName = tierLabel(tierId);
+      var cycleLabel = billingCycle === 'yearly' ? t('pricing_billing_yearly') : t('pricing_billing_monthly');
+      link.href = whatsAppSupportUrl(t('checkout_whatsapp_prefill', { tier: tierName, cycle: cycleLabel }));
+    }
+    hidePricingModal();
+    if (el) {
+      el.classList.remove('hidden');
+      el.setAttribute('aria-hidden', 'false');
+    }
+  }
+
+  function hideCheckoutSoonModal() {
+    var el = document.getElementById('checkout-soon-modal');
+    if (el) {
+      el.classList.add('hidden');
+      el.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function showUserSettingsModal() {
+    if (!authState.isAuthenticated) {
+      showAuthOverlay();
+      return;
+    }
+    var el = document.getElementById('user-settings-modal');
+    var tierEl = document.getElementById('user-settings-tier');
+    var usageEl = document.getElementById('user-settings-usage');
+    var renewEl = document.getElementById('user-settings-renew');
+    var cancelBtn = document.getElementById('btn-cancel-subscription');
+    var state = getPublicState();
+    if (tierEl) tierEl.textContent = tierLabel(state.tier);
+    if (usageEl) {
+      usageEl.textContent = state.searchLimit != null
+        ? (state.searchesUsed + ' / ' + state.searchLimit)
+        : String(state.searchesUsed);
+    }
+    if (renewEl) {
+      renewEl.textContent = state.tier === 'trial'
+        ? t('user_settings_trial_renew')
+        : (state.autoRenew ? t('user_settings_renew_on') : t('user_settings_renew_off'));
+    }
+    if (cancelBtn) {
+      cancelBtn.classList.toggle('hidden', state.tier === 'trial');
+      cancelBtn.disabled = state.tier === 'trial';
+    }
+    if (el) {
+      el.classList.remove('hidden');
+      el.setAttribute('aria-hidden', 'false');
+    }
+  }
+
+  function hideUserSettingsModal() {
+    var el = document.getElementById('user-settings-modal');
+    if (el) {
+      el.classList.add('hidden');
+      el.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function showCancelSubscriptionModal() {
+    var el = document.getElementById('cancel-subscription-modal');
+    if (el) {
+      el.classList.remove('hidden');
+      el.setAttribute('aria-hidden', 'false');
+    }
+  }
+
+  function hideCancelSubscriptionModal() {
+    var el = document.getElementById('cancel-subscription-modal');
+    if (el) {
+      el.classList.add('hidden');
+      el.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function confirmCancelSubscription() {
+    return fetchSubscriptionAction('cancel_renewal').then(function (data) {
+      authState.autoRenew = false;
+      if (data && data.subscription) {
+        authState.tier = normalizeTierId(data.subscription.tier || authState.tier);
+      }
+      persistAuth();
+      hideCancelSubscriptionModal();
+      hideUserSettingsModal();
+      notifyListeners();
+      var followup = document.getElementById('cancel-subscription-followup');
+      var link = document.getElementById('cancel-subscription-whatsapp');
+      if (link) link.href = whatsAppSupportUrl(t('cancel_subscription_whatsapp_prefill'));
+      if (followup) {
+        followup.classList.remove('hidden');
+        followup.setAttribute('aria-hidden', 'false');
+      }
+      return data;
+    }).catch(function (err) {
+      alert((err && err.message) || t('cancel_subscription_error'));
+    });
+  }
+
   function renderPricingCards() {
     var grid = document.getElementById('pricing-tier-grid');
     if (!grid) return;
-    var current = authState.tier;
+    var current = normalizeTierId(authState.tier);
     var cycle = pricingBillingCycle;
-    var order = ['trial', 'educator', 'expert'];
+    var order = ['trial', 'standard', 'pro'];
 
     grid.innerHTML = order.map(function (tierId) {
       var tier = TIERS[tierId];
       var isCurrent = tierId === current;
-      var featured = tierId === 'educator';
+      var featured = tierId === 'standard';
       var price = tierId === 'trial' ? t('pricing_free') : formatPrice(tier.prices[cycle], cycle);
       var altPrice = tierId !== 'trial' && cycle === 'monthly'
         ? t('pricing_or_yearly', { amount: tier.prices.yearly })
         : (tierId !== 'trial' && cycle === 'yearly'
           ? t('pricing_or_monthly', { amount: tier.prices.monthly })
           : '');
-      var limitText = tier.displayUnlimited
-        ? t('tier_expert_searches')
-        : t('tier_searches_per_day', { count: tier.dailyLimit });
+      var savings = tierId !== 'trial' && cycle === 'yearly' && tier.yearlySavingsKey
+        ? '<p class="pricing-tier-savings">' + escapeHtml(t(tier.yearlySavingsKey)) + '</p>'
+        : '';
+      var limitText = tier.lifetimeLimit != null
+        ? t('tier_searches_lifetime', { count: tier.lifetimeLimit })
+        : t('tier_searches_per_month', { count: tier.monthlyLimit });
 
       return (
         '<article class="pricing-tier-card' + (featured ? ' pricing-tier-card--featured' : '') + (isCurrent ? ' pricing-tier-card--current' : '') + '" data-tier="' + tierId + '">' +
@@ -743,12 +1007,14 @@
           '<h3 class="pricing-tier-name font-display">' + escapeHtml(tierLabel(tierId)) + '</h3>' +
           '<p class="pricing-tier-price font-display">' + escapeHtml(price) + '</p>' +
           (altPrice ? '<p class="pricing-tier-alt">' + escapeHtml(altPrice) + '</p>' : '') +
+          savings +
           '<p class="pricing-tier-limit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> ' + escapeHtml(limitText) + '</p>' +
           '<ul class="pricing-tier-features">' +
             (tierId === 'trial' ? '<li>' + escapeHtml(t('tier_trial_feature')) + '</li>' : '') +
-            (tierId === 'educator' ? '<li>' + escapeHtml(t('tier_educator_feature_1')) + '</li><li>' + escapeHtml(t('tier_educator_feature_2')) + '</li>' : '') +
-            (tierId === 'expert' ? '<li>' + escapeHtml(t('tier_expert_feature_1')) + '</li><li>' + escapeHtml(t('tier_expert_feature_2')) + '</li>' : '') +
+            (tierId === 'standard' ? '<li>' + escapeHtml(t('tier_standard_feature_1')) + '</li><li>' + escapeHtml(t('tier_standard_feature_2')) + '</li>' : '') +
+            (tierId === 'pro' ? '<li>' + escapeHtml(t('tier_pro_feature_1')) + '</li><li>' + escapeHtml(t('tier_pro_feature_2')) + '</li>' : '') +
           '</ul>' +
+          '<p class="pricing-tier-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>' +
           (tierId === 'trial'
             ? '<button type="button" class="pricing-tier-btn pricing-tier-btn--outline" data-pricing-select="trial"' + (isCurrent ? ' disabled' : '') + '>' +
                 escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_start_trial')) +
@@ -783,7 +1049,9 @@
     if (nameEl) nameEl.textContent = authState.user.displayName || authState.user.email || '';
     if (tierEl) {
       tierEl.textContent = tierLabel(authState.tier);
-      tierEl.className = 'user-tier-badge user-tier-badge--' + authState.tier;
+      tierEl.className = 'user-tier-badge user-tier-badge--' + (typeof WaldorfAuth.normalizeTierId === 'function'
+        ? WaldorfAuth.normalizeTierId(authState.tier)
+        : authState.tier);
     }
   }
 
@@ -795,22 +1063,27 @@
       return;
     }
     meter.classList.remove('hidden');
-    var usage = readUsage();
+    var used = getSearchesUsed();
     var displayLimit = getDisplayLimit();
     var countEl = document.getElementById('search-usage-count');
     var labelEl = document.getElementById('search-usage-label');
     var fillEl = document.getElementById('search-usage-fill');
+    var tier = normalizeTierId(authState.tier);
     if (countEl) {
-      countEl.textContent = displayLimit === null
-        ? usage.count + ' ' + t('search_usage_today_unlimited')
-        : usage.count + ' / ' + displayLimit;
+      countEl.textContent = displayLimit != null
+        ? used + ' / ' + displayLimit
+        : String(used);
     }
-    if (labelEl) labelEl.textContent = t('search_usage_label');
+    if (labelEl) {
+      labelEl.textContent = tier === 'trial'
+        ? t('search_usage_label_trial')
+        : t('search_usage_label_monthly');
+    }
     if (fillEl) {
-      var pct = displayLimit ? Math.min(100, (usage.count / displayLimit) * 100) : Math.min(100, (usage.count / 80) * 100);
+      var pct = displayLimit ? Math.min(100, (used / displayLimit) * 100) : 0;
       fillEl.style.width = pct + '%';
-      fillEl.classList.toggle('search-usage-fill--warning', displayLimit && usage.count >= displayLimit * 0.85);
-      fillEl.classList.toggle('search-usage-fill--danger', displayLimit && usage.count >= displayLimit);
+      fillEl.classList.toggle('search-usage-fill--warning', displayLimit && used >= displayLimit * 0.85);
+      fillEl.classList.toggle('search-usage-fill--danger', displayLimit && used >= displayLimit);
     }
   }
 
@@ -880,6 +1153,8 @@
 
     var btnUpgrade = document.getElementById('btn-open-pricing');
     if (btnUpgrade) btnUpgrade.addEventListener('click', showPricingModal);
+    var btnSettings = document.getElementById('btn-user-settings');
+    if (btnSettings) btnSettings.addEventListener('click', showUserSettingsModal);
     var btnSignOut = document.getElementById('btn-auth-signout');
     if (btnSignOut) btnSignOut.addEventListener('click', function () { signOut(); });
 
@@ -887,6 +1162,33 @@
     if (pricingClose) pricingClose.addEventListener('click', hidePricingModal);
     var pricingBackdrop = document.getElementById('pricing-modal-backdrop');
     if (pricingBackdrop) pricingBackdrop.addEventListener('click', hidePricingModal);
+
+    var checkoutClose = document.getElementById('checkout-soon-close');
+    if (checkoutClose) checkoutClose.addEventListener('click', hideCheckoutSoonModal);
+    var checkoutBackdrop = document.getElementById('checkout-soon-backdrop');
+    if (checkoutBackdrop) checkoutBackdrop.addEventListener('click', hideCheckoutSoonModal);
+
+    var settingsClose = document.getElementById('user-settings-close');
+    if (settingsClose) settingsClose.addEventListener('click', hideUserSettingsModal);
+    var settingsBackdrop = document.getElementById('user-settings-backdrop');
+    if (settingsBackdrop) settingsBackdrop.addEventListener('click', hideUserSettingsModal);
+
+    var cancelOpen = document.getElementById('btn-cancel-subscription');
+    if (cancelOpen) cancelOpen.addEventListener('click', showCancelSubscriptionModal);
+    var cancelDismiss = document.getElementById('cancel-subscription-dismiss');
+    if (cancelDismiss) cancelDismiss.addEventListener('click', hideCancelSubscriptionModal);
+    var cancelBackdrop = document.getElementById('cancel-subscription-backdrop');
+    if (cancelBackdrop) cancelBackdrop.addEventListener('click', hideCancelSubscriptionModal);
+    var cancelConfirm = document.getElementById('cancel-subscription-confirm');
+    if (cancelConfirm) cancelConfirm.addEventListener('click', confirmCancelSubscription);
+    var followupClose = document.getElementById('cancel-subscription-followup-close');
+    if (followupClose) followupClose.addEventListener('click', function () {
+      var followup = document.getElementById('cancel-subscription-followup');
+      if (followup) {
+        followup.classList.add('hidden');
+        followup.setAttribute('aria-hidden', 'true');
+      }
+    });
 
     var rateClose = document.getElementById('rate-limit-close');
     if (rateClose) rateClose.addEventListener('click', hideRateLimitModal);
@@ -911,6 +1213,7 @@
 
   function initAuthSubscription(options) {
     options = options || {};
+    if (options.supportWhatsApp) SUPPORT_WHATSAPP = String(options.supportWhatsApp).trim();
     var nextUrl = normalizeSupabaseConfigUrl(options.supabaseUrl || '');
     var nextKey = options.supabaseAnonKey || '';
     if (nextUrl !== supabaseConfig.url || nextKey !== supabaseConfig.anonKey) {
@@ -931,8 +1234,10 @@
       var client = options.supabaseClient || getSupabaseClient();
       initSupabaseAuth(client).then(function (session) {
         setAuthLoading(false, 'session');
-        if (session && session.user) hideAuthOverlay();
-        else showAuthOverlay();
+        if (session && session.user) {
+          hideAuthOverlay();
+          refreshSubscriptionFromServer();
+        } else showAuthOverlay();
       }).catch(function (e) {
         console.warn('[Auth] Supabase session check failed', e);
         setAuthLoading(false, 'session');
@@ -947,7 +1252,10 @@
     authState.sessionReady = true;
     if (options.firebaseAuth) initFirebaseAuth(options.firebaseAuth);
     if (!restored && !authState.isAuthenticated) showAuthOverlay();
-    else if (authState.isAuthenticated) hideAuthOverlay();
+    else if (authState.isAuthenticated) {
+      hideAuthOverlay();
+      refreshSubscriptionFromServer();
+    }
     else showAuthOverlay();
     notifyListeners();
     return getPublicState();
@@ -989,7 +1297,6 @@
 
   global.WaldorfAuth = {
     TIERS: TIERS,
-    EXPERT_FAIR_USE_CAP: EXPERT_FAIR_USE_CAP,
     init: initAuthSubscription,
     subscribe: subscribe,
     getState: getPublicState,
@@ -1013,9 +1320,13 @@
     isSupabaseConfigured: isSupabaseConfigured,
     showPricingModal: showPricingModal,
     hidePricingModal: hidePricingModal,
+    showUserSettingsModal: showUserSettingsModal,
+    hideUserSettingsModal: hideUserSettingsModal,
+    refreshSubscriptionFromServer: refreshSubscriptionFromServer,
     showAuthOverlay: showAuthOverlay,
     refreshI18n: refreshAuthI18n,
     getContributorProfile: getContributorProfile,
     getAccessToken: getAccessToken,
+    normalizeTierId: normalizeTierId,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

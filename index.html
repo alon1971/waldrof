@@ -1052,7 +1052,9 @@
       border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
     }
     .user-tier-badge--trial { background: rgba(201, 169, 98, 0.2); color: #5C4A3A; }
+    .user-tier-badge--standard,
     .user-tier-badge--educator { background: rgba(122, 155, 118, 0.2); color: #5C7D58; }
+    .user-tier-badge--pro,
     .user-tier-badge--expert { background: rgba(139, 58, 58, 0.12); color: #8B3A3A; }
     .user-action-btn {
       display: inline-flex; align-items: center; gap: 0.35rem;
@@ -1062,6 +1064,9 @@
     }
     .user-action-btn:hover { background: rgba(122, 155, 118, 0.12); }
     .user-action-btn--upgrade { border-color: rgba(122, 155, 118, 0.5); color: #5C7D58; }
+    .user-action-btn--danger { border-color: rgba(139, 58, 58, 0.45); color: #8B3A3A; }
+    .user-action-btn--danger:hover { background: rgba(139, 58, 58, 0.08); }
+    .user-settings-list dt { color: rgba(92, 74, 58, 0.75); }
     #search-usage-meter {
       display: flex; align-items: center; gap: 0.5rem;
       padding: 0.35rem 0.65rem; border-radius: 9999px;
@@ -1149,6 +1154,14 @@
     .pricing-tier-name { font-size: 1.1rem; font-weight: 700; color: #8B3A3A; margin: 0.5rem 0 0.25rem; }
     .pricing-tier-price { font-size: 1.35rem; font-weight: 700; color: #5C4A3A; margin: 0; }
     .pricing-tier-alt { font-size: 0.8rem; color: rgba(92, 74, 58, 0.6); margin: 0.15rem 0 0.5rem; }
+    .pricing-tier-savings {
+      font-size: 0.82rem; font-weight: 700; color: #8B3A3A; margin: 0 0 0.35rem;
+      line-height: 1.35;
+    }
+    .pricing-tier-disclaimer {
+      font-size: 0.68rem; line-height: 1.4; color: rgba(92, 74, 58, 0.62);
+      margin: 0.65rem 0 0.75rem;
+    }
     .pricing-tier-limit { font-size: 0.85rem; color: #5C7D58; font-weight: 600; margin: 0.5rem 0; }
     .pricing-tier-features {
       list-style: none; padding: 0; margin: 0.5rem 0 1rem; flex: 1;
@@ -1316,8 +1329,18 @@
         left: 1.5rem;
         right: auto;
         transform: none;
-        z-index: 60;
+        z-index: 50;
       }
+      .lesson-chat-fab {
+        width: 3rem;
+        height: 3rem;
+        min-width: 3rem;
+        min-height: 3rem;
+        border-radius: 9999px;
+        padding: 0;
+      }
+      .lesson-chat-fab-label { display: none !important; }
+      .lesson-chat-fab-icon { display: block !important; }
 
       .lesson-chat-fullscreen {
         padding: 0;
@@ -1369,6 +1392,10 @@
         );
         transform: translateX(-50%);
         z-index: 50;
+      }
+      body.grade-report-visible.lesson-chat-mode-bubble .lesson-chat-fab-wrap {
+        left: 1.5rem;
+        transform: none;
       }
       .lesson-chat-fab {
         width: auto;
@@ -2177,12 +2204,79 @@
     <div id="rate-limit-backdrop" class="app-modal-backdrop"></div>
     <div class="app-modal-panel">
       <div class="rate-limit-icon" aria-hidden="true"><i class="fa-solid fa-hourglass-half"></i></div>
-      <h2 id="rate-limit-title" class="font-display text-burgundy text-lg font-bold" data-i18n="rate_limit_title">הגעתם למכסת החיפושים היומית</h2>
+      <h2 id="rate-limit-title" class="font-display text-burgundy text-lg font-bold" data-i18n="rate_limit_title">הגעתם למכסת החיפושים</h2>
       <p id="rate-limit-message" class="text-walnut/80 text-sm mt-2"></p>
       <div class="rate-limit-actions">
         <button type="button" id="rate-limit-upgrade" data-i18n="rate_limit_upgrade">צפו במסלולים ושדרגו</button>
         <button type="button" id="rate-limit-close" data-i18n="rate_limit_dismiss">הבנתי</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Checkout coming soon -->
+  <div id="checkout-soon-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="checkout-soon-title">
+    <div id="checkout-soon-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel text-center">
+      <button type="button" id="checkout-soon-close" class="app-modal-close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+      <div class="rate-limit-icon" aria-hidden="true"><i class="fa-solid fa-credit-card"></i></div>
+      <h2 id="checkout-soon-title" class="font-display text-burgundy text-lg font-bold" data-i18n="checkout_soon_title">הסליקה תושק בקרוב</h2>
+      <p id="checkout-soon-message" class="text-walnut/80 text-sm mt-3 leading-relaxed" data-i18n="checkout_soon_body">מערכת הסליקה האוטומטית תושק בקרוב! להפעלת המינוי מיידית, לחץ כאן ליצירת קשר בוואטסאפ</p>
+      <a id="checkout-soon-whatsapp" href="#" target="_blank" rel="noopener noreferrer" class="pricing-tier-btn mt-4 inline-flex items-center justify-center gap-2 no-underline">
+        <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+        <span data-i18n="checkout_soon_whatsapp">יצירת קשר בוואטסאפ</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- User settings / subscription -->
+  <div id="user-settings-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="user-settings-title">
+    <div id="user-settings-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel">
+      <button type="button" id="user-settings-close" class="app-modal-close" data-i18n-aria="user_settings_close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+      <h2 id="user-settings-title" class="font-display text-burgundy text-lg font-bold mb-4" data-i18n="user_settings_title">הגדרות חשבון ומנוי</h2>
+      <dl class="user-settings-list text-sm text-walnut/85 space-y-3">
+        <div class="flex justify-between gap-3 border-b border-gold/20 pb-2">
+          <dt data-i18n="user_settings_tier">מסלול נוכחי</dt>
+          <dd id="user-settings-tier" class="font-semibold text-sage-dark">—</dd>
+        </div>
+        <div class="flex justify-between gap-3 border-b border-gold/20 pb-2">
+          <dt data-i18n="user_settings_usage">ניצול חיפושים</dt>
+          <dd id="user-settings-usage" class="font-semibold">—</dd>
+        </div>
+        <div class="flex justify-between gap-3 border-b border-gold/20 pb-2">
+          <dt data-i18n="user_settings_renew">חידוש אוטומטי</dt>
+          <dd id="user-settings-renew" class="font-medium text-walnut/75 text-end max-w-[14rem]">—</dd>
+        </div>
+      </dl>
+      <button type="button" id="btn-cancel-subscription" class="user-action-btn user-action-btn--danger w-full mt-5 justify-center">
+        <i class="fa-solid fa-ban" aria-hidden="true"></i>
+        <span data-i18n="user_settings_cancel_btn">הפסקת מנוי</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Cancel subscription confirm -->
+  <div id="cancel-subscription-modal" class="app-modal hidden" aria-hidden="true" role="alertdialog" aria-modal="true" aria-labelledby="cancel-subscription-title">
+    <div id="cancel-subscription-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel text-center">
+      <h2 id="cancel-subscription-title" class="font-display text-burgundy text-lg font-bold" data-i18n="cancel_subscription_title">הפסקת מנוי</h2>
+      <p class="text-walnut/80 text-sm mt-3 leading-relaxed" data-i18n="cancel_subscription_body">האם אתה בטוח שברצונך לבטל את התחדשות המינוי בסוף התקופה הנוכחית?</p>
+      <div class="rate-limit-actions mt-4">
+        <button type="button" id="cancel-subscription-confirm" data-i18n="cancel_subscription_confirm">כן, בטל חידוש</button>
+        <button type="button" id="cancel-subscription-dismiss" data-i18n="cancel_subscription_dismiss">לא, חזור</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cancel-subscription-followup" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="app-modal-backdrop"></div>
+    <div class="app-modal-panel text-center">
+      <button type="button" id="cancel-subscription-followup-close" class="app-modal-close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+      <p class="text-walnut/80 text-sm leading-relaxed" data-i18n="cancel_subscription_followup">התחדשות המינוי בוטלה. להשלמת התהליך, פנו לשירות הלקוחות בוואטסאפ:</p>
+      <a id="cancel-subscription-whatsapp" href="#" target="_blank" rel="noopener noreferrer" class="pricing-tier-btn mt-4 inline-flex items-center justify-center gap-2 no-underline">
+        <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+        <span data-i18n="cancel_subscription_whatsapp">צור קשר בוואטסאפ</span>
+      </a>
     </div>
   </div>
 
@@ -2199,6 +2293,9 @@
             </div>
             <span id="user-display-name" class="text-sm text-walnut/80 max-w-[8rem] truncate"></span>
             <span id="user-tier-badge" class="user-tier-badge user-tier-badge--trial"></span>
+            <button type="button" id="btn-user-settings" class="user-action-btn" data-i18n-aria="user_settings_title" title="הגדרות חשבון">
+              <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
+            </button>
             <button type="button" id="btn-open-pricing" class="user-action-btn user-action-btn--upgrade">
               <i class="fa-solid fa-arrow-up-right-dots" aria-hidden="true"></i>
               <span data-i18n="auth_upgrade">שדרוג</span>
@@ -2615,15 +2712,16 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20250617b"></script>
+  <script src="auth-subscription.js?v=20250624"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250623"></script>
+  <script src="chat-sidebar.js?v=20250624"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
     let SUPABASE_URL = '';
     let SUPABASE_ANON_KEY = '';
+    let SUPPORT_WHATSAPP = '';
     const SUPABASE_TABLE = 'community_materials';
     /** עמודת מטא-דאטה אופציונלית — שנה ל-'description' אם כך נקראת בטבלה */
     const COMMUNITY_META_FIELD = 'notes';
@@ -2647,6 +2745,7 @@
         if (data.authRedirectUrl && !isLocalDevHost()) {
           window.__WALDROF_AUTH_REDIRECT__ = String(data.authRedirectUrl).replace(/\/$/, '');
         }
+        if (data.supportWhatsApp) SUPPORT_WHATSAPP = String(data.supportWhatsApp).trim();
       } catch (err) {
         console.warn('[waldrof] runtime config unavailable:', err && err.message ? err.message : err);
       }
@@ -2669,6 +2768,12 @@
         return window.location.origin + window.location.pathname + window.location.search;
       }
       return 'https://waldrof.onrender.com' + window.location.pathname + window.location.search;
+    }
+
+    function syncLessonChatFabLayout() {
+      if (typeof LessonChatSidebar !== 'undefined' && typeof LessonChatSidebar.syncFabReportLayout === 'function') {
+        LessonChatSidebar.syncFabReportLayout();
+      }
     }
 
     const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
@@ -4044,6 +4149,7 @@
       ensurePedagogySuggestionEvents();
       updatePedagogyExportButtonsVisibility();
       nudgeGoogleTranslate();
+      syncLessonChatFabLayout();
     }
 
     function getPrioritySourcesSearchInstruction() {
@@ -6973,6 +7079,7 @@
       document.getElementById('grade-insights-panel').classList.add('hidden');
       document.getElementById('grade-insights-body').innerHTML = '';
       document.getElementById('grade-community-list').innerHTML = '';
+      syncLessonChatFabLayout();
       document.getElementById('grade-select').value = '';
       document.getElementById('btn-grade-submit').disabled = true;
       const hint = document.getElementById('api-hint-step1');
@@ -7011,6 +7118,7 @@
       const insightsBody = document.getElementById('grade-insights-body');
       if (insightsBody) insightsBody.innerHTML = '';
       document.getElementById('grade-insights-panel').classList.remove('hidden');
+      syncLessonChatFabLayout();
       syncGradeInsightsTitle(grade);
       updateNewResearchBarVisibility();
 
@@ -8424,6 +8532,7 @@
       document.getElementById('grade-insights-panel').classList.add('hidden');
       document.getElementById('grade-insights-body').innerHTML = '';
       document.getElementById('grade-community-list').innerHTML = '';
+      syncLessonChatFabLayout();
       document.getElementById('grade-select').value = '';
       document.getElementById('btn-grade-submit').disabled = true;
       if (topicResearchAbort) topicResearchAbort.abort();
@@ -8714,6 +8823,7 @@
           supabaseAnonKey: SUPABASE_ANON_KEY,
           useMockGoogleAuth: isLocalDevHost(),
           authRedirectUrl: getAuthRedirectUrl(),
+          supportWhatsApp: SUPPORT_WHATSAPP,
         });
       }
       if (typeof WaldorfSearchHistory !== 'undefined') {

@@ -254,10 +254,23 @@
     historyListTargets().forEach(function (list) { list.innerHTML = html; });
   }
 
+  function syncFabReportLayout() {
+    var panel = document.getElementById('grade-insights-panel');
+    var inReport = !!(panel && !panel.classList.contains('hidden'));
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.toggle('grade-report-visible', inReport);
+    }
+  }
+
+  function historyItemKey(item) {
+    return String(item.cacheKey || '') + '|' + String(item.createdAt || item.question || '');
+  }
+
   function normalizeChatHistoryItems(items) {
     return (items || []).map(function (item) {
       return {
         cacheKey: item.cacheKey,
+        historyKey: historyItemKey(item),
         gradeLabel: item.gradeLabel,
         topic: item.topic,
         question: item.question || deps.t('chat_history_untitled'),
@@ -287,7 +300,8 @@
     }
 
     setHistoryListHtml(state.historyItems.map(function (item) {
-      var expanded = state.historyExpandedKey === item.cacheKey;
+      var itemKey = item.historyKey || historyItemKey(item);
+      var expanded = state.historyExpandedKey === itemKey;
       var meta = [];
       if (item.gradeLabel) meta.push(item.gradeLabel);
       if (item.topic) meta.push(item.topic);
@@ -300,7 +314,7 @@
         }
       }
       return (
-        '<button type="button" class="lesson-chat-history-item' + (expanded ? ' lesson-chat-history-item--open' : '') + '" data-cache-key="' + deps.escapeHtml(item.cacheKey) + '">' +
+        '<button type="button" class="lesson-chat-history-item' + (expanded ? ' lesson-chat-history-item--open' : '') + '" data-history-key="' + deps.escapeHtml(itemKey) + '">' +
         '<span class="lesson-chat-history-item-q">' + deps.escapeHtml(item.question || '') + '</span>' +
         '<span class="lesson-chat-history-item-meta">' + deps.escapeHtml(formatHistoryDate(item.createdAt)) +
         (meta.length ? ' · ' + deps.escapeHtml(meta.join(' · ')) : '') + '</span>' +
@@ -558,6 +572,7 @@
       body.classList.add('lesson-chat-mode-' + mode);
     }
     syncDisplayUi();
+    if (state.historyOpen) renderHistoryList();
     renderMessages();
   }
 
@@ -616,6 +631,7 @@
   }
 
   function updateVisibility() {
+    syncFabReportLayout();
     syncDisplayUi();
     var app = deps.getAppState();
     syncSessionFromApp(app);
@@ -663,7 +679,7 @@
       list.addEventListener('click', function (e) {
         var btn = e.target && e.target.closest ? e.target.closest('.lesson-chat-history-item') : null;
         if (!btn) return;
-        var key = btn.getAttribute('data-cache-key') || '';
+        var key = btn.getAttribute('data-history-key') || '';
         state.historyExpandedKey = state.historyExpandedKey === key ? '' : key;
         renderHistoryList();
       });
@@ -716,8 +732,11 @@
     state.sessionKey = options.sessionKey || '';
     state.ragContext = options.ragContext || '';
     state.ragChunkIds = Array.isArray(options.ragChunkIds) ? options.ragChunkIds.slice() : [];
-    setDisplayMode(openChatModeForViewport());
-    renderMessages();
+    if (options.openChat !== false) {
+      setDisplayMode(openChatModeForViewport());
+    } else {
+      renderMessages();
+    }
   }
 
   function refreshWelcome() {
@@ -767,7 +786,10 @@
     getPersistableMessages: getPersistableMessages,
     refreshWelcome: refreshWelcome,
     syncExportBar: syncExportBarVisibility,
+    syncFabReportLayout: syncFabReportLayout,
     setDisplayMode: setDisplayMode,
+    getDisplayMode: function () { return state.displayMode; },
+    isHistoryOpen: function () { return state.historyOpen; },
     openForLesson: function (resetChat) {
       if (resetChat) {
         var app = deps.getAppState() || {};
