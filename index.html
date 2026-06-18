@@ -7365,7 +7365,26 @@
       });
     }
 
-    function syncProductTabsStickyLayout() {
+    var programmaticScrollGuard = 0;
+
+    function isProgrammaticScrollActive() {
+      return programmaticScrollGuard > 0;
+    }
+
+    function beginProgrammaticScroll() {
+      programmaticScrollGuard++;
+    }
+
+    function endProgrammaticScroll() {
+      if (programmaticScrollGuard > 0) programmaticScrollGuard--;
+      if (!isProgrammaticScrollActive()) {
+        syncProductTabsStickyLayout(true);
+        onHeaderCompactScroll();
+      }
+    }
+
+    function syncProductTabsStickyLayout(force) {
+      if (!force && isProgrammaticScrollActive()) return;
       var root = document.documentElement;
       var siteChrome = document.getElementById('app-site-chrome');
       var spacer = document.getElementById('app-site-chrome-spacer');
@@ -7487,6 +7506,7 @@
     }
 
     function onHeaderCompactScroll() {
+      if (isProgrammaticScrollActive()) return;
       var y = window.scrollY || window.pageYOffset || 0;
       if (y === 0) {
         setHeaderCompact(false);
@@ -7734,28 +7754,41 @@
       options = options || {};
       ensureStepBWizardView();
       var topicInput = document.getElementById('topic-input');
-      var anchor = getStepBScrollAnchor();
-      if (!anchor) return;
+      var wrapper = document.getElementById('step-b-wrapper');
+      if (!wrapper) return;
       if (options.expandHeader) setHeaderCompact(false);
       var behavior = options.behavior == null ? 'smooth' : options.behavior;
-      runAfterLayout(function () {
-        syncProductTabsStickyLayout();
-        scrollElementIntoViewWithChrome(anchor, behavior, 'center');
-        var focusField = function () {
-          if (!topicInput) return;
-          try {
-            topicInput.focus({ preventScroll: true });
-          } catch (e) {
-            topicInput.focus();
-          }
-          topicInput.select();
-          highlightWizardField(topicInput);
-        };
-        if (behavior === 'smooth' || behavior === true) {
-          runAfterSmoothScroll(focusField);
-        } else {
-          focusField();
+      var preCompact = options.preCompactHeader !== false && !options.expandHeader;
+      beginProgrammaticScroll();
+      var focusField = function () {
+        endProgrammaticScroll();
+        if (!topicInput) return;
+        try {
+          topicInput.focus({ preventScroll: true });
+        } catch (e) {
+          topicInput.focus();
         }
+        topicInput.select();
+        highlightWizardField(topicInput);
+      };
+      runAfterLayout(function () {
+        if (preCompact) {
+          var siteChrome = document.getElementById('app-site-chrome');
+          if (siteChrome && !siteChrome.classList.contains('header-compact')) {
+            setHeaderCompact(true);
+          }
+        }
+        runAfterLayout(function () {
+          syncProductTabsStickyLayout(true);
+          var scrollBehavior = (behavior === false || behavior === 'none') ? 'auto' :
+            ((behavior === 'auto' || behavior === 'instant') ? 'auto' : (behavior || 'smooth'));
+          wrapper.scrollIntoView({ behavior: scrollBehavior, block: 'center' });
+          if (scrollBehavior === 'smooth') {
+            runAfterSmoothScroll(focusField);
+          } else {
+            focusField();
+          }
+        });
       });
     }
 
@@ -9721,6 +9754,7 @@
       if (step2 && step2.classList.contains('hidden')) {
         revealStepBQuietly();
       }
+      scrollToStepBAndFocus({ behavior: 'smooth', preCompactHeader: true });
     }
 
     function isPrimaryEnter(e) {
