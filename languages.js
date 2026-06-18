@@ -74,6 +74,10 @@ const LANGUAGES = {
     ws_active:                   'סביבת עבודה פעילה',
     btn_restart:                 'מחקר חדש',
 
+    header_compact_nav_aria:     'ניווט מהיר בכותרת',
+    header_compact_edit_grade:   'עריכת כיתה',
+    header_compact_edit_topic:   'עריכת נושא',
+
     crumb_grade:                 'כיתה',
     crumb_topic:                 'נושא',
     crumb_products:              'תוצרים, מערכי שיעור ועוד',
@@ -602,6 +606,10 @@ const LANGUAGES = {
     btn_unlock_workspace:        'Unlock Workspace',
     ws_active:                   'Workspace Active',
     btn_restart:                 'New research',
+
+    header_compact_nav_aria:     'Quick header navigation',
+    header_compact_edit_grade:   'Edit grade',
+    header_compact_edit_topic:   'Edit topic',
 
     crumb_grade:                 'Grade',
     crumb_topic:                 'Topic',

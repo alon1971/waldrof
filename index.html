@@ -411,7 +411,8 @@
       from { opacity: 0; }
       to { opacity: 1; }
     }
-    #topic-input.topic-input--highlight {
+    #topic-input.topic-input--highlight,
+    #grade-select.grade-select--highlight {
       animation: topicInputFlash 0.55s ease-in-out 3;
       border-color: #C9A962 !important;
     }
@@ -1306,8 +1307,45 @@
       padding: 0.15rem 0.45rem;
       font-size: 0.7rem !important;
     }
-    .header-compact-context {
+    .header-compact-nav {
       display: none;
+    }
+    .header-compact-nav-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.15rem 0.45rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: rgba(255, 255, 255, 0.75);
+      color: #5C4A3A;
+      font-size: 0.68rem;
+      font-weight: 600;
+      line-height: 1.25;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-height: 1.6rem;
+      transition: background 0.15s ease;
+    }
+    .header-compact-nav-btn:hover:not(:disabled) {
+      background: rgba(122, 155, 118, 0.12);
+    }
+    .header-compact-nav-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .header-compact-context-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: rgba(92, 74, 58, 0.65);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      max-width: 7.5rem;
+      text-align: center;
+      flex-shrink: 1;
     }
     .app-site-chrome.header-compact {
       box-shadow: 0 1px 6px rgba(92, 74, 58, 0.1);
@@ -1352,19 +1390,14 @@
       font-size: 0.75rem !important;
       max-width: 7rem;
     }
-    .app-site-chrome.header-compact .header-compact-context {
-      display: block;
+    .app-site-chrome.header-compact .header-compact-nav {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
       flex: 1 1 auto;
       min-width: 0;
-      text-align: center;
-      font-size: 0.72rem;
-      line-height: 1.25;
-      font-weight: 600;
-      color: rgba(92, 74, 58, 0.82);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      padding-inline: 0.25rem;
+      padding-inline: 0.15rem;
     }
     .app-site-chrome.header-compact .header-user-actions {
       display: flex;
@@ -2519,7 +2552,15 @@
     <div class="max-w-6xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5">
       <div class="app-chrome-tagline-row flex flex-wrap items-center justify-between gap-2 mb-1">
         <p class="app-chrome-tagline text-sage-dark text-sm font-medium"><i class="fa-solid fa-seedling icon-inline"></i> <span data-i18n="header_tagline">חינוך ולדורף · תקופת לימוד ראשית</span></p>
-        <span id="header-compact-context" class="header-compact-context" aria-hidden="true"></span>
+        <nav id="header-compact-nav" class="header-compact-nav" data-i18n-aria="header_compact_nav_aria" aria-hidden="true">
+          <button type="button" id="header-compact-edit-grade" class="header-compact-nav-btn touch-btn">
+            <span data-i18n="header_compact_edit_grade">עריכת כיתה</span>
+          </button>
+          <span id="header-compact-context-label" class="header-compact-context-label" aria-hidden="true"></span>
+          <button type="button" id="header-compact-edit-topic" class="header-compact-nav-btn touch-btn">
+            <span data-i18n="header_compact_edit_topic">עריכת נושא</span>
+          </button>
+        </nav>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
           <div id="user-account-bar" class="hidden">
             <div class="header-user-identity">
@@ -7217,7 +7258,7 @@
       const topicEl = document.getElementById('ws-topic');
       if (gradeEl) gradeEl.textContent = appState.gradeLabel || '—';
       if (topicEl) topicEl.textContent = appState.topic || '—';
-      updateHeaderCompactContext();
+      updateHeaderCompactNav();
       const crumbs = [
         { id: 'ws-crumb-grade', section: 'wizard' },
         { id: 'ws-crumb-topic', section: 'wizard' },
@@ -7253,33 +7294,103 @@
     var HEADER_COMPACT_SCROLL_THRESHOLD = 100;
     var headerCompactScrollBound = false;
 
-    function getHeaderCompactContextText() {
+    function getHeaderCompactContextLabel() {
+      var grade = appState.gradeLabel || appState.grade || '';
+      var topic = appState.topic || '';
+      if (grade && topic) return grade + ' · ' + topic;
+      if (grade) return grade;
+      if (topic) return topic;
       if (isWorkspaceOpen()) {
         if (isCommunityView()) return t('nav_community');
         if (isArchiveView()) return t('nav_archive');
-        if (isProductsView()) {
-          var grade = appState.gradeLabel || appState.grade || '';
-          var topic = appState.topic || '';
-          if (grade && topic) return grade + ' · ' + topic;
-          if (grade) return grade;
-          return t('step_prefix') + ' ' + t('step_nav_c');
-        }
-        var wsGrade = appState.gradeLabel || appState.grade || '';
-        var wsTopic = appState.topic || '';
-        if (wsGrade && wsTopic) return wsGrade + ' · ' + wsTopic;
-        if (wsGrade) return wsGrade;
+        if (isProductsView()) return t('step_prefix') + ' ' + t('step_nav_c');
       }
       var stepIdx = Math.max(0, Math.min(STEP_NAV_KEYS.length - 1, (appState.step || 1) - 1));
       var stepKey = STEP_NAV_KEYS[stepIdx];
       return stepKey ? (t('step_prefix') + ' ' + t(stepKey)) : '';
     }
 
-    function updateHeaderCompactContext() {
-      var el = document.getElementById('header-compact-context');
+    function updateHeaderCompactNav() {
+      var nav = document.getElementById('header-compact-nav');
+      var labelEl = document.getElementById('header-compact-context-label');
+      var topicBtn = document.getElementById('header-compact-edit-topic');
+      var labelText = getHeaderCompactContextLabel();
+      if (labelEl) {
+        labelEl.textContent = labelText;
+        labelEl.setAttribute('aria-hidden', labelText ? 'false' : 'true');
+      }
+      if (topicBtn) topicBtn.disabled = !canNavigateToStep(2);
+      if (nav) {
+        nav.setAttribute('aria-label', t('header_compact_nav_aria'));
+      }
+    }
+
+    function scrollPageToTopThen(fn) {
+      var y = window.scrollY || window.pageYOffset || 0;
+      setHeaderCompact(false);
+      if (y <= 1) {
+        if (fn) fn();
+        return;
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      var done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        window.removeEventListener('scroll', onScroll);
+        if (fn) fn();
+      }
+      function onScroll() {
+        if ((window.scrollY || window.pageYOffset || 0) <= 1) finish();
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      setTimeout(finish, 900);
+    }
+
+    function highlightWizardField(el) {
       if (!el) return;
-      var text = getHeaderCompactContextText();
-      el.textContent = text;
-      el.setAttribute('aria-hidden', text ? 'false' : 'true');
+      el.classList.remove(el.id === 'grade-select' ? 'grade-select--highlight' : 'topic-input--highlight');
+      void el.offsetWidth;
+      el.classList.add(el.id === 'grade-select' ? 'grade-select--highlight' : 'topic-input--highlight');
+      setTimeout(function () {
+        el.classList.remove(el.id === 'grade-select' ? 'grade-select--highlight' : 'topic-input--highlight');
+      }, 2200);
+    }
+
+    function focusGradeSelect() {
+      var gradeSel = document.getElementById('grade-select');
+      if (!gradeSel) return;
+      requestAnimationFrame(function () {
+        try {
+          gradeSel.focus({ preventScroll: true });
+        } catch (e) {
+          gradeSel.focus();
+        }
+        highlightWizardField(gradeSel);
+      });
+    }
+
+    function navigateCompactHeaderToGrade() {
+      goToStep(1, false);
+      scrollPageToTopThen(focusGradeSelect);
+    }
+
+    function navigateCompactHeaderToTopic() {
+      if (!canNavigateToStep(2)) return;
+      goToStep(2, false);
+      scrollPageToTopThen(function () {
+        var topicInput = document.getElementById('topic-input');
+        if (!topicInput) return;
+        requestAnimationFrame(function () {
+          try {
+            topicInput.focus({ preventScroll: true });
+          } catch (e) {
+            topicInput.focus();
+          }
+          topicInput.select();
+          highlightWizardField(topicInput);
+        });
+      });
     }
 
     function setHeaderCompact(compact) {
@@ -7289,8 +7400,10 @@
       if (isCompact === compact) return;
       var scrollY = window.scrollY || window.pageYOffset || 0;
       var oldHeight = siteChrome.offsetHeight;
-      if (compact) updateHeaderCompactContext();
+      if (compact) updateHeaderCompactNav();
       siteChrome.classList.toggle('header-compact', compact);
+      var compactNav = document.getElementById('header-compact-nav');
+      if (compactNav) compactNav.setAttribute('aria-hidden', compact ? 'false' : 'true');
       requestAnimationFrame(function () {
         var newHeight = siteChrome.offsetHeight;
         syncProductTabsStickyLayout();
@@ -7350,7 +7463,7 @@
           (enabled ? '' : ' disabled') + '>' + escapeHtml(t('step_prefix') + ' ' + label) + '</button>';
       }).join('');
       updateTopNavButtons();
-      updateHeaderCompactContext();
+      updateHeaderCompactNav();
       requestAnimationFrame(syncProductTabsStickyLayout);
     }
 
@@ -9519,6 +9632,8 @@
       bindWizardNavClick(document.getElementById('ws-crumb-topic'), function () {
         if (canNavigateToStep(2)) goToStep(2, 'smooth');
       });
+      bindWizardNavClick(document.getElementById('header-compact-edit-grade'), navigateCompactHeaderToGrade);
+      bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
       bindWizardNavClick(document.getElementById('ws-crumb-products'), function () {
         if (canNavigateToStep(3)) openProductsWorkspace();
       });
