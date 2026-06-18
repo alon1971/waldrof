@@ -3,6 +3,7 @@
  */
 const env = require('./env');
 const cacheDb = require('./cache');
+const authContext = require('./auth-context');
 
 const TABLE = 'user_subscriptions';
 
@@ -201,19 +202,11 @@ async function verifySupabaseToken(token) {
 }
 
 async function resolveUser(req, body) {
-  const authHeader = String(req.headers.authorization || req.headers.Authorization || '');
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  const verified = await verifySupabaseToken(token);
-  if (verified && verified.id) return verified;
-
-  const fromBody = body && body.teacherUser;
-  if (fromBody && fromBody.id) {
-    return {
-      id: fromBody.id,
-      email: String(fromBody.email || '').trim(),
-      name: fromBody.name || fromBody.displayName || '',
-      tier: normalizeTier(fromBody.tier || 'trial'),
-    };
+  const verified = await authContext.resolveVerifiedUser(req, body);
+  if (verified && verified.id) {
+    return Object.assign({}, verified, {
+      tier: normalizeTier((body && body.teacherUser && body.teacherUser.tier) || verified.tier || 'trial'),
+    });
   }
 
   const err = new Error('יש להתחבר כדי לנהל מנוי');

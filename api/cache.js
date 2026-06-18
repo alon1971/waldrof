@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const env = require('./env');
+const authContext = require('./auth-context');
 
 const hebrewTopicMatch = require('../hebrew-topic-match');
 
@@ -164,6 +165,8 @@ function buildCacheKey(body) {
 
 function buildRow(cacheKey, body, resultData) {
   const isGrade = body.phase === 'grade';
+  const verifiedUserId = authContext.pickCachedUserId(body);
+  const userEmail = body.userEmail || (body.teacherUser && body.teacherUser.email) || null;
   return {
     cache_key: cacheKey,
     phase: body.phase,
@@ -174,8 +177,8 @@ function buildRow(cacheKey, body, resultData) {
       ? (body.gradeLabel || null)
       : (body.userMessage || body.archiveQuery || body.topic || body.gradeLabel || null),
     result_data: resultData,
-    user_id: body.userId || (body.teacherUser && body.teacherUser.id) || null,
-    user_email: body.userEmail || (body.teacherUser && body.teacherUser.email) || null,
+    user_id: verifiedUserId,
+    user_email: userEmail,
     hit_count: 0,
     last_hit_at: null,
   };
@@ -1113,7 +1116,9 @@ async function migrateLegacyTopicRowCacheKey(legacyRow, body, newCacheKey) {
 
   const row = buildRow(newCacheKey, body, cloneJsonSafe(data) || data);
   row.hit_count = Number(legacyRow.hit_count) || 0;
-  if (legacyRow.user_id) row.user_id = legacyRow.user_id;
+  if (legacyRow.user_id && authContext.isValidAuthUuid(legacyRow.user_id) && !authContext.isMockUserId(legacyRow.user_id)) {
+    row.user_id = legacyRow.user_id;
+  }
   if (legacyRow.user_email) row.user_email = legacyRow.user_email;
 
   if (isSupabaseCacheEnabled()) {
@@ -1157,7 +1162,9 @@ async function migrateLegacyRowCacheKey(legacyRow, body, newCacheKey) {
 
   const row = buildRow(newCacheKey, body, data);
   row.hit_count = Number(legacyRow.hit_count) || 0;
-  if (legacyRow.user_id) row.user_id = legacyRow.user_id;
+  if (legacyRow.user_id && authContext.isValidAuthUuid(legacyRow.user_id) && !authContext.isMockUserId(legacyRow.user_id)) {
+    row.user_id = legacyRow.user_id;
+  }
   if (legacyRow.user_email) row.user_email = legacyRow.user_email;
 
   if (isSupabaseCacheEnabled()) {

@@ -3,6 +3,7 @@
  */
 const cacheDb = require('./cache');
 const knowledgeIngest = require('./knowledge-ingest');
+const authContext = require('./auth-context');
 const env = require('./env');
 
 const corsHeaders = {
@@ -64,16 +65,14 @@ async function verifySupabaseToken(token) {
 }
 
 async function resolveTeacher(req, body) {
-  const authHeader = String(req.headers.authorization || req.headers.Authorization || '');
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-
-  const verified = await verifySupabaseToken(token);
-  if (verified && (verified.id || verified.email)) return verified;
+  const verified = await authContext.resolveVerifiedUser(req, body);
+  if (verified) return verified;
 
   const fromBody = body && body.teacherUser;
-  if (fromBody && (fromBody.id || fromBody.email)) {
+  if (fromBody && fromBody.email && !authContext.isMockUserId(fromBody.id)) {
+    const id = fromBody.id && authContext.isValidAuthUuid(fromBody.id) ? String(fromBody.id).trim() : null;
     return {
-      id: fromBody.id || null,
+      id: id,
       email: String(fromBody.email || '').trim(),
       name: fromBody.name || fromBody.displayName || fromBody.email || '',
     };

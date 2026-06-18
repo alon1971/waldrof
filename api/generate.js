@@ -13,6 +13,8 @@ const cacheDb = require('./cache');
 const ragDb = require('./rag');
 const knowledgeIngest = require('./knowledge-ingest');
 const subscriptionApi = require('./subscription');
+const searchLogs = require('./search-logs');
+const authContext = require('./auth-context');
 const env = require('./env');
 
 (function loadDotEnv() {
@@ -1150,6 +1152,14 @@ function setCors(res) {
 const MISSING_KEY_ERROR =
   'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY (או AI_API_KEY) ב-Render → Environment ופרסמו מחדש.';
 
+function isNonBlockingSubscriptionDbError(err) {
+  const msg = String((err && err.message) || err || '');
+  return /foreign key constraint/i.test(msg)
+    || /search_logs_profile_id_fkey/i.test(msg)
+    || /Could not find the table/i.test(msg)
+    || /schema cache/i.test(msg);
+}
+
 /** Build success payload for /api/generate HTTP responses. */
 function buildGenerateHttpPayload(result) {
   if (!result || typeof result !== 'object') {
@@ -1203,12 +1213,33 @@ async function handleGeneratePost(parsedBody, requestContext) {
     throw err;
   }
   const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
+  const reqShape = {
+    method: 'POST',
+    headers: ctx.headers || {},
+    body: parsedBody,
+  };
+
+  let verifiedUser = null;
+  try {
+    verifiedUser = await authContext.resolveVerifiedUser(reqShape, parsedBody);
+  } catch (authErr) {
+    console.warn('[generate] verified user resolution failed:', authErr.message || authErr);
+  }
+  authContext.sanitizeCachedUserFields(parsedBody, verifiedUser);
+
   if (typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
-    await subscriptionApi.assertSearchAllowedFromRequest({
-      method: 'POST',
-      headers: ctx.headers || {},
-      body: parsedBody,
-    });
+    try {
+      await subscriptionApi.assertSearchAllowedFromRequest(reqShape);
+    } catch (subErr) {
+      if (subErr && subErr.statusCode === 429) throw subErr;
+      if (isNonBlockingSubscriptionDbError(subErr)) {
+        console.warn('[generate] subscription pre-check skipped (non-blocking):', subErr.message || subErr);
+      } else if (subErr && subErr.statusCode === 401) {
+        /* unauthenticated — allow generate */
+      } else {
+        throw subErr;
+      }
+    }
   }
   const result = await executeGenerate(parsedBody, apiKey);
   const billable = result &&
@@ -1219,11 +1250,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
 
   if (billable && typeof subscriptionApi.recordLiveSearchFromRequest === 'function') {
     try {
-      const billed = await subscriptionApi.recordLiveSearchFromRequest({
-        method: 'POST',
-        headers: ctx.headers || {},
-        body: parsedBody,
-      });
+      const billed = await subscriptionApi.recordLiveSearchFromRequest(reqShape);
       if (billed && billed.usage) {
         result.meta = Object.assign({}, result.meta, { usage: billed.usage, searchBilled: true });
       } else {
@@ -1231,9 +1258,17 @@ async function handleGeneratePost(parsedBody, requestContext) {
         console.warn('[generate] live search usage not recorded — no usage payload returned');
       }
     } catch (billErr) {
-      console.error('[generate] live search usage record failed:', billErr.message || billErr);
+      if (isNonBlockingSubscriptionDbError(billErr)) {
+        console.warn('[generate] live search usage skipped (non-blocking):', billErr.message || billErr);
+      } else {
+        console.error('[generate] live search usage record failed:', billErr.message || billErr);
+      }
       result.meta = Object.assign({}, result.meta, { searchBilled: false });
     }
+  }
+
+  if (billable && typeof searchLogs.logLiveSearchFromRequestAsync === 'function') {
+    searchLogs.logLiveSearchFromRequestAsync(reqShape, parsedBody, { fromCache: false });
   }
 
   return result;
