@@ -2365,6 +2365,7 @@
     </div>
   </div>
 
+  <div id="app-site-chrome" class="app-site-chrome">
   <header class="border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="max-w-6xl mx-auto px-4 py-6 sm:py-8">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
@@ -2404,7 +2405,7 @@
   <div id="cloud-status" class="hidden max-w-6xl mx-auto px-4 pt-4"></div>
 
   <!-- Top navigation: wizard steps + permanent repository entry -->
-  <nav class="app-top-nav sticky top-0 z-40 bg-cream/95 backdrop-blur border-b border-gold/20 shadow-sm safe-top">
+  <nav class="app-top-nav bg-cream/95 backdrop-blur border-b border-gold/20 shadow-sm">
     <div class="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 safe-x">
       <div class="app-top-nav-inner">
         <div class="flex flex-wrap gap-2 sm:gap-2 justify-center items-stretch" id="step-progress" data-i18n-aria="nav_wizard_aria"></div>
@@ -2430,6 +2431,8 @@
       </div>
     </div>
   </nav>
+  </div>
+  <div id="app-site-chrome-spacer" class="app-site-chrome-spacer" aria-hidden="true"></div>
 
   <div id="app-shell" class="app-shell">
   <div id="app-main" class="app-main">
@@ -6974,6 +6977,7 @@
         el.innerHTML = '';
         el.classList.add('hidden');
       }
+      requestAnimationFrame(syncProductTabsStickyLayout);
     }
 
     // ---------- Step UI engine ----------
@@ -7047,10 +7051,14 @@
 
     function syncProductTabsStickyLayout() {
       var root = document.documentElement;
-      var topNav = document.querySelector('.app-top-nav');
+      var siteChrome = document.getElementById('app-site-chrome');
+      var spacer = document.getElementById('app-site-chrome-spacer');
       var tabsNav = document.getElementById('workspace-products-nav');
-      if (topNav) {
-        root.style.setProperty('--app-sticky-nav-height', topNav.offsetHeight + 'px');
+      if (siteChrome) {
+        var chromeHeight = siteChrome.offsetHeight;
+        root.style.setProperty('--app-site-chrome-height', chromeHeight + 'px');
+        root.style.setProperty('--app-sticky-nav-height', chromeHeight + 'px');
+        if (spacer) spacer.style.height = chromeHeight + 'px';
       }
       if (tabsNav && !tabsNav.classList.contains('hidden')) {
         root.style.setProperty('--product-tabs-nav-height', tabsNav.offsetHeight + 'px');
@@ -7091,6 +7099,7 @@
           (enabled ? '' : ' disabled') + '>' + escapeHtml(t('step_prefix') + ' ' + label) + '</button>';
       }).join('');
       updateTopNavButtons();
+      requestAnimationFrame(syncProductTabsStickyLayout);
     }
 
     var pageLoadFocusGuard = true;
@@ -9345,6 +9354,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js');
+        requestAnimationFrame(syncProductTabsStickyLayout);
       });
     }
 
@@ -9401,6 +9411,7 @@
             didSessionScrollReset = true;
             scheduleInitialPageScrollReset();
           }
+          requestAnimationFrame(syncProductTabsStickyLayout);
         });
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
@@ -9487,6 +9498,7 @@
         try { await loadCommunity(); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
       }
       scheduleInitialPageScrollReset();
+      requestAnimationFrame(syncProductTabsStickyLayout);
       } catch (err) {
         console.error('[waldrof] init failed:', err);
         try { bindEvents(); } catch (bindErr) { console.error('[waldrof] bindEvents recovery failed:', bindErr); }
