@@ -1090,14 +1090,14 @@
     grid.innerHTML = order.map(function (tierId) {
       var tier = TIERS[tierId];
       var isCurrent = tierId === current;
-      var featured = tierId === 'standard';
+      var featured = tierId === 'pro';
       var price = tierId === 'trial' ? t('pricing_free') : formatPrice(tier.prices[cycle], cycle);
       var altPrice = tierId !== 'trial' && cycle === 'monthly'
         ? t('pricing_or_yearly', { amount: tier.prices.yearly })
         : (tierId !== 'trial' && cycle === 'yearly'
           ? t('pricing_or_monthly', { amount: tier.prices.monthly })
           : '');
-      var savings = tierId !== 'trial' && cycle === 'yearly' && tier.yearlySavingsKey
+      var savings = (tierId === 'standard' || tierId === 'pro') && tier.yearlySavingsKey
         ? '<p class="pricing-tier-savings">' + escapeHtml(t(tier.yearlySavingsKey)) + '</p>'
         : '';
       var limitText = tier.lifetimeLimit != null
@@ -1125,7 +1125,9 @@
             (tierId === 'standard' ? '<li>' + escapeHtml(t('tier_standard_feature_1')) + '</li><li>' + escapeHtml(t('tier_standard_feature_2')) + '</li>' : '') +
             (tierId === 'pro' ? '<li>' + escapeHtml(t('tier_pro_feature_1')) + '</li><li>' + escapeHtml(t('tier_pro_feature_2')) + '</li>' : '') +
           '</ul>' +
-          '<p class="pricing-tier-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>' +
+          (tierId !== 'trial'
+            ? '<p class="pricing-tier-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>'
+            : '') +
           (tierId === 'trial'
             ? '<button type="button" class="pricing-tier-btn pricing-tier-btn--outline" data-pricing-select="trial"' + (isCurrent ? ' disabled' : '') + '>' +
                 escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_start_trial')) +

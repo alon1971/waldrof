@@ -445,8 +445,8 @@ const LANGUAGES = {
     pricing_billing_monthly:     'חודשי',
     pricing_billing_yearly:      'שנתי',
     pricing_close:               'סגור',
-    pricing_standard_yearly_deal:'חיסכון של 100 ₪ - חודשיים מתנה!',
-    pricing_pro_yearly_deal:     'דיל מטורף! חיסכון של 320 ₪ - 4 חודשים מתנה!',
+    pricing_standard_yearly_deal:'חיסכון של 100 ₪ (חודשיים במתנה!)',
+    pricing_pro_yearly_deal:     'חיסכון של 320 ₪ (4 חודשים במתנה!)',
     pricing_auto_renew_disclaimer:'* המינוי מתחדש באופן אוטומטי, אלא אם הופסק באופן יזום. במקרה של ביטול מינוי שנתי, המינוי יישאר פעיל ונגיש לשימוש עד לתום תקופת החיוב השנתית (לא יתבצע זיכוי כספי יחסי).',
 
     search_usage_label:          'חיפושים היום',
@@ -961,8 +961,8 @@ const LANGUAGES = {
     pricing_billing_monthly:     'Monthly',
     pricing_billing_yearly:      'Yearly',
     pricing_close:               'Close',
-    pricing_standard_yearly_deal:'Save 100 NIS — 2 months free!',
-    pricing_pro_yearly_deal:     'Amazing deal! Save 320 NIS — 4 months free!',
+    pricing_standard_yearly_deal:'Save 100 NIS (2 months free!)',
+    pricing_pro_yearly_deal:     'Save 320 NIS (4 months free!)',
     pricing_auto_renew_disclaimer:'* Subscription renews automatically unless cancelled. For annual plans, access remains until the end of the paid year (no prorated refund).',
 
     search_usage_label:          'Searches today',
