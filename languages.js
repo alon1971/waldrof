@@ -488,6 +488,10 @@ const LANGUAGES = {
     chat_fullscreen_title:       'תשובת העוזר הפדגוגי',
     chat_plan_amendments_heading: 'עדכונים מהעוזר הפדגוגי',
     chat_amendment_item:         'תשובה {{n}}',
+    archive_suggest_prompt:      'האם התכוונת ל{topic}?',
+    archive_suggest_yes:         'כן, התכוונתי לזה',
+    archive_suggest_no:          'לא, בצע חיפוש חדש',
+    archive_suggest_refine:      'אנא דייק יותר את נושא החיפוש — הקלידו מונח ספציפי יותר בשדה הנושא בשלב ב׳.',
 
     checkout_soon_title:         'הסליקה תושק בקרוב',
     checkout_soon_body:          'מערכת הסליקה האוטומטית תושק בקרוב! להפעלת המינוי מיידית, לחץ כאן ליצירת קשר בוואטסאפ',
@@ -994,6 +998,10 @@ const LANGUAGES = {
     chat_fullscreen_title:       'Pedagogy assistant answer',
     chat_plan_amendments_heading: 'Updates from the Pedagogy Assistant',
     chat_amendment_item:         'Response {{n}}',
+    archive_suggest_prompt:      'Did you mean {topic}?',
+    archive_suggest_yes:         'Yes, that\'s what I meant',
+    archive_suggest_no:          'No, run a new search',
+    archive_suggest_refine:      'Please refine your search topic — enter a more specific term in the Step B topic field.',
 
     checkout_soon_title:         'Checkout coming soon',
     checkout_soon_body:          'Automatic billing is launching soon! For immediate activation, contact us on WhatsApp',

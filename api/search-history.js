@@ -86,8 +86,46 @@ async function resolveTeacher(req, body) {
 
 async function executeSearchHistory(req) {
   const body = req.method === 'GET' ? null : parseRequestBody(req);
-  const teacher = await resolveTeacher(req, body);
   const action = body && body.action ? String(body.action).trim() : 'list';
+
+  if (action === 'probe_topic') {
+    const topic = String((body && body.topic) || '').trim();
+    const gradeId = String((body && (body.gradeId || body.currentGrade)) || '').trim();
+    if (!topic || !gradeId) {
+      const err = new Error('חסרים נושא או כיתה לבדיקת ארכיון');
+      err.statusCode = 400;
+      throw err;
+    }
+    const match = await cacheDb.findArchiveTopicSuggestion({ topic: topic, gradeId: gradeId });
+    if (!match) {
+      return { ok: true, action: 'probe_topic', match: null };
+    }
+    let item = null;
+    if (match.matchType === 'exact' && match.resultData) {
+      item = {
+        cacheKey: match.cacheKey,
+        phase: 'topic',
+        gradeId: match.gradeId,
+        gradeLabel: match.gradeLabel || null,
+        topic: match.topic,
+        resultData: match.resultData,
+        hasLessonPlan: true,
+      };
+    }
+    return {
+      ok: true,
+      action: 'probe_topic',
+      match: {
+        matchType: match.matchType,
+        similarity: match.similarity,
+        cacheKey: match.cacheKey,
+        suggestedTopic: match.topic,
+        gradeId: match.gradeId,
+        gradeLabel: match.gradeLabel || null,
+        item: item,
+      },
+    };
+  }
 
   if (action === 'reload') {
     const cacheKey = String((body && body.cacheKey) || '').trim();
@@ -96,7 +134,11 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
-    const item = await cacheDb.getTeacherLessonByCacheKey(teacher, cacheKey);
+    let item = await cacheDb.getCommunityLessonByCacheKey(cacheKey);
+    if (!item) {
+      const teacher = await resolveTeacher(req, body);
+      item = await cacheDb.getTeacherLessonByCacheKey(teacher, cacheKey);
+    }
     if (!item) {
       const err = new Error('לא נמצאה תכנית שיעור שמורה עבור חיפוש זה');
       err.statusCode = 404;
@@ -104,6 +146,8 @@ async function executeSearchHistory(req) {
     }
     return { ok: true, action: 'reload', item: item };
   }
+
+  const teacher = await resolveTeacher(req, body);
 
   if (action === 'save_chat') {
     const cacheKey = String((body && body.cacheKey) || '').trim();
@@ -157,6 +201,7 @@ async function executeSearchHistory(req) {
       teacher: { id: teacher.id, email: teacher.email },
     };
   }
+
 
   const limit = Math.min(
     Number((body && body.limit) || (req.query && req.query.limit)) || 20,

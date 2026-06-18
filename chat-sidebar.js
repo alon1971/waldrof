@@ -15,6 +15,7 @@
     sessionKey: '',
     ragContext: '',
     ragChunkIds: [],
+    pendingArchiveSuggestion: null,
   };
 
   var CHAT_GREETING_FALLBACK_HE = 'שלום! ברוכים הבאים למתכנן הפדגוגי.';
@@ -198,10 +199,116 @@
     var cacheTag = msg.fromCache
       ? '<span class="lesson-chat-cache-tag" title="' + deps.escapeHtml(deps.t('chat_cache_hit')) + '"><i class="fa-solid fa-bolt"></i></span>'
       : '';
-    var body = msg.role === 'assistant' && msg.html
-      ? '<div class="lesson-chat-bubble-body prose-ai">' + msg.html + '</div>'
-      : '<div class="lesson-chat-bubble-body">' + deps.escapeHtml(msg.text) + '</div>';
-    return '<div class="lesson-chat-bubble ' + roleClass + '">' + cacheTag + body + '</div>';
+    var body;
+    if (msg.archiveSuggest && !msg.archiveSuggestResolved) {
+      body = '<div class="lesson-chat-bubble-body">' +
+        deps.escapeHtml(msg.text) +
+        '<div class="lesson-chat-suggest-actions">' +
+          '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--yes" data-archive-suggest="yes">' +
+            deps.escapeHtml(deps.t('archive_suggest_yes')) +
+          '</button>' +
+          '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--no" data-archive-suggest="no">' +
+            deps.escapeHtml(deps.t('archive_suggest_no')) +
+          '</button>' +
+        '</div>' +
+      '</div>';
+    } else if (msg.role === 'assistant' && msg.html) {
+      body = '<div class="lesson-chat-bubble-body prose-ai">' + msg.html + '</div>';
+    } else {
+      body = '<div class="lesson-chat-bubble-body">' + deps.escapeHtml(msg.text) + '</div>';
+    }
+    return '<div class="lesson-chat-bubble ' + roleClass + '"' +
+      (msg.archiveSuggestId ? ' data-archive-suggest-id="' + deps.escapeHtml(msg.archiveSuggestId) + '"' : '') +
+      '>' + cacheTag + body + '</div>';
+  }
+
+  function bindArchiveSuggestClicks(list) {
+    if (!list || list.dataset.archiveSuggestBound) return;
+    list.dataset.archiveSuggestBound = '1';
+    list.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-archive-suggest]') : null;
+      if (!btn || btn.disabled) return;
+      var action = btn.getAttribute('data-archive-suggest');
+      var bubble = btn.closest('[data-archive-suggest-id]');
+      if (!bubble) return;
+      var suggestId = bubble.getAttribute('data-archive-suggest-id');
+      var pending = state.pendingArchiveSuggestion;
+      if (!pending || pending.id !== suggestId || pending.resolved) return;
+      pending.resolved = true;
+      state.messages.forEach(function (m) {
+        if (m.archiveSuggestId === suggestId) m.archiveSuggestResolved = true;
+      });
+      renderMessages();
+      if (action === 'yes' && typeof pending.onConfirm === 'function') {
+        pending.onConfirm(pending);
+      } else if (action === 'no' && typeof pending.onReject === 'function') {
+        pending.onReject(pending);
+      }
+      state.pendingArchiveSuggestion = null;
+    });
+  }
+
+  function showArchiveTopicSuggestion(options) {
+    options = options || {};
+    var suggestedTopic = String(options.suggestedTopic || '').trim();
+    var cacheKey = String(options.cacheKey || '').trim();
+    if (!suggestedTopic || !cacheKey) return;
+
+    var wasBubble = state.displayMode === 'bubble';
+    if (wasBubble) setDisplayMode(openChatModeForViewport());
+
+    if (!hasOnlyGreeting()) {
+      state.messages = state.messages.filter(function (m) {
+        return !m.archiveSuggest;
+      });
+    } else {
+      state.messages = [];
+    }
+
+    var suggestId = 'archive-' + Date.now();
+    state.pendingArchiveSuggestion = {
+      id: suggestId,
+      cacheKey: cacheKey,
+      suggestedTopic: suggestedTopic,
+      query: options.query || '',
+      resolved: false,
+      onConfirm: options.onConfirm || null,
+      onReject: options.onReject || null,
+    };
+
+    state.messages.push({
+      role: 'assistant',
+      text: deps.t('archive_suggest_prompt', { topic: suggestedTopic }),
+      archiveSuggest: true,
+      archiveSuggestId: suggestId,
+      archiveSuggestResolved: false,
+      fromCache: true,
+    });
+    renderMessages();
+
+    var list = document.getElementById('lesson-chat-messages');
+    bindArchiveSuggestClicks(list);
+    var fsBody = document.getElementById('lesson-chat-fullscreen-body');
+    if (fsBody) {
+      var fsThread = fsBody.querySelector('.lesson-chat-fullscreen-thread');
+      bindArchiveSuggestClicks(fsThread || fsBody);
+    }
+  }
+
+  function showArchiveRefineHint() {
+    state.messages.push({
+      role: 'assistant',
+      text: deps.t('archive_suggest_refine'),
+    });
+    renderMessages();
+    var input = document.getElementById('lesson-chat-input');
+    var fsInput = document.getElementById('lesson-chat-fullscreen-input');
+    var activeInput = (state.displayMode === 'fullscreen' && fsInput) ? fsInput : input;
+    if (activeInput) {
+      requestAnimationFrame(function () {
+        activeInput.focus({ preventScroll: true });
+      });
+    }
   }
 
   function renderMessages() {
@@ -708,6 +815,10 @@
       });
     }
 
+    bindArchiveSuggestClicks(document.getElementById('lesson-chat-messages'));
+    var fsBodyInit = document.getElementById('lesson-chat-fullscreen-body');
+    if (fsBodyInit) bindArchiveSuggestClicks(fsBodyInit);
+
     setDisplayMode('bubble');
 
     if (MOBILE_CHAT_MQ && typeof MOBILE_CHAT_MQ.addEventListener === 'function') {
@@ -797,11 +908,14 @@
         state.messages = [buildGreetingMessage()];
         state.ragContext = '';
         state.ragChunkIds = [];
+        state.pendingArchiveSuggestion = null;
         renderMessages();
       }
       setDisplayMode(isMobileViewport() ? 'bubble' : 'panel');
       updateVisibility();
     },
+    showArchiveTopicSuggestion: showArchiveTopicSuggestion,
+    showArchiveRefineHint: showArchiveRefineHint,
     reset: function () {
       state.messages = [buildGreetingMessage()];
       state.sessionKey = '';

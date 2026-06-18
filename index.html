@@ -1587,6 +1587,39 @@
     .lesson-chat-bubble-body { margin: 0; }
     .lesson-chat-bubble--assistant .lesson-chat-bubble-body { padding-top: 0.15rem; }
 
+    .lesson-chat-suggest-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+    .lesson-chat-suggest-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 0.55rem 0.85rem;
+      border-radius: 0.65rem;
+      font-size: 0.82rem !important;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .lesson-chat-suggest-btn--yes {
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff;
+      border-color: rgba(92, 125, 88, 0.5);
+    }
+    .lesson-chat-suggest-btn--yes:hover { filter: brightness(1.05); }
+    .lesson-chat-suggest-btn--no {
+      background: rgba(255, 255, 255, 0.95);
+      color: #5C4A3A;
+      border-color: rgba(201, 169, 98, 0.45);
+    }
+    .lesson-chat-suggest-btn--no:hover { background: rgba(247, 243, 235, 0.95); }
+    .lesson-chat-suggest-btn:disabled { opacity: 0.55; cursor: default; }
+
     .lesson-chat-status {
       flex-shrink: 0;
       padding: 0.35rem 1rem;
@@ -6228,6 +6261,71 @@
       });
     }
 
+    async function probeArchiveTopicMatch(topic, gradeId) {
+      const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/search-history'
+        : '/api/search-history';
+      const headers = { 'Content-Type': 'application/json' };
+      let token = null;
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
+      }
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const body = {
+        action: 'probe_topic',
+        topic: topic,
+        gradeId: gradeId,
+        currentGrade: gradeId,
+      };
+      if (typeof WaldorfAuth !== 'undefined') {
+        const contributor = WaldorfAuth.getContributorProfile();
+        if (contributor) body.teacherUser = contributor;
+      }
+      const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+      const json = await res.json();
+      if (!res.ok || json.error) return null;
+      const data = json.data || json;
+      return data && data.match ? data.match : null;
+    }
+
+    async function reloadArchiveLessonItem(cacheKey) {
+      const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/search-history'
+        : '/api/search-history';
+      const headers = { 'Content-Type': 'application/json' };
+      let token = null;
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
+      }
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const body = { action: 'reload', cacheKey: cacheKey };
+      if (typeof WaldorfAuth !== 'undefined') {
+        const contributor = WaldorfAuth.getContributorProfile();
+        if (contributor) body.teacherUser = contributor;
+      }
+      const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || t('search_history_error'));
+      const data = json.data || json;
+      return data && data.item ? data.item : null;
+    }
+
+    async function applyArchiveTopicMatch(match, options) {
+      options = options || {};
+      if (!match) return false;
+      let item = match.item;
+      if (!item && match.cacheKey) {
+        item = await reloadArchiveLessonItem(match.cacheKey);
+      }
+      if (!item || !item.resultData || !item.resultData.blockPlan) return false;
+      if (options.closeChat && typeof LessonChatSidebar !== 'undefined') {
+        LessonChatSidebar.setDisplayMode('bubble');
+      }
+      await applyLessonPlanFromHistory(item);
+      if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+      return true;
+    }
+
     async function checkAndShowCommunityTopicAlert() {
       await renderTopicCommunitySlot();
     }
@@ -7300,6 +7398,71 @@
         updateTopicResearchButton();
         return;
       }
+
+      let archiveMatch = null;
+      try {
+        archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+      } catch (probeErr) {
+        console.warn('[archive-probe] failed:', probeErr);
+      }
+      if (runId !== topicResearchRunId || signal.aborted) {
+        setTopicResearchLoadingUi(false);
+        btn.disabled = false;
+        updateTopicResearchButton();
+        return;
+      }
+
+      if (archiveMatch && archiveMatch.matchType === 'exact') {
+        setTopicResearchLoadingUi(false);
+        btn.disabled = false;
+        updateTopicResearchButton();
+        topicResearchAbort = null;
+        try {
+          await applyArchiveTopicMatch(archiveMatch, { closeChat: false });
+        } catch (archiveErr) {
+          if (out) {
+            out.classList.remove('hidden');
+            out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(archiveErr.message || String(archiveErr)) + '</p>';
+          }
+        }
+        return;
+      }
+
+      if (archiveMatch && archiveMatch.matchType === 'partial') {
+        setTopicResearchLoadingUi(false);
+        btn.disabled = false;
+        updateTopicResearchButton();
+        topicResearchAbort = null;
+        if (typeof LessonChatSidebar !== 'undefined') {
+          LessonChatSidebar.showArchiveTopicSuggestion({
+            query: topic,
+            suggestedTopic: archiveMatch.suggestedTopic || archiveMatch.topic || '',
+            cacheKey: archiveMatch.cacheKey,
+            onConfirm: function () {
+              LessonChatSidebar.setDisplayMode('bubble');
+              reloadArchiveLessonItem(archiveMatch.cacheKey).then(function (item) {
+                return applyLessonPlanFromHistory(item);
+              }).then(function () {
+                if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+              }).catch(function (err) {
+                alert(err.message || String(err));
+              });
+            },
+            onReject: function () {
+              LessonChatSidebar.showArchiveRefineHint();
+              var topicInput = document.getElementById('topic-input');
+              if (topicInput) {
+                requestAnimationFrame(function () {
+                  topicInput.focus({ preventScroll: true });
+                  topicInput.select();
+                });
+              }
+            },
+          });
+        }
+        return;
+      }
+
       await checkAndShowCommunityTopicAlert();
       if (runId !== topicResearchRunId || signal.aborted) {
         setTopicResearchLoadingUi(false);

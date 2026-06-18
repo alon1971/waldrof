@@ -653,6 +653,150 @@ function scoreChatQuestionSimilarity(questionA, questionB) {
   return overlap / Math.max(wordsA.length, wordsB.size);
 }
 
+function archiveTopicDisplayName(row, data) {
+  const coerced = data || coerceCachedResultData(row && row.result_data);
+  return String(
+    (row && row.topic) ||
+    (coerced && coerced.webResearch && coerced.webResearch.topic) ||
+    (row && row.query_text) ||
+    ''
+  ).trim();
+}
+
+/**
+ * Score how closely a search query matches an archived topic label.
+ * Returns 1 for equivalent topics, ~0.88 for partial/substring matches.
+ */
+function scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText) {
+  const queryKey = normalizeTopicQuery(queryRaw);
+  const topicKey = normalizeTopicQuery(candidateTopic || candidateQueryText || '');
+  if (queryKey && topicKey && queryKey === topicKey) return 1;
+
+  const queryNorm = stableNormalize(queryRaw);
+  const topicNorm = stableNormalize(candidateTopic || '');
+  const queryTextNorm = stableNormalize(candidateQueryText || '');
+  if (!queryNorm) return 0;
+  if (topicNorm && queryNorm === topicNorm) return 1;
+  if (queryTextNorm && queryNorm === queryTextNorm) return 1;
+
+  if (queryNorm.length >= 2) {
+    if (topicNorm && topicNorm.indexOf(queryNorm) >= 0) return 0.88;
+    if (queryTextNorm && queryTextNorm.indexOf(queryNorm) >= 0) return 0.86;
+  }
+
+  return scoreChatQuestionSimilarity(queryRaw, candidateTopic || candidateQueryText || '');
+}
+
+function pickBestArchiveTopicRow(rows, query, options) {
+  const opts = options || {};
+  const partialOnly = Boolean(opts.partialOnly);
+  let best = null;
+  let bestScore = partialOnly ? 0.5 : 0.45;
+
+  (rows || []).forEach(function (row) {
+    if (!row || !row.result_data) return;
+    const data = coerceCachedResultData(row.result_data);
+    if (!data || !isValidCachedPayload('topic', data)) return;
+    const candidateTopic = archiveTopicDisplayName(row, data);
+    const score = scoreTopicSimilarity(query, candidateTopic, row.query_text || '');
+    if (partialOnly && score >= 0.99) return;
+    if (!partialOnly && score < 0.99 && score <= bestScore) return;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { row: row, data: data, topic: candidateTopic, score: score };
+    }
+  });
+
+  return best;
+}
+
+function findArchiveTopicInFallback(query, gradeId, partialOnly) {
+  loadFallbackStore();
+  const rows = Array.from(fallbackStore.rows.values()).filter(function (row) {
+    return row && row.phase === 'topic' && String(row.grade_id || '').trim() === String(gradeId || '').trim();
+  });
+  return pickBestArchiveTopicRow(rows, query, { partialOnly: partialOnly });
+}
+
+/**
+ * Find an exact or partial community-archive topic match before a live API search.
+ * Exact matches include full resultData; partial matches return metadata only.
+ */
+async function findArchiveTopicSuggestion(options) {
+  const topic = String(options && options.topic || '').trim();
+  const gradeId = String((options && (options.gradeId || options.currentGrade)) || '').trim();
+  if (!topic || !gradeId) return null;
+
+  const topicBody = { phase: 'topic', topic: topic, currentGrade: gradeId, gradeId: gradeId };
+  const cached = await getCachedResult(topicBody);
+  if (cached && cached.data && isValidCachedPayload('topic', cached.data)) {
+    return {
+      matchType: 'exact',
+      similarity: 1,
+      cacheKey: cached.meta.cacheKey,
+      topic: archiveTopicDisplayName({ topic: topic, query_text: topic }, cached.data) || topic,
+      gradeId: gradeId,
+      resultData: cached.data,
+    };
+  }
+
+  const partialOnly = true;
+  let best = null;
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const params = new URLSearchParams();
+      params.set('select', LEGACY_ROW_SELECT);
+      params.set('phase', 'eq.topic');
+      params.set('grade_id', 'eq.' + gradeId);
+      params.set('order', 'hit_count.desc,created_at.desc');
+      params.set('limit', '80');
+
+      const searchTerms = [];
+      const rawWords = stableNormalize(topic).split(' ').filter(function (w) { return w.length >= 2; });
+      rawWords.forEach(function (w) { searchTerms.push(w); });
+      const queryKey = normalizeTopicQuery(topic);
+      if (queryKey) {
+        queryKey.split(' ').filter(function (w) { return w.length >= 2; }).forEach(function (w) {
+          searchTerms.push(w);
+        });
+      }
+      const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 4);
+      if (uniqueTerms.length) {
+        const orParts = uniqueTerms.map(function (term) {
+          return 'topic.ilike.*' + term + '*,query_text.ilike.*' + term + '*';
+        });
+        params.set('or', '(' + orParts.join(',') + ')');
+      }
+
+      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length) {
+          best = pickBestArchiveTopicRow(rows, topic, { partialOnly: partialOnly });
+        }
+      }
+    } catch (err) {
+      console.warn('[cached_results] archive topic suggestion failed:', err.message || err);
+    }
+  }
+
+  if (!best) {
+    best = findArchiveTopicInFallback(topic, gradeId, partialOnly);
+  }
+
+  if (!best || !best.row) return null;
+
+  return {
+    matchType: 'partial',
+    similarity: best.score,
+    cacheKey: best.row.cache_key,
+    topic: best.topic,
+    gradeId: gradeId,
+    gradeLabel: best.row.grade_label || null,
+  };
+}
+
 const GRADE_LABEL_BY_ID = {
   '1': 'כיתה א׳',
   '2': 'כיתה ב׳',
@@ -1489,6 +1633,18 @@ async function listTeacherChatHistory(teacher, options) {
 }
 
 /**
+ * Load a community-archive lesson plan by cache key (any teacher).
+ */
+async function getCommunityLessonByCacheKey(cacheKey) {
+  const row = await fetchCachedRowByKey(cacheKey);
+  if (!row || row.phase !== 'topic') return null;
+  const data = coerceCachedResultData(row.result_data);
+  if (!data || !data.blockPlan) return null;
+  bumpHitCountAsync(cacheKey, row.hit_count);
+  return formatHistoryItem(row);
+}
+
+/**
  * Load a single saved lesson plan by cache key (teacher-scoped).
  */
 async function getTeacherLessonByCacheKey(teacher, cacheKey) {
@@ -1581,5 +1737,8 @@ module.exports = {
   listTeacherSearchHistory,
   listTeacherChatHistory,
   getTeacherLessonByCacheKey,
+  getCommunityLessonByCacheKey,
   saveTopicChatSession,
+  scoreTopicSimilarity,
+  findArchiveTopicSuggestion,
 };
