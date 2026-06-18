@@ -3,33 +3,8 @@
  */
 const env = require('./env');
 const cacheDb = require('./cache');
-const authContext = require('./auth-context');
 
 const TABLE = 'user_subscriptions';
-
-/** Columns present in production user_subscriptions (billing_cycle omitted until migrated). */
-const SUBSCRIPTION_DB_COLUMNS = [
-  'user_id',
-  'user_email',
-  'tier',
-  'trial_searches_used',
-  'word_downloads_count',
-  'monthly_searches_used',
-  'usage_month',
-  'auto_renew',
-  'created_at',
-  'updated_at',
-];
-
-const SUBSCRIPTION_SELECT_COLUMNS = SUBSCRIPTION_DB_COLUMNS.join(',');
-
-function pickSubscriptionDbFields(obj) {
-  const out = {};
-  SUBSCRIPTION_DB_COLUMNS.forEach(function (key) {
-    if (obj && obj[key] !== undefined) out[key] = obj[key];
-  });
-  return out;
-}
 
 const TIER_LIMITS = {
   trial: { lifetime: 10, monthly: null, wordDownloads: 10 },
@@ -202,11 +177,19 @@ async function verifySupabaseToken(token) {
 }
 
 async function resolveUser(req, body) {
-  const verified = await authContext.resolveVerifiedUser(req, body);
-  if (verified && verified.id) {
-    return Object.assign({}, verified, {
-      tier: normalizeTier((body && body.teacherUser && body.teacherUser.tier) || verified.tier || 'trial'),
-    });
+  const authHeader = String(req.headers.authorization || req.headers.Authorization || '');
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  const verified = await verifySupabaseToken(token);
+  if (verified && verified.id) return verified;
+
+  const fromBody = body && body.teacherUser;
+  if (fromBody && fromBody.id) {
+    return {
+      id: fromBody.id,
+      email: String(fromBody.email || '').trim(),
+      name: fromBody.name || fromBody.displayName || '',
+      tier: normalizeTier(fromBody.tier || 'trial'),
+    };
   }
 
   const err = new Error('יש להתחבר כדי לנהל מנוי');
@@ -260,7 +243,7 @@ function buildUsagePayload(row) {
 
 async function fetchSubscriptionRow(userId, userToken) {
   const params = new URLSearchParams();
-  params.set('select', SUBSCRIPTION_SELECT_COLUMNS);
+  params.set('select', '*');
   params.set('user_id', 'eq.' + userId);
   params.set('limit', '1');
 
@@ -278,7 +261,6 @@ function subscriptionRowFromPatch(user, patch, existing) {
   const now = new Date().toISOString();
   return {
     user_id: user.id,
-    user_email: user.email || prev.user_email || '',
     tier: normalizeTier((patch && patch.tier) || prev.tier || user.tier || 'trial'),
     trial_searches_used: (patch && patch.trial_searches_used) != null
       ? patch.trial_searches_used
@@ -305,7 +287,7 @@ async function insertSubscriptionRow(user, patch, userToken) {
   const res = await supabaseRequest('/rest/v1/' + TABLE, {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(pickSubscriptionDbFields(row)),
+    body: JSON.stringify(row),
   }, userToken);
 
   const rows = await readSupabaseResponse(res, 'subscription insert');
@@ -315,9 +297,7 @@ async function insertSubscriptionRow(user, patch, userToken) {
 async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const params = new URLSearchParams();
   params.set('user_id', 'eq.' + userId);
-  const body = pickSubscriptionDbFields(
-    pickDefinedFields(Object.assign({}, patch, { updated_at: new Date().toISOString() }))
-  );
+  const body = pickDefinedFields(Object.assign({}, patch, { updated_at: new Date().toISOString() }));
   delete body.user_id;
   delete body.created_at;
 
@@ -332,7 +312,7 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   // PATCH may return [] when RLS blocks the write — re-fetch the real row instead of guessing.
   const refetched = await fetchSubscriptionRow(userId, userToken);
   if (refetched) return refetched;
-  const baseUser = user || { id: userId, email: existing && existing.user_email };
+  const baseUser = user || { id: userId, tier: (existing && existing.tier) || 'trial' };
   return subscriptionRowFromPatch(baseUser, patch, existing);
 }
 
