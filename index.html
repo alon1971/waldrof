@@ -1417,7 +1417,7 @@
       }
     }
     @media (min-width: 768px) {
-      .lesson-chat-fab-wrap {
+      #lesson-chat-fab-wrap.lesson-chat-fab-wrap {
         bottom: 220px;
         --lesson-chat-fab-card-left: calc(
           (100vw - min(72rem, 100vw)) / 2
@@ -1429,12 +1429,9 @@
           calc(var(--lesson-chat-fab-card-left) / 2),
           calc(var(--lesson-chat-fab-card-left) - 1rem)
         );
+        right: auto;
         transform: translateX(-50%);
         z-index: 50;
-      }
-      body.grade-report-visible.lesson-chat-mode-bubble .lesson-chat-fab-wrap {
-        left: 1.5rem;
-        transform: none;
       }
       .lesson-chat-fab {
         width: auto;
@@ -2724,7 +2721,7 @@
     </div>
   </aside>
 
-  <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap flex fixed bottom-6 left-6 z-[60]" aria-hidden="false">
+  <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
     <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-12 h-12 rounded-full md:rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
       <i class="lesson-chat-fab-icon fa-solid fa-comments" aria-hidden="true"></i>
       <span class="lesson-chat-fab-label hidden md:block" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
