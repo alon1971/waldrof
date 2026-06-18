@@ -161,7 +161,7 @@
     /* שלב ג׳ — שלושת טאבי התוצרים ככפתורי כרטיס אופקיים */
     .product-tabs-nav {
       position: sticky;
-      top: var(--app-sticky-nav-height, 11rem);
+      top: var(--app-sticky-nav-height, 6.75rem);
       z-index: 50;
       background: linear-gradient(180deg, rgba(237, 244, 248, 0.98), rgba(232, 240, 230, 0.96));
       backdrop-filter: blur(10px);
@@ -175,7 +175,7 @@
       left: 0;
       right: 0;
       width: 100%;
-      top: var(--app-sticky-nav-height, 11rem);
+      top: var(--app-sticky-nav-height, 6.75rem);
       z-index: 50;
     }
     body.lesson-chat-mode-panel.ws-products-view #workspace-products-nav:not(.hidden) {
@@ -1237,7 +1237,7 @@
 
     /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
-      --app-site-chrome-height: 11rem;
+      --app-site-chrome-height: 6.75rem;
       --app-sticky-nav-height: var(--app-site-chrome-height);
       --lesson-chat-panel-width: 360px;
       --lesson-chat-layout-inset: 360px;
@@ -1252,7 +1252,57 @@
       padding-top: env(safe-area-inset-top, 0px);
       box-sizing: border-box;
       background: linear-gradient(180deg, rgba(247, 243, 235, 0.99) 0%, rgba(250, 248, 244, 0.98) 100%);
-      box-shadow: 0 4px 16px rgba(92, 74, 58, 0.1);
+      box-shadow: 0 2px 10px rgba(92, 74, 58, 0.08);
+      --app-brand-title-size: 17px;
+    }
+    @media (min-width: 640px) {
+      .app-site-chrome { --app-brand-title-size: 19px; }
+    }
+    .app-site-chrome header > .max-w-6xl {
+      padding-top: 0.4rem !important;
+      padding-bottom: 0.35rem !important;
+    }
+    .app-site-chrome header .app-brand-title {
+      margin: 0;
+    }
+    .app-site-chrome header .app-chrome-tagline-row {
+      margin-bottom: 0.15rem !important;
+    }
+    .app-site-chrome header .app-chrome-tagline-row p {
+      font-size: 0.7rem !important;
+      line-height: 1.25 !important;
+    }
+    .app-site-chrome header .app-chrome-subtitle {
+      margin-top: 0.1rem !important;
+      font-size: 0.7rem !important;
+      line-height: 1.3 !important;
+    }
+    .app-site-chrome .app-top-nav > .max-w-6xl {
+      padding-top: 0.3rem !important;
+      padding-bottom: 0.35rem !important;
+    }
+    .app-site-chrome .app-top-nav-inner {
+      gap: 0.35rem;
+    }
+    .app-site-chrome .step-pill {
+      min-height: 0 !important;
+      padding: 0.3rem 0.55rem !important;
+      font-size: 0.7rem !important;
+      line-height: 1.25 !important;
+    }
+    .app-site-chrome .user-action-btn {
+      min-height: 1.75rem;
+      padding: 0.2rem 0.45rem;
+      font-size: 0.7rem !important;
+    }
+    .app-site-chrome #search-usage-meter {
+      font-size: 0.65rem !important;
+    }
+    .app-site-chrome .lang-toggle {
+      min-width: 2.25rem;
+      min-height: 1.75rem;
+      padding: 0.15rem 0.45rem;
+      font-size: 0.7rem !important;
     }
     .app-site-chrome-spacer {
       display: block;
@@ -2367,8 +2417,8 @@
 
   <div id="app-site-chrome" class="app-site-chrome">
   <header class="border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
-    <div class="max-w-6xl mx-auto px-4 py-6 sm:py-8">
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+    <div class="max-w-6xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5">
+      <div class="app-chrome-tagline-row flex flex-wrap items-center justify-between gap-2 mb-1">
         <p class="text-sage-dark text-sm font-medium"><i class="fa-solid fa-seedling icon-inline"></i> <span data-i18n="header_tagline">חינוך ולדורף · תקופת לימוד ראשית</span></p>
         <div class="flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
           <div id="user-account-bar" class="hidden">
@@ -2397,7 +2447,7 @@
         </div>
       </div>
       <h1 class="app-brand-title font-display font-bold text-burgundy" data-i18n="header_title">מתכנן תקופות לימוד אנתרופוסופי</h1>
-      <p class="mt-1 text-walnut/75 text-sm max-w-3xl" data-i18n="header_subtitle">כיתה ← נושא ← תוצרים, מערכי שיעור ועוד | מאגר קהילתי | ארכיון ידע</p>
+      <p class="app-chrome-subtitle mt-0.5 text-walnut/75 text-xs max-w-3xl" data-i18n="header_subtitle">כיתה ← נושא ← תוצרים, מערכי שיעור ועוד | מאגר קהילתי | ארכיון ידע</p>
     </div>
   </header>
   <div id="page-focus-sentinel" tabindex="-1" aria-hidden="true" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
@@ -2406,7 +2456,7 @@
 
   <!-- Top navigation: wizard steps + permanent repository entry -->
   <nav class="app-top-nav bg-cream/95 backdrop-blur border-b border-gold/20 shadow-sm">
-    <div class="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 safe-x">
+    <div class="max-w-6xl mx-auto px-3 sm:px-4 py-1.5 sm:py-2 safe-x">
       <div class="app-top-nav-inner">
         <div class="flex flex-wrap gap-2 sm:gap-2 justify-center items-stretch" id="step-progress" data-i18n-aria="nav_wizard_aria"></div>
         <button type="button" id="btn-nav-community"
@@ -2514,13 +2564,15 @@
           <span data-i18n="step2_desc">המערכת תסרוק את הרשת עבור נושא זה, ותנתח כיצד הוא מתחבר להתפתחות הנפשית-גופנית-רוחנית של הילד בגיל</span>
           <strong id="step2-grade-label" class="text-sage-dark"></strong>.
         </p>
-        <input type="text" id="topic-input" maxlength="200"
-          class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base focus:ring-2 focus:ring-sage/40 outline-none mb-2" />
-        <p id="api-hint-step2" class="hidden text-xs text-terracotta mt-1"><i class="fa-solid fa-cloud icon-inline"></i> <span data-i18n="api_hint_step2">חיבור Supabase נדרש — בדקו הגדרות הפרויקט.</span></p>
-        <button type="button" id="btn-topic-research"
-          class="touch-btn w-full mt-4 bg-sage hover:bg-sage-dark active:bg-sage-dark text-white font-medium rounded-xl">
-          <i class="fa-solid fa-satellite-dish icon-inline"></i> <span data-i18n="btn_topic_research">חפש ברשת ונתח התאמה לגיל</span>
-        </button>
+        <div id="step-b-topic-entry" class="step-b-topic-entry">
+          <input type="text" id="topic-input" maxlength="200"
+            class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base focus:ring-2 focus:ring-sage/40 outline-none mb-2" />
+          <p id="api-hint-step2" class="hidden text-xs text-terracotta mt-1"><i class="fa-solid fa-cloud icon-inline"></i> <span data-i18n="api_hint_step2">חיבור Supabase נדרש — בדקו הגדרות הפרויקט.</span></p>
+          <button type="button" id="btn-topic-research"
+            class="touch-btn w-full mt-4 bg-sage hover:bg-sage-dark active:bg-sage-dark text-white font-medium rounded-xl">
+            <i class="fa-solid fa-satellite-dish icon-inline"></i> <span data-i18n="btn_topic_research">חפש ברשת ונתח התאמה לגיל</span>
+          </button>
+        </div>
         <div id="topic-research-loading" class="hidden mt-6 p-4 sm:p-5 rounded-xl bg-parchment/90 border-2 text-sm" role="status" aria-live="polite" aria-busy="true">
           <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
             <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
@@ -7212,16 +7264,41 @@
       });
     }
 
-    function scrollToSectionStart(el, behavior) {
+    function getStickyChromeHeight() {
+      var siteChrome = document.getElementById('app-site-chrome');
+      if (siteChrome) return siteChrome.offsetHeight;
+      var parsed = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-sticky-nav-height'));
+      return isNaN(parsed) ? 0 : parsed;
+    }
+
+    function scrollElementIntoViewWithChrome(el, behavior, block) {
       if (!el || behavior === false || behavior === 'none') return;
       var b = (behavior === 'auto' || behavior === 'instant') ? 'auto' : (behavior || 'smooth');
       requestAnimationFrame(function () {
-        el.scrollIntoView({ behavior: b, block: 'start' });
+        var chromeHeight = getStickyChromeHeight();
+        var rect = el.getBoundingClientRect();
+        var scrollY = window.scrollY || window.pageYOffset || 0;
+        var absTop = rect.top + scrollY;
+        var elH = el.offsetHeight;
+        var vpH = window.innerHeight;
+        var visibleH = Math.max(0, vpH - chromeHeight);
+        var targetY;
+        if (block === 'center') {
+          targetY = absTop + (elH / 2) - chromeHeight - (visibleH / 2);
+        } else {
+          targetY = absTop - chromeHeight - 12;
+        }
+        window.scrollTo({ top: Math.max(0, targetY), behavior: b });
       });
     }
 
+    function scrollToSectionStart(el, behavior) {
+      scrollElementIntoViewWithChrome(el, behavior, 'start');
+    }
+
     function scrollToStepB(behavior) {
-      scrollToSectionStart(document.getElementById('step-b-container'), behavior);
+      var anchor = document.getElementById('step-b-topic-entry') || document.getElementById('topic-input');
+      scrollElementIntoViewWithChrome(anchor, behavior, 'center');
     }
 
     function scrollToWizardStep(n, behavior) {
@@ -7683,7 +7760,8 @@
       const topicInput = document.getElementById('topic-input');
       if (!topicInput) return;
       requestAnimationFrame(function () {
-        topicInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        var anchor = document.getElementById('step-b-topic-entry') || topicInput;
+        scrollElementIntoViewWithChrome(anchor, 'smooth', 'center');
         topicInput.focus({ preventScroll: true });
         topicInput.select();
         topicInput.classList.remove('topic-input--highlight');
