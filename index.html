@@ -6312,6 +6312,23 @@
       });
     }
 
+    function archiveLessonDisplayTopic(item) {
+      if (!item) return '';
+      const candidates = [];
+      function add(val) {
+        const s = String(val || '').trim();
+        if (s && candidates.indexOf(s) < 0) candidates.push(s);
+      }
+      if (item.resultData && item.resultData.webResearch && item.resultData.webResearch.topic) {
+        add(item.resultData.webResearch.topic);
+      }
+      add(item.topic);
+      if (!candidates.length) return '';
+      return candidates.reduce(function (best, curr) {
+        return curr.length > best.length ? curr : best;
+      }, candidates[0]);
+    }
+
     function scoreArchiveTopicSimilarity(query, candidateTopic) {
       const q = String(query || '').trim().toLowerCase();
       const c = String(candidateTopic || '').trim().toLowerCase();
@@ -6330,7 +6347,7 @@
       let best = null;
       let bestScore = 0.5;
       items.forEach(function (item) {
-        const candidate = item.topic || '';
+        const candidate = archiveLessonDisplayTopic(item);
         const score = scoreArchiveTopicSimilarity(topic, candidate);
         if (score >= 0.99) return;
         if (score > bestScore) {
@@ -6339,12 +6356,13 @@
         }
       });
       if (!best) return null;
+      const archiveTitle = archiveLessonDisplayTopic(best);
       return {
         matchType: 'partial',
         similarity: bestScore,
         cacheKey: best.cacheKey,
-        suggestedTopic: best.topic,
-        topic: best.topic,
+        suggestedTopic: archiveTitle,
+        topic: archiveTitle,
         gradeId: gradeId,
         gradeLabel: best.gradeLabel || null,
       };
@@ -7451,8 +7469,8 @@
         matchType: match.matchType || 'partial',
         similarity: match.similarity,
         cacheKey: match.cacheKey,
-        suggestedTopic: match.suggestedTopic || match.topic || '',
-        topic: match.topic || match.suggestedTopic || '',
+        suggestedTopic: match.suggestedTopic || match.archiveTitle || match.topic || '',
+        topic: match.topic || match.suggestedTopic || match.archiveTitle || '',
         gradeId: match.gradeId,
         gradeLabel: match.gradeLabel || null,
         item: match.item || null,

@@ -655,12 +655,20 @@ function scoreChatQuestionSimilarity(questionA, questionB) {
 
 function archiveTopicDisplayName(row, data) {
   const coerced = data || coerceCachedResultData(row && row.result_data);
-  return String(
-    (row && row.topic) ||
-    (coerced && coerced.webResearch && coerced.webResearch.topic) ||
-    (row && row.query_text) ||
-    ''
-  ).trim();
+  const candidates = [];
+  function addCandidate(val) {
+    const s = String(val || '').trim();
+    if (s && candidates.indexOf(s) < 0) candidates.push(s);
+  }
+  if (coerced && coerced.webResearch && coerced.webResearch.topic) {
+    addCandidate(coerced.webResearch.topic);
+  }
+  if (row && row.topic) addCandidate(row.topic);
+  if (row && row.query_text) addCandidate(row.query_text);
+  if (!candidates.length) return '';
+  return candidates.reduce(function (best, curr) {
+    return curr.length > best.length ? curr : best;
+  }, candidates[0]);
 }
 
 /**
@@ -1486,7 +1494,7 @@ function formatHistoryItem(row, options) {
     phase: row.phase,
     gradeId: row.grade_id || null,
     gradeLabel: row.grade_label || null,
-    topic: row.topic || data.webResearch?.topic || row.query_text || '',
+    topic: archiveTopicDisplayName(row, data) || row.query_text || '',
     createdAt: row.created_at || null,
     lastHitAt: row.last_hit_at || null,
     hitCount: row.hit_count || 0,

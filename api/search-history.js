@@ -120,6 +120,7 @@ async function executeSearchHistory(req) {
         similarity: match.similarity,
         cacheKey: match.cacheKey,
         suggestedTopic: match.topic,
+        archiveTitle: match.topic,
         gradeId: match.gradeId,
         gradeLabel: match.gradeLabel || null,
         item: item,

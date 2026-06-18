@@ -1302,6 +1302,7 @@ async function executeGenerate(body, apiKey) {
               archiveSuggestion: {
                 matchType: 'partial',
                 suggestedTopic: suggestion.topic,
+                archiveTitle: suggestion.topic,
                 cacheKey: suggestion.cacheKey,
                 similarity: suggestion.similarity,
                 gradeId: suggestion.gradeId,
