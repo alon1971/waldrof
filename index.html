@@ -2702,6 +2702,7 @@
 
     <!-- STEP 2 -->
     <section id="step-2" class="wizard-step hidden">
+      <div id="step-b-wrapper">
       <div id="step-b-container" class="bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full max-w-2xl mx-auto box-border">
         <span class="inline-block bg-terracotta/15 text-terracotta text-xs font-bold px-3 py-1 rounded-full mb-4" data-i18n="step_b_badge">שלב ב׳</span>
         <h2 class="app-page-title font-display font-bold text-burgundy mb-2" data-i18n="step2_title">מה הנושא המבוקש לתקופת הלימוד?</h2>
@@ -2736,6 +2737,7 @@
           <i class="fa-solid fa-lock-open icon-inline"></i>
           <span data-i18n="btn_to_workspace">המשך לשלב ג׳ — תוצרים, מערכי שיעור ועוד</span>
         </button>
+      </div>
       </div>
     </section>
   </div>
@@ -3992,11 +3994,18 @@
       if (typeof WaldorfAuth !== 'undefined' && !(json.meta && json.meta.fromCache) && !(json.meta && json.meta.needsArchiveConfirmation)) {
         if (json.meta && json.meta.usage) {
           WaldorfAuth.applyUsageFromServer(json.meta.usage);
-        } else {
+        } else if (!(json.meta && json.meta.searchBilled)) {
           try {
             await WaldorfAuth.recordSearch();
           } catch (usageErr) {
             console.warn('[usage] recordSearch failed after generate:', usageErr && usageErr.message ? usageErr.message : usageErr);
+          }
+        }
+        if (!(json.meta && json.meta.usage) && typeof WaldorfAuth.refreshSubscriptionFromServer === 'function') {
+          try {
+            await WaldorfAuth.refreshSubscriptionFromServer();
+          } catch (refreshErr) {
+            console.warn('[usage] refreshSubscriptionFromServer failed:', refreshErr && refreshErr.message ? refreshErr.message : refreshErr);
           }
         }
       }
@@ -7218,7 +7227,7 @@
 
     function canNavigateToStep(n) {
       if (n === 1) return true;
-      if (n === 2) return Boolean(appState.grade);
+      if (n === 2) return true;
       if (n === 3) return Boolean(appState.grade && resolveLessonTopic() && appState.aiGeneratedPlan);
       return false;
     }
@@ -7319,7 +7328,7 @@
         labelEl.textContent = labelText;
         labelEl.setAttribute('aria-hidden', labelText ? 'false' : 'true');
       }
-      if (topicBtn) topicBtn.disabled = !canNavigateToStep(2);
+      if (topicBtn) topicBtn.disabled = false;
       if (nav) {
         nav.setAttribute('aria-label', t('header_compact_nav_aria'));
       }
@@ -7376,9 +7385,22 @@
     }
 
     function navigateCompactHeaderToTopic() {
-      if (!canNavigateToStep(2)) return;
-      goToStep(2, false);
-      scrollToStepBAndFocus({ expandHeader: true, behavior: 'smooth' });
+      ensureStepBWizardView();
+      var anchor = document.getElementById('step-b-wrapper');
+      if (anchor) {
+        anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      var topicInput = document.getElementById('topic-input');
+      if (topicInput) {
+        setTimeout(function () {
+          try {
+            topicInput.focus({ preventScroll: true });
+          } catch (e) {
+            topicInput.focus();
+          }
+          highlightWizardField(topicInput);
+        }, 450);
+      }
     }
 
     function setHeaderCompact(compact) {
@@ -7570,7 +7592,8 @@
     }
 
     function getStepBScrollAnchor() {
-      return document.getElementById('step-b-container') ||
+      return document.getElementById('step-b-wrapper') ||
+        document.getElementById('step-b-container') ||
         document.getElementById('step-b-topic-entry') ||
         document.getElementById('topic-input');
     }
@@ -8250,7 +8273,13 @@
 
       const topic = document.getElementById('topic-input').value.trim();
       const currentGrade = appState.grade;
-      if (!topic || !currentGrade) return;
+      if (!topic) return;
+      if (!currentGrade) {
+        alert(t('research_need_grade'));
+        goToStep(1, 'smooth');
+        focusGradeSelect();
+        return;
+      }
 
       document.getElementById('api-hint-step2').classList.add('hidden');
       if (topicResearchAbort) topicResearchAbort.abort();
@@ -9656,7 +9685,7 @@
       bindWizardNavClick(document.getElementById('btn-nav-archive'), function () { openArchiveNav(); });
       bindWizardNavClick(document.getElementById('ws-crumb-grade'), function () { if (appState.grade) goToStep(1, 'smooth'); });
       bindWizardNavClick(document.getElementById('ws-crumb-topic'), function () {
-        if (canNavigateToStep(2)) goToStep(2, 'smooth');
+        goToStep(2, 'smooth');
       });
       bindWizardNavClick(document.getElementById('header-compact-edit-grade'), navigateCompactHeaderToGrade);
       bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
