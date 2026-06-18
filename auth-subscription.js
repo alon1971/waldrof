@@ -26,7 +26,7 @@
     },
     standard: {
       id: 'standard',
-      monthlyLimit: 300,
+      monthlyLimit: 200,
       lifetimeLimit: null,
       displayUnlimited: false,
       prices: { monthly: 50, yearly: 500 },
@@ -34,11 +34,18 @@
     },
     pro: {
       id: 'pro',
-      monthlyLimit: 600,
+      monthlyLimit: 1000,
       lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 80, yearly: 640 },
+      prices: { monthly: 200, yearly: 2000 },
       yearlySavingsKey: 'pricing_pro_yearly_deal',
+    },
+    school: {
+      id: 'school',
+      contactOnly: true,
+      monthlyLimit: null,
+      lifetimeLimit: null,
+      prices: { monthly: null, yearly: null },
     },
   };
 
@@ -152,6 +159,7 @@
   function normalizeTierId(tierId) {
     var t = String(tierId || 'trial').trim().toLowerCase();
     if (LEGACY_TIER_MAP[t]) return LEGACY_TIER_MAP[t];
+    if (t === 'school') return 'school';
     return TIERS[t] ? t : 'trial';
   }
 
@@ -750,7 +758,7 @@
   function mockUpgrade(tierId, billingCycle) {
     if (!authState.isAuthenticated) return Promise.reject(new Error(t('auth_err_sign_in_first')));
     var normalized = normalizeTierId(tierId);
-    if (!TIERS[normalized]) return Promise.reject(new Error('Invalid tier'));
+    if (!TIERS[normalized] || normalized === 'school') return Promise.reject(new Error('Invalid tier'));
     if (normalized === 'trial') {
       authState.tier = normalized;
       persistAuth();
@@ -1080,61 +1088,93 @@
     });
   }
 
+  function schoolTierEmailHref() {
+    return 'mailto:waldorf.planner.ai@gmail.com?subject=' + encodeURIComponent(t('tier_school_email_subject'));
+  }
+
+  function renderPricingCardActions(tierId, isCurrent, featured) {
+    if (tierId === 'school') {
+      return '<a href="' + escapeHtml(schoolTierEmailHref()) + '" class="pricing-tier-btn pricing-tier-btn--outline pricing-tier-btn--mail">' +
+        '<i class="fa-solid fa-envelope" aria-hidden="true"></i> ' +
+        escapeHtml(t('tier_school_contact_btn')) +
+      '</a>';
+    }
+    if (tierId === 'trial') {
+      return '<button type="button" class="pricing-tier-btn pricing-tier-btn--outline" data-pricing-select="trial"' + (isCurrent ? ' disabled' : '') + '>' +
+        escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_start_trial')) +
+      '</button>';
+    }
+    return '<button type="button" class="pricing-tier-btn' + (featured ? '' : ' pricing-tier-btn--outline') + '" data-pricing-select="' + tierId + '"' + (isCurrent ? ' disabled' : '') + '>' +
+      escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_upgrade_btn')) +
+    '</button>';
+  }
+
+  function renderPricingTierFeatures(tierId) {
+    if (tierId === 'trial') {
+      return '<li>' + escapeHtml(t('tier_trial_feature_searches')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_trial_feature_downloads')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_trial_feature_archive')) + '</li>';
+    }
+    if (tierId === 'standard') {
+      return '<li>' + escapeHtml(t('tier_standard_feature_1')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_standard_feature_2')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_standard_feature_3')) + '</li>';
+    }
+    if (tierId === 'pro') {
+      return '<li>' + escapeHtml(t('tier_pro_feature_1')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_pro_feature_2')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_pro_feature_3')) + '</li>';
+    }
+    if (tierId === 'school') {
+      return '<li>' + escapeHtml(t('tier_school_feature_1')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_school_feature_2')) + '</li>' +
+        '<li>' + escapeHtml(t('tier_school_feature_3')) + '</li>';
+    }
+    return '';
+  }
+
   function renderPricingCards() {
     var grid = document.getElementById('pricing-tier-grid');
     if (!grid) return;
     var current = normalizeTierId(authState.tier);
     var cycle = pricingBillingCycle;
-    var order = ['trial', 'standard', 'pro'];
+    var order = ['trial', 'standard', 'pro', 'school'];
 
     grid.innerHTML = order.map(function (tierId) {
       var tier = TIERS[tierId];
+      if (!tier) return '';
       var isCurrent = tierId === current;
       var featured = tierId === 'pro';
-      var price = tierId === 'trial' ? t('pricing_free') : formatPrice(tier.prices[cycle], cycle);
-      var altPrice = tierId !== 'trial' && cycle === 'monthly'
+      var isSchool = tierId === 'school';
+      var price = tierId === 'trial'
+        ? t('pricing_free')
+        : (isSchool
+          ? t('tier_school_price_label')
+          : formatPrice(tier.prices[cycle], cycle));
+      var altPrice = !isSchool && tierId !== 'trial' && cycle === 'monthly'
         ? t('pricing_or_yearly', { amount: tier.prices.yearly })
-        : (tierId !== 'trial' && cycle === 'yearly'
+        : (!isSchool && tierId !== 'trial' && cycle === 'yearly'
           ? t('pricing_or_monthly', { amount: tier.prices.monthly })
           : '');
-      var savings = (tierId === 'standard' || tierId === 'pro') && tier.yearlySavingsKey
+      var savings = !isSchool && (tierId === 'standard' || tierId === 'pro') && tier.yearlySavingsKey
         ? '<p class="pricing-tier-savings">' + escapeHtml(t(tier.yearlySavingsKey)) + '</p>'
         : '';
-      var limitText = tier.lifetimeLimit != null
-        ? t('tier_searches_lifetime', { count: tier.lifetimeLimit })
-        : t('tier_searches_per_month', { count: tier.monthlyLimit });
-      var trialLimitLine = tierId === 'trial' ? '' :
-        '<p class="pricing-tier-limit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> ' + escapeHtml(limitText) + '</p>';
-      var trialFeatures = tierId === 'trial'
-        ? '<li>' + escapeHtml(t('tier_trial_feature_searches')) + '</li>' +
-          '<li>' + escapeHtml(t('tier_trial_feature_downloads')) + '</li>' +
-          '<li>' + escapeHtml(t('tier_trial_feature_archive')) + '</li>'
-        : '';
+      var limitLine = '';
 
       return (
-        '<article class="pricing-tier-card' + (featured ? ' pricing-tier-card--featured' : '') + (isCurrent ? ' pricing-tier-card--current' : '') + '" data-tier="' + tierId + '">' +
+        '<article class="pricing-tier-card' + (featured ? ' pricing-tier-card--featured' : '') + (isCurrent ? ' pricing-tier-card--current' : '') + (isSchool ? ' pricing-tier-card--school' : '') + '" data-tier="' + tierId + '">' +
           (featured ? '<span class="pricing-tier-badge">' + escapeHtml(t('pricing_most_popular')) + '</span>' : '') +
           (isCurrent ? '<span class="pricing-tier-current">' + escapeHtml(t('pricing_current_plan')) + '</span>' : '') +
           '<h3 class="pricing-tier-name font-display">' + escapeHtml(tierLabel(tierId)) + '</h3>' +
           '<p class="pricing-tier-price font-display">' + escapeHtml(price) + '</p>' +
           (altPrice ? '<p class="pricing-tier-alt">' + escapeHtml(altPrice) + '</p>' : '') +
           savings +
-          trialLimitLine +
-          '<ul class="pricing-tier-features">' +
-            trialFeatures +
-            (tierId === 'standard' ? '<li>' + escapeHtml(t('tier_standard_feature_1')) + '</li><li>' + escapeHtml(t('tier_standard_feature_2')) + '</li>' : '') +
-            (tierId === 'pro' ? '<li>' + escapeHtml(t('tier_pro_feature_1')) + '</li><li>' + escapeHtml(t('tier_pro_feature_2')) + '</li>' : '') +
-          '</ul>' +
-          (tierId !== 'trial'
+          limitLine +
+          '<ul class="pricing-tier-features">' + renderPricingTierFeatures(tierId) + '</ul>' +
+          (tierId !== 'trial' && !isSchool
             ? '<p class="pricing-tier-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>'
             : '') +
-          (tierId === 'trial'
-            ? '<button type="button" class="pricing-tier-btn pricing-tier-btn--outline" data-pricing-select="trial"' + (isCurrent ? ' disabled' : '') + '>' +
-                escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_start_trial')) +
-              '</button>'
-            : '<button type="button" class="pricing-tier-btn' + (featured ? '' : ' pricing-tier-btn--outline') + '" data-pricing-select="' + tierId + '"' + (isCurrent ? ' disabled' : '') + '>' +
-                escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_upgrade_btn')) +
-              '</button>') +
+          renderPricingCardActions(tierId, isCurrent, featured) +
         '</article>'
       );
     }).join('');

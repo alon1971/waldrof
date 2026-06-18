@@ -7,8 +7,8 @@ const TABLE = 'user_subscriptions';
 
 const TIER_LIMITS = {
   trial: { lifetime: 10, monthly: null, wordDownloads: 10 },
-  standard: { lifetime: null, monthly: 300, wordDownloads: null },
-  pro: { lifetime: null, monthly: 600, wordDownloads: null },
+  standard: { lifetime: null, monthly: 200, wordDownloads: null },
+  pro: { lifetime: null, monthly: 1000, wordDownloads: null },
 };
 
 const LEGACY_TIER_MAP = {

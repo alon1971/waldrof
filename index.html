@@ -1149,7 +1149,12 @@
     #pricing-tier-grid {
       display: grid; grid-template-columns: 1fr; gap: 1rem;
     }
-    @media (min-width: 640px) { #pricing-tier-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (min-width: 640px) { #pricing-tier-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 1024px) { #pricing-tier-grid { grid-template-columns: repeat(4, 1fr); } }
+    .app-modal-panel:has(#pricing-tier-grid) {
+      max-width: min(72rem, 96vw);
+      width: min(72rem, 96vw);
+    }
     .pricing-tier-card {
       position: relative; display: flex; flex-direction: column;
       padding: 1.25rem 1.15rem; border-radius: 1.15rem;
@@ -1201,6 +1206,19 @@
     .pricing-tier-btn:disabled { opacity: 0.5; cursor: default; }
     .pricing-tier-btn--outline {
       background: transparent; border: 1.5px solid rgba(122, 155, 118, 0.55); color: #5C7D58;
+    }
+    .pricing-tier-btn--mail {
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      margin-top: auto;
+    }
+    .pricing-tier-card--school .pricing-tier-price {
+      font-size: 1rem;
+      line-height: 1.4;
+      min-height: 2rem;
     }
 
     #rate-limit-modal .app-modal-panel { max-width: 28rem; text-align: center; }
@@ -2767,10 +2785,10 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20250626"></script>
+  <script src="auth-subscription.js?v=20250627"></script>
   <script src="share-materials.js?v=20250618"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="chat-sidebar.js?v=20250624"></script>
+  <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
@@ -7538,16 +7556,23 @@
           },
           onReject: function () {
             appState.archiveSuggestionPending = false;
+            topicResearchRunId += 1;
+            if (topicResearchAbort) {
+              topicResearchAbort.abort();
+              topicResearchAbort = null;
+            }
             setTopicResearchLoadingUi(false);
             const rejectBtn = document.getElementById('btn-topic-research');
             if (rejectBtn) {
               rejectBtn.disabled = false;
               updateTopicResearchButton();
             }
-            topicResearchAbort = null;
-            LessonChatSidebar.showArchiveRefineHint({
-              onAfterShow: focusStepBTopicInput,
-            });
+            if (typeof LessonChatSidebar !== 'undefined') {
+              LessonChatSidebar.setDisplayMode('bubble');
+              LessonChatSidebar.showArchiveRefineHint({
+                onAfterShow: focusStepBTopicInput,
+              });
+            }
           },
         });
       }
@@ -9270,6 +9295,15 @@
             return full.split(/\s+/)[0];
           },
           escapeHtml: escapeHtml,
+          focusMainTopicInput: focusStepBTopicInput,
+          resetTopicResearchLoading: function () {
+            setTopicResearchLoadingUi(false);
+            var btn = document.getElementById('btn-topic-research');
+            if (btn) {
+              btn.disabled = false;
+              updateTopicResearchButton();
+            }
+          },
         });
       }
       if (typeof WaldorfShareMaterials !== 'undefined') {

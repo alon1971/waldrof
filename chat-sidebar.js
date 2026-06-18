@@ -56,12 +56,12 @@
     canExportPedagogyDoc: null,
     downloadPedagogyDocx: null,
     getLessonCacheKey: function () { return ''; },
+    focusMainTopicInput: null,
+    resetTopicResearchLoading: null,
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
   };
-
-  function normalizeMessages(messages) {
     return (messages || []).map(function (m) {
       return {
         role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -250,8 +250,13 @@
       renderMessages();
       if (action === 'yes' && typeof pending.onConfirm === 'function') {
         pending.onConfirm(pending);
-      } else if (action === 'no' && typeof pending.onReject === 'function') {
-        pending.onReject(pending);
+      } else if (action === 'no') {
+        setLoading(false);
+        if (typeof pending.onReject === 'function') {
+          pending.onReject(pending);
+        } else {
+          showArchiveRefineHint();
+        }
       }
       state.pendingArchiveSuggestion = null;
     });
@@ -297,6 +302,10 @@
 
   function showArchiveRefineHint(options) {
     options = options || {};
+    setLoading(false);
+    if (typeof deps.resetTopicResearchLoading === 'function') {
+      deps.resetTopicResearchLoading();
+    }
     state.messages.push({
       role: 'assistant',
       text: deps.t('archive_suggest_refine'),
@@ -305,15 +314,8 @@
     renderMessages();
     if (typeof options.onAfterShow === 'function') {
       options.onAfterShow();
-      return;
-    }
-    var input = document.getElementById('lesson-chat-input');
-    var fsInput = document.getElementById('lesson-chat-fullscreen-input');
-    var activeInput = (state.displayMode === 'fullscreen' && fsInput) ? fsInput : input;
-    if (activeInput) {
-      requestAnimationFrame(function () {
-        activeInput.focus({ preventScroll: true });
-      });
+    } else if (typeof deps.focusMainTopicInput === 'function') {
+      deps.focusMainTopicInput();
     }
   }
 
@@ -882,6 +884,8 @@
     if (typeof options.canExportPedagogyDoc === 'function') deps.canExportPedagogyDoc = options.canExportPedagogyDoc;
     if (typeof options.downloadPedagogyDocx === 'function') deps.downloadPedagogyDocx = options.downloadPedagogyDocx;
     if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
+    if (typeof options.focusMainTopicInput === 'function') deps.focusMainTopicInput = options.focusMainTopicInput;
+    if (typeof options.resetTopicResearchLoading === 'function') deps.resetTopicResearchLoading = options.resetTopicResearchLoading;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     try {
       bindUi();
