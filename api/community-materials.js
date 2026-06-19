@@ -4,6 +4,7 @@
  * DELETE /api/community-materials?id=<uuid> — delete row + storage object
  */
 const communityIngest = require('./community-ingest');
+const authContext = require('./auth-context');
 const env = require('./env');
 
 const STORAGE_BUCKET = 'community-uploads';
@@ -41,6 +42,10 @@ function parseRequestBody(req) {
   return rawBody;
 }
 
+function hasServiceRoleKey() {
+  return Boolean(env.getSupabaseServiceRoleKey());
+}
+
 function getServiceRoleConfig() {
   const url = env.getSupabaseUrl();
   const key = env.getSupabaseServiceRoleKey();
@@ -50,6 +55,12 @@ function getServiceRoleConfig() {
     throw err;
   }
   return { url: url, key: key };
+}
+
+function extractBearerToken(req) {
+  if (!req || !req.headers) return '';
+  const raw = req.headers.authorization || req.headers.Authorization || '';
+  return String(raw).replace(/^Bearer\s+/i, '').trim();
 }
 
 function encodeStorageObjectPath(path) {
@@ -119,12 +130,11 @@ function parseCommunityNotes(rawNotes) {
   return out;
 }
 
-async function supabaseServiceRequest(relativePath, options) {
-  const cfg = getServiceRoleConfig();
-  const res = await fetch(cfg.url + relativePath, Object.assign({
+async function supabaseFetch(url, relativePath, options, apiKey, bearerToken) {
+  const res = await fetch(url + relativePath, Object.assign({
     headers: Object.assign({
-      apikey: cfg.key,
-      Authorization: 'Bearer ' + cfg.key,
+      apikey: apiKey,
+      Authorization: 'Bearer ' + bearerToken,
       Accept: 'application/json',
     }, (options && options.headers) || {}),
   }, options || {}));
@@ -134,6 +144,41 @@ async function supabaseServiceRequest(relativePath, options) {
     try { body = JSON.parse(text); } catch (e) { body = text; }
   }
   return { ok: res.ok, status: res.status, body: body, text: text };
+}
+
+async function supabaseServiceRequest(relativePath, options) {
+  const cfg = getServiceRoleConfig();
+  return supabaseFetch(cfg.url, relativePath, options, cfg.key, cfg.key);
+}
+
+async function supabaseUserRequest(relativePath, options, userToken) {
+  const url = env.getSupabaseUrl();
+  const anonKey = env.getSupabaseAnonKey();
+  const token = String(userToken || '').trim();
+  if (!url || !anonKey || !token) {
+    return { ok: false, status: 401, body: null, text: 'Missing user auth' };
+  }
+  return supabaseFetch(url, relativePath, options, anonKey, token);
+}
+
+async function supabaseMutateWithFallback(relativePath, options, req) {
+  let lastResult = { ok: false, status: 503, body: null, text: '' };
+  if (hasServiceRoleKey()) {
+    try {
+      lastResult = await supabaseServiceRequest(relativePath, options);
+      if (lastResult.ok) return lastResult;
+    } catch (serviceErr) {
+      lastResult = { ok: false, status: serviceErr.statusCode || 503, body: null, text: serviceErr.message || '' };
+    }
+  }
+  const userToken = extractBearerToken(req);
+  const verified = await authContext.verifySupabaseToken(userToken);
+  if (!verified) {
+    return lastResult;
+  }
+  const userResult = await supabaseUserRequest(relativePath, options, userToken);
+  if (userResult.ok) return userResult;
+  return userResult.status ? userResult : lastResult;
 }
 
 async function supabaseRequestWithKeyFallback(relativePath, options, preferAnon) {
@@ -188,10 +233,16 @@ async function listCommunityMaterials() {
 async function fetchMaterialById(id) {
   const pk = String(id || '').trim();
   if (!pk) return null;
-  const result = await supabaseServiceRequest(
-    '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(pk) + '&limit=1',
-    { method: 'GET' }
-  );
+  const path = '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(pk) + '&limit=1';
+  if (hasServiceRoleKey()) {
+    try {
+      const serviceResult = await supabaseServiceRequest(path, { method: 'GET' });
+      if (serviceResult.ok && Array.isArray(serviceResult.body) && serviceResult.body.length) {
+        return serviceResult.body[0];
+      }
+    } catch (e) { /* fall through to public read */ }
+  }
+  const result = await supabaseRequestWithKeyFallback(path, { method: 'GET' }, true);
   if (result.ok && Array.isArray(result.body) && result.body.length) {
     return result.body[0];
   }
@@ -251,7 +302,7 @@ async function patchCommunityMaterial(body, req) {
     throw err;
   }
 
-  const result = await supabaseServiceRequest(
+  const result = await supabaseMutateWithFallback(
     '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id),
     {
       method: 'PATCH',
@@ -260,7 +311,8 @@ async function patchCommunityMaterial(body, req) {
         Prefer: 'return=representation',
       },
       body: JSON.stringify(payload),
-    }
+    },
+    req
   );
   if (!result.ok) {
     const err = new Error('Update failed (' + result.status + ')');
@@ -308,9 +360,10 @@ async function deleteCommunityMaterial(body, req) {
     }
   }
 
-  const result = await supabaseServiceRequest(
+  const result = await supabaseMutateWithFallback(
     '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id),
-    { method: 'DELETE', headers: { Prefer: 'return=representation' } }
+    { method: 'DELETE', headers: { Prefer: 'return=representation' } },
+    req
   );
   if (!result.ok) {
     const err = new Error('Delete failed (' + result.status + ')');

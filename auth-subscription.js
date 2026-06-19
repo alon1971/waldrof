@@ -110,10 +110,30 @@
 
   /** Latin display names that map to Hebrew UI labels (e.g. Google OAuth returns English only). */
   var KNOWN_HEBREW_FROM_LATIN = {
+    'alon': { full: 'אלון ירושלמי', first: 'אלון' },
     'alon yerushalmy': { full: 'אלון ירושלמי', first: 'אלון' },
   };
 
+  /** Verified account emails with Hebrew display names when Google OAuth is Latin-only. */
+  var KNOWN_HEBREW_BY_EMAIL = {
+    'alon1971@gmail.com': { full: 'אלון ירושלמי', first: 'אלון' },
+  };
+
+  function prefersHebrewUi() {
+    return typeof global.isEnglish !== 'function' || !global.isEnglish();
+  }
+
+  function resolveHebrewNameByEmail(user, emailFallback, mode) {
+    var email = normalizeEmail((user && user.email) || emailFallback || '') || getIdentityEmail();
+    if (!email) return '';
+    var known = KNOWN_HEBREW_BY_EMAIL[email];
+    if (!known) return '';
+    return mode === 'full' ? String(known.full || '').trim() : String(known.first || '').trim();
+  }
+
   function normalizeEmail(email) {
+    return String(email || '').trim().toLowerCase();
+  }
     return String(email || '').trim().toLowerCase();
   }
 
@@ -323,6 +343,10 @@
   function resolveKnownHebrewName(latinName, mode) {
     var key = normalizeDisplayName(latinName);
     var known = KNOWN_HEBREW_FROM_LATIN[key];
+    if (!known && mode === 'full') {
+      var firstKey = normalizeDisplayName(String(latinName || '').split(/\s+/)[0]);
+      known = KNOWN_HEBREW_FROM_LATIN[firstKey];
+    }
     if (!known) return '';
     return mode === 'full' ? String(known.full || '').trim() : String(known.first || '').trim();
   }
@@ -334,6 +358,9 @@
       if (meta.full_name_he) out.push(meta.full_name_he);
       if (meta.full_name) out.push(meta.full_name);
       if (meta.name) out.push(meta.name);
+      var metaGiven = String(meta.given_name || '').trim();
+      var metaFamily = String(meta.family_name || '').trim();
+      if (metaGiven && metaFamily) out.push(metaGiven + ' ' + metaFamily);
     } else {
       if (meta.given_name_he) out.push(meta.given_name_he);
       if (meta.given_name) out.push(meta.given_name);
@@ -394,25 +421,36 @@
     return pickPreferredAuthName(candidates, mode);
   }
 
-  function applyKnownHebrewNameFallback(name, mode) {
-    if (!name || containsHebrew(name)) return name;
-    var known = resolveKnownHebrewName(name, mode);
-    return known || name;
+  function applyKnownHebrewNameFallback(name, mode, user, emailFallback) {
+    if (name && containsHebrew(name)) return name;
+    if (name) {
+      var known = resolveKnownHebrewName(name, mode);
+      if (known) return known;
+    }
+    if (prefersHebrewUi()) {
+      var byEmail = resolveHebrewNameByEmail(user, emailFallback, mode);
+      if (byEmail) return byEmail;
+    }
+    return name || '';
   }
 
   function resolveUserDisplayName(user, emailFallback) {
-    var name = resolveNameFromAuthUser(user, 'full');
-    if (name) return applyKnownHebrewNameFallback(name, 'full');
     var email = (user && user.email) ? normalizeEmail(user.email) : normalizeEmail(emailFallback || '');
     if (!email) email = getIdentityEmail();
+    var name = resolveNameFromAuthUser(user, 'full');
+    if (name) return applyKnownHebrewNameFallback(name, 'full', user, email);
+    var byEmail = resolveHebrewNameByEmail(user, email, 'full');
+    if (byEmail) return byEmail;
     return formatNameFromEmail(email) || '';
   }
 
   function resolveUserFirstName(user, emailFallback) {
-    var first = resolveNameFromAuthUser(user, 'first');
-    if (first) return applyKnownHebrewNameFallback(first, 'first');
     var email = (user && user.email) ? normalizeEmail(user.email) : normalizeEmail(emailFallback || '');
     if (!email) email = getIdentityEmail();
+    var first = resolveNameFromAuthUser(user, 'first');
+    if (first) return applyKnownHebrewNameFallback(first, 'first', user, email);
+    var byEmail = resolveHebrewNameByEmail(user, email, 'first');
+    if (byEmail) return byEmail;
     return formatNameFromEmail(email) || '';
   }
 

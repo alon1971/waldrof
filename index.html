@@ -3477,7 +3477,7 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20260619c"></script>
+  <script src="auth-subscription.js?v=20260619d"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250618b"></script>
@@ -8297,17 +8297,20 @@
           } catch (e) { /* ignore */ }
         }
         const payload = buildCommunityMaterialMutateBody(pk);
-        const res = await fetch(communityMaterialsMutateUrl(pk), {
-          method: 'DELETE',
-          headers: headers,
-          body: JSON.stringify(payload),
-        });
-        const text = await res.text();
-        if (res.ok) {
-          forgetCommunityOwnership(pk);
-          return text ? JSON.parse(text) : {};
+        try {
+          const res = await fetch(communityMaterialsMutateUrl(pk), {
+            method: 'DELETE',
+            headers: headers,
+            body: JSON.stringify(payload),
+          });
+          const text = await res.text();
+          if (res.ok) {
+            forgetCommunityOwnership(pk);
+            return text ? JSON.parse(text) : {};
+          }
+        } catch (apiErr) {
+          console.warn('[community] API delete failed, trying direct Supabase:', apiErr.message || apiErr);
         }
-        throw new Error(parseCommunityApiError(text, res.status));
       }
       const headers = await getSupabaseAuthHeaders();
       const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.' + encodeURIComponent(pk), {
@@ -8330,19 +8333,22 @@
           } catch (e) { /* ignore */ }
         }
         const payload = buildCommunityMaterialMutateBody(pk, fields);
-        const res = await fetch(communityMaterialsMutateUrl(pk), {
-          method: 'PATCH',
-          headers: headers,
-          body: JSON.stringify(payload),
-        });
-        const text = await res.text();
-        if (res.ok) {
-          const json = text ? JSON.parse(text) : {};
-          const row = json.data || json;
-          if (row) upsertCommunityCacheRow(row);
-          return row;
+        try {
+          const res = await fetch(communityMaterialsMutateUrl(pk), {
+            method: 'PATCH',
+            headers: headers,
+            body: JSON.stringify(payload),
+          });
+          const text = await res.text();
+          if (res.ok) {
+            const json = text ? JSON.parse(text) : {};
+            const row = json.data || json;
+            if (row) upsertCommunityCacheRow(row);
+            return row;
+          }
+        } catch (apiErr) {
+          console.warn('[community] API patch failed, trying direct Supabase:', apiErr.message || apiErr);
         }
-        throw new Error(parseCommunityApiError(text, res.status));
       }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
       const payload = buildCommunityPatchPayload(pk, fields);
@@ -11893,28 +11899,11 @@
         submitBtn.textContent = t('catalog_edit_saving');
       }
       try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
-          try {
-            const token = await WaldorfAuth.getAccessToken();
-            if (token) headers.Authorization = 'Bearer ' + token;
-          } catch (e) { /* ignore */ }
-        }
-        const res = await fetch(communityMaterialsMutateUrl(materialId), {
-          method: 'PATCH',
-          headers: headers,
-          body: JSON.stringify({ id: materialId, topic: topicTrim, description: descTrim, author: authorTrim }),
+        await updateCommunityMaterial(materialId, {
+          topic: topicTrim,
+          description: descTrim,
+          author: authorTrim,
         });
-        const text = await res.text();
-        if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
-        let row = null;
-        if (text) {
-          try {
-            const json = JSON.parse(text);
-            row = json.data || json;
-          } catch (e) { /* ignore */ }
-        }
-        if (row) upsertCommunityCacheRow(row);
         await loadCommunity();
         const topicChanged = catalogState.view === 'materials' && normalizeTopicKey(catalogState.topic) !== normalizeTopicKey(topicTrim);
         await refreshCatalogAfterMaterialChange(topicChanged ? topicTrim : catalogState.topic);
@@ -11939,20 +11928,7 @@
       const row = findCatalogMaterialRow(id);
       if (row) row.classList.add('opacity-60', 'pointer-events-none');
       try {
-        const headers = {};
-        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
-          try {
-            const token = await WaldorfAuth.getAccessToken();
-            if (token) headers.Authorization = 'Bearer ' + token;
-          } catch (e) { /* ignore */ }
-        }
-        const res = await fetch(communityMaterialsMutateUrl(id), {
-          method: 'DELETE',
-          headers: headers,
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
-        forgetCommunityOwnership(id);
+        await deleteCommunityMaterial(id);
         appState.communityCache = appState.communityCache.filter(function (item) {
           return String(resolveCommunityMaterialId(item)) !== String(id);
         });

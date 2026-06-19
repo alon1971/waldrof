@@ -35,6 +35,20 @@ drop policy if exists "community_materials_insert_anon" on public.community_mate
 drop policy if exists "community_materials_update_anon" on public.community_materials;
 drop policy if exists "community_materials_delete_anon" on public.community_materials;
 
+-- Authenticated teachers may update/delete via user JWT when service role is unavailable
+drop policy if exists "community_materials_update_auth" on public.community_materials;
+create policy "community_materials_update_auth"
+  on public.community_materials for update
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "community_materials_delete_auth" on public.community_materials;
+create policy "community_materials_delete_auth"
+  on public.community_materials for delete
+  to authenticated
+  using (true);
+
 -- ---------------------------------------------------------------------------
 -- Storage bucket: community-uploads
 -- ---------------------------------------------------------------------------
