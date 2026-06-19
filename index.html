@@ -1796,10 +1796,10 @@
     body.lesson-chat-mode-fullscreen .lesson-chat-sidebar { display: none !important; }
 
     :root {
-      --lesson-chat-fab-size: 3.5rem;
+      --lesson-chat-fab-size: 7rem;
       --lesson-chat-fab-offset: 1.5rem;
       --lesson-chat-fab-gap: 1rem;
-      --lesson-chat-fab-cluster-width: max(var(--lesson-chat-fab-size), 5.75rem);
+      --lesson-chat-fab-cluster-width: max(var(--lesson-chat-fab-size), 11.5rem);
       --lesson-chat-fab-reserve: calc(var(--lesson-chat-fab-offset) + var(--lesson-chat-fab-cluster-width) + var(--lesson-chat-fab-gap));
     }
 
@@ -1849,7 +1849,7 @@
       padding: 0;
       color: #fff;
       font-family: inherit;
-      font-size: 1.125rem !important;
+      font-size: 2.25rem !important;
       font-weight: 700;
       line-height: 1;
       text-align: center;
@@ -1863,13 +1863,13 @@
         0 14px 32px -5px rgba(92, 125, 88, 0.55),
         0 10px 20px -6px rgba(92, 74, 58, 0.26);
     }
-    .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
+    .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 8px; }
     .lesson-chat-fab-label { display: none; pointer-events: none; }
     .lesson-chat-fab-badge {
       display: block;
-      margin-top: -0.45rem;
-      padding: 0.2rem 0.55rem;
-      font-size: 0.6875rem;
+      margin-top: -0.9rem;
+      padding: 0.4rem 1.1rem;
+      font-size: 1.375rem;
       font-weight: 600;
       line-height: 1.2;
       letter-spacing: 0.01em;
@@ -1885,7 +1885,7 @@
     }
     .lesson-chat-fab-icon {
       display: block;
-      font-size: 1.25rem;
+      font-size: 2.5rem;
       line-height: 1;
       pointer-events: none;
     }
@@ -1900,7 +1900,7 @@
       }
       body.lesson-chat-mode-bubble #wizard,
       body.lesson-chat-mode-bubble #workspace {
-        padding-bottom: 6.75rem;
+        padding-bottom: calc(3.25rem + var(--lesson-chat-fab-size));
       }
       .lesson-chat-fab {
         width: var(--lesson-chat-fab-size);
@@ -3311,7 +3311,7 @@
 
   <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
     <div class="lesson-chat-fab-cluster">
-      <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-14 h-14 aspect-square rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
+      <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-28 h-28 aspect-square rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
         <i class="lesson-chat-fab-icon fa-solid fa-comments" aria-hidden="true"></i>
         <span class="lesson-chat-fab-label sr-only" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
       </button>
@@ -3930,6 +3930,7 @@
     const MAX_FILE = 5 * 1024 * 1024;
     let gradeResearchAbort = null;
     let gradeResearchRunId = 0;
+    const gradeResultsContainerRef = { current: null };
     let topicResearchAbort = null;
     let topicResearchRunId = 0;
     let theoryBibEventsBound = false;
@@ -8788,6 +8789,13 @@
       scrollElementIntoViewWithChrome(anchor, behavior, 'start');
     }
 
+    function scrollToGradeResults() {
+      if (!gradeResultsContainerRef.current) {
+        gradeResultsContainerRef.current = document.getElementById('grade-insights-panel');
+      }
+      gradeResultsContainerRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+
     function shouldPreserveWizardViewport() {
       if (appState.step > 1) return true;
       if (isWorkspaceOpen()) return true;
@@ -9297,6 +9305,9 @@
       setGradeInsightsLoadingUi(true);
       prepareGradeResearchView();
       renderTopicCommunitySlot();
+      runAfterLayout(function () {
+        runAfterLayout(scrollToGradeResults);
+      });
 
       const communityPromise = isCloudConfigured()
         ? loadCommunity().then(function () {
@@ -9337,6 +9348,9 @@
         setGradeInsightsLoadingUi(false);
         await communityPromise;
         revealStepBQuietly();
+        runAfterLayout(function () {
+          runAfterLayout(scrollToGradeResults);
+        });
       }
     }
 
