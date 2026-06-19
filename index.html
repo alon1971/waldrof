@@ -7917,7 +7917,7 @@
 
     function buildCommunityMaterialMutateBody(id, fields) {
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
-      return Object.assign({ id: pk, material_id: pk, materialId: pk }, fields || {});
+      return Object.assign({ id: pk }, fields || {});
     }
 
     function resolveCommunityMaterialId(source) {
@@ -8204,7 +8204,6 @@
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
           fileDataBase64: await fileToBase64(file),
-          relativePath: file.webkitRelativePath || '',
         });
       }
       const res = await fetch(apiUrl, {
@@ -8300,16 +8299,7 @@
           forgetCommunityOwnership(pk);
           return text ? JSON.parse(text) : {};
         }
-        console.warn('[community] API delete failed:', parseCommunityApiError(text, res.status));
-      }
-      try {
-        const viaClient = await deleteCommunityMaterialViaClient(pk);
-        if (viaClient) return viaClient;
-      } catch (clientErr) {
-        console.warn('[community] client delete failed:', formatSupabaseError(clientErr));
-      }
-      if (canUseCommunityUploadApi()) {
-        throw new Error('Material not found');
+        throw new Error(parseCommunityApiError(text, res.status));
       }
       const headers = await getSupabaseAuthHeaders();
       const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.' + encodeURIComponent(pk), {
@@ -8344,19 +8334,7 @@
           if (row) upsertCommunityCacheRow(row);
           return row;
         }
-        console.warn('[community] API update failed:', parseCommunityApiError(text, res.status));
-      }
-      try {
-        const viaClient = await patchCommunityMaterialViaClient(pk, fields);
-        if (viaClient) {
-          upsertCommunityCacheRow(viaClient);
-          return viaClient;
-        }
-      } catch (clientErr) {
-        console.warn('[community] client update failed:', formatSupabaseError(clientErr));
-      }
-      if (canUseCommunityUploadApi()) {
-        throw new Error('Material not found');
+        throw new Error(parseCommunityApiError(text, res.status));
       }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
       const payload = buildCommunityPatchPayload(pk, fields);
@@ -8708,24 +8686,19 @@
           if (files[fi].size > MAX_FILE) throw new Error('קובץ גדול מ-5MB: ' + files[fi].name);
         }
         if (canUseCommunityUploadApi()) {
-          try {
-            const up = await uploadFilesViaCommunityApi(files, gradeId, topicNorm, {
-              description: desc,
-              author: author,
-              title: desc || (files[0] && files[0].name) || topicNorm,
-            });
-            const materials = up.materials || (up.material ? [up.material] : []);
-            materials.forEach(function (material) {
-              if (material) {
-                upsertCommunityCacheRow(material);
-                markUploadedCommunityMaterial(material);
-              }
-            });
-            await loadCommunity();
-            return materials.length === 1 ? materials[0] : materials;
-          } catch (apiUploadErr) {
-            console.warn('[community] API upload failed, falling back to direct Supabase client:', apiUploadErr);
-          }
+          const up = await uploadFilesViaCommunityApi(files, gradeId, topicNorm, {
+            description: desc,
+            author: author,
+          });
+          const materials = up.materials || (up.material ? [up.material] : []);
+          materials.forEach(function (material) {
+            if (material) {
+              upsertCommunityCacheRow(material);
+              markUploadedCommunityMaterial(material);
+            }
+          });
+          await loadCommunity();
+          return materials.length === 1 ? materials[0] : materials;
         }
         let lastMaterial = null;
         for (let fi = 0; fi < files.length; fi++) {
@@ -8799,7 +8772,7 @@
       const filePath = row.file_path || '';
       const topic = (row.topic || extras.topicLegacy || '').trim();
       const displayNotes = extras.description || extras.freeText || '';
-      const displayTitle = extras.title || row.file_name || displayNotes || topic || 'חומר קהילתי';
+      const displayTitle = extras.title || row.file_name || topic || 'חומר קהילתי';
       const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
       return {
         id: id,
@@ -11505,11 +11478,11 @@
         '</div>' +
         '<div class="w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_desc_label')) + '</label>' +
-        '<input type="text" name="catalog-desc" maxlength="200" class="' + fieldClass.replace(/"/g, '') + '" />' +
+        '<input type="text" name="catalog-desc" maxlength="200" placeholder="" autocomplete="off" class="' + fieldClass.replace(/"/g, '') + '" />' +
         '</div>' +
         '<div class="w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_author_label')) + '</label>' +
-        '<input type="text" name="catalog-author" maxlength="60" class="' + fieldClass.replace(/"/g, '') + '" />' +
+        '<input type="text" name="catalog-author" maxlength="60" placeholder="" autocomplete="off" class="' + fieldClass.replace(/"/g, '') + '" />' +
         '</div>' +
         '<fieldset class="catalog-share-mode border-0 p-0 m-0 w-full">' +
         '<legend class="block text-sm font-medium text-walnut mb-2">' + escapeHtml(t('catalog_share_mode')) + '</legend>' +
@@ -11521,10 +11494,10 @@
         '</div></fieldset>' +
         '<div class="catalog-file-panel w-full">' +
         '<div class="catalog-file-drop">' +
-        '<input type="file" name="catalog-file" id="' + fileInputId + '" class="hidden" accept="*/*" multiple webkitdirectory directory />' +
+        '<input type="file" name="catalog-file" id="' + fileInputId + '" class="hidden" accept="*/*" multiple />' +
         '<label for="' + fileInputId + '" class="catalog-file-pick-label">' +
         '<span class="catalog-file-pick-text">📁 ' + escapeHtml(t('catalog_file_pick')) + '</span></label>' +
-        '<p class="catalog-file-hint text-xs text-walnut/55 mt-2">' + escapeHtml(t('catalog_file_dir_hint') || 'ניתן לבחור קובץ בודד או תיקייה שלמה מהמחשב') + '</p>' +
+        '<p class="catalog-file-hint text-xs text-walnut/55 mt-2">' + escapeHtml(t('catalog_file_multi_hint') || 'ניתן לבחור קובץ אחד או מספר קבצים') + '</p>' +
         '<p class="catalog-file-selected hidden" aria-live="polite"></p>' +
         '</div></div>' +
         '<div class="catalog-link-panel hidden w-full">' +
@@ -11998,7 +11971,6 @@
           topic: topicTrim,
           description: descTrim,
           author: authorTrim,
-          title: descTrim || topicTrim,
         });
         await loadCommunity();
         const topicChanged = catalogState.view === 'materials' && normalizeTopicKey(catalogState.topic) !== normalizeTopicKey(topicTrim);

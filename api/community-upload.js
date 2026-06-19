@@ -1,7 +1,7 @@
 /**
  * POST /api/community-upload — upload a community file to Supabase Storage and catalog.
- * Body: { gradeId, topic, description?, author?, title?, fileName, mimeType, fileDataBase64 }
- * Uses service role on the server so uploads work without client storage RLS.
+ * Body: { gradeId, topic, description?, author?, files?: [{ fileName, mimeType, fileDataBase64 }] }
+ * Uses SUPABASE_SERVICE_ROLE_KEY on the server so uploads bypass storage RLS.
  */
 const communityIngest = require('./community-ingest');
 const authContext = require('./auth-context');
@@ -69,7 +69,7 @@ function slugifyStorageSegment(text) {
   return 't' + Math.abs(h).toString(36).slice(0, 10);
 }
 
-function buildCommunityStoragePath(gradeId, topic, originalFileName, relativePath) {
+function buildCommunityStoragePath(gradeId, topic, originalFileName) {
   const grade = String(gradeId || '').trim();
   const subject = slugifyStorageSegment(topic);
   const ext = getStorageFileExtension(originalFileName);
@@ -77,17 +77,12 @@ function buildCommunityStoragePath(gradeId, topic, originalFileName, relativePat
     .replace(/\.[^/.]+$/, '')
     .replace(/[^\w.\-]+/g, '_')
     .slice(0, 48) || 'file';
-  const rel = String(relativePath || '').trim().replace(/^\/+/, '').replace(/\\/g, '/');
-  const relPrefix = rel ? rel.split('/').map(function (seg) {
-    return slugifyStorageSegment(seg) || 'dir';
-  }).join('/') + '/' : '';
-  return 'community/' + grade + '/' + subject + '/' + relPrefix + Date.now() + '_' + baseName + ext;
+  return 'community/' + grade + '/' + subject + '/' + Date.now() + '_' + baseName + ext;
 }
 
 function packCommunityExtras(extras) {
   const e = extras || {};
   const parts = [];
-  if ((e.title || '').trim()) parts.push('[title:' + String(e.title).trim() + ']');
   if ((e.author || '').trim()) parts.push('[author:' + String(e.author).trim() + ']');
   if ((e.description || '').trim()) parts.push('[desc:' + String(e.description).trim() + ']');
   if (e.fileSize != null && e.fileSize !== '') parts.push('[size:' + e.fileSize + ']');
@@ -95,11 +90,11 @@ function packCommunityExtras(extras) {
   return parts.length ? parts.join(' ') : null;
 }
 
-function getSupabaseConfig() {
+function getServiceRoleConfig() {
   const url = env.getSupabaseUrl();
-  const key = env.getSupabaseServerKey();
+  const key = env.getSupabaseServiceRoleKey();
   if (!url || !key) {
-    const err = new Error('Supabase is not configured on the server');
+    const err = new Error('SUPABASE_SERVICE_ROLE_KEY is required for community uploads');
     err.statusCode = 503;
     throw err;
   }
@@ -107,7 +102,7 @@ function getSupabaseConfig() {
 }
 
 async function uploadBufferToStorage(buffer, storagePath, contentType) {
-  const cfg = getSupabaseConfig();
+  const cfg = getServiceRoleConfig();
   const enc = encodeStorageObjectPath(storagePath);
   const res = await fetch(cfg.url + '/storage/v1/object/' + STORAGE_BUCKET + '/' + enc, {
     method: 'POST',
@@ -132,12 +127,12 @@ async function uploadBufferToStorage(buffer, storagePath, contentType) {
   };
 }
 
-async function insertCommunityMaterial(gradeId, topic, filePath, fileName, extras, userId) {
-  const cfg = getSupabaseConfig();
+async function insertCommunityMaterial(gradeId, topic, publicUrl, fileName, extras, userId) {
+  const cfg = getServiceRoleConfig();
   const payload = {
     grade_level: String(gradeId),
     topic: String(topic || '').trim(),
-    file_path: filePath || null,
+    file_path: publicUrl || null,
     file_name: fileName || null,
   };
   const notes = packCommunityExtras(extras);
@@ -185,9 +180,7 @@ async function uploadSingleCommunityFile(body, verifiedUser) {
   const mimeType = String(body.mimeType || body.fileType || 'application/octet-stream').trim();
   const description = String(body.description || '').trim();
   const author = String(body.author || '').trim();
-  const title = String(body.title || description || fileName || topic).trim();
   const base64 = String(body.fileDataBase64 || '').trim();
-  const relativePath = String(body.relativePath || '').trim();
 
   if (!gradeId) {
     const err = new Error('gradeId is required');
@@ -229,10 +222,9 @@ async function uploadSingleCommunityFile(body, verifiedUser) {
     throw err;
   }
 
-  const storagePath = buildCommunityStoragePath(gradeId, topic, fileName, relativePath);
+  const storagePath = buildCommunityStoragePath(gradeId, topic, fileName);
   const uploaded = await uploadBufferToStorage(buffer, storagePath, mimeType);
-  const material = await insertCommunityMaterial(gradeId, topic, uploaded.storagePath, fileName, {
-    title: title,
+  const material = await insertCommunityMaterial(gradeId, topic, uploaded.publicUrl, fileName, {
     author: author,
     description: description,
     fileSize: buffer.length,
@@ -245,7 +237,7 @@ async function uploadSingleCommunityFile(body, verifiedUser) {
       indexResult = await communityIngest.ingestCommunityUpload({
         gradeId: gradeId,
         topic: topic,
-        title: title,
+        title: description || fileName || topic,
         author: author,
         filePath: uploaded.storagePath,
         fileName: fileName,
@@ -293,7 +285,6 @@ async function executeCommunityUpload(req) {
     }
     const description = String(body.description || '').trim();
     const author = String(body.author || '').trim();
-    const title = String(body.title || description || topic).trim();
     const results = [];
     for (let i = 0; i < body.files.length; i++) {
       const entry = body.files[i] || {};
@@ -302,11 +293,9 @@ async function executeCommunityUpload(req) {
         topic: topic,
         description: description,
         author: author,
-        title: title,
         fileName: entry.fileName,
         mimeType: entry.mimeType || entry.fileType,
         fileDataBase64: entry.fileDataBase64,
-        relativePath: entry.relativePath,
       }, verifiedUser);
       results.push(single);
     }
