@@ -4060,6 +4060,8 @@
         communityAutoSync: true,
         archiveSuggestionPending: false,
         archiveRejectedSearch: null,
+        communityCache: [],
+        communityForGrade: [],
       });
       catalogState.view = 'grades';
       catalogState.gradeId = null;
@@ -8154,12 +8156,6 @@
     }
 
     async function fetchCommunityMaterials() {
-      try {
-        const clientRows = await fetchCommunityMaterialsViaClient();
-        if (clientRows) return clientRows;
-      } catch (clientErr) {
-        console.warn('[community] client fetch failed:', formatSupabaseError(clientErr));
-      }
       if (canUseCommunityUploadApi()) {
         try {
           const res = await fetch(communityMaterialsApiUrl(), { cache: 'no-store' });
@@ -8174,9 +8170,15 @@
           console.warn('[community] API list error:', apiErr);
         }
       }
+      try {
+        const clientRows = await fetchCommunityMaterialsViaClient();
+        if (clientRows) return clientRows;
+      } catch (clientErr) {
+        console.warn('[community] client fetch failed:', formatSupabaseError(clientErr));
+      }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' });
       const url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?select=*&order=created_at.desc';
-      const res = await fetch(url, { headers: headers });
+      const res = await fetch(url, { headers: headers, cache: 'no-store' });
       if (!res.ok) throw new Error(await res.text() || res.status);
       return res.json();
     }
@@ -8948,7 +8950,11 @@
       });
     }
 
-    async function loadCommunity() {
+    async function loadCommunity(forceRefresh) {
+      if (forceRefresh) {
+        appState.communityCache = [];
+        appState.communityForGrade = [];
+      }
       if (!isCloudConfigured()) {
         appState.communityCache = [];
         appState.communityForGrade = [];
@@ -11412,6 +11418,29 @@
       try { localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY); } catch (e) { /* ignore */ }
     }
 
+    function resetCommunityClientStateOnReload() {
+      window.communityFormDraft = defaultCommunityFormDraft();
+      window.selectedUploadFiles = [];
+      window.communityUploadDrawerOpen = false;
+      communitySessionOwnedIds.clear();
+      appState.communityCache = [];
+      appState.communityForGrade = [];
+      try {
+        localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY);
+        localStorage.removeItem(COMMUNITY_OWNED_STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+    }
+
+    async function refreshCommunityUiAfterCacheReload() {
+      updateCommunityBadge();
+      if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
+      renderCommunityMaterials();
+      const catalogPanel = document.getElementById('panel-catalog');
+      if (catalogPanel && !catalogPanel.classList.contains('hidden')) {
+        await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      }
+    }
+
     function saveAllCommunityFormDrafts() {
       document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
         syncCommunityFormDraftFromForm(form);
@@ -12645,6 +12674,7 @@
       var pageReloaded = isHardPageReload();
       if (pageReloaded) {
         try { resetWizardSessionState(); } catch (e) { console.warn('[waldrof] resetWizardSessionState:', e); }
+        try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
       }
       try {
       ensurePageAtTop();
@@ -12722,7 +12752,9 @@
       try { updateCloudBanner(); } catch (e) { console.warn('[waldrof] updateCloudBanner:', e); }
       try { updateTopicResearchButton(); } catch (e) { console.warn('[waldrof] updateTopicResearchButton:', e); }
       try { bindEvents(); } catch (e) { console.error('[waldrof] bindEvents failed — buttons may be inactive:', e); }
-      loadCommunityFormDraftFromStorage();
+      if (!pageReloaded) {
+        loadCommunityFormDraftFromStorage();
+      }
       if (typeof LessonChatSidebar !== 'undefined') {
         LessonChatSidebar.init({
           t: t,
@@ -12818,7 +12850,7 @@
       }
       if (isCloudConfigured()) {
         try { subscribeRealtime(); } catch (e) { console.warn('[waldrof] subscribeRealtime:', e); }
-        try { await loadCommunity(); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
+        try { await loadCommunity(pageReloaded); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
       }
       scheduleInitialPageScrollReset();
       requestAnimationFrame(syncProductTabsStickyLayout);
@@ -12832,6 +12864,12 @@
     }
     window.addEventListener('pageshow', function (e) {
       if (e.persisted) {
+        try { resetCommunityClientStateOnReload(); } catch (err) { console.warn('[waldrof] pageshow resetCommunityClientStateOnReload:', err); }
+        if (isCloudConfigured()) {
+          loadCommunity(true).then(function () {
+            return refreshCommunityUiAfterCacheReload();
+          }).catch(function (err) { console.warn('[waldrof] pageshow loadCommunity:', err); });
+        }
         bindPageLoadScrollGuards();
         onAppRegainsAttention();
         clearPageLoadFocusGuard();
@@ -12839,6 +12877,7 @@
       }
       if (isHardPageReload()) {
         try { resetWizardSessionState(); } catch (err) { console.warn('[waldrof] pageshow resetWizardSessionState:', err); }
+        try { resetCommunityClientStateOnReload(); } catch (err) { console.warn('[waldrof] pageshow resetCommunityClientStateOnReload:', err); }
         try { resetWizardOnPageLoad(); } catch (err) { console.warn('[waldrof] pageshow resetWizardOnPageLoad:', err); }
         pageLoadFocusGuard = true;
         bindPageLoadScrollGuards();
