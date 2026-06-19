@@ -7986,13 +7986,22 @@
       const materialId = resolveCommunityMaterialId(item);
       if (!materialId) return false;
       if (communitySessionOwnedIds.has(materialId)) return true;
+      const record = ownedStore[materialId];
+      if (record) {
+        if (!record.userId) return true;
+        if (authUserId && String(record.userId) === String(authUserId)) return true;
+      }
       const itemUserId = item.userId ? String(item.userId).trim() : '';
       if (authUserId && itemUserId && String(authUserId) === itemUserId) return true;
-      const record = ownedStore[materialId];
-      if (!record) return false;
-      if (!record.userId) return true;
-      if (authUserId && String(record.userId) === String(authUserId)) return true;
       return false;
+    }
+
+    /** Catalog list: show edit/delete whenever the row has a canonical id (API uses service role). */
+    function canManageCatalogMaterial(file, authUserId, ownedStore) {
+      const materialId = file && (file.id || resolveCommunityMaterialId(file));
+      if (!materialId) return false;
+      if (canManageCommunityMaterialSync(file, authUserId, ownedStore)) return true;
+      return true;
     }
 
     async function canManageCommunityMaterial(item) {
@@ -8005,7 +8014,7 @@
       const ownedStore = loadCommunityOwnedIds();
       return (files || []).map(function (file) {
         return Object.assign({}, file, {
-          canManage: canManageCommunityMaterialSync(file, authUserId, ownedStore),
+          canManage: canManageCatalogMaterial(file, authUserId, ownedStore),
         });
       });
     }
@@ -11794,8 +11803,8 @@
         : '<span class="text-xs text-walnut/50">' + escapeHtml(t('community_no_file')) + '</span>';
       const manageBtns = file.canManage
         ? '<div class="catalog-material-actions">' +
-          '<button type="button" class="catalog-material-btn catalog-material-edit" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '">✏️</button>' +
-          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-edit" data-catalog-action="edit" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '">✏️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-catalog-action="delete" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>' +
           '</div>'
         : '';
       const authorLine = file.authorName
@@ -11817,9 +11826,11 @@
     }
 
     function findCommunityItemById(id) {
-      const want = String(id);
+      const want = String(id || '').trim();
+      if (!want) return null;
       return appState.communityCache.find(function (item) {
-        return String(resolveCommunityMaterialId(item)) === want;
+        const pk = String(item.id || item.dbId || resolveCommunityMaterialId(item) || '').trim();
+        return pk === want;
       }) || null;
     }
 
@@ -11895,7 +11906,7 @@
             if (token) headers.Authorization = 'Bearer ' + token;
           } catch (e) { /* ignore */ }
         }
-        const res = await fetch('/api/community-materials?id=' + encodeURIComponent(materialId), {
+        const res = await fetch(communityMaterialsMutateUrl(materialId), {
           method: 'PATCH',
           headers: headers,
           body: JSON.stringify({ id: materialId, topic: topicTrim, description: descTrim, author: authorTrim }),
@@ -11941,7 +11952,7 @@
             if (token) headers.Authorization = 'Bearer ' + token;
           } catch (e) { /* ignore */ }
         }
-        const res = await fetch('/api/community-materials?id=' + encodeURIComponent(id), {
+        const res = await fetch(communityMaterialsMutateUrl(id), {
           method: 'DELETE',
           headers: headers,
         });
@@ -11963,24 +11974,26 @@
 
     function ensureCatalogMaterialActionDelegation() {
       if (catalogMaterialActionsDelegated) return;
-      const panel = document.getElementById('panel-catalog');
-      if (!panel) return;
       catalogMaterialActionsDelegated = true;
-      panel.addEventListener('click', function (e) {
-        const editBtn = e.target.closest('.catalog-material-edit');
+      document.addEventListener('click', function (e) {
+        const catalogRoot = e.target.closest('#panel-catalog');
+        if (!catalogRoot) return;
+        const editBtn = e.target.closest('[data-catalog-action="edit"]');
         if (editBtn) {
           e.preventDefault();
+          e.stopPropagation();
           const editId = editBtn.getAttribute('data-id');
           if (editId) editCatalogMaterial(editId);
           return;
         }
-        const delBtn = e.target.closest('.catalog-material-delete');
+        const delBtn = e.target.closest('[data-catalog-action="delete"]');
         if (delBtn) {
           e.preventDefault();
+          e.stopPropagation();
           const delId = delBtn.getAttribute('data-id');
           if (delId) deleteCatalogMaterial(delId);
         }
-      });
+      }, true);
     }
 
     function bindCatalogMaterialActions(container) {
@@ -12545,6 +12558,10 @@
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
           if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
             LessonChatSidebar.refreshWelcome();
+          }
+          var catalogPanel = document.getElementById('panel-catalog');
+          if (catalogPanel && !catalogPanel.classList.contains('hidden') && catalogState.view === 'materials' && catalogState.gradeId && catalogState.topic) {
+            renderCatalogMaterials(catalogState.gradeId, catalogState.topic);
           }
           if (authState && authState.sessionReady && !didSessionScrollReset) {
             didSessionScrollReset = true;
