@@ -6965,6 +6965,15 @@
       return 0;
     }
 
+    function isMisleadingPartialArchiveSuggestion(query, suggestedTopic, score) {
+      if (score != null && score >= 0.95) return false;
+      const q = String(query || '').trim().toLowerCase();
+      const s = String(suggestedTopic || '').trim().toLowerCase();
+      if (!q || !s || q === s) return false;
+      if (s.length >= 3 && q.indexOf(s) >= 0 && q.length >= s.length * 1.35) return true;
+      return false;
+    }
+
     function scoreArchiveItemSimilarity(query, item) {
       const candidates = [];
       function add(val) {
@@ -6980,7 +6989,13 @@
       }
       let best = 0;
       candidates.forEach(function (candidate) {
-        const score = scoreArchiveTopicSimilarity(query, candidate);
+        let score = scoreArchiveTopicSimilarity(query, candidate);
+        const q = String(query || '').trim().toLowerCase();
+        const c = String(candidate || '').trim().toLowerCase();
+        if (q && c && c.length >= q.length && c.indexOf(q) >= 0) {
+          score = Math.max(score, 0.9);
+        }
+        if (q && c && q === c) score = Math.max(score, 1);
         if (score > best) best = score;
       });
       return best;
@@ -7011,7 +7026,7 @@
       let exactBestScore = 0;
       items.forEach(function (item) {
         const score = scoreArchiveItemSimilarity(topic, item);
-        if (score < 0.99) return;
+        if (score < 0.88) return;
         const candidate = archiveLessonDisplayTopic(item);
         if (!exactBest || score > exactBestScore ||
             (Math.abs(score - exactBestScore) <= 0.0001 &&
@@ -7052,7 +7067,7 @@
       items.forEach(function (item) {
         const candidate = archiveLessonDisplayTopic(item);
         const score = scoreArchiveItemSimilarity(topic, item);
-        if (score >= 0.99 || score <= bestScore) return;
+        if (score >= 0.88 || score <= bestScore) return;
         if (score > bestScore ||
             (Math.abs(score - bestScore) <= 0.0001 &&
               String(candidate || '').length > String(archiveLessonDisplayTopic(best) || '').length)) {
@@ -8758,11 +8773,15 @@
       const match = normalizeArchiveSuggestionMatch(archiveMatch);
       if (!match || !match.cacheKey || !match.suggestedTopic) return false;
 
-      if (match.matchType === 'exact' || (match.similarity != null && match.similarity >= 0.99)) {
+      if (match.matchType === 'exact' || (match.similarity != null && match.similarity >= 0.88)) {
         applyArchiveTopicMatch(match, { closeChat: false }).catch(function (err) {
           alert(err.message || String(err));
         });
         return true;
+      }
+
+      if (isMisleadingPartialArchiveSuggestion(topic, match.suggestedTopic, match.similarity)) {
+        return false;
       }
 
       appState.archiveSuggestionPending = true;

@@ -688,8 +688,44 @@ function scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText) {
   });
 }
 
-const ARCHIVE_EXACT_SIMILARITY = 0.99;
+const ARCHIVE_AUTO_LOAD_SIMILARITY = 0.88;
 const ARCHIVE_PARTIAL_MIN_SCORE = 0.5;
+const ARCHIVE_PARTIAL_MAX_SCORE = ARCHIVE_AUTO_LOAD_SIMILARITY - 0.0001;
+
+function scoreTopicAutoLoadSimilarity(queryRaw, candidateTopic, candidateQueryText) {
+  let score = scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText);
+  if (score >= ARCHIVE_AUTO_LOAD_SIMILARITY) return score;
+
+  const queryNorm = normalizeTopicQuery(queryRaw);
+  const queryStable = stableNormalize(queryRaw);
+  const candidates = [candidateTopic, candidateQueryText];
+  candidates.forEach(function (raw) {
+    const text = String(raw || '').trim();
+    if (!text) return;
+    if (normalizeTopicQuery(text) === queryNorm && queryNorm) {
+      score = Math.max(score, 1);
+      return;
+    }
+    const stable = stableNormalize(text);
+    if (queryStable && stable === queryStable) {
+      score = Math.max(score, 1);
+      return;
+    }
+    if (queryStable && stable.length >= queryStable.length && stable.indexOf(queryStable) >= 0) {
+      score = Math.max(score, 0.9);
+    }
+  });
+  return score;
+}
+
+function isMisleadingPartialArchiveSuggestion(query, suggestedTopic, score) {
+  if (score >= 0.95) return false;
+  const q = stableNormalize(query);
+  const s = stableNormalize(suggestedTopic);
+  if (!q || !s || q === s) return false;
+  if (s.length >= 3 && q.indexOf(s) >= 0 && q.length >= s.length * 1.35) return true;
+  return false;
+}
 
 function isBetterArchiveTopicPick(next, prev) {
   if (!prev) return true;
@@ -707,16 +743,18 @@ function pickBestArchiveTopicRow(rows, query, options) {
   let best = null;
   let bestScore = partialOnly
     ? ARCHIVE_PARTIAL_MIN_SCORE
-    : (strongOnly ? ARCHIVE_EXACT_SIMILARITY - 0.0001 : 0.45);
+    : (strongOnly ? ARCHIVE_AUTO_LOAD_SIMILARITY - 0.0001 : 0.45);
 
   (rows || []).forEach(function (row) {
     if (!row || !row.result_data) return;
     const data = coerceCachedResultData(row.result_data);
     if (!data || !isValidCachedPayload('topic', data)) return;
     const candidateTopic = archiveTopicDisplayName(row, data);
-    const score = scoreTopicSimilarity(query, candidateTopic, row.query_text || '');
-    if (strongOnly && score < ARCHIVE_EXACT_SIMILARITY) return;
-    if (partialOnly && (score >= ARCHIVE_EXACT_SIMILARITY || score <= ARCHIVE_PARTIAL_MIN_SCORE)) return;
+    const score = strongOnly
+      ? scoreTopicAutoLoadSimilarity(query, candidateTopic, row.query_text || '')
+      : scoreTopicSimilarity(query, candidateTopic, row.query_text || '');
+    if (strongOnly && score < ARCHIVE_AUTO_LOAD_SIMILARITY) return;
+    if (partialOnly && (score >= ARCHIVE_PARTIAL_MAX_SCORE || score <= ARCHIVE_PARTIAL_MIN_SCORE)) return;
     if (!strongOnly && !partialOnly && score <= bestScore) return;
     const candidate = { row: row, data: data, topic: candidateTopic, score: score };
     if (isBetterArchiveTopicPick(candidate, best)) {
@@ -726,6 +764,57 @@ function pickBestArchiveTopicRow(rows, query, options) {
   });
 
   return best;
+}
+
+async function findArchiveTopicByNormalizedText(topic, gradeId) {
+  const topicBody = { phase: 'topic', topic: topic, currentGrade: gradeId, gradeId: gradeId };
+  const wanted = normalizeTopicQuery(topic);
+  if (!wanted || !gradeId) return null;
+
+  function scanRows(rows) {
+    if (!Array.isArray(rows)) return null;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !row.result_data) continue;
+      const data = coerceCachedResultData(row.result_data);
+      if (!data || !isValidCachedPayload('topic', data)) continue;
+      if (!topicCacheTextsMatch(topicBody, row, data)) continue;
+      return formatExactArchiveTopicMatch({
+        row: row,
+        data: data,
+        topic: archiveTopicDisplayName(row, data),
+        score: 1,
+      }, gradeId);
+    }
+    return null;
+  }
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      let match = scanRows(await fetchArchiveTopicRowsForGrade(gradeId, topic, true));
+      if (!match) match = scanRows(await fetchArchiveTopicRowsForGrade(gradeId, topic, false));
+      if (match) return match;
+    } catch (err) {
+      console.warn('[cached_results] normalized archive topic lookup failed:', err.message || err);
+    }
+  }
+
+  loadFallbackStore();
+  let fallbackMatch = null;
+  fallbackStore.rows.forEach(function (row) {
+    if (fallbackMatch || !row || row.phase !== 'topic' || !row.result_data) return;
+    if (String(row.grade_id || '').trim() !== String(gradeId || '').trim()) return;
+    const data = coerceCachedResultData(row.result_data);
+    if (!data || !isValidCachedPayload('topic', data)) return;
+    if (!topicCacheTextsMatch(topicBody, row, data)) return;
+    fallbackMatch = formatExactArchiveTopicMatch({
+      row: row,
+      data: data,
+      topic: archiveTopicDisplayName(row, data),
+      score: 1,
+    }, gradeId);
+  });
+  return fallbackMatch;
 }
 
 function findArchiveTopicInFallback(query, gradeId, options) {
@@ -893,6 +982,9 @@ async function findArchiveTopicSuggestion(options) {
     };
   }
 
+  const normalizedMatch = await findArchiveTopicByNormalizedText(topic, gradeId);
+  if (normalizedMatch) return normalizedMatch;
+
   const strongBest = await findStrongArchiveTopicMatch(topic, gradeId);
   if (strongBest && strongBest.row) {
     return formatExactArchiveTopicMatch(strongBest, gradeId);
@@ -921,6 +1013,11 @@ async function findArchiveTopicSuggestion(options) {
   }
 
   if (!best || !best.row) return null;
+
+  if (isMisleadingPartialArchiveSuggestion(topic, best.topic, best.score)) {
+    console.log('[cached_results] skipped misleading partial archive suggestion:', best.topic);
+    return null;
+  }
 
   return {
     matchType: 'partial',
@@ -1099,13 +1196,21 @@ async function lookupLegacyGradeCachedRow(body, newCacheKey) {
   return fallbackRow;
 }
 
-function topicCacheTextsMatch(body, row) {
+function topicCacheTextsMatch(body, row, resultData) {
   if (!body || !row) return false;
   const wanted = normalizeTopicQuery(body.topic || '');
-  if (!wanted) return false;
+  const wantedStable = stableNormalize(body.topic || '');
+  if (!wanted && !wantedStable) return false;
   const candidates = [row.topic, row.query_text];
+  const data = resultData || (row.result_data ? coerceCachedResultData(row.result_data) : null);
+  if (data && data.webResearch && data.webResearch.topic) {
+    candidates.push(data.webResearch.topic);
+  }
   for (let i = 0; i < candidates.length; i++) {
-    if (normalizeTopicQuery(candidates[i] || '') === wanted) return true;
+    const raw = String(candidates[i] || '').trim();
+    if (!raw) continue;
+    if (wanted && normalizeTopicQuery(raw) === wanted) return true;
+    if (wantedStable && stableNormalize(raw) === wantedStable) return true;
   }
   return false;
 }
