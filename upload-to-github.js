@@ -46,6 +46,7 @@ const FILES_TO_UPLOAD = [
   'api/knowledge-seed.js',
   'api/rag.js',
   'api/search-history.js',
+  'api/subscription.js',
   'api/share-material.js',
   'scripts/upload-text.js',
   'supabase/cached_results.sql',

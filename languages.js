@@ -469,6 +469,10 @@ const LANGUAGES = {
     search_usage_label_monthly:  'חיפושים החודש',
     search_usage_today_unlimited:'חיפושים היום',
 
+    identity_email_label:        'דוא״ל לגישה',
+    identity_email_placeholder:  'alon1971@gmail.com',
+    pro_user_badge:              'Pro User',
+
     rate_limit_title:            'הגעתם למכסת החיפושים',
     rate_limit_body:             'ניצלתם {used} מתוך {limit} חיפושים. שדרגו מסלול כדי להמשיך במחקר פדגוגי.',
     rate_limit_exceeded:         'חרגתם ממכסת החיפושים היומית — שדרגו את המסלול',
@@ -1000,6 +1004,10 @@ const LANGUAGES = {
     search_usage_label_trial:    'Trial searches',
     search_usage_label_monthly:  'Searches this month',
     search_usage_today_unlimited:'searches today',
+
+    identity_email_label:        'Email for access',
+    identity_email_placeholder:  'you@example.com',
+    pro_user_badge:              'Pro User',
 
     rate_limit_title:            'Search quota reached',
     rate_limit_body:             'You have used {used} of {limit} searches. Upgrade your plan to continue.',

@@ -33,11 +33,55 @@ const LEGACY_TIER_MAP = {
   expert: 'pro',
 };
 
+/** Permanent PRO tier — bypass all search counters and rate limits. */
+const PRO_USERS = ['alon1971@gmail.com'];
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Email',
 };
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function extractUserEmail(req, body) {
+  if (req && req.headers) {
+    const fromHeader = req.headers['x-user-email'] || req.headers['X-User-Email'];
+    if (fromHeader) return normalizeEmail(fromHeader);
+  }
+  if (!body || typeof body !== 'object') return '';
+  if (body.userEmail) return normalizeEmail(body.userEmail);
+  if (body.email) return normalizeEmail(body.email);
+  if (body.teacherUser && body.teacherUser.email) return normalizeEmail(body.teacherUser.email);
+  return '';
+}
+
+function isProUserEmail(email) {
+  const normalized = normalizeEmail(email);
+  return Boolean(normalized) && PRO_USERS.indexOf(normalized) >= 0;
+}
+
+function buildProUserUsagePayload(email) {
+  return {
+    tier: 'pro',
+    billingCycle: null,
+    autoRenew: true,
+    searchesUsed: 0,
+    searchLimit: null,
+    usagePeriod: 'monthly',
+    usageMonth: currentMonthKey(),
+    remaining: null,
+    allowed: true,
+    wordDownloadsUsed: 0,
+    wordDownloadLimit: null,
+    wordDownloadsRemaining: null,
+    wordDownloadsAllowed: true,
+    proUser: true,
+    email: normalizeEmail(email),
+  };
+}
 
 function logUsage(event, detail) {
   try {
@@ -244,9 +288,19 @@ async function resolveUser(req, body) {
   if (fromBody && fromBody.id) {
     return {
       id: fromBody.id,
-      email: String(fromBody.email || '').trim(),
+      email: normalizeEmail(fromBody.email),
       name: fromBody.name || fromBody.displayName || '',
       tier: normalizeTier(fromBody.tier || fromBody.plan_type || 'trial'),
+    };
+  }
+
+  const email = extractUserEmail(req, body);
+  if (email) {
+    return {
+      id: fromBody && fromBody.id ? String(fromBody.id).trim() : ('email:' + email),
+      email: email,
+      name: (fromBody && (fromBody.name || fromBody.displayName)) || email.split('@')[0],
+      tier: isProUserEmail(email) ? 'pro' : normalizeTier((fromBody && fromBody.tier) || 'trial'),
     };
   }
 
@@ -474,6 +528,12 @@ async function getStatus(user, userToken) {
 }
 
 async function recordSearch(user, userToken) {
+  const email = normalizeEmail(user && user.email);
+  if (isProUserEmail(email)) {
+    logUsage('record_search:pro_bypass', { email: email });
+    return { ok: true, action: 'record_search', usage: buildProUserUsagePayload(email), proUser: true };
+  }
+
   logUsage('record_search:start', {
     user_id: user && user.id,
     has_token: Boolean(userToken),
@@ -544,6 +604,17 @@ async function recordSearch(user, userToken) {
 }
 
 async function recordWordDownload(user, userToken) {
+  const email = normalizeEmail(user && user.email);
+  if (isProUserEmail(email)) {
+    return {
+      ok: true,
+      action: 'record_word_download',
+      usage: buildProUserUsagePayload(email),
+      unlimited: true,
+      proUser: true,
+    };
+  }
+
   const row = await ensureSubscription(user, userToken);
   const tier = planTypeFromRow(row);
 
@@ -596,9 +667,25 @@ async function cancelRenewal(user, userToken) {
 
 async function executeSubscription(req) {
   const body = req.method === 'GET' ? null : parseRequestBody(req);
+  const email = extractUserEmail(req, body);
+  const action = body && body.action ? String(body.action).trim() : 'status';
+
+  if (isProUserEmail(email)) {
+    const usage = buildProUserUsagePayload(email);
+    if (action === 'record_search' || action === 'record_word_download') {
+      return { ok: true, action: action, usage: usage, proUser: true };
+    }
+    return {
+      ok: true,
+      action: action,
+      subscription: { tier: 'pro', billingCycle: null, autoRenew: true },
+      usage: usage,
+      proUser: true,
+    };
+  }
+
   const userToken = extractUserToken(req);
   const user = await resolveUser(req, body);
-  const action = body && body.action ? String(body.action).trim() : 'status';
 
   if (!isEnabled()) {
     if (action === 'record_search' || action === 'record_word_download') {
@@ -653,6 +740,11 @@ async function legacyHandler(req, res) {
 
 async function recordLiveSearchFromRequest(req, explicitUser) {
   const body = req && req.body;
+  const email = extractUserEmail(req, body);
+  if (isProUserEmail(email)) {
+    logUsage('recordLiveSearch:pro_bypass', { email: email });
+    return { ok: true, action: 'record_search', usage: buildProUserUsagePayload(email), proUser: true };
+  }
   const userToken = extractUserToken(req);
   const user = explicitUser && explicitUser.id
     ? explicitUser
@@ -670,8 +762,12 @@ async function recordLiveSearchFromRequest(req, explicitUser) {
 }
 
 async function assertSearchAllowedFromRequest(req) {
-  if (!isEnabled()) return { allowed: true, skipped: true };
   const body = req && req.body;
+  const email = extractUserEmail(req, body);
+  if (isProUserEmail(email)) {
+    return { allowed: true, proUser: true, usage: buildProUserUsagePayload(email) };
+  }
+  if (!isEnabled()) return { allowed: true, skipped: true };
   const userToken = extractUserToken(req);
   let user;
   try {
@@ -700,7 +796,11 @@ module.exports = {
   recordSearch,
   resolveUser,
   extractUserToken,
+  extractUserEmail,
+  isProUserEmail,
+  buildProUserUsagePayload,
   isEnabled,
+  PRO_USERS,
   TIER_LIMITS,
   normalizeTier,
 };

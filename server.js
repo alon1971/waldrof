@@ -39,7 +39,7 @@ const ROOT = __dirname;
 
 const API_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
+  'Access-Control-Allow-Headers': 'authorization, content-type, x-user-email',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 

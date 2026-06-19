@@ -8,7 +8,11 @@
   var STORAGE_AUTH = 'waldorf_auth_v1';
   var STORAGE_USAGE = 'waldorf_search_usage_v2';
   var STORAGE_WORD_DOWNLOADS = 'waldorf_word_downloads_v1';
+  var STORAGE_IDENTITY_EMAIL = 'waldorf_identity_email_v1';
   var SUPPORT_WHATSAPP = '';
+
+  /** Permanent PRO tier — must match api/subscription.js PRO_USERS. */
+  var PRO_USERS = ['alon1971@gmail.com'];
 
   var LEGACY_TIER_MAP = {
     educator: 'standard',
@@ -70,6 +74,70 @@
   var authUiLoading = false;
   var useMockGoogleAuth = false;
   var authRedirectUrl = '';
+
+  function normalizeEmail(email) {
+    return String(email || '').trim().toLowerCase();
+  }
+
+  function isProUserEmail(email) {
+    return PRO_USERS.indexOf(normalizeEmail(email)) >= 0;
+  }
+
+  function readIdentityEmail() {
+    try {
+      return normalizeEmail(localStorage.getItem(STORAGE_IDENTITY_EMAIL));
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function writeIdentityEmail(email) {
+    try {
+      localStorage.setItem(STORAGE_IDENTITY_EMAIL, normalizeEmail(email));
+    } catch (e) { /* quota */ }
+  }
+
+  function getIdentityEmail() {
+    if (authState.isAuthenticated && authState.user && authState.user.email) {
+      return normalizeEmail(authState.user.email);
+    }
+    return readIdentityEmail();
+  }
+
+  function setIdentityEmail(email) {
+    writeIdentityEmail(email);
+    applyProUserTierIfEligible();
+    updateIdentityEmailUi();
+    updateHeaderUi();
+    updateSearchMeterUi();
+    notifyListeners();
+    if (isProUser()) hideAuthOverlay();
+  }
+
+  function isProUser() {
+    return isProUserEmail(getIdentityEmail());
+  }
+
+  function applyProUserTierIfEligible() {
+    if (!isProUser()) return;
+    authState.tier = 'pro';
+    authState.searchLimit = null;
+    authState.usagePeriod = 'monthly';
+    authState.searchesUsed = authState.searchesUsed != null ? authState.searchesUsed : 0;
+  }
+
+  function applyProUserUsageFromServer(usage) {
+    if (usage && (usage.proUser || usage.whitelisted)) {
+      applyProUserTierIfEligible();
+      authState.searchesUsed = 0;
+      authState.searchLimit = null;
+      notifyListeners();
+      updateHeaderUi();
+      updateSearchMeterUi();
+      return true;
+    }
+    return false;
+  }
 
   function isLocalDevHost() {
     try {
@@ -305,6 +373,7 @@
 
   function applyServerUsage(usage) {
     if (!usage) return;
+    if (applyProUserUsageFromServer(usage)) return;
     authState.tier = normalizeTierId(usage.tier || authState.tier);
     authState.searchesUsed = Number(usage.searchesUsed) || 0;
     authState.searchLimit = usage.searchLimit != null ? usage.searchLimit : authState.searchLimit;
@@ -334,17 +403,24 @@
   }
 
   function fetchSubscriptionAction(action) {
-    if (!authState.isAuthenticated) return Promise.resolve(null);
+    var identityEmail = getIdentityEmail();
+    if (!authState.isAuthenticated && !identityEmail) return Promise.resolve(null);
     return getAccessToken().then(function (token) {
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers.Authorization = 'Bearer ' + token;
-      var body = { action: action || 'status' };
+      if (identityEmail) headers['X-User-Email'] = identityEmail;
+      var body = { action: action || 'status', userEmail: identityEmail || undefined };
       if (authState.user) {
         body.teacherUser = {
           id: authState.user.id,
-          email: authState.user.email,
+          email: authState.user.email || identityEmail,
           displayName: authState.user.displayName,
-          tier: authState.tier,
+          tier: isProUser() ? 'pro' : authState.tier,
+        };
+      } else if (identityEmail) {
+        body.teacherUser = {
+          email: identityEmail,
+          tier: isProUserEmail(identityEmail) ? 'pro' : 'trial',
         };
       }
       return fetch(subscriptionApiUrl(), {
@@ -407,6 +483,7 @@
   }
 
   function getEffectiveLimit(tierId) {
+    if (isProUser()) return null;
     var tier = getTierConfig(tierId || authState.tier);
     if (authState.searchLimit != null && normalizeTierId(tierId || authState.tier) === normalizeTierId(authState.tier)) {
       return authState.searchLimit;
@@ -467,10 +544,12 @@
       try { fn(getPublicState()); } catch (e) { console.warn(e); }
     });
     updateHeaderUi();
+    updateIdentityEmailUi();
     updateSearchMeterUi();
   }
 
   function getPublicState() {
+    applyProUserTierIfEligible();
     var usage = readUsage();
     var displayLimit = getDisplayLimit();
     var used = getSearchesUsed();
@@ -498,6 +577,8 @@
         return Math.max(0, limit - getWordDownloadsUsed());
       })(),
       tierConfig: getTierConfig(authState.tier),
+      isProUser: isProUser(),
+      identityEmail: getIdentityEmail(),
     };
   }
 
@@ -792,6 +873,9 @@
   /* ── Rate limiter ────────────────────────────────────────────────────── */
 
   function canPerformSearch() {
+    if (isProUser()) {
+      return { allowed: true, unlimited: true, proUser: true, usage: 0, limit: null };
+    }
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
     var used = getSearchesUsed();
     var limit = getEffectiveLimit();
@@ -802,6 +886,7 @@
   }
 
   function canPerformWordDownload() {
+    if (isProUser()) return { allowed: true, unlimited: true, proUser: true };
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
     var tier = normalizeTierId(authState.tier);
     if (tier !== 'trial') return { allowed: true, unlimited: true };
@@ -848,6 +933,13 @@
   }
 
   function recordSearch() {
+    if (isProUser()) {
+      applyProUserTierIfEligible();
+      notifyListeners();
+      updateHeaderUi();
+      updateSearchMeterUi();
+      return Promise.resolve(getSearchesUsed());
+    }
     return fetchSubscriptionAction('record_search').then(function (data) {
       if (data && data.usage) {
         applyServerUsage(data.usage);
@@ -1257,28 +1349,71 @@
   }
 
   function updateHeaderUi() {
+    applyProUserTierIfEligible();
     var bar = document.getElementById('user-account-bar');
+    var identityBar = document.getElementById('identity-email-bar');
+    if (identityBar) {
+      identityBar.classList.toggle('hidden', authState.isAuthenticated || isProUser());
+    }
     if (!bar) return;
-    if (!authState.isAuthenticated || !authState.user) {
-      bar.classList.add('hidden');
+    if (authState.isAuthenticated && authState.user) {
+      bar.classList.remove('hidden');
+      var nameEl = document.getElementById('user-display-name');
+      var tierEl = document.getElementById('user-tier-badge');
+      var upgradeBtn = document.getElementById('btn-open-pricing');
+      if (nameEl) nameEl.textContent = authState.user.displayName || authState.user.email || '';
+      if (tierEl) {
+        var displayTier = isProUser() ? 'pro' : authState.tier;
+        tierEl.textContent = isProUser() ? t('pro_user_badge') : tierLabel(displayTier);
+        tierEl.className = 'user-tier-badge user-tier-badge--' + (typeof WaldorfAuth.normalizeTierId === 'function'
+          ? WaldorfAuth.normalizeTierId(displayTier)
+          : displayTier);
+        tierEl.classList.toggle('user-tier-badge--pro-user', isProUser());
+      }
+      if (upgradeBtn) upgradeBtn.classList.toggle('hidden', isProUser());
+      var signOutBtn = document.getElementById('btn-auth-signout');
+      var settingsBtn = document.getElementById('btn-user-settings');
+      if (signOutBtn) signOutBtn.classList.remove('hidden');
+      if (settingsBtn) settingsBtn.classList.remove('hidden');
       return;
     }
-    bar.classList.remove('hidden');
-    var nameEl = document.getElementById('user-display-name');
-    var tierEl = document.getElementById('user-tier-badge');
-    if (nameEl) nameEl.textContent = authState.user.displayName || authState.user.email || '';
-    if (tierEl) {
-      tierEl.textContent = tierLabel(authState.tier);
-      tierEl.className = 'user-tier-badge user-tier-badge--' + (typeof WaldorfAuth.normalizeTierId === 'function'
-        ? WaldorfAuth.normalizeTierId(authState.tier)
-        : authState.tier);
+    if (isProUser()) {
+      bar.classList.remove('hidden');
+      var proNameEl = document.getElementById('user-display-name');
+      var proTierEl = document.getElementById('user-tier-badge');
+      var proUpgradeBtn = document.getElementById('btn-open-pricing');
+      var proSignOutBtn = document.getElementById('btn-auth-signout');
+      var proSettingsBtn = document.getElementById('btn-user-settings');
+      var email = getIdentityEmail();
+      if (proNameEl) proNameEl.textContent = email || '';
+      if (proTierEl) {
+        proTierEl.textContent = t('pro_user_badge');
+        proTierEl.className = 'user-tier-badge user-tier-badge--pro user-tier-badge--pro-user';
+      }
+      if (proUpgradeBtn) proUpgradeBtn.classList.add('hidden');
+      if (proSignOutBtn) proSignOutBtn.classList.add('hidden');
+      if (proSettingsBtn) proSettingsBtn.classList.add('hidden');
+      return;
     }
+    bar.classList.add('hidden');
+  }
+
+  function updateIdentityEmailUi() {
+    var input = document.getElementById('identity-email-input');
+    var badge = document.getElementById('identity-pro-badge');
+    var bar = document.getElementById('identity-email-bar');
+    if (!bar) return;
+    var email = getIdentityEmail();
+    var showBar = !authState.isAuthenticated && !isProUser();
+    bar.classList.toggle('hidden', !showBar);
+    if (input && email && !input.matches(':focus')) input.value = email;
+    if (badge) badge.classList.toggle('hidden', !isProUser());
   }
 
   function updateSearchMeterUi() {
     var meter = document.getElementById('search-usage-meter');
     if (!meter) return;
-    if (!authState.isAuthenticated) {
+    if (isProUser() || !authState.isAuthenticated) {
       meter.classList.add('hidden');
       return;
     }
@@ -1420,6 +1555,23 @@
     var rateBackdrop = document.getElementById('rate-limit-backdrop');
     if (rateBackdrop) rateBackdrop.addEventListener('click', hideRateLimitModal);
 
+    var identityInput = document.getElementById('identity-email-input');
+    if (identityInput) {
+      identityInput.addEventListener('change', function () {
+        setIdentityEmail(identityInput.value);
+      });
+      identityInput.addEventListener('blur', function () {
+        if (identityInput.value) setIdentityEmail(identityInput.value);
+      });
+      identityInput.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          setIdentityEmail(identityInput.value);
+          identityInput.blur();
+        }
+      });
+    }
+
     document.querySelectorAll('[data-billing-cycle]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         pricingBillingCycle = btn.getAttribute('data-billing-cycle') || 'monthly';
@@ -1444,6 +1596,9 @@
     authRedirectUrl = options.authRedirectUrl || '';
     useMockGoogleAuth = options.useMockGoogleAuth === true && isLocalDevHost();
     bindAuthUi();
+    applyProUserTierIfEligible();
+    updateIdentityEmailUi();
+    if (isProUser()) hideAuthOverlay();
 
     var useSupabase = isSupabaseConfigured() && typeof global.supabase !== 'undefined';
 
@@ -1457,11 +1612,13 @@
         if (session && session.user) {
           hideAuthOverlay();
           refreshSubscriptionFromServer();
-        } else showAuthOverlay();
+        } else if (!isProUser()) showAuthOverlay();
+        else hideAuthOverlay();
       }).catch(function (e) {
         console.warn('[Auth] Supabase session check failed', e);
         setAuthLoading(false, 'session');
-        showAuthOverlay();
+        if (!isProUser()) showAuthOverlay();
+        else hideAuthOverlay();
         authState.sessionReady = true;
         notifyListeners();
       });
@@ -1471,10 +1628,10 @@
     var restored = shouldAllowMockAuth() && loadPersistedAuth();
     authState.sessionReady = true;
     if (options.firebaseAuth) initFirebaseAuth(options.firebaseAuth);
-    if (!restored && !authState.isAuthenticated) showAuthOverlay();
-    else if (authState.isAuthenticated) {
+    if (!restored && !authState.isAuthenticated && !isProUser()) showAuthOverlay();
+    else if (authState.isAuthenticated || isProUser()) {
       hideAuthOverlay();
-      refreshSubscriptionFromServer();
+      if (authState.isAuthenticated) refreshSubscriptionFromServer();
     }
     else showAuthOverlay();
     notifyListeners();
@@ -1484,6 +1641,7 @@
   function refreshAuthI18n() {
     renderPricingCards();
     updateHeaderUi();
+    updateIdentityEmailUi();
     updateSearchMeterUi();
     var subtitle = document.getElementById('auth-subtitle');
     if (subtitle) subtitle.textContent = t('auth_subtitle');
@@ -1493,13 +1651,26 @@
   }
 
   function getContributorProfile() {
-    if (!authState.isAuthenticated || !authState.user) return null;
-    return {
-      id: authState.user.id || null,
-      email: authState.user.email || '',
-      name: authState.user.displayName || authState.user.email || '',
-      displayName: authState.user.displayName || authState.user.email || '',
-    };
+    if (authState.isAuthenticated && authState.user) {
+      return {
+        id: authState.user.id || null,
+        email: normalizeEmail(authState.user.email),
+        name: authState.user.displayName || authState.user.email || '',
+        displayName: authState.user.displayName || authState.user.email || '',
+        tier: isProUser() ? 'pro' : normalizeTierId(authState.tier),
+      };
+    }
+    var email = readIdentityEmail();
+    if (email) {
+      return {
+        id: null,
+        email: email,
+        name: email.split('@')[0],
+        displayName: email.split('@')[0],
+        tier: isProUserEmail(email) ? 'pro' : 'trial',
+      };
+    }
+    return null;
   }
 
   function getAccessToken() {
@@ -1552,6 +1723,11 @@
     refreshI18n: refreshAuthI18n,
     getContributorProfile: getContributorProfile,
     getAccessToken: getAccessToken,
+    getIdentityEmail: getIdentityEmail,
+    setIdentityEmail: setIdentityEmail,
+    isProUser: isProUser,
+    isProUserEmail: isProUserEmail,
+    PRO_USERS: PRO_USERS,
     normalizeTierId: normalizeTierId,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

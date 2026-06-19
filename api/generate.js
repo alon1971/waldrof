@@ -1048,6 +1048,17 @@ async function handleGeneratePost(parsedBody, requestContext) {
   }
   authContext.sanitizeCachedUserFields(parsedBody, verifiedUser);
 
+  const proEmail = typeof subscriptionApi.extractUserEmail === 'function'
+    ? subscriptionApi.extractUserEmail(reqShape, parsedBody)
+    : '';
+  if (proEmail && typeof subscriptionApi.isProUserEmail === 'function' && subscriptionApi.isProUserEmail(proEmail)) {
+    parsedBody.userEmail = parsedBody.userEmail || proEmail;
+    if (!parsedBody.teacherUser) parsedBody.teacherUser = {};
+    parsedBody.teacherUser.email = parsedBody.teacherUser.email || proEmail;
+    parsedBody.teacherUser.tier = 'pro';
+    console.log('[generate] PRO user — rate limits bypassed for', proEmail);
+  }
+
   if (typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
     try {
       await subscriptionApi.assertSearchAllowedFromRequest(reqShape);

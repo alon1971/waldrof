@@ -1210,6 +1210,43 @@
     .user-tier-badge--educator { background: rgba(122, 155, 118, 0.2); color: #5C7D58; }
     .user-tier-badge--pro,
     .user-tier-badge--expert { background: rgba(139, 58, 58, 0.12); color: #8B3A3A; }
+    .user-tier-badge--pro-user {
+      background: linear-gradient(135deg, rgba(139, 58, 58, 0.18), rgba(201, 169, 98, 0.22));
+      color: #8B3A3A;
+      box-shadow: 0 0 0 1px rgba(201, 169, 98, 0.35);
+      letter-spacing: 0.02em;
+    }
+    .identity-email-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      padding: 0.25rem 0.5rem;
+      border-radius: 9999px;
+      background: rgba(255,255,255,0.72);
+      border: 1px solid rgba(201, 169, 98, 0.4);
+    }
+    .identity-email-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: rgba(92, 74, 58, 0.8);
+      white-space: nowrap;
+    }
+    .identity-email-input {
+      width: 10.5rem;
+      max-width: 42vw;
+      padding: 0.28rem 0.55rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      font-size: 0.78rem;
+      color: #5C4A3A;
+      background: #fff;
+    }
+    .identity-email-input:focus {
+      outline: none;
+      border-color: #7A9B76;
+      box-shadow: 0 0 0 2px rgba(122, 155, 118, 0.2);
+    }
     .user-action-btn {
       display: inline-flex; align-items: center; gap: 0.35rem;
       padding: 0.35rem 0.65rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;
@@ -2741,6 +2778,11 @@
           </button>
         </nav>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
+          <div id="identity-email-bar" class="identity-email-bar hidden">
+            <label for="identity-email-input" class="identity-email-label" data-i18n="identity_email_label">דוא״ל לגישה</label>
+            <input type="email" id="identity-email-input" class="identity-email-input" data-i18n-placeholder="identity_email_placeholder" placeholder="you@example.com" autocomplete="email" inputmode="email" />
+            <span id="identity-pro-badge" class="user-tier-badge user-tier-badge--pro user-tier-badge--pro-user hidden" data-i18n="pro_user_badge">Pro User</span>
+          </div>
           <div id="user-account-bar" class="hidden">
             <div class="header-user-identity">
               <span id="user-display-name" class="text-sm text-walnut/80 max-w-[8rem] truncate"></span>
@@ -3765,10 +3807,19 @@
       if (!p.gradeLockInstruction) p.gradeLockInstruction = getGradeLockInstruction();
       if (typeof WaldorfAuth !== 'undefined') {
         const teacher = WaldorfAuth.getContributorProfile();
+        const identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function'
+          ? WaldorfAuth.getIdentityEmail()
+          : '';
         if (teacher) {
           p.teacherUser = teacher;
-          p.userId = teacher.id;
-          p.userEmail = teacher.email;
+          if (teacher.id) p.userId = teacher.id;
+          p.userEmail = teacher.email || identityEmail;
+        } else if (identityEmail) {
+          p.userEmail = identityEmail;
+          p.teacherUser = {
+            email: identityEmail,
+            tier: typeof WaldorfAuth.isProUser === 'function' && WaldorfAuth.isProUser() ? 'pro' : 'trial',
+          };
         }
       }
       if (appState.communityAutoSync !== false) {
@@ -4242,15 +4293,27 @@
       const opts = options || {};
       const researchPayload = prepareResearchPayload(payload);
 
-      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+      if (typeof WaldorfAuth !== 'undefined') {
         const profile = WaldorfAuth.getContributorProfile();
+        const identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function'
+          ? WaldorfAuth.getIdentityEmail()
+          : '';
         if (profile) {
           researchPayload.teacherUser = {
             id: profile.id,
-            email: profile.email,
+            email: profile.email || identityEmail,
             name: profile.name,
             displayName: profile.displayName,
-            tier: WaldorfAuth.getState().tier,
+            tier: (typeof WaldorfAuth.isProUser === 'function' && WaldorfAuth.isProUser())
+              ? 'pro'
+              : (WaldorfAuth.getState().tier || profile.tier || 'trial'),
+          };
+          researchPayload.userEmail = profile.email || identityEmail;
+        } else if (identityEmail) {
+          researchPayload.userEmail = identityEmail;
+          researchPayload.teacherUser = {
+            email: identityEmail,
+            tier: typeof WaldorfAuth.isProUser === 'function' && WaldorfAuth.isProUser() ? 'pro' : 'trial',
           };
         }
       }
@@ -4284,6 +4347,10 @@
           const token = await WaldorfAuth.getAccessToken();
           if (token) headers.Authorization = 'Bearer ' + token;
         } catch (authTokErr) { /* optional */ }
+        const identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function'
+          ? WaldorfAuth.getIdentityEmail()
+          : '';
+        if (identityEmail) headers['X-User-Email'] = identityEmail;
       }
 
       let res;
