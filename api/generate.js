@@ -287,6 +287,53 @@ function resolvedGradeId(body) {
   return String(body.currentGrade ?? body.gradeId ?? '').trim();
 }
 
+function resolveClientIp(requestContext) {
+  const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
+  const headers = ctx.headers || {};
+  const forwarded = headers['x-forwarded-for'] || headers['X-Forwarded-For'];
+  if (forwarded) {
+    const first = String(forwarded).split(',')[0].trim();
+    if (first) return first;
+  }
+  const realIp = headers['x-real-ip'] || headers['X-Real-Ip'] || headers['X-Real-IP'];
+  if (realIp) return String(realIp).trim();
+  if (ctx.ip) return String(ctx.ip).trim();
+  const socket = ctx.socket;
+  if (socket && socket.remoteAddress) {
+    return String(socket.remoteAddress).replace(/^::ffff:/, '');
+  }
+  return 'unknown';
+}
+
+function buildActionLabel(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const parts = [];
+  if (b.phase) parts.push(String(b.phase));
+  const grade = String(b.gradeLabel || b.currentGrade || b.gradeId || '').trim();
+  if (grade) parts.push(grade);
+  const subject = String(
+    b.topic || b.userMessage || b.archiveQuery || b.activityTitle || ''
+  ).trim();
+  if (subject) parts.push(subject.slice(0, 120));
+  return parts.length ? parts.join(' / ') : 'unknown';
+}
+
+function logPerplexityCall(ip, action, status) {
+  console.log(
+    '[Perplexity Call] - Timestamp: ' + new Date().toISOString() +
+    ' - IP: ' + ip +
+    ' - Action: ' + action +
+    ' - Status: ' + status
+  );
+}
+
+function logBlockedUnauthorizedAccess(ip, action) {
+  console.log(
+    '[Blocked Unauthorized Access] - IP: ' + ip +
+    ' - Action: ' + action
+  );
+}
+
 function buildGradeLockBlock(body) {
   const gradeId = resolvedGradeId(body);
   const gradeLabel = body.gradeLabel || '';
@@ -922,9 +969,11 @@ function isRetriablePerplexityCallError(err) {
  * On parse/validation failure, silently retries once with a stricter JSON system prompt
  * while the client request stays open (spinner remains active).
  */
-async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup) {
+async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
   const phase = body.phase;
   const baseOpts = perplexityOptions || {};
+  const ip = (logContext && logContext.ip) || 'unknown';
+  const action = (logContext && logContext.action) || buildActionLabel(body);
   let lastPreview = '';
   let lastRaw = '';
 
@@ -943,9 +992,12 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
       if (isRetry) {
         console.warn('[generate] Silent Perplexity retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
       }
+      logPerplexityCall(ip, action, 'Initiated');
       raw = await callPerplexity(apiKey, userPrompt, extraSystem + retrySuffix, callOpts);
       lastRaw = raw;
+      logPerplexityCall(ip, action, 'Success');
     } catch (aiErr) {
+      logPerplexityCall(ip, action, 'Failed');
       const msg = aiErr instanceof Error ? aiErr.message : String(aiErr);
       console.error('[generate] Perplexity call failed for phase', phase, '(attempt', attempt + '):', msg);
       if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(aiErr)) {
@@ -1093,6 +1145,8 @@ function attachCommunityMeta(meta, communityProbe) {
 
 /** Core handler — used by Render (server.js) with a pre-parsed JSON body. */
 async function handleGeneratePost(parsedBody, requestContext) {
+  const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
+
   if (!parsedBody || typeof parsedBody !== 'object') {
     const err = new Error('Missing JSON body');
     err.statusCode = 400;
@@ -1101,6 +1155,12 @@ async function handleGeneratePost(parsedBody, requestContext) {
   if (!parsedBody.phase) {
     const err = new Error('Missing phase');
     err.statusCode = 400;
+    throw err;
+  }
+  if (parsedBody.userInitiated !== true) {
+    logBlockedUnauthorizedAccess(resolveClientIp(ctx), buildActionLabel(parsedBody));
+    const err = new Error('AI generation requires an explicit user action (userInitiated: true)');
+    err.statusCode = 403;
     throw err;
   }
   if (parsedBody.phase === 'grade') {
@@ -1112,7 +1172,6 @@ async function handleGeneratePost(parsedBody, requestContext) {
     err.statusCode = 500;
     throw err;
   }
-  const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
   const reqShape = {
     method: 'POST',
     headers: ctx.headers || {},
@@ -1152,7 +1211,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
       }
     }
   }
-  const result = await executeGenerate(parsedBody, apiKey);
+  const result = await executeGenerate(parsedBody, apiKey, ctx);
   const billable = result &&
     result.meta &&
     !result.meta.fromCache &&
@@ -1261,12 +1320,17 @@ function parseRequestBody(req) {
   return rawBody;
 }
 
-async function executeGenerate(body, apiKey) {
+async function executeGenerate(body, apiKey, requestContext) {
   if (!body || !body.phase) {
     const err = new Error('Missing phase');
     err.statusCode = 400;
     throw err;
   }
+
+  const logContext = {
+    ip: resolveClientIp(requestContext),
+    action: buildActionLabel(body),
+  };
 
   // Step A (grade): stable cache key (phase + gradeId only) — always consult Supabase.
   if (body.phase === 'grade') {
@@ -1459,7 +1523,8 @@ async function executeGenerate(body, apiKey) {
     userPrompt,
     extraSystem,
     perplexityOptions,
-    isChatFollowup
+    isChatFollowup,
+    logContext
   );
 
   if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
@@ -1571,7 +1636,10 @@ async function legacyHandler(req, res) {
   }
 
   try {
-    const result = await handleGeneratePost(body, { headers: req.headers || {} });
+    const result = await handleGeneratePost(body, {
+      headers: req.headers || {},
+      socket: req.socket,
+    });
     return sendJson(res, 200, buildGenerateHttpPayload(result));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

@@ -158,7 +158,10 @@ async function handleApiGenerate(req, res) {
   }
 
   try {
-    const result = await generateApi.handleGeneratePost(parsedBody, { headers: req.headers || {} });
+    const result = await generateApi.handleGeneratePost(parsedBody, {
+      headers: req.headers || {},
+      socket: req.socket,
+    });
     const payload = generateApi.buildGenerateHttpPayload
       ? generateApi.buildGenerateHttpPayload(result)
       : (result && result.data !== undefined
