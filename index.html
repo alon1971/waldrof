@@ -3821,6 +3821,76 @@
     const LESSON_SNAPSHOT_STORAGE_KEY = 'waldorf_lesson_snapshot';
     var persistStepTimer = null;
 
+    function isHardPageReload() {
+      try {
+        var nav = performance.getEntriesByType('navigation')[0];
+        if (nav && nav.type === 'reload') return true;
+      } catch (e) { /* ignore */ }
+      try {
+        if (performance.navigation && performance.navigation.type === 1) return true;
+      } catch (e) { /* ignore */ }
+      return false;
+    }
+
+    function clearLegacyWizardStorage() {
+      try {
+        localStorage.removeItem(ACTIVE_STEP_STORAGE_KEY);
+        localStorage.removeItem(LESSON_SNAPSHOT_STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+    }
+
+    function readWizardStorageItem(key) {
+      try {
+        var raw = sessionStorage.getItem(key);
+        if (raw) return raw;
+        raw = localStorage.getItem(key);
+        if (!raw) return null;
+        sessionStorage.setItem(key, raw);
+        localStorage.removeItem(key);
+        return raw;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writeWizardStorageItem(key, value) {
+      try {
+        sessionStorage.setItem(key, value);
+        localStorage.removeItem(key);
+      } catch (e) { /* quota / private mode */ }
+    }
+
+    function removeWizardStorageItem(key) {
+      try {
+        sessionStorage.removeItem(key);
+        localStorage.removeItem(key);
+      } catch (e) { /* ignore */ }
+    }
+
+    function resetWizardSessionState() {
+      clearPersistedActiveStep();
+      Object.assign(appState, {
+        step: 1, navSection: 'wizard', grade: null, gradeLabel: null, topic: null, topicResearchCompleted: false, webResearch: null,
+        personalMaterials: [], driveScanned: false, activePlan: null, visualGallery: [],
+        gradeResearch: null, aiGeneratedPlan: null, driveMerge: null,
+        archiveQuery: '', archiveSearch: null, archiveSourcesById: {}, archiveSummaries: {}, archivePanelsOpen: {}, archiveActiveExportId: null,
+        bibliographyRegistry: {},
+        pedagogyRegistry: {},
+        activeProductTab: null,
+        productTabsRendered: freshProductTabsRendered(),
+        lessonCacheKey: '',
+        communityAutoSync: true,
+        archiveSuggestionPending: false,
+        archiveRejectedSearch: null,
+      });
+      catalogState.view = 'grades';
+      catalogState.gradeId = null;
+      catalogState.topic = null;
+      resetSummarySession();
+      abortAllInlineExpansions();
+      if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.reset();
+    }
+
     function isTopicResearchLoadingUi() {
       var loadingEl = document.getElementById('topic-research-loading');
       return Boolean(loadingEl && !loadingEl.classList.contains('hidden'));
@@ -3828,7 +3898,7 @@
 
     function readPersistedActiveStep() {
       try {
-        var raw = localStorage.getItem(ACTIVE_STEP_STORAGE_KEY);
+        var raw = readWizardStorageItem(ACTIVE_STEP_STORAGE_KEY);
         if (!raw) return null;
         var data = JSON.parse(raw);
         var step = parseInt(data.step, 10);
@@ -3841,7 +3911,7 @@
 
     function readPersistedLessonSnapshot() {
       try {
-        var raw = localStorage.getItem(LESSON_SNAPSHOT_STORAGE_KEY);
+        var raw = readWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
         if (!raw) return null;
         var data = JSON.parse(raw);
         if (!data || !data.snapshot || !data.snapshot.blockPlan) return null;
@@ -3853,11 +3923,11 @@
 
     function persistLessonSnapshot() {
       if (!appState.aiGeneratedPlan) {
-        try { localStorage.removeItem(LESSON_SNAPSHOT_STORAGE_KEY); } catch (e) { /* ignore */ }
+        removeWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
         return;
       }
       try {
-        localStorage.setItem(LESSON_SNAPSHOT_STORAGE_KEY, JSON.stringify({
+        writeWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY, JSON.stringify({
           grade: appState.grade || null,
           gradeLabel: appState.gradeLabel || null,
           topic: appState.topic || null,
@@ -3869,7 +3939,7 @@
     }
 
     function clearPersistedLessonSnapshot() {
-      try { localStorage.removeItem(LESSON_SNAPSHOT_STORAGE_KEY); } catch (e) { /* ignore */ }
+      removeWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
     }
 
     function applyPersistedLessonSnapshot(snapshotData) {
@@ -3901,7 +3971,7 @@
 
     function persistActiveStep() {
       try {
-        localStorage.setItem(ACTIVE_STEP_STORAGE_KEY, JSON.stringify({
+        writeWizardStorageItem(ACTIVE_STEP_STORAGE_KEY, JSON.stringify({
           step: appState.step,
           navSection: appState.navSection || 'wizard',
           grade: appState.grade || null,
@@ -3920,10 +3990,9 @@
     }
 
     function clearPersistedActiveStep() {
-      try {
-        localStorage.removeItem(ACTIVE_STEP_STORAGE_KEY);
-      } catch (e) { /* ignore */ }
+      removeWizardStorageItem(ACTIVE_STEP_STORAGE_KEY);
       clearPersistedLessonSnapshot();
+      clearLegacyWizardStorage();
     }
 
     let realtimeChannel = null;
@@ -11239,6 +11308,10 @@
     }
 
     async function init() {
+      var pageReloaded = isHardPageReload();
+      if (pageReloaded) {
+        try { resetWizardSessionState(); } catch (e) { console.warn('[waldrof] resetWizardSessionState:', e); }
+      }
       try {
       ensurePageAtTop();
       bindPageLoadScrollGuards();
@@ -11296,7 +11369,9 @@
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
       try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
-      try { hydrateActiveStepFromStorage(); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
+      if (!pageReloaded) {
+        try { hydrateActiveStepFromStorage(); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
+      }
       const gradeSelAfterPopulate = document.getElementById('grade-select');
       if (gradeSelAfterPopulate && !appState.grade) {
         gradeSelAfterPopulate.value = '';
@@ -11417,6 +11492,16 @@
         bindPageLoadScrollGuards();
         onAppRegainsAttention();
         clearPageLoadFocusGuard();
+        return;
+      }
+      if (isHardPageReload()) {
+        try { resetWizardSessionState(); } catch (err) { console.warn('[waldrof] pageshow resetWizardSessionState:', err); }
+        try { resetWizardOnPageLoad(); } catch (err) { console.warn('[waldrof] pageshow resetWizardOnPageLoad:', err); }
+        pageLoadFocusGuard = true;
+        bindPageLoadScrollGuards();
+        defocusGradeSelectDuringPageLoad();
+        ensurePageAtTop();
+        scheduleInitialPageScrollReset();
         return;
       }
       pageLoadFocusGuard = true;
