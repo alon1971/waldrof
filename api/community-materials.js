@@ -98,10 +98,10 @@ function parseCommunityNotes(rawNotes) {
 async function supabaseRequest(relativePath, options) {
   const cfg = getSupabaseConfig();
   const res = await fetch(cfg.url + relativePath, Object.assign({
-    headers: {
+    headers: Object.assign({
       apikey: cfg.key,
       Authorization: 'Bearer ' + cfg.key,
-    },
+    }, (options && options.headers) || {}),
   }, options || {}));
   const text = await res.text();
   let body = null;
@@ -111,10 +111,41 @@ async function supabaseRequest(relativePath, options) {
   return { ok: res.ok, status: res.status, body: body, text: text };
 }
 
+async function supabaseRequestWithKeyFallback(relativePath, options, preferAnon) {
+  const keys = preferAnon
+    ? [env.getSupabaseAnonKey(), env.getSupabaseServiceRoleKey()].filter(Boolean)
+    : [env.getSupabaseServiceRoleKey(), env.getSupabaseAnonKey()].filter(Boolean);
+  const seen = new Set();
+  let lastResult = null;
+  const url = env.getSupabaseUrl();
+  if (!url) return { ok: false, status: 503, body: null, text: '' };
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const res = await fetch(url + relativePath, Object.assign({
+      headers: Object.assign({
+        apikey: key,
+        Authorization: 'Bearer ' + key,
+      }, (options && options.headers) || {}),
+    }, options || {}));
+    const text = await res.text();
+    let body = null;
+    if (text) {
+      try { body = JSON.parse(text); } catch (e) { body = text; }
+    }
+    lastResult = { ok: res.ok, status: res.status, body: body, text: text };
+    if (res.ok) return lastResult;
+    if (res.status !== 401 && res.status !== 403) break;
+  }
+  return lastResult || { ok: false, status: 503, body: null, text: '' };
+}
+
 async function listCommunityMaterials() {
-  const result = await supabaseRequest(
+  const result = await supabaseRequestWithKeyFallback(
     '/rest/v1/' + MATERIALS_TABLE + '?select=*&order=created_at.desc',
-    { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+    true
   );
   if (!result.ok) {
     const err = new Error('Failed to list community materials (' + result.status + ')');
@@ -126,9 +157,10 @@ async function listCommunityMaterials() {
 }
 
 async function fetchMaterialById(id) {
-  const result = await supabaseRequest(
+  const result = await supabaseRequestWithKeyFallback(
     '/rest/v1/' + MATERIALS_TABLE + '?select=*&id=eq.' + encodeURIComponent(String(id)) + '&limit=1',
-    { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+    true
   );
   if (!result.ok || !Array.isArray(result.body) || !result.body.length) return null;
   return result.body[0];
@@ -137,16 +169,23 @@ async function fetchMaterialById(id) {
 async function deleteStorageObject(filePath) {
   const path = String(filePath || '').trim();
   if (!path || isHttpUrl(path) || path.indexOf('community/') !== 0) return false;
-  const cfg = getSupabaseConfig();
+  const url = env.getSupabaseUrl();
+  const keys = [env.getSupabaseServiceRoleKey(), env.getSupabaseAnonKey()].filter(Boolean);
   const enc = encodeStorageObjectPath(path);
-  const res = await fetch(cfg.url + '/storage/v1/object/' + STORAGE_BUCKET + '/' + enc, {
-    method: 'DELETE',
-    headers: {
-      apikey: cfg.key,
-      Authorization: 'Bearer ' + cfg.key,
-    },
-  });
-  return res.ok;
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (!key || !url) continue;
+    const res = await fetch(url + '/storage/v1/object/' + STORAGE_BUCKET + '/' + enc, {
+      method: 'DELETE',
+      headers: {
+        apikey: key,
+        Authorization: 'Bearer ' + key,
+      },
+    });
+    if (res.ok) return true;
+    if (res.status !== 401 && res.status !== 403) return false;
+  }
+  return false;
 }
 
 async function patchCommunityMaterial(body) {
@@ -197,7 +236,7 @@ async function patchCommunityMaterial(body) {
     throw err;
   }
 
-  const result = await supabaseRequest(
+  const result = await supabaseRequestWithKeyFallback(
     '/rest/v1/' + MATERIALS_TABLE + '?id=eq.' + encodeURIComponent(id),
     {
       method: 'PATCH',
@@ -206,7 +245,8 @@ async function patchCommunityMaterial(body) {
         Prefer: 'return=representation',
       },
       body: JSON.stringify(payload),
-    }
+    },
+    false
   );
   if (!result.ok) {
     const err = new Error('Update failed (' + result.status + ')');
@@ -243,9 +283,10 @@ async function deleteCommunityMaterial(body) {
     }
   }
 
-  const result = await supabaseRequest(
+  const result = await supabaseRequestWithKeyFallback(
     '/rest/v1/' + MATERIALS_TABLE + '?id=eq.' + encodeURIComponent(id),
-    { method: 'DELETE', headers: { Prefer: 'return=minimal' } }
+    { method: 'DELETE', headers: { Prefer: 'return=minimal' } },
+    false
   );
   if (!result.ok) {
     const err = new Error('Delete failed (' + result.status + ')');
