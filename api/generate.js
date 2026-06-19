@@ -115,7 +115,7 @@ const CONTENT_HIERARCHY_INSTRUCTION =
   'Never shorten, narrow, or omit web-sourced content because local archive excerpts exist.\n' +
   '2. INGESTED GOOGLE DRIVE ARCHIVE — SUPPLEMENTARY ENRICHMENT: When INGESTED DRIVE ARCHIVE excerpts are provided below, ' +
   'use them as a secondary layer of pedagogical enrichment and Waldorf-philosophy validation — blend them INTO the web foundation. ' +
-  'Drive archive folders: חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, שטיינר.\n' +
+  'Drive archive folders: חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, waldorf project, waldrof project, שטיינר.\n' +
   '3. MERGE: Produce ONE deep, comprehensive, consolidated lesson plan that merges live web breadth with relevant Drive-archive insights. ' +
   'The final output must be richer than either source alone — never a thin summary of local excerpts only.\n' +
   '=== END CONTENT HIERARCHY ===\n';
@@ -339,7 +339,7 @@ function buildRagContextBlock(body) {
   return (
     '\n=== INGESTED GOOGLE DRIVE ARCHIVE (SUPPLEMENTARY ENRICHMENT) ===\n' +
     'The excerpts below are from ingested Google Drive folders in our local archive ' +
-    '(חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, שטיינר). ' +
+    '(חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, waldorf project, waldrof project, שטיינר). ' +
     'Treat them as SECONDARY pedagogical enrichment and Waldorf-philosophy validation — blend them into the broad live web research foundation. ' +
     'LIVE WEB SEARCH remains the PRIMARY anchor — never replace or narrow web-sourced lesson content with these excerpts alone. ' +
     'Reference document titles when citing. Do not contradict verified Steiner/web sources. Do not add unstated connections.\n\n' +
@@ -1280,18 +1280,28 @@ async function executeGenerate(body, apiKey) {
     chunkCount: 0,
     method: 'skipped',
     contextChars: 0,
+    liveDriveRefresh: false,
   };
 
+  // Live Drive archive lookup — runs on every cache miss (no stale RAG cache).
+  // Queries knowledge_base in real time so newly ingested "waldrof project" / "waldorf project" files are included.
   if (!body.skipRag && ragDb.shouldRetrieveForPhase(body.phase)) {
     try {
+      console.log('[generate] live Drive archive RAG refresh for phase', body.phase);
       const ragResult = await ragDb.retrieveForRequest(body);
       body.ragContext = ragResult.context || '';
       if (Array.isArray(ragResult.chunkIds)) body.ragChunkIds = ragResult.chunkIds;
       ragMeta = Object.assign({}, ragResult.meta || {}, {
         contextChars: (body.ragContext || '').length,
+        liveDriveRefresh: true,
       });
       if (ragMeta.chunkCount > 0) {
-        console.log('[rag] drive archive enrichment:', ragMeta.chunkCount, 'chunks via', ragMeta.method || 'unknown');
+        console.log(
+          '[rag] drive archive enrichment:', ragMeta.chunkCount, 'chunks via', ragMeta.method || 'unknown',
+          ragMeta.expandedQueryPreview ? ('query=' + ragMeta.expandedQueryPreview) : ''
+        );
+      } else {
+        console.log('[rag] drive archive enrichment: no matching excerpts (web-only generation)');
       }
     } catch (ragErr) {
       console.warn('[rag] retrieval failed:', ragErr.message || ragErr);
@@ -1301,6 +1311,7 @@ async function executeGenerate(body, apiKey) {
         method: 'error',
         error: ragErr.message || String(ragErr),
         contextChars: String(body.ragContext || '').length,
+        liveDriveRefresh: true,
       };
     }
   }
@@ -1412,6 +1423,7 @@ async function executeGenerate(body, apiKey) {
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
       consolidatedArchive: ragMeta.chunkCount > 0,
       contentHierarchy: 'web_primary_drive_enrichment',
+      liveDriveRefresh: Boolean(ragMeta.liveDriveRefresh),
       rag: ragMeta,
       ragContext: body.ragContext || '',
       ragChunkIds: Array.isArray(body.ragChunkIds) ? body.ragChunkIds : [],
