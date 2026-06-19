@@ -8306,7 +8306,7 @@
       return { storagePath: path, publicUrl: buildPublicStorageUrl(path) };
     }
 
-    async function deleteCommunityMaterial(id) {
+    async function deleteCommunityMaterialRecord(id) {
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
       if (canUseCommunityUploadApi()) {
@@ -11822,10 +11822,11 @@
         ? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" class="touch-btn inline-flex items-center gap-1.5 text-sm ' +
           (external ? 'bg-sky hover:bg-sky/90' : 'bg-sage hover:bg-sage-dark') + ' text-white px-4 py-2 rounded-lg"><i class="' + btnIcon + '"></i> ' + escapeHtml(btnLabel) + '</a>'
         : '<span class="text-xs text-walnut/50">' + escapeHtml(t('community_no_file')) + '</span>';
+      const jsId = String(materialId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       const manageBtns = file.canManage
         ? '<div class="catalog-material-actions">' +
-          '<button type="button" class="catalog-material-btn catalog-material-edit" data-catalog-action="edit" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '">✏️</button>' +
-          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-catalog-action="delete" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-edit" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '" onclick="window.editCommunityMaterial(\'' + jsId + '\')">✏️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '" onclick="window.deleteCommunityMaterial(\'' + jsId + '\')">🗑️</button>' +
           '</div>'
         : '';
       const authorLine = file.authorName
@@ -11938,58 +11939,51 @@
       }
     }
 
-    async function editCatalogMaterial(materialId) {
-      openCatalogMaterialEdit(materialId);
-    }
+    window.editCommunityMaterial = function (id) {
+      openCatalogMaterialEdit(id);
+    };
 
-    async function deleteCatalogMaterial(materialId) {
-      const id = String(materialId || '').trim();
-      if (!id) return;
-      if (!window.confirm(t('catalog_delete_confirm'))) return;
-      const row = findCatalogMaterialRow(id);
+    window.deleteCommunityMaterial = async function (id) {
+      const pk = String(id || '').trim();
+      if (!pk) return;
+      if (!window.confirm(t('catalog_delete_confirm') || 'האם אתה בטוח שברצונך למחוק חומר זה?')) return;
+      const row = findCatalogMaterialRow(pk);
       if (row) row.classList.add('opacity-60', 'pointer-events-none');
       try {
-        await deleteCommunityMaterial(id);
-        appState.communityCache = appState.communityCache.filter(function (item) {
-          return String(resolveCommunityMaterialId(item)) !== String(id);
-        });
-        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-        await refreshCatalogAfterMaterialChange();
+        const headers = {};
+        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+          try {
+            const token = await WaldorfAuth.getAccessToken();
+            if (token) headers.Authorization = 'Bearer ' + token;
+          } catch (e) { /* ignore */ }
+        }
+        const response = await fetch(communityMaterialsMutateUrl(pk), { method: 'DELETE', headers: headers });
+        if (response.ok) {
+          forgetCommunityOwnership(pk);
+          appState.communityCache = appState.communityCache.filter(function (m) {
+            return String(m.id || m.dbId || resolveCommunityMaterialId(m)) !== pk;
+          });
+          appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+          updateCommunityBadge();
+          await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+          if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
+          renderCommunityMaterials();
+          alert('החומר נמחק בהצלחה');
+        } else {
+          let errMsg = response.statusText || String(response.status);
+          try {
+            const errData = await response.json();
+            errMsg = errData.error || errMsg;
+          } catch (parseErr) { /* ignore */ }
+          if (row) row.classList.remove('opacity-60', 'pointer-events-none');
+          alert('שגיאה במחיקה: ' + errMsg);
+        }
       } catch (err) {
         if (row) row.classList.remove('opacity-60', 'pointer-events-none');
-        alert(err.message || String(err));
+        console.error('Delete error:', err);
+        alert('שגיאת רשת במחיקה');
       }
-    }
-
-    let catalogMaterialActionsDelegated = false;
-
-    function ensureCatalogMaterialActionDelegation() {
-      if (catalogMaterialActionsDelegated) return;
-      catalogMaterialActionsDelegated = true;
-      document.addEventListener('click', function (e) {
-        const catalogRoot = e.target.closest('#panel-catalog');
-        if (!catalogRoot) return;
-        const editBtn = e.target.closest('[data-catalog-action="edit"]');
-        if (editBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          const editId = editBtn.getAttribute('data-id');
-          if (editId) editCatalogMaterial(editId);
-          return;
-        }
-        const delBtn = e.target.closest('[data-catalog-action="delete"]');
-        if (delBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          const delId = delBtn.getAttribute('data-id');
-          if (delId) deleteCatalogMaterial(delId);
-        }
-      }, true);
-    }
-
-    function bindCatalogMaterialActions(container) {
-      ensureCatalogMaterialActionDelegation();
-    }
+    };
 
     async function renderCatalogMaterials(gradeId, topicId) {
       const el = document.getElementById('catalog-materials');
@@ -12017,7 +12011,6 @@
       bindCatalogGradeNav(el);
       bindCatalogUploadDrawer(el);
       bindCatalogUploadForms(el);
-      bindCatalogMaterialActions(el);
       scrollToCatalogContent('materials');
     }
 
@@ -12579,7 +12572,6 @@
       try { updateTopicResearchButton(); } catch (e) { console.warn('[waldrof] updateTopicResearchButton:', e); }
       try { bindEvents(); } catch (e) { console.error('[waldrof] bindEvents failed — buttons may be inactive:', e); }
       loadCommunityFormDraftFromStorage();
-      ensureCatalogMaterialActionDelegation();
       if (typeof LessonChatSidebar !== 'undefined') {
         LessonChatSidebar.init({
           t: t,
