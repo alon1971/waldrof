@@ -845,6 +845,29 @@
       from { opacity: 0; transform: translateY(-8px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    .catalog-file-drop {
+      border: 2px dashed rgba(201, 169, 98, 0.55);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      text-align: center;
+      transition: border-color 0.15s ease;
+    }
+    .catalog-file-drop:hover { border-color: rgba(92, 125, 88, 0.65); }
+    .catalog-file-pick-label {
+      cursor: pointer;
+      color: #5C7D58;
+      font-weight: 600;
+    }
+    .catalog-file-pick-label:hover { text-decoration: underline; }
+    .catalog-file-selected {
+      font-size: 0.875rem;
+      color: #5C4A3A;
+      background: rgba(247, 243, 235, 0.9);
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      display: inline-block;
+      margin-top: 0.5rem;
+    }
     .theory-bibliography-card {
       background: linear-gradient(135deg, rgba(247, 243, 235, 0.95), rgba(237, 230, 214, 0.85));
       border: 1px solid rgba(201, 169, 98, 0.45);
@@ -7598,9 +7621,13 @@
       return payload;
     }
 
+    function encodeStorageObjectPath(path) {
+      return String(path || '').split('/').map(function (seg) { return encodeURIComponent(seg); }).join('/');
+    }
+
     function buildPublicStorageUrl(filePath) {
       if (!filePath) return '';
-      return SUPABASE_URL + '/storage/v1/object/public/' + SUPABASE_STORAGE_BUCKET + '/' + encodeURIComponent(filePath);
+      return SUPABASE_URL + '/storage/v1/object/public/' + SUPABASE_STORAGE_BUCKET + '/' + encodeStorageObjectPath(filePath);
     }
 
     function isHttpUrl(value) {
@@ -7669,7 +7696,7 @@
 
     async function uploadFileToStorage(file, folderPrefix) {
       const path = buildAsciiStoragePath(folderPrefix, file.name);
-      const enc = encodeURIComponent(path);
+      const enc = encodeStorageObjectPath(path);
       const res = await fetch(SUPABASE_URL + '/storage/v1/object/' + SUPABASE_STORAGE_BUCKET + '/' + enc, {
         method: 'POST',
         headers: getRestHeaders({ 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' }),
@@ -10399,7 +10426,10 @@
           btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
           if (opening) {
             const form = drawer.querySelector('.catalog-upload-form');
-            if (form) bindCatalogShareModeToggle(form);
+            if (form) {
+              bindCatalogShareModeToggle(form);
+              bindCatalogFileInput(form);
+            }
             const topicInput = drawer.querySelector('[name="catalog-topic"]');
             if (topicInput && !topicInput.readOnly) topicInput.focus({ preventScroll: true });
           }
@@ -10409,39 +10439,72 @@
 
     function catalogUploadFormHtml(gradeId, presetTopic, readonlyTopic) {
       const topicVal = presetTopic ? escapeHtml(presetTopic) : '';
+      const fileInputId = 'catalog-file-upload-' + String(gradeId).replace(/[^a-zA-Z0-9_-]/g, '_');
       const topicReadonly = readonlyTopic ? ' readonly class="touch-target w-full rounded-xl border border-gold/30 bg-parchment/50 px-4 py-3.5 text-base text-walnut outline-none"' :
         ' class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40"';
-      return '<form class="catalog-upload-form space-y-3 mb-6 p-4 sm:p-5 rounded-2xl border border-sage/30 bg-sage/5" data-grade="' + escapeHtml(String(gradeId)) + '">' +
-        '<h4 class="font-bold text-sage-dark mb-1"><i class="fa-solid fa-cloud-arrow-up icon-inline"></i> ' + escapeHtml(t('catalog_upload_title')) + '</h4>' +
+      return '<form class="catalog-upload-form space-y-5 mb-6 p-4 sm:p-6 rounded-2xl border border-sage/30 bg-white shadow-sm" data-grade="' + escapeHtml(String(gradeId)) + '">' +
+        '<h4 class="text-xl font-bold text-sage-dark mb-1">' + escapeHtml(t('catalog_upload_title')) + '</h4>' +
+        '<div>' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
-        '<input type="text" name="catalog-topic" required maxlength="120" value="' + topicVal + '"' + topicReadonly + ' />' +
-        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_desc_label')) + '</label>' +
-        '<input type="text" name="catalog-desc" maxlength="200" class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40" />' +
-        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_author_label')) + '</label>' +
-        '<input type="text" name="catalog-author" maxlength="60" class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40" />' +
+        '<input type="text" name="catalog-topic" required maxlength="120" placeholder="' + escapeHtml(t('catalog_topic_placeholder')) + '" value="' + topicVal + '"' + topicReadonly + ' />' +
+        '</div>' +
         '<fieldset class="catalog-share-mode border-0 p-0 m-0">' +
         '<legend class="block text-sm font-medium text-walnut mb-2">' + escapeHtml(t('catalog_share_mode')) + '</legend>' +
-        '<div class="flex flex-col sm:flex-row flex-wrap gap-2 mb-3">' +
-        '<label class="catalog-mode-opt inline-flex items-center gap-2 cursor-pointer rounded-xl border border-sage/35 bg-white px-3 py-2.5 text-sm has-[:checked]:border-sage has-[:checked]:bg-sage/10">' +
+        '<div class="flex flex-col sm:flex-row flex-wrap gap-4">' +
+        '<label class="catalog-mode-opt inline-flex items-center gap-2 cursor-pointer text-sm">' +
         '<input type="radio" name="catalog-share-mode" value="file" class="accent-sage" checked /> ' + escapeHtml(t('catalog_mode_file')) + '</label>' +
-        '<label class="catalog-mode-opt inline-flex items-center gap-2 cursor-pointer rounded-xl border border-sage/35 bg-white px-3 py-2.5 text-sm has-[:checked]:border-sage has-[:checked]:bg-sage/10">' +
+        '<label class="catalog-mode-opt inline-flex items-center gap-2 cursor-pointer text-sm">' +
         '<input type="radio" name="catalog-share-mode" value="link" class="accent-sage" /> ' + escapeHtml(t('catalog_mode_link')) + '</label>' +
         '</div></fieldset>' +
         '<div class="catalog-file-panel">' +
-        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_file_label')) + '</label>' +
-        '<input type="file" name="catalog-file" multiple class="w-full text-sm file:bg-sage file:text-white file:rounded-lg file:px-3 file:py-2 file:border-0" />' +
-        '<p class="text-xs text-walnut/60 mt-2 leading-relaxed">' + escapeHtml(t('catalog_file_bundle_hint')) + '</p>' +
-        '</div>' +
+        '<div class="catalog-file-drop">' +
+        '<input type="file" name="catalog-file" id="' + fileInputId + '" class="hidden" />' +
+        '<label for="' + fileInputId + '" class="catalog-file-pick-label">' +
+        '<span class="catalog-file-pick-text">📁 ' + escapeHtml(t('catalog_file_pick')) + '</span></label>' +
+        '<p class="catalog-file-selected hidden" aria-live="polite"></p>' +
+        '</div></div>' +
         '<div class="catalog-link-panel hidden">' +
-        '<label class="block text-sm font-medium text-walnut mb-1" for="catalog-share-url">' + escapeHtml(t('catalog_link_label')) + '</label>' +
+        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_link_label')) + ' <span class="text-terracotta">*</span></label>' +
         '<input type="url" name="catalog-share-url" inputmode="url" autocomplete="url" maxlength="500" dir="ltr" ' +
+        'placeholder="https://docs.google.com/document/d/..." ' +
         'class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40 text-left" ' +
         'aria-label="' + escapeHtml(t('catalog_link_aria')) + '" />' +
-        '<p class="text-xs text-walnut/60 mt-2 leading-relaxed">' + escapeHtml(t('catalog_link_hint')) + '<br />' +
-        escapeHtml(t('catalog_link_hint_drive')) + '</p>' +
         '</div>' +
-        '<button type="submit" class="touch-btn w-full sm:w-auto bg-sage hover:bg-sage-dark text-white font-medium px-6 py-3 rounded-xl"><i class="fa-solid fa-upload icon-inline"></i> ' + escapeHtml(t('catalog_submit')) + '</button>' +
+        '<button type="submit" class="touch-btn w-full bg-sage hover:bg-sage-dark text-white font-bold px-6 py-3 rounded-xl transition-colors disabled:bg-walnut/40">' +
+        escapeHtml(t('catalog_submit')) + '</button>' +
         '<p class="catalog-upload-msg text-sm hidden"></p></form>';
+    }
+
+    function resetCatalogFileDisplay(form) {
+      if (!form) return;
+      const pickText = form.querySelector('.catalog-file-pick-text');
+      const selectedEl = form.querySelector('.catalog-file-selected');
+      if (pickText) pickText.textContent = '📁 ' + t('catalog_file_pick');
+      if (selectedEl) {
+        selectedEl.textContent = '';
+        selectedEl.classList.add('hidden');
+      }
+    }
+
+    function bindCatalogFileInput(form) {
+      if (!form || form.dataset.fileBound) return;
+      form.dataset.fileBound = '1';
+      const fileInput = form.querySelector('[name="catalog-file"]');
+      const pickText = form.querySelector('.catalog-file-pick-text');
+      const selectedEl = form.querySelector('.catalog-file-selected');
+      if (!fileInput) return;
+      fileInput.addEventListener('change', function () {
+        const chosen = fileInput.files && fileInput.files[0];
+        if (!chosen) {
+          resetCatalogFileDisplay(form);
+          return;
+        }
+        if (pickText) pickText.textContent = '📄 ' + t('catalog_file_replace');
+        if (selectedEl) {
+          selectedEl.innerHTML = escapeHtml(t('catalog_file_ready')) + ' <span class="font-semibold">' + escapeHtml(chosen.name) + '</span>';
+          selectedEl.classList.remove('hidden');
+        }
+      });
     }
 
     function setCatalogShareMode(form, mode) {
@@ -10471,36 +10534,30 @@
     async function handleCatalogUploadSubmit(form) {
       const gradeId = form.getAttribute('data-grade');
       const topic = form.querySelector('[name="catalog-topic"]').value.trim();
-      const desc = form.querySelector('[name="catalog-desc"]').value.trim();
-      const author = form.querySelector('[name="catalog-author"]').value.trim();
       const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
       const mode = modeEl ? modeEl.value : 'file';
       const fileInput = form.querySelector('[name="catalog-file"]');
-      const files = mode === 'file' && fileInput && fileInput.files ? Array.from(fileInput.files) : [];
-      const file = files.length === 1 ? files[0] : null;
+      const file = mode === 'file' && fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
       const shareUrl = mode === 'link' ? (form.querySelector('[name="catalog-share-url"]').value || '').trim() : '';
       const msgEl = form.querySelector('.catalog-upload-msg');
       const submitBtn = form.querySelector('[type="submit"]');
-      if (!topic) throw new Error(t('catalog_err_topic'));
       if (submitBtn && submitBtn.disabled) return;
-      if (submitBtn) submitBtn.disabled = true;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = mode === 'link' ? t('catalog_saving_link') : t('catalog_uploading');
+      }
       if (msgEl) {
         msgEl.classList.remove('hidden', 'text-terracotta', 'text-sage-dark');
         msgEl.classList.add('text-sage-dark');
         msgEl.textContent = mode === 'link' ? t('catalog_saving_link') : t('catalog_uploading');
       }
       try {
+        if (!topic) throw new Error(t('catalog_err_topic'));
         if (mode === 'link' && !shareUrl) throw new Error(t('catalog_err_link'));
-        if (mode === 'file' && !files.length) throw new Error(t('catalog_err_file'));
-        if (mode === 'file' && files.length > 1) {
-          for (let i = 0; i < files.length; i++) {
-            await submitCatalogUpload(gradeId, topic, desc, author, files[i], '', { skipIndex: true });
-          }
-          await indexCommunityBundle(gradeId, topic);
-        } else {
-          await submitCatalogUpload(gradeId, topic, desc, author, file, shareUrl);
-        }
+        if (mode === 'file' && !file) throw new Error(t('catalog_err_file'));
+        await submitCatalogUpload(gradeId, topic, '', '', file, shareUrl);
         form.reset();
+        resetCatalogFileDisplay(form);
         const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
         if (fileRadio) fileRadio.checked = true;
         setCatalogShareMode(form, 'file');
@@ -10525,7 +10582,10 @@
           msgEl.classList.add('text-terracotta');
         }
       } finally {
-        if (submitBtn) submitBtn.disabled = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = t('catalog_submit');
+        }
       }
     }
 
@@ -10533,6 +10593,7 @@
       if (!container) return;
       container.querySelectorAll('.catalog-upload-form').forEach(function (form) {
         bindCatalogShareModeToggle(form);
+        bindCatalogFileInput(form);
         form.addEventListener('submit', function (e) {
           e.preventDefault();
           handleCatalogUploadSubmit(form);
@@ -10926,7 +10987,7 @@
         const catalogForm = active.closest('.catalog-upload-form');
         if (catalogForm) {
           const fieldName = active.getAttribute('name');
-          if (fieldName === 'catalog-topic' || fieldName === 'catalog-desc' || fieldName === 'catalog-share-url') {
+          if (fieldName === 'catalog-topic' || fieldName === 'catalog-share-url') {
             e.preventDefault();
             if (!catalogForm.querySelector('[name="catalog-topic"]').value.trim()) return;
             handleCatalogUploadSubmit(catalogForm);
