@@ -217,21 +217,211 @@ function repairTruncatedJson(raw) {
   return s;
 }
 
+/**
+ * Extract JSON between the first opening bracket and the last closing bracket.
+ * Ignores markdown fences, preamble, and trailing prose outside those bounds.
+ */
+function extractJsonByRegex(text) {
+  const s = String(text || '');
+  const objStart = s.indexOf('{');
+  const arrStart = s.indexOf('[');
+  if (objStart >= 0 && (arrStart < 0 || objStart <= arrStart)) {
+    const end = s.lastIndexOf('}');
+    if (end > objStart) return s.slice(objStart, end + 1);
+  }
+  if (arrStart >= 0) {
+    const end = s.lastIndexOf(']');
+    if (end > arrStart) return s.slice(arrStart, end + 1);
+  }
+  return '';
+}
+
+/** Strip invisible control characters and zero-width marks that break JSON.parse. */
+function cleanseJsonCharacters(raw) {
+  let text = String(raw || '').replace(/^\uFEFF/, '');
+  text = text.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '');
+  text = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
+  return text;
+}
+
+/** Fix lone backslashes inside JSON string literals (invalid escape sequences). */
+function repairInvalidEscapeSequences(raw) {
+  if (!raw) return '';
+  let result = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (inString) {
+      if (escaped) {
+        if (!/["\\/bfnrtu]/.test(c)) {
+          result += '\\' + c;
+        } else {
+          result += c;
+        }
+        escaped = false;
+        continue;
+      }
+      if (c === '\\') {
+        escaped = true;
+        result += c;
+        continue;
+      }
+      if (c === '"') inString = false;
+      result += c;
+      continue;
+    }
+    if (c === '"') inString = true;
+    result += c;
+  }
+  if (escaped) result += '\\\\';
+  return result;
+}
+
+function plainTextFromModelOutput(text) {
+  const stripped = stripMarkdownJsonFences(text);
+  return String(stripped || '').trim();
+}
+
+function modelTextToHtml(text) {
+  const plain = plainTextFromModelOutput(text);
+  const html = plain
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n\n+/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  return '<p>' + (html || 'לא ניתן לעבד את תשובת המודל.') + '</p>';
+}
+
+/**
+ * Phase-shaped fallback when the model reply cannot be parsed as JSON.
+ * Keeps the client usable instead of surfacing a fatal parse error.
+ */
+function buildModelParseFallback(phase, rawText, context) {
+  const ctx = context || {};
+  const plain = plainTextFromModelOutput(rawText);
+  const wrap = modelTextToHtml(rawText);
+
+  if (phase === 'grade') {
+    return {
+      gradeInsights: {
+        part1AgePictureHtml: wrap,
+        part1DevelopmentBullets: [],
+        archivesSynthesisHtml: '',
+        developmentBullets: [],
+        part2ClassroomIdeasHtml: '',
+        part2ClassroomIdeas: [],
+        part3CommunityExpansionsHtml: '',
+        part3CommunityIdeas: [],
+        globalCurricula: [],
+        typicalBlocks: [],
+        sources: [],
+      },
+      teacherSummaries: [],
+      _parseFallback: true,
+    };
+  }
+
+  if (phase === 'topic') {
+    const topic = String(ctx.topic || '').trim();
+    return {
+      webResearch: {
+        topic: topic,
+        summary: plain.slice(0, 2000),
+        connections: [],
+        highlights: [],
+      },
+      blockPlan: {
+        theory: {
+          title: topic || 'תוכן שנוצר',
+          sections: [{ heading: 'סיכום', icon: 'fa-compass', content: wrap, quotes: [] }],
+          bibliography: { books: [], articles: [], websites: [] },
+        },
+        inspiration: {
+          title: '',
+          global: [],
+          podcast: { title: '', episodes: [] },
+          narrative: [],
+        },
+        curriculum: [],
+      },
+      gallery: [],
+      _parseFallback: true,
+    };
+  }
+
+  if (phase === 'chat_followup') {
+    return {
+      chatReply: { answer: plain || 'לא ניתן לעבד את תשובת המודל.' },
+      _parseFallback: true,
+    };
+  }
+
+  if (phase === 'pedagogy_deep_dive') {
+    return {
+      pedagogyDeepDive: {
+        title: String(ctx.activityTitle || ''),
+        contentHtml: wrap,
+      },
+      _parseFallback: true,
+    };
+  }
+
+  if (phase === 'archive_search') {
+    return {
+      archiveSearch: {
+        query: String(ctx.archiveQuery || ''),
+        intro: plain.slice(0, 1500),
+        sources: [],
+      },
+      _parseFallback: true,
+    };
+  }
+
+  if (phase === 'archive_summary') {
+    return {
+      archiveSummary: {
+        title: String(ctx.sourceTitle || ''),
+        summaryHtml: wrap,
+      },
+      _parseFallback: true,
+    };
+  }
+
+  if (phase === 'drive') {
+    return { driveMerge: { summary: plain.slice(0, 2000) }, _parseFallback: true };
+  }
+
+  if (phase === 'test') {
+    return { ok: true, message: plain || 'fallback', _parseFallback: true };
+  }
+
+  return { rawText: plain, _parseFallback: true };
+}
+
 function buildJsonParseAttempts(text) {
   const stripped = stripMarkdownJsonFences(text);
-  const normalized = normalizeJsonSmartQuotes(stripped);
-  const extracted = extractJsonPayload(normalized) || normalized;
+  const normalized = normalizeJsonSmartQuotes(cleanseJsonCharacters(stripped));
+  const regexExtracted = extractJsonByRegex(normalized);
+  const extracted = extractJsonPayload(normalized) || regexExtracted || normalized;
   const quoteFixed = repairUnescapedInnerQuotesInJsonStrings(extracted);
+  const escapeFixed = repairInvalidEscapeSequences(quoteFixed);
   const literalFixed = repairJsonText(extracted);
-  const quoteAndLiteral = repairJsonText(quoteFixed);
+  const quoteAndLiteral = repairJsonText(escapeFixed);
 
   const cores = [
     extracted,
+    regexExtracted,
     quoteFixed,
+    escapeFixed,
     literalFixed,
     quoteAndLiteral,
     repairTruncatedJson(extracted),
+    repairTruncatedJson(regexExtracted),
     repairTruncatedJson(quoteFixed),
+    repairTruncatedJson(escapeFixed),
     repairTruncatedJson(literalFixed),
     repairTruncatedJson(quoteAndLiteral),
   ];
@@ -309,16 +499,56 @@ function unwrapParsedModelPayload(parsed) {
   return parsed;
 }
 
-function parseJsonFromModel(text) {
-  if (!text || !String(text).trim()) throw new Error('Empty model response');
-  const parsed = parseJsonLenient(text);
-  return unwrapParsedModelPayload(parsed);
+/**
+ * Global strict LLM JSON parser — extract, cleanse, parse, and fall back gracefully.
+ * @param {string} text - Raw model output
+ * @param {{ phase?: string, context?: object, fallbackOnError?: boolean, unwrap?: boolean }} [options]
+ * @returns {object} Parsed payload or phase-shaped fallback (never throws when fallbackOnError + phase)
+ */
+function cleanAndParseJSON(text, options) {
+  const opts = options || {};
+  const phase = opts.phase;
+  const context = opts.context || {};
+  const fallbackOnError = opts.fallbackOnError !== false;
+  const unwrap = opts.unwrap !== false;
+  const raw = String(text || '');
+
+  if (!raw.trim()) {
+    if (fallbackOnError && phase) return buildModelParseFallback(phase, '', context);
+    throw new Error('Empty model response');
+  }
+
+  try {
+    const parsed = parseJsonLenient(raw);
+    return unwrap ? unwrapParsedModelPayload(parsed) : parsed;
+  } catch (err) {
+    if (fallbackOnError && phase) {
+      console.warn(
+        '[json-repair] cleanAndParseJSON fallback for phase',
+        phase + ':',
+        err instanceof Error ? err.message : String(err)
+      );
+      return buildModelParseFallback(phase, raw, context);
+    }
+    throw err;
+  }
+}
+
+function parseJsonFromModel(text, options) {
+  return cleanAndParseJSON(text, options);
 }
 
 module.exports = {
   stripMarkdownJsonFences,
   normalizeJsonSmartQuotes,
   extractJsonPayload,
+  extractJsonByRegex,
+  cleanseJsonCharacters,
+  repairInvalidEscapeSequences,
+  plainTextFromModelOutput,
+  modelTextToHtml,
+  buildModelParseFallback,
+  cleanAndParseJSON,
   repairUnescapedInnerQuotesInJsonStrings,
   repairJsonStringLiterals,
   repairCommonJsonDefects,

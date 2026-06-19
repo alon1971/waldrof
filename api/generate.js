@@ -25,9 +25,11 @@ const jsonRepair = require('./json-repair');
 const env = require('./env');
 
 const {
+  cleanAndParseJSON,
   parseJsonLenient,
   parseJsonFromModel,
   unwrapParsedModelPayload,
+  buildModelParseFallback,
 } = jsonRepair;
 
 (function loadDotEnv() {
@@ -451,12 +453,18 @@ const LAZY_LOAD_NOTE =
  */
 function normalizeChatFollowupFromModel(raw) {
   const text = String(raw || '').trim();
-  if (!text) throw new Error('Empty model response');
+  if (!text) {
+    return buildModelParseFallback('chat_followup', '', {});
+  }
 
   const trimmed = text.trim();
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
-      const parsed = unwrapParsedModelPayload(parseJsonLenient(text));
+      const parsed = cleanAndParseJSON(text, {
+        phase: 'chat_followup',
+        fallbackOnError: false,
+        unwrap: true,
+      });
       if (parsed && parsed.chatReply && typeof parsed.chatReply === 'object') {
         return parsed;
       }
@@ -918,6 +926,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
   const phase = body.phase;
   const baseOpts = perplexityOptions || {};
   let lastPreview = '';
+  let lastRaw = '';
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
@@ -927,6 +936,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
         ? 0.2
         : (baseOpts.temperature !== undefined ? baseOpts.temperature : 0.35),
     });
+    const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
     let raw;
     try {
@@ -934,6 +944,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
         console.warn('[generate] Silent Perplexity retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
       }
       raw = await callPerplexity(apiKey, userPrompt, extraSystem + retrySuffix, callOpts);
+      lastRaw = raw;
     } catch (aiErr) {
       const msg = aiErr instanceof Error ? aiErr.message : String(aiErr);
       console.error('[generate] Perplexity call failed for phase', phase, '(attempt', attempt + '):', msg);
@@ -944,25 +955,33 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
     }
 
     let data;
-    try {
-      data = isChatFollowup ? normalizeChatFollowupFromModel(raw) : parseJsonFromModel(raw);
-    } catch (parseErr) {
-      const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-      lastPreview = String(raw).slice(0, 600);
-      console.error(
-        '[generate] JSON parse failed for phase',
-        phase,
-        '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + '):',
-        parseMsg
-      );
-      console.error('Model output preview:', lastPreview);
-      if (!isChatFollowup && attempt < MODEL_PARSE_MAX_ATTEMPTS) {
-        continue;
+    if (isChatFollowup) {
+      data = normalizeChatFollowupFromModel(raw);
+    } else {
+      try {
+        data = cleanAndParseJSON(raw, {
+          phase: phase,
+          context: body,
+          fallbackOnError: useParseFallback,
+        });
+      } catch (parseErr) {
+        const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        lastPreview = String(raw).slice(0, 600);
+        console.error(
+          '[generate] JSON parse failed for phase',
+          phase,
+          '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + '):',
+          parseMsg
+        );
+        console.error('Model output preview:', lastPreview);
+        if (!useParseFallback) continue;
+        data = buildModelParseFallback(phase, raw, body);
       }
-      if (isChatFollowup) {
-        throw new Error('המודל לא החזיר תשובה. נסו שוב בעוד רגע.');
-      }
-      throw new Error(GENERIC_GENERATION_ERROR);
+    }
+
+    if (data && data._parseFallback) {
+      console.warn('[generate] Using parse fallback for phase', phase, '(attempt', attempt + ')');
+      return data;
     }
 
     if (!validatePhaseResult(phase, data)) {
@@ -973,10 +992,9 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
         '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')'
       );
       console.error('Model output preview:', lastPreview);
-      if (!isChatFollowup && attempt < MODEL_PARSE_MAX_ATTEMPTS) {
-        continue;
-      }
-      throw new Error(GENERIC_GENERATION_ERROR);
+      if (!useParseFallback) continue;
+      console.warn('[generate] Validation failed — returning parse fallback for phase', phase);
+      return buildModelParseFallback(phase, raw, body);
     }
 
     if (isRetry) {
@@ -985,7 +1003,10 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
     return data;
   }
 
-  throw new Error(GENERIC_GENERATION_ERROR);
+  if (isChatFollowup) {
+    return normalizeChatFollowupFromModel(lastRaw || '');
+  }
+  return buildModelParseFallback(phase, lastRaw || '', body);
 }
 
 function resolveApiKey() {

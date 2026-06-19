@@ -9,6 +9,7 @@ const env = require('./env');
 const authContext = require('./auth-context');
 
 const hebrewTopicMatch = require('../hebrew-topic-match');
+const jsonRepair = require('./json-repair');
 
 const TABLE_NAME = 'cached_results';
 
@@ -367,26 +368,11 @@ function sanitizeForJsonStorage(value, depth) {
 function tryParseCachedJsonText(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return null;
-  const attempts = [
-    trimmed,
-    trimmed.replace(/,\s*([}\]])/g, '$1'),
-    trimmed
-      .replace(/[\u201c\u201d\u05f4]/g, '"')
-      .replace(/[\u2018\u2019\u05f3]/g, "'")
-      .replace(/,\s*([}\]])/g, '$1'),
-  ];
-  const seen = new Set();
-  for (let i = 0; i < attempts.length; i++) {
-    const candidate = attempts[i];
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    try {
-      return JSON.parse(candidate);
-    } catch (e) {
-      /* try next repair candidate */
-    }
+  try {
+    return jsonRepair.cleanAndParseJSON(trimmed, { fallbackOnError: false, unwrap: false });
+  } catch (e) {
+    return jsonRepair.safeParseJson(trimmed);
   }
-  return null;
 }
 
 /** JSON.stringify with sanitization — never throws. */

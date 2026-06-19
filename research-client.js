@@ -375,9 +375,91 @@
     return attempts;
   }
 
-  function parseJsonFromModel(text) {
-    if (!text || !String(text).trim()) throw new Error('Empty model response');
-    return unwrapParsedModelPayload(parseJsonLenient(text));
+  function modelTextToHtml(text) {
+    const plain = stripMarkdownJsonFences(text);
+    const html = String(plain || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n\n+/g, '</p><p>')
+      .replace(/\n/g, '<br>');
+    return '<p>' + (html || 'לא ניתן לעבד את תשובת המודל.') + '</p>';
+  }
+
+  function buildParseFallback(phase, rawText, context) {
+    const ctx = context || {};
+    const plain = stripMarkdownJsonFences(rawText);
+    const wrap = modelTextToHtml(rawText);
+    if (phase === 'grade') {
+      return {
+        gradeInsights: {
+          part1AgePictureHtml: wrap,
+          part1DevelopmentBullets: [],
+          archivesSynthesisHtml: '',
+          developmentBullets: [],
+          part2ClassroomIdeasHtml: '',
+          part2ClassroomIdeas: [],
+          part3CommunityExpansionsHtml: '',
+          part3CommunityIdeas: [],
+          globalCurricula: [],
+          typicalBlocks: [],
+          sources: [],
+        },
+        teacherSummaries: [],
+        _parseFallback: true,
+      };
+    }
+    if (phase === 'topic') {
+      const topic = String(ctx.topic || '').trim();
+      return {
+        webResearch: { topic: topic, summary: plain.slice(0, 2000), connections: [], highlights: [] },
+        blockPlan: {
+          theory: { title: topic || 'תוכן שנוצר', sections: [{ heading: 'סיכום', icon: 'fa-compass', content: wrap, quotes: [] }], bibliography: { books: [], articles: [], websites: [] } },
+          inspiration: { title: '', global: [], podcast: { title: '', episodes: [] }, narrative: [] },
+          curriculum: [],
+        },
+        gallery: [],
+        _parseFallback: true,
+      };
+    }
+    if (phase === 'pedagogy_deep_dive') {
+      return { pedagogyDeepDive: { title: String(ctx.activityTitle || ''), contentHtml: wrap }, _parseFallback: true };
+    }
+    if (phase === 'archive_search') {
+      return { archiveSearch: { query: String(ctx.archiveQuery || ''), intro: plain.slice(0, 1500), sources: [] }, _parseFallback: true };
+    }
+    if (phase === 'archive_summary') {
+      return { archiveSummary: { title: String(ctx.sourceTitle || ''), summaryHtml: wrap }, _parseFallback: true };
+    }
+    if (phase === 'drive') {
+      return { driveMerge: { summary: plain.slice(0, 2000) }, _parseFallback: true };
+    }
+    if (phase === 'test') {
+      return { ok: true, message: plain || 'fallback', _parseFallback: true };
+    }
+    return { rawText: plain, _parseFallback: true };
+  }
+
+  function cleanAndParseJSON(text, options) {
+    const opts = options || {};
+    const phase = opts.phase;
+    const context = opts.context || {};
+    const fallbackOnError = opts.fallbackOnError !== false;
+    const raw = String(text || '');
+    if (!raw.trim()) {
+      if (fallbackOnError && phase) return buildParseFallback(phase, '', context);
+      throw new Error('Empty model response');
+    }
+    try {
+      return unwrapParsedModelPayload(parseJsonLenient(raw));
+    } catch (err) {
+      if (fallbackOnError && phase) return buildParseFallback(phase, raw, context);
+      throw err;
+    }
+  }
+
+  function parseJsonFromModel(text, options) {
+    return cleanAndParseJSON(text, options);
   }
 
   function parseGradeJsonFromModel(text) {
@@ -561,17 +643,18 @@
       throw new Error(aiErr instanceof Error ? aiErr.message : String(aiErr));
     }
     try {
-      const parsed = parseJsonFromModel(raw);
-      if (!validatePhaseResult(body.phase, parsed)) {
-        throw new Error('המודל החזיר מבנה נתונים חסר. נסו שוב בעוד רגע.');
+      const parsed = cleanAndParseJSON(raw, {
+        phase: body.phase,
+        context: body,
+        fallbackOnError: true,
+      });
+      if (!validatePhaseResult(body.phase, parsed) && !parsed._parseFallback) {
+        return buildParseFallback(body.phase, raw, body);
       }
       return parsed;
     } catch (parseErr) {
-      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-      if (/JSON|Unexpected token|position \d+|property name/i.test(msg)) {
-        throw new Error('המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
-      }
-      throw new Error(msg || 'המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.');
+      console.warn('[research-client] parse fallback:', parseErr instanceof Error ? parseErr.message : parseErr);
+      return buildParseFallback(body.phase, raw, body);
     }
   }
 
