@@ -513,7 +513,7 @@ const LANGUAGES = {
     archive_suggest_prompt:      'האם התכוונת ל{topic}?',
     archive_suggest_yes:         'כן, התכוונתי לזה',
     archive_suggest_no:          'לא, בצע חיפוש חדש',
-    archive_suggest_refine:      'אנא דייק יותר את נושא החיפוש.\n\nשים לב: את הנושא המדויק יש לכתוב בתיבה המרכזית במסך (\'מה הנושא המבוקש לתקופת הלימוד?\') ולא כאן בצ\'אט, כדי לקבל את התשובה המותאמת ביותר עבורך.',
+    archive_suggest_refine:      'הבנתי. אם הניסוח הנוכחי מתאים לך – פשוט לחץ שוב על \'חפש ברשת\'.\n\nטיפ קטן: כדי לקבל את התוצאות הכי מדויקות עבורך, תמיד אפשר לשנות או למקד את הניסוח בתיבת הטקסט למעלה (שלב ב\'), ולא כאן בצ\'אט.',
 
     checkout_soon_title:         'הסליקה תושק בקרוב',
     checkout_soon_body:          'מערכת הסליקה האוטומטית תושק בקרוב! להפעלת המינוי מיידית, לחץ כאן ליצירת קשר בוואטסאפ',
@@ -1045,7 +1045,7 @@ const LANGUAGES = {
     archive_suggest_prompt:      'Did you mean {topic}?',
     archive_suggest_yes:         'Yes, that\'s what I meant',
     archive_suggest_no:          'No, run a new search',
-    archive_suggest_refine:      'Please refine your search topic further.\n\nNote: enter the precise topic in the main input on the screen (\'What is the main lesson topic?\') — not here in the chat — to get the best-tailored answer for you.',
+    archive_suggest_refine:      'Got it. If the current wording works for you — simply click \'Search the web\' again.\n\nQuick tip: for the most accurate results, you can always adjust or refine the wording in the text box above (Step B), not here in the chat.',
 
     checkout_soon_title:         'Checkout coming soon',
     checkout_soon_body:          'Automatic billing is launching soon! For immediate activation, contact us on WhatsApp',

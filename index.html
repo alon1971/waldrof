@@ -3636,6 +3636,7 @@
       lessonCacheKey: '',
       communityAutoSync: true,
       archiveSuggestionPending: false,
+      archiveRejectedSearch: null,
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -3703,9 +3704,20 @@
       }
     }
 
+    function normalizeArchiveSearchTopic(topic) {
+      return String(topic || '').trim().toLowerCase();
+    }
+
+    function shouldForceLiveArchiveBypass(topic, gradeId) {
+      const pending = appState.archiveRejectedSearch;
+      if (!pending) return false;
+      return normalizeArchiveSearchTopic(pending.topic) === normalizeArchiveSearchTopic(topic) &&
+        String(pending.gradeId || '') === String(gradeId || '');
+    }
+
     function prepareResearchPayload(payload) {
       const p = withAiLanguage(Object.assign({}, payload || {}));
-      if (p.skipCache) delete p.skipCache;
+      if (p.skipCache !== true) delete p.skipCache;
       delete p.confirmArchiveBypass;
       delete p.skipArchiveProbe;
       if (!p.noUrlsInstruction) p.noUrlsInstruction = getNoUrlsInstruction();
@@ -4929,18 +4941,20 @@
       );
     }
 
-    async function fetchTopicResearchAI(topic, signal) {
+    async function fetchTopicResearchAI(topic, signal, options) {
       const topicStr = String(topic || resolveLessonTopic() || '').trim();
       if (!topicStr) {
         throw new Error(isEnglish() ? 'Topic is required for lesson research.' : 'נדרש נושא למחקר השיעור.');
       }
       appState.topic = topicStr;
+      const opts = options || {};
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
       const gradeCtx = appState.gradeResearch
         ? JSON.stringify(appState.gradeResearch.gradeInsights || appState.gradeResearch).slice(0, 2000)
         : '';
       return invokeWaldorfResearch({
         phase: 'topic',
+        skipCache: opts.skipCache === true,
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
@@ -8560,6 +8574,7 @@
           },
           onReject: function () {
             appState.archiveSuggestionPending = false;
+            appState.archiveRejectedSearch = { topic: topic, gradeId: appState.grade };
             topicResearchRunId += 1;
             if (topicResearchAbort) {
               topicResearchAbort.abort();
@@ -8580,7 +8595,8 @@
       return true;
     }
 
-    async function runTopicResearchGeneration(topic, runId, signal) {
+    async function runTopicResearchGeneration(topic, runId, signal, options) {
+      const opts = options || {};
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
       const topicSlot = document.getElementById('topic-community-slot');
@@ -8594,7 +8610,9 @@
       }
 
       try {
-        const data = await fetchTopicResearchAI(topic, signal);
+        const data = await fetchTopicResearchAI(topic, signal, {
+          skipCache: opts.skipCache === true,
+        });
         if (runId !== topicResearchRunId || signal.aborted) return;
 
         if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
@@ -8658,35 +8676,40 @@
 
       appState.topic = topic;
 
-      let archiveMatch = null;
-      try {
-        if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.refresh === 'function') {
-          try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
-        }
-        archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-      } catch (probeErr) {
-        console.warn('[archive-probe] failed:', probeErr);
-      }
-      if (runId !== topicResearchRunId || signal.aborted) return;
+      const forceLiveSearch = shouldForceLiveArchiveBypass(topic, currentGrade);
+      appState.archiveRejectedSearch = null;
 
-      if (archiveMatch && archiveMatch.matchType === 'exact') {
-        topicResearchAbort = null;
+      if (!forceLiveSearch) {
+        let archiveMatch = null;
         try {
-          await applyArchiveTopicMatch(archiveMatch, { closeChat: false });
-        } catch (archiveErr) {
-          const out = document.getElementById('web-research-result');
-          if (out) {
-            out.classList.remove('hidden');
-            out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(archiveErr.message || String(archiveErr)) + '</p>';
+          if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.refresh === 'function') {
+            try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
           }
+          archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+        } catch (probeErr) {
+          console.warn('[archive-probe] failed:', probeErr);
         }
-        return;
-      }
+        if (runId !== topicResearchRunId || signal.aborted) return;
 
-      if (archiveMatch && archiveMatch.matchType === 'partial') {
-        topicResearchAbort = null;
-        presentArchivePartialMatch(topic, archiveMatch);
-        return;
+        if (archiveMatch && archiveMatch.matchType === 'exact') {
+          topicResearchAbort = null;
+          try {
+            await applyArchiveTopicMatch(archiveMatch, { closeChat: false });
+          } catch (archiveErr) {
+            const out = document.getElementById('web-research-result');
+            if (out) {
+              out.classList.remove('hidden');
+              out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(archiveErr.message || String(archiveErr)) + '</p>';
+            }
+          }
+          return;
+        }
+
+        if (archiveMatch && archiveMatch.matchType === 'partial') {
+          topicResearchAbort = null;
+          presentArchivePartialMatch(topic, archiveMatch);
+          return;
+        }
       }
 
       appState.topicResearchCompleted = false;
@@ -8726,7 +8749,9 @@
         return;
       }
 
-      await runTopicResearchGeneration(topic, runId, signal);
+      await runTopicResearchGeneration(topic, runId, signal, {
+        skipCache: forceLiveSearch,
+      });
     }
 
     function renderPersonalList() {
@@ -9882,6 +9907,7 @@
         lessonCacheKey: '',
         communityAutoSync: true,
         archiveSuggestionPending: false,
+        archiveRejectedSearch: null,
       });
       resetSummarySession();
       abortAllInlineExpansions();
