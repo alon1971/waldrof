@@ -60,12 +60,33 @@ function isHttpUrl(value) {
 
 const MATERIAL_PK_COLUMN = 'id';
 
+function logCommunityDebug(req, body) {
+  const r = req || {};
+  console.log('[DEBUG COMMUNITY] Received Body:', body != null ? body : r.body);
+  console.log('[DEBUG COMMUNITY] Received Params:', r.params || {});
+  console.log('[DEBUG COMMUNITY] Received Query:', r.query || {});
+}
+
 function extractMaterialId(body) {
   if (!body || typeof body !== 'object') return '';
   const raw = body.id != null
     ? body.id
     : (body.material_id != null ? body.material_id : body.materialId);
   return raw != null ? String(raw).trim() : '';
+}
+
+function extractMaterialIdFromRequest(body, req) {
+  const fromBody = extractMaterialId(body);
+  if (fromBody) return fromBody;
+  const query = (req && req.query) || {};
+  const fromQuery = query.id != null
+    ? query.id
+    : (query.material_id != null ? query.material_id : query.materialId);
+  return fromQuery != null ? String(fromQuery).trim() : '';
+}
+
+function materialIdsMatch(left, right) {
+  return String(left || '').trim().toLowerCase() === String(right || '').trim().toLowerCase();
 }
 
 /** Primary key column + value from a Supabase row (community_materials.id). */
@@ -177,15 +198,51 @@ async function listCommunityMaterials() {
   return Array.isArray(result.body) ? result.body : [];
 }
 
+async function queryMaterialRow(column, value, preferAnon) {
+  const pk = String(value || '').trim();
+  if (!pk) return null;
+  const result = await supabaseRequestWithKeyFallback(
+    '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(column, pk) + '&limit=1',
+    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+    preferAnon
+  );
+  if (result.ok && Array.isArray(result.body) && result.body.length) return result.body[0];
+  return null;
+}
+
 async function fetchMaterialById(id) {
   const pk = String(id || '').trim();
   if (!pk) return null;
-  const result = await supabaseRequestWithKeyFallback(
-    '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(MATERIAL_PK_COLUMN, pk) + '&limit=1',
-    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
-    true
+
+  let row = await queryMaterialRow(MATERIAL_PK_COLUMN, pk, true);
+  if (!row) row = await queryMaterialRow(MATERIAL_PK_COLUMN, pk, false);
+  if (row) return row;
+
+  console.warn('[community-materials] direct id lookup missed for:', pk);
+
+  let rows = [];
+  try {
+    rows = await listCommunityMaterials();
+  } catch (listErr) {
+    console.warn('[community-materials] fallback catalog list failed:', listErr.message || listErr);
+    return null;
+  }
+
+  const match = rows.find(function (candidate) {
+    if (!candidate || candidate[MATERIAL_PK_COLUMN] == null) return false;
+    return materialIdsMatch(candidate[MATERIAL_PK_COLUMN], pk);
+  });
+  if (match) {
+    console.log('[community-materials] fallback catalog scan matched id:', match[MATERIAL_PK_COLUMN]);
+    return match;
+  }
+
+  console.warn(
+    '[community-materials] fallback catalog scan found no match for id:',
+    pk,
+    'catalog size:',
+    rows.length
   );
-  if (result.ok && Array.isArray(result.body) && result.body.length) return result.body[0];
   return null;
 }
 
@@ -211,16 +268,19 @@ async function deleteStorageObject(filePath) {
   return false;
 }
 
-async function patchCommunityMaterial(body) {
-  const id = extractMaterialId(body || {});
+async function patchCommunityMaterial(body, req) {
+  logCommunityDebug(req, body);
+  const id = extractMaterialIdFromRequest(body || {}, req);
   if (!id) {
     const err = new Error('id is required');
     err.statusCode = 400;
     throw err;
   }
 
+  console.log('[DEBUG COMMUNITY] PATCH resolved id:', id);
   const current = await fetchMaterialById(id);
   if (!current) {
+    console.error('[community-materials] PATCH material not found for id:', id);
     const err = new Error('Material not found');
     err.statusCode = 404;
     throw err;
@@ -276,16 +336,19 @@ async function patchCommunityMaterial(body) {
   return Object.assign({}, current, payload);
 }
 
-async function deleteCommunityMaterial(body) {
-  const id = extractMaterialId(body || {});
+async function deleteCommunityMaterial(body, req) {
+  logCommunityDebug(req, body);
+  const id = extractMaterialIdFromRequest(body || {}, req);
   if (!id) {
     const err = new Error('id is required');
     err.statusCode = 400;
     throw err;
   }
 
+  console.log('[DEBUG COMMUNITY] DELETE resolved id:', id);
   const current = await fetchMaterialById(id);
   if (!current) {
+    console.error('[community-materials] DELETE material not found for id:', id);
     const err = new Error('Material not found');
     err.statusCode = 404;
     throw err;
@@ -329,14 +392,20 @@ async function legacyHandler(req, res) {
     }
 
     if (req.method === 'PATCH') {
+      console.log('[DEBUG COMMUNITY] Received Body:', req.body);
+      console.log('[DEBUG COMMUNITY] Received Params:', req.params || {});
+      console.log('[DEBUG COMMUNITY] Received Query:', req.query || {});
       const body = parseRequestBody(req);
-      const row = await patchCommunityMaterial(body || {});
+      const row = await patchCommunityMaterial(body || {}, req);
       return sendJson(res, 200, { data: row });
     }
 
     if (req.method === 'DELETE') {
+      console.log('[DEBUG COMMUNITY] Received Body:', req.body);
+      console.log('[DEBUG COMMUNITY] Received Params:', req.params || {});
+      console.log('[DEBUG COMMUNITY] Received Query:', req.query || {});
       const body = parseRequestBody(req);
-      const result = await deleteCommunityMaterial(body || {});
+      const result = await deleteCommunityMaterial(body || {}, req);
       return sendJson(res, 200, { data: result });
     }
 

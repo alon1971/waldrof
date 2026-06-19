@@ -7909,6 +7909,17 @@
       return '/api/community-materials';
     }
 
+    function communityMaterialsMutateUrl(id) {
+      const pk = encodeURIComponent(String(id || '').trim());
+      const base = communityMaterialsApiUrl();
+      return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'id=' + pk;
+    }
+
+    function buildCommunityMaterialMutateBody(id, fields) {
+      const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
+      return Object.assign({ id: pk, material_id: pk, materialId: pk }, fields || {});
+    }
+
     function resolveCommunityMaterialId(source) {
       if (source == null) return null;
       if (typeof source === 'string' || typeof source === 'number') {
@@ -8248,12 +8259,6 @@
     async function deleteCommunityMaterial(id) {
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
-      try {
-        const viaClient = await deleteCommunityMaterialViaClient(pk);
-        if (viaClient) return viaClient;
-      } catch (clientErr) {
-        console.warn('[community] client delete failed, trying API:', formatSupabaseError(clientErr));
-      }
       if (canUseCommunityUploadApi()) {
         const headers = { 'Content-Type': 'application/json' };
         if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
@@ -8262,15 +8267,27 @@
             if (token) headers.Authorization = 'Bearer ' + token;
           } catch (e) { /* ignore */ }
         }
-        const res = await fetch(communityMaterialsApiUrl(), {
+        const payload = buildCommunityMaterialMutateBody(pk);
+        const res = await fetch(communityMaterialsMutateUrl(pk), {
           method: 'DELETE',
           headers: headers,
-          body: JSON.stringify({ id: pk, material_id: pk, materialId: pk }),
+          body: JSON.stringify(payload),
         });
         const text = await res.text();
-        if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
-        forgetCommunityOwnership(pk);
-        return text ? JSON.parse(text) : {};
+        if (res.ok) {
+          forgetCommunityOwnership(pk);
+          return text ? JSON.parse(text) : {};
+        }
+        console.warn('[community] API delete failed:', parseCommunityApiError(text, res.status));
+      }
+      try {
+        const viaClient = await deleteCommunityMaterialViaClient(pk);
+        if (viaClient) return viaClient;
+      } catch (clientErr) {
+        console.warn('[community] client delete failed:', formatSupabaseError(clientErr));
+      }
+      if (canUseCommunityUploadApi()) {
+        throw new Error('Material not found');
       }
       const headers = await getSupabaseAuthHeaders();
       const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.' + encodeURIComponent(pk), {
@@ -8284,15 +8301,6 @@
       fields = fields || {};
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
-      try {
-        const viaClient = await patchCommunityMaterialViaClient(pk, fields);
-        if (viaClient) {
-          upsertCommunityCacheRow(viaClient);
-          return viaClient;
-        }
-      } catch (clientErr) {
-        console.warn('[community] client update failed, trying API:', formatSupabaseError(clientErr));
-      }
       if (canUseCommunityUploadApi()) {
         const headers = { 'Content-Type': 'application/json' };
         if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
@@ -8301,17 +8309,32 @@
             if (token) headers.Authorization = 'Bearer ' + token;
           } catch (e) { /* ignore */ }
         }
-        const res = await fetch(communityMaterialsApiUrl(), {
+        const payload = buildCommunityMaterialMutateBody(pk, fields);
+        const res = await fetch(communityMaterialsMutateUrl(pk), {
           method: 'PATCH',
           headers: headers,
-          body: JSON.stringify(Object.assign({ id: pk, material_id: pk, materialId: pk }, fields)),
+          body: JSON.stringify(payload),
         });
         const text = await res.text();
-        if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
-        const json = text ? JSON.parse(text) : {};
-        const row = json.data || json;
-        if (row) upsertCommunityCacheRow(row);
-        return row;
+        if (res.ok) {
+          const json = text ? JSON.parse(text) : {};
+          const row = json.data || json;
+          if (row) upsertCommunityCacheRow(row);
+          return row;
+        }
+        console.warn('[community] API update failed:', parseCommunityApiError(text, res.status));
+      }
+      try {
+        const viaClient = await patchCommunityMaterialViaClient(pk, fields);
+        if (viaClient) {
+          upsertCommunityCacheRow(viaClient);
+          return viaClient;
+        }
+      } catch (clientErr) {
+        console.warn('[community] client update failed:', formatSupabaseError(clientErr));
+      }
+      if (canUseCommunityUploadApi()) {
+        throw new Error('Material not found');
       }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
       const payload = buildCommunityPatchPayload(pk, fields);
@@ -8722,9 +8745,10 @@
       const topic = (row.topic || extras.topicLegacy || '').trim();
       const displayNotes = extras.description || extras.freeText || '';
       const displayTitle = extras.title || row.file_name || displayNotes || topic || 'חומר קהילתי';
-      const id = resolveCommunityMaterialId(row);
+      const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
       return {
         id: id,
+        dbId: row.id != null ? String(row.id).trim() : null,
         userId: row.user_id || row.userId || null,
         title: displayTitle,
         notes: displayNotes,
@@ -11065,8 +11089,10 @@
       return filterByGrade(appState.communityCache, gradeId)
         .filter(function (item) { return normalizeTopicKey(item.topic) === topicKey; })
         .map(function (item) {
+          const materialId = item.dbId || resolveCommunityMaterialId(item);
           return {
-            id: resolveCommunityMaterialId(item),
+            id: materialId,
+            dbId: materialId,
             title: item.title,
             topic: item.topic,
             notes: item.notes,

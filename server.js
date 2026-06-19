@@ -208,6 +208,7 @@ async function handleApiCommunityUpload(req, res) {
 async function handleApiCommunityMaterials(req, res) {
   const apiRes = createApiResponse(res);
   try {
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
     let body;
     if (req.method === 'PATCH' || req.method === 'DELETE' || req.method === 'POST') {
       const raw = await readBody(req);
@@ -222,7 +223,14 @@ async function handleApiCommunityMaterials(req, res) {
         }
       }
     }
-    await communityMaterialsApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+    await communityMaterialsApi.legacyHandler({
+      method: req.method,
+      headers: req.headers,
+      body: body,
+      url: req.url,
+      query: Object.fromEntries(parsedUrl.searchParams.entries()),
+      params: {},
+    }, apiRes);
   } catch (err) {
     if (!res.headersSent) {
       apiRes.status(500).json({
