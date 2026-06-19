@@ -4183,6 +4183,7 @@
 
     function prepareResearchPayload(payload) {
       const p = withAiLanguage(Object.assign({}, payload || {}));
+      p.userInitiated = true;
       if (p.skipCache !== true) delete p.skipCache;
       delete p.confirmArchiveBypass;
       delete p.skipArchiveProbe;
@@ -6020,27 +6021,7 @@
         noLatexInstruction: getNoLatexInstruction(),
         expandInstruction: getOnDemandExpansionInstruction(),
       };
-      try {
-        return await invokeWaldorfResearch(payload, { signal: signal });
-      } catch (primaryErr) {
-        if (primaryErr && primaryErr.name === 'AbortError') throw primaryErr;
-        return invokeWaldorfResearch({
-          phase: 'archive_summary',
-          sourceTitle: source.title || source.heading || t('pedagogy_modal_title'),
-          sourceAuthor: appState.gradeLabel || '',
-          sourceType: source.subtype || 'activity',
-          sourceDescription: (source.context ? source.context + ' — ' : '') + (source.preview || ''),
-          currentGrade: appState.grade,
-          noUrlsInstruction: getNoUrlsInstruction(),
-          noLatexInstruction: getNoLatexInstruction(),
-          gradeId: appState.grade,
-          gradeLabel: appState.gradeLabel,
-          topic: appState.topic,
-          pedagogyDeepDive: true,
-          gradeLockInstruction: getGradeLockInstruction(),
-          expandInstruction: payload.expandInstruction,
-        }, { signal: signal });
-      }
+      return invokeWaldorfResearch(payload, { signal: signal });
     }
 
     function pedagogyDeepDiveToExpansion(data) {
@@ -8355,7 +8336,7 @@
         fileName: fileName,
         fileType: extras && extras.fileType,
         materialId: materialId || null,
-        indexBundle: options.indexBundle !== false,
+        indexBundle: options.indexBundle === true,
       };
       try {
         const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
@@ -8430,7 +8411,7 @@
           title: title,
           author: author,
           fileType: fileType,
-        }, materialId, { indexBundle: options.indexBundle !== false });
+        }, materialId, { indexBundle: options.indexBundle === true });
       }
       await loadCommunity();
       return material;
