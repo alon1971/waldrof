@@ -72,6 +72,37 @@
 
   var listeners = [];
   var supabaseClient = null;
+  var SUPABASE_CLIENT_GLOBAL_KEY = '__waldorfSupabaseClient';
+
+  function resetSupabaseClient() {
+    supabaseClient = null;
+    try { delete global[SUPABASE_CLIENT_GLOBAL_KEY]; } catch (e) { global[SUPABASE_CLIENT_GLOBAL_KEY] = null; }
+  }
+
+  function getSupabaseClient() {
+    if (supabaseClient) return supabaseClient;
+    if (global[SUPABASE_CLIENT_GLOBAL_KEY]) {
+      supabaseClient = global[SUPABASE_CLIENT_GLOBAL_KEY];
+      return supabaseClient;
+    }
+    if (!isSupabaseConfigured() || typeof global.supabase === 'undefined') return null;
+    try {
+      supabaseClient = global.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+        auth: {
+          flowType: 'pkce',
+          detectSessionInUrl: true,
+          persistSession: true,
+          autoRefreshToken: true,
+        },
+      });
+      global[SUPABASE_CLIENT_GLOBAL_KEY] = supabaseClient;
+    } catch (e) {
+      console.warn('[Auth] Supabase client creation failed', e);
+      return null;
+    }
+    return supabaseClient;
+  }
+
   var supabaseConfig = { url: '', anonKey: '' };
   var authUiLoading = false;
   var useMockGoogleAuth = false;
@@ -211,29 +242,6 @@
 
   function isSupabaseConfigured() {
     return Boolean(supabaseConfig.url && supabaseConfig.anonKey);
-  }
-
-  function resetSupabaseClient() {
-    supabaseClient = null;
-  }
-
-  function getSupabaseClient() {
-    if (supabaseClient) return supabaseClient;
-    if (!isSupabaseConfigured() || typeof global.supabase === 'undefined') return null;
-    try {
-      supabaseClient = global.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
-        auth: {
-          flowType: 'pkce',
-          detectSessionInUrl: true,
-          persistSession: true,
-          autoRefreshToken: true,
-        },
-      });
-    } catch (e) {
-      console.warn('[Auth] Supabase client creation failed', e);
-      return null;
-    }
-    return supabaseClient;
   }
 
   function isValidSupabaseProjectUrl(url) {

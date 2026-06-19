@@ -3477,7 +3477,7 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20260619b"></script>
+  <script src="auth-subscription.js?v=20260619c"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250618b"></script>
@@ -4104,8 +4104,6 @@
     }
 
     let realtimeChannel = null;
-    let supabaseRealtimeClient = null;
-    let communitySupabaseClient = null;
     const MAX_FILE = 5 * 1024 * 1024;
     let gradeResearchAbort = null;
     let gradeResearchRunId = 0;
@@ -7747,16 +7745,9 @@
 
     function getCommunitySupabaseClient() {
       if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.getSupabaseClient === 'function') {
-        const authClient = WaldorfAuth.getSupabaseClient();
-        if (authClient) return authClient;
+        return WaldorfAuth.getSupabaseClient();
       }
-      if (!isCloudConfigured() || typeof supabase === 'undefined') return null;
-      if (!communitySupabaseClient) {
-        communitySupabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-          auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-        });
-      }
-      return communitySupabaseClient;
+      return window.__waldorfSupabaseClient || null;
     }
 
     async function getCommunityAuthUserId() {
@@ -8832,10 +8823,13 @@
     }
 
     function subscribeRealtime() {
-      if (!isCloudConfigured() || typeof supabase === 'undefined') return;
-      if (realtimeChannel) supabaseRealtimeClient.removeChannel(realtimeChannel);
-      supabaseRealtimeClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-      realtimeChannel = supabaseRealtimeClient.channel('waldorf-' + SUPABASE_TABLE)
+      const client = getCommunitySupabaseClient();
+      if (!isCloudConfigured() || !client) return;
+      if (realtimeChannel) {
+        client.removeChannel(realtimeChannel);
+        realtimeChannel = null;
+      }
+      realtimeChannel = client.channel('waldorf-' + SUPABASE_TABLE)
         .on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLE }, function () {
           loadCommunity().then(function () {
             if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
