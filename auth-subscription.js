@@ -286,7 +286,7 @@
     return value.length > 0 && value.indexOf('@') < 0;
   }
 
-  function pickPreferredAuthName(candidates) {
+  function pickPreferredAuthName(candidates, mode) {
     var valid = [];
     for (var i = 0; i < candidates.length; i++) {
       var value = String(candidates[i] || '').trim();
@@ -294,8 +294,15 @@
       valid.push(value);
     }
     if (!valid.length) return '';
-    for (var j = 0; j < valid.length; j++) {
-      if (containsHebrew(valid[j])) return valid[j];
+    var hebrew = valid.filter(containsHebrew);
+    if (hebrew.length) {
+      if (mode === 'full') {
+        hebrew.sort(function (a, b) { return b.length - a.length; });
+      }
+      return hebrew[0];
+    }
+    if (mode === 'full' && valid.length > 1) {
+      valid.sort(function (a, b) { return b.length - a.length; });
     }
     return valid[0];
   }
@@ -323,7 +330,6 @@
       var given = String(idData.given_name || '').trim();
       var family = String(idData.family_name || '').trim();
       if (given && family) out.push(given + ' ' + family);
-      else if (given && !family) out.push(given);
     } else {
       if (idData.given_name) out.push(idData.given_name);
       if (idData.full_name) out.push(String(idData.full_name).split(/\s+/)[0]);
@@ -332,26 +338,37 @@
     return out;
   }
 
+  function extractGoogleIdentityData(user) {
+    if (!user) return null;
+    if (user.identity_data && typeof user.identity_data === 'object') return user.identity_data;
+    if (!Array.isArray(user.identities)) return null;
+    for (var i = 0; i < user.identities.length; i++) {
+      var identity = user.identities[i];
+      if (!identity || !identity.identity_data) continue;
+      if (identity.provider === 'google') return identity.identity_data;
+    }
+    for (var j = 0; j < user.identities.length; j++) {
+      if (user.identities[j] && user.identities[j].identity_data) {
+        return user.identities[j].identity_data;
+      }
+    }
+    return null;
+  }
+
   function resolveNameFromAuthUser(user, mode) {
     if (!user) return '';
     var candidates = [];
     var meta = user.user_metadata || user.raw_user_meta_data || {};
     candidates = candidates.concat(collectAuthMetadataNameCandidates(meta, mode));
-    if (Array.isArray(user.identities)) {
-      for (var i = 0; i < user.identities.length; i++) {
-        candidates = candidates.concat(
-          collectAuthIdentityNameCandidates(
-            user.identities[i] && user.identities[i].identity_data,
-            mode
-          )
-        );
-      }
+    var identityData = extractGoogleIdentityData(user);
+    if (identityData) {
+      candidates = candidates.concat(collectAuthIdentityNameCandidates(identityData, mode));
     }
     if (user.displayName) {
       if (mode === 'full') candidates.push(user.displayName);
       else candidates.push(String(user.displayName).split(/\s+/)[0]);
     }
-    return pickPreferredAuthName(candidates);
+    return pickPreferredAuthName(candidates, mode);
   }
 
   function resolveUserDisplayName(user, emailFallback) {
@@ -382,11 +399,13 @@
 
   function mapSupabaseUser(user) {
     var meta = user.user_metadata || user.raw_user_meta_data || {};
+    var identityData = extractGoogleIdentityData(user);
     return {
       id: user.id,
       email: user.email || '',
       displayName: resolveUserDisplayName(user, user.email || ''),
       user_metadata: meta,
+      identity_data: identityData || undefined,
     };
   }
 
