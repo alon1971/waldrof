@@ -11775,15 +11775,15 @@
 
     function findCatalogMaterialRow(materialId) {
       const want = String(materialId);
-      const rows = document.querySelectorAll('.catalog-material-row[data-material-id]');
+      const rows = document.querySelectorAll('.catalog-material-row[data-id]');
       for (let i = 0; i < rows.length; i++) {
-        if (rows[i].getAttribute('data-material-id') === want) return rows[i];
+        if (rows[i].getAttribute('data-id') === want) return rows[i];
       }
       return null;
     }
 
     function renderCatalogFileRow(file) {
-      const materialId = resolveCommunityMaterialId(file);
+      const materialId = file.id || resolveCommunityMaterialId(file);
       const downloadUrl = file.fileUrl;
       const external = isExternalCommunityLink(downloadUrl);
       const btnLabel = communityLinkLabel(file);
@@ -11794,14 +11794,14 @@
         : '<span class="text-xs text-walnut/50">' + escapeHtml(t('community_no_file')) + '</span>';
       const manageBtns = file.canManage
         ? '<div class="catalog-material-actions">' +
-          '<button type="button" class="catalog-material-btn catalog-material-edit" data-material-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '">✏️</button>' +
-          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-material-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-edit" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '">✏️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>' +
           '</div>'
         : '';
       const authorLine = file.authorName
         ? '<p class="text-xs text-walnut/55 mt-0.5">' + escapeHtml(t('catalog_author_label')) + ': ' + escapeHtml(file.authorName) + '</p>'
         : '';
-      return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-material-id="' + escapeHtml(String(materialId)) + '">' +
+      return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(String(materialId)) + '">' +
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">' +
         '<div class="min-w-0 flex-1">' +
         '<div class="flex flex-wrap items-center gap-2 mb-1">' +
