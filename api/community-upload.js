@@ -69,7 +69,7 @@ function slugifyStorageSegment(text) {
   return 't' + Math.abs(h).toString(36).slice(0, 10);
 }
 
-function buildCommunityStoragePath(gradeId, topic, originalFileName) {
+function buildCommunityStoragePath(gradeId, topic, originalFileName, relativePath) {
   const grade = String(gradeId || '').trim();
   const subject = slugifyStorageSegment(topic);
   const ext = getStorageFileExtension(originalFileName);
@@ -77,7 +77,11 @@ function buildCommunityStoragePath(gradeId, topic, originalFileName) {
     .replace(/\.[^/.]+$/, '')
     .replace(/[^\w.\-]+/g, '_')
     .slice(0, 48) || 'file';
-  return 'community/' + grade + '/' + subject + '/' + Date.now() + '_' + baseName + ext;
+  const rel = String(relativePath || '').trim().replace(/^\/+/, '').replace(/\\/g, '/');
+  const relPrefix = rel ? rel.split('/').map(function (seg) {
+    return slugifyStorageSegment(seg) || 'dir';
+  }).join('/') + '/' : '';
+  return 'community/' + grade + '/' + subject + '/' + relPrefix + Date.now() + '_' + baseName + ext;
 }
 
 function packCommunityExtras(extras) {
@@ -174,14 +178,7 @@ async function insertCommunityMaterial(gradeId, topic, filePath, fileName, extra
   }
 }
 
-async function executeCommunityUpload(req) {
-  const body = parseRequestBody(req);
-  if (!body || typeof body !== 'object') {
-    const err = new Error('Request body is missing');
-    err.statusCode = 400;
-    throw err;
-  }
-
+async function uploadSingleCommunityFile(body, verifiedUser) {
   const gradeId = String(body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
   const fileName = String(body.fileName || '').trim();
@@ -190,6 +187,7 @@ async function executeCommunityUpload(req) {
   const author = String(body.author || '').trim();
   const title = String(body.title || description || fileName || topic).trim();
   const base64 = String(body.fileDataBase64 || '').trim();
+  const relativePath = String(body.relativePath || '').trim();
 
   if (!gradeId) {
     const err = new Error('gradeId is required');
@@ -226,14 +224,13 @@ async function executeCommunityUpload(req) {
     throw err;
   }
   if (buffer.length > MAX_FILE_BYTES) {
-    const err = new Error('File exceeds 5MB limit');
+    const err = new Error('File exceeds 5MB limit: ' + fileName);
     err.statusCode = 400;
     throw err;
   }
 
-  const storagePath = buildCommunityStoragePath(gradeId, topic, fileName);
+  const storagePath = buildCommunityStoragePath(gradeId, topic, fileName, relativePath);
   const uploaded = await uploadBufferToStorage(buffer, storagePath, mimeType);
-  const verifiedUser = await authContext.resolveVerifiedUser(req, body);
   const material = await insertCommunityMaterial(gradeId, topic, uploaded.storagePath, fileName, {
     title: title,
     author: author,
@@ -269,6 +266,60 @@ async function executeCommunityUpload(req) {
     material: material,
     indexResult: indexResult,
   };
+}
+
+async function executeCommunityUpload(req) {
+  const body = parseRequestBody(req);
+  if (!body || typeof body !== 'object') {
+    const err = new Error('Request body is missing');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const verifiedUser = await authContext.resolveVerifiedUser(req, body);
+
+  if (Array.isArray(body.files) && body.files.length) {
+    const gradeId = String(body.gradeId || '').trim();
+    const topic = String(body.topic || '').trim();
+    if (!gradeId) {
+      const err = new Error('gradeId is required');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!topic) {
+      const err = new Error('topic is required');
+      err.statusCode = 400;
+      throw err;
+    }
+    const description = String(body.description || '').trim();
+    const author = String(body.author || '').trim();
+    const title = String(body.title || description || topic).trim();
+    const results = [];
+    for (let i = 0; i < body.files.length; i++) {
+      const entry = body.files[i] || {};
+      const single = await uploadSingleCommunityFile({
+        gradeId: gradeId,
+        topic: topic,
+        description: description,
+        author: author,
+        title: title,
+        fileName: entry.fileName,
+        mimeType: entry.mimeType || entry.fileType,
+        fileDataBase64: entry.fileDataBase64,
+        relativePath: entry.relativePath,
+      }, verifiedUser);
+      results.push(single);
+    }
+    return {
+      ok: true,
+      batch: true,
+      count: results.length,
+      files: results,
+      materials: results.map(function (item) { return item.material; }).filter(Boolean),
+    };
+  }
+
+  return uploadSingleCommunityFile(body, verifiedUser);
 }
 
 async function legacyHandler(req, res) {

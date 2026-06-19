@@ -8185,7 +8185,7 @@
       });
     }
 
-    async function uploadFileViaCommunityApi(file, gradeId, topic, meta) {
+    async function uploadFilesViaCommunityApi(files, gradeId, topic, meta) {
       meta = meta || {};
       const headers = { 'Content-Type': 'application/json' };
       if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
@@ -8197,6 +8197,16 @@
       const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
         ? location.origin + '/api/community-upload'
         : '/api/community-upload';
+      const payloadFiles = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        payloadFiles.push({
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          fileDataBase64: await fileToBase64(file),
+          relativePath: file.webkitRelativePath || '',
+        });
+      }
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: headers,
@@ -8206,9 +8216,7 @@
           description: meta.description || '',
           author: meta.author || '',
           title: meta.title || '',
-          fileName: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          fileDataBase64: await fileToBase64(file),
+          files: payloadFiles,
         }),
       });
       const bodyText = await res.text();
@@ -8224,12 +8232,26 @@
         throw err;
       }
       const data = json.data || json;
+      if (data.batch && Array.isArray(data.files)) {
+        return {
+          batch: true,
+          files: data.files,
+          materials: data.materials || data.files.map(function (item) { return item.material; }).filter(Boolean),
+        };
+      }
       return {
+        batch: false,
         storagePath: data.storagePath,
         publicUrl: data.publicUrl,
-        fileName: data.fileName || file.name,
+        fileName: data.fileName || (files[0] && files[0].name),
         material: data.material,
       };
+    }
+
+    async function uploadFileViaCommunityApi(file, gradeId, topic, meta) {
+      const batch = await uploadFilesViaCommunityApi([file], gradeId, topic, meta);
+      if (batch.batch && batch.files && batch.files.length) return batch.files[0];
+      return batch;
     }
 
     async function uploadFileToStorage(file, gradeId, topic) {
@@ -8660,13 +8682,14 @@
       rememberCommunityOwnership(id, userId);
     }
 
-    async function submitCatalogUpload(gradeId, topic, description, author, file, shareUrl, options) {
+    async function submitCatalogUpload(gradeId, topic, description, author, fileOrFiles, shareUrl, options) {
       options = options || {};
       const topicNorm = (topic || '').trim();
       if (!topicNorm) throw new Error('יש להזין שם נושא');
       if (!isCloudConfigured()) throw new Error('חיבור Supabase נדרש להעלאה לקהילה');
       const desc = (description || '').trim();
       const linkRaw = (shareUrl || '').trim();
+      const files = Array.isArray(fileOrFiles) ? fileOrFiles : (fileOrFiles ? [fileOrFiles] : []);
       let filePath = null;
       let fileName = null;
       let fileSize = null;
@@ -8679,38 +8702,70 @@
           ? 'קישור Google Docs'
           : (lower.indexOf('drive.google.com') !== -1 ? 'קישור Google Drive' : 'קישור שיתוף');
         fileType = 'application/link';
-      } else if (file) {
-        if (!file.size) throw new Error(t('catalog_err_file'));
-        if (file.size > MAX_FILE) throw new Error('קובץ גדול מ-5MB');
+      } else if (files.length) {
+        for (let fi = 0; fi < files.length; fi++) {
+          if (!files[fi].size) throw new Error(t('catalog_err_file'));
+          if (files[fi].size > MAX_FILE) throw new Error('קובץ גדול מ-5MB: ' + files[fi].name);
+        }
         if (canUseCommunityUploadApi()) {
           try {
-            const up = await uploadFileViaCommunityApi(file, gradeId, topicNorm, {
+            const up = await uploadFilesViaCommunityApi(files, gradeId, topicNorm, {
               description: desc,
               author: author,
-              title: desc || file.name || topicNorm,
+              title: desc || (files[0] && files[0].name) || topicNorm,
             });
-            if (up.material) {
-              upsertCommunityCacheRow(up.material);
-              await markUploadedCommunityMaterial(up.material);
-            }
+            const materials = up.materials || (up.material ? [up.material] : []);
+            materials.forEach(function (material) {
+              if (material) {
+                upsertCommunityCacheRow(material);
+                markUploadedCommunityMaterial(material);
+              }
+            });
             await loadCommunity();
-            return up.material || null;
+            return materials.length === 1 ? materials[0] : materials;
           } catch (apiUploadErr) {
             console.warn('[community] API upload failed, falling back to direct Supabase client:', apiUploadErr);
           }
         }
-        let up = null;
-        try {
-          up = await uploadFileToStorageViaClient(file, gradeId, topicNorm);
-        } catch (clientStorageErr) {
-          console.warn('[community] client storage failed, trying REST storage:', formatSupabaseError(clientStorageErr));
-          up = await uploadFileToStorage(file, gradeId, topicNorm);
+        let lastMaterial = null;
+        for (let fi = 0; fi < files.length; fi++) {
+          const file = files[fi];
+          let up = null;
+          try {
+            up = await uploadFileToStorageViaClient(file, gradeId, topicNorm);
+          } catch (clientStorageErr) {
+            console.warn('[community] client storage failed, trying REST storage:', formatSupabaseError(clientStorageErr));
+            up = await uploadFileToStorage(file, gradeId, topicNorm);
+          }
+          if (!up) throw new Error(t('catalog_err_file'));
+          filePath = up.storagePath;
+          fileName = file.name;
+          fileSize = file.size;
+          fileType = file.type || null;
+          const title = desc || fileName || topicNorm;
+          const material = await postCommunityMaterial(gradeId, topicNorm, filePath, fileName, {
+            title: title,
+            author: author,
+            description: desc,
+            fileSize: fileSize,
+            fileType: fileType,
+          });
+          if (material) {
+            upsertCommunityCacheRow(material);
+            await markUploadedCommunityMaterial(material);
+            const materialId = resolveCommunityMaterialId(material);
+            if (!options.skipIndex) {
+              await indexCommunityUpload(gradeId, topicNorm, filePath, fileName, {
+                title: title,
+                author: author,
+                fileType: fileType,
+              }, materialId, { indexBundle: options.indexBundle === true });
+            }
+            lastMaterial = material;
+          }
         }
-        if (!up) throw new Error(t('catalog_err_file'));
-        filePath = up.storagePath;
-        fileName = file.name;
-        fileSize = file.size;
-        fileType = file.type || null;
+        await loadCommunity();
+        return lastMaterial;
       } else if (!linkRaw) {
         throw new Error(t('catalog_err_file'));
       }
@@ -11140,10 +11195,12 @@
         const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
         if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
         if (form) {
-          writeCatalogUploadDraft(form.getAttribute('data-grade') || '', collectCatalogUploadDraftFromForm(form));
+          flushCatalogUploadDraftSave(form);
+          writeCatalogUploadDraft(form.getAttribute('data-grade') || '', collectCatalogUploadDraftFromForm(form, false), form);
           form.reset();
           const state = getCatalogUploadFormState(form);
           state.file = null;
+          state.files = [];
           state.docsLink = '';
           resetCatalogFileDisplay(form);
           const msgEl = form.querySelector('.catalog-upload-msg');
@@ -11207,7 +11264,7 @@
               bindCatalogShareModeToggle(form);
               bindCatalogFileInput(form);
               bindCatalogUploadDraftAutosave(form);
-              applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(form.getAttribute('data-grade') || ''));
+              applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(form.getAttribute('data-grade') || '', null, form));
               updateCatalogFileDisplay(form, getCatalogUploadFormState(form).file);
             }
             const topicInput = drawer.querySelector('[name="catalog-topic"]');
@@ -11221,43 +11278,73 @@
 
     function getCatalogUploadFormState(form) {
       if (!catalogUploadFormState.has(form)) {
-        catalogUploadFormState.set(form, { file: null, docsLink: '' });
+        catalogUploadFormState.set(form, { file: null, files: [], docsLink: '' });
       }
       return catalogUploadFormState.get(form);
     }
 
-    function catalogUploadDraftKey(gradeId) {
-      return CATALOG_UPLOAD_DRAFT_PREFIX + ':' + String(gradeId || 'all');
+    function catalogUploadDraftKey(gradeId, topic) {
+      const topicPart = slugifyStorageSegment(topic || 'general');
+      return CATALOG_UPLOAD_DRAFT_PREFIX + ':' + String(gradeId || 'all') + ':' + topicPart;
     }
 
-    function readCatalogUploadDraft(gradeId) {
-      try {
-        const raw = localStorage.getItem(catalogUploadDraftKey(gradeId));
-        return raw ? JSON.parse(raw) : null;
-      } catch (e) {
-        return null;
+    function resolveCatalogUploadDraftKey(form, gradeId) {
+      const grade = String(gradeId || (form && form.getAttribute('data-grade')) || 'all');
+      let topic = '';
+      if (form) {
+        const topicInput = form.querySelector('[name="catalog-topic"]');
+        topic = topicInput ? topicInput.value.trim() : '';
       }
+      return catalogUploadDraftKey(grade, topic);
     }
 
-    function writeCatalogUploadDraft(gradeId, draft) {
+    function readCatalogUploadDraft(gradeId, topic, form) {
+      const keys = [];
+      if (form) keys.push(resolveCatalogUploadDraftKey(form, gradeId));
+      keys.push(catalogUploadDraftKey(gradeId, topic));
+      keys.push(catalogUploadDraftKey(gradeId, ''));
+      const seen = new Set();
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) return JSON.parse(raw);
+        } catch (e) { /* try next key */ }
+      }
+      return null;
+    }
+
+    function writeCatalogUploadDraft(gradeId, draft, form) {
       if (!draft) return;
+      const key = form ? resolveCatalogUploadDraftKey(form, gradeId) : catalogUploadDraftKey(gradeId, draft.topic);
       const hasContent = [draft.topic, draft.description, draft.author, draft.shareUrl].some(function (v) {
         return String(v || '').trim().length > 0;
       });
-      if (!hasContent && (!draft.shareMode || draft.shareMode === 'file')) {
-        clearCatalogUploadDraft(gradeId);
+      if (!hasContent && !draft.drawerOpen && !draft.hasFileSelection && (!draft.shareMode || draft.shareMode === 'file')) {
+        try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
         return;
       }
       try {
-        localStorage.setItem(catalogUploadDraftKey(gradeId), JSON.stringify(draft));
+        localStorage.setItem(key, JSON.stringify(draft));
       } catch (e) { /* ignore */ }
     }
 
-    function clearCatalogUploadDraft(gradeId) {
-      try { localStorage.removeItem(catalogUploadDraftKey(gradeId)); } catch (e) { /* ignore */ }
+    function clearCatalogUploadDraft(gradeId, topic, form) {
+      const keys = [];
+      if (form) keys.push(resolveCatalogUploadDraftKey(form, gradeId));
+      keys.push(catalogUploadDraftKey(gradeId, topic));
+      keys.push(catalogUploadDraftKey(gradeId, ''));
+      const seen = new Set();
+      keys.forEach(function (key) {
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
+      });
     }
 
-    function collectCatalogUploadDraftFromForm(form) {
+    function collectCatalogUploadDraftFromForm(form, drawerOpen) {
       if (!form) return null;
       const gradeSelect = form.querySelector('[name="catalog-grade"]');
       const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
@@ -11266,6 +11353,10 @@
       const descInput = form.querySelector('[name="catalog-desc"]');
       const authorInput = form.querySelector('[name="catalog-author"]');
       const linkInput = form.querySelector('[name="catalog-share-url"]');
+      const drawer = form.closest('.catalog-upload-drawer');
+      const isDrawerOpen = drawerOpen != null
+        ? Boolean(drawerOpen)
+        : Boolean(drawer && !drawer.classList.contains('hidden'));
       return {
         gradeId: gradeSelect ? gradeSelect.value.trim() : (form.getAttribute('data-grade') || ''),
         topic: topicInput ? topicInput.value : '',
@@ -11273,8 +11364,23 @@
         author: authorInput ? authorInput.value : '',
         shareMode: modeEl ? modeEl.value : 'file',
         shareUrl: linkInput ? linkInput.value : (state.docsLink || ''),
+        drawerOpen: isDrawerOpen,
+        hasFileSelection: Boolean(state.files && state.files.length) || Boolean(state.file),
         savedAt: Date.now(),
       };
+    }
+
+    const catalogUploadDraftTimers = new WeakMap();
+
+    function flushCatalogUploadDraftSave(form) {
+      if (!form) return;
+      const timer = catalogUploadDraftTimers.get(form);
+      if (timer) {
+        clearTimeout(timer);
+        catalogUploadDraftTimers.delete(form);
+      }
+      const gradeId = form.getAttribute('data-grade') || '';
+      writeCatalogUploadDraft(gradeId, collectCatalogUploadDraftFromForm(form), form);
     }
 
     function applyCatalogUploadDraftToForm(form, draft) {
@@ -11302,9 +11408,29 @@
       }
     }
 
-    function saveAllCatalogUploadDrafts() {
+    function saveAllCatalogUploadDrafts(drawerOpenOverride) {
       document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
-        writeCatalogUploadDraft(form.getAttribute('data-grade') || '', collectCatalogUploadDraftFromForm(form));
+        writeCatalogUploadDraft(
+          form.getAttribute('data-grade') || '',
+          collectCatalogUploadDraftFromForm(form, drawerOpenOverride),
+          form
+        );
+      });
+    }
+
+    function restoreCatalogUploadDrawerState(container) {
+      if (!container) return;
+      container.querySelectorAll('.catalog-upload-wrap').forEach(function (wrap) {
+        const form = wrap.querySelector('.catalog-upload-form');
+        const drawer = wrap.querySelector('.catalog-upload-drawer');
+        const btn = wrap.querySelector('.catalog-open-upload');
+        if (!form || !drawer) return;
+        const gradeId = form.getAttribute('data-grade') || '';
+        const draft = readCatalogUploadDraft(gradeId, null, form);
+        if (!draft || !draft.drawerOpen) return;
+        drawer.classList.remove('hidden');
+        if (btn) btn.setAttribute('aria-expanded', 'true');
+        applyCatalogUploadDraftToForm(form, draft);
       });
     }
 
@@ -11312,23 +11438,37 @@
       if (!form || form.dataset.draftBound) return;
       form.dataset.draftBound = '1';
       const gradeId = form.getAttribute('data-grade') || '';
-      applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(gradeId));
-      let timer = null;
+      applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(gradeId, null, form));
       function scheduleSave() {
+        let timer = catalogUploadDraftTimers.get(form);
         if (timer) clearTimeout(timer);
         timer = setTimeout(function () {
-          writeCatalogUploadDraft(gradeId, collectCatalogUploadDraftFromForm(form));
-        }, 200);
+          catalogUploadDraftTimers.delete(form);
+          writeCatalogUploadDraft(gradeId, collectCatalogUploadDraftFromForm(form), form);
+        }, 150);
+        catalogUploadDraftTimers.set(form, timer);
       }
       form.addEventListener('input', scheduleSave);
       form.addEventListener('change', scheduleSave);
+      form.addEventListener('blur', function (e) {
+        if (e.target && e.target.closest && e.target.closest('.catalog-upload-form') === form) {
+          flushCatalogUploadDraftSave(form);
+        }
+      }, true);
     }
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'hidden') saveAllCatalogUploadDrafts();
+        if (document.visibilityState === 'hidden') {
+          document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
+        }
       });
-      window.addEventListener('pagehide', saveAllCatalogUploadDrafts);
+      window.addEventListener('pagehide', function () {
+        document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
+      });
+      window.addEventListener('beforeunload', function () {
+        document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
+      });
     }
 
     function catalogFieldClass() {
@@ -11381,9 +11521,10 @@
         '</div></fieldset>' +
         '<div class="catalog-file-panel w-full">' +
         '<div class="catalog-file-drop">' +
-        '<input type="file" name="catalog-file" id="' + fileInputId + '" class="hidden" accept="*/*" />' +
+        '<input type="file" name="catalog-file" id="' + fileInputId + '" class="hidden" accept="*/*" multiple webkitdirectory directory />' +
         '<label for="' + fileInputId + '" class="catalog-file-pick-label">' +
         '<span class="catalog-file-pick-text">📁 ' + escapeHtml(t('catalog_file_pick')) + '</span></label>' +
+        '<p class="catalog-file-hint text-xs text-walnut/55 mt-2">' + escapeHtml(t('catalog_file_dir_hint') || 'ניתן לבחור קובץ בודד או תיקייה שלמה מהמחשב') + '</p>' +
         '<p class="catalog-file-selected hidden" aria-live="polite"></p>' +
         '</div></div>' +
         '<div class="catalog-link-panel hidden w-full">' +
@@ -11398,11 +11539,12 @@
         '<p class="catalog-upload-msg text-sm hidden"></p></form>';
     }
 
-    function updateCatalogFileDisplay(form, file) {
+    function updateCatalogFileDisplay(form, fileOrFiles) {
       if (!form) return;
       const pickText = form.querySelector('.catalog-file-pick-text');
       const selectedEl = form.querySelector('.catalog-file-selected');
-      if (!file) {
+      const files = Array.isArray(fileOrFiles) ? fileOrFiles : (fileOrFiles ? [fileOrFiles] : []);
+      if (!files.length) {
         if (pickText) pickText.textContent = '📁 ' + t('catalog_file_pick');
         if (selectedEl) {
           selectedEl.textContent = '';
@@ -11412,7 +11554,12 @@
       }
       if (pickText) pickText.textContent = '📄 ' + t('catalog_file_replace');
       if (selectedEl) {
-        selectedEl.innerHTML = '📄 ' + escapeHtml(t('catalog_file_ready')) + ' <span class="font-semibold">' + escapeHtml(file.name) + '</span>';
+        if (files.length === 1) {
+          selectedEl.innerHTML = '📄 ' + escapeHtml(t('catalog_file_ready')) + ' <span class="font-semibold">' + escapeHtml(files[0].name) + '</span>';
+        } else {
+          selectedEl.innerHTML = '📁 ' + escapeHtml(String(files.length)) + ' ' + escapeHtml(t('catalog_files_ready') || 'קבצים נבחרו') +
+            ' <span class="text-walnut/60">(' + escapeHtml(files[0].name) + (files.length > 1 ? '…' : '') + ')</span>';
+        }
         selectedEl.classList.remove('hidden');
       }
     }
@@ -11420,6 +11567,7 @@
     function resetCatalogFileDisplay(form) {
       const state = getCatalogUploadFormState(form);
       state.file = null;
+      state.files = [];
       updateCatalogFileDisplay(form, null);
       const fileInput = form && form.querySelector('[name="catalog-file"]');
       if (fileInput) fileInput.value = '';
@@ -11433,9 +11581,13 @@
       const state = getCatalogUploadFormState(form);
       if (!fileInput) return;
       fileInput.addEventListener('change', function () {
-        const chosen = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
-        state.file = chosen;
+        const chosen = fileInput.files && fileInput.files.length
+          ? Array.prototype.slice.call(fileInput.files)
+          : [];
+        state.files = chosen;
+        state.file = chosen.length ? chosen[0] : null;
         updateCatalogFileDisplay(form, chosen);
+        flushCatalogUploadDraftSave(form);
       });
       if (linkInput) {
         linkInput.addEventListener('input', function () {
@@ -11468,13 +11620,20 @@
       setCatalogShareMode(form, checked ? checked.value : 'file');
     }
 
-    function resolveCatalogUploadFile(form, state) {
+    function resolveCatalogUploadFiles(form, state) {
       const fileInput = form.querySelector('[name="catalog-file"]');
-      const fromInput = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
-      const fromState = state && state.file ? state.file : null;
-      const file = fromInput || fromState;
-      if (file && state) state.file = file;
-      return file;
+      const fromInput = fileInput && fileInput.files && fileInput.files.length
+        ? Array.prototype.slice.call(fileInput.files)
+        : [];
+      const fromState = state && state.files && state.files.length
+        ? state.files
+        : (state && state.file ? [state.file] : []);
+      const files = fromInput.length ? fromInput : fromState;
+      if (state) {
+        state.files = files;
+        state.file = files.length ? files[0] : null;
+      }
+      return files;
     }
 
     async function handleCatalogUploadSubmit(form) {
@@ -11490,7 +11649,7 @@
       const docsLink = mode === 'link'
         ? ((linkInput && linkInput.value) || state.docsLink || '').trim()
         : '';
-      const file = mode === 'file' ? resolveCatalogUploadFile(form, state) : null;
+      const files = mode === 'file' ? resolveCatalogUploadFiles(form, state) : [];
       const msgEl = form.querySelector('.catalog-upload-msg');
       const submitBtn = form.querySelector('[type="submit"]');
       if (submitBtn && submitBtn.disabled) return;
@@ -11507,12 +11666,15 @@
         if (!gradeId) throw new Error(t('catalog_err_grade'));
         if (!subject) throw new Error(t('catalog_err_topic'));
         if (mode === 'link' && !docsLink) throw new Error(t('catalog_err_link'));
-        if (mode === 'file' && (!file || !file.size)) throw new Error(t('catalog_err_file'));
-        await submitCatalogUpload(gradeId, subject, description, teacherName, file, docsLink);
+        if (mode === 'file' && (!files.length || !files.some(function (f) { return f && f.size; }))) {
+          throw new Error(t('catalog_err_file'));
+        }
+        await submitCatalogUpload(gradeId, subject, description, teacherName, files, docsLink);
         const topicReadonly = form.querySelector('[name="catalog-topic"][readonly]');
         const savedTopic = topicReadonly ? subject : '';
         form.reset();
         state.file = null;
+        state.files = [];
         state.docsLink = '';
         resetCatalogFileDisplay(form);
         if (gradeSelect && gradeId) gradeSelect.value = gradeId;
@@ -11526,7 +11688,7 @@
           msgEl.textContent = t('catalog_success');
           msgEl.classList.add('text-sage-dark');
         }
-        clearCatalogUploadDraft(gradeId);
+        clearCatalogUploadDraft(gradeId, subject, form);
         closeCatalogUploadDrawer(form);
         if (catalogState.view === 'materials') {
           await renderCatalogMaterials(gradeId, subject);
@@ -11559,6 +11721,7 @@
         if (gradeSelect && !form.dataset.gradeNavBound) {
           form.dataset.gradeNavBound = '1';
           gradeSelect.addEventListener('change', function () {
+            flushCatalogUploadDraftSave(form);
             const newGradeId = (gradeSelect.value || '').trim();
             if (!newGradeId || String(newGradeId) === String(catalogState.gradeId)) return;
             renderCatalog('grade', newGradeId);
@@ -11569,6 +11732,7 @@
           handleCatalogUploadSubmit(form);
         });
       });
+      restoreCatalogUploadDrawerState(container);
     }
 
     function showCatalogStatus(msg, kind) {
@@ -11923,6 +12087,7 @@
     }
 
     async function renderCatalog(view, gradeId, topicId) {
+      saveAllCatalogUploadDrafts();
       closeAllCatalogUploadDrawers();
       catalogState.view = view || 'grades';
       if (view === 'grades' || !view) {
@@ -12034,8 +12199,10 @@
         updatePedagogyExportButtonsVisibility();
         renderStepProgress();
         persistActiveStep();
+        document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
         return;
       }
+      document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
       document.querySelectorAll('.tab-panel').forEach(function (p) {
         p.classList.add('hidden');
         if (p.classList.contains('product-tab-panel')) p.setAttribute('hidden', '');
@@ -12496,10 +12663,14 @@
           },
           getUserFirstName: function () {
             if (typeof WaldorfAuth === 'undefined') return '';
+            if (typeof WaldorfAuth.getUserFirstName === 'function') {
+              return WaldorfAuth.getUserFirstName() || '';
+            }
             var profile = WaldorfAuth.getContributorProfile();
             if (!profile) return '';
             var full = String(profile.displayName || profile.name || '').trim();
             if (!full) return '';
+            if (full.indexOf('@') >= 0) return full.split('@')[0];
             return full.split(/\s+/)[0];
           },
           escapeHtml: escapeHtml,

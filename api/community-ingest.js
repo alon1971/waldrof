@@ -196,7 +196,9 @@ async function discoverBundleStoragePaths(gradeId, topic, knownPaths) {
   return Array.from(paths);
 }
 
-async function embedRowsIfPossible(rows) {
+async function embedRowsIfPossible(rows, options) {
+  const opts = options || {};
+  if (opts.embedVectors !== true) return rows;
   if (!embeddings.resolveEmbeddingApiKey()) return rows;
   const texts = rows.map(function (row) { return row.content; });
   try {
@@ -293,9 +295,10 @@ async function insertCommunityText(text, meta) {
   const rows = buildChunkRows(normalized, meta);
   if (!rows.length) return { inserted: 0, chunks: 0, reason: 'no_chunks' };
 
+  const embedVectors = meta && meta.embedVectors === true;
   let inserted = 0;
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const batch = await embedRowsIfPossible(rows.slice(i, i + BATCH_SIZE));
+    const batch = await embedRowsIfPossible(rows.slice(i, i + BATCH_SIZE), { embedVectors: embedVectors });
     const saved = await supabaseInsertRows(batch);
     inserted += Array.isArray(saved) ? saved.length : 0;
   }
@@ -506,7 +509,7 @@ async function ingestCommunityUpload(payload) {
   const p = payload || {};
   const gradeId = String(p.gradeId || p.grade_level || '').trim();
   const topic = String(p.topic || '').trim();
-  const indexBundle = p.indexBundle !== false;
+  const indexBundle = p.indexBundle === true;
 
   if (indexBundle && gradeId && topic) {
     const bundleResult = await ingestCommunityTopicBundle(p);
@@ -603,6 +606,7 @@ module.exports = {
   fetchCommunityMaterialsByTopic,
   listStorageObjects,
   insertCommunityText,
+  deleteBySourceMaterialId,
   ingestMaterialRecord,
   ingestCommunityTopicBundle,
   ingestCommunityUpload,
