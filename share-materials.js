@@ -1,5 +1,5 @@
 /**
- * share-materials.js — Teacher community contribution form (knowledge_base).
+ * share-materials.js — Teacher community contribution form (community_knowledge_base).
  */
 (function (global) {
   'use strict';

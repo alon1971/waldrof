@@ -9,8 +9,11 @@ const embeddings = require('./embeddings');
 const env = require('./env');
 
 const TABLE_NAME = 'knowledge_base';
+const COMMUNITY_TABLE_NAME = 'community_knowledge_base';
 const DEFAULT_MATCH_COUNT = 6;
+const COMMUNITY_MATCH_COUNT = 6;
 const CACHE_MATCH_COUNT = 3;
+const RECENT_COMMUNITY_UPLOAD_LIMIT = 8;
 
 /** Ingested Google Drive archive folders — supplementary enrichment only (web search is primary). */
 const DRIVE_ARCHIVE_FOLDERS = [
@@ -55,8 +58,10 @@ const DRIVE_ENRICHMENT_PHASES = new Set([
 ]);
 
 const SOURCE_PRIORITY = {
+  community_archive: 0,
   community_teacher: 0,
-  ai_learned: 1,
+  drive_archive: 2,
+  ai_learned: 3,
 };
 
 const RAG_PHASES = new Set([
@@ -140,7 +145,7 @@ function folderKeysEquivalent(a, b) {
   return left.indexOf(right) >= 0 || right.indexOf(left) >= 0;
 }
 
-function buildExpandedDriveSearchQuery(query, body) {
+function buildExpandedSearchQuery(query, body) {
   const parts = [String(query || '').trim()];
   const mesh = PEDAGOGICAL_SEARCH_MESH.slice();
   if (body && body.topic) parts.push(body.topic);
@@ -150,6 +155,14 @@ function buildExpandedDriveSearchQuery(query, body) {
   return Array.from(new Set(
     parts.join(' ').split(/\s+/).filter(function (word) { return word.length > 1; })
   )).join(' ').trim();
+}
+
+function buildExpandedDriveSearchQuery(query, body) {
+  return buildExpandedSearchQuery(query, body);
+}
+
+function buildExpandedCommunitySearchQuery(query, body) {
+  return buildExpandedSearchQuery(query, body);
 }
 
 function extractRowFolderHints(row) {
@@ -260,7 +273,7 @@ function sortChunksForRag(chunks, body) {
 
   return (chunks || []).slice().map(function (chunk) {
     let score = Number(chunk.score) || 0;
-    if (chunk.source_type === 'community_teacher') score += 3;
+    if (chunk.source_type === 'community_archive' || chunk.source_type === 'community_teacher') score += 3;
     if (chunk.source_type === 'ai_learned') score += 1;
     if (topicKey && chunk.title && normalizeKey(chunk.title).indexOf(topicKey) >= 0) score += 1.5;
     return Object.assign({}, chunk, { score: score });
@@ -279,7 +292,9 @@ function formatChunk(chunk, index) {
   const author = (chunk.author || chunk.source_author) ? ' — ' + (chunk.author || chunk.source_author) : '';
   let badge = '';
   if (chunk.source_type === 'drive_archive') {
-    badge = ' [ארכיון Drive — העשרה משלימה]';
+    badge = ' [ארכיון Drive פרטי — העשרה משלימה]';
+  } else if (chunk.source_type === 'community_archive') {
+    badge = ' [ארכיון קהילה משותף — העשרה משלימה]';
   } else if (chunk.source_type === 'community_teacher') {
     badge = ' [חומר מורה מהקהילה]';
   } else if (chunk.source_type === 'ai_learned') {
@@ -298,6 +313,24 @@ function formatRagContext(chunks) {
   const list = dedupeChunks(chunks);
   if (!list.length) return '';
   return list.map(function (chunk, i) { return formatChunk(chunk, i + 1); }).join('\n\n');
+}
+
+function formatSeparatedRagContext(driveChunks, communityChunks) {
+  const sections = [];
+  const drive = formatRagContext(driveChunks);
+  const community = formatRagContext(communityChunks);
+
+  if (drive) {
+    sections.push(
+      '--- PRIVATE DRIVE ARCHIVE (Alon — ingested Google Drive folders) ---\n' + drive
+    );
+  }
+  if (community) {
+    sections.push(
+      '--- SHARED COMMUNITY ARCHIVE (teacher uploads — community_knowledge_base) ---\n' + community
+    );
+  }
+  return sections.join('\n\n');
 }
 
 function mergeRagContexts(priorContext, newChunks, maxChars) {
@@ -577,6 +610,194 @@ async function searchKnowledgeBase(query, options) {
   return { chunks: [], method: 'none' };
 }
 
+async function searchCommunityKeywords(query, matchCount) {
+  const rows = await supabaseRpc('search_community_knowledge_base_keywords', {
+    search_query: query,
+    match_count: matchCount || COMMUNITY_MATCH_COUNT,
+  });
+
+  return (rows || []).map(function (row) {
+    return normalizeChunk(row, { source_type: 'community_archive' });
+  });
+}
+
+async function searchCommunitySemantic(query, matchCount) {
+  if (!embeddings.resolveEmbeddingApiKey()) return [];
+
+  let vector;
+  try {
+    vector = await embeddings.embedText(query);
+  } catch (embedErr) {
+    console.warn('[rag] community semantic embed failed:', embedErr.message || embedErr);
+    return [];
+  }
+  if (!Array.isArray(vector) || !vector.length) return [];
+
+  let rows;
+  try {
+    rows = await supabaseRpc('match_community_knowledge_base', {
+      query_embedding: vector,
+      match_count: (matchCount || COMMUNITY_MATCH_COUNT) * 3,
+      match_threshold: SEMANTIC_MATCH_THRESHOLD,
+    });
+  } catch (rpcErr) {
+    console.warn('[rag] match_community_knowledge_base failed:', rpcErr.message || rpcErr);
+    return [];
+  }
+
+  return (rows || []).map(function (row, index) {
+    return normalizeChunk(row, {
+      source_type: 'community_archive',
+      score: Number(row.similarity || 0) * 10 + (8 - index * 0.1),
+    });
+  }).slice(0, matchCount || COMMUNITY_MATCH_COUNT);
+}
+
+async function searchCommunityByContent(query, body, matchCount) {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.key) return [];
+
+  const q = String(query || '').trim();
+  if (!q) return [];
+
+  const terms = q
+    .replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+    .split(/\s+/)
+    .filter(function (word) { return word.length > 2; })
+    .slice(0, 4);
+  if (!terms.length) terms.push(q.slice(0, 80));
+
+  const meshTerms = PEDAGOGICAL_SEARCH_MESH.slice(0, 8);
+  const titleOrParts = terms.concat(meshTerms).map(function (term) {
+    return 'title.ilike.*' + term + '*';
+  });
+  const contentOrParts = terms.concat(meshTerms).map(function (term) {
+    return 'content.ilike.*' + term + '*';
+  });
+
+  const params = new URLSearchParams();
+  params.set(
+    'select',
+    'id,title,author,content,contributor_email,contributor_name,grade_id,topic,created_at'
+  );
+  params.set('order', 'created_at.desc');
+  params.set('limit', String((matchCount || COMMUNITY_MATCH_COUNT) * 6));
+  params.set('or', '(' + titleOrParts.concat(contentOrParts).join(',') + ')');
+
+  const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
+  if (gradeId) params.set('grade_id', 'eq.' + gradeId);
+
+  const res = await fetch(cfg.url + '/rest/v1/' + COMMUNITY_TABLE_NAME + '?' + params.toString(), {
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+    },
+  });
+
+  if (!res.ok) return [];
+  const rows = await res.json();
+  if (!Array.isArray(rows)) return [];
+
+  return rows.map(function (row, index) {
+    return normalizeChunk(row, {
+      source_type: 'community_archive',
+      score: 12 - index * 0.1,
+    });
+  }).slice(0, matchCount || COMMUNITY_MATCH_COUNT);
+}
+
+async function searchRecentCommunityUploads(matchCount) {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.key) return [];
+
+  const params = new URLSearchParams();
+  params.set(
+    'select',
+    'id,title,author,content,contributor_email,contributor_name,grade_id,topic,created_at'
+  );
+  params.set('order', 'created_at.desc');
+  params.set('limit', String(matchCount || RECENT_COMMUNITY_UPLOAD_LIMIT));
+
+  const res = await fetch(cfg.url + '/rest/v1/' + COMMUNITY_TABLE_NAME + '?' + params.toString(), {
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+    },
+  });
+
+  if (!res.ok) return [];
+  const rows = await res.json();
+  if (!Array.isArray(rows)) return [];
+
+  return rows.map(function (row, index) {
+    return normalizeChunk(row, {
+      source_type: 'community_archive',
+      score: 14 - index * 0.15,
+    });
+  });
+}
+
+function scoreCommunityChunkRelevance(chunk, query, body) {
+  let score = Number(chunk && chunk.score) || 0;
+  const queryKey = normalizeFolderKey(query);
+  const topicKey = normalizeFolderKey(body && body.topic);
+  const title = normalizeFolderKey(chunk && chunk.title);
+  const content = normalizeFolderKey(chunk && chunk.content && chunk.content.slice(0, 600));
+
+  if (topicKey && title.indexOf(topicKey) >= 0) score += 4;
+  if (topicKey && content.indexOf(topicKey) >= 0) score += 2.5;
+  if (queryKey && content.indexOf(queryKey) >= 0) score += 1.5;
+  if (chunk && chunk.source_type === 'community_archive') score += 1;
+  if (chunk && chunk.contributor_email) score += 0.5;
+  PEDAGOGICAL_SEARCH_MESH.forEach(function (term, index) {
+    const key = normalizeFolderKey(term);
+    if (!key) return;
+    if (title.indexOf(key) >= 0 || content.indexOf(key) >= 0) {
+      score += Math.max(0.35, 1.2 - index * 0.05);
+    }
+  });
+  return score;
+}
+
+async function searchCommunityKnowledgeEnrichment(query, body, matchCount) {
+  const expandedQuery = buildExpandedCommunitySearchQuery(query, body);
+  const methods = [];
+
+  const parallel = await Promise.all([
+    searchCommunitySemantic(expandedQuery, matchCount).catch(function () { return []; }),
+    searchCommunityKeywords(expandedQuery, matchCount * 3).catch(function () { return []; }),
+    searchCommunityByContent(expandedQuery, body, matchCount).catch(function () { return []; }),
+    searchRecentCommunityUploads(RECENT_COMMUNITY_UPLOAD_LIMIT).catch(function () { return []; }),
+  ]);
+
+  const semanticChunks = parallel[0];
+  const keywordChunks = parallel[1] || [];
+  const contentChunks = parallel[2] || [];
+  const recentChunks = parallel[3] || [];
+
+  if (semanticChunks.length) methods.push('semantic');
+  if (keywordChunks.length) methods.push('keywords');
+  if (contentChunks.length) methods.push('content');
+  if (recentChunks.length) methods.push('recent');
+
+  const ranked = dedupeChunks(
+    semanticChunks.concat(keywordChunks, contentChunks, recentChunks)
+  )
+    .map(function (chunk) {
+      return Object.assign({}, chunk, {
+        score: scoreCommunityChunkRelevance(chunk, expandedQuery, body),
+      });
+    })
+    .sort(function (a, b) { return (b.score || 0) - (a.score || 0); })
+    .slice(0, matchCount || COMMUNITY_MATCH_COUNT);
+
+  return {
+    chunks: ranked,
+    method: methods.length ? ('community_' + methods.join('+')) : 'none',
+    expandedQuery: expandedQuery,
+  };
+}
+
 async function searchDriveArchiveByContent(query, matchCount) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key) return [];
@@ -658,26 +879,31 @@ async function retrieveForRequest(body) {
   const priorIds = Array.isArray(body.ragChunkIds) ? body.ragChunkIds.map(String) : [];
 
   const driveArchiveEnrichment = DRIVE_ENRICHMENT_PHASES.has(phase);
-  let searchResult;
-  let communityChunks = [];
+  let driveResult = { chunks: [], method: 'none' };
+  let communityResult = { chunks: [], method: 'none' };
+  let legacyKeywordChunks = [];
+  let communityLegacyChunks = [];
   let cacheChunks = [];
 
   try {
     if (driveArchiveEnrichment) {
-      searchResult = await searchKnowledgeBase(query, {
-        matchCount: DEFAULT_MATCH_COUNT,
-        driveArchiveOnly: true,
-        body: body,
-      });
+      const parallel = await Promise.all([
+        searchDriveArchiveEnrichment(query, body, DEFAULT_MATCH_COUNT).catch(function () { return { chunks: [], method: 'none' }; }),
+        searchCommunityKnowledgeEnrichment(query, body, COMMUNITY_MATCH_COUNT).catch(function () { return { chunks: [], method: 'none' }; }),
+      ]);
+      driveResult = parallel[0];
+      communityResult = parallel[1];
     } else {
       const parallel = await Promise.all([
         searchKnowledgeBase(query, { matchCount: DEFAULT_MATCH_COUNT }),
+        searchCommunityKnowledgeEnrichment(query, body, COMMUNITY_MATCH_COUNT).catch(function () { return { chunks: [], method: 'none' }; }),
         searchCommunityByTopic(body, 4).catch(function () { return []; }),
         searchCachedPedagogy(body, CACHE_MATCH_COUNT).catch(function () { return []; }),
       ]);
-      searchResult = parallel[0];
-      communityChunks = parallel[1];
-      cacheChunks = parallel[2];
+      legacyKeywordChunks = (parallel[0] && parallel[0].chunks) || [];
+      communityResult = parallel[1];
+      communityLegacyChunks = parallel[2];
+      cacheChunks = parallel[3];
     }
   } catch (searchErr) {
     return {
@@ -693,48 +919,90 @@ async function retrieveForRequest(body) {
     };
   }
 
-  const combined = sortChunksForRag(
+  const driveChunks = sortChunksForRag(driveResult.chunks || [], body);
+  const communityChunks = sortChunksForRag(
     dedupeChunks(
-      (searchResult.chunks || []).concat(communityChunks, cacheChunks)
+      (communityResult.chunks || []).concat(communityLegacyChunks, legacyKeywordChunks)
     ),
     body
-  ).slice(0, DEFAULT_MATCH_COUNT + CACHE_MATCH_COUNT);
+  ).slice(0, COMMUNITY_MATCH_COUNT + 2);
 
-  const freshChunks = combined.filter(function (chunk) {
+  const combinedForIds = dedupeChunks(
+    driveChunks.concat(communityChunks, cacheChunks)
+  ).slice(0, DEFAULT_MATCH_COUNT + COMMUNITY_MATCH_COUNT + CACHE_MATCH_COUNT);
+
+  const freshChunks = combinedForIds.filter(function (chunk) {
     if (!chunk || !chunk.id) return true;
     return priorIds.indexOf(String(chunk.id)) < 0;
   });
 
-  const mergedContext = mergeRagContexts(priorContext, freshChunks);
+  const freshDrive = freshChunks.filter(function (c) { return c.source_type === 'drive_archive'; });
+  const freshCommunity = freshChunks.filter(function (c) {
+    return c.source_type === 'community_archive' || c.source_type === 'community_teacher';
+  });
+  const freshOther = freshChunks.filter(function (c) {
+    return c.source_type !== 'drive_archive' &&
+      c.source_type !== 'community_archive' &&
+      c.source_type !== 'community_teacher';
+  });
+
+  const separatedFresh = formatSeparatedRagContext(freshDrive, freshCommunity);
+  const otherContext = formatRagContext(freshOther);
+  let mergedContext = priorContext;
+  const freshParts = [];
+  if (separatedFresh) freshParts.push(separatedFresh);
+  if (otherContext) freshParts.push(otherContext);
+
+  if (freshParts.length) {
+    const freshBlock = freshParts.join('\n\n');
+    if (!mergedContext) {
+      mergedContext = freshBlock;
+    } else {
+      mergedContext = mergedContext + '\n\n--- ADDITIONAL RELEVANT EXCERPTS ---\n\n' + freshBlock;
+    }
+    if (mergedContext.length > 14000) mergedContext = mergedContext.slice(mergedContext.length - 14000);
+  }
+
   const allIds = priorIds.slice();
   freshChunks.forEach(function (chunk) {
     if (chunk.id && allIds.indexOf(String(chunk.id)) < 0) allIds.push(String(chunk.id));
   });
 
+  const methodParts = [];
+  if (driveResult.method && driveResult.method !== 'none') methodParts.push(driveResult.method);
+  if (communityResult.method && communityResult.method !== 'none') methodParts.push(communityResult.method);
+
   return {
     context: mergedContext,
+    driveContext: formatRagContext(freshDrive),
+    communityContext: formatRagContext(freshCommunity),
     chunks: dedupeChunks(freshChunks),
     chunkIds: allIds,
     meta: {
       enabled: true,
       phase: phase,
-      method: searchResult.method,
+      method: methodParts.length ? methodParts.join(' | ') : 'none',
+      driveMethod: driveResult.method,
+      communityMethod: communityResult.method,
       driveArchiveEnrichment: driveArchiveEnrichment,
       chunkCount: freshChunks.length,
-      communityCount: communityChunks.length,
+      driveCount: freshDrive.length,
+      communityCount: freshCommunity.length,
       cacheCount: cacheChunks.length,
       totalContextChars: mergedContext.length,
       queryPreview: query.slice(0, 160),
-      expandedQueryPreview: searchResult.expandedQuery
-        ? String(searchResult.expandedQuery).slice(0, 200)
-        : undefined,
+      expandedQueryPreview: driveResult.expandedQuery
+        ? String(driveResult.expandedQuery).slice(0, 200)
+        : (communityResult.expandedQuery ? String(communityResult.expandedQuery).slice(0, 200) : undefined),
       liveRefresh: true,
+      threeWayRetrieval: true,
     },
   };
 }
 
 module.exports = {
   TABLE_NAME,
+  COMMUNITY_TABLE_NAME,
   RAG_PHASES,
   DRIVE_ARCHIVE_FOLDERS,
   DRIVE_PROJECT_FOLDER_KEYS,
@@ -744,10 +1012,13 @@ module.exports = {
   shouldRetrieveForPhase,
   buildQueryFromBody,
   buildExpandedDriveSearchQuery,
+  buildExpandedCommunitySearchQuery,
   formatRagContext,
+  formatSeparatedRagContext,
   mergeRagContexts,
   matchesDriveArchiveFolder,
   searchKnowledgeBase,
   searchDriveArchiveEnrichment,
+  searchCommunityKnowledgeEnrichment,
   retrieveForRequest,
 };

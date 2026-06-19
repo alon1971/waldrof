@@ -113,20 +113,32 @@ const CONTENT_HIERARCHY_INSTRUCTION =
   'Follow this exact three-tier architecture:\n' +
   '1. LIVE WEB SEARCH (Perplexity) — CORE ANCHOR: Build the lesson plan primarily from broad, rich, exhaustive live web research. ' +
   'Never shorten, narrow, or omit web-sourced content because local archive excerpts exist.\n' +
-  '2. INGESTED GOOGLE DRIVE ARCHIVE — SUPPLEMENTARY ENRICHMENT: When INGESTED DRIVE ARCHIVE excerpts are provided below, ' +
+  '2. PRIVATE INGESTED GOOGLE DRIVE ARCHIVE (Alon) — SUPPLEMENTARY ENRICHMENT: When PRIVATE DRIVE ARCHIVE excerpts are provided below, ' +
   'use them as a secondary layer of pedagogical enrichment and Waldorf-philosophy validation — blend them INTO the web foundation. ' +
   'Drive archive folders: חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, waldorf project, waldrof project, שטיינר.\n' +
-  '3. MERGE: Produce ONE deep, comprehensive, consolidated lesson plan that merges live web breadth with relevant Drive-archive insights. ' +
-  'The final output must be richer than either source alone — never a thin summary of local excerpts only.\n' +
+  '3. SHARED COMMUNITY ARCHIVE — SUPPLEMENTARY ENRICHMENT: When SHARED COMMUNITY ARCHIVE excerpts are provided below, ' +
+  'use teacher-uploaded lesson plans and pedagogical notes as an additional enrichment layer — blend them INTO the web foundation alongside Drive excerpts. ' +
+  'Community materials come from teacher uploads (PDF/Word/text) indexed in community_knowledge_base.\n' +
+  '4. MERGE: Produce ONE deep, comprehensive, consolidated lesson plan that merges live web breadth with relevant Drive-archive and community-archive insights. ' +
+  'The final output must be richer than any single source alone — never a thin summary of local excerpts only.\n' +
   '=== END CONTENT HIERARCHY ===\n';
 
 const DRIVE_ARCHIVE_ENRICHMENT_INSTRUCTION =
-  '\n=== INGESTED DRIVE ARCHIVE — SUPPLEMENTARY ONLY ===\n' +
-  'Excerpts tagged [ארכיון Drive — העשרה משלימה] come from ingested Google Drive folders in our local knowledge_base. ' +
+  '\n=== PRIVATE DRIVE ARCHIVE (Alon) — SUPPLEMENTARY ONLY ===\n' +
+  'Excerpts tagged [ארכיון Drive פרטי — העשרה משלימה] or under PRIVATE DRIVE ARCHIVE come from ingested Google Drive folders. ' +
   'They are SUPPLEMENTARY — never the primary source. Use them to enrich tone, validate Waldorf doctrine, and add teacher-community nuance. ' +
   'Do NOT replace, narrow, or shorten web-sourced lesson content because Drive excerpts exist. ' +
   'If no Drive excerpts match, proceed fully from live web search alone.\n' +
-  '=== END INGESTED DRIVE ARCHIVE ===\n';
+  '=== END PRIVATE DRIVE ARCHIVE ===\n';
+
+const COMMUNITY_ARCHIVE_ENRICHMENT_INSTRUCTION =
+  '\n=== SHARED COMMUNITY ARCHIVE — SUPPLEMENTARY ONLY ===\n' +
+  'Excerpts tagged [ארכיון קהילה משותף — העשרה משלימה] or under SHARED COMMUNITY ARCHIVE come from teacher community uploads ' +
+  '(lesson plans, main-lesson blocks, pedagogical notes) indexed in community_knowledge_base. ' +
+  'They are SUPPLEMENTARY — never the primary source. Use them to enrich classroom practice, period planning, and peer-teacher insights. ' +
+  'Do NOT replace, narrow, or shorten web-sourced lesson content because community excerpts exist. ' +
+  'If no community excerpts match, proceed from live web search (and Drive excerpts if present).\n' +
+  '=== END SHARED COMMUNITY ARCHIVE ===\n';
 
 const STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION =
   '\n=== STEINER / ANTHROPOSOPHIC SOURCE FIDELITY (CRITICAL — ABSOLUTE — ALL OUTPUTS) ===\n' +
@@ -228,6 +240,7 @@ function waldorfSystemPrompt(extra) {
     STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     WEB_SEARCH_PRIORITY_INSTRUCTION +
     DRIVE_ARCHIVE_ENRICHMENT_INSTRUCTION +
+    COMMUNITY_ARCHIVE_ENRICHMENT_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
     ACADEMIC_TONE_INSTRUCTION +
     SOURCES_CITATION_INSTRUCTION +
@@ -298,52 +311,67 @@ function buildGradeLockBlock(body) {
 
 function buildRagContextBlock(body) {
   const rag = String(body.ragContext || '').trim();
+  const driveCtx = String(body.ragDriveContext || '').trim();
+  const communityCtx = String(body.ragCommunityContext || '').trim();
   const isChat = body && body.phase === 'chat_followup';
   const isLessonPhase = body && (body.phase === 'grade' || body.phase === 'topic' ||
     body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_search' || body.phase === 'archive_summary');
 
-  if (!rag && isChat) {
+  if (!rag && !driveCtx && !communityCtx && isChat) {
     return (
-      '\n=== WALDORF KNOWLEDGE BASE (RAG — NO LOCAL EXCERPTS) ===\n' +
-      'No local knowledge_base excerpts matched this question — this is normal. ' +
-      'Proceed with LIVE WEB SEARCH for Rudolf Steiner (GA lectures), Steiner Archive, waldorflibrary.org, AWSNA, IASWECE, ' +
+      '\n=== HYBRID SEARCH CONTEXT (RAG — NO LOCAL EXCERPTS) ===\n' +
+      'No local Drive or community archive excerpts matched this question — this is normal. ' +
+      'Proceed with LIVE WEB SEARCH (PRIMARY) for Rudolf Steiner (GA lectures), Steiner Archive, waldorflibrary.org, AWSNA, IASWECE, ' +
       'and verified anthroposophic pedagogy. Also use lesson context below when relevant. ' +
       'Do NOT decline solely because local RAG is empty.\n' +
-      '=== END KNOWLEDGE BASE ===\n\n'
+      '=== END HYBRID SEARCH CONTEXT ===\n\n'
     );
   }
 
-  if (!rag && isLessonPhase) {
+  if (!rag && !driveCtx && !communityCtx && isLessonPhase) {
     return (
-      '\n=== INGESTED GOOGLE DRIVE ARCHIVE (NO MATCHING EXCERPTS) ===\n' +
-      'No ingested Drive archive excerpts matched this query — this is normal. ' +
-      'Build the full lesson plan EXCLUSIVELY from LIVE WEB SEARCH (Perplexity) as the core anchor. ' +
-      'Do NOT shorten, limit, or omit content because the local Drive archive is empty.\n' +
-      '=== END INGESTED DRIVE ARCHIVE ===\n\n'
+      '\n=== HYBRID SEARCH CONTEXT (NO MATCHING LOCAL EXCERPTS) ===\n' +
+      'No private Drive archive or shared community archive excerpts matched this query — this is normal. ' +
+      'Build the full lesson plan EXCLUSIVELY from LIVE WEB SEARCH (Perplexity) as the PRIMARY core anchor. ' +
+      'Do NOT shorten, limit, or omit content because local archives are empty.\n' +
+      '=== END HYBRID SEARCH CONTEXT ===\n\n'
     );
   }
 
-  if (!rag) return '';
+  if (!rag && !driveCtx && !communityCtx) return '';
 
   if (isChat) {
     return (
-      '\n=== WALDORF KNOWLEDGE BASE (RAG — SUPPLEMENTARY LOCAL EXCERPTS) ===\n' +
-      'The excerpts below are from the local knowledge_base (community materials and prior research). ' +
-      'Treat them as valuable supplementary context. ALSO perform live web search for core Steiner/anthroposophic sources — ' +
-      'do not limit answers to these excerpts alone.\n' +
-      'Reference document titles when citing. Do not contradict verified Steiner sources. Do not add unstated connections.\n\n' +
-      rag + '\n=== END KNOWLEDGE BASE ===\n\n'
+      '\n=== HYBRID SEARCH CONTEXT (SUPPLEMENTARY LOCAL EXCERPTS) ===\n' +
+      'LIVE WEB SEARCH (Perplexity) remains the PRIMARY anchor. The excerpts below are supplementary local context.\n' +
+      (driveCtx
+        ? '\n--- PRIVATE DRIVE ARCHIVE (Alon) ---\n' + driveCtx + '\n--- END PRIVATE DRIVE ARCHIVE ---\n'
+        : '') +
+      (communityCtx
+        ? '\n--- SHARED COMMUNITY ARCHIVE ---\n' + communityCtx + '\n--- END SHARED COMMUNITY ARCHIVE ---\n'
+        : '') +
+      (!driveCtx && !communityCtx && rag ? '\n' + rag + '\n' : '') +
+      'Reference document titles when citing. Do not contradict verified Steiner sources.\n' +
+      '=== END HYBRID SEARCH CONTEXT ===\n\n'
     );
   }
 
   return (
-    '\n=== INGESTED GOOGLE DRIVE ARCHIVE (SUPPLEMENTARY ENRICHMENT) ===\n' +
-    'The excerpts below are from ingested Google Drive folders in our local archive ' +
-    '(חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, waldorf project, waldrof project, שטיינר). ' +
-    'Treat them as SECONDARY pedagogical enrichment and Waldorf-philosophy validation — blend them into the broad live web research foundation. ' +
-    'LIVE WEB SEARCH remains the PRIMARY anchor — never replace or narrow web-sourced lesson content with these excerpts alone. ' +
-    'Reference document titles when citing. Do not contradict verified Steiner/web sources. Do not add unstated connections.\n\n' +
-    rag + '\n=== END INGESTED DRIVE ARCHIVE ===\n\n'
+    '\n=== HYBRID SEARCH CONTEXT (SUPPLEMENTARY — LIVE WEB SEARCH IS PRIMARY) ===\n' +
+    'LIVE WEB SEARCH via Perplexity is the MANDATORY PRIMARY foundation. Local excerpts below are SECONDARY enrichment only.\n\n' +
+    (driveCtx
+      ? '--- PRIVATE DRIVE ARCHIVE (Alon — ingested Google Drive folders) ---\n' +
+        'Folders: חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, waldorf project, waldrof project, שטיינר.\n' +
+        'Blend as Waldorf-philosophy validation — never replace web breadth.\n\n' +
+        driveCtx + '\n--- END PRIVATE DRIVE ARCHIVE ---\n\n'
+      : '--- PRIVATE DRIVE ARCHIVE: no matching excerpts ---\n\n') +
+    (communityCtx
+      ? '--- SHARED COMMUNITY ARCHIVE (teacher uploads — community_knowledge_base) ---\n' +
+        'Blend peer-teacher lesson plans and pedagogical notes as supplementary enrichment.\n\n' +
+        communityCtx + '\n--- END SHARED COMMUNITY ARCHIVE ---\n\n'
+      : '--- SHARED COMMUNITY ARCHIVE: no matching excerpts ---\n\n') +
+    (!driveCtx && !communityCtx && rag ? rag + '\n\n' : '') +
+    '=== END HYBRID SEARCH CONTEXT ===\n\n'
   );
 }
 
@@ -1301,18 +1329,24 @@ async function executeGenerate(body, apiKey) {
       console.log('[generate] live Drive archive RAG refresh for phase', body.phase);
       const ragResult = await ragDb.retrieveForRequest(body);
       body.ragContext = ragResult.context || '';
+      body.ragDriveContext = ragResult.driveContext || '';
+      body.ragCommunityContext = ragResult.communityContext || '';
       if (Array.isArray(ragResult.chunkIds)) body.ragChunkIds = ragResult.chunkIds;
       ragMeta = Object.assign({}, ragResult.meta || {}, {
         contextChars: (body.ragContext || '').length,
+        driveContextChars: (body.ragDriveContext || '').length,
+        communityContextChars: (body.ragCommunityContext || '').length,
         liveDriveRefresh: true,
+        threeWayRetrieval: true,
       });
       if (ragMeta.chunkCount > 0) {
         console.log(
-          '[rag] drive archive enrichment:', ragMeta.chunkCount, 'chunks via', ragMeta.method || 'unknown',
-          ragMeta.expandedQueryPreview ? ('query=' + ragMeta.expandedQueryPreview) : ''
+          '[rag] hybrid retrieval:', ragMeta.chunkCount, 'chunks',
+          '(drive:', ragMeta.driveCount || 0, 'community:', ragMeta.communityCount || 0, ')',
+          'via', ragMeta.method || 'unknown'
         );
       } else {
-        console.log('[rag] drive archive enrichment: no matching excerpts (web-only generation)');
+        console.log('[rag] hybrid retrieval: no matching excerpts (web-only generation)');
       }
     } catch (ragErr) {
       console.warn('[rag] retrieval failed:', ragErr.message || ragErr);
@@ -1348,9 +1382,9 @@ async function executeGenerate(body, apiKey) {
         ? ' PEDAGOGICAL CHAT ENRICHMENT: Prior cached grade insights and/or chat answers exist — refine, correct, deepen, and expand using live Steiner/anthroposophic web search. Output must surpass prior versions.'
         : ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
           'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.')
-      : body.ragContext
-        ? ' INGESTED DRIVE ARCHIVE excerpts are provided — use them ONLY as supplementary Waldorf enrichment blended into the live web-search foundation. Web search remains the primary anchor.'
-        : ' No ingested Drive archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
+      : body.ragContext || body.ragDriveContext || body.ragCommunityContext
+        ? ' HYBRID SEARCH: Live web search is PRIMARY. Private Drive and shared community archive excerpts are SECONDARY enrichment — blend them into the web foundation without replacing web breadth.'
+        : ' No local Drive or community archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
     (searchPhases.has(body.phase)
       ? ' LIVE WEB SEARCH is the core anchor — perform a broad, exhaustive internet search first. ' +
         'Check Alon Yerushalmy, «מסעות בחינוך», and educationpace.com only for genuinely relevant matches — ' +

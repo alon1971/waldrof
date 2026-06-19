@@ -1,9 +1,9 @@
 /**
- * POST /api/share-material — teacher community contribution to knowledge_base.
+ * POST /api/share-material — teacher community contribution to community_knowledge_base.
  * Body: { title, materialType, gradeId, gradeLabel, topic, text, contributor? }
  * Auth: Authorization: Bearer <supabase_access_token> (preferred)
  */
-const knowledgeIngest = require('./knowledge-ingest');
+const communityIngest = require('./community-ingest');
 const env = require('./env');
 
 const corsHeaders = {
@@ -140,8 +140,8 @@ function validateShareBody(body) {
 }
 
 async function executeShareMaterial(req) {
-  if (!knowledgeIngest.isIngestEnabled()) {
-    const err = new Error('מאגר הידע אינו מוגדר בשרת (Supabase חסר)');
+  if (!communityIngest.isIngestEnabled()) {
+    const err = new Error('מאגר הקהילה אינו מוגדר בשרת (Supabase חסר)');
     err.statusCode = 503;
     throw err;
   }
@@ -153,11 +153,15 @@ async function executeShareMaterial(req) {
 
   const documentTitle = validated.title + ' — ' + typeInfo.label;
   const topicSuffix = validated.topic ? ' («' + validated.topic + '»)' : '';
-  const result = await knowledgeIngest.insertKnowledgeText(validated.text, {
+  const result = await communityIngest.insertCommunityText(validated.text, {
     title: documentTitle + topicSuffix,
     author: contributor.name || contributor.email,
     contributorEmail: contributor.email,
+    contributorName: contributor.name || contributor.email,
+    gradeId: validated.gradeId,
+    topic: validated.topic,
     origin: 'community_share',
+    metadata: { materialType: validated.materialType },
     chunkOptions: { minChars: 100, maxChars: 1400 },
   });
 

@@ -1594,9 +1594,15 @@
     }
     .app-site-chrome.header-compact #search-usage-label,
     .app-site-chrome.header-compact .search-usage-track,
-    .app-site-chrome.header-compact #user-tier-badge,
+    .app-site-chrome.header-compact #user-tier-badge:not(.user-tier-badge--pro-user),
     .app-site-chrome.header-compact #btn-user-settings {
       display: none !important;
+    }
+    .app-site-chrome.header-compact #user-tier-badge.user-tier-badge--pro-user {
+      display: inline-flex !important;
+      align-items: center;
+      font-size: 0.68rem !important;
+      padding: 0.1rem 0.45rem;
     }
     .app-site-chrome.header-compact #search-usage-meter:not(.hidden) {
       display: inline-flex !important;
@@ -7495,6 +7501,36 @@
       updateWorkspaceChrome();
     }
 
+    async function indexCommunityUpload(gradeId, topic, filePath, fileName, extras, materialId) {
+      const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/community-ingest'
+        : '/api/community-ingest';
+      const headers = { 'Content-Type': 'application/json' };
+      let token = null;
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
+      }
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const payload = {
+        gradeId: gradeId,
+        topic: topic,
+        title: (extras && extras.title) || fileName || topic,
+        author: extras && extras.author,
+        filePath: filePath,
+        fileName: fileName,
+        fileType: extras && extras.fileType,
+        materialId: materialId || null,
+      };
+      try {
+        const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
+        if (!res.ok) {
+          console.warn('[community-ingest] index failed:', await res.text());
+        }
+      } catch (ingestErr) {
+        console.warn('[community-ingest] request failed:', ingestErr);
+      }
+    }
+
     async function submitCatalogUpload(gradeId, topic, description, author, file, shareUrl) {
       const topicNorm = (topic || '').trim();
       if (!topicNorm) throw new Error('יש להזין שם נושא');
@@ -7523,13 +7559,19 @@
         fileType = file.type || null;
       }
       const title = desc || fileName || topicNorm;
-      await postCommunityMaterial(gradeId, topicNorm, filePath, fileName, {
+      const material = await postCommunityMaterial(gradeId, topicNorm, filePath, fileName, {
         title: title,
         author: author,
         description: desc,
         fileSize: fileSize,
         fileType: fileType,
       });
+      const materialId = material && material.id ? material.id : null;
+      indexCommunityUpload(gradeId, topicNorm, filePath, fileName, {
+        title: title,
+        author: author,
+        fileType: fileType,
+      }, materialId);
       await loadCommunity();
     }
 

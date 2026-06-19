@@ -13,6 +13,8 @@
 
   /** Permanent PRO tier — must match api/subscription.js PRO_USERS. */
   var PRO_USERS = ['alon1971@gmail.com'];
+  /** Google display names that map to a PRO account when email is absent from the session. */
+  var PRO_DISPLAY_NAMES = ['alon yerushalmy'];
 
   var LEGACY_TIER_MAP = {
     educator: 'standard',
@@ -83,6 +85,25 @@
     return PRO_USERS.indexOf(normalizeEmail(email)) >= 0;
   }
 
+  function normalizeDisplayName(name) {
+    return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function isProDisplayName(displayName) {
+    return PRO_DISPLAY_NAMES.indexOf(normalizeDisplayName(displayName)) >= 0;
+  }
+
+  function resolveProEmailFromUser(user) {
+    if (!user) return '';
+    if (isProUserEmail(user.email)) return normalizeEmail(user.email);
+    if (isProDisplayName(user.displayName)) return PRO_USERS[0];
+    return '';
+  }
+
+  function isProUserProfile(user) {
+    return Boolean(resolveProEmailFromUser(user));
+  }
+
   function readIdentityEmail() {
     try {
       return normalizeEmail(localStorage.getItem(STORAGE_IDENTITY_EMAIL));
@@ -98,10 +119,15 @@
   }
 
   function getIdentityEmail() {
-    if (authState.isAuthenticated && authState.user && authState.user.email) {
-      return normalizeEmail(authState.user.email);
+    if (authState.isAuthenticated && authState.user) {
+      var sessionEmail = normalizeEmail(authState.user.email);
+      if (sessionEmail) return sessionEmail;
+      var mappedPro = resolveProEmailFromUser(authState.user);
+      if (mappedPro) return mappedPro;
     }
-    return readIdentityEmail();
+    var stored = readIdentityEmail();
+    if (stored) return stored;
+    return '';
   }
 
   function setIdentityEmail(email) {
@@ -115,7 +141,9 @@
   }
 
   function isProUser() {
-    return isProUserEmail(getIdentityEmail());
+    if (isProUserEmail(getIdentityEmail())) return true;
+    if (authState.isAuthenticated && authState.user && isProUserProfile(authState.user)) return true;
+    return false;
   }
 
   function applyProUserTierIfEligible() {
@@ -253,6 +281,12 @@
     authState.provider = 'supabase';
     authState.user = mapSupabaseUser(user);
     authState.tier = resolveTierFromUser(user);
+    if (authState.user.email) writeIdentityEmail(authState.user.email);
+    else {
+      var mappedPro = resolveProEmailFromUser(authState.user);
+      if (mappedPro) writeIdentityEmail(mappedPro);
+    }
+    applyProUserTierIfEligible();
     persistAuth();
     hideAuthOverlay();
     refreshSubscriptionFromServer().finally(function () {
@@ -374,6 +408,10 @@
   function applyServerUsage(usage) {
     if (!usage) return;
     if (applyProUserUsageFromServer(usage)) return;
+    if (isProUser()) {
+      applyProUserTierIfEligible();
+      return;
+    }
     authState.tier = normalizeTierId(usage.tier || authState.tier);
     authState.searchesUsed = Number(usage.searchesUsed) || 0;
     authState.searchLimit = usage.searchLimit != null ? usage.searchLimit : authState.searchLimit;
@@ -466,12 +504,18 @@
     authState.wordDownloadsUsed = null;
     return fetchSubscriptionAction('status').then(function (data) {
       if (!data) return null;
-      if (data.subscription && data.subscription.tier) {
-        authState.tier = normalizeTierId(data.subscription.tier);
-        authState.autoRenew = data.subscription.autoRenew !== false;
-        authState.billingCycle = data.subscription.billingCycle || null;
+      applyProUserTierIfEligible();
+      if (data.proUser || data.whitelisted) {
+        applyProUserUsageFromServer(data.usage || { proUser: true });
+      } else {
+        if (data.subscription && data.subscription.tier && !isProUser()) {
+          authState.tier = normalizeTierId(data.subscription.tier);
+          authState.autoRenew = data.subscription.autoRenew !== false;
+          authState.billingCycle = data.subscription.billingCycle || null;
+        }
+        if (data.usage) applyServerUsage(data.usage);
       }
-      if (data.usage) applyServerUsage(data.usage);
+      applyProUserTierIfEligible();
       persistAuth();
       notifyListeners();
       return data;
@@ -1371,6 +1415,8 @@
         tierEl.classList.toggle('user-tier-badge--pro-user', isProUser());
       }
       if (upgradeBtn) upgradeBtn.classList.toggle('hidden', isProUser());
+      var meterEl = document.getElementById('search-usage-meter');
+      if (meterEl) meterEl.classList.toggle('hidden', isProUser());
       var signOutBtn = document.getElementById('btn-auth-signout');
       var settingsBtn = document.getElementById('btn-user-settings');
       if (signOutBtn) signOutBtn.classList.remove('hidden');
