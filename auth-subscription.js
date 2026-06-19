@@ -265,46 +265,63 @@
     return normalizeTierId(tier);
   }
 
+  function formatNameFromEmail(email) {
+    var normalized = normalizeEmail(email);
+    if (!normalized || normalized.indexOf('@') < 0) return '';
+    var local = normalized.split('@')[0] || '';
+    if (!local) return '';
+    var withoutDigits = local.replace(/\d+/g, '');
+    var base = withoutDigits || local;
+    if (base.indexOf('.') >= 0) base = base.split('.')[0];
+    if (!base) base = local;
+    return base.charAt(0).toUpperCase() + base.slice(1).toLowerCase();
+  }
+
   function resolveDisplayNameFromAuthUser(user) {
     if (!user) return '';
     var meta = user.user_metadata || user.raw_user_meta_data || {};
     var fromMeta = String(meta.full_name || meta.name || '').trim();
-    if (fromMeta) return fromMeta;
+    if (fromMeta && fromMeta.indexOf('@') < 0) return fromMeta;
     if (Array.isArray(user.identities)) {
       for (var i = 0; i < user.identities.length; i++) {
         var idData = (user.identities[i] && user.identities[i].identity_data) || {};
-        var fromId = String(idData.full_name || idData.name || '').trim();
-        if (fromId) return fromId;
+        var fromId = String(
+          idData.full_name || idData.name || idData.given_name || ''
+        ).trim();
+        if (fromId && fromId.indexOf('@') < 0) return fromId;
       }
     }
-    if (user.displayName) return String(user.displayName).trim();
+    var stored = user.displayName ? String(user.displayName).trim() : '';
+    if (stored && stored.indexOf('@') < 0) return stored;
     return '';
+  }
+
+  function resolveUserDisplayName(user, emailFallback) {
+    var name = resolveDisplayNameFromAuthUser(user);
+    if (name) return name;
+    var email = (user && user.email) ? normalizeEmail(user.email) : normalizeEmail(emailFallback || '');
+    if (!email) email = getIdentityEmail();
+    return formatNameFromEmail(email) || '';
   }
 
   function getUserDisplayName(user) {
     var u = user || (authState.isAuthenticated ? authState.user : null);
-    var name = resolveDisplayNameFromAuthUser(u);
-    if (name) return name;
-    if (u && u.displayName) {
-      var stored = String(u.displayName).trim();
-      if (stored && stored.indexOf('@') < 0) return stored;
-    }
-    var email = u && u.email ? normalizeEmail(u.email) : getIdentityEmail();
-    return email || '';
+    return resolveUserDisplayName(u, u && u.email ? u.email : getIdentityEmail());
   }
 
   function getUserFirstName(user) {
     var full = getUserDisplayName(user);
     if (!full) return '';
-    if (full.indexOf('@') >= 0) return full.split('@')[0];
     return full.split(/\s+/)[0];
   }
 
   function mapSupabaseUser(user) {
+    var meta = user.user_metadata || user.raw_user_meta_data || {};
     return {
       id: user.id,
       email: user.email || '',
-      displayName: resolveDisplayNameFromAuthUser(user),
+      displayName: resolveUserDisplayName(user, user.email || ''),
+      user_metadata: meta,
     };
   }
 
@@ -858,7 +875,7 @@
     authState.user = {
       id: externalUser.id || externalUser.uid || '',
       email: externalUser.email || '',
-      displayName: resolveDisplayNameFromAuthUser(externalUser) || String(externalUser.displayName || '').trim(),
+      displayName: resolveUserDisplayName(externalUser, externalUser.email || '') || String(externalUser.displayName || '').trim(),
     };
     authState.tier = tier && TIERS[normalizeTierId(tier)] ? normalizeTierId(tier) : authState.tier || 'trial';
     persistAuth();
