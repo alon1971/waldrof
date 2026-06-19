@@ -67,6 +67,34 @@ function getSupabaseServiceRoleKey() {
   return cleanKey(process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
+function decodeJwtPayload(key) {
+  try {
+    const parts = String(key || '').split('.');
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+function getSupabaseKeyRole(key) {
+  const payload = decodeJwtPayload(key);
+  return payload && payload.role ? String(payload.role) : '';
+}
+
+/** True only when the env key is a distinct service_role JWT (not anon / mis-copy). */
+function hasRealServiceRoleKey() {
+  const serviceKey = getSupabaseServiceRoleKey();
+  if (!serviceKey) return false;
+  const anonKey = getSupabaseAnonKey();
+  if (anonKey && serviceKey === anonKey) return false;
+  const role = getSupabaseKeyRole(serviceKey);
+  if (role === 'anon') return false;
+  return role === 'service_role' || role === '';
+}
+
 /** Preferred server-side Supabase key (service role, then anon). */
 function getSupabaseServerKey() {
   return getSupabaseServiceRoleKey() || getSupabaseAnonKey();
@@ -111,6 +139,8 @@ module.exports = {
   getSupabaseUrl,
   getSupabaseAnonKey,
   getSupabaseServiceRoleKey,
+  hasRealServiceRoleKey,
+  getSupabaseKeyRole,
   getSupabaseServerKey,
   getPerplexityApiKey,
   getOpenAiApiKey,

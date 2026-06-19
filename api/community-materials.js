@@ -42,7 +42,7 @@ function parseRequestBody(req) {
 }
 
 function hasServiceRoleKey() {
-  return Boolean(env.getSupabaseServiceRoleKey());
+  return env.hasRealServiceRoleKey();
 }
 
 function getServiceRoleConfig() {
@@ -161,22 +161,30 @@ async function supabaseUserRequest(relativePath, options, userToken) {
 }
 
 async function supabaseMutateWithFallback(relativePath, options, req) {
+  const userToken = extractBearerToken(req);
   let lastResult = { ok: false, status: 503, body: null, text: '' };
+
+  if (userToken) {
+    const userResult = await supabaseUserRequest(relativePath, options, userToken);
+    if (userResult.ok) return userResult;
+    lastResult = userResult;
+  }
+
   if (hasServiceRoleKey()) {
     try {
-      lastResult = await supabaseServiceRequest(relativePath, options);
-      if (lastResult.ok) return lastResult;
+      const serviceResult = await supabaseServiceRequest(relativePath, options);
+      if (serviceResult.ok) return serviceResult;
+      lastResult = serviceResult;
     } catch (serviceErr) {
       lastResult = { ok: false, status: serviceErr.statusCode || 503, body: null, text: serviceErr.message || '' };
     }
+  } else if (!userToken) {
+    const err = new Error('Sign in required or configure SUPABASE_SERVICE_ROLE_KEY on the server');
+    err.statusCode = 401;
+    throw err;
   }
-  const userToken = extractBearerToken(req);
-  if (!userToken) {
-    return lastResult;
-  }
-  const userResult = await supabaseUserRequest(relativePath, options, userToken);
-  if (userResult.ok) return userResult;
-  return userResult.status ? userResult : lastResult;
+
+  return lastResult;
 }
 
 async function supabaseRequestWithKeyFallback(relativePath, options, preferAnon) {
@@ -250,6 +258,7 @@ async function fetchMaterialById(id) {
 async function deleteStorageObject(filePath) {
   const path = resolveStorageObjectPath(filePath);
   if (!path || isHttpUrl(path) || path.indexOf('community/') !== 0) return false;
+  if (!hasServiceRoleKey()) return false;
   const cfg = getServiceRoleConfig();
   const enc = encodeStorageObjectPath(path);
   const res = await fetch(cfg.url + '/storage/v1/object/' + STORAGE_BUCKET + '/' + enc, {

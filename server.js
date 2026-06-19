@@ -386,6 +386,7 @@ const server = http.createServer(async function (req, res) {
       cacheBackend: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
       gradeCacheKey: 'phase+gradeId',
       perplexityKey: Boolean(env.getPerplexityApiKey()),
+      communityServiceRole: env.hasRealServiceRoleKey ? env.hasRealServiceRoleKey() : Boolean(env.getSupabaseServiceRoleKey()),
     }));
   }
 

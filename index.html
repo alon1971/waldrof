@@ -7751,6 +7751,41 @@
       return headers;
     }
 
+    async function getCommunityMutateHeaders(extra) {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
+      if (typeof WaldorfAuth !== 'undefined') {
+        try {
+          const client = typeof WaldorfAuth.getSupabaseClient === 'function' ? WaldorfAuth.getSupabaseClient() : null;
+          if (client && client.auth) {
+            if (typeof client.auth.getSession === 'function') {
+              const sessionResult = await client.auth.getSession();
+              const session = sessionResult && sessionResult.data && sessionResult.data.session;
+              if (session && session.expires_at && session.expires_at * 1000 < Date.now() + 120000) {
+                if (typeof client.auth.refreshSession === 'function') {
+                  await client.auth.refreshSession();
+                }
+              }
+            }
+          }
+          const token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (e) { /* ignore */ }
+      }
+      return headers;
+    }
+
+    async function refreshCatalogAfterCommunityDelete(pk) {
+      forgetCommunityOwnership(pk);
+      appState.communityCache = appState.communityCache.filter(function (m) {
+        return String(m.id || m.dbId || resolveCommunityMaterialId(m)) !== pk;
+      });
+      appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      updateCommunityBadge();
+      await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
+      renderCommunityMaterials();
+    }
+
     function formatSupabaseError(err) {
       if (!err) return 'Unknown Supabase error';
       if (typeof err === 'string') return err;
@@ -8309,14 +8344,17 @@
     async function deleteCommunityMaterialRecord(id) {
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
-      if (canUseCommunityUploadApi()) {
-        const headers = { 'Content-Type': 'application/json' };
-        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
-          try {
-            const token = await WaldorfAuth.getAccessToken();
-            if (token) headers.Authorization = 'Bearer ' + token;
-          } catch (e) { /* ignore */ }
+      try {
+        const viaClient = await deleteCommunityMaterialViaClient(pk);
+        if (viaClient) {
+          forgetCommunityOwnership(pk);
+          return viaClient;
         }
+      } catch (clientErr) {
+        console.warn('[community] client delete failed:', formatSupabaseError(clientErr));
+      }
+      if (canUseCommunityUploadApi()) {
+        const headers = await getCommunityMutateHeaders();
         const payload = buildCommunityMaterialMutateBody(pk);
         try {
           const res = await fetch(communityMaterialsMutateUrl(pk), {
@@ -8330,7 +8368,7 @@
             return text ? JSON.parse(text) : {};
           }
         } catch (apiErr) {
-          console.warn('[community] API delete failed, trying direct Supabase:', apiErr.message || apiErr);
+          console.warn('[community] API delete failed:', apiErr.message || apiErr);
         }
       }
       const headers = await getSupabaseAuthHeaders();
@@ -8345,14 +8383,17 @@
       fields = fields || {};
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
-      if (canUseCommunityUploadApi()) {
-        const headers = { 'Content-Type': 'application/json' };
-        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
-          try {
-            const token = await WaldorfAuth.getAccessToken();
-            if (token) headers.Authorization = 'Bearer ' + token;
-          } catch (e) { /* ignore */ }
+      try {
+        const viaClient = await patchCommunityMaterialViaClient(pk, fields);
+        if (viaClient) {
+          upsertCommunityCacheRow(viaClient);
+          return viaClient;
         }
+      } catch (clientErr) {
+        console.warn('[community] client patch failed:', formatSupabaseError(clientErr));
+      }
+      if (canUseCommunityUploadApi()) {
+        const headers = await getCommunityMutateHeaders();
         const payload = buildCommunityMaterialMutateBody(pk, fields);
         try {
           const res = await fetch(communityMaterialsMutateUrl(pk), {
@@ -8368,7 +8409,7 @@
             return row;
           }
         } catch (apiErr) {
-          console.warn('[community] API patch failed, trying direct Supabase:', apiErr.message || apiErr);
+          console.warn('[community] API patch failed:', apiErr.message || apiErr);
         }
       }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
@@ -11950,38 +11991,13 @@
       const row = findCatalogMaterialRow(pk);
       if (row) row.classList.add('opacity-60', 'pointer-events-none');
       try {
-        const headers = {};
-        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
-          try {
-            const token = await WaldorfAuth.getAccessToken();
-            if (token) headers.Authorization = 'Bearer ' + token;
-          } catch (e) { /* ignore */ }
-        }
-        const response = await fetch(communityMaterialsMutateUrl(pk), { method: 'DELETE', headers: headers });
-        if (response.ok) {
-          forgetCommunityOwnership(pk);
-          appState.communityCache = appState.communityCache.filter(function (m) {
-            return String(m.id || m.dbId || resolveCommunityMaterialId(m)) !== pk;
-          });
-          appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-          updateCommunityBadge();
-          await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
-          if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
-          renderCommunityMaterials();
-          alert('החומר נמחק בהצלחה');
-        } else {
-          let errMsg = response.statusText || String(response.status);
-          try {
-            const errData = await response.json();
-            errMsg = errData.error || errMsg;
-          } catch (parseErr) { /* ignore */ }
-          if (row) row.classList.remove('opacity-60', 'pointer-events-none');
-          alert('שגיאה במחיקה: ' + errMsg);
-        }
+        await deleteCommunityMaterialRecord(pk);
+        await refreshCatalogAfterCommunityDelete(pk);
+        alert('החומר נמחק בהצלחה');
       } catch (err) {
         if (row) row.classList.remove('opacity-60', 'pointer-events-none');
         console.error('Delete error:', err);
-        alert('שגיאת רשת במחיקה');
+        alert('שגיאה במחיקה: ' + (err.message || 'שגיאת רשת במחיקה'));
       }
     };
 
