@@ -712,9 +712,9 @@ function scoreTopicAutoLoadSimilarity(queryRaw, candidateTopic, candidateQueryTe
       score = Math.max(score, 1);
       return;
     }
-    // Only treat as auto-load when the archive title is longer and contains the full user query.
-    if (queryStable && stable.length > queryStable.length && stable.indexOf(queryStable) >= 0) {
-      score = Math.max(score, 0.95);
+    // Only treat as auto-load when the archive title is the same normalized query (not a longer containing title).
+    if (queryStable && stable === queryStable) {
+      score = Math.max(score, 1);
     }
   });
   return score;
@@ -858,7 +858,7 @@ function collectArchiveTopicRowsForGrade(gradeId, topic) {
 }
 
 /**
- * User typed a prefix of a longer archived lesson title — load the longest matching archive.
+ * User typed a keyword contained in a longer archived lesson title — suggest confirmation first.
  */
 async function findArchiveTopicByQueryPrefix(topic, gradeId) {
   const queryStable = stableNormalize(topic);
@@ -886,7 +886,21 @@ async function findArchiveTopicByQueryPrefix(topic, gradeId) {
   });
 
   if (!best) return null;
-  return formatExactArchiveTopicMatch(best, gradeId, { requestedTopic: topic });
+  return formatPartialArchiveTopicMatch(best, gradeId, { requestedTopic: topic });
+}
+
+function formatPartialArchiveTopicMatch(best, gradeId, options) {
+  options = options || {};
+  if (!best || !best.row) return null;
+  return {
+    matchType: 'partial',
+    similarity: best.score,
+    cacheKey: best.row.cache_key,
+    topic: best.topic,
+    requestedTopic: options.requestedTopic || null,
+    gradeId: gradeId,
+    gradeLabel: best.row.grade_label || null,
+  };
 }
 
 function findArchiveTopicInFallback(query, gradeId, options) {

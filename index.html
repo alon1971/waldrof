@@ -2941,6 +2941,13 @@
           <input type="text" id="topic-input" maxlength="200"
             class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base focus:ring-2 focus:ring-sage/40 outline-none mb-2" />
           <p id="api-hint-step2" class="hidden text-xs text-terracotta mt-1"><i class="fa-solid fa-cloud icon-inline"></i> <span data-i18n="api_hint_step2">חיבור Supabase נדרש — בדקו הגדרות הפרויקט.</span></p>
+          <div id="topic-archive-suggestion" class="hidden mt-3 p-4 rounded-xl border border-sage/40 bg-sage/5 text-sm" role="dialog" aria-live="polite">
+            <p id="topic-archive-suggestion-text" class="text-walnut font-medium m-0"></p>
+            <div class="topic-archive-suggest-actions flex flex-wrap gap-2 mt-3">
+              <button type="button" id="topic-archive-suggest-yes" class="touch-btn px-4 py-2 rounded-lg bg-sage text-white text-sm font-medium hover:bg-sage-dark"></button>
+              <button type="button" id="topic-archive-suggest-no" class="touch-btn px-4 py-2 rounded-lg border border-gold/40 bg-cream text-walnut text-sm font-medium hover:bg-parchment"></button>
+            </div>
+          </div>
           <button type="button" id="btn-topic-research"
             class="touch-btn w-full mt-4 bg-sage hover:bg-sage-dark active:bg-sage-dark text-white font-medium rounded-xl">
             <i class="fa-solid fa-satellite-dish icon-inline"></i> <span data-i18n="btn_topic_research">חפש ברשת ונתח התאמה לגיל</span>
@@ -3785,9 +3792,37 @@
 
     function resetArchiveSearchFlowState() {
       appState.archiveSuggestionPending = false;
+      hideTopicArchiveSuggestionBanner();
       if (typeof LessonChatSidebar !== 'undefined' && typeof LessonChatSidebar.clearArchiveSuggestionState === 'function') {
         LessonChatSidebar.clearArchiveSuggestionState();
       }
+    }
+
+    let topicArchiveSuggestionHandlers = null;
+
+    function hideTopicArchiveSuggestionBanner() {
+      const panel = document.getElementById('topic-archive-suggestion');
+      if (panel) panel.classList.add('hidden');
+      topicArchiveSuggestionHandlers = null;
+    }
+
+    function showTopicArchiveSuggestionBanner(match, handlers) {
+      const panel = document.getElementById('topic-archive-suggestion');
+      const textEl = document.getElementById('topic-archive-suggestion-text');
+      const yesBtn = document.getElementById('topic-archive-suggest-yes');
+      const noBtn = document.getElementById('topic-archive-suggest-no');
+      if (!panel || !textEl || !match || !match.suggestedTopic) return;
+      topicArchiveSuggestionHandlers = handlers || null;
+      textEl.textContent = t('archive_suggest_prompt', { topic: match.suggestedTopic });
+      if (yesBtn) {
+        yesBtn.textContent = t('archive_suggest_yes');
+        yesBtn.disabled = false;
+      }
+      if (noBtn) {
+        noBtn.textContent = t('archive_suggest_no');
+        noBtn.disabled = false;
+      }
+      panel.classList.remove('hidden');
     }
 
     function normalizeArchiveSearchTopic(topic) {
@@ -7065,7 +7100,13 @@
       if (score >= 0.99) return true;
       const q = String(query || '').trim().toLowerCase();
       const a = String(archiveTitle || '').trim().toLowerCase();
-      if (a.length > q.length && a.indexOf(q) >= 0) return true;
+      if (!q || !a) return false;
+      if (q === a) return true;
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined' && typeof WaldorfHebrewTopicMatch.stableNormalize === 'function') {
+        const qs = WaldorfHebrewTopicMatch.stableNormalize(q);
+        const as = WaldorfHebrewTopicMatch.stableNormalize(a);
+        if (qs && as && qs === as) return true;
+      }
       return false;
     }
 
@@ -8946,40 +8987,52 @@
       }
       topicResearchAbort = null;
 
+      const onConfirm = function () {
+        appState.archiveSuggestionPending = false;
+        hideTopicArchiveSuggestionBanner();
+        if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.setDisplayMode('bubble');
+        reloadArchiveLessonItem(match.cacheKey).then(function (item) {
+          return applyLessonPlanFromHistory(item, { userQuery: topic });
+        }).then(function () {
+          if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+        }).catch(function (err) {
+          alert(err.message || String(err));
+        });
+      };
+
+      const onReject = function () {
+        appState.archiveSuggestionPending = false;
+        hideTopicArchiveSuggestionBanner();
+        appState.archiveRejectedSearch = { topic: topic, gradeId: appState.grade };
+        topicResearchRunId += 1;
+        if (topicResearchAbort) {
+          topicResearchAbort.abort();
+          topicResearchAbort = null;
+        }
+        setTopicResearchLoadingUi(false);
+        const rejectBtn = document.getElementById('btn-topic-research');
+        if (rejectBtn) {
+          rejectBtn.disabled = false;
+          updateTopicResearchButton();
+        }
+        if (typeof LessonChatSidebar !== 'undefined') {
+          LessonChatSidebar.showArchiveRefineHint({
+            onAfterShow: focusStepBTopicInput,
+          });
+        } else {
+          focusStepBTopicInput();
+        }
+      };
+
+      showTopicArchiveSuggestionBanner(match, { onConfirm: onConfirm, onReject: onReject });
+
       if (typeof LessonChatSidebar !== 'undefined') {
         LessonChatSidebar.showArchiveTopicSuggestion({
           query: topic,
           suggestedTopic: match.suggestedTopic,
           cacheKey: match.cacheKey,
-          onConfirm: function () {
-            appState.archiveSuggestionPending = false;
-            LessonChatSidebar.setDisplayMode('bubble');
-            reloadArchiveLessonItem(match.cacheKey).then(function (item) {
-              return applyLessonPlanFromHistory(item, { userQuery: topic });
-            }).then(function () {
-              if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
-            }).catch(function (err) {
-              alert(err.message || String(err));
-            });
-          },
-          onReject: function () {
-            appState.archiveSuggestionPending = false;
-            appState.archiveRejectedSearch = { topic: topic, gradeId: appState.grade };
-            topicResearchRunId += 1;
-            if (topicResearchAbort) {
-              topicResearchAbort.abort();
-              topicResearchAbort = null;
-            }
-            setTopicResearchLoadingUi(false);
-            const rejectBtn = document.getElementById('btn-topic-research');
-            if (rejectBtn) {
-              rejectBtn.disabled = false;
-              updateTopicResearchButton();
-            }
-            LessonChatSidebar.showArchiveRefineHint({
-              onAfterShow: focusStepBTopicInput,
-            });
-          },
+          onConfirm: onConfirm,
+          onReject: onReject,
         });
       }
       return true;
@@ -10495,8 +10548,27 @@
       bindWizardNavClick(document.getElementById('btn-to-step-2'), goToStep2FromStep1);
       document.getElementById('topic-input').addEventListener('input', function () {
         appState.topic = this.value.trim();
+        if (appState.archiveSuggestionPending) resetArchiveSearchFlowState();
         if (appState.grade && appState.topic) renderTopicCommunitySlot();
       });
+      const topicArchiveYes = document.getElementById('topic-archive-suggest-yes');
+      const topicArchiveNo = document.getElementById('topic-archive-suggest-no');
+      if (topicArchiveYes) {
+        topicArchiveYes.addEventListener('click', function () {
+          if (!topicArchiveSuggestionHandlers || typeof topicArchiveSuggestionHandlers.onConfirm !== 'function') return;
+          topicArchiveYes.disabled = true;
+          if (topicArchiveNo) topicArchiveNo.disabled = true;
+          topicArchiveSuggestionHandlers.onConfirm();
+        });
+      }
+      if (topicArchiveNo) {
+        topicArchiveNo.addEventListener('click', function () {
+          if (!topicArchiveSuggestionHandlers || typeof topicArchiveSuggestionHandlers.onReject !== 'function') return;
+          if (topicArchiveYes) topicArchiveYes.disabled = true;
+          topicArchiveNo.disabled = true;
+          topicArchiveSuggestionHandlers.onReject();
+        });
+      }
       bindWizardNavClick(document.getElementById('btn-topic-research'), function () {
         generateLesson();
       });
