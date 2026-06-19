@@ -8379,14 +8379,18 @@
         if (!file.size) throw new Error(t('catalog_err_file'));
         if (file.size > MAX_FILE) throw new Error('קובץ גדול מ-5MB');
         if (canUseCommunityUploadApi()) {
-          const up = await uploadFileViaCommunityApi(file, gradeId, topicNorm, {
-            description: desc,
-            author: author,
-            title: desc || file.name || topicNorm,
-          });
-          if (up.material) upsertCommunityCacheRow(up.material);
-          await loadCommunity();
-          return up.material || null;
+          try {
+            const up = await uploadFileViaCommunityApi(file, gradeId, topicNorm, {
+              description: desc,
+              author: author,
+              title: desc || file.name || topicNorm,
+            });
+            if (up.material) upsertCommunityCacheRow(up.material);
+            await loadCommunity();
+            return up.material || null;
+          } catch (apiUploadErr) {
+            console.warn('[community] API upload failed, falling back to direct storage:', apiUploadErr);
+          }
         }
         const up = await uploadFileToStorage(file, gradeId, topicNorm);
         filePath = up.storagePath;
