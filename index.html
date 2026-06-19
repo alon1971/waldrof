@@ -2,6 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
+  <meta name="waldrof-build" content="20250619b" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מתכנן תקופות לימוד אנתרופוסופי — מסע פדגוגי שלב-אחר-שלב" />
   <link rel="manifest" href="/manifest.json">
@@ -14,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20250619b" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -3167,7 +3168,7 @@
             <span data-i18n="catalog_title">מאגר קהילתי</span>
           </h2>
           <p class="text-sm text-walnut/70 mb-5" data-i18n="catalog_desc">בחרו כיתה, העלו חומרים לנושא חדש — או היכנסו לרובריקות שנוצרו על ידי מורים בקהילה.</p>
-          <div id="share-materials-mount"></div>
+          <div id="share-materials-mount" class="hidden" aria-hidden="true" hidden></div>
           <nav id="catalog-breadcrumb" class="flex flex-wrap items-center gap-2 text-sm text-walnut/70 mb-6" data-i18n-aria="catalog_title"></nav>
           <div id="catalog-status" class="hidden text-sm mb-4"></div>
           <div id="catalog-grades" class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4"></div>
@@ -9118,7 +9119,6 @@
       }
       renderStepProgress();
       updateWorkspaceChrome();
-      if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
       persistActiveStep();
     }
 
@@ -10456,7 +10456,7 @@
       const fileInputId = 'catalog-file-upload-' + String(gradeId).replace(/[^a-zA-Z0-9_-]/g, '_');
       const topicReadonly = readonlyTopic ? ' readonly class="touch-target w-full rounded-xl border border-gold/30 bg-parchment/50 px-4 py-3.5 text-base text-walnut outline-none"' :
         ' class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40"';
-      return '<form class="catalog-upload-form space-y-5 mb-6 p-4 sm:p-6 rounded-2xl border border-sage/30 bg-white shadow-sm" data-grade="' + escapeHtml(String(gradeId)) + '">' +
+      return '<form class="catalog-upload-form space-y-5 mb-6 p-4 sm:p-6 rounded-2xl border border-sage/30 bg-white shadow-sm" data-grade="' + escapeHtml(String(gradeId)) + '" data-catalog-form-version="2">' +
         '<h4 class="text-xl font-bold text-sage-dark mb-1">' + escapeHtml(t('catalog_upload_title')) + '</h4>' +
         '<div>' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
@@ -10624,6 +10624,17 @@
       el.textContent = msg;
     }
 
+    function scrollToCatalogContent(view) {
+      runAfterLayout(function () {
+        const el = view === 'materials' ? document.getElementById('catalog-materials')
+          : view === 'grade' ? document.getElementById('catalog-grade-panel')
+          : document.getElementById('catalog-grades');
+        if (el && !el.classList.contains('hidden')) {
+          scrollElementIntoViewWithChrome(el, 'smooth', 'start');
+        }
+      });
+    }
+
     function renderCatalogBreadcrumb() {
       const bc = document.getElementById('catalog-breadcrumb');
       if (!bc) return;
@@ -10711,6 +10722,7 @@
           renderCatalog('materials', gradeId, btn.getAttribute('data-topic'));
         });
       });
+      scrollToCatalogContent('grade');
     }
 
     function renderCatalogFileRow(file) {
@@ -10757,6 +10769,7 @@
           : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>');
       bindCatalogUploadDrawer(el);
       bindCatalogUploadForms(el);
+      scrollToCatalogContent('materials');
     }
 
     async function renderCatalog(view, gradeId, topicId) {
@@ -10780,6 +10793,7 @@
           showCatalogStatus('', '');
         }
         renderCatalogGrades();
+        scrollToCatalogContent('grades');
       } else if (catalogState.view === 'grade') {
         await renderCatalogGradePanel(catalogState.gradeId);
       } else if (catalogState.view === 'materials') {

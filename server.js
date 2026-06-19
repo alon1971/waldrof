@@ -122,7 +122,8 @@ function serveStatic(req, res, pathname) {
     const ext = path.extname(filePath).toLowerCase();
     const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
     if (ext === '.js' || ext === '.html') {
-      headers['Cache-Control'] = 'no-cache';
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      headers.Pragma = 'no-cache';
     }
     res.writeHead(200, headers);
     res.end(data);
