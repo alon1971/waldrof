@@ -77,6 +77,11 @@
   var useMockGoogleAuth = false;
   var authRedirectUrl = '';
 
+  /** Latin display names that map to Hebrew UI labels (e.g. Google OAuth returns English only). */
+  var KNOWN_HEBREW_FROM_LATIN = {
+    'alon yerushalmy': { full: 'אלון ירושלמי', first: 'אלון' },
+  };
+
   function normalizeEmail(email) {
     return String(email || '').trim().toLowerCase();
   }
@@ -307,14 +312,24 @@
     return valid[0];
   }
 
+  function resolveKnownHebrewName(latinName, mode) {
+    var key = normalizeDisplayName(latinName);
+    var known = KNOWN_HEBREW_FROM_LATIN[key];
+    if (!known) return '';
+    return mode === 'full' ? String(known.full || '').trim() : String(known.first || '').trim();
+  }
+
   function collectAuthMetadataNameCandidates(meta, mode) {
     var out = [];
     if (!meta) return out;
     if (mode === 'full') {
+      if (meta.full_name_he) out.push(meta.full_name_he);
       if (meta.full_name) out.push(meta.full_name);
       if (meta.name) out.push(meta.name);
     } else {
+      if (meta.given_name_he) out.push(meta.given_name_he);
       if (meta.given_name) out.push(meta.given_name);
+      if (meta.full_name_he) out.push(String(meta.full_name_he).split(/\s+/)[0]);
       if (meta.full_name) out.push(String(meta.full_name).split(/\s+/)[0]);
       if (meta.name) out.push(String(meta.name).split(/\s+/)[0]);
     }
@@ -371,9 +386,15 @@
     return pickPreferredAuthName(candidates, mode);
   }
 
+  function applyKnownHebrewNameFallback(name, mode) {
+    if (!name || containsHebrew(name)) return name;
+    var known = resolveKnownHebrewName(name, mode);
+    return known || name;
+  }
+
   function resolveUserDisplayName(user, emailFallback) {
     var name = resolveNameFromAuthUser(user, 'full');
-    if (name) return name;
+    if (name) return applyKnownHebrewNameFallback(name, 'full');
     var email = (user && user.email) ? normalizeEmail(user.email) : normalizeEmail(emailFallback || '');
     if (!email) email = getIdentityEmail();
     return formatNameFromEmail(email) || '';
@@ -381,10 +402,82 @@
 
   function resolveUserFirstName(user, emailFallback) {
     var first = resolveNameFromAuthUser(user, 'first');
-    if (first) return first;
+    if (first) return applyKnownHebrewNameFallback(first, 'first');
     var email = (user && user.email) ? normalizeEmail(user.email) : normalizeEmail(emailFallback || '');
     if (!email) email = getIdentityEmail();
     return formatNameFromEmail(email) || '';
+  }
+
+  function fetchGoogleHebrewProfile(providerToken) {
+    if (!providerToken) return Promise.resolve(null);
+    var url = 'https://people.googleapis.com/v1/people/me?personFields=names';
+    return fetch(url, {
+      headers: { Authorization: 'Bearer ' + providerToken },
+    }).then(function (res) {
+      if (!res.ok) return null;
+      return res.json();
+    }).then(function (data) {
+      if (!data || !Array.isArray(data.names) || !data.names.length) return null;
+      var bestFull = '';
+      var bestFirst = '';
+      for (var i = 0; i < data.names.length; i++) {
+        var entry = data.names[i] || {};
+        var given = String(entry.givenName || '').trim();
+        var family = String(entry.familyName || '').trim();
+        var display = String(entry.displayName || '').trim();
+        var combined = display || (given && family ? given + ' ' + family : given || family);
+        if (!containsHebrew(combined) && !containsHebrew(given)) continue;
+        if (combined.length > bestFull.length) bestFull = combined;
+        if (given && (!bestFirst || (containsHebrew(given) && !containsHebrew(bestFirst)))) {
+          bestFirst = given;
+        }
+      }
+      if (!bestFull && !bestFirst) return null;
+      if (!bestFirst && bestFull) bestFirst = bestFull.split(/\s+/)[0];
+      return { full: bestFull, first: bestFirst };
+    }).catch(function () {
+      return null;
+    });
+  }
+
+  function needsHebrewNameEnrichment(user) {
+    if (!user) return false;
+    var meta = user.user_metadata || user.raw_user_meta_data || {};
+    if (meta.full_name_he && containsHebrew(meta.full_name_he)) return false;
+    var current = resolveNameFromAuthUser(user, 'full');
+    if (current && containsHebrew(current)) return false;
+    if (current && resolveKnownHebrewName(current, 'full')) return false;
+    return true;
+  }
+
+  function enrichGoogleHebrewNames(session) {
+    if (!session || !session.provider_token || !authState.user) return Promise.resolve();
+    if (!needsHebrewNameEnrichment(session.user)) return Promise.resolve();
+    return fetchGoogleHebrewProfile(session.provider_token).then(function (hebrew) {
+      if (!hebrew || (!hebrew.full && !hebrew.first)) return;
+      var meta = authState.user.user_metadata || {};
+      authState.user.user_metadata = Object.assign({}, meta, {
+        full_name_he: hebrew.full || meta.full_name_he,
+        given_name_he: hebrew.first || meta.given_name_he,
+      });
+      authState.user.displayName = resolveUserDisplayName(
+        Object.assign({}, session.user, {
+          user_metadata: authState.user.user_metadata,
+          identity_data: authState.user.identity_data,
+        }),
+        authState.user.email || ''
+      );
+      persistAuth();
+      var client = getSupabaseClient();
+      if (client && client.auth && typeof client.auth.updateUser === 'function') {
+        client.auth.updateUser({
+          data: {
+            full_name_he: hebrew.full,
+            given_name_he: hebrew.first,
+          },
+        }).catch(function () { /* optional */ });
+      }
+    });
   }
 
   function getUserDisplayName(user) {
@@ -425,7 +518,9 @@
     persistAuth();
     hideAuthOverlay();
     refreshSubscriptionFromServer().finally(function () {
-      notifyListeners();
+      enrichGoogleHebrewNames(session).finally(function () {
+        notifyListeners();
+      });
     });
   }
 
@@ -778,9 +873,23 @@
     supabaseClient = client;
     return client.auth.getSession().then(function (result) {
       var session = result && result.data && result.data.session;
-      if (session && session.user) {
-        applySupabaseSession(session);
+      var applySession = function (sess) {
+        if (!sess || !sess.user) return Promise.resolve(sess);
+        applySupabaseSession(sess);
+        return sess;
+      };
+      if (session && session.user && typeof client.auth.getUser === 'function') {
+        return client.auth.getUser().then(function (userResult) {
+          if (userResult && userResult.data && userResult.data.user) {
+            session = Object.assign({}, session, { user: userResult.data.user });
+          }
+          return applySession(session);
+        }).catch(function () {
+          return applySession(session);
+        });
       }
+      return applySession(session);
+    }).then(function (session) {
       client.auth.onAuthStateChange(function (event, sess) {
         if (sess && sess.user) {
           applySupabaseSession(sess);
