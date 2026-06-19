@@ -1393,6 +1393,11 @@
 
     #user-account-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .header-user-identity { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    #user-display-name {
+      unicode-bidi: plaintext;
+      text-align: start;
+      max-width: 10rem;
+    }
     .header-user-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .user-tier-badge {
       display: inline-flex; align-items: center; padding: 0.2rem 0.6rem;
@@ -1772,7 +1777,7 @@
     }
     .app-site-chrome.header-compact .header-user-identity #user-display-name {
       font-size: 0.75rem !important;
-      max-width: 7rem;
+      max-width: 8.5rem;
     }
     .app-site-chrome.header-compact .header-compact-nav {
       display: flex;
@@ -3023,7 +3028,7 @@
           </div>
           <div id="user-account-bar" class="hidden">
             <div class="header-user-identity">
-              <span id="user-display-name" class="text-sm text-walnut/80 max-w-[8rem] truncate"></span>
+              <span id="user-display-name" class="text-sm text-walnut/80 truncate" dir="auto"></span>
               <div id="search-usage-meter" class="hidden" title="">
                 <span id="search-usage-label" data-i18n="search_usage_label">חיפושים היום</span>
                 <div class="search-usage-track" aria-hidden="true"><div id="search-usage-fill" class="search-usage-fill" style="width:0%"></div></div>
@@ -3489,7 +3494,10 @@
     /** עמודת מטא-דאטה אופציונלית — שנה ל-'description' אם כך נקראת בטבלה */
     const COMMUNITY_META_FIELD = 'notes';
     const COMMUNITY_OWNED_STORAGE_KEY = 'waldrof_community_owned_materials';
-    const CATALOG_UPLOAD_DRAFT_PREFIX = 'waldrof_catalog_upload_draft';
+    const COMMUNITY_UPLOAD_DRAFT_KEY = 'community_upload_draft';
+    window.communityFormDraft = window.communityFormDraft || { grade: '', topic: '', description: '', author: '', files: [] };
+    window.selectedUploadFiles = Array.isArray(window.selectedUploadFiles) ? window.selectedUploadFiles : [];
+    window.communityUploadDrawerOpen = Boolean(window.communityUploadDrawerOpen);
     const communitySessionOwnedIds = new Set();
     const SUPABASE_STORAGE_BUCKET = 'community-uploads';
     /**
@@ -11158,35 +11166,127 @@
       if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
     }
 
+    function defaultCommunityFormDraft() {
+      return { grade: '', topic: '', description: '', author: '', files: [], shareMode: 'file', shareUrl: '' };
+    }
+
+    function loadCommunityFormDraftFromStorage() {
+      try {
+        const raw = localStorage.getItem(COMMUNITY_UPLOAD_DRAFT_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return;
+        window.communityFormDraft = Object.assign(defaultCommunityFormDraft(), {
+          grade: parsed.grade != null ? String(parsed.grade) : '',
+          topic: parsed.topic != null ? String(parsed.topic) : '',
+          description: parsed.description != null ? String(parsed.description) : '',
+          author: parsed.author != null ? String(parsed.author) : '',
+          files: Array.isArray(parsed.files) ? parsed.files : [],
+          shareMode: parsed.shareMode || 'file',
+          shareUrl: parsed.shareUrl != null ? String(parsed.shareUrl) : '',
+        });
+        if (parsed.drawerOpen) window.communityUploadDrawerOpen = true;
+      } catch (e) { /* ignore */ }
+    }
+
+    function persistCommunityFormDraft(drawerOpenOverride) {
+      const draft = window.communityFormDraft || defaultCommunityFormDraft();
+      const payload = {
+        grade: draft.grade || '',
+        topic: draft.topic || '',
+        description: draft.description || '',
+        author: draft.author || '',
+        files: (window.selectedUploadFiles || []).map(function (f) {
+          return { name: f.name, size: f.size, type: f.type || '' };
+        }),
+        shareMode: draft.shareMode || 'file',
+        shareUrl: draft.shareUrl || '',
+        drawerOpen: drawerOpenOverride != null ? Boolean(drawerOpenOverride) : Boolean(window.communityUploadDrawerOpen),
+        savedAt: Date.now(),
+      };
+      try {
+        localStorage.setItem(COMMUNITY_UPLOAD_DRAFT_KEY, JSON.stringify(payload));
+      } catch (e) { /* ignore */ }
+    }
+
+    function syncCommunityFormDraftFromForm(form, drawerOpen) {
+      if (!form) return;
+      if (!window.communityFormDraft) window.communityFormDraft = defaultCommunityFormDraft();
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      const topicInput = form.querySelector('[name="catalog-topic"]');
+      const descInput = form.querySelector('[name="catalog-desc"]');
+      const authorInput = form.querySelector('[name="catalog-author"]');
+      const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
+      const linkInput = form.querySelector('[name="catalog-share-url"]');
+      window.communityFormDraft.grade = gradeSelect ? gradeSelect.value.trim() : (form.getAttribute('data-grade') || '');
+      window.communityFormDraft.topic = topicInput ? topicInput.value : '';
+      window.communityFormDraft.description = descInput ? descInput.value : '';
+      window.communityFormDraft.author = authorInput ? authorInput.value : '';
+      window.communityFormDraft.shareMode = modeEl ? modeEl.value : 'file';
+      window.communityFormDraft.shareUrl = linkInput ? linkInput.value : '';
+      window.communityFormDraft.files = (window.selectedUploadFiles || []).map(function (f) {
+        return { name: f.name, size: f.size, type: f.type || '' };
+      });
+      if (drawerOpen != null) {
+        window.communityUploadDrawerOpen = Boolean(drawerOpen);
+      } else {
+        const drawer = form.closest('.catalog-upload-drawer');
+        window.communityUploadDrawerOpen = Boolean(drawer && !drawer.classList.contains('hidden'));
+      }
+      persistCommunityFormDraft();
+    }
+
+    function applyCommunityFormDraftToForm(form) {
+      if (!form) return;
+      loadCommunityFormDraftFromStorage();
+      const d = window.communityFormDraft || defaultCommunityFormDraft();
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      if (gradeSelect && d.grade) gradeSelect.value = d.grade;
+      const topicInput = form.querySelector('[name="catalog-topic"]');
+      if (topicInput && !topicInput.readOnly && d.topic != null) topicInput.value = d.topic;
+      const descInput = form.querySelector('[name="catalog-desc"]');
+      if (descInput && d.description != null) descInput.value = d.description;
+      const authorInput = form.querySelector('[name="catalog-author"]');
+      if (authorInput && d.author != null) authorInput.value = d.author;
+      if (d.shareMode) {
+        const radio = form.querySelector('[name="catalog-share-mode"][value="' + d.shareMode + '"]');
+        if (radio) {
+          radio.checked = true;
+          setCatalogShareMode(form, d.shareMode);
+        }
+      }
+      const linkInput = form.querySelector('[name="catalog-share-url"]');
+      if (linkInput && d.shareUrl != null) linkInput.value = d.shareUrl;
+      updateCatalogFileDisplay(form, window.selectedUploadFiles);
+    }
+
+    function clearCommunityFormDraftOnSuccess() {
+      window.communityFormDraft = defaultCommunityFormDraft();
+      window.selectedUploadFiles = [];
+      window.communityUploadDrawerOpen = false;
+      try { localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY); } catch (e) { /* ignore */ }
+    }
+
+    function saveAllCommunityFormDrafts() {
+      document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
+        syncCommunityFormDraftFromForm(form);
+      });
+    }
+
     function closeAllCatalogUploadDrawers() {
+      document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
+        syncCommunityFormDraftFromForm(form, false);
+      });
       const panel = document.getElementById('panel-catalog');
       if (!panel) return;
       panel.querySelectorAll('.catalog-upload-drawer').forEach(function (drawer) {
-        const form = drawer.querySelector('.catalog-upload-form');
         drawer.classList.add('hidden');
         const wrap = drawer.closest('.catalog-upload-wrap');
         const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
         if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
-        if (form) {
-          flushCatalogUploadDraftSave(form);
-          writeCatalogUploadDraft(form.getAttribute('data-grade') || '', collectCatalogUploadDraftFromForm(form, false), form);
-          form.reset();
-          const state = getCatalogUploadFormState(form);
-          state.file = null;
-          state.files = [];
-          state.docsLink = '';
-          resetCatalogFileDisplay(form);
-          const msgEl = form.querySelector('.catalog-upload-msg');
-          if (msgEl) {
-            msgEl.textContent = '';
-            msgEl.classList.add('hidden');
-            msgEl.classList.remove('text-sage-dark', 'text-terracotta');
-          }
-          const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
-          if (fileRadio) fileRadio.checked = true;
-          setCatalogShareMode(form, 'file');
-        }
       });
+      window.communityUploadDrawerOpen = false;
+      persistCommunityFormDraft(false);
     }
 
     function catalogGradeNavHtml(activeGradeId) {
@@ -11230,218 +11330,57 @@
         btn.addEventListener('click', function () {
           const opening = drawer.classList.contains('hidden');
           drawer.classList.toggle('hidden');
+          window.communityUploadDrawerOpen = opening;
           btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
-          if (opening) {
-            const form = drawer.querySelector('.catalog-upload-form');
-            if (form) {
-              bindCatalogShareModeToggle(form);
-              bindCatalogFileInput(form);
-              bindCatalogUploadDraftAutosave(form);
-              applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(form.getAttribute('data-grade') || '', null, form));
-              updateCatalogFileDisplay(form, getCatalogUploadFormState(form).file);
-            }
+          const form = drawer.querySelector('.catalog-upload-form');
+          if (opening && form) {
+            bindCatalogShareModeToggle(form);
+            bindCatalogFileInput(form);
+            bindCommunityFormDraftAutosave(form);
+            applyCommunityFormDraftToForm(form);
             const topicInput = drawer.querySelector('[name="catalog-topic"]');
             if (topicInput && !topicInput.readOnly) topicInput.focus({ preventScroll: true });
+          } else if (form) {
+            syncCommunityFormDraftFromForm(form, false);
           }
         });
       });
     }
 
-    const catalogUploadFormState = new WeakMap();
-
-    function getCatalogUploadFormState(form) {
-      if (!catalogUploadFormState.has(form)) {
-        catalogUploadFormState.set(form, { file: null, files: [], docsLink: '' });
-      }
-      return catalogUploadFormState.get(form);
-    }
-
-    function catalogUploadDraftKey(gradeId, topic) {
-      const topicPart = slugifyStorageSegment(topic || 'general');
-      return CATALOG_UPLOAD_DRAFT_PREFIX + ':' + String(gradeId || 'all') + ':' + topicPart;
-    }
-
-    function resolveCatalogUploadDraftKey(form, gradeId) {
-      const grade = String(gradeId || (form && form.getAttribute('data-grade')) || 'all');
-      let topic = '';
-      if (form) {
-        const topicInput = form.querySelector('[name="catalog-topic"]');
-        topic = topicInput ? topicInput.value.trim() : '';
-      }
-      return catalogUploadDraftKey(grade, topic);
-    }
-
-    function readCatalogUploadDraft(gradeId, topic, form) {
-      const keys = [];
-      if (form) keys.push(resolveCatalogUploadDraftKey(form, gradeId));
-      keys.push(catalogUploadDraftKey(gradeId, topic));
-      keys.push(catalogUploadDraftKey(gradeId, ''));
-      const seen = new Set();
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        try {
-          const raw = localStorage.getItem(key);
-          if (raw) return JSON.parse(raw);
-        } catch (e) { /* try next key */ }
-      }
-      return null;
-    }
-
-    function writeCatalogUploadDraft(gradeId, draft, form) {
-      if (!draft) return;
-      const key = form ? resolveCatalogUploadDraftKey(form, gradeId) : catalogUploadDraftKey(gradeId, draft.topic);
-      const hasContent = [draft.topic, draft.description, draft.author, draft.shareUrl].some(function (v) {
-        return String(v || '').trim().length > 0;
-      });
-      if (!hasContent && !draft.drawerOpen && !draft.hasFileSelection && (!draft.shareMode || draft.shareMode === 'file')) {
-        try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
-        return;
-      }
-      try {
-        localStorage.setItem(key, JSON.stringify(draft));
-      } catch (e) { /* ignore */ }
-    }
-
-    function clearCatalogUploadDraft(gradeId, topic, form) {
-      const keys = [];
-      if (form) keys.push(resolveCatalogUploadDraftKey(form, gradeId));
-      keys.push(catalogUploadDraftKey(gradeId, topic));
-      keys.push(catalogUploadDraftKey(gradeId, ''));
-      const seen = new Set();
-      keys.forEach(function (key) {
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
-      });
-    }
-
-    function collectCatalogUploadDraftFromForm(form, drawerOpen) {
-      if (!form) return null;
-      const gradeSelect = form.querySelector('[name="catalog-grade"]');
-      const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
-      const state = getCatalogUploadFormState(form);
-      const topicInput = form.querySelector('[name="catalog-topic"]');
-      const descInput = form.querySelector('[name="catalog-desc"]');
-      const authorInput = form.querySelector('[name="catalog-author"]');
-      const linkInput = form.querySelector('[name="catalog-share-url"]');
-      const drawer = form.closest('.catalog-upload-drawer');
-      const isDrawerOpen = drawerOpen != null
-        ? Boolean(drawerOpen)
-        : Boolean(drawer && !drawer.classList.contains('hidden'));
-      return {
-        gradeId: gradeSelect ? gradeSelect.value.trim() : (form.getAttribute('data-grade') || ''),
-        topic: topicInput ? topicInput.value : '',
-        description: descInput ? descInput.value : '',
-        author: authorInput ? authorInput.value : '',
-        shareMode: modeEl ? modeEl.value : 'file',
-        shareUrl: linkInput ? linkInput.value : (state.docsLink || ''),
-        drawerOpen: isDrawerOpen,
-        hasFileSelection: Boolean(state.files && state.files.length) || Boolean(state.file),
-        savedAt: Date.now(),
-      };
-    }
-
-    const catalogUploadDraftTimers = new WeakMap();
-
-    function flushCatalogUploadDraftSave(form) {
-      if (!form) return;
-      const timer = catalogUploadDraftTimers.get(form);
-      if (timer) {
-        clearTimeout(timer);
-        catalogUploadDraftTimers.delete(form);
-      }
-      const gradeId = form.getAttribute('data-grade') || '';
-      writeCatalogUploadDraft(gradeId, collectCatalogUploadDraftFromForm(form), form);
-    }
-
-    function applyCatalogUploadDraftToForm(form, draft) {
-      if (!form || !draft) return;
-      const gradeSelect = form.querySelector('[name="catalog-grade"]');
-      if (gradeSelect && draft.gradeId) gradeSelect.value = draft.gradeId;
-      const topicInput = form.querySelector('[name="catalog-topic"]');
-      if (topicInput && !topicInput.readOnly && draft.topic != null) topicInput.value = draft.topic;
-      const descInput = form.querySelector('[name="catalog-desc"]');
-      if (descInput && draft.description != null) descInput.value = draft.description;
-      const authorInput = form.querySelector('[name="catalog-author"]');
-      if (authorInput && draft.author != null) authorInput.value = draft.author;
-      if (draft.shareMode) {
-        const radio = form.querySelector('[name="catalog-share-mode"][value="' + draft.shareMode + '"]');
-        if (radio) {
-          radio.checked = true;
-          setCatalogShareMode(form, draft.shareMode);
-        }
-      }
-      const linkInput = form.querySelector('[name="catalog-share-url"]');
-      const state = getCatalogUploadFormState(form);
-      if (linkInput && draft.shareUrl != null) {
-        linkInput.value = draft.shareUrl;
-        state.docsLink = draft.shareUrl;
-      }
-    }
-
-    function saveAllCatalogUploadDrafts(drawerOpenOverride) {
-      document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
-        writeCatalogUploadDraft(
-          form.getAttribute('data-grade') || '',
-          collectCatalogUploadDraftFromForm(form, drawerOpenOverride),
-          form
-        );
-      });
-    }
-
-    function restoreCatalogUploadDrawerState(container) {
+    function restoreCommunityUploadDrawerState(container) {
       if (!container) return;
+      loadCommunityFormDraftFromStorage();
       container.querySelectorAll('.catalog-upload-wrap').forEach(function (wrap) {
         const form = wrap.querySelector('.catalog-upload-form');
         const drawer = wrap.querySelector('.catalog-upload-drawer');
         const btn = wrap.querySelector('.catalog-open-upload');
         if (!form || !drawer) return;
-        const gradeId = form.getAttribute('data-grade') || '';
-        const draft = readCatalogUploadDraft(gradeId, null, form);
-        if (!draft || !draft.drawerOpen) return;
-        drawer.classList.remove('hidden');
-        if (btn) btn.setAttribute('aria-expanded', 'true');
-        applyCatalogUploadDraftToForm(form, draft);
+        applyCommunityFormDraftToForm(form);
+        if (window.communityUploadDrawerOpen) {
+          drawer.classList.remove('hidden');
+          if (btn) btn.setAttribute('aria-expanded', 'true');
+        }
       });
     }
 
-    function bindCatalogUploadDraftAutosave(form) {
+    function bindCommunityFormDraftAutosave(form) {
       if (!form || form.dataset.draftBound) return;
       form.dataset.draftBound = '1';
-      const gradeId = form.getAttribute('data-grade') || '';
-      applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(gradeId, null, form));
-      function scheduleSave() {
-        let timer = catalogUploadDraftTimers.get(form);
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(function () {
-          catalogUploadDraftTimers.delete(form);
-          writeCatalogUploadDraft(gradeId, collectCatalogUploadDraftFromForm(form), form);
-        }, 150);
-        catalogUploadDraftTimers.set(form, timer);
-      }
-      form.addEventListener('input', scheduleSave);
-      form.addEventListener('change', scheduleSave);
+      applyCommunityFormDraftToForm(form);
+      function saveNow() { syncCommunityFormDraftFromForm(form); }
+      form.addEventListener('input', saveNow);
+      form.addEventListener('change', saveNow);
       form.addEventListener('blur', function (e) {
-        if (e.target && e.target.closest && e.target.closest('.catalog-upload-form') === form) {
-          flushCatalogUploadDraftSave(form);
-        }
+        if (e.target && e.target.closest && e.target.closest('.catalog-upload-form') === form) saveNow();
       }, true);
     }
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'hidden') {
-          document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
-        }
+        if (document.visibilityState === 'hidden') saveAllCommunityFormDrafts();
       });
-      window.addEventListener('pagehide', function () {
-        document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
-      });
-      window.addEventListener('beforeunload', function () {
-        document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
-      });
+      window.addEventListener('pagehide', saveAllCommunityFormDrafts);
+      window.addEventListener('beforeunload', saveAllCommunityFormDrafts);
     }
 
     function catalogFieldClass() {
@@ -11538,9 +11477,7 @@
     }
 
     function resetCatalogFileDisplay(form) {
-      const state = getCatalogUploadFormState(form);
-      state.file = null;
-      state.files = [];
+      window.selectedUploadFiles = [];
       updateCatalogFileDisplay(form, null);
       const fileInput = form && form.querySelector('[name="catalog-file"]');
       if (fileInput) fileInput.value = '';
@@ -11551,20 +11488,18 @@
       form.dataset.fileBound = '1';
       const fileInput = form.querySelector('[name="catalog-file"]');
       const linkInput = form.querySelector('[name="catalog-share-url"]');
-      const state = getCatalogUploadFormState(form);
       if (!fileInput) return;
       fileInput.addEventListener('change', function () {
-        const chosen = fileInput.files && fileInput.files.length
+        window.selectedUploadFiles = fileInput.files && fileInput.files.length
           ? Array.prototype.slice.call(fileInput.files)
           : [];
-        state.files = chosen;
-        state.file = chosen.length ? chosen[0] : null;
-        updateCatalogFileDisplay(form, chosen);
-        flushCatalogUploadDraftSave(form);
+        updateCatalogFileDisplay(form, window.selectedUploadFiles);
+        syncCommunityFormDraftFromForm(form);
       });
       if (linkInput) {
         linkInput.addEventListener('input', function () {
-          state.docsLink = (linkInput.value || '').trim();
+          if (!window.communityFormDraft) window.communityFormDraft = defaultCommunityFormDraft();
+          window.communityFormDraft.shareUrl = (linkInput.value || '').trim();
         });
       }
     }
@@ -11593,24 +11528,12 @@
       setCatalogShareMode(form, checked ? checked.value : 'file');
     }
 
-    function resolveCatalogUploadFiles(form, state) {
-      const fileInput = form.querySelector('[name="catalog-file"]');
-      const fromInput = fileInput && fileInput.files && fileInput.files.length
-        ? Array.prototype.slice.call(fileInput.files)
-        : [];
-      const fromState = state && state.files && state.files.length
-        ? state.files
-        : (state && state.file ? [state.file] : []);
-      const files = fromInput.length ? fromInput : fromState;
-      if (state) {
-        state.files = files;
-        state.file = files.length ? files[0] : null;
-      }
-      return files;
+    function resolveCatalogUploadFiles() {
+      return (window.selectedUploadFiles || []).filter(function (f) { return f && f.size; });
     }
 
     async function handleCatalogUploadSubmit(form) {
-      const state = getCatalogUploadFormState(form);
+      syncCommunityFormDraftFromForm(form);
       const gradeSelect = form.querySelector('[name="catalog-grade"]');
       const gradeId = gradeSelect ? gradeSelect.value.trim() : (form.getAttribute('data-grade') || '').trim();
       const subject = form.querySelector('[name="catalog-topic"]').value.trim();
@@ -11619,10 +11542,11 @@
       const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
       const mode = modeEl ? modeEl.value : 'file';
       const linkInput = form.querySelector('[name="catalog-share-url"]');
+      const draft = window.communityFormDraft || defaultCommunityFormDraft();
       const docsLink = mode === 'link'
-        ? ((linkInput && linkInput.value) || state.docsLink || '').trim()
+        ? ((linkInput && linkInput.value) || draft.shareUrl || '').trim()
         : '';
-      const files = mode === 'file' ? resolveCatalogUploadFiles(form, state) : [];
+      const files = mode === 'file' ? resolveCatalogUploadFiles() : [];
       const msgEl = form.querySelector('.catalog-upload-msg');
       const submitBtn = form.querySelector('[type="submit"]');
       if (submitBtn && submitBtn.disabled) return;
@@ -11646,9 +11570,6 @@
         const topicReadonly = form.querySelector('[name="catalog-topic"][readonly]');
         const savedTopic = topicReadonly ? subject : '';
         form.reset();
-        state.file = null;
-        state.files = [];
-        state.docsLink = '';
         resetCatalogFileDisplay(form);
         if (gradeSelect && gradeId) gradeSelect.value = gradeId;
         const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
@@ -11661,7 +11582,7 @@
           msgEl.textContent = t('catalog_success');
           msgEl.classList.add('text-sage-dark');
         }
-        clearCatalogUploadDraft(gradeId, subject, form);
+        clearCommunityFormDraftOnSuccess();
         closeCatalogUploadDrawer(form);
         if (catalogState.view === 'materials') {
           await renderCatalogMaterials(gradeId, subject);
@@ -11689,12 +11610,12 @@
       container.querySelectorAll('.catalog-upload-form').forEach(function (form) {
         bindCatalogShareModeToggle(form);
         bindCatalogFileInput(form);
-        bindCatalogUploadDraftAutosave(form);
+        bindCommunityFormDraftAutosave(form);
         const gradeSelect = form.querySelector('[name="catalog-grade"]');
         if (gradeSelect && !form.dataset.gradeNavBound) {
           form.dataset.gradeNavBound = '1';
           gradeSelect.addEventListener('change', function () {
-            flushCatalogUploadDraftSave(form);
+            syncCommunityFormDraftFromForm(form);
             const newGradeId = (gradeSelect.value || '').trim();
             if (!newGradeId || String(newGradeId) === String(catalogState.gradeId)) return;
             renderCatalog('grade', newGradeId);
@@ -11705,7 +11626,7 @@
           handleCatalogUploadSubmit(form);
         });
       });
-      restoreCatalogUploadDrawerState(container);
+      restoreCommunityUploadDrawerState(container);
     }
 
     function showCatalogStatus(msg, kind) {
@@ -11821,10 +11742,10 @@
     }
 
     function catalogMaterialEditFormHtml(file) {
-      const materialId = resolveCommunityMaterialId(file);
+      const materialId = file.id || resolveCommunityMaterialId(file);
       const fieldClass = catalogFieldClass();
       const fc = fieldClass.replace(/"/g, '');
-      return '<form class="catalog-material-edit-form space-y-3" data-material-id="' + escapeHtml(String(materialId)) + '" dir="rtl">' +
+      return '<form class="catalog-material-edit-form space-y-3" data-id="' + escapeHtml(String(materialId)) + '" dir="rtl">' +
         '<p class="text-sm font-bold text-sage-dark">' + escapeHtml(t('catalog_edit_heading')) + '</p>' +
         '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
@@ -11927,7 +11848,7 @@
       closeCatalogMaterialEditPanels(row.parentElement);
       const panel = row.querySelector('.catalog-material-edit-panel');
       if (!panel) return;
-      panel.innerHTML = catalogMaterialEditFormHtml(Object.assign({}, item, { id: resolveCommunityMaterialId(item) }));
+      panel.innerHTML = catalogMaterialEditFormHtml(Object.assign({}, item, { id: item.id || resolveCommunityMaterialId(item) }));
       panel.classList.remove('hidden');
       row.classList.add('is-editing');
       const form = panel.querySelector('.catalog-material-edit-form');
@@ -11949,7 +11870,7 @@
     }
 
     async function saveCatalogMaterialEdit(form) {
-      const materialId = form.getAttribute('data-material-id');
+      const materialId = form.getAttribute('data-id');
       if (!materialId) return;
       const topicInput = form.querySelector('[name="edit-topic"]');
       const descInput = form.querySelector('[name="edit-desc"]');
@@ -11967,11 +11888,28 @@
         submitBtn.textContent = t('catalog_edit_saving');
       }
       try {
-        await updateCommunityMaterial(materialId, {
-          topic: topicTrim,
-          description: descTrim,
-          author: authorTrim,
+        const headers = { 'Content-Type': 'application/json' };
+        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+          try {
+            const token = await WaldorfAuth.getAccessToken();
+            if (token) headers.Authorization = 'Bearer ' + token;
+          } catch (e) { /* ignore */ }
+        }
+        const res = await fetch('/api/community-materials?id=' + encodeURIComponent(materialId), {
+          method: 'PATCH',
+          headers: headers,
+          body: JSON.stringify({ id: materialId, topic: topicTrim, description: descTrim, author: authorTrim }),
         });
+        const text = await res.text();
+        if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
+        let row = null;
+        if (text) {
+          try {
+            const json = JSON.parse(text);
+            row = json.data || json;
+          } catch (e) { /* ignore */ }
+        }
+        if (row) upsertCommunityCacheRow(row);
         await loadCommunity();
         const topicChanged = catalogState.view === 'materials' && normalizeTopicKey(catalogState.topic) !== normalizeTopicKey(topicTrim);
         await refreshCatalogAfterMaterialChange(topicChanged ? topicTrim : catalogState.topic);
@@ -11990,15 +11928,28 @@
     }
 
     async function deleteCatalogMaterial(materialId) {
-      const pk = resolveCommunityMaterialId(materialId);
-      if (!pk) return;
+      const id = String(materialId || '').trim();
+      if (!id) return;
       if (!window.confirm(t('catalog_delete_confirm'))) return;
-      const row = findCatalogMaterialRow(pk);
+      const row = findCatalogMaterialRow(id);
       if (row) row.classList.add('opacity-60', 'pointer-events-none');
       try {
-        await deleteCommunityMaterial(pk);
+        const headers = {};
+        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+          try {
+            const token = await WaldorfAuth.getAccessToken();
+            if (token) headers.Authorization = 'Bearer ' + token;
+          } catch (e) { /* ignore */ }
+        }
+        const res = await fetch('/api/community-materials?id=' + encodeURIComponent(id), {
+          method: 'DELETE',
+          headers: headers,
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
+        forgetCommunityOwnership(id);
         appState.communityCache = appState.communityCache.filter(function (item) {
-          return String(resolveCommunityMaterialId(item)) !== String(pk);
+          return String(resolveCommunityMaterialId(item)) !== String(id);
         });
         appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
         await refreshCatalogAfterMaterialChange();
@@ -12008,24 +11959,32 @@
       }
     }
 
+    let catalogMaterialActionsDelegated = false;
+
+    function ensureCatalogMaterialActionDelegation() {
+      if (catalogMaterialActionsDelegated) return;
+      const panel = document.getElementById('panel-catalog');
+      if (!panel) return;
+      catalogMaterialActionsDelegated = true;
+      panel.addEventListener('click', function (e) {
+        const editBtn = e.target.closest('.catalog-material-edit');
+        if (editBtn) {
+          e.preventDefault();
+          const editId = editBtn.getAttribute('data-id');
+          if (editId) editCatalogMaterial(editId);
+          return;
+        }
+        const delBtn = e.target.closest('.catalog-material-delete');
+        if (delBtn) {
+          e.preventDefault();
+          const delId = delBtn.getAttribute('data-id');
+          if (delId) deleteCatalogMaterial(delId);
+        }
+      });
+    }
+
     function bindCatalogMaterialActions(container) {
-      if (!container) return;
-      container.querySelectorAll('.catalog-material-edit').forEach(function (btn) {
-        if (btn.dataset.bound) return;
-        btn.dataset.bound = '1';
-        btn.addEventListener('click', function () {
-          const id = btn.getAttribute('data-material-id');
-          if (id) editCatalogMaterial(id);
-        });
-      });
-      container.querySelectorAll('.catalog-material-delete').forEach(function (btn) {
-        if (btn.dataset.bound) return;
-        btn.dataset.bound = '1';
-        btn.addEventListener('click', function () {
-          const id = btn.getAttribute('data-material-id');
-          if (id) deleteCatalogMaterial(id);
-        });
-      });
+      ensureCatalogMaterialActionDelegation();
     }
 
     async function renderCatalogMaterials(gradeId, topicId) {
@@ -12059,8 +12018,12 @@
     }
 
     async function renderCatalog(view, gradeId, topicId) {
-      saveAllCatalogUploadDrafts();
-      closeAllCatalogUploadDrawers();
+      saveAllCommunityFormDrafts();
+      const drawerWasOpen = window.communityUploadDrawerOpen;
+      const preservedFiles = window.selectedUploadFiles ? window.selectedUploadFiles.slice() : [];
+      if (drawerWasOpen && preservedFiles.length) {
+        window.selectedUploadFiles = preservedFiles;
+      }
       catalogState.view = view || 'grades';
       if (view === 'grades' || !view) {
         catalogState.gradeId = null;
@@ -12087,6 +12050,7 @@
       } else if (catalogState.view === 'materials') {
         await renderCatalogMaterials(catalogState.gradeId, catalogState.topic);
       }
+      if (drawerWasOpen) window.communityUploadDrawerOpen = true;
       persistActiveStep();
     }
 
@@ -12171,10 +12135,10 @@
         updatePedagogyExportButtonsVisibility();
         renderStepProgress();
         persistActiveStep();
-        document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
+        document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
         return;
       }
-      document.querySelectorAll('.catalog-upload-form').forEach(flushCatalogUploadDraftSave);
+      document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
       document.querySelectorAll('.tab-panel').forEach(function (p) {
         p.classList.add('hidden');
         if (p.classList.contains('product-tab-panel')) p.setAttribute('hidden', '');
@@ -12606,6 +12570,8 @@
       try { updateCloudBanner(); } catch (e) { console.warn('[waldrof] updateCloudBanner:', e); }
       try { updateTopicResearchButton(); } catch (e) { console.warn('[waldrof] updateTopicResearchButton:', e); }
       try { bindEvents(); } catch (e) { console.error('[waldrof] bindEvents failed — buttons may be inactive:', e); }
+      loadCommunityFormDraftFromStorage();
+      ensureCatalogMaterialActionDelegation();
       if (typeof LessonChatSidebar !== 'undefined') {
         LessonChatSidebar.init({
           t: t,

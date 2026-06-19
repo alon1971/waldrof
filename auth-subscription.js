@@ -277,28 +277,94 @@
     return base.charAt(0).toUpperCase() + base.slice(1).toLowerCase();
   }
 
-  function resolveDisplayNameFromAuthUser(user) {
+  function containsHebrew(text) {
+    return /[\u0590-\u05FF]/.test(String(text || ''));
+  }
+
+  function isValidAuthNameCandidate(name) {
+    var value = String(name || '').trim();
+    return value.length > 0 && value.indexOf('@') < 0;
+  }
+
+  function pickPreferredAuthName(candidates) {
+    var valid = [];
+    for (var i = 0; i < candidates.length; i++) {
+      var value = String(candidates[i] || '').trim();
+      if (!isValidAuthNameCandidate(value)) continue;
+      valid.push(value);
+    }
+    if (!valid.length) return '';
+    for (var j = 0; j < valid.length; j++) {
+      if (containsHebrew(valid[j])) return valid[j];
+    }
+    return valid[0];
+  }
+
+  function collectAuthMetadataNameCandidates(meta, mode) {
+    var out = [];
+    if (!meta) return out;
+    if (mode === 'full') {
+      if (meta.full_name) out.push(meta.full_name);
+      if (meta.name) out.push(meta.name);
+    } else {
+      if (meta.given_name) out.push(meta.given_name);
+      if (meta.full_name) out.push(String(meta.full_name).split(/\s+/)[0]);
+      if (meta.name) out.push(String(meta.name).split(/\s+/)[0]);
+    }
+    return out;
+  }
+
+  function collectAuthIdentityNameCandidates(identityData, mode) {
+    var idData = identityData || {};
+    var out = [];
+    if (mode === 'full') {
+      if (idData.full_name) out.push(idData.full_name);
+      if (idData.name) out.push(idData.name);
+      var given = String(idData.given_name || '').trim();
+      var family = String(idData.family_name || '').trim();
+      if (given && family) out.push(given + ' ' + family);
+      else if (given && !family) out.push(given);
+    } else {
+      if (idData.given_name) out.push(idData.given_name);
+      if (idData.full_name) out.push(String(idData.full_name).split(/\s+/)[0]);
+      if (idData.name) out.push(String(idData.name).split(/\s+/)[0]);
+    }
+    return out;
+  }
+
+  function resolveNameFromAuthUser(user, mode) {
     if (!user) return '';
+    var candidates = [];
     var meta = user.user_metadata || user.raw_user_meta_data || {};
-    var fromMeta = String(meta.full_name || meta.name || '').trim();
-    if (fromMeta && fromMeta.indexOf('@') < 0) return fromMeta;
+    candidates = candidates.concat(collectAuthMetadataNameCandidates(meta, mode));
     if (Array.isArray(user.identities)) {
       for (var i = 0; i < user.identities.length; i++) {
-        var idData = (user.identities[i] && user.identities[i].identity_data) || {};
-        var fromId = String(
-          idData.full_name || idData.name || idData.given_name || ''
-        ).trim();
-        if (fromId && fromId.indexOf('@') < 0) return fromId;
+        candidates = candidates.concat(
+          collectAuthIdentityNameCandidates(
+            user.identities[i] && user.identities[i].identity_data,
+            mode
+          )
+        );
       }
     }
-    var stored = user.displayName ? String(user.displayName).trim() : '';
-    if (stored && stored.indexOf('@') < 0) return stored;
-    return '';
+    if (user.displayName) {
+      if (mode === 'full') candidates.push(user.displayName);
+      else candidates.push(String(user.displayName).split(/\s+/)[0]);
+    }
+    return pickPreferredAuthName(candidates);
   }
 
   function resolveUserDisplayName(user, emailFallback) {
-    var name = resolveDisplayNameFromAuthUser(user);
+    var name = resolveNameFromAuthUser(user, 'full');
     if (name) return name;
+    var email = (user && user.email) ? normalizeEmail(user.email) : normalizeEmail(emailFallback || '');
+    if (!email) email = getIdentityEmail();
+    return formatNameFromEmail(email) || '';
+  }
+
+  function resolveUserFirstName(user, emailFallback) {
+    var first = resolveNameFromAuthUser(user, 'first');
+    if (first) return first;
     var email = (user && user.email) ? normalizeEmail(user.email) : normalizeEmail(emailFallback || '');
     if (!email) email = getIdentityEmail();
     return formatNameFromEmail(email) || '';
@@ -310,9 +376,8 @@
   }
 
   function getUserFirstName(user) {
-    var full = getUserDisplayName(user);
-    if (!full) return '';
-    return full.split(/\s+/)[0];
+    var u = user || (authState.isAuthenticated ? authState.user : null);
+    return resolveUserFirstName(u, u && u.email ? u.email : getIdentityEmail());
   }
 
   function mapSupabaseUser(user) {
