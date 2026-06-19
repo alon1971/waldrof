@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="waldrof-build" content="20250619b" />
+  <meta name="waldrof-build" content="20250619c" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מתכנן תקופות לימוד אנתרופוסופי — מסע פדגוגי שלב-אחר-שלב" />
   <link rel="manifest" href="/manifest.json">
@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20250619b" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20250619c" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -10512,6 +10512,7 @@
             if (form) {
               bindCatalogShareModeToggle(form);
               bindCatalogFileInput(form);
+              updateCatalogFileDisplay(form, getCatalogUploadFormState(form).file);
             }
             const topicInput = drawer.querySelector('[name="catalog-topic"]');
             if (topicInput && !topicInput.readOnly) topicInput.focus({ preventScroll: true });
@@ -10520,18 +10521,56 @@
       });
     }
 
+    const catalogUploadFormState = new WeakMap();
+
+    function getCatalogUploadFormState(form) {
+      if (!catalogUploadFormState.has(form)) {
+        catalogUploadFormState.set(form, { file: null, docsLink: '' });
+      }
+      return catalogUploadFormState.get(form);
+    }
+
+    function catalogFieldClass() {
+      return 'touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40';
+    }
+
+    function renderCatalogGradeSelectOptions(selectedId) {
+      const selected = String(selectedId || '');
+      return '<option value="">' + escapeHtml(t('catalog_grade_ph')) + '</option>' +
+        GRADES.map(function (g) {
+          const isSelected = String(g.id) === selected ? ' selected' : '';
+          const shortLabel = String(g.label || '').replace(/^כיתה\s*/, '') || g.label;
+          return '<option value="' + escapeHtml(String(g.id)) + '"' + isSelected + '>' + escapeHtml(shortLabel) + '</option>';
+        }).join('');
+    }
+
     function catalogUploadFormHtml(gradeId, presetTopic, readonlyTopic) {
       const topicVal = presetTopic ? escapeHtml(presetTopic) : '';
       const fileInputId = 'catalog-file-upload-' + String(gradeId).replace(/[^a-zA-Z0-9_-]/g, '_');
-      const topicReadonly = readonlyTopic ? ' readonly class="touch-target w-full rounded-xl border border-gold/30 bg-parchment/50 px-4 py-3.5 text-base text-walnut outline-none"' :
-        ' class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40"';
-      return '<form class="catalog-upload-form space-y-5 mb-6 p-4 sm:p-6 rounded-2xl border border-sage/30 bg-white shadow-sm" data-grade="' + escapeHtml(String(gradeId)) + '" data-catalog-form-version="2">' +
-        '<h4 class="text-xl font-bold text-sage-dark mb-1">' + escapeHtml(t('catalog_upload_title')) + '</h4>' +
-        '<div>' +
+      const fieldClass = catalogFieldClass();
+      const topicReadonly = readonlyTopic
+        ? ' readonly class="' + fieldClass.replace(/"/g, '') + ' bg-parchment/50 text-walnut"'
+        : ' class="' + fieldClass.replace(/"/g, '') + '"';
+      return '<form class="catalog-upload-form space-y-4 mb-6 p-4 sm:p-6 rounded-2xl border border-sage/30 bg-white shadow-sm" dir="rtl" data-grade="' + escapeHtml(String(gradeId)) + '" data-catalog-form-version="3">' +
+        '<h4 class="text-xl font-bold text-sage-dark mb-2">' + escapeHtml(t('catalog_upload_title')) + '</h4>' +
+        '<div class="w-full">' +
+        '<label class="block text-sm font-medium text-walnut mb-1" for="catalog-grade-' + fileInputId + '">' + escapeHtml(t('catalog_grade_label')) + ' <span class="text-terracotta">*</span></label>' +
+        '<select id="catalog-grade-' + fileInputId + '" name="catalog-grade" required class="' + fieldClass.replace(/"/g, '') + '">' +
+        renderCatalogGradeSelectOptions(gradeId) +
+        '</select></div>' +
+        '<div class="w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
         '<input type="text" name="catalog-topic" required maxlength="120" placeholder="' + escapeHtml(t('catalog_topic_placeholder')) + '" value="' + topicVal + '"' + topicReadonly + ' />' +
         '</div>' +
-        '<fieldset class="catalog-share-mode border-0 p-0 m-0">' +
+        '<div class="w-full">' +
+        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_desc_label')) + ' <span class="text-terracotta">*</span></label>' +
+        '<input type="text" name="catalog-desc" required maxlength="200" class="' + fieldClass.replace(/"/g, '') + '" />' +
+        '</div>' +
+        '<div class="w-full">' +
+        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_author_label')) + '</label>' +
+        '<input type="text" name="catalog-author" maxlength="60" class="' + fieldClass.replace(/"/g, '') + '" />' +
+        '</div>' +
+        '<fieldset class="catalog-share-mode border-0 p-0 m-0 w-full">' +
         '<legend class="block text-sm font-medium text-walnut mb-2">' + escapeHtml(t('catalog_share_mode')) + '</legend>' +
         '<div class="flex flex-col sm:flex-row flex-wrap gap-4">' +
         '<label class="catalog-mode-opt inline-flex items-center gap-2 cursor-pointer text-sm">' +
@@ -10539,18 +10578,18 @@
         '<label class="catalog-mode-opt inline-flex items-center gap-2 cursor-pointer text-sm">' +
         '<input type="radio" name="catalog-share-mode" value="link" class="accent-sage" /> ' + escapeHtml(t('catalog_mode_link')) + '</label>' +
         '</div></fieldset>' +
-        '<div class="catalog-file-panel">' +
+        '<div class="catalog-file-panel w-full">' +
         '<div class="catalog-file-drop">' +
-        '<input type="file" name="catalog-file" id="' + fileInputId + '" class="hidden" />' +
+        '<input type="file" name="catalog-file" id="' + fileInputId + '" class="hidden" accept="*/*" />' +
         '<label for="' + fileInputId + '" class="catalog-file-pick-label">' +
         '<span class="catalog-file-pick-text">📁 ' + escapeHtml(t('catalog_file_pick')) + '</span></label>' +
         '<p class="catalog-file-selected hidden" aria-live="polite"></p>' +
         '</div></div>' +
-        '<div class="catalog-link-panel hidden">' +
+        '<div class="catalog-link-panel hidden w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_link_label')) + ' <span class="text-terracotta">*</span></label>' +
         '<input type="url" name="catalog-share-url" inputmode="url" autocomplete="url" maxlength="500" dir="ltr" ' +
         'placeholder="https://docs.google.com/document/d/..." ' +
-        'class="touch-target w-full rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base outline-none focus:ring-2 focus:ring-sage/40 text-left" ' +
+        'class="' + fieldClass.replace(/"/g, '') + ' text-left" ' +
         'aria-label="' + escapeHtml(t('catalog_link_aria')) + '" />' +
         '</div>' +
         '<button type="submit" class="touch-btn w-full bg-sage hover:bg-sage-dark text-white font-bold px-6 py-3 rounded-xl transition-colors disabled:bg-walnut/40">' +
@@ -10558,36 +10597,50 @@
         '<p class="catalog-upload-msg text-sm hidden"></p></form>';
     }
 
-    function resetCatalogFileDisplay(form) {
+    function updateCatalogFileDisplay(form, file) {
       if (!form) return;
       const pickText = form.querySelector('.catalog-file-pick-text');
       const selectedEl = form.querySelector('.catalog-file-selected');
-      if (pickText) pickText.textContent = '📁 ' + t('catalog_file_pick');
-      if (selectedEl) {
-        selectedEl.textContent = '';
-        selectedEl.classList.add('hidden');
+      if (!file) {
+        if (pickText) pickText.textContent = '📁 ' + t('catalog_file_pick');
+        if (selectedEl) {
+          selectedEl.textContent = '';
+          selectedEl.classList.add('hidden');
+        }
+        return;
       }
+      if (pickText) pickText.textContent = '📄 ' + t('catalog_file_replace');
+      if (selectedEl) {
+        selectedEl.innerHTML = '📄 ' + escapeHtml(t('catalog_file_ready')) + ' <span class="font-semibold">' + escapeHtml(file.name) + '</span>';
+        selectedEl.classList.remove('hidden');
+      }
+    }
+
+    function resetCatalogFileDisplay(form) {
+      const state = getCatalogUploadFormState(form);
+      state.file = null;
+      updateCatalogFileDisplay(form, null);
+      const fileInput = form && form.querySelector('[name="catalog-file"]');
+      if (fileInput) fileInput.value = '';
     }
 
     function bindCatalogFileInput(form) {
       if (!form || form.dataset.fileBound) return;
       form.dataset.fileBound = '1';
       const fileInput = form.querySelector('[name="catalog-file"]');
-      const pickText = form.querySelector('.catalog-file-pick-text');
-      const selectedEl = form.querySelector('.catalog-file-selected');
+      const linkInput = form.querySelector('[name="catalog-share-url"]');
+      const state = getCatalogUploadFormState(form);
       if (!fileInput) return;
       fileInput.addEventListener('change', function () {
-        const chosen = fileInput.files && fileInput.files[0];
-        if (!chosen) {
-          resetCatalogFileDisplay(form);
-          return;
-        }
-        if (pickText) pickText.textContent = '📄 ' + t('catalog_file_replace');
-        if (selectedEl) {
-          selectedEl.innerHTML = escapeHtml(t('catalog_file_ready')) + ' <span class="font-semibold">' + escapeHtml(chosen.name) + '</span>';
-          selectedEl.classList.remove('hidden');
-        }
+        const chosen = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        state.file = chosen;
+        updateCatalogFileDisplay(form, chosen);
       });
+      if (linkInput) {
+        linkInput.addEventListener('input', function () {
+          state.docsLink = (linkInput.value || '').trim();
+        });
+      }
     }
 
     function setCatalogShareMode(form, mode) {
@@ -10615,13 +10668,19 @@
     }
 
     async function handleCatalogUploadSubmit(form) {
-      const gradeId = form.getAttribute('data-grade');
-      const topic = form.querySelector('[name="catalog-topic"]').value.trim();
+      const state = getCatalogUploadFormState(form);
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      const gradeId = gradeSelect ? gradeSelect.value.trim() : (form.getAttribute('data-grade') || '').trim();
+      const subject = form.querySelector('[name="catalog-topic"]').value.trim();
+      const description = form.querySelector('[name="catalog-desc"]').value.trim();
+      const teacherName = form.querySelector('[name="catalog-author"]').value.trim();
       const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
       const mode = modeEl ? modeEl.value : 'file';
-      const fileInput = form.querySelector('[name="catalog-file"]');
-      const file = mode === 'file' && fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
-      const shareUrl = mode === 'link' ? (form.querySelector('[name="catalog-share-url"]').value || '').trim() : '';
+      const linkInput = form.querySelector('[name="catalog-share-url"]');
+      const docsLink = mode === 'link'
+        ? ((linkInput && linkInput.value) || state.docsLink || '').trim()
+        : '';
+      const file = mode === 'file' ? state.file : null;
       const msgEl = form.querySelector('.catalog-upload-msg');
       const submitBtn = form.querySelector('[type="submit"]');
       if (submitBtn && submitBtn.disabled) return;
@@ -10635,17 +10694,24 @@
         msgEl.textContent = mode === 'link' ? t('catalog_saving_link') : t('catalog_uploading');
       }
       try {
-        if (!topic) throw new Error(t('catalog_err_topic'));
-        if (mode === 'link' && !shareUrl) throw new Error(t('catalog_err_link'));
+        if (!gradeId) throw new Error(t('catalog_err_grade'));
+        if (!subject) throw new Error(t('catalog_err_topic'));
+        if (!description) throw new Error(t('catalog_err_desc'));
+        if (mode === 'link' && !docsLink) throw new Error(t('catalog_err_link'));
         if (mode === 'file' && !file) throw new Error(t('catalog_err_file'));
-        await submitCatalogUpload(gradeId, topic, '', '', file, shareUrl);
+        await submitCatalogUpload(gradeId, subject, description, teacherName, file, docsLink);
+        const topicReadonly = form.querySelector('[name="catalog-topic"][readonly]');
+        const savedTopic = topicReadonly ? subject : '';
         form.reset();
+        state.file = null;
+        state.docsLink = '';
         resetCatalogFileDisplay(form);
+        if (gradeSelect && gradeId) gradeSelect.value = gradeId;
         const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
         if (fileRadio) fileRadio.checked = true;
         setCatalogShareMode(form, 'file');
-        if (form.querySelector('[name="catalog-topic"][readonly]')) {
-          form.querySelector('[name="catalog-topic"]').value = topic;
+        if (topicReadonly && savedTopic) {
+          form.querySelector('[name="catalog-topic"]').value = savedTopic;
         }
         if (msgEl) {
           msgEl.textContent = t('catalog_success');
@@ -10653,7 +10719,7 @@
         }
         closeCatalogUploadDrawer(form);
         if (catalogState.view === 'materials') {
-          await renderCatalogMaterials(gradeId, topic);
+          await renderCatalogMaterials(gradeId, subject);
         } else {
           await renderCatalogGradePanel(gradeId);
         }
@@ -11084,8 +11150,9 @@
         const catalogForm = active.closest('.catalog-upload-form');
         if (catalogForm) {
           const fieldName = active.getAttribute('name');
-          if (fieldName === 'catalog-topic' || fieldName === 'catalog-share-url') {
+          if (fieldName === 'catalog-topic' || fieldName === 'catalog-desc' || fieldName === 'catalog-author' || fieldName === 'catalog-share-url') {
             e.preventDefault();
+            if (!catalogForm.querySelector('[name="catalog-grade"]').value.trim()) return;
             if (!catalogForm.querySelector('[name="catalog-topic"]').value.trim()) return;
             handleCatalogUploadSubmit(catalogForm);
             return;
