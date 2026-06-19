@@ -3640,6 +3640,44 @@
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
+    const ACTIVE_STEP_STORAGE_KEY = 'waldorf_active_step';
+
+    function isTopicResearchLoadingUi() {
+      var loadingEl = document.getElementById('topic-research-loading');
+      return Boolean(loadingEl && !loadingEl.classList.contains('hidden'));
+    }
+
+    function readPersistedActiveStep() {
+      try {
+        var raw = localStorage.getItem(ACTIVE_STEP_STORAGE_KEY);
+        if (!raw) return null;
+        var data = JSON.parse(raw);
+        var step = parseInt(data.step, 10);
+        if (!(step >= 1 && step <= 3)) return null;
+        return data;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function persistActiveStep() {
+      try {
+        localStorage.setItem(ACTIVE_STEP_STORAGE_KEY, JSON.stringify({
+          step: appState.step,
+          navSection: appState.navSection || 'wizard',
+          grade: appState.grade || null,
+          topic: appState.topic || null,
+          scrollY: window.scrollY || window.pageYOffset || 0,
+          topicResearchLoading: isTopicResearchLoadingUi(),
+        }));
+      } catch (e) { /* private mode / quota */ }
+    }
+
+    function clearPersistedActiveStep() {
+      try {
+        localStorage.removeItem(ACTIVE_STEP_STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+    }
 
     let realtimeChannel = null;
     let supabaseRealtimeClient = null;
@@ -7870,6 +7908,13 @@
     window.ensurePageAtTop = ensurePageAtTop;
 
     function scheduleInitialPageScrollReset() {
+      if (shouldPreserveWizardViewport()) {
+        defocusGradeSelectDuringPageLoad();
+        focusPageTopSentinel();
+        hydrateActiveStepFromStorage({ restoreScroll: true, preferMemory: true });
+        clearPageLoadFocusGuard();
+        return;
+      }
       defocusGradeSelectDuringPageLoad();
       focusPageTopSentinel();
       ensurePageAtTop();
@@ -8057,6 +8102,96 @@
       scrollElementIntoViewWithChrome(anchor, behavior, 'start');
     }
 
+    function shouldPreserveWizardViewport() {
+      if (appState.step > 1) return true;
+      if (isWorkspaceOpen()) return true;
+      if (isTopicResearchLoadingUi()) return true;
+      var saved = readPersistedActiveStep();
+      if (!saved) return false;
+      return saved.step > 1 || Boolean(saved.topicResearchLoading);
+    }
+
+    function restoreWizardStepView(step, navSection, options) {
+      options = options || {};
+      navSection = navSection || 'wizard';
+      step = parseInt(step, 10);
+      if (navSection === 'products' && step === 3 && canNavigateToStep(3)) {
+        openProductsWorkspace(false);
+        return;
+      }
+      if (navSection === 'community' && appState.grade) {
+        openCommunityRepo();
+        return;
+      }
+      if (navSection === 'archive') {
+        openArchiveNav();
+        return;
+      }
+      if (step === 2) {
+        ensureStepBWizardView();
+        var topicInput = document.getElementById('topic-input');
+        if (topicInput && appState.topic) topicInput.value = appState.topic;
+        if (!options.restoreScrollY) scrollToStepB(false);
+        return;
+      }
+      if (step === 3 && canNavigateToStep(3)) {
+        openProductsWorkspace(false);
+        return;
+      }
+      if (step === 1) goToStep(1, false);
+    }
+
+    function hydrateActiveStepFromStorage(options) {
+      options = options || {};
+      var saved = readPersistedActiveStep();
+      if (!saved) {
+        if (appState.step > 1 || isTopicResearchLoadingUi()) {
+          restoreWizardStepView(appState.step, appState.navSection, options);
+        }
+        return;
+      }
+
+      var step = parseInt(saved.step, 10);
+      if (!(step >= 1 && step <= 3)) return;
+
+      if (options.preferMemory && appState.step >= step) {
+        step = appState.step;
+      } else {
+        if (saved.grade) {
+          appState.grade = saved.grade;
+          appState.gradeLabel = getGradeLabelById(saved.grade);
+        }
+        if (saved.topic) appState.topic = saved.topic;
+        appState.step = step;
+        appState.navSection = saved.navSection || 'wizard';
+      }
+
+      if (saved.topicResearchLoading && step < 2) {
+        step = 2;
+        appState.step = 2;
+        appState.navSection = 'wizard';
+      }
+
+      restoreWizardStepView(step, appState.navSection, options);
+
+      if (options.restoreScroll && typeof saved.scrollY === 'number' && saved.scrollY > 0) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            window.scrollTo(0, saved.scrollY);
+          });
+        });
+      }
+
+      renderStepProgress();
+      updateWorkspaceChrome();
+      updateNewResearchBarVisibility();
+    }
+
+    function onAppRegainsAttention() {
+      if (document.hidden) return;
+      hydrateActiveStepFromStorage({ restoreScroll: true, preferMemory: true });
+    }
+
     function scrollToWizardStep(n, behavior) {
       if (behavior === false || behavior === 'none') return;
       if (pageLoadFocusGuard && n === 1) return;
@@ -8122,6 +8257,7 @@
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
+      persistActiveStep();
     }
 
     function revealStepBQuietly() {
@@ -8136,6 +8272,7 @@
       syncStepBChrome();
       renderStepProgress();
       updateWorkspaceChrome();
+      persistActiveStep();
     }
 
     function ensureStepBWizardView() {
@@ -8149,6 +8286,7 @@
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
+      persistActiveStep();
     }
 
     function onStepNavClick(n, e) {
@@ -8192,6 +8330,7 @@
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
       if (fromWizard) scrollToWorkspaceTop('smooth');
+      persistActiveStep();
     }
 
     function openCommunityRepo() {
@@ -8207,6 +8346,7 @@
       renderStepProgress();
       updateWorkspaceChrome();
       if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
+      persistActiveStep();
     }
 
     function openArchiveNav() {
@@ -8220,6 +8360,7 @@
       initAnthroArchivePanel();
       renderStepProgress();
       updateWorkspaceChrome();
+      persistActiveStep();
     }
 
     function updateNewResearchBarVisibility() {
@@ -8282,6 +8423,7 @@
       if (scrollBehavior === true || scrollBehavior === 'smooth' || scrollBehavior === 'auto') {
         scrollToWizardStep(n, scrollBehavior);
       }
+      persistActiveStep();
     }
 
     function populateGradeSelect() {
@@ -8445,6 +8587,7 @@
         }
         if (btn) btn.disabled = loading;
       });
+      persistActiveStep();
     }
 
     function initStreaming() {
@@ -9959,6 +10102,7 @@
       setGradeInsightsLoadingUi(false);
       const hintStep1 = document.getElementById('api-hint-step1');
       if (hintStep1) hintStep1.classList.add('hidden');
+      clearPersistedActiveStep();
       goToStep(1, false);
       updateNewResearchBarVisibility();
     }
@@ -10263,10 +10407,13 @@
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
       try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
+      try { hydrateActiveStepFromStorage(); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
       const gradeSelAfterPopulate = document.getElementById('grade-select');
-      if (gradeSelAfterPopulate) {
+      if (gradeSelAfterPopulate && !appState.grade) {
         gradeSelAfterPopulate.value = '';
         gradeSelAfterPopulate.selectedIndex = 0;
+      } else if (gradeSelAfterPopulate && appState.grade) {
+        gradeSelAfterPopulate.value = appState.grade;
       }
       try { renderStepProgress(); } catch (e) { console.warn('[waldrof] renderStepProgress:', e); }
       try { updateTopNavButtons(); } catch (e) { console.warn('[waldrof] updateTopNavButtons:', e); }
@@ -10355,13 +10502,24 @@
       }
     }
     window.addEventListener('pageshow', function (e) {
+      if (e.persisted) {
+        bindPageLoadScrollGuards();
+        onAppRegainsAttention();
+        clearPageLoadFocusGuard();
+        return;
+      }
       pageLoadFocusGuard = true;
       bindPageLoadScrollGuards();
       defocusGradeSelectDuringPageLoad();
-      ensurePageAtTop();
-      if (e.persisted) resetWizardOnPageLoad();
+      if (!shouldPreserveWizardViewport()) ensurePageAtTop();
       scheduleInitialPageScrollReset();
     });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) persistActiveStep();
+      else onAppRegainsAttention();
+    });
+    window.addEventListener('focus', onAppRegainsAttention);
+    window.addEventListener('pagehide', persistActiveStep);
     window.addEventListener('resize', syncProductTabsStickyLayout, { passive: true });
     bindHeaderCompactScroll();
 
