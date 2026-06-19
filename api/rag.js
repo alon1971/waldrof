@@ -727,6 +727,9 @@ async function searchCommunityByContent(query, body, matchCount) {
   const contentOrParts = terms.concat(meshTerms).map(function (term) {
     return 'content.ilike.*' + term + '*';
   });
+  const fileNameOrParts = terms.map(function (term) {
+    return 'file_name.ilike.*' + term + '*';
+  });
 
   const params = new URLSearchParams();
   params.set(
@@ -735,7 +738,7 @@ async function searchCommunityByContent(query, body, matchCount) {
   );
   params.set('order', 'created_at.desc');
   params.set('limit', String((matchCount || COMMUNITY_MATCH_COUNT) * 6));
-  params.set('or', '(' + titleOrParts.concat(contentOrParts).join(',') + ')');
+  params.set('or', '(' + titleOrParts.concat(contentOrParts, fileNameOrParts).join(',') + ')');
 
   const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
   if (gradeId) params.set('grade_id', 'eq.' + gradeId);

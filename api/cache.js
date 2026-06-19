@@ -2117,19 +2117,85 @@ function formatCommunityMaterialRow(row) {
   };
 }
 
+function parseCommunityRowMetadata(row) {
+  if (!row || !row.metadata) return {};
+  if (typeof row.metadata === 'object') return row.metadata;
+  try {
+    return JSON.parse(String(row.metadata));
+  } catch (e) {
+    return {};
+  }
+}
+
 function formatCommunityKnowledgeRow(row) {
+  const meta = parseCommunityRowMetadata(row);
+  const bundleMaterial = row._bundle_material || null;
+  const bundleTopic = String(
+    meta.bundle_topic || bundleMaterial && bundleMaterial.topic || row.topic || ''
+  ).trim();
+  const internalFileName = String(
+    meta.internal_file_name || row.file_name || row.title || ''
+  ).trim();
+
   return {
     id: row.id || null,
     sourceMaterialId: row.source_material_id || null,
     source: 'knowledge_base',
-    title: row.title || row.topic || 'חומר קהילתי',
-    topic: String(row.topic || '').trim(),
+    title: row.title || internalFileName || bundleTopic || 'חומר קהילתי',
+    topic: String(row.topic || bundleTopic || '').trim(),
+    bundleTopic: bundleTopic,
+    internalFileName: internalFileName,
     gradeId: row.grade_id != null ? String(row.grade_id) : null,
-    fileName: row.file_name || '',
+    fileName: row.file_name || internalFileName || '',
     fileUrl: resolveCommunityFileUrlFromRow(row),
     contributorName: row.contributor_name || null,
+    contentPreview: String(row.content || '').slice(0, 240),
     similarity: 0,
+    matchedInBundle: false,
+    matchType: 'direct',
+    alertText: '',
   };
+}
+
+function scoreCommunityKnowledgeHit(query, row) {
+  const hit = formatCommunityKnowledgeRow(row);
+  let best = 0;
+
+  [
+    hit.internalFileName,
+    hit.fileName,
+    hit.title,
+    hit.topic,
+    hit.bundleTopic,
+    hit.contentPreview,
+  ].filter(Boolean).forEach(function (candidate) {
+    const score = scoreTopicSimilarity(query, candidate, '');
+    if (score > best) best = score;
+  });
+
+  if (row.content) {
+    best = Math.max(best, scoreTopicSimilarity(query, String(row.content).slice(0, 1200), ''));
+  }
+
+  const bundleTopicScore = scoreTopicSimilarity(query, hit.bundleTopic || hit.topic, '');
+  const internalScore = Math.max(
+    scoreTopicSimilarity(query, hit.internalFileName, ''),
+    scoreTopicSimilarity(query, hit.fileName, ''),
+    row.content ? scoreTopicSimilarity(query, String(row.content).slice(0, 1200), '') : 0
+  );
+
+  hit.similarity = best;
+
+  if (internalScore >= 0.45 && bundleTopicScore < 0.45 && (hit.bundleTopic || hit.topic)) {
+    const folderName = hit.bundleTopic || hit.topic;
+    hit.matchedInBundle = true;
+    hit.matchType = 'nested_in_bundle';
+    hit.displayTitle = hit.internalFileName || hit.title;
+    hit.alertText = 'נמצא חומר רלוונטי בתוך התיקייה «' + folderName + '» במאגר הקהילתי!';
+    hit.topic = folderName;
+  }
+
+  return hit;
 }
 
 function scoreCommunityHitSimilarity(query, hit) {
@@ -2147,7 +2213,9 @@ function dedupeCommunityHits(hits) {
   const out = [];
   (hits || []).forEach(function (hit) {
     if (!hit) return;
-    const key = String(hit.sourceMaterialId || hit.id || '') + '|' + stableNormalize(hit.title) + '|' + stableNormalize(hit.topic);
+    const key = hit.matchedInBundle
+      ? 'bundle:' + stableNormalize(hit.bundleTopic || hit.topic) + '|' + stableNormalize(hit.internalFileName || hit.title)
+      : String(hit.sourceMaterialId || hit.id || '') + '|' + stableNormalize(hit.title) + '|' + stableNormalize(hit.topic);
     if (seen.has(key)) return;
     seen.add(key);
     out.push(hit);
@@ -2168,8 +2236,7 @@ function pickBestCommunityHits(materialRows, kbRows, query, options) {
   });
 
   (kbRows || []).forEach(function (row) {
-    const hit = formatCommunityKnowledgeRow(row);
-    hit.similarity = scoreCommunityHitSimilarity(query, hit);
+    const hit = scoreCommunityKnowledgeHit(query, row);
     if (hit.similarity >= minScore) hits.push(hit);
   });
 
@@ -2208,16 +2275,49 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
   return Array.isArray(rows) ? rows : [];
 }
 
+async function enrichKnowledgeRowsWithBundleMaterials(rows) {
+  if (!Array.isArray(rows) || !rows.length || !isSupabaseCacheEnabled()) return rows || [];
+
+  const ids = Array.from(new Set(
+    rows.map(function (row) { return row && row.source_material_id; }).filter(Boolean)
+  ));
+  if (!ids.length) return rows;
+
+  const params = new URLSearchParams();
+  params.set('select', 'id,topic,grade_level,file_name,file_path,notes');
+  params.set('id', 'in.(' + ids.join(',') + ')');
+
+  const res = await supabaseRequest('/rest/v1/' + COMMUNITY_MATERIALS_TABLE + '?' + params.toString(), {
+    method: 'GET',
+  });
+  if (!res.ok) return rows;
+
+  const materials = await res.json();
+  if (!Array.isArray(materials)) return rows;
+
+  const byId = {};
+  materials.forEach(function (material) {
+    if (material && material.id) byId[String(material.id)] = material;
+  });
+
+  return rows.map(function (row) {
+    if (!row || !row.source_material_id) return row;
+    const linked = byId[String(row.source_material_id)];
+    if (!linked) return row;
+    return Object.assign({}, row, { _bundle_material: linked });
+  });
+}
+
 async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
   if (!isSupabaseCacheEnabled()) return [];
 
   const params = new URLSearchParams();
   params.set(
     'select',
-    'id,title,topic,content,file_path,file_name,source_material_id,contributor_name,grade_id,created_at'
+    'id,title,topic,content,file_path,file_name,source_material_id,contributor_name,grade_id,metadata,created_at'
   );
   params.set('order', 'created_at.desc');
-  params.set('limit', '48');
+  params.set('limit', '64');
   if (gradeId) params.set('grade_id', 'eq.' + gradeId);
 
   if (withTermFilter) {
@@ -2228,6 +2328,7 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
         orParts.push('title.ilike.*' + term + '*');
         orParts.push('topic.ilike.*' + term + '*');
         orParts.push('content.ilike.*' + term + '*');
+        orParts.push('file_name.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');
     }
@@ -2238,7 +2339,8 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
   });
   if (!res.ok) return [];
   const rows = await res.json();
-  return Array.isArray(rows) ? rows : [];
+  if (!Array.isArray(rows)) return [];
+  return enrichKnowledgeRowsWithBundleMaterials(rows);
 }
 
 /**

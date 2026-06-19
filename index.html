@@ -7735,29 +7735,53 @@
           fileUrl: item.fileUrl || '',
         });
       });
-      (serverMatches || []).forEach(add);
+      (serverMatches || []).forEach(function (match) {
+        add({
+          id: match.id,
+          source: match.source || 'knowledge_base',
+          title: match.displayTitle || match.title || match.fileName || match.topic || 'חומר קהילתי',
+          topic: match.topic || '',
+          bundleTopic: match.bundleTopic || match.topic || '',
+          gradeId: match.gradeId || appState.grade || null,
+          fileName: match.internalFileName || match.fileName || '',
+          fileUrl: match.fileUrl || '',
+          matchedInBundle: Boolean(match.matchedInBundle),
+          matchType: match.matchType || 'direct',
+          alertText: match.alertText || '',
+          similarity: match.similarity || 0,
+        });
+      });
       return out.sort(function (a, b) {
         return (Number(b.similarity) || 0) - (Number(a.similarity) || 0);
       });
     }
 
     function communityCatalogTopicForMatch(match) {
-      return String((match && (match.topic || match.title)) || appState.topic || '').trim();
+      return String((match && (match.bundleTopic || match.topic || match.title)) || appState.topic || '').trim();
     }
 
     function buildCommunityFoundAlertHtml(matches) {
       if (!matches || !matches.length) return '';
       const preview = matches.slice(0, 4);
+      const hasNested = preview.some(function (match) { return match.matchedInBundle; });
       let html = '<div class="community-found-alert__title">' +
         '<i class="fa-solid fa-users-rays text-terracotta" aria-hidden="true"></i>' +
-        '<span>' + escapeHtml(t('community_found_alert')) + '</span></div>';
+        '<span>' + escapeHtml(hasNested ? t('community_found_nested_alert') : t('community_found_alert')) + '</span></div>';
       html += '<div class="community-found-alert__list">';
       preview.forEach(function (match, index) {
-        const title = escapeHtml(match.title || match.fileName || match.topic || ('חומר ' + (index + 1)));
+        const bundleTopic = match.bundleTopic || match.topic || '';
+        const itemTitle = match.matchedInBundle
+          ? (match.displayTitle || match.internalFileName || match.fileName || match.title || ('חומר ' + (index + 1)))
+          : (match.title || match.fileName || match.topic || ('חומר ' + (index + 1)));
+        let titleHtml = escapeHtml(itemTitle);
+        if (match.matchedInBundle && bundleTopic) {
+          titleHtml += '<div class="text-sm text-walnut/75 mt-1 leading-relaxed">' +
+            escapeHtml(match.alertText || t('community_found_nested_item', { folder: bundleTopic })) + '</div>';
+        }
         const topic = communityCatalogTopicForMatch(match);
         const gradeId = match.gradeId || appState.grade || '';
         html += '<div class="community-found-alert__item">' +
-          '<span class="community-found-alert__item-title">' + title + '</span>' +
+          '<span class="community-found-alert__item-title">' + titleHtml + '</span>' +
           '<div class="community-found-alert__actions">';
         if (match.fileUrl) {
           html += '<a href="' + escapeHtml(match.fileUrl) + '" target="_blank" rel="noopener" class="community-found-alert__btn community-found-alert__btn--primary">' +
@@ -7913,7 +7937,8 @@
       updateWorkspaceChrome();
     }
 
-    async function indexCommunityUpload(gradeId, topic, filePath, fileName, extras, materialId) {
+    async function indexCommunityUpload(gradeId, topic, filePath, fileName, extras, materialId, options) {
+      options = options || {};
       const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
         ? location.origin + '/api/community-ingest'
         : '/api/community-ingest';
@@ -7932,18 +7957,28 @@
         fileName: fileName,
         fileType: extras && extras.fileType,
         materialId: materialId || null,
+        indexBundle: options.indexBundle !== false,
       };
       try {
         const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
         if (!res.ok) {
           console.warn('[community-ingest] index failed:', await res.text());
+          return null;
         }
+        const json = await res.json();
+        return json.data || json;
       } catch (ingestErr) {
         console.warn('[community-ingest] request failed:', ingestErr);
+        return null;
       }
     }
 
-    async function submitCatalogUpload(gradeId, topic, description, author, file, shareUrl) {
+    async function indexCommunityBundle(gradeId, topic) {
+      return indexCommunityUpload(gradeId, topic, null, null, {}, null, { indexBundle: true });
+    }
+
+    async function submitCatalogUpload(gradeId, topic, description, author, file, shareUrl, options) {
+      options = options || {};
       const topicNorm = (topic || '').trim();
       if (!topicNorm) throw new Error('יש להזין שם נושא');
       if (!isCloudConfigured()) throw new Error('חיבור Supabase נדרש להעלאה לקהילה');
@@ -7979,12 +8014,15 @@
         fileType: fileType,
       });
       const materialId = material && material.id ? material.id : null;
-      indexCommunityUpload(gradeId, topicNorm, filePath, fileName, {
-        title: title,
-        author: author,
-        fileType: fileType,
-      }, materialId);
+      if (!options.skipIndex) {
+        await indexCommunityUpload(gradeId, topicNorm, filePath, fileName, {
+          title: title,
+          author: author,
+          fileType: fileType,
+        }, materialId, { indexBundle: options.indexBundle !== false });
+      }
       await loadCommunity();
+      return material;
     }
 
     function mapRow(row) {
@@ -10391,7 +10429,8 @@
         '</div></fieldset>' +
         '<div class="catalog-file-panel">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_file_label')) + '</label>' +
-        '<input type="file" name="catalog-file" class="w-full text-sm file:bg-sage file:text-white file:rounded-lg file:px-3 file:py-2 file:border-0" />' +
+        '<input type="file" name="catalog-file" multiple class="w-full text-sm file:bg-sage file:text-white file:rounded-lg file:px-3 file:py-2 file:border-0" />' +
+        '<p class="text-xs text-walnut/60 mt-2 leading-relaxed">' + escapeHtml(t('catalog_file_bundle_hint')) + '</p>' +
         '</div>' +
         '<div class="catalog-link-panel hidden">' +
         '<label class="block text-sm font-medium text-walnut mb-1" for="catalog-share-url">' + escapeHtml(t('catalog_link_label')) + '</label>' +
@@ -10437,7 +10476,8 @@
       const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
       const mode = modeEl ? modeEl.value : 'file';
       const fileInput = form.querySelector('[name="catalog-file"]');
-      const file = mode === 'file' && fileInput && fileInput.files ? fileInput.files[0] : null;
+      const files = mode === 'file' && fileInput && fileInput.files ? Array.from(fileInput.files) : [];
+      const file = files.length === 1 ? files[0] : null;
       const shareUrl = mode === 'link' ? (form.querySelector('[name="catalog-share-url"]').value || '').trim() : '';
       const msgEl = form.querySelector('.catalog-upload-msg');
       const submitBtn = form.querySelector('[type="submit"]');
@@ -10451,7 +10491,15 @@
       }
       try {
         if (mode === 'link' && !shareUrl) throw new Error(t('catalog_err_link'));
-        await submitCatalogUpload(gradeId, topic, desc, author, file, shareUrl);
+        if (mode === 'file' && !files.length) throw new Error(t('catalog_err_file'));
+        if (mode === 'file' && files.length > 1) {
+          for (let i = 0; i < files.length; i++) {
+            await submitCatalogUpload(gradeId, topic, desc, author, files[i], '', { skipIndex: true });
+          }
+          await indexCommunityBundle(gradeId, topic);
+        } else {
+          await submitCatalogUpload(gradeId, topic, desc, author, file, shareUrl);
+        }
         form.reset();
         const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
         if (fileRadio) fileRadio.checked = true;

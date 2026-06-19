@@ -7,9 +7,11 @@ const embeddings = require('./embeddings');
 const env = require('./env');
 
 const TABLE_NAME = 'community_knowledge_base';
+const MATERIALS_TABLE = 'community_materials';
 const STORAGE_BUCKET = 'community-uploads';
 const MIN_TEXT_LENGTH = 80;
 const BATCH_SIZE = 20;
+const INDEXABLE_EXTENSIONS = new Set(['.pdf', '.docx', '.doc', '.txt', '.md']);
 
 function getSupabaseConfig() {
   return {
@@ -28,6 +30,26 @@ function extensionFromName(fileName) {
   const dot = name.lastIndexOf('.');
   if (dot <= 0) return '';
   return name.slice(dot).toLowerCase();
+}
+
+function isIndexableFileName(fileName) {
+  const ext = extensionFromName(fileName);
+  return INDEXABLE_EXTENSIONS.has(ext);
+}
+
+function parseCommunityNotesTitle(rawNotes) {
+  const notes = String(rawNotes || '');
+  const titleMatch = notes.match(/\[title:([^\]]+)\]/);
+  if (titleMatch) return titleMatch[1].trim();
+  const descMatch = notes.match(/\[desc:([^\]]+)\]/);
+  if (descMatch) return descMatch[1].trim();
+  return '';
+}
+
+function materialDisplayTitle(material) {
+  if (!material) return 'חומר קהילתי';
+  const notes = material.notes || material.description || '';
+  return parseCommunityNotesTitle(notes) || material.file_name || material.topic || 'חומר קהילתי';
 }
 
 async function parseFileBuffer(buffer, fileName, mimeType) {
@@ -93,6 +115,85 @@ async function fetchStorageFile(filePath) {
   }
   const arrayBuffer = await res.arrayBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+async function supabaseGet(relativePath) {
+  const cfg = getSupabaseConfig();
+  const res = await fetch(cfg.url + relativePath, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+    },
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+/** All catalog rows for a community topic folder (grade + topic). */
+async function fetchCommunityMaterialsByTopic(gradeId, topic) {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.key || !gradeId || !topic) return [];
+
+  const params = new URLSearchParams();
+  params.set('select', 'id,grade_level,topic,file_path,file_name,notes,created_at');
+  params.set('grade_level', 'eq.' + String(gradeId));
+  params.set('topic', 'eq.' + String(topic));
+  params.set('order', 'created_at.asc');
+  params.set('limit', '100');
+
+  const rows = await supabaseGet('/rest/v1/' + MATERIALS_TABLE + '?' + params.toString());
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** List objects in community-uploads under a storage prefix (nested bundle files). */
+async function listStorageObjects(prefix, limit) {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.key || !prefix) return [];
+
+  const res = await fetch(cfg.url + '/storage/v1/object/list/' + STORAGE_BUCKET, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+    },
+    body: JSON.stringify({
+      prefix: String(prefix).replace(/^\/+/, ''),
+      limit: limit || 200,
+      offset: 0,
+      sortBy: { column: 'name', order: 'asc' },
+    }),
+  });
+
+  if (!res.ok) return [];
+  const rows = await res.json();
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter(function (row) { return row && row.name && !row.name.endsWith('/'); })
+    .map(function (row) {
+      const base = String(prefix).replace(/^\/+|\/+$/g, '');
+      return base ? base + '/' + row.name : row.name;
+    });
+}
+
+async function discoverBundleStoragePaths(gradeId, topic, knownPaths) {
+  const paths = new Set((knownPaths || []).filter(Boolean));
+  const gradePrefix = 'community/' + String(gradeId) + '/';
+  const listed = await listStorageObjects(gradePrefix, 300);
+  listed.forEach(function (path) { paths.add(path); });
+
+  const topicKey = String(topic || '').trim().toLowerCase();
+  if (topicKey) {
+    listed.forEach(function (path) {
+      const segments = String(path).split('/');
+      const fileName = segments[segments.length - 1] || '';
+      if (fileName && fileName.toLowerCase().indexOf(topicKey.slice(0, Math.min(8, topicKey.length))) >= 0) {
+        paths.add(path);
+      }
+    });
+  }
+
+  return Array.from(paths);
 }
 
 async function embedRowsIfPossible(rows) {
@@ -170,7 +271,11 @@ function buildChunkRows(text, meta) {
     if (m.fileName) row.file_name = m.fileName;
     if (m.filePath) row.file_path = m.filePath;
     if (m.fileType) row.file_type = m.fileType;
-    if (m.metadata) row.metadata = m.metadata;
+    const metadata = Object.assign({}, m.metadata || {});
+    if (m.bundleTopic) metadata.bundle_topic = m.bundleTopic;
+    if (m.internalFileName) metadata.internal_file_name = m.internalFileName;
+    if (m.indexOrigin) metadata.index_origin = m.indexOrigin;
+    if (Object.keys(metadata).length) row.metadata = metadata;
     return row;
   });
 }
@@ -198,6 +303,199 @@ async function insertCommunityText(text, meta) {
   return { inserted: inserted, chunks: rows.length };
 }
 
+async function ingestMaterialRecord(material, options) {
+  const opts = options || {};
+  const gradeId = String(material.grade_level || opts.gradeId || '').trim();
+  const bundleTopic = String(material.topic || opts.bundleTopic || '').trim();
+  const filePath = String(material.file_path || '').trim();
+  const fileName = String(material.file_name || '').trim();
+  const fileType = String(material.file_type || '').trim();
+  const isLink = /^https?:\/\//i.test(filePath);
+
+  if (!filePath || isLink) {
+    return { skipped: true, reason: isLink ? 'external_link_not_indexed' : 'missing_path', materialId: material.id };
+  }
+  if (!isIndexableFileName(fileName || filePath)) {
+    return { skipped: true, reason: 'unsupported_type', materialId: material.id };
+  }
+
+  let text = '';
+  try {
+    const buffer = await fetchStorageFile(filePath);
+    text = await parseFileBuffer(buffer, fileName || filePath, fileType);
+  } catch (parseErr) {
+    return { skipped: true, reason: 'parse_failed', materialId: material.id, error: parseErr.message || String(parseErr) };
+  }
+
+  if (!text || text.length < MIN_TEXT_LENGTH) {
+    return { skipped: true, reason: 'insufficient_text', materialId: material.id };
+  }
+
+  const displayTitle = materialDisplayTitle(material);
+  const internalFileName = fileName || displayTitle;
+  const fileNameHeader = internalFileName ? ('[קובץ: ' + internalFileName + ']\n') : '';
+  const indexedText = fileNameHeader + text;
+
+  const result = await insertCommunityText(indexedText, {
+    title: displayTitle,
+    author: opts.author || null,
+    contributorEmail: opts.contributorEmail || null,
+    contributorName: opts.contributorName || opts.author || null,
+    gradeId: gradeId || null,
+    topic: bundleTopic || null,
+    sourceMaterialId: material.id || null,
+    fileName: internalFileName || null,
+    filePath: filePath || null,
+    fileType: fileType || null,
+    bundleTopic: bundleTopic || null,
+    internalFileName: internalFileName || null,
+    indexOrigin: 'bundle_file',
+    metadata: {
+      origin: opts.origin || 'community_bundle',
+      ingested_at: new Date().toISOString(),
+      bundle_topic: bundleTopic || null,
+      internal_file_name: internalFileName || null,
+      catalog_material_id: material.id || null,
+    },
+    chunkOptions: { minChars: 100, maxChars: 1400 },
+  });
+
+  return Object.assign({ ok: true, skipped: false, materialId: material.id, fileName: internalFileName }, result);
+}
+
+async function ingestStoragePathRecord(filePath, options) {
+  const opts = options || {};
+  const path = String(filePath || '').trim();
+  if (!path || /^https?:\/\//i.test(path)) {
+    return { skipped: true, reason: 'invalid_path' };
+  }
+
+  const segments = path.split('/');
+  const fileName = opts.fileName || segments[segments.length - 1] || path;
+  if (!isIndexableFileName(fileName)) {
+    return { skipped: true, reason: 'unsupported_type', filePath: path };
+  }
+
+  let text = '';
+  try {
+    const buffer = await fetchStorageFile(path);
+    text = await parseFileBuffer(buffer, fileName, opts.fileType || '');
+  } catch (parseErr) {
+    return { skipped: true, reason: 'parse_failed', filePath: path, error: parseErr.message || String(parseErr) };
+  }
+
+  if (!text || text.length < MIN_TEXT_LENGTH) {
+    return { skipped: true, reason: 'insufficient_text', filePath: path };
+  }
+
+  const bundleTopic = String(opts.bundleTopic || opts.topic || '').trim();
+  const internalFileName = fileName;
+  const indexedText = '[קובץ: ' + internalFileName + ']\n' + text;
+
+  const result = await insertCommunityText(indexedText, {
+    title: opts.title || internalFileName,
+    author: opts.author || null,
+    contributorEmail: opts.contributorEmail || null,
+    contributorName: opts.contributorName || opts.author || null,
+    gradeId: opts.gradeId || null,
+    topic: bundleTopic || null,
+    sourceMaterialId: opts.sourceMaterialId || null,
+    fileName: internalFileName,
+    filePath: path,
+    fileType: opts.fileType || null,
+    bundleTopic: bundleTopic || null,
+    internalFileName: internalFileName,
+    indexOrigin: 'storage_bundle',
+    metadata: {
+      origin: 'community_storage_bundle',
+      ingested_at: new Date().toISOString(),
+      bundle_topic: bundleTopic || null,
+      internal_file_name: internalFileName,
+    },
+    chunkOptions: { minChars: 100, maxChars: 1400 },
+  });
+
+  return Object.assign({ ok: true, skipped: false, filePath: path, fileName: internalFileName }, result);
+}
+
+/**
+ * Deep-index every file in a community topic folder (catalog rows + storage paths).
+ */
+async function ingestCommunityTopicBundle(payload) {
+  if (!isIngestEnabled()) {
+    const err = new Error('Community knowledge base not configured (Supabase missing)');
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const p = payload || {};
+  const gradeId = String(p.gradeId || p.grade_level || '').trim();
+  const topic = String(p.topic || '').trim();
+  if (!gradeId || !topic) {
+    return { skipped: true, reason: 'missing_grade_or_topic', filesIndexed: 0, chunksInserted: 0 };
+  }
+
+  const materials = await fetchCommunityMaterialsByTopic(gradeId, topic);
+  const knownPaths = materials.map(function (m) { return m.file_path; }).filter(Boolean);
+  const storagePaths = await discoverBundleStoragePaths(gradeId, topic, knownPaths);
+
+  const share = {
+    contributorEmail: p.contributorEmail || null,
+    contributorName: p.contributorName || p.author || null,
+    author: p.author || null,
+    gradeId: gradeId,
+    bundleTopic: topic,
+    origin: p.origin || 'community_bundle',
+  };
+
+  let filesIndexed = 0;
+  let chunksInserted = 0;
+  const indexedMaterialIds = new Set();
+  const errors = [];
+
+  for (let i = 0; i < materials.length; i++) {
+    const material = materials[i];
+    try {
+      const result = await ingestMaterialRecord(material, share);
+      if (result && result.skipped) continue;
+      filesIndexed += 1;
+      chunksInserted += Number(result.inserted) || 0;
+      if (material.id) indexedMaterialIds.add(String(material.id));
+    } catch (err) {
+      errors.push({ materialId: material.id, error: err.message || String(err) });
+    }
+  }
+
+  for (let j = 0; j < storagePaths.length; j++) {
+    const storagePath = storagePaths[j];
+    const linked = materials.some(function (m) { return String(m.file_path || '') === String(storagePath); });
+    if (linked) continue;
+    try {
+      const result = await ingestStoragePathRecord(storagePath, Object.assign({}, share, {
+        topic: topic,
+        title: storagePath.split('/').pop() || topic,
+      }));
+      if (result && result.skipped) continue;
+      filesIndexed += 1;
+      chunksInserted += Number(result.inserted) || 0;
+    } catch (err) {
+      errors.push({ filePath: storagePath, error: err.message || String(err) });
+    }
+  }
+
+  return {
+    ok: true,
+    skipped: false,
+    bundleTopic: topic,
+    gradeId: gradeId,
+    materialsScanned: materials.length,
+    storagePathsScanned: storagePaths.length,
+    filesIndexed: filesIndexed,
+    chunksInserted: chunksInserted,
+    errors: errors.length ? errors : undefined,
+  };
+}
+
 async function ingestCommunityUpload(payload) {
   if (!isIngestEnabled()) {
     const err = new Error('Community knowledge base not configured (Supabase missing)');
@@ -208,6 +506,16 @@ async function ingestCommunityUpload(payload) {
   const p = payload || {};
   const gradeId = String(p.gradeId || p.grade_level || '').trim();
   const topic = String(p.topic || '').trim();
+  const indexBundle = p.indexBundle !== false;
+
+  if (indexBundle && gradeId && topic) {
+    const bundleResult = await ingestCommunityTopicBundle(p);
+    if (!p.filePath && !p.text) {
+      return bundleResult;
+    }
+    return Object.assign({ bundle: bundleResult }, bundleResult);
+  }
+
   const title = String(p.title || p.fileName || topic || 'חומר קהילתי').trim();
   const author = String(p.author || p.contributorName || '').trim() || null;
   const filePath = String(p.filePath || p.file_path || '').trim();
@@ -215,6 +523,25 @@ async function ingestCommunityUpload(payload) {
   const fileType = String(p.fileType || p.file_type || '').trim();
   const inlineText = String(p.text || '').trim();
   const isLink = /^https?:\/\//i.test(filePath);
+
+  if (p.materialId && filePath && !isLink && !inlineText) {
+    const materials = await fetchCommunityMaterialsByTopic(gradeId, topic);
+    const material = materials.find(function (m) { return String(m.id) === String(p.materialId); }) || {
+      id: p.materialId,
+      grade_level: gradeId,
+      topic: topic,
+      file_path: filePath,
+      file_name: fileName,
+      notes: '',
+    };
+    return ingestMaterialRecord(material, {
+      contributorEmail: p.contributorEmail || null,
+      contributorName: p.contributorName || author,
+      author: author,
+      gradeId: gradeId,
+      bundleTopic: topic,
+    });
+  }
 
   let text = inlineText;
   if (!text && filePath && !isLink) {
@@ -231,7 +558,10 @@ async function ingestCommunityUpload(payload) {
     };
   }
 
-  const result = await insertCommunityText(text, {
+  const internalFileName = fileName || title;
+  const indexedText = internalFileName ? ('[קובץ: ' + internalFileName + ']\n' + text) : text;
+
+  const result = await insertCommunityText(indexedText, {
     title: title,
     author: author,
     contributorEmail: p.contributorEmail || null,
@@ -242,9 +572,14 @@ async function ingestCommunityUpload(payload) {
     fileName: fileName || null,
     filePath: filePath || null,
     fileType: fileType || null,
+    bundleTopic: topic || null,
+    internalFileName: internalFileName || null,
+    indexOrigin: 'single_upload',
     metadata: {
       origin: p.origin || 'community_upload',
       ingested_at: new Date().toISOString(),
+      bundle_topic: topic || null,
+      internal_file_name: internalFileName || null,
     },
     chunkOptions: { minChars: 100, maxChars: 1400 },
   });
@@ -260,11 +595,16 @@ function ingestCommunityUploadAsync(payload) {
 
 module.exports = {
   TABLE_NAME,
+  MATERIALS_TABLE,
   STORAGE_BUCKET,
   isIngestEnabled,
   parseFileBuffer,
   fetchStorageFile,
+  fetchCommunityMaterialsByTopic,
+  listStorageObjects,
   insertCommunityText,
+  ingestMaterialRecord,
+  ingestCommunityTopicBundle,
   ingestCommunityUpload,
   ingestCommunityUploadAsync,
 };

@@ -1,6 +1,7 @@
 /**
  * POST /api/community-ingest — index community uploads into community_knowledge_base.
- * Body: { gradeId, topic, title?, author?, filePath?, fileName?, fileType?, text?, materialId? }
+ * Body: { gradeId, topic, title?, author?, filePath?, fileName?, fileType?, text?, materialId?, indexBundle? }
+ * Re-index an entire topic folder: { gradeId, topic, indexBundle: true }
  * Auth: Authorization: Bearer <supabase_access_token> (preferred)
  */
 const communityIngest = require('./community-ingest');
