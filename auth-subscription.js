@@ -265,12 +265,46 @@
     return normalizeTierId(tier);
   }
 
+  function resolveDisplayNameFromAuthUser(user) {
+    if (!user) return '';
+    var meta = user.user_metadata || user.raw_user_meta_data || {};
+    var fromMeta = String(meta.full_name || meta.name || '').trim();
+    if (fromMeta) return fromMeta;
+    if (Array.isArray(user.identities)) {
+      for (var i = 0; i < user.identities.length; i++) {
+        var idData = (user.identities[i] && user.identities[i].identity_data) || {};
+        var fromId = String(idData.full_name || idData.name || '').trim();
+        if (fromId) return fromId;
+      }
+    }
+    if (user.displayName) return String(user.displayName).trim();
+    return '';
+  }
+
+  function getUserDisplayName(user) {
+    var u = user || (authState.isAuthenticated ? authState.user : null);
+    var name = resolveDisplayNameFromAuthUser(u);
+    if (name) return name;
+    if (u && u.displayName) {
+      var stored = String(u.displayName).trim();
+      if (stored && stored.indexOf('@') < 0) return stored;
+    }
+    var email = u && u.email ? normalizeEmail(u.email) : getIdentityEmail();
+    return email || '';
+  }
+
+  function getUserFirstName(user) {
+    var full = getUserDisplayName(user);
+    if (!full) return '';
+    if (full.indexOf('@') >= 0) return full.split('@')[0];
+    return full.split(/\s+/)[0];
+  }
+
   function mapSupabaseUser(user) {
-    var meta = (user && user.user_metadata) || {};
     return {
       id: user.id,
       email: user.email || '',
-      displayName: meta.full_name || meta.name || (user.email ? user.email.split('@')[0] : ''),
+      displayName: resolveDisplayNameFromAuthUser(user),
     };
   }
 
@@ -824,7 +858,7 @@
     authState.user = {
       id: externalUser.id || externalUser.uid || '',
       email: externalUser.email || '',
-      displayName: externalUser.displayName || externalUser.user_metadata && externalUser.user_metadata.full_name || '',
+      displayName: resolveDisplayNameFromAuthUser(externalUser) || String(externalUser.displayName || '').trim(),
     };
     authState.tier = tier && TIERS[normalizeTierId(tier)] ? normalizeTierId(tier) : authState.tier || 'trial';
     persistAuth();
@@ -1422,7 +1456,7 @@
       var nameEl = document.getElementById('user-display-name');
       var tierEl = document.getElementById('user-tier-badge');
       var upgradeBtn = document.getElementById('btn-open-pricing');
-      if (nameEl) nameEl.textContent = authState.user.displayName || authState.user.email || '';
+      if (nameEl) nameEl.textContent = getUserDisplayName();
       if (tierEl) {
         var displayTier = isProUser() ? 'pro' : authState.tier;
         tierEl.textContent = isProUser() ? t('pro_user_badge') : tierLabel(displayTier);
@@ -1446,8 +1480,7 @@
       var proUpgradeBtn = document.getElementById('btn-open-pricing');
       var proSignOutBtn = document.getElementById('btn-auth-signout');
       var proSettingsBtn = document.getElementById('btn-user-settings');
-      var email = getIdentityEmail();
-      if (proNameEl) proNameEl.textContent = email || '';
+      if (proNameEl) proNameEl.textContent = getUserDisplayName();
       if (proTierEl) {
         proTierEl.textContent = t('pro_user_badge');
         proTierEl.className = 'user-tier-badge user-tier-badge--pro user-tier-badge--pro-user';
@@ -1716,21 +1749,23 @@
 
   function getContributorProfile() {
     if (authState.isAuthenticated && authState.user) {
+      var displayName = getUserDisplayName();
       return {
         id: authState.user.id || null,
         email: normalizeEmail(authState.user.email),
-        name: authState.user.displayName || authState.user.email || '',
-        displayName: authState.user.displayName || authState.user.email || '',
+        name: displayName,
+        displayName: displayName,
         tier: isProUser() ? 'pro' : normalizeTierId(authState.tier),
       };
     }
     var email = readIdentityEmail();
     if (email) {
+      var identityDisplayName = getUserDisplayName();
       return {
         id: null,
         email: email,
-        name: email.split('@')[0],
-        displayName: email.split('@')[0],
+        name: identityDisplayName,
+        displayName: identityDisplayName,
         tier: isProUserEmail(email) ? 'pro' : 'trial',
       };
     }
@@ -1786,6 +1821,8 @@
     showAuthOverlay: showAuthOverlay,
     refreshI18n: refreshAuthI18n,
     getContributorProfile: getContributorProfile,
+    getUserDisplayName: getUserDisplayName,
+    getUserFirstName: getUserFirstName,
     getAccessToken: getAccessToken,
     getIdentityEmail: getIdentityEmail,
     setIdentityEmail: setIdentityEmail,
