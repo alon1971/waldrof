@@ -825,6 +825,64 @@
       transform: translateY(-2px);
       box-shadow: 0 6px 18px rgba(92, 125, 88, 0.18);
     }
+    .catalog-grade-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .catalog-back-grades {
+      align-self: flex-start;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: #fff;
+      color: #5C4A3A;
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 0.625rem 1.125rem;
+      border-radius: 0.875rem;
+      border: 2px solid rgba(201, 169, 98, 0.55);
+      box-shadow: 0 2px 8px rgba(92, 74, 58, 0.08);
+      transition: border-color 0.15s ease, background 0.15s ease;
+      cursor: pointer;
+    }
+    .catalog-back-grades:hover {
+      border-color: rgba(92, 125, 88, 0.65);
+      background: rgba(247, 243, 235, 0.95);
+    }
+    .catalog-grade-switcher {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.5rem;
+    }
+    @media (min-width: 640px) {
+      .catalog-grade-switcher { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+    }
+    .catalog-grade-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.5rem;
+      padding: 0.375rem 0.5rem;
+      border-radius: 0.75rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: rgba(255, 255, 255, 0.9);
+      color: #5C4A3A;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+    }
+    .catalog-grade-chip:hover {
+      border-color: rgba(92, 125, 88, 0.55);
+      background: rgba(247, 243, 235, 0.95);
+    }
+    .catalog-grade-chip.is-active {
+      border-color: rgba(139, 58, 58, 0.55);
+      background: linear-gradient(135deg, rgba(139, 58, 58, 0.12), rgba(201, 169, 98, 0.18));
+      color: #8B3A3A;
+      box-shadow: 0 2px 8px rgba(139, 58, 58, 0.12);
+    }
     .catalog-open-upload {
       display: inline-flex;
       align-items: center;
@@ -10496,6 +10554,65 @@
       if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
     }
 
+    function closeAllCatalogUploadDrawers() {
+      const panel = document.getElementById('panel-catalog');
+      if (!panel) return;
+      panel.querySelectorAll('.catalog-upload-drawer').forEach(function (drawer) {
+        const form = drawer.querySelector('.catalog-upload-form');
+        drawer.classList.add('hidden');
+        const wrap = drawer.closest('.catalog-upload-wrap');
+        const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
+        if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+        if (form) {
+          form.reset();
+          const state = getCatalogUploadFormState(form);
+          state.file = null;
+          state.docsLink = '';
+          resetCatalogFileDisplay(form);
+          const msgEl = form.querySelector('.catalog-upload-msg');
+          if (msgEl) {
+            msgEl.textContent = '';
+            msgEl.classList.add('hidden');
+            msgEl.classList.remove('text-sage-dark', 'text-terracotta');
+          }
+          const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
+          if (fileRadio) fileRadio.checked = true;
+          setCatalogShareMode(form, 'file');
+        }
+      });
+    }
+
+    function catalogGradeNavHtml(activeGradeId) {
+      const chips = GRADES.map(function (g) {
+        const isActive = String(g.id) === String(activeGradeId);
+        const shortLabel = String(g.label || '').replace(/^כיתה\s*/, '') || getGradeLabelById(g.id);
+        return '<button type="button" class="catalog-grade-chip' + (isActive ? ' is-active' : '') + '" data-catalog-grade="' + g.id + '"' +
+          (isActive ? ' aria-current="true"' : '') + '>' + escapeHtml(shortLabel) + '</button>';
+      }).join('');
+      return '<div class="catalog-grade-nav mb-5">' +
+        '<button type="button" class="catalog-back-grades touch-btn" data-catalog-nav="grades">' +
+        escapeHtml(t('catalog_back_all_grades')) + '</button>' +
+        '<div class="catalog-grade-switcher" role="group" aria-label="' + escapeHtml(t('catalog_choose_grade')) + '">' + chips + '</div>' +
+        '</div>';
+    }
+
+    function bindCatalogGradeNav(container) {
+      if (!container) return;
+      const backBtn = container.querySelector('[data-catalog-nav="grades"]');
+      if (backBtn) {
+        backBtn.addEventListener('click', function () {
+          renderCatalog('grades');
+        });
+      }
+      container.querySelectorAll('[data-catalog-grade]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const gradeId = btn.getAttribute('data-catalog-grade');
+          if (!gradeId || String(gradeId) === String(catalogState.gradeId)) return;
+          renderCatalog('grade', gradeId);
+        });
+      });
+    }
+
     function bindCatalogUploadDrawer(container) {
       if (!container) return;
       container.querySelectorAll('.catalog-upload-wrap').forEach(function (wrap) {
@@ -10743,6 +10860,15 @@
       container.querySelectorAll('.catalog-upload-form').forEach(function (form) {
         bindCatalogShareModeToggle(form);
         bindCatalogFileInput(form);
+        const gradeSelect = form.querySelector('[name="catalog-grade"]');
+        if (gradeSelect && !form.dataset.gradeNavBound) {
+          form.dataset.gradeNavBound = '1';
+          gradeSelect.addEventListener('change', function () {
+            const newGradeId = (gradeSelect.value || '').trim();
+            if (!newGradeId || String(newGradeId) === String(catalogState.gradeId)) return;
+            renderCatalog('grade', newGradeId);
+          });
+        }
         form.addEventListener('submit', function (e) {
           e.preventDefault();
           handleCatalogUploadSubmit(form);
@@ -10833,7 +10959,8 @@
       }
       const topics = getDynamicTopicsForGrade(gradeId);
       const g = GRADES.find(function (x) { return String(x.id) === String(gradeId); });
-      let html = '<h3 class="app-page-title font-display font-bold text-burgundy mb-3">' + escapeHtml(g ? getGradeLabelById(g.id) : '') + '</h3>';
+      let html = catalogGradeNavHtml(gradeId);
+      html += '<h3 class="app-page-title font-display font-bold text-burgundy mb-3">' + escapeHtml(g ? getGradeLabelById(g.id) : '') + '</h3>';
       html += catalogUploadWrapHtml(gradeId, '', false, t('catalog_share_open'));
       html += '<h4 class="font-bold text-walnut mb-3 mt-2"><i class="fa-solid fa-folder-tree text-sage icon-inline"></i> ' + escapeHtml(t('catalog_community_topics')) + '</h4>';
       if (!topics.length) {
@@ -10850,6 +10977,7 @@
           }).join('') + '</div>';
       }
       el.innerHTML = html;
+      bindCatalogGradeNav(el);
       bindCatalogUploadDrawer(el);
       bindCatalogUploadForms(el);
       el.querySelectorAll('[data-topic]').forEach(function (btn) {
@@ -10894,7 +11022,8 @@
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const files = collectCatalogFiles(gradeId, topicId);
-      el.innerHTML = '<h3 class="app-page-title font-display font-bold text-burgundy mb-3 flex items-center gap-2">' +
+      el.innerHTML = catalogGradeNavHtml(gradeId) +
+        '<h3 class="app-page-title font-display font-bold text-burgundy mb-3 flex items-center gap-2">' +
         '<i class="fa-solid fa-folder-open text-gold"></i> ' +
         escapeHtml(g ? getGradeLabelById(g.id) : '') + ' · ' + escapeHtml(topicLabel) + '</h3>' +
         catalogUploadWrapHtml(gradeId, topicLabel, true, t('catalog_add_material')) +
@@ -10902,12 +11031,14 @@
         (files.length
           ? '<div class="space-y-3">' + files.map(renderCatalogFileRow).join('') + '</div>'
           : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>');
+      bindCatalogGradeNav(el);
       bindCatalogUploadDrawer(el);
       bindCatalogUploadForms(el);
       scrollToCatalogContent('materials');
     }
 
     async function renderCatalog(view, gradeId, topicId) {
+      closeAllCatalogUploadDrawers();
       catalogState.view = view || 'grades';
       if (view === 'grades' || !view) {
         catalogState.gradeId = null;
