@@ -1397,6 +1397,17 @@
       unicode-bidi: plaintext;
       text-align: start;
       max-width: 10rem;
+      min-width: 2.5rem;
+      flex-shrink: 1;
+    }
+    #user-display-name.is-empty {
+      display: none;
+    }
+    body.is-authenticated .app-site-chrome,
+    body.is-pro-user .app-site-chrome {
+      pointer-events: auto !important;
+      opacity: 1 !important;
+      filter: none !important;
     }
     .header-user-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .user-tier-badge {
@@ -1765,7 +1776,12 @@
       display: contents;
     }
     .app-site-chrome.header-compact #user-account-bar {
-      display: contents;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 4;
     }
     .app-site-chrome.header-compact .header-user-identity {
       display: flex;
@@ -1779,6 +1795,16 @@
       font-size: 0.75rem !important;
       max-width: 8.5rem;
     }
+    .app-site-chrome.header-compact .header-user-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-shrink: 0;
+      margin-inline-start: auto;
+      position: relative;
+      z-index: 5;
+      pointer-events: auto;
+    }
     .app-site-chrome.header-compact .header-compact-nav {
       display: flex;
       align-items: center;
@@ -1786,14 +1812,9 @@
       gap: 0.3rem;
       flex: 1 1 auto;
       min-width: 0;
+      max-width: 55%;
       padding-inline: 0.15rem;
-    }
-    .app-site-chrome.header-compact .header-user-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-      flex-shrink: 0;
-      margin-inline-start: auto;
+      pointer-events: auto;
     }
     .app-site-chrome.header-compact #search-usage-label,
     .app-site-chrome.header-compact .search-usage-track,
@@ -3477,7 +3498,7 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20260619d"></script>
+  <script src="auth-subscription.js?v=20260619e"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250618b"></script>

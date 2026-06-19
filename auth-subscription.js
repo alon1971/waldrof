@@ -425,10 +425,8 @@
       var known = resolveKnownHebrewName(name, mode);
       if (known) return known;
     }
-    if (prefersHebrewUi()) {
-      var byEmail = resolveHebrewNameByEmail(user, emailFallback, mode);
-      if (byEmail) return byEmail;
-    }
+    var byEmail = resolveHebrewNameByEmail(user, emailFallback, mode);
+    if (byEmail) return byEmail;
     return name || '';
   }
 
@@ -858,6 +856,7 @@
   }
 
   function notifyListeners() {
+    ensureAuthChromeUnlocked();
     listeners.forEach(function (fn) {
       try { fn(getPublicState()); } catch (e) { console.warn(e); }
     });
@@ -1367,7 +1366,36 @@
     }
   }
 
+  function ensureAuthChromeUnlocked() {
+    if (authState.isAuthenticated || isProUser()) {
+      if (document.body) document.body.classList.remove('auth-locked');
+    }
+  }
+
+  function formatHeaderDisplayName() {
+    var name = getUserDisplayName();
+    if (name) return name;
+    var email = authState.user && authState.user.email
+      ? normalizeEmail(authState.user.email)
+      : getIdentityEmail();
+    if (email) {
+      var byEmail = resolveHebrewNameByEmail(authState.user, email, 'full');
+      if (byEmail) return byEmail;
+      return formatNameFromEmail(email) || '';
+    }
+    return '';
+  }
+
+  function setHeaderDisplayName(el) {
+    if (!el) return;
+    var displayName = formatHeaderDisplayName();
+    el.textContent = displayName;
+    el.setAttribute('title', displayName);
+    el.classList.toggle('is-empty', !displayName);
+  }
+
   function hideAuthOverlay() {
+    ensureAuthChromeUnlocked();
     var el = document.getElementById('auth-overlay');
     if (el) {
       el.classList.add('hidden');
@@ -1688,9 +1716,15 @@
     meter.setAttribute('aria-hidden', hidden ? 'true' : 'false');
   }
 
+  function syncAuthBodyClass() {
+    if (!document.body) return;
+    document.body.classList.toggle('is-authenticated', Boolean(authState.isAuthenticated));
+    document.body.classList.toggle('is-pro-user', isProUser());
+  }
+
   function syncProUserDomState() {
+    syncAuthBodyClass();
     var pro = isProUser();
-    if (document.body) document.body.classList.toggle('is-pro-user', pro);
     var accountBar = document.getElementById('user-account-bar');
     if (accountBar) accountBar.classList.toggle('user-account-bar--pro', pro);
     if (pro) setSearchUsageMeterHidden(true);
@@ -1710,7 +1744,7 @@
       var nameEl = document.getElementById('user-display-name');
       var tierEl = document.getElementById('user-tier-badge');
       var upgradeBtn = document.getElementById('btn-open-pricing');
-      if (nameEl) nameEl.textContent = getUserDisplayName();
+      if (nameEl) setHeaderDisplayName(nameEl);
       if (tierEl) {
         var displayTier = isProUser() ? 'pro' : authState.tier;
         tierEl.textContent = isProUser() ? t('pro_user_badge') : tierLabel(displayTier);
@@ -1734,7 +1768,7 @@
       var proUpgradeBtn = document.getElementById('btn-open-pricing');
       var proSignOutBtn = document.getElementById('btn-auth-signout');
       var proSettingsBtn = document.getElementById('btn-user-settings');
-      if (proNameEl) proNameEl.textContent = getUserDisplayName();
+      if (proNameEl) setHeaderDisplayName(proNameEl);
       if (proTierEl) {
         proTierEl.textContent = t('pro_user_badge');
         proTierEl.className = 'user-tier-badge user-tier-badge--pro user-tier-badge--pro-user';
@@ -1864,6 +1898,27 @@
     var btnSignOut = document.getElementById('btn-auth-signout');
     if (btnSignOut) btnSignOut.addEventListener('click', function () { signOut(); });
 
+    var chromeActions = document.querySelector('.app-chrome-actions-row');
+    if (chromeActions && !chromeActions.dataset.authChromeBound) {
+      chromeActions.dataset.authChromeBound = '1';
+      chromeActions.addEventListener('click', function (e) {
+        if (e.target.closest('#btn-open-pricing')) {
+          e.preventDefault();
+          showPricingModal();
+          return;
+        }
+        if (e.target.closest('#btn-user-settings')) {
+          e.preventDefault();
+          showUserSettingsModal();
+          return;
+        }
+        if (e.target.closest('#btn-auth-signout')) {
+          e.preventDefault();
+          signOut();
+        }
+      });
+    }
+
     var pricingClose = document.getElementById('pricing-modal-close');
     if (pricingClose) pricingClose.addEventListener('click', hidePricingModal);
     var pricingBackdrop = document.getElementById('pricing-modal-backdrop');
@@ -1954,8 +2009,6 @@
     var useSupabase = isSupabaseConfigured() && typeof global.supabase !== 'undefined';
 
     if (useSupabase) {
-      clearAuth(false);
-      showAuthOverlay();
       setAuthLoading(true, 'session');
       var client = options.supabaseClient || getSupabaseClient();
       initSupabaseAuth(client).then(function (session) {
@@ -1963,8 +2016,11 @@
         if (session && session.user) {
           hideAuthOverlay();
           refreshSubscriptionFromServer();
-        } else if (!isProUser()) showAuthOverlay();
-        else hideAuthOverlay();
+        } else if (!isProUser()) {
+          showAuthOverlay();
+        } else {
+          hideAuthOverlay();
+        }
       }).catch(function (e) {
         console.warn('[Auth] Supabase session check failed', e);
         setAuthLoading(false, 'session');
