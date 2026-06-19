@@ -3830,6 +3830,38 @@
       };
     }
 
+    /** Apply completed topic research and keep the teacher on wizard Step B (never auto-open Step C). */
+    function commitTopicResearchToStepB(topic, data) {
+      var topicStr = String(topic || resolveLessonTopic() || '').trim();
+      if (!topicStr || !data || !data.blockPlan) return false;
+
+      appState.topic = topicStr;
+      appState.webResearch = data.webResearch || { topic: topicStr, summary: '', connections: [], highlights: [] };
+      if (!appState.webResearch.topic) appState.webResearch.topic = topicStr;
+
+      var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
+      appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topicStr, appState.gradeLabel);
+      appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+      appState.productTabsRendered = freshProductTabsRendered();
+      appState.visualGallery = normalizeGallery(data.gallery, topicStr);
+      appState.topicResearchCompleted = true;
+
+      resetSummarySession();
+      ensureStepBWizardView();
+      renderStepProgress();
+      updateWorkspaceChrome();
+      updateNewResearchBarVisibility();
+
+      holdPageScroll(function () {
+        renderWebResearchResult();
+      });
+      updateTopicResearchButton();
+      updatePedagogyExportButtonsVisibility();
+      ensurePedagogySuggestionEvents();
+      nudgeGoogleTranslate();
+      return true;
+    }
+
     async function applyLessonPlanFromHistory(item) {
       if (!item || !item.resultData || !item.resultData.blockPlan) {
         throw new Error(t('search_history_error'));
@@ -3849,40 +3881,16 @@
       appState.grade = gradeId;
       appState.gradeLabel = item.gradeLabel || getGradeLabelById(gradeId);
       appState.topic = topic;
-      appState.topicResearchCompleted = true;
 
       const gradeSelect = document.getElementById('grade-select');
       if (gradeSelect) gradeSelect.value = gradeId;
       const topicInput = document.getElementById('topic-input');
       if (topicInput) topicInput.value = topic;
 
-      appState.webResearch = data.webResearch || { topic: topic, summary: '', connections: [], highlights: [] };
-      const mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
-      appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topic, appState.gradeLabel);
-      appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
-      appState.productTabsRendered = freshProductTabsRendered();
-      appState.visualGallery = normalizeGallery(data.gallery, topic);
-
-      appState.step = 3;
-      appState.navSection = 'products';
-      showWorkspaceShell();
-      document.getElementById('synthesis-banner').classList.remove('hidden');
-      renderSynthesisBanner();
-      renderStepProgress();
-      updateWorkspaceChrome();
-      updateNewResearchBarVisibility();
-      updateTopicResearchButton();
-      document.getElementById('btn-to-workspace').disabled = false;
-
-      await initStreaming();
-      setupThemeActionButtons();
-      holdPageScroll(function () {
-        renderWebResearchResult();
-      });
-      updatePedagogyExportButtonsVisibility();
-      ensurePedagogySuggestionEvents();
-      scrollToWorkspaceTop('smooth');
-      nudgeGoogleTranslate();
+      if (!commitTopicResearchToStepB(topic, data)) {
+        throw new Error(t('search_history_error'));
+      }
+      scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
       if (isCloudConfigured()) {
         try { await loadCommunity(); } catch (e) { /* ignore */ }
@@ -7689,7 +7697,7 @@
     function navigateCompactHeaderToTopic() {
       if (!canNavigateToStep(2)) return;
       goToStep(2, false);
-      scrollToStepBAndFocus({ expandHeader: true, behavior: 'smooth' });
+      scrollToStepBAndFocus({ expandHeader: true, behavior: 'smooth', focusField: false });
     }
 
     function navigateCompactHeaderToProducts() {
@@ -7966,21 +7974,22 @@
       options = options || {};
       ensureStepBWizardView();
       var topicInput = document.getElementById('topic-input');
-      var wrapper = document.getElementById('step-b-wrapper');
-      if (!wrapper) return;
+      var anchor = document.getElementById('step-b-container') || getStepBScrollAnchor();
+      if (!anchor) return;
       if (options.expandHeader) setHeaderCompact(false);
       var behavior = options.behavior == null ? 'smooth' : options.behavior;
       var preCompact = options.preCompactHeader !== false && !options.expandHeader;
+      var shouldFocus = options.focusField !== false;
       beginProgrammaticScroll();
-      var focusField = function () {
+      var finishFocus = function () {
         endProgrammaticScroll();
-        if (!topicInput) return;
+        if (!shouldFocus || !topicInput) return;
         try {
           topicInput.focus({ preventScroll: true });
         } catch (e) {
           topicInput.focus();
         }
-        topicInput.select();
+        if (options.selectField !== false) topicInput.select();
         highlightWizardField(topicInput);
       };
       runAfterLayout(function () {
@@ -7994,11 +8003,11 @@
           syncProductTabsStickyLayout(true);
           var scrollBehavior = (behavior === false || behavior === 'none') ? 'auto' :
             ((behavior === 'auto' || behavior === 'instant') ? 'auto' : (behavior || 'smooth'));
-          wrapper.scrollIntoView({ behavior: scrollBehavior, block: 'center' });
+          scrollElementIntoViewWithChrome(anchor, scrollBehavior, 'start');
           if (scrollBehavior === 'smooth') {
-            runAfterSmoothScroll(focusField);
+            runAfterSmoothScroll(finishFocus);
           } else {
-            focusField();
+            finishFocus();
           }
         });
       });
@@ -8030,14 +8039,18 @@
     }
 
     function scrollToStepB(behavior) {
-      scrollElementIntoViewWithChrome(getStepBScrollAnchor(), behavior, 'center');
+      var anchor = document.getElementById('step-b-container') || getStepBScrollAnchor();
+      scrollElementIntoViewWithChrome(anchor, behavior, 'start');
     }
 
     function scrollToWizardStep(n, behavior) {
       if (behavior === false || behavior === 'none') return;
       if (pageLoadFocusGuard && n === 1) return;
       if (n === 2) {
-        scrollToStepBAndFocus({ behavior: behavior });
+        scrollToStepBAndFocus({
+          behavior: behavior,
+          focusField: !hasLessonReady(),
+        });
         return;
       }
       if (n === 1) {
@@ -8132,7 +8145,7 @@
       if (!canNavigateToStep(n)) return;
       if (n === 2) {
         goToStep(2, false);
-        scrollToStepBAndFocus({ behavior: 'smooth' });
+        scrollToStepBAndFocus({ behavior: 'smooth', focusField: !hasLessonReady() });
         return;
       }
       if (n === 1) {
@@ -8423,6 +8436,10 @@
     function initStreaming() {
       return new Promise(function (resolve) {
         ensureProductTabsHydrated(true);
+        if (!isWorkspaceOpen()) {
+          resolve();
+          return;
+        }
         setupThemeActionButtons();
         switchTab('theory');
         setupThemeActionButtons();
@@ -8593,33 +8610,12 @@
           appState.lessonCacheKey = data._meta.cacheKey;
         }
 
-        appState.webResearch = data.webResearch || { topic: topic, summary: '', connections: [], highlights: [] };
-        if (!appState.webResearch.topic) appState.webResearch.topic = topic;
         if (!data.blockPlan) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
+        if (!commitTopicResearchToStepB(topic, data)) {
+          throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
+        }
 
-        var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
-        appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topic, appState.gradeLabel);
-        appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
-        appState.productTabsRendered = freshProductTabsRendered();
-        appState.visualGallery = normalizeGallery(data.gallery, topic);
-        appState.topicResearchCompleted = true;
-        resetSummarySession();
-
-        ensureStepBWizardView();
-        renderStepProgress();
-        updateNewResearchBarVisibility();
-
-        holdPageScroll(function () {
-          renderWebResearchResult();
-        });
-        requestAnimationFrame(function () {
-          var resultEl = document.getElementById('web-research-result');
-          if (resultEl && !resultEl.classList.contains('hidden')) {
-            resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        });
         await checkAndShowCommunityTopicAlert();
-        nudgeGoogleTranslate();
         queueCommunityLessonSync();
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
@@ -9835,6 +9831,7 @@
         resetProductTabsNeutral();
       } else if (isProductTab(id)) {
         if (!appState.aiGeneratedPlan) return;
+        if (!isWorkspaceOpen()) return;
         resolveLessonTopic();
         appState.navSection = 'products';
         appState.activeProductTab = id;
