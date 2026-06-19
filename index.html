@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="waldrof-build" content="20250619c" />
+  <meta name="waldrof-build" content="20250627d" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מתכנן תקופות לימוד אנתרופוסופי — מסע פדגוגי שלב-אחר-שלב" />
   <link rel="manifest" href="/manifest.json">
@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20250619c" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20250627d" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -927,6 +927,31 @@
       display: inline-block;
       margin-top: 0.5rem;
     }
+    .catalog-material-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .catalog-material-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 2.25rem;
+      min-height: 2.25rem;
+      padding: 0.35rem 0.55rem;
+      border-radius: 0.5rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: rgba(255, 255, 255, 0.95);
+      color: #5C4A3A;
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .catalog-material-btn:hover { background: #F7F3EB; border-color: rgba(92, 125, 88, 0.55); }
+    .catalog-material-btn--delete:hover { border-color: rgba(139, 58, 58, 0.55); color: #8B3A3A; }
     .theory-bibliography-card {
       background: linear-gradient(135deg, rgba(247, 243, 235, 0.95), rgba(237, 230, 214, 0.85));
       border: 1px solid rgba(201, 169, 98, 0.45);
@@ -7732,9 +7757,31 @@
       return Boolean(appState.grade && resolveLessonTopic() && appState.aiGeneratedPlan);
     }
 
+    function communityMaterialsApiUrl() {
+      if (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:') {
+        return location.origin + '/api/community-materials';
+      }
+      return '/api/community-materials';
+    }
+
     async function fetchCommunityMaterials() {
-      const url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?select=*&order=id.desc';
-      const res = await fetch(url, { headers: getRestHeaders({ 'Content-Type': 'application/json' }) });
+      if (canUseCommunityUploadApi()) {
+        try {
+          const res = await fetch(communityMaterialsApiUrl(), { cache: 'no-store' });
+          if (res.ok) {
+            const json = await res.json();
+            const rows = json.data || json;
+            if (Array.isArray(rows)) return rows;
+          } else {
+            console.warn('[community] API list failed:', await res.text());
+          }
+        } catch (apiErr) {
+          console.warn('[community] API list error:', apiErr);
+        }
+      }
+      const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' });
+      const url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?select=*&order=created_at.desc';
+      const res = await fetch(url, { headers: headers });
       if (!res.ok) throw new Error(await res.text() || res.status);
       return res.json();
     }
@@ -7960,10 +8007,81 @@
     }
 
     async function deleteCommunityMaterial(id) {
+      if (canUseCommunityUploadApi()) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+          try {
+            const token = await WaldorfAuth.getAccessToken();
+            if (token) headers.Authorization = 'Bearer ' + token;
+          } catch (e) { /* ignore */ }
+        }
+        const res = await fetch(communityMaterialsApiUrl(), {
+          method: 'DELETE',
+          headers: headers,
+          body: JSON.stringify({ id: id }),
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || res.status);
+        return text ? JSON.parse(text) : {};
+      }
+      const headers = await getSupabaseAuthHeaders();
       const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.' + encodeURIComponent(id), {
-        method: 'DELETE', headers: getRestHeaders(),
+        method: 'DELETE', headers: headers,
       });
       if (!res.ok) throw new Error(await res.text() || res.status);
+    }
+
+    async function updateCommunityMaterial(id, fields) {
+      fields = fields || {};
+      if (canUseCommunityUploadApi()) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+          try {
+            const token = await WaldorfAuth.getAccessToken();
+            if (token) headers.Authorization = 'Bearer ' + token;
+          } catch (e) { /* ignore */ }
+        }
+        const res = await fetch(communityMaterialsApiUrl(), {
+          method: 'PATCH',
+          headers: headers,
+          body: JSON.stringify(Object.assign({ id: id }, fields)),
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || res.status);
+        const json = text ? JSON.parse(text) : {};
+        return json.data || json;
+      }
+      const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
+      const payload = {};
+      if (fields.topic != null) payload.topic = String(fields.topic).trim();
+      if (fields.description != null) {
+        const item = appState.communityCache.find(function (row) { return String(row.id) === String(id); });
+        const notes = packCommunityExtras({
+          title: (item && item.title) || fields.topic || '',
+          author: (item && item.authorName) || '',
+          description: String(fields.description).trim(),
+          fileSize: item && item.fileSize,
+          fileType: item && item.fileType,
+        });
+        if (notes) payload[COMMUNITY_META_FIELD] = notes;
+      }
+      const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: headers,
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text() || res.status);
+      const data = await res.json();
+      return Array.isArray(data) ? data[0] : data;
+    }
+
+    function upsertCommunityCacheRow(rawRow) {
+      if (!rawRow || rawRow.id == null) return;
+      const mapped = mapRow(rawRow);
+      const idx = appState.communityCache.findIndex(function (row) { return String(row.id) === String(mapped.id); });
+      if (idx >= 0) appState.communityCache[idx] = mapped;
+      else appState.communityCache.unshift(mapped);
+      appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
     }
 
     function normalizeTopicKey(topic) {
@@ -8285,6 +8403,7 @@
             author: author,
             title: desc || file.name || topicNorm,
           });
+          if (up.material) upsertCommunityCacheRow(up.material);
           await loadCommunity();
           return up.material || null;
         }
@@ -8304,6 +8423,7 @@
         fileSize: fileSize,
         fileType: fileType,
       });
+      if (material) upsertCommunityCacheRow(material);
       const materialId = material && material.id ? material.id : null;
       if (!options.skipIndex) {
         await indexCommunityUpload(gradeId, topicNorm, filePath, fileName, {
@@ -8328,10 +8448,11 @@
         title: displayTitle,
         notes: displayNotes,
         authorName: extras.author || '',
-        gradeLevel: row.grade != null ? String(row.grade) : (row.grade_level != null ? String(row.grade_level) : ''),
+        gradeLevel: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : ''),
         topic: topic,
         createdAt: row.created_at || null,
         fileName: row.file_name || '',
+        filePath: filePath,
         fileSize: extras.fileSize,
         fileType: extras.fileType || '',
         fileUrl: resolveCommunityFileUrl(row),
@@ -10659,12 +10780,15 @@
         .filter(function (item) { return normalizeTopicKey(item.topic) === topicKey; })
         .map(function (item) {
           return {
-            id: 'sb-' + item.id,
+            id: item.id,
             title: item.title,
             topic: item.topic,
             notes: item.notes,
+            authorName: item.authorName,
+            gradeLevel: item.gradeLevel,
             createdAt: item.createdAt,
             fileName: item.fileName,
+            filePath: item.filePath,
             fileUrl: item.fileUrl,
           };
         });
@@ -11142,15 +11266,94 @@
         ? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" class="touch-btn inline-flex items-center gap-1.5 text-sm ' +
           (external ? 'bg-sky hover:bg-sky/90' : 'bg-sage hover:bg-sage-dark') + ' text-white px-4 py-2 rounded-lg"><i class="' + btnIcon + '"></i> ' + escapeHtml(btnLabel) + '</a>'
         : '<span class="text-xs text-walnut/50">' + escapeHtml(t('community_no_file')) + '</span>';
-      return '<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-cream rounded-xl border border-gold/25 p-4">' +
+      const manageBtns =
+        '<div class="catalog-material-actions">' +
+        '<button type="button" class="catalog-material-btn catalog-material-edit" data-material-id="' + escapeHtml(String(file.id)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '">✏️</button>' +
+        '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-material-id="' + escapeHtml(String(file.id)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>' +
+        '</div>';
+      return '<div class="catalog-material-row flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-material-id="' + escapeHtml(String(file.id)) + '">' +
         '<div class="min-w-0 flex-1">' +
         '<div class="flex flex-wrap items-center gap-2 mb-1">' +
         '<span class="text-[10px] bg-sage/15 text-sage-dark px-2 py-0.5 rounded-full"><i class="fa-solid fa-cloud"></i> ' + escapeHtml(t('community_badge_label')) + '</span>' +
-        '<strong class="text-burgundy">' + escapeHtml(file.topic || file.title) + '</strong></div>' +
-        (file.notes ? '<p class="text-sm text-walnut/75 mt-1">' + escapeHtml(file.notes) + '</p>' : '') +
+        '<strong class="text-burgundy catalog-material-topic">' + escapeHtml(file.topic || file.title) + '</strong></div>' +
+        (file.notes ? '<p class="text-sm text-walnut/75 mt-1 catalog-material-desc">' + escapeHtml(file.notes) + '</p>' : '') +
         (file.fileName ? '<p class="text-xs text-walnut/50 mt-0.5">' + escapeHtml(file.fileName) + '</p>' : '') +
         (file.createdAt ? '<p class="text-[10px] text-walnut/45 mt-1">' + formatDate(file.createdAt) + '</p>' : '') +
-        '</div>' + downloadBtn + '</div>';
+        '</div>' +
+        '<div class="flex flex-wrap items-center gap-2">' + manageBtns + downloadBtn + '</div></div>';
+    }
+
+    function findCommunityItemById(id) {
+      return appState.communityCache.find(function (item) { return String(item.id) === String(id); }) || null;
+    }
+
+    async function editCatalogMaterial(materialId) {
+      const item = findCommunityItemById(materialId);
+      if (!item) return;
+      const newTopic = window.prompt(t('catalog_edit_topic_prompt'), item.topic || item.title || '');
+      if (newTopic === null) return;
+      const topicTrim = newTopic.trim();
+      if (!topicTrim) {
+        alert(t('catalog_err_topic'));
+        return;
+      }
+      const newDesc = window.prompt(t('catalog_edit_desc_prompt'), item.notes || '');
+      if (newDesc === null) return;
+      try {
+        await updateCommunityMaterial(materialId, { topic: topicTrim, description: newDesc.trim() });
+        await loadCommunity();
+        updateCommunityBadge();
+        if (catalogState.view === 'materials') {
+          await renderCatalogMaterials(catalogState.gradeId, topicTrim);
+        } else if (catalogState.view === 'grade') {
+          await renderCatalogGradePanel(catalogState.gradeId);
+        } else {
+          renderCatalog('grades');
+        }
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    }
+
+    async function deleteCatalogMaterial(materialId) {
+      if (!window.confirm(t('catalog_delete_confirm'))) return;
+      try {
+        await deleteCommunityMaterial(materialId);
+        appState.communityCache = appState.communityCache.filter(function (item) {
+          return String(item.id) !== String(materialId);
+        });
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+        updateCommunityBadge();
+        if (catalogState.view === 'materials') {
+          await renderCatalogMaterials(catalogState.gradeId, catalogState.topic);
+        } else if (catalogState.view === 'grade') {
+          await renderCatalogGradePanel(catalogState.gradeId);
+        } else {
+          renderCatalog('grades');
+        }
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    }
+
+    function bindCatalogMaterialActions(container) {
+      if (!container) return;
+      container.querySelectorAll('.catalog-material-edit').forEach(function (btn) {
+        if (btn.dataset.bound) return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function () {
+          const id = btn.getAttribute('data-material-id');
+          if (id) editCatalogMaterial(id);
+        });
+      });
+      container.querySelectorAll('.catalog-material-delete').forEach(function (btn) {
+        if (btn.dataset.bound) return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function () {
+          const id = btn.getAttribute('data-material-id');
+          if (id) deleteCatalogMaterial(id);
+        });
+      });
     }
 
     async function renderCatalogMaterials(gradeId, topicId) {
@@ -11179,6 +11382,7 @@
       bindCatalogGradeNav(el);
       bindCatalogUploadDrawer(el);
       bindCatalogUploadForms(el);
+      bindCatalogMaterialActions(el);
       scrollToCatalogContent('materials');
     }
 
@@ -11198,7 +11402,7 @@
       renderCatalogBreadcrumb();
       showCatalogStatus('', '');
       if (catalogState.view === 'grades') {
-        if (isCloudConfigured() && !appState.communityCache.length) {
+        if (isCloudConfigured()) {
           showCatalogStatus(t('catalog_loading'), 'info');
           try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
           showCatalogStatus('', '');

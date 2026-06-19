@@ -25,6 +25,7 @@ const cacheDb = require('./api/cache');
 const shareMaterialApi = require('./api/share-material');
 const communityIngestApi = require('./api/community-ingest-api');
 const communityUploadApi = require('./api/community-upload');
+const communityMaterialsApi = require('./api/community-materials');
 const searchHistoryApi = require('./api/search-history');
 const subscriptionApi = require('./api/subscription');
 const configApi = require('./api/config');
@@ -201,6 +202,33 @@ async function handleApiCommunityUpload(req, res) {
   }
 }
 
+async function handleApiCommunityMaterials(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'PATCH' || req.method === 'DELETE' || req.method === 'POST') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    await communityMaterialsApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
 async function handleApiCommunityIngest(req, res) {
   const apiRes = createApiResponse(res);
   try {
@@ -366,6 +394,10 @@ const server = http.createServer(async function (req, res) {
     return handleApiCommunityUpload(req, res);
   }
 
+  if (pathname === '/api/community-materials') {
+    return handleApiCommunityMaterials(req, res);
+  }
+
   if (pathname === '/api/search-history') {
     return handleApiSearchHistory(req, res);
   }
@@ -384,7 +416,7 @@ const server = http.createServer(async function (req, res) {
 server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
