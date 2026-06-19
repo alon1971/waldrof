@@ -1410,6 +1410,29 @@
       filter: none !important;
     }
     .header-user-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .header-pro-explicit-actions {
+      display: none;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+    body.is-pro-user .header-pro-explicit-actions {
+      display: inline-flex !important;
+    }
+    .header-explicit-action {
+      pointer-events: auto;
+      position: relative;
+      z-index: 6;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    body.is-pro-user .header-explicit-action {
+      display: inline-flex !important;
+    }
+    body.is-pro-user #btn-auth-signout,
+    body.is-pro-user #btn-user-settings {
+      display: none !important;
+    }
     .user-tier-badge {
       display: inline-flex; align-items: center; padding: 0.2rem 0.6rem;
       border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
@@ -1820,6 +1843,22 @@
     .app-site-chrome.header-compact .search-usage-track,
     .app-site-chrome.header-compact #user-tier-badge:not(.user-tier-badge--pro-user),
     .app-site-chrome.header-compact #btn-user-settings {
+      display: none !important;
+    }
+    .app-site-chrome.header-compact .header-pro-explicit-actions {
+      display: inline-flex !important;
+      pointer-events: auto;
+      position: relative;
+      z-index: 6;
+    }
+    .app-site-chrome.header-compact .header-explicit-action {
+      display: inline-flex !important;
+      pointer-events: auto;
+      min-height: 1.6rem;
+      padding: 0.15rem 0.45rem;
+      font-size: 0.68rem !important;
+    }
+    body.is-pro-user .app-site-chrome.header-compact #btn-auth-signout {
       display: none !important;
     }
     .app-site-chrome.header-compact #user-tier-badge.user-tier-badge--pro-user {
@@ -3058,6 +3097,16 @@
             </div>
             <div class="header-user-actions">
               <span id="user-tier-badge" class="user-tier-badge user-tier-badge--trial"></span>
+              <div id="header-pro-explicit-actions" class="header-pro-explicit-actions" aria-label="פעולות חשבון">
+                <button type="button" id="btn-header-manage-sub" class="user-action-btn header-explicit-action user-action-btn--manage" data-i18n-aria="user_settings_title" title="ניהול מנוי">
+                  <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
+                  <span>ניהול מנוי</span>
+                </button>
+                <button type="button" id="btn-header-signout-explicit" class="user-action-btn header-explicit-action">
+                  <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+                  <span data-i18n="auth_signout">יציאה</span>
+                </button>
+              </div>
               <button type="button" id="btn-user-settings" class="user-action-btn" data-i18n-aria="user_settings_title" title="הגדרות חשבון">
                 <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
               </button>
@@ -3516,7 +3565,7 @@
     const COMMUNITY_META_FIELD = 'notes';
     const COMMUNITY_OWNED_STORAGE_KEY = 'waldrof_community_owned_materials';
     const COMMUNITY_UPLOAD_DRAFT_KEY = 'community_upload_draft';
-    window.communityFormDraft = window.communityFormDraft || { grade: '', topic: '', description: '', author: '', files: [] };
+    window.communityFormDraft = { grade: '', topic: '', description: '', author: '', files: [], shareMode: 'file', shareUrl: '' };
     window.selectedUploadFiles = Array.isArray(window.selectedUploadFiles) ? window.selectedUploadFiles : [];
     window.communityUploadDrawerOpen = Boolean(window.communityUploadDrawerOpen);
     const communitySessionOwnedIds = new Set();
@@ -12381,7 +12430,65 @@
       });
     }
 
+    function bindHeaderExplicitAuthActions() {
+      var manageBtn = document.getElementById('btn-header-manage-sub');
+      var signOutBtn = document.getElementById('btn-header-signout-explicit');
+      function openManageSubscription() {
+        if (typeof WaldorfAuth === 'undefined') return;
+        if (WaldorfAuth.getState().isAuthenticated && typeof WaldorfAuth.showUserSettingsModal === 'function') {
+          WaldorfAuth.showUserSettingsModal();
+          return;
+        }
+        if (typeof WaldorfAuth.isProUser === 'function' && WaldorfAuth.isProUser()) {
+          var modal = document.getElementById('user-settings-modal');
+          var tierEl = document.getElementById('user-settings-tier');
+          var usageEl = document.getElementById('user-settings-usage');
+          var renewEl = document.getElementById('user-settings-renew');
+          var cancelBtn = document.getElementById('btn-cancel-subscription');
+          if (tierEl) tierEl.textContent = typeof t === 'function' ? t('pro_user_badge') : 'Pro User';
+          if (usageEl) usageEl.textContent = '—';
+          if (renewEl) renewEl.textContent = typeof t === 'function' ? t('user_settings_trial_renew') : '—';
+          if (cancelBtn) {
+            cancelBtn.classList.add('hidden');
+            cancelBtn.disabled = true;
+          }
+          if (modal) {
+            modal.classList.remove('hidden');
+            modal.setAttribute('aria-hidden', 'false');
+          }
+          return;
+        }
+        if (typeof WaldorfAuth.showUserSettingsModal === 'function') WaldorfAuth.showUserSettingsModal();
+      }
+      if (manageBtn) manageBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openManageSubscription();
+      });
+      if (signOutBtn) signOutBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.signOut === 'function') WaldorfAuth.signOut();
+      });
+      var chromeActions = document.querySelector('.app-chrome-actions-row');
+      if (chromeActions && !chromeActions.dataset.explicitAuthBound) {
+        chromeActions.dataset.explicitAuthBound = '1';
+        chromeActions.addEventListener('click', function (e) {
+          if (e.target.closest('#btn-header-manage-sub')) {
+            e.preventDefault();
+            openManageSubscription();
+            return;
+          }
+          if (e.target.closest('#btn-header-signout-explicit')) {
+            e.preventDefault();
+            if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.signOut === 'function') WaldorfAuth.signOut();
+          }
+        });
+      }
+    }
+
     function bindEvents() {
+      bindHeaderExplicitAuthActions();
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
         if (!btn || btn.disabled) return;
