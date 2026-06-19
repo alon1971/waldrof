@@ -688,11 +688,26 @@ function scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText) {
   });
 }
 
+const ARCHIVE_EXACT_SIMILARITY = 0.99;
+const ARCHIVE_PARTIAL_MIN_SCORE = 0.5;
+
+function isBetterArchiveTopicPick(next, prev) {
+  if (!prev) return true;
+  if (next.score > prev.score + 0.0001) return true;
+  if (Math.abs(next.score - prev.score) <= 0.0001) {
+    return String(next.topic || '').length > String(prev.topic || '').length;
+  }
+  return false;
+}
+
 function pickBestArchiveTopicRow(rows, query, options) {
   const opts = options || {};
   const partialOnly = Boolean(opts.partialOnly);
+  const strongOnly = Boolean(opts.strongOnly);
   let best = null;
-  let bestScore = partialOnly ? 0.5 : 0.45;
+  let bestScore = partialOnly
+    ? ARCHIVE_PARTIAL_MIN_SCORE
+    : (strongOnly ? ARCHIVE_EXACT_SIMILARITY - 0.0001 : 0.45);
 
   (rows || []).forEach(function (row) {
     if (!row || !row.result_data) return;
@@ -700,23 +715,95 @@ function pickBestArchiveTopicRow(rows, query, options) {
     if (!data || !isValidCachedPayload('topic', data)) return;
     const candidateTopic = archiveTopicDisplayName(row, data);
     const score = scoreTopicSimilarity(query, candidateTopic, row.query_text || '');
-    if (partialOnly && score >= 0.99) return;
-    if (!partialOnly && score < 0.99 && score <= bestScore) return;
-    if (score > bestScore) {
+    if (strongOnly && score < ARCHIVE_EXACT_SIMILARITY) return;
+    if (partialOnly && (score >= ARCHIVE_EXACT_SIMILARITY || score <= ARCHIVE_PARTIAL_MIN_SCORE)) return;
+    if (!strongOnly && !partialOnly && score <= bestScore) return;
+    const candidate = { row: row, data: data, topic: candidateTopic, score: score };
+    if (isBetterArchiveTopicPick(candidate, best)) {
+      best = candidate;
       bestScore = score;
-      best = { row: row, data: data, topic: candidateTopic, score: score };
     }
   });
 
   return best;
 }
 
-function findArchiveTopicInFallback(query, gradeId, partialOnly) {
+function findArchiveTopicInFallback(query, gradeId, options) {
   loadFallbackStore();
   const rows = Array.from(fallbackStore.rows.values()).filter(function (row) {
     return row && row.phase === 'topic' && String(row.grade_id || '').trim() === String(gradeId || '').trim();
   });
-  return pickBestArchiveTopicRow(rows, query, { partialOnly: partialOnly });
+  return pickBestArchiveTopicRow(rows, query, options || {});
+}
+
+function formatExactArchiveTopicMatch(best, gradeId) {
+  if (!best || !best.row) return null;
+  const payload = cloneJsonSafe(best.data) || best.data;
+  if (!payload) return null;
+  return {
+    matchType: 'exact',
+    similarity: best.score,
+    cacheKey: best.row.cache_key,
+    topic: best.topic,
+    gradeId: gradeId,
+    gradeLabel: best.row.grade_label || null,
+    resultData: payload,
+  };
+}
+
+async function fetchArchiveTopicRowsForGrade(gradeId, topic, withTermFilter) {
+  if (!isSupabaseCacheEnabled()) return [];
+
+  const params = new URLSearchParams();
+  params.set('select', LEGACY_ROW_SELECT);
+  params.set('phase', 'eq.topic');
+  params.set('grade_id', 'eq.' + gradeId);
+  params.set('order', 'hit_count.desc,created_at.desc');
+  params.set('limit', '80');
+
+  if (withTermFilter) {
+    const searchTerms = hebrewTopicMatch.expandHebrewSearchTerms(topic, 8);
+    const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 6);
+    if (uniqueTerms.length) {
+      const orParts = uniqueTerms.map(function (term) {
+        return 'topic.ilike.*' + term + '*,query_text.ilike.*' + term + '*';
+      });
+      params.set('or', '(' + orParts.join(',') + ')');
+    }
+  }
+
+  const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
+ * Find an archived topic with near-exact similarity (auto-load, no confirmation).
+ * Runs before partial matching so short keyword rows (e.g. «רומא») cannot win over the full lesson title.
+ */
+async function findStrongArchiveTopicMatch(topic, gradeId) {
+  if (!topic || !gradeId) return null;
+
+  let best = null;
+  if (isSupabaseCacheEnabled()) {
+    try {
+      let rows = await fetchArchiveTopicRowsForGrade(gradeId, topic, true);
+      best = pickBestArchiveTopicRow(rows, topic, { strongOnly: true });
+      if (!best) {
+        rows = await fetchArchiveTopicRowsForGrade(gradeId, topic, false);
+        best = pickBestArchiveTopicRow(rows, topic, { strongOnly: true });
+      }
+    } catch (err) {
+      console.warn('[cached_results] strong archive topic match failed:', err.message || err);
+    }
+  }
+
+  if (!best) {
+    best = findArchiveTopicInFallback(topic, gradeId, { strongOnly: true });
+  }
+
+  return best;
 }
 
 async function fetchCanonicalGradeArchiveRow(gradeId, canonicalTopic) {
@@ -806,44 +893,23 @@ async function findArchiveTopicSuggestion(options) {
     };
   }
 
+  const strongBest = await findStrongArchiveTopicMatch(topic, gradeId);
+  if (strongBest && strongBest.row) {
+    return formatExactArchiveTopicMatch(strongBest, gradeId);
+  }
+
   const canonicalSuggestion = await findCanonicalGradeArchiveSuggestion(gradeId, topic);
   if (canonicalSuggestion) return canonicalSuggestion;
 
-  const partialOnly = true;
   let best = null;
 
   if (isSupabaseCacheEnabled()) {
     try {
-      async function fetchArchiveRowsForGrade(withTermFilter) {
-        const params = new URLSearchParams();
-        params.set('select', LEGACY_ROW_SELECT);
-        params.set('phase', 'eq.topic');
-        params.set('grade_id', 'eq.' + gradeId);
-        params.set('order', 'hit_count.desc,created_at.desc');
-        params.set('limit', '80');
-
-        if (withTermFilter) {
-          const searchTerms = hebrewTopicMatch.expandHebrewSearchTerms(topic, 8);
-          const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 6);
-          if (uniqueTerms.length) {
-            const orParts = uniqueTerms.map(function (term) {
-              return 'topic.ilike.*' + term + '*,query_text.ilike.*' + term + '*';
-            });
-            params.set('or', '(' + orParts.join(',') + ')');
-          }
-        }
-
-        const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
-        if (!res.ok) return [];
-        const rows = await res.json();
-        return Array.isArray(rows) ? rows : [];
-      }
-
-      let rows = await fetchArchiveRowsForGrade(true);
-      best = pickBestArchiveTopicRow(rows, topic, { partialOnly: partialOnly });
+      let rows = await fetchArchiveTopicRowsForGrade(gradeId, topic, true);
+      best = pickBestArchiveTopicRow(rows, topic, { partialOnly: true });
       if (!best) {
-        rows = await fetchArchiveRowsForGrade(false);
-        best = pickBestArchiveTopicRow(rows, topic, { partialOnly: partialOnly });
+        rows = await fetchArchiveTopicRowsForGrade(gradeId, topic, false);
+        best = pickBestArchiveTopicRow(rows, topic, { partialOnly: true });
       }
     } catch (err) {
       console.warn('[cached_results] archive topic suggestion failed:', err.message || err);
@@ -851,7 +917,7 @@ async function findArchiveTopicSuggestion(options) {
   }
 
   if (!best) {
-    best = findArchiveTopicInFallback(topic, gradeId, partialOnly);
+    best = findArchiveTopicInFallback(topic, gradeId, { partialOnly: true });
   }
 
   if (!best || !best.row) return null;

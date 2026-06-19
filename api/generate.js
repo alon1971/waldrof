@@ -1177,6 +1177,25 @@ async function executeGenerate(body, apiKey) {
           topic: body.topic,
           gradeId: body.currentGrade ?? body.gradeId,
         });
+        if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
+          console.log(
+            '[cached_results] HIT (archive similarity)',
+            suggestion.topic,
+            suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : ''
+          );
+          if (!body.skipKnowledgeIngest) {
+            knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
+          }
+          return {
+            data: suggestion.resultData,
+            meta: {
+              fromCache: true,
+              cacheKey: suggestion.cacheKey,
+              table: 'cached_results',
+              source: 'archive_similarity',
+            },
+          };
+        }
         if (suggestion && suggestion.matchType === 'partial') {
           console.log(
             '[cached_results] PARTIAL archive topic — awaiting confirmation:',
