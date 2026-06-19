@@ -18,6 +18,9 @@
     apiBase: '',
   };
 
+  var MATERIAL_TYPE_PRESETS = [
+  ];
+
   function shareApiUrl() {
     var base = String(deps.apiBase || '').replace(/\/$/, '');
     if (base) return base + '/api/share-material';
@@ -27,12 +30,29 @@
     return '/api/share-material';
   }
 
+  function getMaterialTypePresets() {
+    if (MATERIAL_TYPE_PRESETS.length) return MATERIAL_TYPE_PRESETS;
+    return [
+      deps.t('share_material_type_lesson'),
+      deps.t('share_material_type_block'),
+      deps.t('share_material_type_note'),
+      deps.t('share_material_type_play'),
+      deps.t('share_material_type_tour'),
+    ];
+  }
+
   function renderGradeOptions(selectedId) {
     var grades = deps.getGrades() || [];
     return grades.map(function (g) {
       var sel = g.id === selectedId ? ' selected' : '';
       var ageSuffix = g.age ? ' (' + deps.escapeHtml(deps.t('grade_age_prefix')) + ' ' + deps.escapeHtml(g.age) + ')' : '';
       return '<option value="' + deps.escapeHtml(g.id) + '"' + sel + '>' + deps.escapeHtml(g.label || g.id) + ageSuffix + '</option>';
+    }).join('');
+  }
+
+  function renderMaterialTypeDatalist() {
+    return getMaterialTypePresets().map(function (label) {
+      return '<option value="' + deps.escapeHtml(label) + '"></option>';
     }).join('');
   }
 
@@ -54,10 +74,12 @@
           '</div>' +
         '</div>' +
         contributorLine +
-        '<form id="share-materials-form" class="share-materials-form" novalidate>' +
-          '<label class="share-materials-label" for="share-material-title">' + deps.escapeHtml(deps.t('share_material_title_label')) + ' <span class="text-terracotta">*</span></label>' +
-          '<input id="share-material-title" name="title" type="text" maxlength="120" required class="share-materials-input" placeholder="' + deps.escapeHtml(deps.t('share_material_title_ph')) + '" />' +
-          '<div class="share-materials-row">' +
+        '<form id="share-materials-form" class="share-materials-form" novalidate dir="rtl">' +
+          '<div class="share-materials-field share-materials-field--full">' +
+            '<label class="share-materials-label" for="share-material-title">' + deps.escapeHtml(deps.t('share_material_title_label')) + ' <span class="text-terracotta">*</span></label>' +
+            '<input id="share-material-title" name="title" type="text" maxlength="120" required class="share-materials-input" placeholder="' + deps.escapeHtml(deps.t('share_material_title_ph')) + '" />' +
+          '</div>' +
+          '<div class="share-materials-grid">' +
             '<div class="share-materials-field">' +
               '<label class="share-materials-label" for="share-material-grade">' + deps.escapeHtml(deps.t('share_material_grade_label')) + ' <span class="text-terracotta">*</span></label>' +
               '<select id="share-material-grade" name="gradeId" required class="share-materials-input">' +
@@ -66,18 +88,22 @@
               '</select>' +
             '</div>' +
             '<div class="share-materials-field">' +
-              '<label class="share-materials-label" for="share-material-type">' + deps.escapeHtml(deps.t('share_material_type_label')) + '</label>' +
-              '<select id="share-material-type" name="materialType" class="share-materials-input">' +
-                '<option value="lesson_plan">' + deps.escapeHtml(deps.t('share_material_type_lesson')) + '</option>' +
-                '<option value="main_lesson">' + deps.escapeHtml(deps.t('share_material_type_block')) + '</option>' +
-                '<option value="pedagogy_note">' + deps.escapeHtml(deps.t('share_material_type_note')) + '</option>' +
-              '</select>' +
+              '<label class="share-materials-label" for="share-material-type">' + deps.escapeHtml(deps.t('share_material_type_label')) + ' <span class="text-terracotta">*</span></label>' +
+              '<input id="share-material-type" name="materialType" type="text" list="share-material-type-suggestions" required ' +
+                'class="share-materials-input share-materials-combobox" autocomplete="off" ' +
+                'placeholder="' + deps.escapeHtml(deps.t('share_material_type_ph')) + '" ' +
+                'value="' + deps.escapeHtml(deps.t('share_material_type_lesson')) + '" />' +
+              '<datalist id="share-material-type-suggestions">' + renderMaterialTypeDatalist() + '</datalist>' +
+            '</div>' +
+            '<div class="share-materials-field">' +
+              '<label class="share-materials-label" for="share-material-topic">' + deps.escapeHtml(deps.t('share_material_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
+              '<input id="share-material-topic" name="topic" type="text" maxlength="120" required class="share-materials-input" value="' + deps.escapeHtml(app.topic || '') + '" placeholder="' + deps.escapeHtml(deps.t('share_material_topic_ph')) + '" />' +
             '</div>' +
           '</div>' +
-          '<label class="share-materials-label" for="share-material-topic">' + deps.escapeHtml(deps.t('share_material_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
-          '<input id="share-material-topic" name="topic" type="text" maxlength="120" required class="share-materials-input" value="' + deps.escapeHtml(app.topic || '') + '" placeholder="' + deps.escapeHtml(deps.t('share_material_topic_ph')) + '" />' +
-          '<label class="share-materials-label" for="share-material-text">' + deps.escapeHtml(deps.t('share_material_text_label')) + ' <span class="text-terracotta">*</span></label>' +
-          '<textarea id="share-material-text" name="text" rows="8" maxlength="12000" required class="share-materials-textarea" placeholder="' + deps.escapeHtml(deps.t('share_material_text_ph')) + '"></textarea>' +
+          '<div class="share-materials-field share-materials-field--full">' +
+            '<label class="share-materials-label" for="share-material-text">' + deps.escapeHtml(deps.t('share_material_text_label')) + ' <span class="text-terracotta">*</span></label>' +
+            '<textarea id="share-material-text" name="text" rows="8" maxlength="12000" required class="share-materials-textarea" placeholder="' + deps.escapeHtml(deps.t('share_material_text_ph')) + '"></textarea>' +
+          '</div>' +
           '<p class="share-materials-hint">' + deps.escapeHtml(deps.t('share_material_hint')) + '</p>' +
           '<div class="share-materials-actions">' +
             '<button type="submit" id="share-materials-submit" class="share-materials-submit touch-btn">' +
@@ -135,13 +161,13 @@
       var gradeId = form.gradeId.value.trim();
       var topic = form.topic.value.trim();
       var text = form.text.value.trim();
-      var materialType = form.materialType.value;
+      var materialType = form.materialType.value.trim();
       var gradeSelect = form.gradeId;
       var gradeLabel = gradeSelect.options[gradeSelect.selectedIndex]
         ? gradeSelect.options[gradeSelect.selectedIndex].text
         : '';
 
-      if (!title || !gradeId || !topic || text.length < 80) {
+      if (!title || !gradeId || !topic || !materialType || text.length < 80) {
         setStatus(deps.t('share_material_validation'), 'err');
         return;
       }

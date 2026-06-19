@@ -2383,6 +2383,8 @@
       border: 1px solid rgba(122, 155, 118, 0.35);
       background: linear-gradient(145deg, rgba(247, 243, 235, 0.98), rgba(232, 240, 230, 0.92));
       box-shadow: 0 4px 18px rgba(92, 74, 58, 0.06);
+      direction: rtl;
+      text-align: right;
     }
     .share-materials-header {
       display: flex;
@@ -2409,17 +2411,34 @@
       color: rgba(92, 74, 58, 0.75);
       margin: 0 0 0.75rem;
     }
-    .share-materials-form { display: flex; flex-direction: column; gap: 0.65rem; }
+    .share-materials-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      direction: rtl;
+      text-align: right;
+    }
+    .share-materials-field {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      min-width: 0;
+    }
+    .share-materials-field--full { width: 100%; }
     .share-materials-label {
       display: block;
       font-size: 0.85rem;
       font-weight: 600;
       color: #5C4A3A;
-      margin-bottom: 0.2rem;
+      margin: 0 0 0.35rem;
+      text-align: right;
+      line-height: 1.35;
     }
     .share-materials-input,
-    .share-materials-textarea {
+    .share-materials-textarea,
+    .share-materials-combobox {
       width: 100%;
+      box-sizing: border-box;
       border-radius: 0.85rem;
       border: 1px solid rgba(201, 169, 98, 0.45);
       background: rgba(255, 255, 255, 0.92);
@@ -2427,13 +2446,28 @@
       font-size: 1rem;
       color: #5C4A3A;
       outline: none;
+      text-align: right;
+      direction: rtl;
     }
     .share-materials-input:focus,
-    .share-materials-textarea:focus {
+    .share-materials-textarea:focus,
+    .share-materials-combobox:focus {
       border-color: rgba(122, 155, 118, 0.65);
       box-shadow: 0 0 0 3px rgba(122, 155, 118, 0.15);
     }
     .share-materials-textarea { min-height: 9rem; resize: vertical; line-height: 1.55; }
+    .share-materials-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.85rem;
+      align-items: start;
+    }
+    @media (min-width: 640px) {
+      .share-materials-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (min-width: 900px) {
+      .share-materials-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
     .share-materials-row {
       display: grid;
       grid-template-columns: 1fr;
@@ -3318,7 +3352,7 @@
     </footer>
 
   <script src="auth-subscription.js?v=20250627"></script>
-  <script src="share-materials.js?v=20250618"></script>
+  <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250618b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
@@ -3652,24 +3686,6 @@
       gradeResearchRunId += 1;
       topicResearchRunId += 1;
 
-      appState.step = 1;
-      appState.navSection = 'wizard';
-      appState.grade = null;
-      appState.gradeLabel = null;
-      appState.topic = null;
-      appState.topicResearchCompleted = false;
-      appState.archiveSuggestionPending = false;
-      appState.webResearch = null;
-      appState.gradeResearch = null;
-      appState.aiGeneratedPlan = null;
-      appState.activePlan = null;
-      appState.activeProductTab = null;
-      appState.visualGallery = [];
-      appState.productTabsRendered = freshProductTabsRendered();
-      appState.personalMaterials = [];
-      appState.driveScanned = false;
-      appState.driveMerge = null;
-
       const wizard = document.getElementById('wizard');
       const workspace = document.getElementById('workspace');
       const step1 = document.getElementById('step-1');
@@ -3689,26 +3705,28 @@
       if (gradeCommunity) gradeCommunity.innerHTML = '';
 
       const gradeSel = document.getElementById('grade-select');
-      if (gradeSel) {
+      if (gradeSel && !appState.grade) {
         gradeSel.value = '';
         gradeSel.selectedIndex = 0;
       }
       const btnGrade = document.getElementById('btn-grade-submit');
-      if (btnGrade) btnGrade.disabled = true;
+      if (btnGrade && !appState.grade) btnGrade.disabled = true;
 
       const topicInput = document.getElementById('topic-input');
-      if (topicInput) topicInput.value = '';
+      if (topicInput && !appState.topic) topicInput.value = '';
       const webResult = document.getElementById('web-research-result');
-      if (webResult) { webResult.classList.add('hidden'); webResult.innerHTML = ''; }
+      if (webResult && !appState.webResearch) { webResult.classList.add('hidden'); webResult.innerHTML = ''; }
       const topicSlot = document.getElementById('topic-community-slot');
-      if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
+      if (topicSlot && !appState.topic) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
       const toWorkspaceBtn = document.getElementById('btn-to-workspace');
-      if (toWorkspaceBtn) toWorkspaceBtn.disabled = true;
+      if (toWorkspaceBtn && !appState.aiGeneratedPlan) toWorkspaceBtn.disabled = true;
 
       setTopicResearchLoadingUi(false);
       setGradeInsightsLoadingUi(false);
-      resetProductTabsNeutral();
-      invalidateProductTabRenders();
+      if (!appState.aiGeneratedPlan) {
+        resetProductTabsNeutral();
+        invalidateProductTabRenders();
+      }
       updateNewResearchBarVisibility();
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
@@ -3776,6 +3794,8 @@
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
     const ACTIVE_STEP_STORAGE_KEY = 'waldorf_active_step';
+    const LESSON_SNAPSHOT_STORAGE_KEY = 'waldorf_lesson_snapshot';
+    var persistStepTimer = null;
 
     function isTopicResearchLoadingUi() {
       var loadingEl = document.getElementById('topic-research-loading');
@@ -3795,6 +3815,66 @@
       }
     }
 
+    function readPersistedLessonSnapshot() {
+      try {
+        var raw = localStorage.getItem(LESSON_SNAPSHOT_STORAGE_KEY);
+        if (!raw) return null;
+        var data = JSON.parse(raw);
+        if (!data || !data.snapshot || !data.snapshot.blockPlan) return null;
+        return data;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function persistLessonSnapshot() {
+      if (!appState.aiGeneratedPlan) {
+        try { localStorage.removeItem(LESSON_SNAPSHOT_STORAGE_KEY); } catch (e) { /* ignore */ }
+        return;
+      }
+      try {
+        localStorage.setItem(LESSON_SNAPSHOT_STORAGE_KEY, JSON.stringify({
+          grade: appState.grade || null,
+          gradeLabel: appState.gradeLabel || null,
+          topic: appState.topic || null,
+          lessonCacheKey: appState.lessonCacheKey || '',
+          topicResearchCompleted: Boolean(appState.topicResearchCompleted),
+          snapshot: buildLessonSnapshotForSave(),
+        }));
+      } catch (e) { /* quota / private mode */ }
+    }
+
+    function clearPersistedLessonSnapshot() {
+      try { localStorage.removeItem(LESSON_SNAPSHOT_STORAGE_KEY); } catch (e) { /* ignore */ }
+    }
+
+    function applyPersistedLessonSnapshot(snapshotData) {
+      if (!snapshotData || !snapshotData.snapshot || !snapshotData.snapshot.blockPlan) return false;
+      var topicStr = String(snapshotData.topic || '').trim();
+      var gradeId = snapshotData.grade || appState.grade;
+      if (!topicStr || !gradeId) return false;
+
+      appState.grade = gradeId;
+      appState.gradeLabel = snapshotData.gradeLabel || getGradeLabelById(gradeId);
+      appState.topic = topicStr;
+      appState.lessonCacheKey = snapshotData.lessonCacheKey || appState.lessonCacheKey || '';
+
+      var gradeSelect = document.getElementById('grade-select');
+      if (gradeSelect) gradeSelect.value = gradeId;
+      var topicInput = document.getElementById('topic-input');
+      if (topicInput) topicInput.value = topicStr;
+
+      return commitTopicResearchToStepB(topicStr, snapshotData.snapshot);
+    }
+
+    function schedulePersistActiveStep() {
+      if (persistStepTimer) clearTimeout(persistStepTimer);
+      persistStepTimer = setTimeout(function () {
+        persistStepTimer = null;
+        persistActiveStep();
+      }, 200);
+    }
+
     function persistActiveStep() {
       try {
         localStorage.setItem(ACTIVE_STEP_STORAGE_KEY, JSON.stringify({
@@ -3804,7 +3884,14 @@
           topic: appState.topic || null,
           scrollY: window.scrollY || window.pageYOffset || 0,
           topicResearchLoading: isTopicResearchLoadingUi(),
+          activeProductTab: appState.activeProductTab || null,
+          lessonCacheKey: appState.lessonCacheKey || '',
+          topicResearchCompleted: Boolean(appState.topicResearchCompleted),
+          catalogView: catalogState.view || 'grades',
+          catalogGradeId: catalogState.gradeId || null,
+          catalogTopic: catalogState.topic || null,
         }));
+        persistLessonSnapshot();
       } catch (e) { /* private mode / quota */ }
     }
 
@@ -3812,6 +3899,7 @@
       try {
         localStorage.removeItem(ACTIVE_STEP_STORAGE_KEY);
       } catch (e) { /* ignore */ }
+      clearPersistedLessonSnapshot();
     }
 
     let realtimeChannel = null;
@@ -4083,6 +4171,7 @@
       updatePedagogyExportButtonsVisibility();
       ensurePedagogySuggestionEvents();
       nudgeGoogleTranslate();
+      persistActiveStep();
       return true;
     }
 
@@ -8640,7 +8729,14 @@
       if (isTopicResearchLoadingUi()) return true;
       var saved = readPersistedActiveStep();
       if (!saved) return false;
-      return saved.step > 1 || Boolean(saved.topicResearchLoading);
+      return saved.step > 1 || saved.navSection !== 'wizard' || Boolean(saved.topicResearchLoading);
+    }
+
+    function restoreCatalogFromSaved(saved) {
+      if (!saved) return;
+      if (saved.catalogView) catalogState.view = saved.catalogView;
+      if (saved.catalogGradeId) catalogState.gradeId = saved.catalogGradeId;
+      if (saved.catalogTopic) catalogState.topic = saved.catalogTopic;
     }
 
     function restoreWizardStepView(step, navSection, options) {
@@ -8651,8 +8747,11 @@
         openProductsWorkspace(false);
         return;
       }
-      if (navSection === 'community' && appState.grade) {
+      if (navSection === 'community') {
         openCommunityRepo();
+        if (catalogState.view && catalogState.view !== 'grades') {
+          renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+        }
         return;
       }
       if (navSection === 'archive') {
@@ -8663,6 +8762,18 @@
         ensureStepBWizardView();
         var topicInput = document.getElementById('topic-input');
         if (topicInput && appState.topic) topicInput.value = appState.topic;
+        if (appState.grade) {
+          var gradeSel = document.getElementById('grade-select');
+          if (gradeSel) gradeSel.value = appState.grade;
+          var insightsPanel = document.getElementById('grade-insights-panel');
+          if (insightsPanel && appState.gradeResearch) insightsPanel.classList.remove('hidden');
+          if (appState.gradeResearch) renderGradeInsightsPanel(appState.grade, appState.gradeResearch);
+        }
+        if (appState.webResearch) {
+          holdPageScroll(function () { renderWebResearchResult(); });
+          var toWorkspaceBtn = document.getElementById('btn-to-workspace');
+          if (toWorkspaceBtn && appState.aiGeneratedPlan) toWorkspaceBtn.disabled = false;
+        }
         if (!options.restoreScrollY) scrollToStepB(false);
         return;
       }
@@ -8670,12 +8781,32 @@
         openProductsWorkspace(false);
         return;
       }
-      if (step === 1) goToStep(1, false);
+      if (step === 1) {
+        goToStep(1, false);
+        if (appState.grade) {
+          var gradeSelRestore = document.getElementById('grade-select');
+          if (gradeSelRestore) gradeSelRestore.value = appState.grade;
+          var btnGradeRestore = document.getElementById('btn-grade-submit');
+          if (btnGradeRestore) btnGradeRestore.disabled = false;
+          if (appState.gradeResearch) {
+            var insightsPanelRestore = document.getElementById('grade-insights-panel');
+            if (insightsPanelRestore) insightsPanelRestore.classList.remove('hidden');
+            renderGradeInsightsPanel(appState.grade, appState.gradeResearch);
+          }
+        }
+        return;
+      }
     }
 
     function hydrateActiveStepFromStorage(options) {
       options = options || {};
       var saved = readPersistedActiveStep();
+      var snapshot = readPersistedLessonSnapshot();
+
+      if (snapshot && !appState.aiGeneratedPlan) {
+        applyPersistedLessonSnapshot(snapshot);
+      }
+
       if (!saved) {
         if (appState.step > 1 || isTopicResearchLoadingUi()) {
           restoreWizardStepView(appState.step, appState.navSection, options);
@@ -8686,7 +8817,7 @@
       var step = parseInt(saved.step, 10);
       if (!(step >= 1 && step <= 3)) return;
 
-      if (options.preferMemory && appState.step >= step) {
+      if (options.preferMemory && appState.step >= step && appState.grade) {
         step = appState.step;
       } else {
         if (saved.grade) {
@@ -8694,14 +8825,24 @@
           appState.gradeLabel = getGradeLabelById(saved.grade);
         }
         if (saved.topic) appState.topic = saved.topic;
+        if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
+        if (saved.activeProductTab) appState.activeProductTab = saved.activeProductTab;
+        if (typeof saved.topicResearchCompleted === 'boolean') {
+          appState.topicResearchCompleted = saved.topicResearchCompleted;
+        }
         appState.step = step;
         appState.navSection = saved.navSection || 'wizard';
+        restoreCatalogFromSaved(saved);
       }
 
       if (saved.topicResearchLoading && step < 2) {
         step = 2;
         appState.step = 2;
         appState.navSection = 'wizard';
+      }
+
+      if (snapshot && !appState.aiGeneratedPlan) {
+        applyPersistedLessonSnapshot(snapshot);
       }
 
       restoreWizardStepView(step, appState.navSection, options);
@@ -8717,6 +8858,7 @@
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
+      persistActiveStep();
     }
 
     function onAppRegainsAttention() {
@@ -10520,6 +10662,7 @@
       } else if (catalogState.view === 'materials') {
         await renderCatalogMaterials(catalogState.gradeId, catalogState.topic);
       }
+      persistActiveStep();
     }
 
     function syncProductTabButtons(activeId) {
@@ -10602,6 +10745,7 @@
         updateWorkspaceChrome();
         updatePedagogyExportButtonsVisibility();
         renderStepProgress();
+        persistActiveStep();
         return;
       }
       document.querySelectorAll('.tab-panel').forEach(function (p) {
@@ -10617,6 +10761,7 @@
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
+      persistActiveStep();
     }
 
     function restartJourney() {
@@ -10837,6 +10982,7 @@
         appState.topic = this.value.trim();
         if (appState.archiveSuggestionPending) resetArchiveSearchFlowState();
         if (appState.grade && appState.topic) renderTopicCommunitySlot();
+        schedulePersistActiveStep();
       });
       const topicArchiveYes = document.getElementById('topic-archive-suggest-yes');
       const topicArchiveNo = document.getElementById('topic-archive-suggest-no');
@@ -11148,6 +11294,7 @@
     });
     window.addEventListener('focus', onAppRegainsAttention);
     window.addEventListener('pagehide', persistActiveStep);
+    window.addEventListener('beforeunload', persistActiveStep);
     window.addEventListener('resize', syncProductTabsStickyLayout, { passive: true });
     bindHeaderCompactScroll();
 

@@ -108,7 +108,7 @@ function validateShareBody(body) {
   const title = String(body.title || '').trim();
   const gradeId = String(body.gradeId || body.currentGrade || '').trim();
   const topic = String(body.topic || '').trim();
-  const materialType = String(body.materialType || 'lesson_plan').trim();
+  const materialType = String(body.materialType || '').trim();
 
   if (!text || text.length < 80) {
     const err = new Error('הטקסט קצר מדי — כתבו לפחות פסקה אחת מלאה (80 תווים ומעלה)');
@@ -130,13 +130,33 @@ function validateShareBody(body) {
     err.statusCode = 400;
     throw err;
   }
-  if (!MATERIAL_TYPES[materialType]) {
-    const err = new Error('סוג חומר לא תקין');
+  if (!materialType) {
+    const err = new Error('נא למלא סוג חומר');
     err.statusCode = 400;
     throw err;
   }
 
   return { text: text, title: title, gradeId: gradeId, topic: topic, materialType: materialType };
+}
+
+function resolveMaterialTypeInfo(materialType) {
+  const raw = String(materialType || '').trim();
+  if (MATERIAL_TYPES[raw]) {
+    return {
+      key: raw,
+      label: MATERIAL_TYPES[raw].label,
+      sourceType: MATERIAL_TYPES[raw].sourceType,
+      isCustom: false,
+    };
+  }
+  const label = raw.slice(0, 80);
+  return {
+    key: 'custom',
+    label: label,
+    sourceType: 'community_teacher',
+    isCustom: true,
+    customLabel: label,
+  };
 }
 
 async function executeShareMaterial(req) {
@@ -149,7 +169,7 @@ async function executeShareMaterial(req) {
   const body = parseRequestBody(req);
   const validated = validateShareBody(body);
   const contributor = await resolveContributor(req, body);
-  const typeInfo = MATERIAL_TYPES[validated.materialType];
+  const typeInfo = resolveMaterialTypeInfo(validated.materialType);
 
   const documentTitle = validated.title + ' — ' + typeInfo.label;
   const topicSuffix = validated.topic ? ' («' + validated.topic + '»)' : '';
@@ -161,7 +181,9 @@ async function executeShareMaterial(req) {
     gradeId: validated.gradeId,
     topic: validated.topic,
     origin: 'community_share',
-    metadata: { materialType: validated.materialType },
+    metadata: typeInfo.isCustom
+      ? { materialType: 'custom', materialTypeLabel: typeInfo.customLabel }
+      : { materialType: typeInfo.key },
     chunkOptions: { minChars: 100, maxChars: 1400 },
   });
 
@@ -200,4 +222,5 @@ module.exports = {
   legacyHandler,
   executeShareMaterial,
   MATERIAL_TYPES,
+  resolveMaterialTypeInfo,
 };
