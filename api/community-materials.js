@@ -4,7 +4,6 @@
  * DELETE /api/community-materials?id=<uuid> — delete row + storage object
  */
 const communityIngest = require('./community-ingest');
-const authContext = require('./auth-context');
 const env = require('./env');
 
 const STORAGE_BUCKET = 'community-uploads';
@@ -172,8 +171,7 @@ async function supabaseMutateWithFallback(relativePath, options, req) {
     }
   }
   const userToken = extractBearerToken(req);
-  const verified = await authContext.verifySupabaseToken(userToken);
-  if (!verified) {
+  if (!userToken) {
     return lastResult;
   }
   const userResult = await supabaseUserRequest(relativePath, options, userToken);
