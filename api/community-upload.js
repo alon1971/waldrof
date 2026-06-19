@@ -4,6 +4,7 @@
  * Uses service role on the server so uploads work without client storage RLS.
  */
 const communityIngest = require('./community-ingest');
+const authContext = require('./auth-context');
 const env = require('./env');
 
 const STORAGE_BUCKET = 'community-uploads';
@@ -127,7 +128,7 @@ async function uploadBufferToStorage(buffer, storagePath, contentType) {
   };
 }
 
-async function insertCommunityMaterial(gradeId, topic, filePath, fileName, extras) {
+async function insertCommunityMaterial(gradeId, topic, filePath, fileName, extras, userId) {
   const cfg = getSupabaseConfig();
   const payload = {
     grade_level: String(gradeId),
@@ -137,26 +138,40 @@ async function insertCommunityMaterial(gradeId, topic, filePath, fileName, extra
   };
   const notes = packCommunityExtras(extras);
   if (notes) payload[COMMUNITY_META_FIELD] = notes;
+  if (userId) payload.user_id = userId;
 
-  const res = await fetch(cfg.url + '/rest/v1/' + MATERIALS_TABLE, {
-    method: 'POST',
-    headers: {
-      apikey: cfg.key,
-      Authorization: 'Bearer ' + cfg.key,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify(payload),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const err = new Error('community_materials insert failed (' + res.status + '): ' + text.slice(0, 400));
-    err.statusCode = res.status;
-    err.responseText = text;
+  async function postInsert(rec) {
+    const res = await fetch(cfg.url + '/rest/v1/' + MATERIALS_TABLE, {
+      method: 'POST',
+      headers: {
+        apikey: cfg.key,
+        Authorization: 'Bearer ' + cfg.key,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(rec),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      const err = new Error('community_materials insert failed (' + res.status + '): ' + text.slice(0, 400));
+      err.statusCode = res.status;
+      err.responseText = text;
+      throw err;
+    }
+    const data = text ? JSON.parse(text) : [];
+    return Array.isArray(data) ? data[0] : data;
+  }
+
+  try {
+    return await postInsert(payload);
+  } catch (err) {
+    if (payload.user_id && /user_id|column|schema cache/i.test(String(err.message || ''))) {
+      const retry = Object.assign({}, payload);
+      delete retry.user_id;
+      return await postInsert(retry);
+    }
     throw err;
   }
-  const data = text ? JSON.parse(text) : [];
-  return Array.isArray(data) ? data[0] : data;
 }
 
 async function executeCommunityUpload(req) {
@@ -218,13 +233,14 @@ async function executeCommunityUpload(req) {
 
   const storagePath = buildCommunityStoragePath(gradeId, topic, fileName);
   const uploaded = await uploadBufferToStorage(buffer, storagePath, mimeType);
+  const verifiedUser = await authContext.resolveVerifiedUser(req, body);
   const material = await insertCommunityMaterial(gradeId, topic, uploaded.storagePath, fileName, {
     title: title,
     author: author,
     description: description,
     fileSize: buffer.length,
     fileType: mimeType,
-  });
+  }, verifiedUser && verifiedUser.id ? verifiedUser.id : null);
 
   let indexResult = null;
   if (communityIngest.isIngestEnabled() && material && material.id) {
@@ -238,7 +254,7 @@ async function executeCommunityUpload(req) {
         fileName: fileName,
         fileType: mimeType,
         materialId: material.id,
-        indexBundle: true,
+        indexBundle: false,
       });
     } catch (indexErr) {
       console.warn('[community-upload] ingest failed:', indexErr.message || indexErr);

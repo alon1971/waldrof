@@ -58,6 +58,12 @@ function isHttpUrl(value) {
   return /^https?:\/\//i.test(String(value || '').trim());
 }
 
+function extractMaterialId(body) {
+  if (!body || typeof body !== 'object') return '';
+  const raw = body.id != null ? body.id : body.material_id;
+  return raw != null ? String(raw).trim() : '';
+}
+
 function packCommunityExtras(extras) {
   const e = extras || {};
   const parts = [];
@@ -189,7 +195,7 @@ async function deleteStorageObject(filePath) {
 }
 
 async function patchCommunityMaterial(body) {
-  const id = body && body.id != null ? String(body.id).trim() : '';
+  const id = extractMaterialId(body || {});
   if (!id) {
     const err = new Error('id is required');
     err.statusCode = 400;
@@ -207,27 +213,18 @@ async function patchCommunityMaterial(body) {
   if (body.topic != null && String(body.topic).trim()) {
     payload.topic = String(body.topic).trim();
   }
-  if (body.description != null) {
-    const parsed = parseCommunityNotes(current[COMMUNITY_META_FIELD] || current.notes || '');
+
+  const parsed = parseCommunityNotes(current[COMMUNITY_META_FIELD] || current.notes || '');
+  const hasMetaUpdate = body.description != null || body.author != null || body.title != null;
+  if (hasMetaUpdate) {
     const notes = packCommunityExtras({
       title: body.title != null ? String(body.title).trim() : parsed.title,
       author: body.author != null ? String(body.author).trim() : parsed.author,
-      description: String(body.description).trim(),
+      description: body.description != null ? String(body.description).trim() : parsed.description,
       fileSize: parsed.fileSize,
       fileType: parsed.fileType,
     });
-    if (notes) payload[COMMUNITY_META_FIELD] = notes;
-    else payload[COMMUNITY_META_FIELD] = null;
-  } else if (body.title != null || body.author != null) {
-    const parsed = parseCommunityNotes(current[COMMUNITY_META_FIELD] || current.notes || '');
-    const notes = packCommunityExtras({
-      title: body.title != null ? String(body.title).trim() : parsed.title,
-      author: body.author != null ? String(body.author).trim() : parsed.author,
-      description: parsed.description,
-      fileSize: parsed.fileSize,
-      fileType: parsed.fileType,
-    });
-    if (notes) payload[COMMUNITY_META_FIELD] = notes;
+    payload[COMMUNITY_META_FIELD] = notes || null;
   }
 
   if (!Object.keys(payload).length) {
@@ -259,7 +256,7 @@ async function patchCommunityMaterial(body) {
 }
 
 async function deleteCommunityMaterial(body) {
-  const id = body && body.id != null ? String(body.id).trim() : '';
+  const id = extractMaterialId(body || {});
   if (!id) {
     const err = new Error('id is required');
     err.statusCode = 400;
