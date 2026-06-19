@@ -58,22 +58,21 @@ function isHttpUrl(value) {
   return /^https?:\/\//i.test(String(value || '').trim());
 }
 
+const MATERIAL_PK_COLUMN = 'id';
+
 function extractMaterialId(body) {
   if (!body || typeof body !== 'object') return '';
-  const raw = body.id != null ? body.id : body.material_id;
+  const raw = body.id != null
+    ? body.id
+    : (body.material_id != null ? body.material_id : body.materialId);
   return raw != null ? String(raw).trim() : '';
 }
 
-/** Primary key column + value from a Supabase row (id is canonical; material_id is legacy fallback). */
+/** Primary key column + value from a Supabase row (community_materials.id). */
 function resolveRowPrimaryKey(row) {
-  if (!row || typeof row !== 'object') return { column: 'id', value: '' };
-  if (row.id != null && String(row.id).trim()) {
-    return { column: 'id', value: String(row.id).trim() };
-  }
-  if (row.material_id != null && String(row.material_id).trim()) {
-    return { column: 'material_id', value: String(row.material_id).trim() };
-  }
-  return { column: 'id', value: '' };
+  if (!row || typeof row !== 'object') return { column: MATERIAL_PK_COLUMN, value: '' };
+  const value = row[MATERIAL_PK_COLUMN] != null ? String(row[MATERIAL_PK_COLUMN]).trim() : '';
+  return { column: MATERIAL_PK_COLUMN, value: value };
 }
 
 function materialFilterQuery(column, value) {
@@ -181,15 +180,12 @@ async function listCommunityMaterials() {
 async function fetchMaterialById(id) {
   const pk = String(id || '').trim();
   if (!pk) return null;
-  const columns = ['id', 'material_id'];
-  for (let i = 0; i < columns.length; i++) {
-    const result = await supabaseRequestWithKeyFallback(
-      '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(columns[i], pk) + '&limit=1',
-      { method: 'GET', headers: { 'Content-Type': 'application/json' } },
-      false
-    );
-    if (result.ok && Array.isArray(result.body) && result.body.length) return result.body[0];
-  }
+  const result = await supabaseRequestWithKeyFallback(
+    '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(MATERIAL_PK_COLUMN, pk) + '&limit=1',
+    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+    true
+  );
+  if (result.ok && Array.isArray(result.body) && result.body.length) return result.body[0];
   return null;
 }
 
@@ -274,12 +270,10 @@ async function patchCommunityMaterial(body) {
     throw err;
   }
   const rows = Array.isArray(result.body) ? result.body : [];
-  if (!rows.length) {
-    const err = new Error('Material not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  return rows[0] || null;
+  if (rows.length) return rows[0];
+  const refreshed = await fetchMaterialById(pk.value);
+  if (refreshed) return refreshed;
+  return Object.assign({}, current, payload);
 }
 
 async function deleteCommunityMaterial(body) {
@@ -319,13 +313,6 @@ async function deleteCommunityMaterial(body) {
     err.responseText = result.text;
     throw err;
   }
-  const deletedRows = Array.isArray(result.body) ? result.body : [];
-  if (!deletedRows.length) {
-    const err = new Error('Material not found');
-    err.statusCode = 404;
-    throw err;
-  }
-
   return { id: pk.value, storageDeleted: storageDeleted };
 }
 

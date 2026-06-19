@@ -7915,7 +7915,9 @@
         const direct = String(source).trim();
         return direct || null;
       }
-      const raw = source.id != null ? source.id : (source.material_id != null ? source.material_id : null);
+      const raw = source.id != null
+        ? source.id
+        : (source.material_id != null ? source.material_id : (source.materialId != null ? source.materialId : null));
       if (raw == null) return null;
       const id = String(raw).trim();
       return id || null;
@@ -8263,7 +8265,7 @@
         const res = await fetch(communityMaterialsApiUrl(), {
           method: 'DELETE',
           headers: headers,
-          body: JSON.stringify({ id: pk }),
+          body: JSON.stringify({ id: pk, material_id: pk, materialId: pk }),
         });
         const text = await res.text();
         if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
@@ -8302,7 +8304,7 @@
         const res = await fetch(communityMaterialsApiUrl(), {
           method: 'PATCH',
           headers: headers,
-          body: JSON.stringify(Object.assign({ id: pk }, fields)),
+          body: JSON.stringify(Object.assign({ id: pk, material_id: pk, materialId: pk }, fields)),
         });
         const text = await res.text();
         if (!res.ok) throw new Error(parseCommunityApiError(text, res.status));
@@ -11333,11 +11335,11 @@
         '</select></div>' +
         '<div class="w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
-        '<input type="text" name="catalog-topic" required maxlength="120" placeholder="' + escapeHtml(t('catalog_topic_placeholder')) + '" value="' + topicVal + '"' + topicReadonly + ' />' +
+        '<input type="text" name="catalog-topic" required maxlength="120" value="' + topicVal + '"' + topicReadonly + ' />' +
         '</div>' +
         '<div class="w-full">' +
-        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_desc_label')) + ' <span class="text-terracotta">*</span></label>' +
-        '<input type="text" name="catalog-desc" required maxlength="200" class="' + fieldClass.replace(/"/g, '') + '" />' +
+        '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_desc_label')) + '</label>' +
+        '<input type="text" name="catalog-desc" maxlength="200" class="' + fieldClass.replace(/"/g, '') + '" />' +
         '</div>' +
         '<div class="w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_author_label')) + '</label>' +
@@ -11478,7 +11480,6 @@
       try {
         if (!gradeId) throw new Error(t('catalog_err_grade'));
         if (!subject) throw new Error(t('catalog_err_topic'));
-        if (!description) throw new Error(t('catalog_err_desc'));
         if (mode === 'link' && !docsLink) throw new Error(t('catalog_err_link'));
         if (mode === 'file' && (!file || !file.size)) throw new Error(t('catalog_err_file'));
         await submitCatalogUpload(gradeId, subject, description, teacherName, file, docsLink);
@@ -11666,9 +11667,9 @@
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
         '<input type="text" name="edit-topic" required maxlength="120" value="' + escapeHtml(file.topic || file.title || '') + '" class="' + fc + '" /></div>' +
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_author_label')) + '</label>' +
-        '<input type="text" name="edit-author" maxlength="60" value="' + escapeHtml(file.authorName || '') + '" placeholder="' + escapeHtml(t('catalog_author_label')) + '" class="' + fc + '" /></div></div>' +
-        '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_desc_label')) + ' <span class="text-terracotta">*</span></label>' +
-        '<input type="text" name="edit-desc" required maxlength="200" value="' + escapeHtml(file.notes || '') + '" class="' + fc + '" /></div>' +
+        '<input type="text" name="edit-author" maxlength="60" value="' + escapeHtml(file.authorName || '') + '" class="' + fc + '" /></div></div>' +
+        '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_desc_label')) + '</label>' +
+        '<input type="text" name="edit-desc" maxlength="200" value="' + escapeHtml(file.notes || '') + '" class="' + fc + '" /></div>' +
         '<div class="flex flex-wrap gap-2">' +
         '<button type="submit" class="touch-btn bg-sage hover:bg-sage-dark text-white text-sm font-bold px-4 py-2.5 rounded-lg">' + escapeHtml(t('catalog_edit_save')) + '</button>' +
         '<button type="button" class="catalog-material-edit-cancel touch-btn text-sm px-4 py-2.5 rounded-lg border border-gold/40 bg-white">' + escapeHtml(t('catalog_edit_cancel')) + '</button>' +
@@ -11795,10 +11796,6 @@
       const authorTrim = authorInput ? authorInput.value.trim() : '';
       if (!topicTrim) {
         alert(t('catalog_err_topic'));
-        return;
-      }
-      if (!descTrim) {
-        alert(t('catalog_err_desc'));
         return;
       }
       const submitBtn = form.querySelector('[type="submit"]');
