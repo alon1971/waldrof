@@ -1392,8 +1392,25 @@
     });
   }
 
+  function setSearchUsageMeterHidden(hidden) {
+    var meter = document.getElementById('search-usage-meter');
+    if (!meter) return;
+    meter.classList.toggle('hidden', hidden);
+    meter.style.display = hidden ? 'none' : '';
+    meter.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+  }
+
+  function syncProUserDomState() {
+    var pro = isProUser();
+    if (document.body) document.body.classList.toggle('is-pro-user', pro);
+    var accountBar = document.getElementById('user-account-bar');
+    if (accountBar) accountBar.classList.toggle('user-account-bar--pro', pro);
+    if (pro) setSearchUsageMeterHidden(true);
+  }
+
   function updateHeaderUi() {
     applyProUserTierIfEligible();
+    syncProUserDomState();
     var bar = document.getElementById('user-account-bar');
     var identityBar = document.getElementById('identity-email-bar');
     if (identityBar) {
@@ -1415,8 +1432,7 @@
         tierEl.classList.toggle('user-tier-badge--pro-user', isProUser());
       }
       if (upgradeBtn) upgradeBtn.classList.toggle('hidden', isProUser());
-      var meterEl = document.getElementById('search-usage-meter');
-      if (meterEl) meterEl.classList.toggle('hidden', isProUser());
+      setSearchUsageMeterHidden(isProUser());
       var signOutBtn = document.getElementById('btn-auth-signout');
       var settingsBtn = document.getElementById('btn-user-settings');
       if (signOutBtn) signOutBtn.classList.remove('hidden');
@@ -1439,6 +1455,7 @@
       if (proUpgradeBtn) proUpgradeBtn.classList.add('hidden');
       if (proSignOutBtn) proSignOutBtn.classList.add('hidden');
       if (proSettingsBtn) proSettingsBtn.classList.add('hidden');
+      setSearchUsageMeterHidden(true);
       return;
     }
     bar.classList.add('hidden');
@@ -1457,13 +1474,14 @@
   }
 
   function updateSearchMeterUi() {
+    syncProUserDomState();
     var meter = document.getElementById('search-usage-meter');
     if (!meter) return;
     if (isProUser() || !authState.isAuthenticated) {
-      meter.classList.add('hidden');
+      setSearchUsageMeterHidden(true);
       return;
     }
-    meter.classList.remove('hidden');
+    setSearchUsageMeterHidden(false);
     var used = getSearchesUsed();
     var displayLimit = getDisplayLimit();
     var countEl = document.getElementById('search-usage-count');

@@ -1264,6 +1264,11 @@
       background: rgba(255,255,255,0.65); border: 1px solid rgba(201, 169, 98, 0.35);
       font-size: 0.75rem; color: #5C4A3A;
     }
+    #search-usage-meter.hidden,
+    body.is-pro-user #search-usage-meter,
+    .user-account-bar--pro #search-usage-meter {
+      display: none !important;
+    }
     .search-usage-track {
       width: 4rem; height: 0.35rem; border-radius: 9999px;
       background: rgba(92, 74, 58, 0.12); overflow: hidden;
