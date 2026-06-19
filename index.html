@@ -7999,6 +7999,44 @@
       }
     }
 
+    function parseCommunityMutateJson(text, status) {
+      if (!text || !String(text).trim()) {
+        throw new Error('Empty server response (' + (status || 'unknown') + ')');
+      }
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        throw new Error('Invalid server response (not JSON)');
+      }
+      if (!json || json.success !== true) {
+        throw new Error(json && (json.error || json.message) ? (json.error || json.message) : 'Mutation failed');
+      }
+      return json;
+    }
+
+    function assertCommunityDeleteResult(json, expectedId) {
+      const payload = json && json.data;
+      const deletedCount = payload && payload.deletedCount != null
+        ? Number(payload.deletedCount)
+        : (payload && payload.id ? 1 : 0);
+      if (!deletedCount || deletedCount < 1) {
+        throw new Error('Delete failed: no rows removed');
+      }
+      if (expectedId && payload && payload.id && String(payload.id).trim() !== String(expectedId).trim()) {
+        throw new Error('Delete failed: mismatched material id');
+      }
+      return payload;
+    }
+
+    function assertCommunityPatchResult(json) {
+      const row = json && json.data;
+      if (!row || typeof row !== 'object' || !resolveCommunityMaterialId(row)) {
+        throw new Error('Update failed: no row returned');
+      }
+      return row;
+    }
+
     function loadCommunityOwnedIds() {
       try {
         const raw = localStorage.getItem(COMMUNITY_OWNED_STORAGE_KEY);
@@ -8344,45 +8382,50 @@
     async function deleteCommunityMaterialRecord(id) {
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
-      try {
-        const viaClient = await deleteCommunityMaterialViaClient(pk);
-        if (viaClient) {
-          forgetCommunityOwnership(pk);
-          return viaClient;
-        }
-      } catch (clientErr) {
-        console.warn('[community] client delete failed:', formatSupabaseError(clientErr));
-      }
       if (canUseCommunityUploadApi()) {
         const headers = await getCommunityMutateHeaders();
-        const payload = buildCommunityMaterialMutateBody(pk);
-        try {
-          const res = await fetch(communityMaterialsMutateUrl(pk), {
-            method: 'DELETE',
-            headers: headers,
-            body: JSON.stringify(payload),
-          });
-          const text = await res.text();
-          if (res.ok) {
-            forgetCommunityOwnership(pk);
-            return text ? JSON.parse(text) : {};
-          }
-        } catch (apiErr) {
-          console.warn('[community] API delete failed:', apiErr.message || apiErr);
+        const response = await fetch(communityMaterialsMutateUrl(pk), {
+          method: 'DELETE',
+          headers: headers,
+          cache: 'no-store',
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          throw new Error(parseCommunityApiError(text, response.status));
         }
+        const json = parseCommunityMutateJson(text, response.status);
+        const result = assertCommunityDeleteResult(json, pk);
+        forgetCommunityOwnership(pk);
+        return result;
       }
-      const headers = await getSupabaseAuthHeaders();
-      const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.' + encodeURIComponent(pk), {
-        method: 'DELETE', headers: headers,
-      });
-      if (!res.ok) throw new Error(parseCommunityApiError(await res.text(), res.status));
+      const viaClient = await deleteCommunityMaterialViaClient(pk);
+      if (!viaClient) throw new Error('Delete unavailable');
       forgetCommunityOwnership(pk);
+      return viaClient;
     }
 
     async function updateCommunityMaterial(id, fields) {
       fields = fields || {};
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
+      if (canUseCommunityUploadApi()) {
+        const headers = await getCommunityMutateHeaders();
+        const payload = buildCommunityMaterialMutateBody(pk, fields);
+        const res = await fetch(communityMaterialsMutateUrl(pk), {
+          method: 'PATCH',
+          headers: headers,
+          body: JSON.stringify(payload),
+          cache: 'no-store',
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(parseCommunityApiError(text, res.status));
+        }
+        const json = parseCommunityMutateJson(text, res.status);
+        const row = assertCommunityPatchResult(json);
+        upsertCommunityCacheRow(row);
+        return row;
+      }
       try {
         const viaClient = await patchCommunityMaterialViaClient(pk, fields);
         if (viaClient) {
@@ -8391,26 +8434,7 @@
         }
       } catch (clientErr) {
         console.warn('[community] client patch failed:', formatSupabaseError(clientErr));
-      }
-      if (canUseCommunityUploadApi()) {
-        const headers = await getCommunityMutateHeaders();
-        const payload = buildCommunityMaterialMutateBody(pk, fields);
-        try {
-          const res = await fetch(communityMaterialsMutateUrl(pk), {
-            method: 'PATCH',
-            headers: headers,
-            body: JSON.stringify(payload),
-          });
-          const text = await res.text();
-          if (res.ok) {
-            const json = text ? JSON.parse(text) : {};
-            const row = json.data || json;
-            if (row) upsertCommunityCacheRow(row);
-            return row;
-          }
-        } catch (apiErr) {
-          console.warn('[community] API patch failed:', apiErr.message || apiErr);
-        }
+        throw clientErr;
       }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
       const payload = buildCommunityPatchPayload(pk, fields);
@@ -8422,7 +8446,8 @@
       if (!res.ok) throw new Error(parseCommunityApiError(await res.text(), res.status));
       const data = await res.json();
       const row = Array.isArray(data) ? data[0] : data;
-      if (row) upsertCommunityCacheRow(row);
+      if (!row) throw new Error('Update failed: no row returned');
+      upsertCommunityCacheRow(row);
       return row;
     }
 
@@ -11991,7 +12016,10 @@
       const row = findCatalogMaterialRow(pk);
       if (row) row.classList.add('opacity-60', 'pointer-events-none');
       try {
-        await deleteCommunityMaterialRecord(pk);
+        const result = await deleteCommunityMaterialRecord(pk);
+        if (!result || (result.deletedCount != null && Number(result.deletedCount) < 1)) {
+          throw new Error('Delete failed: no rows removed');
+        }
         await refreshCatalogAfterCommunityDelete(pk);
         alert('החומר נמחק בהצלחה');
       } catch (err) {

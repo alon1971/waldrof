@@ -209,6 +209,9 @@ async function handleApiCommunityMaterials(req, res) {
   const apiRes = createApiResponse(res);
   try {
     const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    if (req.method === 'DELETE' || req.method === 'PATCH') {
+      console.log('[api/community-materials]', req.method, 'id=', parsedUrl.searchParams.get('id') || '(none)');
+    }
     let body;
     if (req.method === 'PATCH' || req.method === 'DELETE' || req.method === 'POST') {
       const raw = await readBody(req);

@@ -84,10 +84,22 @@ function resolveStorageObjectPath(filePath) {
 }
 
 function extractMaterialId(body, req) {
-  const fromBody = body && body.id != null ? String(body.id).trim() : '';
-  if (fromBody) return fromBody;
-  const query = (req && req.query) || {};
-  return query.id != null ? String(query.id).trim() : '';
+  let id = '';
+  if (req && req.url) {
+    try {
+      const host = (req.headers && req.headers.host) || 'localhost';
+      const url = new URL(req.url, 'http://' + host);
+      const fromQuery = url.searchParams.get('id');
+      if (fromQuery) id = fromQuery.trim();
+    } catch (e) { /* ignore malformed URL */ }
+  }
+  if (!id && req && req.query && req.query.id != null) {
+    id = String(req.query.id).trim();
+  }
+  if (!id && body && body.id != null) {
+    id = String(body.id).trim();
+  }
+  return id;
 }
 
 function materialFilterQuery(value) {
@@ -273,9 +285,16 @@ async function deleteStorageObject(filePath) {
 
 async function patchCommunityMaterial(body, req) {
   const id = extractMaterialId(body || {}, req);
+  console.log('[community-materials] Backend patch triggered for ID:', id);
   if (!id) {
-    const err = new Error('id is required');
+    const err = new Error('Missing material ID in both query and body');
     err.statusCode = 400;
+    throw err;
+  }
+
+  if (!hasServiceRoleKey()) {
+    const err = new Error('SUPABASE_SERVICE_ROLE_KEY is required for community material mutations');
+    err.statusCode = 503;
     throw err;
   }
 
@@ -309,18 +328,17 @@ async function patchCommunityMaterial(body, req) {
     throw err;
   }
 
-  const result = await supabaseMutateWithFallback(
-    '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id),
-    {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation',
-      },
-      body: JSON.stringify(payload),
+  const patchPath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id);
+  const patchOptions = {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
     },
-    req
-  );
+    body: JSON.stringify(payload),
+  };
+  const result = await supabaseServiceRequest(patchPath, patchOptions);
+  console.log('[community-materials] Supabase patch response:', result.body, result.text || '');
   if (!result.ok) {
     const err = new Error('Update failed (' + result.status + ')');
     err.statusCode = result.status;
@@ -328,17 +346,27 @@ async function patchCommunityMaterial(body, req) {
     throw err;
   }
   const rows = Array.isArray(result.body) ? result.body : [];
-  if (rows.length) return rows[0];
-  const refreshed = await fetchMaterialById(id);
-  if (refreshed) return refreshed;
-  return Object.assign({}, current, payload);
+  if (!rows.length) {
+    const err = new Error('Update failed: no rows updated');
+    err.statusCode = 500;
+    err.responseText = result.text;
+    throw err;
+  }
+  return rows[0];
 }
 
 async function deleteCommunityMaterial(body, req) {
   const id = extractMaterialId(body || {}, req);
+  console.log('[community-materials] Backend delete triggered for ID:', id);
   if (!id) {
-    const err = new Error('id is required');
+    const err = new Error('Missing material ID in both query and body');
     err.statusCode = 400;
+    throw err;
+  }
+
+  if (!hasServiceRoleKey()) {
+    const err = new Error('SUPABASE_SERVICE_ROLE_KEY is required for community material mutations');
+    err.statusCode = 503;
     throw err;
   }
 
@@ -367,18 +395,28 @@ async function deleteCommunityMaterial(body, req) {
     }
   }
 
-  const result = await supabaseMutateWithFallback(
-    '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id),
-    { method: 'DELETE', headers: { Prefer: 'return=representation' } },
-    req
-  );
-  if (!result.ok) {
-    const err = new Error('Delete failed (' + result.status + ')');
-    err.statusCode = result.status;
+  const deletePath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id);
+  const deleteOptions = { method: 'DELETE', headers: { Prefer: 'return=representation' } };
+  let result;
+  try {
+    result = await supabaseServiceRequest(deletePath, deleteOptions);
+  } catch (serviceErr) {
+    console.error('[community-materials] Supabase delete error:', serviceErr.message || serviceErr);
+    const err = new Error(serviceErr.message || 'Delete failed');
+    err.statusCode = serviceErr.statusCode || 503;
+    throw err;
+  }
+  console.log('[community-materials] Supabase delete response:', result.body, result.text || '');
+  const deletedRows = Array.isArray(result.body) ? result.body : [];
+  if (!result.ok || !deletedRows.length) {
+    const err = new Error(
+      deletedRows.length ? 'Delete failed (' + result.status + ')' : 'Delete failed: no rows removed'
+    );
+    err.statusCode = result.ok ? 500 : (result.status || 500);
     err.responseText = result.text;
     throw err;
   }
-  return { id: id, storageDeleted: storageDeleted, kbDeleted: kbDeleted };
+  return { id: id, deletedCount: deletedRows.length, storageDeleted: storageDeleted, kbDeleted: kbDeleted };
 }
 
 async function legacyHandler(req, res) {
@@ -396,13 +434,13 @@ async function legacyHandler(req, res) {
     if (req.method === 'PATCH') {
       const body = parseRequestBody(req);
       const row = await patchCommunityMaterial(body || {}, req);
-      return sendJson(res, 200, { data: row });
+      return sendJson(res, 200, { success: true, data: row });
     }
 
     if (req.method === 'DELETE') {
       const body = parseRequestBody(req);
       const result = await deleteCommunityMaterial(body || {}, req);
-      return sendJson(res, 200, { data: result });
+      return sendJson(res, 200, { success: true, data: result });
     }
 
     return sendJson(res, 405, { error: 'Method not allowed' });
