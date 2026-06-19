@@ -64,6 +64,22 @@ function extractMaterialId(body) {
   return raw != null ? String(raw).trim() : '';
 }
 
+/** Primary key column + value from a Supabase row (id is canonical; material_id is legacy fallback). */
+function resolveRowPrimaryKey(row) {
+  if (!row || typeof row !== 'object') return { column: 'id', value: '' };
+  if (row.id != null && String(row.id).trim()) {
+    return { column: 'id', value: String(row.id).trim() };
+  }
+  if (row.material_id != null && String(row.material_id).trim()) {
+    return { column: 'material_id', value: String(row.material_id).trim() };
+  }
+  return { column: 'id', value: '' };
+}
+
+function materialFilterQuery(column, value) {
+  return column + '=eq.' + encodeURIComponent(String(value));
+}
+
 function packCommunityExtras(extras) {
   const e = extras || {};
   const parts = [];
@@ -163,13 +179,18 @@ async function listCommunityMaterials() {
 }
 
 async function fetchMaterialById(id) {
-  const result = await supabaseRequestWithKeyFallback(
-    '/rest/v1/' + MATERIALS_TABLE + '?select=*&id=eq.' + encodeURIComponent(String(id)) + '&limit=1',
-    { method: 'GET', headers: { 'Content-Type': 'application/json' } },
-    true
-  );
-  if (!result.ok || !Array.isArray(result.body) || !result.body.length) return null;
-  return result.body[0];
+  const pk = String(id || '').trim();
+  if (!pk) return null;
+  const columns = ['id', 'material_id'];
+  for (let i = 0; i < columns.length; i++) {
+    const result = await supabaseRequestWithKeyFallback(
+      '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(columns[i], pk) + '&limit=1',
+      { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+      false
+    );
+    if (result.ok && Array.isArray(result.body) && result.body.length) return result.body[0];
+  }
+  return null;
 }
 
 async function deleteStorageObject(filePath) {
@@ -233,8 +254,9 @@ async function patchCommunityMaterial(body) {
     throw err;
   }
 
+  const pk = resolveRowPrimaryKey(current);
   const result = await supabaseRequestWithKeyFallback(
-    '/rest/v1/' + MATERIALS_TABLE + '?id=eq.' + encodeURIComponent(id),
+    '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(pk.column, pk.value),
     {
       method: 'PATCH',
       headers: {
@@ -252,6 +274,11 @@ async function patchCommunityMaterial(body) {
     throw err;
   }
   const rows = Array.isArray(result.body) ? result.body : [];
+  if (!rows.length) {
+    const err = new Error('Material not found');
+    err.statusCode = 404;
+    throw err;
+  }
   return rows[0] || null;
 }
 
@@ -280,9 +307,10 @@ async function deleteCommunityMaterial(body) {
     }
   }
 
+  const pk = resolveRowPrimaryKey(current);
   const result = await supabaseRequestWithKeyFallback(
-    '/rest/v1/' + MATERIALS_TABLE + '?id=eq.' + encodeURIComponent(id),
-    { method: 'DELETE', headers: { Prefer: 'return=minimal' } },
+    '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(pk.column, pk.value),
+    { method: 'DELETE', headers: { Prefer: 'return=representation' } },
     false
   );
   if (!result.ok) {
@@ -291,8 +319,14 @@ async function deleteCommunityMaterial(body) {
     err.responseText = result.text;
     throw err;
   }
+  const deletedRows = Array.isArray(result.body) ? result.body : [];
+  if (!deletedRows.length) {
+    const err = new Error('Material not found');
+    err.statusCode = 404;
+    throw err;
+  }
 
-  return { id: id, storageDeleted: storageDeleted };
+  return { id: pk.value, storageDeleted: storageDeleted };
 }
 
 async function legacyHandler(req, res) {

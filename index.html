@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="waldrof-build" content="20250627f" />
+  <meta name="waldrof-build" content="20250627g" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מתכנן תקופות לימוד אנתרופוסופי — מסע פדגוגי שלב-אחר-שלב" />
   <link rel="manifest" href="/manifest.json">
@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20250627f" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20250627g" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -3489,6 +3489,7 @@
     /** עמודת מטא-דאטה אופציונלית — שנה ל-'description' אם כך נקראת בטבלה */
     const COMMUNITY_META_FIELD = 'notes';
     const COMMUNITY_OWNED_STORAGE_KEY = 'waldrof_community_owned_materials';
+    const CATALOG_UPLOAD_DRAFT_PREFIX = 'waldrof_catalog_upload_draft';
     const communitySessionOwnedIds = new Set();
     const SUPABASE_STORAGE_BUCKET = 'community-uploads';
     /**
@@ -7806,6 +7807,57 @@
       }
     }
 
+    function buildCommunityPatchPayload(pk, fields) {
+      fields = fields || {};
+      const payload = {};
+      if (fields.topic != null) payload.topic = String(fields.topic).trim();
+      if (fields.description != null || fields.author != null || fields.title != null) {
+        const item = findCommunityItemById(pk);
+        const notes = packCommunityExtras({
+          title: fields.title != null ? String(fields.title).trim() : ((item && item.title) || fields.topic || ''),
+          author: fields.author != null ? String(fields.author).trim() : ((item && item.authorName) || ''),
+          description: fields.description != null ? String(fields.description).trim() : ((item && item.notes) || ''),
+          fileSize: item && item.fileSize,
+          fileType: item && item.fileType,
+        });
+        payload[COMMUNITY_META_FIELD] = notes || null;
+      }
+      return payload;
+    }
+
+    async function patchCommunityMaterialViaClient(id, fields) {
+      const client = getCommunitySupabaseClient();
+      if (!client) return null;
+      const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
+      if (!pk) return null;
+      const payload = buildCommunityPatchPayload(pk, fields);
+      if (!Object.keys(payload).length) return null;
+      const { data, error } = await client.from(SUPABASE_TABLE).update(payload).eq('id', pk).select().maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        const err = new Error('Material not found');
+        err.statusCode = 404;
+        throw err;
+      }
+      return data;
+    }
+
+    async function deleteCommunityMaterialViaClient(id) {
+      const client = getCommunitySupabaseClient();
+      if (!client) return null;
+      const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
+      if (!pk) return null;
+      const { data, error } = await client.from(SUPABASE_TABLE).delete().eq('id', pk).select('id');
+      if (error) throw error;
+      if (!data || !data.length) {
+        const err = new Error('Material not found');
+        err.statusCode = 404;
+        throw err;
+      }
+      forgetCommunityOwnership(pk);
+      return { id: pk };
+    }
+
     async function uploadFileToStorageViaClient(file, gradeId, topic) {
       const client = getCommunitySupabaseClient();
       if (!client || !client.storage) return null;
@@ -8194,6 +8246,12 @@
     async function deleteCommunityMaterial(id) {
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
+      try {
+        const viaClient = await deleteCommunityMaterialViaClient(pk);
+        if (viaClient) return viaClient;
+      } catch (clientErr) {
+        console.warn('[community] client delete failed, trying API:', formatSupabaseError(clientErr));
+      }
       if (canUseCommunityUploadApi()) {
         const headers = { 'Content-Type': 'application/json' };
         if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
@@ -8224,6 +8282,15 @@
       fields = fields || {};
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) throw new Error('Material id is required');
+      try {
+        const viaClient = await patchCommunityMaterialViaClient(pk, fields);
+        if (viaClient) {
+          upsertCommunityCacheRow(viaClient);
+          return viaClient;
+        }
+      } catch (clientErr) {
+        console.warn('[community] client update failed, trying API:', formatSupabaseError(clientErr));
+      }
       if (canUseCommunityUploadApi()) {
         const headers = { 'Content-Type': 'application/json' };
         if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
@@ -8245,19 +8312,7 @@
         return row;
       }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
-      const payload = {};
-      if (fields.topic != null) payload.topic = String(fields.topic).trim();
-      if (fields.description != null || fields.author != null || fields.title != null) {
-        const item = findCommunityItemById(pk);
-        const notes = packCommunityExtras({
-          title: fields.title != null ? String(fields.title).trim() : ((item && item.title) || fields.topic || ''),
-          author: fields.author != null ? String(fields.author).trim() : ((item && item.authorName) || ''),
-          description: fields.description != null ? String(fields.description).trim() : ((item && item.notes) || ''),
-          fileSize: item && item.fileSize,
-          fileType: item && item.fileType,
-        });
-        payload[COMMUNITY_META_FIELD] = notes || null;
-      }
+      const payload = buildCommunityPatchPayload(pk, fields);
       const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.' + encodeURIComponent(pk), {
         method: 'PATCH',
         headers: headers,
@@ -11057,6 +11112,7 @@
         const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
         if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
         if (form) {
+          writeCatalogUploadDraft(form.getAttribute('data-grade') || '', collectCatalogUploadDraftFromForm(form));
           form.reset();
           const state = getCatalogUploadFormState(form);
           state.file = null;
@@ -11122,6 +11178,8 @@
             if (form) {
               bindCatalogShareModeToggle(form);
               bindCatalogFileInput(form);
+              bindCatalogUploadDraftAutosave(form);
+              applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(form.getAttribute('data-grade') || ''));
               updateCatalogFileDisplay(form, getCatalogUploadFormState(form).file);
             }
             const topicInput = drawer.querySelector('[name="catalog-topic"]');
@@ -11138,6 +11196,111 @@
         catalogUploadFormState.set(form, { file: null, docsLink: '' });
       }
       return catalogUploadFormState.get(form);
+    }
+
+    function catalogUploadDraftKey(gradeId) {
+      return CATALOG_UPLOAD_DRAFT_PREFIX + ':' + String(gradeId || 'all');
+    }
+
+    function readCatalogUploadDraft(gradeId) {
+      try {
+        const raw = localStorage.getItem(catalogUploadDraftKey(gradeId));
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writeCatalogUploadDraft(gradeId, draft) {
+      if (!draft) return;
+      const hasContent = [draft.topic, draft.description, draft.author, draft.shareUrl].some(function (v) {
+        return String(v || '').trim().length > 0;
+      });
+      if (!hasContent && (!draft.shareMode || draft.shareMode === 'file')) {
+        clearCatalogUploadDraft(gradeId);
+        return;
+      }
+      try {
+        localStorage.setItem(catalogUploadDraftKey(gradeId), JSON.stringify(draft));
+      } catch (e) { /* ignore */ }
+    }
+
+    function clearCatalogUploadDraft(gradeId) {
+      try { localStorage.removeItem(catalogUploadDraftKey(gradeId)); } catch (e) { /* ignore */ }
+    }
+
+    function collectCatalogUploadDraftFromForm(form) {
+      if (!form) return null;
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      const modeEl = form.querySelector('[name="catalog-share-mode"]:checked');
+      const state = getCatalogUploadFormState(form);
+      const topicInput = form.querySelector('[name="catalog-topic"]');
+      const descInput = form.querySelector('[name="catalog-desc"]');
+      const authorInput = form.querySelector('[name="catalog-author"]');
+      const linkInput = form.querySelector('[name="catalog-share-url"]');
+      return {
+        gradeId: gradeSelect ? gradeSelect.value.trim() : (form.getAttribute('data-grade') || ''),
+        topic: topicInput ? topicInput.value : '',
+        description: descInput ? descInput.value : '',
+        author: authorInput ? authorInput.value : '',
+        shareMode: modeEl ? modeEl.value : 'file',
+        shareUrl: linkInput ? linkInput.value : (state.docsLink || ''),
+        savedAt: Date.now(),
+      };
+    }
+
+    function applyCatalogUploadDraftToForm(form, draft) {
+      if (!form || !draft) return;
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      if (gradeSelect && draft.gradeId) gradeSelect.value = draft.gradeId;
+      const topicInput = form.querySelector('[name="catalog-topic"]');
+      if (topicInput && !topicInput.readOnly && draft.topic != null) topicInput.value = draft.topic;
+      const descInput = form.querySelector('[name="catalog-desc"]');
+      if (descInput && draft.description != null) descInput.value = draft.description;
+      const authorInput = form.querySelector('[name="catalog-author"]');
+      if (authorInput && draft.author != null) authorInput.value = draft.author;
+      if (draft.shareMode) {
+        const radio = form.querySelector('[name="catalog-share-mode"][value="' + draft.shareMode + '"]');
+        if (radio) {
+          radio.checked = true;
+          setCatalogShareMode(form, draft.shareMode);
+        }
+      }
+      const linkInput = form.querySelector('[name="catalog-share-url"]');
+      const state = getCatalogUploadFormState(form);
+      if (linkInput && draft.shareUrl != null) {
+        linkInput.value = draft.shareUrl;
+        state.docsLink = draft.shareUrl;
+      }
+    }
+
+    function saveAllCatalogUploadDrafts() {
+      document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
+        writeCatalogUploadDraft(form.getAttribute('data-grade') || '', collectCatalogUploadDraftFromForm(form));
+      });
+    }
+
+    function bindCatalogUploadDraftAutosave(form) {
+      if (!form || form.dataset.draftBound) return;
+      form.dataset.draftBound = '1';
+      const gradeId = form.getAttribute('data-grade') || '';
+      applyCatalogUploadDraftToForm(form, readCatalogUploadDraft(gradeId));
+      let timer = null;
+      function scheduleSave() {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () {
+          writeCatalogUploadDraft(gradeId, collectCatalogUploadDraftFromForm(form));
+        }, 200);
+      }
+      form.addEventListener('input', scheduleSave);
+      form.addEventListener('change', scheduleSave);
+    }
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') saveAllCatalogUploadDrafts();
+      });
+      window.addEventListener('pagehide', saveAllCatalogUploadDrafts);
     }
 
     function catalogFieldClass() {
@@ -11336,6 +11499,7 @@
           msgEl.textContent = t('catalog_success');
           msgEl.classList.add('text-sage-dark');
         }
+        clearCatalogUploadDraft(gradeId);
         closeCatalogUploadDrawer(form);
         if (catalogState.view === 'materials') {
           await renderCatalogMaterials(gradeId, subject);
@@ -11363,6 +11527,7 @@
       container.querySelectorAll('.catalog-upload-form').forEach(function (form) {
         bindCatalogShareModeToggle(form);
         bindCatalogFileInput(form);
+        bindCatalogUploadDraftAutosave(form);
         const gradeSelect = form.querySelector('[name="catalog-grade"]');
         if (gradeSelect && !form.dataset.gradeNavBound) {
           form.dataset.gradeNavBound = '1';
