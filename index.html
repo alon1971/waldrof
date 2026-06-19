@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="waldrof-build" content="20250627d" />
+  <meta name="waldrof-build" content="20250627e" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מתכנן תקופות לימוד אנתרופוסופי — מסע פדגוגי שלב-אחר-שלב" />
   <link rel="manifest" href="/manifest.json">
@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20250627d" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20250627e" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -4080,6 +4080,7 @@
 
     let realtimeChannel = null;
     let supabaseRealtimeClient = null;
+    let communitySupabaseClient = null;
     const MAX_FILE = 5 * 1024 * 1024;
     let gradeResearchAbort = null;
     let gradeResearchRunId = 0;
@@ -7706,6 +7707,101 @@
       return headers;
     }
 
+    function formatSupabaseError(err) {
+      if (!err) return 'Unknown Supabase error';
+      if (typeof err === 'string') return err;
+      const parts = [err.message, err.details, err.hint, err.code].filter(Boolean);
+      return parts.join(' — ') || String(err);
+    }
+
+    function showCommunityUploadError(err) {
+      const msg = formatSupabaseError(err);
+      console.error('[community upload]', err);
+      alert('שגיאת העלאה / שמירה לקהילה:\n' + msg);
+    }
+
+    function getCommunitySupabaseClient() {
+      if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.getSupabaseClient === 'function') {
+        const authClient = WaldorfAuth.getSupabaseClient();
+        if (authClient) return authClient;
+      }
+      if (!isCloudConfigured() || typeof supabase === 'undefined') return null;
+      if (!communitySupabaseClient) {
+        communitySupabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+          auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+        });
+      }
+      return communitySupabaseClient;
+    }
+
+    async function getCommunityAuthUserId() {
+      if (typeof WaldorfAuth !== 'undefined') {
+        const state = WaldorfAuth.getState();
+        if (state && state.user && state.user.id) return state.user.id;
+        const client = typeof WaldorfAuth.getSupabaseClient === 'function' ? WaldorfAuth.getSupabaseClient() : null;
+        if (client && client.auth && typeof client.auth.getSession === 'function') {
+          try {
+            const result = await client.auth.getSession();
+            const session = result && result.data && result.data.session;
+            if (session && session.user && session.user.id) return session.user.id;
+          } catch (e) { /* ignore */ }
+        }
+      }
+      return null;
+    }
+
+    async function buildCommunityInsertPayloadWithAuth(gradeId, topic, filePath, fileName, extras) {
+      const payload = buildCommunityInsertPayload(gradeId, topic, filePath, fileName, extras);
+      const userId = await getCommunityAuthUserId();
+      if (userId) payload.user_id = userId;
+      return payload;
+    }
+
+    async function fetchCommunityMaterialsViaClient() {
+      const client = getCommunitySupabaseClient();
+      if (!client) return null;
+      const { data, error } = await client
+        .from(SUPABASE_TABLE)
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    }
+
+    async function postCommunityMaterialViaClient(record) {
+      const client = getCommunitySupabaseClient();
+      if (!client) return null;
+      let payload = Object.assign({}, record);
+      async function tryInsert(rec) {
+        const { data, error } = await client.from(SUPABASE_TABLE).insert(rec).select().maybeSingle();
+        if (error) throw error;
+        return data;
+      }
+      try {
+        return await tryInsert(payload);
+      } catch (err) {
+        const msg = formatSupabaseError(err);
+        if (payload.user_id && /user_id|column|schema cache/i.test(msg)) {
+          const retry = Object.assign({}, payload);
+          delete retry.user_id;
+          return await tryInsert(retry);
+        }
+        throw err;
+      }
+    }
+
+    async function uploadFileToStorageViaClient(file, gradeId, topic) {
+      const client = getCommunitySupabaseClient();
+      if (!client || !client.storage) return null;
+      const path = buildCommunityStoragePath(gradeId, topic, file.name || 'upload');
+      const { error } = await client.storage.from(SUPABASE_STORAGE_BUCKET).upload(path, file, {
+        upsert: false,
+        contentType: file.type || 'application/octet-stream',
+      });
+      if (error) throw error;
+      return { storagePath: path, publicUrl: buildPublicStorageUrl(path) };
+    }
+
     function canUseCommunityUploadApi() {
       try {
         const proto = window.location.protocol;
@@ -7746,6 +7842,12 @@
     }
 
     async function fetchCommunityMaterials() {
+      try {
+        const clientRows = await fetchCommunityMaterialsViaClient();
+        if (clientRows) return clientRows;
+      } catch (clientErr) {
+        console.warn('[community] client fetch failed:', formatSupabaseError(clientErr));
+      }
       if (canUseCommunityUploadApi()) {
         try {
           const res = await fetch(communityMaterialsApiUrl(), { cache: 'no-store' });
@@ -7865,7 +7967,13 @@
     }
 
     async function postCommunityMaterial(gradeId, topic, filePath, fileName, extras) {
-      const record = buildCommunityInsertPayload(gradeId, topic, filePath, fileName, extras);
+      const record = await buildCommunityInsertPayloadWithAuth(gradeId, topic, filePath, fileName, extras);
+      try {
+        const viaClient = await postCommunityMaterialViaClient(record);
+        if (viaClient) return viaClient;
+      } catch (clientErr) {
+        console.warn('[community] client insert failed, trying REST:', formatSupabaseError(clientErr));
+      }
       const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
       const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE, {
         method: 'POST',
@@ -8389,10 +8497,17 @@
             await loadCommunity();
             return up.material || null;
           } catch (apiUploadErr) {
-            console.warn('[community] API upload failed, falling back to direct storage:', apiUploadErr);
+            console.warn('[community] API upload failed, falling back to direct Supabase client:', apiUploadErr);
           }
         }
-        const up = await uploadFileToStorage(file, gradeId, topicNorm);
+        let up = null;
+        try {
+          up = await uploadFileToStorageViaClient(file, gradeId, topicNorm);
+        } catch (clientStorageErr) {
+          console.warn('[community] client storage failed, trying REST storage:', formatSupabaseError(clientStorageErr));
+          up = await uploadFileToStorage(file, gradeId, topicNorm);
+        }
+        if (!up) throw new Error(t('catalog_err_file'));
         filePath = up.storagePath;
         fileName = file.name;
         fileSize = file.size;
@@ -8456,9 +8571,14 @@
         appState.communityForGrade = [];
         return;
       }
-      const rows = await fetchCommunityMaterials();
-      appState.communityCache = rows.map(mapRow);
-      appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      try {
+        const rows = await fetchCommunityMaterials();
+        appState.communityCache = rows.map(mapRow);
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      } catch (err) {
+        console.error('[community] loadCommunity failed:', formatSupabaseError(err));
+        throw err;
+      }
     }
 
     function subscribeRealtime() {
@@ -11095,9 +11215,9 @@
         }
         updateCommunityBadge();
       } catch (err) {
-        console.error('Upload error details:', err);
+        showCommunityUploadError(err);
         if (msgEl) {
-          msgEl.textContent = err.message || String(err);
+          msgEl.textContent = formatSupabaseError(err);
           msgEl.classList.remove('text-sage-dark');
           msgEl.classList.add('text-terracotta');
         }
