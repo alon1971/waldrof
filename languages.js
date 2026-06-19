@@ -78,6 +78,7 @@ const LANGUAGES = {
     header_compact_nav_aria:     'ניווט מהיר בכותרת',
     header_compact_edit_grade:   'עריכת כיתה',
     header_compact_edit_topic:   'עריכת נושא',
+    header_compact_products:     'תוצרים ומערכי שיעור',
 
     crumb_grade:                 'כיתה',
     crumb_topic:                 'נושא',
@@ -613,6 +614,7 @@ const LANGUAGES = {
     header_compact_nav_aria:     'Quick header navigation',
     header_compact_edit_grade:   'Edit grade',
     header_compact_edit_topic:   'Edit topic',
+    header_compact_products:     'Outputs & Lesson Plans',
 
     crumb_grade:                 'Grade',
     crumb_topic:                 'Topic',

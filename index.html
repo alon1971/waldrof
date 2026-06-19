@@ -1478,6 +1478,12 @@
       opacity: 0.45;
       cursor: not-allowed;
     }
+    .header-compact-nav-btn.active {
+      background: rgba(122, 155, 118, 0.22);
+      border-color: rgba(122, 155, 118, 0.55);
+      color: #4A5D48;
+      font-weight: 700;
+    }
     .header-compact-context-label {
       font-size: 0.68rem;
       font-weight: 600;
@@ -1486,7 +1492,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
       min-width: 0;
-      max-width: 7.5rem;
+      max-width: 5.5rem;
       text-align: center;
       flex-shrink: 1;
     }
@@ -2729,6 +2735,9 @@
           <span id="header-compact-context-label" class="header-compact-context-label" aria-hidden="true"></span>
           <button type="button" id="header-compact-edit-topic" class="header-compact-nav-btn touch-btn">
             <span data-i18n="header_compact_edit_topic">עריכת נושא</span>
+          </button>
+          <button type="button" id="header-compact-products" class="header-compact-nav-btn touch-btn" disabled>
+            <span data-i18n="header_compact_products">תוצרים ומערכי שיעור</span>
           </button>
         </nav>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
@@ -7607,13 +7616,26 @@
     function updateHeaderCompactNav() {
       var nav = document.getElementById('header-compact-nav');
       var labelEl = document.getElementById('header-compact-context-label');
+      var gradeBtn = document.getElementById('header-compact-edit-grade');
       var topicBtn = document.getElementById('header-compact-edit-topic');
+      var productsBtn = document.getElementById('header-compact-products');
       var labelText = getHeaderCompactContextLabel();
       if (labelEl) {
         labelEl.textContent = labelText;
         labelEl.setAttribute('aria-hidden', labelText ? 'false' : 'true');
       }
       if (topicBtn) topicBtn.disabled = false;
+      var productsReady = canNavigateToStep(3);
+      if (productsBtn) {
+        productsBtn.disabled = !productsReady;
+        productsBtn.classList.toggle('active', productsReady && isProductsView());
+      }
+      if (gradeBtn) {
+        gradeBtn.classList.toggle('active', !isWorkspaceOpen() && appState.step === 1);
+      }
+      if (topicBtn) {
+        topicBtn.classList.toggle('active', !isWorkspaceOpen() && appState.step === 2);
+      }
       if (nav) {
         nav.setAttribute('aria-label', t('header_compact_nav_aria'));
       }
@@ -7668,6 +7690,11 @@
       if (!canNavigateToStep(2)) return;
       goToStep(2, false);
       scrollToStepBAndFocus({ expandHeader: true, behavior: 'smooth' });
+    }
+
+    function navigateCompactHeaderToProducts() {
+      if (!canNavigateToStep(3)) return;
+      openProductsWorkspace(true);
     }
 
     function setHeaderCompact(compact) {
@@ -8578,22 +8605,19 @@
         appState.topicResearchCompleted = true;
         resetSummarySession();
 
-        appState.step = 3;
-        appState.navSection = 'products';
-        showWorkspaceShell();
-        document.getElementById('synthesis-banner').classList.remove('hidden');
-        renderSynthesisBanner();
+        ensureStepBWizardView();
         renderStepProgress();
-        updateWorkspaceChrome();
         updateNewResearchBarVisibility();
-
-        await initStreaming();
-        setupThemeActionButtons();
 
         holdPageScroll(function () {
           renderWebResearchResult();
         });
-        scrollToWorkspaceTop('smooth');
+        requestAnimationFrame(function () {
+          var resultEl = document.getElementById('web-research-result');
+          if (resultEl && !resultEl.classList.contains('hidden')) {
+            resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
         await checkAndShowCommunityTopicAlert();
         nudgeGoogleTranslate();
         queueCommunityLessonSync();
@@ -10039,6 +10063,7 @@
       });
       bindWizardNavClick(document.getElementById('header-compact-edit-grade'), navigateCompactHeaderToGrade);
       bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
+      bindWizardNavClick(document.getElementById('header-compact-products'), navigateCompactHeaderToProducts);
       bindWizardNavClick(document.getElementById('ws-crumb-products'), function () {
         if (canNavigateToStep(3)) openProductsWorkspace();
       });
