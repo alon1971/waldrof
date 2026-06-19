@@ -7687,6 +7687,47 @@
       return { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY, ...extra };
     }
 
+    async function getSupabaseAuthHeaders(extra) {
+      const headers = Object.assign({ apikey: SUPABASE_ANON_KEY }, extra || {});
+      let bearer = SUPABASE_ANON_KEY;
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try {
+          const userToken = await WaldorfAuth.getAccessToken();
+          if (userToken) bearer = userToken;
+        } catch (e) { /* ignore */ }
+      }
+      headers.Authorization = 'Bearer ' + bearer;
+      return headers;
+    }
+
+    function canUseCommunityUploadApi() {
+      try {
+        const proto = window.location.protocol;
+        return proto === 'http:' || proto === 'https:';
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function slugifyStorageSegment(text) {
+      const s = String(text || '').trim();
+      if (!s) return 'general';
+      const ascii = s
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48);
+      if (ascii.length >= 2) return ascii;
+      let h = 0;
+      for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+      return 't' + Math.abs(h).toString(36).slice(0, 10);
+    }
+
+    function buildCommunityStorageFolder(gradeId, topic) {
+      return 'community/' + String(gradeId || '').trim() + '/' + slugifyStorageSegment(topic);
+    }
+
     function hasLessonReady() {
       return Boolean(appState.grade && resolveLessonTopic() && appState.aiGeneratedPlan);
     }
@@ -7797,9 +7838,10 @@
 
     async function postCommunityMaterial(gradeId, topic, filePath, fileName, extras) {
       const record = buildCommunityInsertPayload(gradeId, topic, filePath, fileName, extras);
+      const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' });
       const res = await fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE, {
         method: 'POST',
-        headers: getRestHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+        headers: headers,
         body: JSON.stringify(record),
       });
       if (!res.ok) throw new Error(await res.text() || res.status);
@@ -7815,7 +7857,17 @@
       return /^\.[a-z0-9]{1,12}$/.test(ext) ? ext : '';
     }
 
-    /** נתיב ASCII בלבד ל-Storage (ללא עברית/סוגריים) — השם המקורי נשמר ב-file_name בטבלה */
+    /** נתיב ASCII בלבד ל-Storage — community/{grade}/{subject}/{timestamp}_{filename} */
+    function buildCommunityStoragePath(gradeId, topic, originalFileName) {
+      const folder = buildCommunityStorageFolder(gradeId, topic);
+      const ext = getStorageFileExtension(originalFileName);
+      const baseName = String(originalFileName || 'upload')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^\w.\-]+/g, '_')
+        .slice(0, 48) || 'file';
+      return folder + '/' + Date.now() + '_' + baseName + ext;
+    }
+
     function buildAsciiStoragePath(folderPrefix, originalFileName) {
       const prefix = String(folderPrefix || '').replace(/^\/+|\/+$/g, '');
       const folder = prefix ? prefix + '/' : '';
@@ -7823,16 +7875,88 @@
       return folder + Date.now() + ext;
     }
 
-    async function uploadFileToStorage(file, folderPrefix) {
-      const path = buildAsciiStoragePath(folderPrefix, file.name);
+    async function fileToBase64(file) {
+      return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function () {
+          const result = String(reader.result || '');
+          const comma = result.indexOf(',');
+          resolve(comma >= 0 ? result.slice(comma + 1) : result);
+        };
+        reader.onerror = function () { reject(reader.error || new Error('file read failed')); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadFileViaCommunityApi(file, gradeId, topic, meta) {
+      meta = meta || {};
+      const headers = { 'Content-Type': 'application/json' };
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try {
+          const token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (e) { /* ignore */ }
+      }
+      const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/community-upload'
+        : '/api/community-upload';
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          gradeId: gradeId,
+          topic: topic,
+          description: meta.description || '',
+          author: meta.author || '',
+          title: meta.title || '',
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          fileDataBase64: await fileToBase64(file),
+        }),
+      });
+      const bodyText = await res.text();
+      let json;
+      try {
+        json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
+      } catch (parseErr) {
+        throw new Error(bodyText || res.statusText || 'Upload failed');
+      }
+      if (!res.ok || json.error) {
+        const err = new Error(json.error || bodyText || ('Upload failed (' + res.status + ')'));
+        err.details = json;
+        throw err;
+      }
+      const data = json.data || json;
+      return {
+        storagePath: data.storagePath,
+        publicUrl: data.publicUrl,
+        fileName: data.fileName || file.name,
+        material: data.material,
+      };
+    }
+
+    async function uploadFileToStorage(file, gradeId, topic) {
+      if (!file || !(file instanceof Blob) || !file.size) {
+        throw new Error(t('catalog_err_file'));
+      }
+      const path = buildCommunityStoragePath(gradeId, topic, file.name || 'upload');
       const enc = encodeStorageObjectPath(path);
+      const headers = await getSupabaseAuthHeaders({
+        'Content-Type': file.type || 'application/octet-stream',
+        'x-upsert': 'false',
+      });
       const res = await fetch(SUPABASE_URL + '/storage/v1/object/' + SUPABASE_STORAGE_BUCKET + '/' + enc, {
         method: 'POST',
-        headers: getRestHeaders({ 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' }),
+        headers: headers,
         body: file,
       });
-      if (!res.ok) throw new Error(await res.text() || res.status);
-      return { storagePath: path, publicUrl: SUPABASE_URL + '/storage/v1/object/public/' + SUPABASE_STORAGE_BUCKET + '/' + enc };
+      const errText = await res.text();
+      if (!res.ok) {
+        const err = new Error(errText || String(res.status));
+        err.status = res.status;
+        throw err;
+      }
+      return { storagePath: path, publicUrl: buildPublicStorageUrl(path) };
     }
 
     async function deleteCommunityMaterial(id) {
@@ -8152,14 +8276,25 @@
           ? 'קישור Google Docs'
           : (lower.indexOf('drive.google.com') !== -1 ? 'קישור Google Drive' : 'קישור שיתוף');
         fileType = 'application/link';
-      } else if (file && file.size) {
+      } else if (file) {
+        if (!file.size) throw new Error(t('catalog_err_file'));
         if (file.size > MAX_FILE) throw new Error('קובץ גדול מ-5MB');
-        const prefix = 'community/' + gradeId + '/';
-        const up = await uploadFileToStorage(file, prefix);
+        if (canUseCommunityUploadApi()) {
+          const up = await uploadFileViaCommunityApi(file, gradeId, topicNorm, {
+            description: desc,
+            author: author,
+            title: desc || file.name || topicNorm,
+          });
+          await loadCommunity();
+          return up.material || null;
+        }
+        const up = await uploadFileToStorage(file, gradeId, topicNorm);
         filePath = up.storagePath;
         fileName = file.name;
         fileSize = file.size;
         fileType = file.type || null;
+      } else if (!linkRaw) {
+        throw new Error(t('catalog_err_file'));
       }
       const title = desc || fileName || topicNorm;
       const material = await postCommunityMaterial(gradeId, topicNorm, filePath, fileName, {
@@ -10784,6 +10919,15 @@
       setCatalogShareMode(form, checked ? checked.value : 'file');
     }
 
+    function resolveCatalogUploadFile(form, state) {
+      const fileInput = form.querySelector('[name="catalog-file"]');
+      const fromInput = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+      const fromState = state && state.file ? state.file : null;
+      const file = fromInput || fromState;
+      if (file && state) state.file = file;
+      return file;
+    }
+
     async function handleCatalogUploadSubmit(form) {
       const state = getCatalogUploadFormState(form);
       const gradeSelect = form.querySelector('[name="catalog-grade"]');
@@ -10797,7 +10941,7 @@
       const docsLink = mode === 'link'
         ? ((linkInput && linkInput.value) || state.docsLink || '').trim()
         : '';
-      const file = mode === 'file' ? state.file : null;
+      const file = mode === 'file' ? resolveCatalogUploadFile(form, state) : null;
       const msgEl = form.querySelector('.catalog-upload-msg');
       const submitBtn = form.querySelector('[type="submit"]');
       if (submitBtn && submitBtn.disabled) return;
@@ -10815,7 +10959,7 @@
         if (!subject) throw new Error(t('catalog_err_topic'));
         if (!description) throw new Error(t('catalog_err_desc'));
         if (mode === 'link' && !docsLink) throw new Error(t('catalog_err_link'));
-        if (mode === 'file' && !file) throw new Error(t('catalog_err_file'));
+        if (mode === 'file' && (!file || !file.size)) throw new Error(t('catalog_err_file'));
         await submitCatalogUpload(gradeId, subject, description, teacherName, file, docsLink);
         const topicReadonly = form.querySelector('[name="catalog-topic"][readonly]');
         const savedTopic = topicReadonly ? subject : '';
@@ -10842,6 +10986,7 @@
         }
         updateCommunityBadge();
       } catch (err) {
+        console.error('Upload error details:', err);
         if (msgEl) {
           msgEl.textContent = err.message || String(err);
           msgEl.classList.remove('text-sage-dark');
