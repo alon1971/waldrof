@@ -2042,6 +2042,267 @@ async function saveTopicChatSession(teacher, cacheKey, session) {
   return false;
 }
 
+const COMMUNITY_MATERIALS_TABLE = 'community_materials';
+const COMMUNITY_KB_TABLE = 'community_knowledge_base';
+const COMMUNITY_STORAGE_BUCKET = 'community-uploads';
+
+function buildCommunitySearchQuery(options) {
+  const parts = [];
+  if (options && options.userMessage) parts.push(String(options.userMessage).trim());
+  if (options && options.topic) parts.push(String(options.topic).trim());
+  if (options && options.query) parts.push(String(options.query).trim());
+  return parts.filter(Boolean).join(' ').trim();
+}
+
+function buildCommunitySearchTerms(query) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+
+  const terms = new Set();
+  const normalized = normalizeTopicQuery(q);
+  if (normalized) terms.add(normalized);
+
+  hebrewTopicMatch.expandHebrewSearchTerms(q, 10).forEach(function (term) {
+    if (term && term.length >= 2) terms.add(term);
+  });
+
+  q.replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+    .split(/\s+/)
+    .filter(function (word) { return word.length >= 2; })
+    .forEach(function (word) {
+      terms.add(word);
+      if (word.charAt(0) === 'ה' && word.length > 2) terms.add(word.slice(1));
+    });
+
+  return Array.from(terms)
+    .filter(function (term) { return term && term.length >= 2; })
+    .sort(function (a, b) { return b.length - a.length; })
+    .slice(0, 10);
+}
+
+function resolveCommunityFileUrlFromRow(row) {
+  if (!row || typeof row !== 'object') return '';
+  const gdocs = String(row.google_docs_url || '').trim();
+  if (/^https?:\/\//i.test(gdocs)) return gdocs;
+  const filePath = String(row.file_path || '').trim();
+  if (/^https?:\/\//i.test(filePath)) return filePath;
+  if (!filePath) return '';
+  const baseUrl = env.getSupabaseUrl();
+  if (!baseUrl) return '';
+  return baseUrl + '/storage/v1/object/public/' + COMMUNITY_STORAGE_BUCKET + '/' + encodeURIComponent(filePath);
+}
+
+function parseCommunityTitleFromNotes(rawNotes) {
+  const notes = String(rawNotes || '');
+  const titleMatch = notes.match(/\[title:([^\]]+)\]/);
+  if (titleMatch) return titleMatch[1].trim();
+  const descMatch = notes.match(/\[desc:([^\]]+)\]/);
+  if (descMatch) return descMatch[1].trim();
+  return '';
+}
+
+function formatCommunityMaterialRow(row) {
+  const notes = row.notes || row.description || '';
+  const parsedTitle = parseCommunityTitleFromNotes(notes);
+  const topic = String(row.topic || '').trim();
+  return {
+    id: row.id || null,
+    source: 'catalog',
+    title: parsedTitle || row.file_name || topic || 'חומר קהילתי',
+    topic: topic,
+    gradeId: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : null),
+    fileName: row.file_name || '',
+    fileUrl: resolveCommunityFileUrlFromRow(row),
+    similarity: 0,
+  };
+}
+
+function formatCommunityKnowledgeRow(row) {
+  return {
+    id: row.id || null,
+    sourceMaterialId: row.source_material_id || null,
+    source: 'knowledge_base',
+    title: row.title || row.topic || 'חומר קהילתי',
+    topic: String(row.topic || '').trim(),
+    gradeId: row.grade_id != null ? String(row.grade_id) : null,
+    fileName: row.file_name || '',
+    fileUrl: resolveCommunityFileUrlFromRow(row),
+    contributorName: row.contributor_name || null,
+    similarity: 0,
+  };
+}
+
+function scoreCommunityHitSimilarity(query, hit) {
+  const candidates = [hit.topic, hit.title, hit.fileName].filter(Boolean);
+  let best = 0;
+  candidates.forEach(function (candidate) {
+    const score = scoreTopicSimilarity(query, candidate, '');
+    if (score > best) best = score;
+  });
+  return best;
+}
+
+function dedupeCommunityHits(hits) {
+  const seen = new Set();
+  const out = [];
+  (hits || []).forEach(function (hit) {
+    if (!hit) return;
+    const key = String(hit.sourceMaterialId || hit.id || '') + '|' + stableNormalize(hit.title) + '|' + stableNormalize(hit.topic);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(hit);
+  });
+  return out;
+}
+
+function pickBestCommunityHits(materialRows, kbRows, query, options) {
+  const opts = options || {};
+  const limit = opts.limit || 8;
+  const minScore = opts.minScore != null ? opts.minScore : 0.45;
+  const hits = [];
+
+  (materialRows || []).forEach(function (row) {
+    const hit = formatCommunityMaterialRow(row);
+    hit.similarity = scoreCommunityHitSimilarity(query, hit);
+    if (hit.similarity >= minScore) hits.push(hit);
+  });
+
+  (kbRows || []).forEach(function (row) {
+    const hit = formatCommunityKnowledgeRow(row);
+    hit.similarity = scoreCommunityHitSimilarity(query, hit);
+    if (hit.similarity >= minScore) hits.push(hit);
+  });
+
+  return dedupeCommunityHits(hits)
+    .sort(function (a, b) { return (b.similarity || 0) - (a.similarity || 0); })
+    .slice(0, limit);
+}
+
+async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
+  if (!isSupabaseCacheEnabled()) return [];
+
+  const params = new URLSearchParams();
+  params.set('select', 'id,grade_level,topic,file_path,file_name,google_docs_url,notes,created_at');
+  params.set('order', 'created_at.desc');
+  params.set('limit', '48');
+  if (gradeId) params.set('grade_level', 'eq.' + gradeId);
+
+  if (withTermFilter) {
+    const terms = buildCommunitySearchTerms(query);
+    if (terms.length) {
+      const orParts = [];
+      terms.forEach(function (term) {
+        orParts.push('topic.ilike.*' + term + '*');
+        orParts.push('file_name.ilike.*' + term + '*');
+        orParts.push('notes.ilike.*' + term + '*');
+      });
+      params.set('or', '(' + orParts.join(',') + ')');
+    }
+  }
+
+  const res = await supabaseRequest('/rest/v1/' + COMMUNITY_MATERIALS_TABLE + '?' + params.toString(), {
+    method: 'GET',
+  });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
+  if (!isSupabaseCacheEnabled()) return [];
+
+  const params = new URLSearchParams();
+  params.set(
+    'select',
+    'id,title,topic,content,file_path,file_name,source_material_id,contributor_name,grade_id,created_at'
+  );
+  params.set('order', 'created_at.desc');
+  params.set('limit', '48');
+  if (gradeId) params.set('grade_id', 'eq.' + gradeId);
+
+  if (withTermFilter) {
+    const terms = buildCommunitySearchTerms(query);
+    if (terms.length) {
+      const orParts = [];
+      terms.forEach(function (term) {
+        orParts.push('title.ilike.*' + term + '*');
+        orParts.push('topic.ilike.*' + term + '*');
+        orParts.push('content.ilike.*' + term + '*');
+      });
+      params.set('or', '(' + orParts.join(',') + ')');
+    }
+  }
+
+  const res = await supabaseRequest('/rest/v1/' + COMMUNITY_KB_TABLE + '?' + params.toString(), {
+    method: 'GET',
+  });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
+ * Unified fuzzy community probe — catalog (community_materials) + ingest (community_knowledge_base).
+ */
+async function findCommunityMaterials(options) {
+  const opts = options || {};
+  const query = buildCommunitySearchQuery(opts);
+  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  if (!query) return { matches: [], count: 0, query: '' };
+
+  let materialRows = [];
+  let kbRows = [];
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const scoped = await Promise.all([
+        fetchCommunityMaterialRows(gradeId, query, true),
+        fetchCommunityKnowledgeRows(gradeId, query, true),
+      ]);
+      materialRows = scoped[0];
+      kbRows = scoped[1];
+
+      if (!materialRows.length && !kbRows.length && gradeId) {
+        const broad = await Promise.all([
+          fetchCommunityMaterialRows('', query, true),
+          fetchCommunityKnowledgeRows('', query, true),
+        ]);
+        materialRows = broad[0];
+        kbRows = broad[1];
+      }
+
+      if (!materialRows.length && !kbRows.length) {
+        const fallback = await Promise.all([
+          fetchCommunityMaterialRows(gradeId, query, false),
+          fetchCommunityKnowledgeRows(gradeId, query, false),
+        ]);
+        materialRows = fallback[0];
+        kbRows = fallback[1];
+      }
+    } catch (err) {
+      console.warn('[community] materials probe failed:', err.message || err);
+    }
+  }
+
+  let matches = pickBestCommunityHits(materialRows, kbRows, query, {
+    limit: opts.limit || 8,
+    minScore: 0.45,
+  });
+
+  if (!matches.length && (materialRows.length || kbRows.length)) {
+    matches = pickBestCommunityHits(materialRows, kbRows, query, {
+      limit: opts.limit || 8,
+      minScore: 0.35,
+    });
+  }
+
+  return {
+    matches: matches,
+    count: matches.length,
+    query: query,
+  };
+}
+
 module.exports = {
   TABLE_NAME,
   buildCacheKey,
@@ -2070,4 +2331,8 @@ module.exports = {
   saveTopicChatSession,
   scoreTopicSimilarity,
   findArchiveTopicSuggestion,
+  findCommunityMaterials,
+  buildCommunitySearchTerms,
+  COMMUNITY_MATERIALS_TABLE,
+  COMMUNITY_KB_TABLE,
 };

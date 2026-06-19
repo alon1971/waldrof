@@ -52,6 +52,9 @@ const LANGUAGES = {
     research_need_grade:         'יש לבחור כיתה לפני חיפוש הנושא ברשת.',
     community_need_topic:        'הגדירו נושא בשלב ב׳ כדי לראות חומרים מהקהילה.',
     community_empty_topic:       'אין עדיין חומרים מהקהילה לנושא זה.',
+    community_found_alert:       'נמצאו חומרים רלוונטיים עבורך במאגר הקהילתי!',
+    community_found_open_file:   'פתיחת הקובץ',
+    community_found_open_repo:   'למאגר הקהילתי',
     community_materials_title:   'העשרה פדגוגית וחומרים מהקהילה',
     btn_to_step2:                'המשך לשלב ב׳ — הגדרת נושא התקופה',
 
@@ -592,6 +595,9 @@ const LANGUAGES = {
     research_need_grade:         'Select a grade before running the topic web search.',
     community_need_topic:        'Define a topic in Step B to see community materials.',
     community_empty_topic:       'No community materials for this topic yet.',
+    community_found_alert:       'Relevant community materials were found for you!',
+    community_found_open_file:   'Open file',
+    community_found_open_repo:   'Community repository',
     community_materials_title:   'Pedagogical enrichment & community materials',
     btn_to_step2:                'Continue to Step B — define the block topic',
 

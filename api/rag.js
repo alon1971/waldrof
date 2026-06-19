@@ -7,6 +7,8 @@ const crypto = require('crypto');
 const knowledgeIngest = require('./knowledge-ingest');
 const embeddings = require('./embeddings');
 const env = require('./env');
+const hebrewTopicMatch = require('../hebrew-topic-match');
+const cacheDb = require('./cache');
 
 const TABLE_NAME = 'knowledge_base';
 const COMMUNITY_TABLE_NAME = 'community_knowledge_base';
@@ -162,7 +164,43 @@ function buildExpandedDriveSearchQuery(query, body) {
 }
 
 function buildExpandedCommunitySearchQuery(query, body) {
-  return buildExpandedSearchQuery(query, body);
+  const coreTerms = extractCoreSubjectTerms(query, body);
+  const expanded = buildExpandedSearchQuery(query, body);
+  const parts = [expanded].concat(coreTerms);
+  return Array.from(new Set(
+    parts.join(' ').split(/\s+/).filter(function (word) { return word.length > 1; })
+  )).join(' ').trim();
+}
+
+/** Strip grade phrases and expand Hebrew core keywords for community fuzzy matching. */
+function extractCoreSubjectTerms(query, body) {
+  const parts = [];
+  if (body && body.topic) parts.push(String(body.topic).trim());
+  if (body && body.userMessage) parts.push(String(body.userMessage).trim());
+  if (query) parts.push(String(query).trim());
+  const combined = parts.filter(Boolean).join(' ').trim();
+  if (!combined) return [];
+
+  const terms = new Set();
+  const normalized = typeof cacheDb.normalizeTopicQuery === 'function'
+    ? cacheDb.normalizeTopicQuery(combined)
+    : '';
+  if (normalized) terms.add(normalized);
+
+  hebrewTopicMatch.expandHebrewSearchTerms(combined, 10).forEach(function (term) {
+    if (term && term.length >= 2) terms.add(term);
+  });
+
+  combined
+    .replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+    .split(/\s+/)
+    .filter(function (word) { return word.length >= 2; })
+    .forEach(function (word) { terms.add(word); });
+
+  return Array.from(terms)
+    .filter(function (term) { return term && term.length >= 2; })
+    .sort(function (a, b) { return b.length - a.length; })
+    .slice(0, 8);
 }
 
 function extractRowFolderHints(row) {
@@ -432,17 +470,29 @@ async function searchCommunityByTopic(body, matchCount) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key) return [];
 
-  const topic = String(body.topic || '').trim();
+  const topic = String(body.topic || body.userMessage || '').trim();
   if (!topic) return [];
 
+  const terms = extractCoreSubjectTerms(topic, body);
+  if (!terms.length) terms.push(topic.slice(0, 80));
+
+  const orParts = terms.map(function (term) {
+    return 'title.ilike.*' + term + '*,topic.ilike.*' + term + '*,content.ilike.*' + term + '*';
+  });
+
   const params = new URLSearchParams();
-  params.set('select', 'id,title,author,content,contributor_email,created_at');
-  params.set('contributor_email', 'not.is.null');
+  params.set(
+    'select',
+    'id,title,author,content,contributor_email,contributor_name,grade_id,topic,file_path,file_name,created_at'
+  );
   params.set('order', 'created_at.desc');
   params.set('limit', String(matchCount || 4));
-  params.set('or', '(title.ilike.*' + topic.slice(0, 80) + '*,content.ilike.*' + topic.slice(0, 80) + '*)');
+  params.set('or', '(' + orParts.join(',') + ')');
 
-  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+  const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
+  if (gradeId) params.set('grade_id', 'eq.' + gradeId);
+
+  const res = await fetch(cfg.url + '/rest/v1/' + COMMUNITY_TABLE_NAME + '?' + params.toString(), {
     headers: {
       apikey: cfg.key,
       Authorization: 'Bearer ' + cfg.key,
@@ -660,11 +710,14 @@ async function searchCommunityByContent(query, body, matchCount) {
   const q = String(query || '').trim();
   if (!q) return [];
 
-  const terms = q
-    .replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
-    .split(/\s+/)
-    .filter(function (word) { return word.length > 2; })
-    .slice(0, 4);
+  const coreTerms = extractCoreSubjectTerms(q, body);
+  const terms = coreTerms.length
+    ? coreTerms
+    : q
+      .replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+      .split(/\s+/)
+      .filter(function (word) { return word.length > 2; })
+      .slice(0, 4);
   if (!terms.length) terms.push(q.slice(0, 80));
 
   const meshTerms = PEDAGOGICAL_SEARCH_MESH.slice(0, 8);
@@ -1013,6 +1066,7 @@ module.exports = {
   buildQueryFromBody,
   buildExpandedDriveSearchQuery,
   buildExpandedCommunitySearchQuery,
+  extractCoreSubjectTerms,
   formatRagContext,
   formatSeparatedRagContext,
   mergeRagContexts,

@@ -58,6 +58,8 @@
     getLessonCacheKey: function () { return ''; },
     focusMainTopicInput: null,
     resetTopicResearchLoading: null,
+    openCommunityCatalog: null,
+    renderCommunityAlert: null,
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
@@ -684,6 +686,12 @@
           cacheKey: meta.gradeCacheKey || '',
         });
       }
+      var communityMatches = (meta && Array.isArray(meta.communityMatches) && meta.communityMatches.length)
+        ? meta.communityMatches
+        : (result && Array.isArray(result._communityMatches) ? result._communityMatches : []);
+      if (typeof deps.renderCommunityAlert === 'function') {
+        deps.renderCommunityAlert(communityMatches);
+      }
       persistSession();
     }).catch(function (err) {
       if (err && err.code === 'RATE_LIMIT') return;
@@ -909,6 +917,8 @@
     if (typeof options.getLessonCacheKey === 'function') deps.getLessonCacheKey = options.getLessonCacheKey;
     if (typeof options.focusMainTopicInput === 'function') deps.focusMainTopicInput = options.focusMainTopicInput;
     if (typeof options.resetTopicResearchLoading === 'function') deps.resetTopicResearchLoading = options.resetTopicResearchLoading;
+    if (typeof options.openCommunityCatalog === 'function') deps.openCommunityCatalog = options.openCommunityCatalog;
+    if (typeof options.renderCommunityAlert === 'function') deps.renderCommunityAlert = options.renderCommunityAlert;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     try {
       bindUi();

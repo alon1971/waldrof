@@ -416,6 +416,78 @@
       font-weight: 700;
     }
     .community-grade-link:hover { color: #8B3A3A; }
+
+    .community-found-alert {
+      margin-top: 1rem;
+      padding: 1rem 1.1rem;
+      border-radius: 1rem;
+      border: 2px solid #C45C3E;
+      background: linear-gradient(135deg, rgba(196, 92, 62, 0.14), rgba(201, 169, 98, 0.18));
+      box-shadow: 0 8px 24px rgba(122, 42, 42, 0.12);
+    }
+    .community-found-alert__title {
+      font-weight: 800;
+      color: #7A2A2A;
+      font-size: 1rem;
+      line-height: 1.45;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .community-found-alert__list {
+      margin-top: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .community-found-alert__item {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      padding: 0.55rem 0.65rem;
+      border-radius: 0.65rem;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(122, 155, 118, 0.35);
+    }
+    .community-found-alert__item-title {
+      font-weight: 600;
+      color: #5C4A3A;
+      flex: 1 1 12rem;
+    }
+    .community-found-alert__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+    .community-found-alert__btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.4rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-decoration: none;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+    .community-found-alert__btn--primary {
+      background: #7A2A2A;
+      color: #fff;
+    }
+    .community-found-alert__btn--primary:hover { background: #8B3A3A; color: #fff; }
+    .community-found-alert__btn--secondary {
+      background: rgba(122, 155, 118, 0.15);
+      color: #3D5C3A;
+      border-color: rgba(122, 155, 118, 0.45);
+    }
+    .community-found-alert__btn--secondary:hover { background: rgba(122, 155, 118, 0.28); }
+    #lesson-chat-community-alert,
+    #lesson-chat-fullscreen-community-alert {
+      margin: 0.5rem 0.75rem 0;
+      flex-shrink: 0;
+    }
     @keyframes productTabPanelEnter {
       from { opacity: 0; transform: translateY(14px); }
       to { opacity: 1; transform: translateY(0); }
@@ -2970,6 +3042,7 @@
           </div>
         </div>
         <div id="web-research-result" class="hidden mt-6 p-4 rounded-xl bg-parchment/80 border border-sage/25 text-sm"></div>
+        <div id="topic-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
         <div id="topic-community-slot" class="hidden mt-4 p-4 sm:p-5 rounded-2xl border border-sage/30 bg-gradient-to-l from-sage/5 via-cream to-parchment/80"></div>
         <button type="button" id="btn-to-workspace" disabled
           class="touch-btn w-full mt-6 bg-burgundy hover:bg-burgundy/90 active:bg-burgundy/80 disabled:opacity-40 text-white font-medium rounded-xl">
@@ -3155,6 +3228,7 @@
         <div id="lesson-chat-history-list" class="lesson-chat-history-list" role="list"></div>
       </div>
       <div id="lesson-chat-main-view" class="lesson-chat-main-view">
+        <div id="lesson-chat-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
         <div id="lesson-chat-messages" class="lesson-chat-messages" role="log" aria-live="polite"></div>
         <p id="lesson-chat-status" class="lesson-chat-status hidden" role="status"></p>
         <div class="lesson-chat-panel-footer">
@@ -3215,6 +3289,7 @@
         <div id="lesson-chat-fullscreen-history-list" class="lesson-chat-history-list" role="list"></div>
       </div>
       <div id="lesson-chat-fullscreen-main-view" class="lesson-chat-fullscreen-main-view">
+      <div id="lesson-chat-fullscreen-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
       <div id="lesson-chat-fullscreen-body" class="lesson-chat-fullscreen-body"></div>
       <div class="lesson-chat-fullscreen-footer-wrap">
         <div class="lesson-chat-panel-footer-stack">
@@ -4462,6 +4537,9 @@
         if (json.meta.fromCache) result._fromCache = true;
         if (json.meta.gradeCacheUpdated) result._gradeCacheUpdated = true;
         if (json.meta.updatedGradeInsights) result._updatedGradeInsights = json.meta.updatedGradeInsights;
+        if (Array.isArray(json.meta.communityMatches)) {
+          result._communityMatches = json.meta.communityMatches;
+        }
       } else if (json.meta && json.meta.fromCache && result && typeof result === 'object') {
         result._fromCache = true;
       }
@@ -7022,7 +7100,19 @@
         el.innerHTML = '';
         return;
       }
-      let items = getCommunityMaterialsForTopic(gradeId, topicNorm);
+      let items = Array.isArray(options.prefetchedItems)
+        ? options.prefetchedItems.map(function (match) {
+          return {
+            id: match.id,
+            title: match.title || match.fileName || match.topic,
+            topic: match.topic || topicNorm,
+            fileName: match.fileName || '',
+            fileUrl: match.fileUrl || '',
+            gradeLevel: match.gradeId || gradeId,
+            isDemo: false,
+          };
+        })
+        : getCommunityMaterialsForTopic(gradeId, topicNorm);
       items = sortCommunityItemsNewest(items.filter(function (i) { return !i.isDemo; }));
       if (items.length) {
         const preview = items.slice(0, COMMUNITY_PREVIEW_LIMIT);
@@ -7048,7 +7138,7 @@
       }
     }
 
-    async function renderTopicCommunitySlot() {
+    async function renderTopicCommunitySlot(prefetchedMatches) {
       const el = document.getElementById('topic-community-slot');
       const topic = (appState.topic || document.getElementById('topic-input').value || '').trim();
       if (!el || !appState.grade || !topic) {
@@ -7058,10 +7148,19 @@
       if (isCloudConfigured() && !appState.communityCache.length) {
         try { await loadCommunity(); } catch (e) { /* ignore */ }
       }
+      const matches = Array.isArray(prefetchedMatches)
+        ? prefetchedMatches
+        : await resolveCommunityMatchesForTopic(topic, appState.grade);
+      if (!matches.length) {
+        el.classList.add('hidden');
+        el.innerHTML = '';
+        return;
+      }
       el.classList.remove('hidden');
       renderCommunityOrEnrichment(el, appState.grade, topic, {
         heading: 'חומרים מהקהילה לנושא «' + topic + '»',
         showMoreLink: true,
+        prefetchedItems: matches,
       });
     }
 
@@ -7321,8 +7420,17 @@
       return true;
     }
 
-    async function checkAndShowCommunityTopicAlert() {
-      await renderTopicCommunitySlot();
+    async function checkAndShowCommunityTopicAlert(serverMatches) {
+      const topic = (appState.topic || document.getElementById('topic-input').value || '').trim();
+      if (!appState.grade || !topic) {
+        renderTopicCommunityAlert([]);
+        const slot = document.getElementById('topic-community-slot');
+        if (slot) { slot.classList.add('hidden'); slot.innerHTML = ''; }
+        return;
+      }
+      const matches = await resolveCommunityMatchesForTopic(topic, appState.grade, serverMatches);
+      renderTopicCommunityAlert(matches);
+      await renderTopicCommunitySlot(matches);
     }
 
     function openCatalogForCurrentTopic() {
@@ -7493,12 +7601,181 @@
       return String(topic || '').trim().toLowerCase();
     }
 
-    function getCommunityMaterialsForTopic(gradeId, topic) {
-      const key = normalizeTopicKey(topic);
-      if (!key || !gradeId) return [];
-      return filterByGrade(appState.communityCache, gradeId).filter(function (item) {
-        return normalizeTopicKey(item.topic) === key;
+    function scoreCommunityItemSimilarity(query, item) {
+      const q = String(query || '').trim();
+      if (!q || !item) return 0;
+      const candidates = [item.topic, item.title, item.fileName, item.notes].filter(Boolean);
+      let best = 0;
+      candidates.forEach(function (candidate) {
+        if (typeof WaldorfHebrewTopicMatch !== 'undefined' && WaldorfHebrewTopicMatch.scoreHebrewTopicSimilarity) {
+          best = Math.max(best, WaldorfHebrewTopicMatch.scoreHebrewTopicSimilarity(q, candidate, ''));
+          return;
+        }
+        const queryKey = normalizeTopicKey(q);
+        const candidateKey = normalizeTopicKey(candidate);
+        if (!queryKey || !candidateKey) return;
+        if (queryKey === candidateKey) best = Math.max(best, 1);
+        else if (candidateKey.indexOf(queryKey) >= 0 || queryKey.indexOf(candidateKey) >= 0) best = Math.max(best, 0.86);
       });
+      return best;
+    }
+
+    function communityMatchKey(match) {
+      if (!match) return '';
+      return String(match.id || match.sourceMaterialId || '') + '|' + normalizeTopicKey(match.title) + '|' + normalizeTopicKey(match.topic);
+    }
+
+    function mergeCommunityMatches(localItems, serverMatches) {
+      const out = [];
+      const seen = new Set();
+      function add(match) {
+        if (!match) return;
+        const key = communityMatchKey(match);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        out.push(match);
+      }
+      (localItems || []).forEach(function (item) {
+        add({
+          id: item.id,
+          source: 'catalog',
+          title: item.title || item.fileName || item.topic || 'חומר קהילתי',
+          topic: item.topic || '',
+          gradeId: item.gradeLevel || appState.grade || null,
+          fileName: item.fileName || '',
+          fileUrl: item.fileUrl || '',
+        });
+      });
+      (serverMatches || []).forEach(add);
+      return out.sort(function (a, b) {
+        return (Number(b.similarity) || 0) - (Number(a.similarity) || 0);
+      });
+    }
+
+    function communityCatalogTopicForMatch(match) {
+      return String((match && (match.topic || match.title)) || appState.topic || '').trim();
+    }
+
+    function buildCommunityFoundAlertHtml(matches) {
+      if (!matches || !matches.length) return '';
+      const preview = matches.slice(0, 4);
+      let html = '<div class="community-found-alert__title">' +
+        '<i class="fa-solid fa-users-rays text-terracotta" aria-hidden="true"></i>' +
+        '<span>' + escapeHtml(t('community_found_alert')) + '</span></div>';
+      html += '<div class="community-found-alert__list">';
+      preview.forEach(function (match, index) {
+        const title = escapeHtml(match.title || match.fileName || match.topic || ('חומר ' + (index + 1)));
+        const topic = communityCatalogTopicForMatch(match);
+        const gradeId = match.gradeId || appState.grade || '';
+        html += '<div class="community-found-alert__item">' +
+          '<span class="community-found-alert__item-title">' + title + '</span>' +
+          '<div class="community-found-alert__actions">';
+        if (match.fileUrl) {
+          html += '<a href="' + escapeHtml(match.fileUrl) + '" target="_blank" rel="noopener" class="community-found-alert__btn community-found-alert__btn--primary">' +
+            '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> ' +
+            escapeHtml(t('community_found_open_file')) + '</a>';
+        }
+        html += '<button type="button" class="community-found-alert__btn community-found-alert__btn--secondary" data-community-catalog="' + index + '">' +
+          '<i class="fa-solid fa-folder-open" aria-hidden="true"></i> ' +
+          escapeHtml(t('community_found_open_repo')) + '</button>';
+        html += '</div></div>';
+      });
+      html += '</div>';
+      return { html: html, preview: preview };
+    }
+
+    function bindCommunityFoundAlert(container, matches) {
+      if (!container) return;
+      const built = buildCommunityFoundAlertHtml(matches);
+      if (!built.html) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = built.html;
+      container.classList.remove('hidden');
+      container.querySelectorAll('[data-community-catalog]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const idx = parseInt(btn.getAttribute('data-community-catalog'), 10);
+          const match = built.preview[idx];
+          const gradeId = (match && match.gradeId) || appState.grade;
+          const topic = communityCatalogTopicForMatch(match);
+          if (!gradeId || !topic) {
+            openCommunityRepo();
+            return;
+          }
+          openCommunityRepo();
+          renderCatalog('materials', gradeId, topic);
+        });
+      });
+    }
+
+    function renderTopicCommunityAlert(matches) {
+      const el = document.getElementById('topic-community-alert');
+      if (!el) return;
+      if (!matches || !matches.length) {
+        el.classList.add('hidden');
+        el.innerHTML = '';
+        return;
+      }
+      bindCommunityFoundAlert(el, matches);
+    }
+
+    async function probeCommunityTopicMatch(query, gradeId) {
+      const q = String(query || '').trim();
+      if (!q) return [];
+      const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/search-history'
+        : '/api/search-history';
+      const headers = { 'Content-Type': 'application/json' };
+      let token = null;
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
+      }
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const body = { action: 'probe_community', topic: q, userMessage: q, gradeId: gradeId || appState.grade || '' };
+      try {
+        const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+        const bodyText = await res.text();
+        let json;
+        try {
+          json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
+        } catch (parseErr) {
+          return [];
+        }
+        if (!res.ok || json.error) return [];
+        return Array.isArray(json.matches) ? json.matches : [];
+      } catch (probeErr) {
+        console.warn('[community-probe] failed:', probeErr);
+        return [];
+      }
+    }
+
+    async function resolveCommunityMatchesForTopic(topic, gradeId, serverMatches) {
+      const topicNorm = String(topic || '').trim();
+      if (!topicNorm) return [];
+      if (isCloudConfigured() && !appState.communityCache.length) {
+        try { await loadCommunity(); } catch (e) { /* ignore */ }
+      }
+      let localItems = getCommunityMaterialsForTopic(gradeId, topicNorm);
+      let merged = mergeCommunityMatches(localItems, serverMatches || []);
+      if (!merged.length) {
+        const probed = await probeCommunityTopicMatch(topicNorm, gradeId);
+        merged = mergeCommunityMatches(localItems, probed);
+      }
+      return merged;
+    }
+
+    function getCommunityMaterialsForTopic(gradeId, topic) {
+      const topicNorm = String(topic || '').trim();
+      if (!topicNorm || !gradeId) return [];
+      return filterByGrade(appState.communityCache, gradeId)
+        .filter(function (item) { return !item.isDemo; })
+        .map(function (item) {
+          return Object.assign({}, item, { _similarity: scoreCommunityItemSimilarity(topicNorm, item) });
+        })
+        .filter(function (item) { return item._similarity >= 0.45; })
+        .sort(function (a, b) { return (b._similarity || 0) - (a._similarity || 0); });
     }
 
     function getCommunityMaterialsForGrade(gradeId) {
@@ -9076,12 +9353,15 @@
           appState.lessonCacheKey = data._meta.cacheKey;
         }
 
+        const communityMatches = (data && data._communityMatches) ||
+          (data && data._meta && data._meta.communityMatches) || [];
+
         if (!data.blockPlan) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         }
 
-        await checkAndShowCommunityTopicAlert();
+        await checkAndShowCommunityTopicAlert(communityMatches.length ? communityMatches : undefined);
         queueCommunityLessonSync();
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
@@ -9171,8 +9451,10 @@
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
       const topicSlot = document.getElementById('topic-community-slot');
+      const topicAlert = document.getElementById('topic-community-alert');
       if (out) { out.classList.add('hidden'); out.innerHTML = ''; }
       if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
+      if (topicAlert) { topicAlert.classList.add('hidden'); topicAlert.innerHTML = ''; }
 
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_scanning')) + '</span>';
       setTopicResearchLoadingUi(true);
@@ -10788,6 +11070,28 @@
               btn.disabled = false;
               updateTopicResearchButton();
             }
+          },
+          openCommunityCatalog: function (gradeId, topic) {
+            if (!gradeId || !topic) {
+              openCommunityRepo();
+              return;
+            }
+            openCommunityRepo();
+            renderCatalog('materials', gradeId, topic);
+          },
+          renderCommunityAlert: function (matches) {
+            var targets = [
+              document.getElementById('lesson-chat-community-alert'),
+              document.getElementById('lesson-chat-fullscreen-community-alert'),
+            ].filter(Boolean);
+            if (!matches || !matches.length) {
+              targets.forEach(function (el) {
+                el.classList.add('hidden');
+                el.innerHTML = '';
+              });
+              return;
+            }
+            targets.forEach(function (el) { bindCommunityFoundAlert(el, matches); });
           },
         });
       }

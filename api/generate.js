@@ -1061,6 +1061,36 @@ function buildGenerateHttpPayload(result) {
   return { data: data, meta: meta };
 }
 
+function shouldProbeCommunityMaterials(phase) {
+  return phase === 'topic' || phase === 'chat_followup';
+}
+
+async function probeCommunityMaterialsForBody(body) {
+  if (!body || !shouldProbeCommunityMaterials(body.phase)) {
+    return { matches: [], count: 0, query: '' };
+  }
+  try {
+    return await cacheDb.findCommunityMaterials({
+      query: String(body.userMessage || body.topic || '').trim(),
+      topic: body.topic,
+      userMessage: body.userMessage,
+      gradeId: body.currentGrade || body.gradeId,
+      limit: 8,
+    });
+  } catch (probeErr) {
+    console.warn('[community] probe failed:', probeErr.message || probeErr);
+    return { matches: [], count: 0, query: '' };
+  }
+}
+
+function attachCommunityMeta(meta, communityProbe) {
+  const base = meta && typeof meta === 'object' ? Object.assign({}, meta) : {};
+  base.communityMatches = (communityProbe && communityProbe.matches) || [];
+  base.communityMatchCount = (communityProbe && communityProbe.count) || 0;
+  if (communityProbe && communityProbe.query) base.communityQuery = communityProbe.query;
+  return base;
+}
+
 /** Core handler — used by Render (server.js) with a pre-parsed JSON body. */
 async function handleGeneratePost(parsedBody, requestContext) {
   if (!parsedBody || typeof parsedBody !== 'object') {
@@ -1244,6 +1274,11 @@ async function executeGenerate(body, apiKey) {
     cacheDb.normalizeGradeCacheRequest(body);
   }
 
+  const communityProbe = await probeCommunityMaterialsForBody(body);
+  if (communityProbe.count > 0) {
+    console.log('[community] matched', communityProbe.count, 'material(s) for', body.phase);
+  }
+
   if (!body.skipCache) {
     if (body.phase === 'chat_followup') {
       try {
@@ -1277,6 +1312,7 @@ async function executeGenerate(body, apiKey) {
         if (!body.skipKnowledgeIngest) {
           knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
         }
+        cached.meta = attachCommunityMeta(cached.meta, communityProbe);
         return cached;
       }
       if (body.phase === 'topic') {
@@ -1296,14 +1332,14 @@ async function executeGenerate(body, apiKey) {
           }
           return {
             data: suggestion.resultData,
-            meta: {
+            meta: attachCommunityMeta({
               fromCache: true,
               cacheKey: suggestion.cacheKey,
               table: 'cached_results',
               source: 'consolidated_archive',
               similarity: suggestion.similarity,
               requestedTopic: body.topic || suggestion.requestedTopic || null,
-            },
+            }, communityProbe),
           };
         }
         if (suggestion && suggestion.matchType === 'partial') {
@@ -1314,7 +1350,7 @@ async function executeGenerate(body, apiKey) {
           );
           return {
             data: null,
-            meta: {
+            meta: attachCommunityMeta({
               fromCache: false,
               needsArchiveConfirmation: true,
               archiveSuggestion: {
@@ -1327,7 +1363,7 @@ async function executeGenerate(body, apiKey) {
                 gradeId: suggestion.gradeId,
                 gradeLabel: suggestion.gradeLabel || null,
               },
-            },
+            }, communityProbe),
           };
         }
       }
@@ -1475,7 +1511,7 @@ async function executeGenerate(body, apiKey) {
 
   return {
     data: data,
-    meta: {
+    meta: attachCommunityMeta({
       fromCache: false,
       priorCacheEnriched: priorEnriched,
       priorMatchType: priorEnriched
@@ -1493,7 +1529,7 @@ async function executeGenerate(body, apiKey) {
       rag: ragMeta,
       ragContext: body.ragContext || '',
       ragChunkIds: Array.isArray(body.ragChunkIds) ? body.ragChunkIds : [],
-    },
+    }, communityProbe),
   };
 }
 
