@@ -688,7 +688,8 @@ function scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText) {
   });
 }
 
-const ARCHIVE_AUTO_LOAD_SIMILARITY = 0.88;
+/** Auto-serve fully enriched consolidated lesson plans from cached_results (web + Drive merge). */
+const ARCHIVE_AUTO_LOAD_SIMILARITY = 0.99;
 const ARCHIVE_PARTIAL_MIN_SCORE = 0.5;
 const ARCHIVE_PARTIAL_MAX_SCORE = ARCHIVE_AUTO_LOAD_SIMILARITY - 0.0001;
 
@@ -711,11 +712,16 @@ function scoreTopicAutoLoadSimilarity(queryRaw, candidateTopic, candidateQueryTe
       score = Math.max(score, 1);
       return;
     }
-    if (queryStable && stable.length >= queryStable.length && stable.indexOf(queryStable) >= 0) {
-      score = Math.max(score, 0.9);
+    // Only treat as auto-load when the archive title is longer and contains the full user query.
+    if (queryStable && stable.length > queryStable.length && stable.indexOf(queryStable) >= 0) {
+      score = Math.max(score, 0.95);
     }
   });
   return score;
+}
+
+function isMisleadingArchiveAutoLoad(query, archiveTopic) {
+  return isMisleadingPartialArchiveSuggestion(query, archiveTopic, 0);
 }
 
 function isMisleadingPartialArchiveSuggestion(query, suggestedTopic, score) {
@@ -750,6 +756,7 @@ function pickBestArchiveTopicRow(rows, query, options) {
     const data = coerceCachedResultData(row.result_data);
     if (!data || !isValidCachedPayload('topic', data)) return;
     const candidateTopic = archiveTopicDisplayName(row, data);
+    if (strongOnly && isMisleadingArchiveAutoLoad(query, candidateTopic)) return;
     const score = strongOnly
       ? scoreTopicAutoLoadSimilarity(query, candidateTopic, row.query_text || '')
       : scoreTopicSimilarity(query, candidateTopic, row.query_text || '');
@@ -817,6 +824,71 @@ async function findArchiveTopicByNormalizedText(topic, gradeId) {
   return fallbackMatch;
 }
 
+function collectArchiveTopicRowsForGrade(gradeId, topic) {
+  const rows = [];
+  const seen = new Set();
+  function addRows(list) {
+    (list || []).forEach(function (row) {
+      if (!row || !row.cache_key || seen.has(row.cache_key)) return;
+      seen.add(row.cache_key);
+      rows.push(row);
+    });
+  }
+
+  if (isSupabaseCacheEnabled()) {
+    return fetchArchiveTopicRowsForGrade(gradeId, topic, true).then(function (filtered) {
+      addRows(filtered);
+      if (!rows.length) {
+        return fetchArchiveTopicRowsForGrade(gradeId, topic, false).then(function (allRows) {
+          addRows(allRows);
+          return rows;
+        });
+      }
+      return rows;
+    });
+  }
+
+  loadFallbackStore();
+  fallbackStore.rows.forEach(function (row) {
+    if (!row || row.phase !== 'topic' || !row.result_data) return;
+    if (String(row.grade_id || '').trim() !== String(gradeId || '').trim()) return;
+    addRows([row]);
+  });
+  return Promise.resolve(rows);
+}
+
+/**
+ * User typed a prefix of a longer archived lesson title — load the longest matching archive.
+ */
+async function findArchiveTopicByQueryPrefix(topic, gradeId) {
+  const queryStable = stableNormalize(topic);
+  const queryNorm = normalizeTopicQuery(topic);
+  if (!queryStable || queryStable.length < 3 || !gradeId) return null;
+
+  const rows = await collectArchiveTopicRowsForGrade(gradeId, topic);
+  let best = null;
+
+  rows.forEach(function (row) {
+    const data = coerceCachedResultData(row.result_data);
+    if (!data || !isValidCachedPayload('topic', data)) return;
+    const candidateTopic = archiveTopicDisplayName(row, data);
+    if (!candidateTopic || isMisleadingArchiveAutoLoad(topic, candidateTopic)) return;
+
+    const stable = stableNormalize(candidateTopic);
+    const norm = normalizeTopicQuery(candidateTopic);
+    const archiveContainsQuery =
+      (stable.length > queryStable.length && stable.indexOf(queryStable) >= 0) ||
+      (norm && queryNorm && norm.length > queryNorm.length && norm.indexOf(queryNorm) >= 0);
+    if (!archiveContainsQuery) return;
+
+    const pick = { row: row, data: data, topic: candidateTopic, score: 0.95 };
+    if (!best || isBetterArchiveTopicPick(pick, best)) best = pick;
+  });
+
+  if (!best) return null;
+  return formatExactArchiveTopicMatch(best, gradeId, { requestedTopic: topic });
+}
+
 function findArchiveTopicInFallback(query, gradeId, options) {
   loadFallbackStore();
   const rows = Array.from(fallbackStore.rows.values()).filter(function (row) {
@@ -825,7 +897,8 @@ function findArchiveTopicInFallback(query, gradeId, options) {
   return pickBestArchiveTopicRow(rows, query, options || {});
 }
 
-function formatExactArchiveTopicMatch(best, gradeId) {
+function formatExactArchiveTopicMatch(best, gradeId, options) {
+  options = options || {};
   if (!best || !best.row) return null;
   const payload = cloneJsonSafe(best.data) || best.data;
   if (!payload) return null;
@@ -834,6 +907,7 @@ function formatExactArchiveTopicMatch(best, gradeId) {
     similarity: best.score,
     cacheKey: best.row.cache_key,
     topic: best.topic,
+    requestedTopic: options.requestedTopic || null,
     gradeId: gradeId,
     gradeLabel: best.row.grade_label || null,
     resultData: payload,
@@ -977,17 +1051,28 @@ async function findArchiveTopicSuggestion(options) {
       similarity: 1,
       cacheKey: cached.meta.cacheKey,
       topic: archiveTopicDisplayName({ topic: topic, query_text: topic }, cached.data) || topic,
+      requestedTopic: topic,
       gradeId: gradeId,
       resultData: cached.data,
     };
   }
 
   const normalizedMatch = await findArchiveTopicByNormalizedText(topic, gradeId);
-  if (normalizedMatch) return normalizedMatch;
+  if (normalizedMatch) {
+    normalizedMatch.requestedTopic = topic;
+    return normalizedMatch;
+  }
+
+  const prefixMatch = await findArchiveTopicByQueryPrefix(topic, gradeId);
+  if (prefixMatch) return prefixMatch;
 
   const strongBest = await findStrongArchiveTopicMatch(topic, gradeId);
   if (strongBest && strongBest.row) {
-    return formatExactArchiveTopicMatch(strongBest, gradeId);
+    if (isMisleadingArchiveAutoLoad(topic, strongBest.topic)) {
+      console.log('[cached_results] skipped misleading strong archive match:', strongBest.topic);
+    } else {
+      return formatExactArchiveTopicMatch(strongBest, gradeId, { requestedTopic: topic });
+    }
   }
 
   const canonicalSuggestion = await findCanonicalGradeArchiveSuggestion(gradeId, topic);

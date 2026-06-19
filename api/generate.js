@@ -3,6 +3,11 @@
  * Perplexity API key is read server-side only (never exposed to the browser).
  * Set PERPLEXITY_API_KEY or AI_API_KEY in Render Environment (or .env locally).
  *
+ * Content hierarchy (lesson generation):
+ *   1. LIVE WEB SEARCH (Perplexity) — primary anchor for broad, deep lesson content
+ *   2. INGESTED GOOGLE DRIVE ARCHIVE (knowledge_base) — supplementary Waldorf enrichment
+ *   3. CONSOLIDATED OUTPUT → cached_results — serve on 99%+ similarity match
+ *
  * Primary runtime: Render / Node.js via server.js → executeGenerate().
  * Optional: legacyHandler(req, res) for adapters; fetch(request) for Vercel serverless.
  */
@@ -83,10 +88,12 @@ const JSON_VALID_SYNTAX_INSTRUCTION =
   '=== END JSON STRING ESCAPING ===\n';
 
 const WEB_SEARCH_PRIORITY_INSTRUCTION =
-  '\n=== WEB SEARCH STRATEGY (MANDATORY) ===\n' +
-  'Perform a BROAD internet search for the best general educational and pedagogical information relevant to the query. ' +
-  'Synthesize Waldorf/anthroposophic perspectives together with wider pedagogical insights from live web sources ' +
-  '(AWSNA, IASWECE, Waldorf Library, Steiner Archive, international teacher resources, classroom practice, and more).\n' +
+  '\n=== WEB SEARCH STRATEGY — CORE ANCHOR (MANDATORY) ===\n' +
+  'LIVE INTERNET SEARCH via Perplexity is the PRIMARY and MANDATORY foundation for every lesson plan. ' +
+  'Perform a BROAD, EXHAUSTIVE internet search for the richest general educational and pedagogical material relevant to the query. ' +
+  'Gather wide lesson structures, classroom practice, curriculum sequences, and anthroposophic perspectives from live web sources ' +
+  '(AWSNA, IASWECE, Waldorf Library, Steiner Archive, international teacher resources, classroom practice, and more). ' +
+  'The lesson plan MUST be deep, comprehensive, and never lacking in content — web research is the core anchor.\n' +
   'CORE ARCHIVE — Waldorf Research Institute Library (https://waldorflibrary.org/): ' +
   'Always search this official library as an additional core archive and draw relevant pedagogical material from it when available. ' +
   'Do NOT restrict research to this site alone — continue broad web search across all other sources listed above.\n' +
@@ -101,6 +108,26 @@ const WEB_SEARCH_PRIORITY_INSTRUCTION =
   'and prominent Israeli Waldorf educators beyond the priority sources — to build a broad, credible source landscape.\n' +
   '=== END WEB SEARCH STRATEGY ===\n';
 
+const CONTENT_HIERARCHY_INSTRUCTION =
+  '\n=== CONTENT HIERARCHY (MANDATORY — ALL LESSON GENERATION) ===\n' +
+  'Follow this exact three-tier architecture:\n' +
+  '1. LIVE WEB SEARCH (Perplexity) — CORE ANCHOR: Build the lesson plan primarily from broad, rich, exhaustive live web research. ' +
+  'Never shorten, narrow, or omit web-sourced content because local archive excerpts exist.\n' +
+  '2. INGESTED GOOGLE DRIVE ARCHIVE — SUPPLEMENTARY ENRICHMENT: When INGESTED DRIVE ARCHIVE excerpts are provided below, ' +
+  'use them as a secondary layer of pedagogical enrichment and Waldorf-philosophy validation — blend them INTO the web foundation. ' +
+  'Drive archive folders: חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, שטיינר.\n' +
+  '3. MERGE: Produce ONE deep, comprehensive, consolidated lesson plan that merges live web breadth with relevant Drive-archive insights. ' +
+  'The final output must be richer than either source alone — never a thin summary of local excerpts only.\n' +
+  '=== END CONTENT HIERARCHY ===\n';
+
+const DRIVE_ARCHIVE_ENRICHMENT_INSTRUCTION =
+  '\n=== INGESTED DRIVE ARCHIVE — SUPPLEMENTARY ONLY ===\n' +
+  'Excerpts tagged [ארכיון Drive — העשרה משלימה] come from ingested Google Drive folders in our local knowledge_base. ' +
+  'They are SUPPLEMENTARY — never the primary source. Use them to enrich tone, validate Waldorf doctrine, and add teacher-community nuance. ' +
+  'Do NOT replace, narrow, or shorten web-sourced lesson content because Drive excerpts exist. ' +
+  'If no Drive excerpts match, proceed fully from live web search alone.\n' +
+  '=== END INGESTED DRIVE ARCHIVE ===\n';
+
 const STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION =
   '\n=== STEINER / ANTHROPOSOPHIC SOURCE FIDELITY (CRITICAL — ABSOLUTE — ALL OUTPUTS) ===\n' +
   'This rule binds EVERY response in the application: Step A (age portrait / תמונת גיל), Step B (topic research / מחקר נושא), ' +
@@ -110,8 +137,9 @@ const STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION =
   'including foundation lectures (GA / Gesamtausgabe), core pedagogical writings, and verified anthroposophic literature faithfully grounded in Steiner\'s corpus.\n' +
   'Primary anchors: Steiner Archive, official GA education lecture cycles (e.g. The Foundations of Human Experience, Practical Advice to Teachers, Discussions with Teachers), ' +
   'and recognized anthroposophic pedagogical scholarship derived directly from Steiner — not popular summaries or unverified reinterpretations.\n' +
-  'When WALDORF KNOWLEDGE BASE (RAG) excerpts or retrieved web sources are provided, treat them as the ONLY permissible basis for substantive claims; ' +
-  'Steiner/GA material takes precedence over secondary sources when they conflict.\n' +
+  'When LIVE WEB SEARCH results are provided, treat them as the PRIMARY foundation for substantive claims and lesson breadth.\n' +
+  'When INGESTED DRIVE ARCHIVE excerpts are also provided, blend them as supplementary Waldorf enrichment and validation — ' +
+  'they do NOT replace or narrow live web research. Steiner/GA material from web search takes precedence over secondary sources when they conflict.\n' +
   'ABSOLUTE PROHIBITION — NO HALLUCINATION:\n' +
   'You are STRICTLY FORBIDDEN to hallucinate, guess, speculate, invent concepts, doctrines, developmental claims, temperament links, ' +
   'curriculum sequences, main-lesson practices, or classroom activities.\n' +
@@ -195,9 +223,11 @@ const SOURCES_CITATION_INSTRUCTION =
 function waldorfSystemPrompt(extra) {
   return (
     'You are an expert Waldorf / Steiner-Waldorf pedagogy researcher and curriculum designer. ' +
-    'Use live web search to gather broad, high-quality educational and pedagogical material for every query. ' +
+    'Use live web search as the CORE ANCHOR to gather broad, exhaustive, high-quality educational material for every query. ' +
+    CONTENT_HIERARCHY_INSTRUCTION +
     STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     WEB_SEARCH_PRIORITY_INSTRUCTION +
+    DRIVE_ARCHIVE_ENRICHMENT_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
     ACADEMIC_TONE_INSTRUCTION +
     SOURCES_CITATION_INSTRUCTION +
@@ -205,7 +235,8 @@ function waldorfSystemPrompt(extra) {
     JSON_RESPONSE_ENFORCEMENT +
     JSON_VALID_SYNTAX_INSTRUCTION +
     ' Write pedagogical content in Hebrew. ' +
-    'Ground every claim in verified Steiner/anthroposophic sources — never general model knowledge or invented pedagogy. ' +
+    'Ground every claim in verified Steiner/anthroposophic sources from live web search — never general model knowledge or invented pedagogy. ' +
+    'Blend ingested Drive archive excerpts as supplementary enrichment when provided — never let them replace web breadth. ' +
     'Base claims on real Waldorf principles: child development (body/soul/spirit), main lesson blocks, biography, artistic integration. ' +
     'Cite Steiner/GA when appropriate. Be specific, warm, and practical for classroom teachers — only where sources support it.' +
     NO_LATEX_BLOCK +
@@ -268,6 +299,8 @@ function buildGradeLockBlock(body) {
 function buildRagContextBlock(body) {
   const rag = String(body.ragContext || '').trim();
   const isChat = body && body.phase === 'chat_followup';
+  const isLessonPhase = body && (body.phase === 'grade' || body.phase === 'topic' ||
+    body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_search' || body.phase === 'archive_summary');
 
   if (!rag && isChat) {
     return (
@@ -277,6 +310,16 @@ function buildRagContextBlock(body) {
       'and verified anthroposophic pedagogy. Also use lesson context below when relevant. ' +
       'Do NOT decline solely because local RAG is empty.\n' +
       '=== END KNOWLEDGE BASE ===\n\n'
+    );
+  }
+
+  if (!rag && isLessonPhase) {
+    return (
+      '\n=== INGESTED GOOGLE DRIVE ARCHIVE (NO MATCHING EXCERPTS) ===\n' +
+      'No ingested Drive archive excerpts matched this query — this is normal. ' +
+      'Build the full lesson plan EXCLUSIVELY from LIVE WEB SEARCH (Perplexity) as the core anchor. ' +
+      'Do NOT shorten, limit, or omit content because the local Drive archive is empty.\n' +
+      '=== END INGESTED DRIVE ARCHIVE ===\n\n'
     );
   }
 
@@ -294,12 +337,13 @@ function buildRagContextBlock(body) {
   }
 
   return (
-    '\n=== WALDORF KNOWLEDGE BASE (RAG — MANDATORY GROUNDING) ===\n' +
-    'The excerpts below are from curated Anthroposophical articles, Waldorf lectures, pedagogical texts, ' +
-    'and materials shared by teachers in the community. ' +
-    'Treat them as authoritative for tone and doctrine. Prioritize them over general web search when they apply. ' +
-    'Reference document titles when citing. Do not contradict these sources.\n\n' +
-    rag + '\n=== END KNOWLEDGE BASE ===\n\n'
+    '\n=== INGESTED GOOGLE DRIVE ARCHIVE (SUPPLEMENTARY ENRICHMENT) ===\n' +
+    'The excerpts below are from ingested Google Drive folders in our local archive ' +
+    '(חינוך, קורס, כיתה, מחזור ראשון, מחזור שני, הרצאות, waldorf, שטיינר). ' +
+    'Treat them as SECONDARY pedagogical enrichment and Waldorf-philosophy validation — blend them into the broad live web research foundation. ' +
+    'LIVE WEB SEARCH remains the PRIMARY anchor — never replace or narrow web-sourced lesson content with these excerpts alone. ' +
+    'Reference document titles when citing. Do not contradict verified Steiner/web sources. Do not add unstated connections.\n\n' +
+    rag + '\n=== END INGESTED DRIVE ARCHIVE ===\n\n'
   );
 }
 
@@ -430,8 +474,9 @@ function buildUserPrompt(body) {
       buildNoLatexBlock(body) +
       noUrls +
       gradeExtra +
+      CONTENT_HIERARCHY_INSTRUCTION +
       WEB_SEARCH_PRIORITY_INSTRUCTION +
-      'Perform live web research on Waldorf/Steiner anthroposophic child development for:\n' +
+      'Perform exhaustive live web research on Waldorf/Steiner anthroposophic child development for:\n' +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n\n' +
       'All insights MUST match currentGrade only — never mix content from other grades.\n' +
@@ -500,7 +545,9 @@ function buildUserPrompt(body) {
       curriculumExtra +
       bibExtra +
       pedagogyHint +
+      CONTENT_HIERARCHY_INSTRUCTION +
       WEB_SEARCH_PRIORITY_INSTRUCTION +
+      'Perform exhaustive live web research for this Waldorf main lesson block. Merge web breadth with any ingested Drive archive excerpts above.\n' +
       'Every field in blockPlan MUST be written for currentGrade only. Do not mention activities, stories, or developmental themes from other grades.\n' +
       'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries — do not repeat source names across body fields.\n' +
       'webResearch.highlights: include diverse pedagogical highlights alongside priority-source findings.\n' +
@@ -1179,9 +1226,10 @@ async function executeGenerate(body, apiKey) {
         });
         if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
           console.log(
-            '[cached_results] HIT (archive similarity)',
+            '[cached_results] HIT (consolidated archive ≥99% similarity)',
             suggestion.topic,
-            suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : ''
+            suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : '',
+            'sim=' + (suggestion.similarity || 1).toFixed(3)
           );
           if (!body.skipKnowledgeIngest) {
             knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
@@ -1192,7 +1240,9 @@ async function executeGenerate(body, apiKey) {
               fromCache: true,
               cacheKey: suggestion.cacheKey,
               table: 'cached_results',
-              source: 'archive_similarity',
+              source: 'consolidated_archive',
+              similarity: suggestion.similarity,
+              requestedTopic: body.topic || suggestion.requestedTopic || null,
             },
           };
         }
@@ -1211,6 +1261,7 @@ async function executeGenerate(body, apiKey) {
                 matchType: 'partial',
                 suggestedTopic: suggestion.topic,
                 archiveTitle: suggestion.topic,
+                requestedTopic: body.topic || null,
                 cacheKey: suggestion.cacheKey,
                 similarity: suggestion.similarity,
                 gradeId: suggestion.gradeId,
@@ -1240,7 +1291,7 @@ async function executeGenerate(body, apiKey) {
         contextChars: (body.ragContext || '').length,
       });
       if (ragMeta.chunkCount > 0) {
-        console.log('[rag] retrieved', ragMeta.chunkCount, 'chunks via', ragMeta.method || 'unknown');
+        console.log('[rag] drive archive enrichment:', ragMeta.chunkCount, 'chunks via', ragMeta.method || 'unknown');
       }
     } catch (ragErr) {
       console.warn('[rag] retrieval failed:', ragErr.message || ragErr);
@@ -1266,6 +1317,7 @@ async function executeGenerate(body, apiKey) {
   const isChatFollowup = body.phase === 'chat_followup';
   const extraSystem =
     gradeLockSystem +
+    CONTENT_HIERARCHY_INSTRUCTION +
     (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
@@ -1275,10 +1327,10 @@ async function executeGenerate(body, apiKey) {
         : ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
           'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.')
       : body.ragContext
-        ? ' When WALDORF KNOWLEDGE BASE excerpts are provided in the user message, treat them as primary authoritative context.'
-        : '') +
+        ? ' INGESTED DRIVE ARCHIVE excerpts are provided — use them ONLY as supplementary Waldorf enrichment blended into the live web-search foundation. Web search remains the primary anchor.'
+        : ' No ingested Drive archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
     (searchPhases.has(body.phase)
-      ? ' Perform a broad internet search for general educational and pedagogical answers. ' +
+      ? ' LIVE WEB SEARCH is the core anchor — perform a broad, exhaustive internet search first. ' +
         'Check Alon Yerushalmy, «מסעות בחינוך», and educationpace.com only for genuinely relevant matches — ' +
         'never force a citation; omit entirely when search data offers no substantial topic-specific material.'
       : '');
@@ -1316,8 +1368,15 @@ async function executeGenerate(body, apiKey) {
       const cachePayload = isChatFollowup ? cacheDb.packChatFollowupForCache(data) : data;
       const savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
       if (savedKey) {
-        const action = body.priorCachedAnswer || body.priorGradeCache ? 'ENRICHED+SAVED' : 'SAVED';
-        console.log('[cached_results]', action, body.phase, savedKey.slice(0, 12), cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)');
+        const merged = ragMeta.chunkCount > 0;
+        const action = body.priorCachedAnswer || body.priorGradeCache
+          ? 'ENRICHED+SAVED'
+          : (merged ? 'CONSOLIDATED+SAVED' : 'SAVED');
+        console.log(
+          '[cached_results]', action, body.phase, savedKey.slice(0, 12),
+          cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)',
+          merged ? '(web+Drive merge)' : '(web only)'
+        );
       }
       if (body.phase === 'chat_followup' && data.chatReply) {
         gradeCachePatch = await cacheDb.mergeChatEnrichmentIntoGradeCache(body, data);
@@ -1351,6 +1410,8 @@ async function executeGenerate(body, apiKey) {
       cacheKey: savedCacheKey || undefined,
       table: cacheDb.TABLE_NAME,
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
+      consolidatedArchive: ragMeta.chunkCount > 0,
+      contentHierarchy: 'web_primary_drive_enrichment',
       rag: ragMeta,
       ragContext: body.ragContext || '',
       ragChunkIds: Array.isArray(body.ragChunkIds) ? body.ragChunkIds : [],

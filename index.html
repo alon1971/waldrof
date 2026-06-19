@@ -3886,8 +3886,10 @@
       if (!topicStr || !data || !data.blockPlan) return false;
 
       appState.topic = topicStr;
-      appState.webResearch = data.webResearch || { topic: topicStr, summary: '', connections: [], highlights: [] };
-      if (!appState.webResearch.topic) appState.webResearch.topic = topicStr;
+      appState.webResearch = data.webResearch
+        ? Object.assign({}, data.webResearch)
+        : { topic: topicStr, summary: '', connections: [], highlights: [] };
+      appState.webResearch.topic = topicStr;
 
       var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
       appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topicStr, appState.gradeLabel);
@@ -3912,12 +3914,27 @@
       return true;
     }
 
-    async function applyLessonPlanFromHistory(item) {
+    async function applyLessonPlanFromHistory(item, options) {
+      options = options || {};
       if (!item || !item.resultData || !item.resultData.blockPlan) {
         throw new Error(t('search_history_error'));
       }
       const data = item.resultData;
-      const topic = (item.topic || data.webResearch?.topic || '').trim();
+      const userQuery = String(options.userQuery || options.preserveTopic || '').trim();
+      const archiveTitle = archiveLessonDisplayTopic(item) ||
+        String(item.topic || (data.webResearch && data.webResearch.topic) || '').trim();
+      let topic = archiveTitle;
+      if (userQuery) {
+        const uq = userQuery.toLowerCase();
+        const at = archiveTitle.toLowerCase();
+        const storedShort = String(item.topic || '').trim().toLowerCase();
+        if (isMisleadingArchiveAutoLoad(userQuery, archiveTitle) ||
+            (storedShort && uq.indexOf(storedShort) >= 0 && userQuery.length > storedShort.length + 2)) {
+          topic = userQuery;
+        } else if (uq === at || at.indexOf(uq) >= 0) {
+          topic = userQuery;
+        }
+      }
       const gradeId = item.gradeId || appState.grade;
       if (!gradeId || !topic) throw new Error(t('search_history_error'));
 
@@ -6965,6 +6982,20 @@
       return 0;
     }
 
+    function isMisleadingArchiveAutoLoad(query, archiveTopic) {
+      return isMisleadingPartialArchiveSuggestion(query, archiveTopic, 0);
+    }
+
+    function shouldAutoLoadArchiveMatch(query, item, score) {
+      const archiveTitle = archiveLessonDisplayTopic(item);
+      if (!archiveTitle || isMisleadingArchiveAutoLoad(query, archiveTitle)) return false;
+      if (score >= 0.99) return true;
+      const q = String(query || '').trim().toLowerCase();
+      const a = String(archiveTitle || '').trim().toLowerCase();
+      if (a.length > q.length && a.indexOf(q) >= 0) return true;
+      return false;
+    }
+
     function isMisleadingPartialArchiveSuggestion(query, suggestedTopic, score) {
       if (score != null && score >= 0.95) return false;
       const q = String(query || '').trim().toLowerCase();
@@ -6992,8 +7023,8 @@
         let score = scoreArchiveTopicSimilarity(query, candidate);
         const q = String(query || '').trim().toLowerCase();
         const c = String(candidate || '').trim().toLowerCase();
-        if (q && c && c.length >= q.length && c.indexOf(q) >= 0) {
-          score = Math.max(score, 0.9);
+        if (q && c && c.length > q.length && c.indexOf(q) >= 0) {
+          score = Math.max(score, 0.95);
         }
         if (q && c && q === c) score = Math.max(score, 1);
         if (score > best) best = score;
@@ -7007,15 +7038,19 @@
         return String(item.gradeId || '') === String(gradeId || '') && item.hasLessonPlan !== false;
       });
 
-      function buildArchiveMatchFromItem(item, matchType, score) {
+      function buildArchiveMatchFromItem(item, matchType, score, userQuery) {
         const archiveTitle = archiveLessonDisplayTopic(item);
         if (!archiveTitle || !item.cacheKey) return null;
+        if (matchType === 'exact' && userQuery && !shouldAutoLoadArchiveMatch(userQuery, item, score)) {
+          return null;
+        }
         return {
           matchType: matchType,
           similarity: score,
           cacheKey: item.cacheKey,
           suggestedTopic: archiveTitle,
           topic: archiveTitle,
+          requestedTopic: userQuery || null,
           gradeId: gradeId,
           gradeLabel: item.gradeLabel || null,
           item: (item.resultData && item.resultData.blockPlan) ? item : null,
@@ -7026,7 +7061,7 @@
       let exactBestScore = 0;
       items.forEach(function (item) {
         const score = scoreArchiveItemSimilarity(topic, item);
-        if (score < 0.88) return;
+        if (!shouldAutoLoadArchiveMatch(topic, item, score)) return;
         const candidate = archiveLessonDisplayTopic(item);
         if (!exactBest || score > exactBestScore ||
             (Math.abs(score - exactBestScore) <= 0.0001 &&
@@ -7036,7 +7071,7 @@
         }
       });
       if (exactBest) {
-        return buildArchiveMatchFromItem(exactBest, 'exact', exactBestScore);
+        return buildArchiveMatchFromItem(exactBest, 'exact', exactBestScore, topic);
       }
 
       if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
@@ -7067,7 +7102,7 @@
       items.forEach(function (item) {
         const candidate = archiveLessonDisplayTopic(item);
         const score = scoreArchiveItemSimilarity(topic, item);
-        if (score >= 0.88 || score <= bestScore) return;
+        if (shouldAutoLoadArchiveMatch(topic, item, score) || score <= bestScore) return;
         if (score > bestScore ||
             (Math.abs(score - bestScore) <= 0.0001 &&
               String(candidate || '').length > String(archiveLessonDisplayTopic(best) || '').length)) {
@@ -7076,7 +7111,8 @@
         }
       });
       if (!best) return null;
-      return buildArchiveMatchFromItem(best, 'partial', bestScore);
+      if (isMisleadingPartialArchiveSuggestion(topic, archiveLessonDisplayTopic(best), bestScore)) return null;
+      return buildArchiveMatchFromItem(best, 'partial', bestScore, topic);
     }
 
     async function probeArchiveTopicMatch(topic, gradeId) {
@@ -7158,7 +7194,10 @@
       if (options.closeChat && typeof LessonChatSidebar !== 'undefined') {
         LessonChatSidebar.setDisplayMode('bubble');
       }
-      await applyLessonPlanFromHistory(item);
+      const userQuery = String(
+        options.userQuery || match.requestedTopic || appState.topic || document.getElementById('topic-input')?.value || ''
+      ).trim();
+      await applyLessonPlanFromHistory(item, { userQuery: userQuery });
       if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
       return true;
     }
@@ -8273,7 +8312,7 @@
       if (runId !== archiveResumeLookupRunId || document.hidden) return;
       if (!archiveMatch || archiveMatch.matchType !== 'exact') return;
       try {
-        await applyArchiveTopicMatch(archiveMatch, { closeChat: false });
+        await applyArchiveTopicMatch(archiveMatch, { closeChat: false, userQuery: topic });
       } catch (archiveErr) {
         console.warn('[archive-probe] resume apply failed:', archiveErr);
       }
@@ -8759,6 +8798,7 @@
         cacheKey: match.cacheKey,
         suggestedTopic: match.suggestedTopic || match.archiveTitle || match.topic || '',
         topic: match.topic || match.suggestedTopic || match.archiveTitle || '',
+        requestedTopic: match.requestedTopic || null,
         gradeId: match.gradeId,
         gradeLabel: match.gradeLabel || null,
         item: match.item || null,
@@ -8773,8 +8813,8 @@
       const match = normalizeArchiveSuggestionMatch(archiveMatch);
       if (!match || !match.cacheKey || !match.suggestedTopic) return false;
 
-      if (match.matchType === 'exact' || (match.similarity != null && match.similarity >= 0.88)) {
-        applyArchiveTopicMatch(match, { closeChat: false }).catch(function (err) {
+      if (match.matchType === 'exact') {
+        applyArchiveTopicMatch(match, { closeChat: false, userQuery: topic }).catch(function (err) {
           alert(err.message || String(err));
         });
         return true;
@@ -8806,7 +8846,7 @@
             appState.archiveSuggestionPending = false;
             LessonChatSidebar.setDisplayMode('bubble');
             reloadArchiveLessonItem(match.cacheKey).then(function (item) {
-              return applyLessonPlanFromHistory(item);
+              return applyLessonPlanFromHistory(item, { userQuery: topic });
             }).then(function () {
               if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
             }).catch(function (err) {
@@ -8935,7 +8975,7 @@
         if (archiveMatch && archiveMatch.matchType === 'exact') {
           topicResearchAbort = null;
           try {
-            await applyArchiveTopicMatch(archiveMatch, { closeChat: false });
+            await applyArchiveTopicMatch(archiveMatch, { closeChat: false, userQuery: topic });
           } catch (archiveErr) {
             const out = document.getElementById('web-research-result');
             if (out) {
