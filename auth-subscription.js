@@ -134,8 +134,6 @@
   function normalizeEmail(email) {
     return String(email || '').trim().toLowerCase();
   }
-    return String(email || '').trim().toLowerCase();
-  }
 
   function isProUserEmail(email) {
     return PRO_USERS.indexOf(normalizeEmail(email)) >= 0;
