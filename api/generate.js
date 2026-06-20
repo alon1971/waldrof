@@ -188,6 +188,9 @@ const ACADEMIC_TONE_INSTRUCTION =
   'The main body must read as coherent pedagogical prose without promotional or repetitive attribution.\n' +
   '=== END ACADEMIC TONE & SOURCE DISCIPLINE ===\n';
 
+const CHAT_NO_COMMUNITY_MATCH_OPENING_HE =
+  'לא מצאתי תוכן תואם במאגר הקהילתי, אך הנה הצעה פדגוגית כללית עבורך:';
+
 const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
   '\n=== PEDAGOGICAL CHAT — COMMUNITY FIRST + STEINER-GROUNDED + LIVE WEB SEARCH (MANDATORY) ===\n' +
   'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — a supportive, highly accurate pedagogical peer.\n' +
@@ -221,6 +224,30 @@ const COMMUNITY_FIRST_CHAT_INSTRUCTION =
   'When NO community matches are listed, do NOT invent a celebration opening. ' +
   'Start with the mandatory no-match Hebrew sentence from CHAT — STRICT GROUNDING, then continue with general Waldorf guidance.\n' +
   '=== END COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING ===\n';
+
+const CHAT_FREE_TEXT_OUTPUT_INSTRUCTION =
+  '\n=== CHAT OUTPUT: FREE TEXT / MARKDOWN (MANDATORY) ===\n' +
+  'Reply with warm, professional, Waldorf-focused Hebrew prose — plain text or light Markdown only.\n' +
+  'Use short paragraphs and bullet lists when they clarify classroom practice. Do NOT return JSON, code fences, or schema wrappers.\n' +
+  'NEVER use **bold** headings, pseudo-section titles, or fake academic labels to mimic database records or structured archives when no Supabase match exists.\n' +
+  'Use **bold** only for genuine emphasis inside prose — never as placeholders for missing community content.\n' +
+  'Write 2–6 rich paragraphs when verified sources support a full answer.\n' +
+  '=== END CHAT OUTPUT ===\n';
+
+const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
+  '\n=== CHAT — STRICT GROUNDING WHEN SUPABASE COMMUNITY CONTEXT IS EMPTY OR PARTIAL (ABSOLUTE) ===\n' +
+  'You must NEVER invent, hallucinate, or generate fake bold citations or academic references ' +
+  '(such as **נושא**, **מקור**, **המלצה**, numbered [1][2] markers, footnotes, or bibliography-style headings) ' +
+  'as placeholders for missing data when Supabase vector search and COMMUNITY MATERIALS DATABASE return no direct matches for the user\'s question.\n' +
+  'FORBIDDEN: pretending a structured list or bold topic line came from the community archive when it did not.\n' +
+  'When the community database context is empty OR lacks specific matches for the user\'s query ' +
+  '(COMMUNITY MATERIALS DATABASE, community_vector_search, SHARED COMMUNITY ARCHIVE, HYBRID SEARCH CONTEXT), ' +
+  'you MUST open your Hebrew reply with this exact sentence verbatim:\n' +
+  '«' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»\n' +
+  'Then continue with a warm, practical, general Waldorf/Steiner pedagogical suggestion grounded in verified live web search when available.\n' +
+  'Do NOT invent community file names, teacher uploads, or archive excerpts. You may still use lesson context and live web search — but never fabricate citation numbers or fake bold source blocks.\n' +
+  'When verified community matches DO exist in the provided blocks, use the mandatory community celebration opening instead — never the no-match sentence above.\n' +
+  '=== END CHAT — STRICT GROUNDING ===\n';
 
 const SOURCES_CITATION_INSTRUCTION =
   '\n=== SOURCES, CITATIONS & VISUAL INSPIRATION (MANDATORY) ===\n' +
@@ -269,33 +296,6 @@ function waldorfSystemPrompt(extra) {
     (extra || '')
   );
 }
-
-const CHAT_NO_COMMUNITY_MATCH_OPENING_HE =
-  'לא מצאתי תוכן תואם במאגר הקהילתי, אך הנה הצעה פדגוגית כללית עבורך:';
-
-const CHAT_FREE_TEXT_OUTPUT_INSTRUCTION =
-  '\n=== CHAT OUTPUT: FREE TEXT / MARKDOWN (MANDATORY) ===\n' +
-  'Reply with warm, professional, Waldorf-focused Hebrew prose — plain text or light Markdown only.\n' +
-  'Use short paragraphs and bullet lists when they clarify classroom practice. Do NOT return JSON, code fences, or schema wrappers.\n' +
-  'NEVER use **bold** headings, pseudo-section titles, or fake academic labels to mimic database records or structured archives when no Supabase match exists.\n' +
-  'Use **bold** only for genuine emphasis inside prose — never as placeholders for missing community content.\n' +
-  'Write 2–6 rich paragraphs when verified sources support a full answer.\n' +
-  '=== END CHAT OUTPUT ===\n';
-
-const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
-  '\n=== CHAT — STRICT GROUNDING WHEN SUPABASE COMMUNITY CONTEXT IS EMPTY OR PARTIAL (ABSOLUTE) ===\n' +
-  'You must NEVER invent, hallucinate, or generate fake bold citations or academic references ' +
-  '(such as **נושא**, **מקור**, **המלצה**, numbered [1][2] markers, footnotes, or bibliography-style headings) ' +
-  'as placeholders for missing data when Supabase vector search and COMMUNITY MATERIALS DATABASE return no direct matches for the user\'s question.\n' +
-  'FORBIDDEN: pretending a structured list or bold topic line came from the community archive when it did not.\n' +
-  'When the community database context is empty OR lacks specific matches for the user\'s query ' +
-  '(COMMUNITY MATERIALS DATABASE, community_vector_search, SHARED COMMUNITY ARCHIVE, HYBRID SEARCH CONTEXT), ' +
-  'you MUST open your Hebrew reply with this exact sentence verbatim:\n' +
-  '«' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»\n' +
-  'Then continue with a warm, practical, general Waldorf/Steiner pedagogical suggestion grounded in verified live web search when available.\n' +
-  'Do NOT invent community file names, teacher uploads, or archive excerpts. You may still use lesson context and live web search — but never fabricate citation numbers or fake bold source blocks.\n' +
-  'When verified community matches DO exist in the provided blocks, use the mandatory community celebration opening instead — never the no-match sentence above.\n' +
-  '=== END CHAT — STRICT GROUNDING ===\n';
 
 function pedagogicalChatSystemPrompt(extra) {
   return (
