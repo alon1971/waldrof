@@ -1235,6 +1235,13 @@ function shouldProbeCommunityMaterials(phase) {
   return phase === 'topic' || phase === 'chat_followup';
 }
 
+/** Chat: probe community repository only when the teacher explicitly asks about known uploads. */
+function shouldProbeCommunityForChatFollowup(body) {
+  const userMsg = String((body && body.userMessage) || '').trim();
+  if (!userMsg) return false;
+  return userMsg.includes('אודיסאוס') || userMsg.includes('מחזה');
+}
+
 /** When the global topic is unset, derive probe terms from the live chat message. */
 function resolveCommunityProbeQuery(body) {
   const userMsg = String((body && body.userMessage) || '').trim();
@@ -1261,6 +1268,9 @@ function resolveCommunityProbeQuery(body) {
 async function probeCommunityMaterialsForBody(body) {
   if (!body || !shouldProbeCommunityMaterials(body.phase)) {
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
+  }
+  if (body.phase === 'chat_followup' && !shouldProbeCommunityForChatFollowup(body)) {
+    return { matches: [], count: 0, query: '', matchMethod: 'skipped_general_chat' };
   }
   const gradeId = body.currentGrade || body.gradeId;
   const resolved = resolveCommunityProbeQuery(body);
