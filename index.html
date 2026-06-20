@@ -815,13 +815,11 @@
       cursor: pointer;
       outline: none;
     }
-    #panel-catalog .catalog-grade-card,
-    #panel-catalog .catalog-topic-card {
+    #panel-catalog .catalog-grade-card {
       cursor: pointer;
       transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
-    #panel-catalog .catalog-grade-card:hover,
-    #panel-catalog .catalog-topic-card:hover {
+    #panel-catalog .catalog-grade-card:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 18px rgba(92, 125, 88, 0.18);
     }
@@ -12350,7 +12348,6 @@
       if (isCloudConfigured()) {
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
-      const topics = getDynamicTopicsForGrade(gradeId);
       const allFiles = await attachCatalogManageFlags(collectCatalogFilesForGrade(gradeId));
       const g = GRADES.find(function (x) { return String(x.id) === String(gradeId); });
       let html = catalogGradeNavHtml(gradeId);
@@ -12361,32 +12358,13 @@
       html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
         escapeHtml(t('catalog_community_files', { count: allFiles.length })) + '</h4>';
       html += allFiles.length
-        ? '<div class="space-y-3 mb-8">' + allFiles.map(renderCatalogFileRow).join('') + '</div>'
-        : '<p class="text-sm text-walnut/60 mb-8 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
-      html += '<h4 class="font-bold text-walnut mb-3 mt-2"><i class="fa-solid fa-folder-tree text-sage icon-inline"></i> ' + escapeHtml(t('catalog_community_topics')) + '</h4>';
-      if (!topics.length) {
-        html += '<p class="text-sm text-walnut/60 mb-4 p-4 rounded-xl bg-parchment/60 border border-gold/20">' + escapeHtml(t('catalog_no_topics')) + '</p>';
-      } else {
-        html += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">' +
-          topics.map(function (topic) {
-            const topicAttr = String(topic.id).replace(/"/g, '&quot;');
-            return '<button type="button" class="catalog-topic-card text-dir-start bg-white rounded-xl border border-sage/25 p-4 hover:border-sage/50" data-topic="' + topicAttr + '">' +
-              '<div class="flex items-center gap-3">' +
-              '<span class="inline-flex w-9 h-9 shrink-0 items-center justify-center rounded-lg bg-burgundy/10 text-burgundy"><i class="fa-solid fa-folder"></i></span>' +
-              '<div><div class="font-bold text-burgundy">' + escapeHtml(topic.label) + '</div>' +
-              '<div class="text-xs text-sage-dark mt-1">' + escapeHtml(t('catalog_files_in_topic', { count: topic.count })) + '</div></div></div></button>';
-          }).join('') + '</div>';
-      }
+        ? '<div class="space-y-3">' + allFiles.map(renderCatalogFileRow).join('') + '</div>'
+        : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
       mutateCatalogDom(function () {
         el.innerHTML = html;
         bindCatalogGradeNav(el);
         bindCatalogUploadButtons(el);
         bindCatalogMaterialActions(document.getElementById('panel-catalog'));
-        el.querySelectorAll('[data-topic]').forEach(function (btn) {
-          btn.addEventListener('click', function () {
-            renderCatalog('materials', gradeId, btn.getAttribute('data-topic'));
-          });
-        });
       });
     }
 
