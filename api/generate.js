@@ -193,23 +193,38 @@ const ACADEMIC_TONE_INSTRUCTION =
   '=== END ACADEMIC TONE & SOURCE DISCIPLINE ===\n';
 
 const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
-  '\n=== PEDAGOGICAL CHAT — STEINER-GROUNDED + LIVE WEB SEARCH (MANDATORY) ===\n' +
+  '\n=== PEDAGOGICAL CHAT — COMMUNITY FIRST + STEINER-GROUNDED + LIVE WEB SEARCH (MANDATORY) ===\n' +
   'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — a supportive, highly accurate pedagogical peer.\n' +
-  'RESEARCH STRATEGY (every question):\n' +
-  'Perform LIVE internet search via Perplexity. Primary authorities: Rudolf Steiner (GA lectures, Steiner Archive), ' +
+  'RESEARCH STRATEGY (every question — strict order):\n' +
+  '0. COMMUNITY FIRST: Before answering, review the COMMUNITY MATERIALS DATABASE block in the user message. ' +
+  'It lists titles, topics, and descriptions already uploaded by teachers to community_materials / community_knowledge_base (Supabase). ' +
+  'When matches exist, celebrate them in your opening and weave them into the answer.\n' +
+  '1. LIVE WEB SEARCH via Perplexity — Rudolf Steiner (GA lectures, Steiner Archive), ' +
   'core anthroposophic pedagogical writings, AWSNA, IASWECE, Waldorf Research Institute Library (waldorflibrary.org).\n' +
-  'Supplement with lesson context and any KNOWLEDGE BASE excerpts in the user message — local community materials help but are NOT the only source.\n' +
+  '2. Supplement with lesson context and any KNOWLEDGE BASE excerpts in the user message.\n' +
   'ANTI-HALLUCINATION:\n' +
   'NEVER fabricate Steiner quotes, GA numbers, doctrines, temperament links, or curriculum details absent from search or provided sources.\n' +
   'NEVER answer from vague model knowledge or free personal anthroposophic interpretation.\n' +
   'WHEN TO ANSWER:\n' +
-  'Give a full, warm, practical Hebrew answer when live search and/or lesson context provide verified Steiner-based material.\n' +
-  'FALLBACK (rare — only when live search + lesson context + knowledge base all lack verified material on the specific question):\n' +
-  'Respond humbly in Hebrew that you could not locate verified Steiner/anthroposophic sources on this point — invite reframing or sharing sources.\n' +
+  'Give a full, warm, practical Hebrew answer when community materials, live search, and/or lesson context provide verified material.\n' +
+  'FALLBACK (only when community database + live search + lesson context + knowledge base all lack verified material on the specific question):\n' +
+  'Respond humbly in Hebrew that you could not locate verified material on this point — invite reframing or sharing sources.\n' +
+  'Do NOT claim "אין חומר במאגר הקהילתי" when the COMMUNITY MATERIALS DATABASE block lists matches.\n' +
   'Do NOT default to "אין חומר במאגר הקהילתי" when web search can answer from Steiner/core anthroposophic sources.\n' +
   'For fallback replies: write the same humble Hebrew decline as plain prose.\n' +
   'TONE: Grounded, authentic, authoritative yet humble. Practical for classroom teachers when sources support it.\n' +
-  '=== END PEDAGOGICAL CHAT — STEINER-GROUNDED + LIVE WEB SEARCH ===\n';
+  '=== END PEDAGOGICAL CHAT — COMMUNITY FIRST + STEINER-GROUNDED + LIVE WEB SEARCH ===\n';
+
+const COMMUNITY_FIRST_CHAT_INSTRUCTION =
+  '\n=== COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING (MANDATORY WHEN MATCHES EXIST) ===\n' +
+  'When the COMMUNITY MATERIALS DATABASE block lists one or more matches (full or partial), ' +
+  'you MUST open your Hebrew reply with an enthusiastic, personal celebration addressing the teacher by first name.\n' +
+  'Required opening pattern (adapt names and material title from the provided block):\n' +
+  '«[שם פרטי], הרווחת! במאגר הקהילתי שלנו כבר העלו ב[כיתה] [שם החומר]. בנוסף, להלן דברים נוספים שמצאתי...»\n' +
+  'Use the teacher first name and grade label supplied in the COMMUNITY MATERIALS block. ' +
+  'Use the best-matching material title for [שם החומר]. Then continue with rich pedagogical content from web search and lesson context.\n' +
+  'When NO community matches are listed, proceed with your standard high-quality pedagogical assistance — no forced celebration opening.\n' +
+  '=== END COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING ===\n';
 
 const SOURCES_CITATION_INSTRUCTION =
   '\n=== SOURCES, CITATIONS & VISUAL INSPIRATION (MANDATORY) ===\n' +
@@ -270,14 +285,17 @@ function pedagogicalChatSystemPrompt(extra) {
   return (
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers. ' +
     'Help teachers with follow-up questions about their generated lesson plan as a supportive, highly accurate pedagogical peer. ' +
+    'COMMUNITY FIRST: Always check the COMMUNITY MATERIALS DATABASE in the user message before answering. ' +
+    'Celebrate and reference matching teacher-uploaded materials when present, then enrich with live web search. ' +
     'Use live web search on EVERY question to retrieve verified Rudolf Steiner and anthroposophic pedagogical material. ' +
     STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
+    COMMUNITY_FIRST_CHAT_INSTRUCTION +
     WEB_SEARCH_PRIORITY_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
     CHAT_FREE_TEXT_OUTPUT_INSTRUCTION +
     ' Write all chat replies in Hebrew. ' +
-    'Deliver full, practical answers when Steiner-based sources support them — do not decline when live search can answer.' +
+    'Deliver full, practical answers when community materials and/or Steiner-based sources support them — do not decline when matches or live search can answer.' +
     NO_LATEX_BLOCK +
     (extra || '')
   );
@@ -488,6 +506,63 @@ function buildPriorTopicCacheBlock(topicPrior) {
     '\n=== CACHED TOPIC LESSON PLAN (SUPABASE cached_results) ===\n' +
     text +
     '\n=== END CACHED TOPIC PLAN ===\n\n'
+  );
+}
+
+function resolveTeacherFirstName(body) {
+  const tu = body && body.teacherUser;
+  if (!tu || typeof tu !== 'object') return 'מורה';
+  const raw = String(tu.displayName || tu.name || '').trim();
+  if (!raw) return 'מורה';
+  const first = raw.split(/\s+/)[0].replace(/[^\u0590-\u05FFa-zA-Z'-]/g, '');
+  return first || 'מורה';
+}
+
+function formatCommunityMatchForPrompt(match, index) {
+  const title = match.displayTitle || match.title || match.fileName || match.topic || ('חומר ' + (index + 1));
+  const topic = match.topic || match.bundleTopic || '';
+  const gradeId = match.gradeId || '';
+  const contributor = match.contributorName || '';
+  const preview = match.contentPreview ? String(match.contentPreview).slice(0, 240) : '';
+  let line = (index + 1) + '. «' + title + '»';
+  if (topic && topic !== title) line += ' (נושא: ' + topic + ')';
+  if (gradeId) line += ' [כיתה ' + gradeId + ']';
+  if (contributor) line += ' — תורם: ' + contributor;
+  if (preview) line += '\n   תקציר: ' + preview;
+  if (match.matchedInBundle && match.alertText) line += '\n   ' + match.alertText;
+  return line;
+}
+
+function buildCommunityMaterialsContextBlock(probe, body) {
+  const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
+  const teacherName = resolveTeacherFirstName(body);
+  const gradeLabel = String(body.gradeLabel || '').trim() || ('כיתה ' + (resolvedGradeId(body) || '?'));
+  const query = probe && probe.query ? String(probe.query).trim() : '';
+
+  if (!matches.length) {
+    return (
+      '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base — Supabase) ===\n' +
+      'חיפוש במאגר הקהילתי' + (query ? ' עבור «' + query + '»' : '') + ' לא מצא התאמה.\n' +
+      'המשך עם סיוע פדגוגי סטנדרטי איכותי (חיפוש חי + הקשר השיעור) — אין צורך בפתיחה חגיגית.\n' +
+      '=== END COMMUNITY MATERIALS DATABASE ===\n\n'
+    );
+  }
+
+  const primaryTitle = matches[0].displayTitle || matches[0].title || matches[0].fileName || matches[0].topic || 'חומר קהילתי';
+  const lines = matches.slice(0, 6).map(formatCommunityMatchForPrompt);
+
+  return (
+    '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base — Supabase) ===\n' +
+    'COMMUNITY MATCH FOUND — ' + matches.length + ' material(s) for this question.\n' +
+    'Teacher first name for opening: «' + teacherName + '»\n' +
+    'Grade label for opening: «' + gradeLabel + '»\n' +
+    'Best match title for opening: «' + primaryTitle + '»\n' +
+    'MANDATORY OPENING (first sentence of your Hebrew reply):\n' +
+    '«' + teacherName + ', הרווחת! במאגר הקהילתי שלנו כבר העלו ב' + gradeLabel + ' ' + primaryTitle + '. בנוסף, להלן דברים נוספים שמצאתי...»\n' +
+    'Then continue with additional pedagogical insights from live web search and lesson context.\n\n' +
+    'Matched materials:\n' +
+    lines.join('\n') +
+    '\n=== END COMMUNITY MATERIALS DATABASE ===\n\n'
   );
 }
 
@@ -838,12 +913,20 @@ function buildUserPrompt(body) {
     const priorBlock = buildPriorChatAnswerBlock(body.priorCachedAnswer);
     const gradePriorBlock = buildPriorGradeCacheBlock(body.priorGradeCache);
     const topicPriorBlock = buildPriorTopicCacheBlock(body.priorTopicCache);
+    const communityBlock = buildCommunityMaterialsContextBlock(body.communityMaterialsProbe, body);
+    const hasCommunityMatches = Boolean(
+      body.communityMaterialsProbe &&
+      body.communityMaterialsProbe.count > 0 &&
+      Array.isArray(body.communityMaterialsProbe.matches) &&
+      body.communityMaterialsProbe.matches.length
+    );
 
     return (
       ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
+      communityBlock +
       gradePriorBlock +
       topicPriorBlock +
       priorBlock +
@@ -851,13 +934,17 @@ function buildUserPrompt(body) {
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + (body.gradeLabel || '') + ' (age ' + (body.age || '') + ')\n' +
       'Block topic: ' + (body.topic || '') + '\n' +
-      'Verified sources available: knowledge_base=' + (hasRag ? 'yes' : 'no') + ', lesson_context=' + (hasContext ? 'yes' : 'no') + '\n\n' +
+      'Verified sources available: community_materials=' + (hasCommunityMatches ? 'yes (' + body.communityMaterialsProbe.count + ' match(es))' : 'no') +
+      ', knowledge_base=' + (hasRag ? 'yes' : 'no') + ', lesson_context=' + (hasContext ? 'yes' : 'no') + '\n\n' +
       '=== ORIGINAL RESEARCH & LESSON CONTEXT (ground answers here when explicit) ===\n' +
       (hasContext ? context : '(empty — no lesson context provided)') + '\n' +
       '=== END CONTEXT ===\n' +
       historyBlock +
       'Teacher follow-up question: «' + question + '»\n\n' +
-      'ANSWER STRATEGY (MANDATORY):\n' +
+      'ANSWER STRATEGY (MANDATORY — COMMUNITY FIRST):\n' +
+      (hasCommunityMatches
+        ? '0. COMMUNITY FIRST: Community materials matched above — open with the mandatory celebration line, reference the matched title(s), then enrich with web search.\n'
+        : '0. COMMUNITY FIRST: No community match above — proceed with standard high-quality pedagogical assistance.\n') +
       (gradePriorBlock
         ? '0a. CACHED GRADE INSIGHTS (step A) are above — treat as authoritative baseline; enrich with live web search.\n'
         : '') +
@@ -868,10 +955,10 @@ function buildUserPrompt(body) {
         ? '0c. You have an EXISTING DATABASE ANSWER above — refine, correct, deepen, and expand it with live web search; output must be clearly richer than the prior version.\n'
         : '') +
       '1. Perform LIVE WEB SEARCH for verified Rudolf Steiner / anthroposophic pedagogical material on this question.\n' +
-      '2. Integrate lesson context and any knowledge_base excerpts when they add verified detail.\n' +
+      '2. Integrate community materials (when matched), lesson context, and any knowledge_base excerpts when they add verified detail.\n' +
       '3. NEVER fabricate Steiner quotes, GA citations, or doctrines — only state what search and context support.\n' +
       '4. Give a full, warm, practical Hebrew answer (2–6 paragraphs) when verified material exists.\n' +
-      '5. Use the Hebrew fallback decline ONLY when live search + context all lack verified material on this specific question.\n' +
+      '5. Use the Hebrew fallback decline ONLY when community database + live search + context all lack verified material on this specific question.\n' +
       WEB_SEARCH_PRIORITY_INSTRUCTION +
       CHAT_FREE_TEXT_OUTPUT_INSTRUCTION +
       'Write your full Hebrew answer directly as warm pedagogical prose (plain text or light Markdown). ' +
@@ -1121,14 +1208,30 @@ async function probeCommunityMaterialsForBody(body) {
   if (!body || !shouldProbeCommunityMaterials(body.phase)) {
     return { matches: [], count: 0, query: '' };
   }
+  const gradeId = body.currentGrade || body.gradeId;
+  const baseOpts = {
+    query: String(body.userMessage || body.topic || '').trim(),
+    topic: body.topic,
+    userMessage: body.userMessage,
+    gradeId: gradeId,
+    limit: 8,
+  };
   try {
-    return await cacheDb.findCommunityMaterials({
-      query: String(body.userMessage || body.topic || '').trim(),
-      topic: body.topic,
-      userMessage: body.userMessage,
-      gradeId: body.currentGrade || body.gradeId,
-      limit: 8,
-    });
+    let result = await cacheDb.findCommunityMaterials(baseOpts);
+    if (!result.count && body.phase === 'chat_followup') {
+      const topicOnly = String(body.topic || '').trim();
+      const userMsg = String(body.userMessage || '').trim();
+      if (topicOnly && topicOnly !== userMsg) {
+        const topicProbe = await cacheDb.findCommunityMaterials({
+          query: topicOnly,
+          topic: body.topic,
+          gradeId: gradeId,
+          limit: 8,
+        });
+        if (topicProbe.count > 0) result = topicProbe;
+      }
+    }
+    return result;
   } catch (probeErr) {
     console.warn('[community] probe failed:', probeErr.message || probeErr);
     return { matches: [], count: 0, query: '' };
@@ -1342,6 +1445,7 @@ async function executeGenerate(body, apiKey, requestContext) {
   if (communityProbe.count > 0) {
     console.log('[community] matched', communityProbe.count, 'material(s) for', body.phase);
   }
+  body.communityMaterialsProbe = communityProbe;
 
   if (!body.skipCache) {
     if (body.phase === 'chat_followup') {
@@ -1499,10 +1603,12 @@ async function executeGenerate(body, apiKey, requestContext) {
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (isChatFollowup
-      ? (body.priorCachedAnswer || body.priorGradeCache
-        ? ' PEDAGOGICAL CHAT ENRICHMENT: Prior cached grade insights and/or chat answers exist — refine, correct, deepen, and expand using live Steiner/anthroposophic web search. Output must surpass prior versions.'
-        : ' PEDAGOGICAL CHAT: Perform live web search for verified Steiner/anthroposophic sources on every question. ' +
-          'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.')
+      ? (body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
+        ? ' PEDAGOGICAL CHAT — COMMUNITY FIRST: Community materials matched in Supabase — celebrate in your opening per COMMUNITY FIRST instructions, then enrich with live Steiner/anthroposophic web search.'
+        : (body.priorCachedAnswer || body.priorGradeCache
+          ? ' PEDAGOGICAL CHAT ENRICHMENT: Prior cached grade insights and/or chat answers exist — refine, correct, deepen, and expand using live Steiner/anthroposophic web search. Output must surpass prior versions.'
+          : ' PEDAGOGICAL CHAT: No community match — perform live web search for verified Steiner/anthroposophic sources on every question. ' +
+            'Answer fully when search and lesson context support it. Decline only when no verified material exists anywhere.'))
       : body.ragContext || body.ragDriveContext || body.ragCommunityContext
         ? ' HYBRID SEARCH: Live web search is PRIMARY. Private Drive and shared community archive excerpts are SECONDARY enrichment — blend them into the web foundation without replacing web breadth.'
         : ' No local Drive or community archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
