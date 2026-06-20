@@ -54,7 +54,11 @@ function parseRequestBody(req) {
 }
 
 function hasServiceRoleKey() {
-  return env.hasRealServiceRoleKey();
+  return Boolean(env.getSupabaseServiceRoleKey());
+}
+
+function canMutateCommunityMaterials(req) {
+  return hasServiceRoleKey() || Boolean(extractBearerToken(req));
 }
 
 function getServiceRoleConfig() {
@@ -66,6 +70,32 @@ function getServiceRoleConfig() {
     throw err;
   }
   return { url: url, key: key };
+}
+
+function parseSupabaseHttpResponse(res, text) {
+  let body = null;
+  if (text) {
+    try { body = JSON.parse(text); } catch (e) { body = text; }
+  }
+  return { ok: res.ok, status: res.status, body: body, text: text };
+}
+
+/** Direct REST call with service role — same header pattern as community-upload.js */
+async function serviceRoleFetch(relativePath, init) {
+  const cfg = getServiceRoleConfig();
+  const extra = (init && init.headers) || {};
+  const res = await fetch(cfg.url + relativePath, {
+    method: (init && init.method) || 'GET',
+    body: init && init.body,
+    headers: {
+      Accept: 'application/json',
+      ...extra,
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+    },
+  });
+  const text = await res.text();
+  return parseSupabaseHttpResponse(res, text);
 }
 
 function extractBearerToken(req) {
@@ -188,20 +218,24 @@ function parseCommunityNotes(rawNotes) {
   return out;
 }
 
+function supabaseAuthHeaders(apiKey, bearerToken, extraHeaders) {
+  return Object.assign({
+    Accept: 'application/json',
+  }, extraHeaders || {}, {
+    apikey: apiKey,
+    Authorization: 'Bearer ' + bearerToken,
+  });
+}
+
 async function supabaseFetch(url, relativePath, options, apiKey, bearerToken) {
-  const res = await fetch(url + relativePath, Object.assign({
-    headers: Object.assign({
-      apikey: apiKey,
-      Authorization: 'Bearer ' + bearerToken,
-      Accept: 'application/json',
-    }, (options && options.headers) || {}),
-  }, options || {}));
+  const opts = options || {};
+  const res = await fetch(url + relativePath, {
+    method: opts.method || 'GET',
+    body: opts.body,
+    headers: supabaseAuthHeaders(apiKey, bearerToken, opts.headers),
+  });
   const text = await res.text();
-  let body = null;
-  if (text) {
-    try { body = JSON.parse(text); } catch (e) { body = text; }
-  }
-  return { ok: res.ok, status: res.status, body: body, text: text };
+  return parseSupabaseHttpResponse(res, text);
 }
 
 async function supabaseServiceRequest(relativePath, options) {
@@ -261,19 +295,14 @@ async function supabaseRequestWithKeyFallback(relativePath, options, preferAnon)
     const key = keys[i];
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    const res = await fetch(url + relativePath, Object.assign({
-      headers: Object.assign({
-        apikey: key,
-        Authorization: 'Bearer ' + key,
-        Accept: 'application/json',
-      }, (options && options.headers) || {}),
-    }, options || {}));
+    const opts = options || {};
+    const res = await fetch(url + relativePath, {
+      method: opts.method || 'GET',
+      body: opts.body,
+      headers: supabaseAuthHeaders(key, key, opts.headers),
+    });
     const text = await res.text();
-    let body = null;
-    if (text) {
-      try { body = JSON.parse(text); } catch (e) { body = text; }
-    }
-    lastResult = { ok: res.ok, status: res.status, body: body, text: text };
+    lastResult = parseSupabaseHttpResponse(res, text);
     if (res.ok) return lastResult;
     if (res.status !== 401 && res.status !== 403) break;
   }
@@ -334,9 +363,9 @@ async function patchCommunityMaterial(body, req) {
   const id = requireValidMaterialId(extractMaterialId(body || {}, req));
   console.log('[community-materials] Backend patch triggered for ID:', id);
 
-  if (!hasServiceRoleKey()) {
-    const err = new Error('SUPABASE_SERVICE_ROLE_KEY is required for community material mutations');
-    err.statusCode = 503;
+  if (!canMutateCommunityMaterials(req)) {
+    const err = new Error('Sign in required or configure SUPABASE_SERVICE_ROLE_KEY on the server');
+    err.statusCode = 401;
     throw err;
   }
 
@@ -381,15 +410,27 @@ async function patchCommunityMaterial(body, req) {
   }
 
   const patchPath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(canonicalId);
-  const patchOptions = {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify(payload),
-  };
-  const result = await supabaseServiceRequest(patchPath, patchOptions);
+  const patchBody = JSON.stringify(payload);
+  let result;
+  if (hasServiceRoleKey()) {
+    result = await serviceRoleFetch(patchPath, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: patchBody,
+    });
+  } else {
+    result = await supabaseMutateWithFallback(patchPath, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: patchBody,
+    }, req);
+  }
   console.log('[community-materials] Supabase patch response:', result.body, result.text || '');
   if (!result.ok) {
     const err = new Error('Update failed (' + result.status + ')');
@@ -411,9 +452,9 @@ async function deleteCommunityMaterial(body, req) {
   const id = requireValidMaterialId(extractMaterialId(body || {}, req));
   console.log('[community-materials] Backend delete triggered for ID:', id);
 
-  if (!hasServiceRoleKey()) {
-    const err = new Error('SUPABASE_SERVICE_ROLE_KEY is required for community material mutations');
-    err.statusCode = 503;
+  if (!canMutateCommunityMaterials(req)) {
+    const err = new Error('Sign in required or configure SUPABASE_SERVICE_ROLE_KEY on the server');
+    err.statusCode = 401;
     throw err;
   }
 
@@ -445,10 +486,19 @@ async function deleteCommunityMaterial(body, req) {
   }
 
   const deletePath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(canonicalId);
-  const deleteOptions = { method: 'DELETE', headers: { Prefer: 'return=representation' } };
   let result;
   try {
-    result = await supabaseServiceRequest(deletePath, deleteOptions);
+    if (hasServiceRoleKey()) {
+      result = await serviceRoleFetch(deletePath, {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' },
+      });
+    } else {
+      result = await supabaseMutateWithFallback(deletePath, {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' },
+      }, req);
+    }
   } catch (serviceErr) {
     console.error('[community-materials] Supabase delete error:', serviceErr.message || serviceErr);
     const err = new Error(serviceErr.message || 'Delete failed');
