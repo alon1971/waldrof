@@ -2362,6 +2362,7 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
       const orParts = [];
       terms.forEach(function (term) {
         orParts.push('topic.ilike.*' + term + '*');
+        orParts.push('file_name.ilike.*' + term + '*');
         orParts.push('notes.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');

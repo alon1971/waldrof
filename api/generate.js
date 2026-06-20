@@ -220,7 +220,7 @@ const COMMUNITY_FIRST_CHAT_INSTRUCTION =
   'When the COMMUNITY MATERIALS DATABASE block lists one or more matches (keyword OR semantic), ' +
   'you MUST open your Hebrew reply with the exact celebration line supplied in that block or in CRITICAL INSTRUCTION.\n' +
   'Required opening pattern (use teacher name, grade label, and matched file title from the provided blocks):\n' +
-  '«[שם פרטי], הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל[כיתה] «[שם הקובץ]». גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.»\n' +
+  '«[שם פרטי], הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל[כיתה] «[שם הקובץ]». אתה יכול להיכנס למאגר הקהילתי באתר, תחת [כיתה] כדי לצפות בקובץ הנוכחי.»\n' +
   'When NO community matches are listed, proceed with your standard high-quality pedagogical assistance — no forced celebration opening.\n' +
   '=== END COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING ===\n';
 
@@ -541,7 +541,7 @@ function buildCommunityMatchCriticalSystemBlock(probe, body) {
   const title = matchedFile.displayTitle || matchedFile.title || matchedFile.topic || 'חומר קהילתי';
   const openingLine =
     teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + title + '». ' +
-    'גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.';
+    'אתה יכול להיכנס למאגר הקהילתי באתר, תחת ' + gradeLabel + ' כדי לצפות בקובץ הנוכחי.';
 
   return (
     '\n=== CRITICAL INSTRUCTION — COMMUNITY DATABASE MATCH ===\n' +
@@ -576,7 +576,7 @@ function buildCommunityMaterialsContextBlock(probe, body) {
   const primaryTitle = matches[0].displayTitle || matches[0].title || matches[0].topic || 'חומר קהילתי';
   const mandatoryOpening =
     teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + primaryTitle + '». ' +
-    'גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.';
+    'אתה יכול להיכנס למאגר הקהילתי באתר, תחת ' + gradeLabel + ' כדי לצפות בקובץ הנוכחי.';
   const lines = matches.slice(0, 6).map(formatCommunityMatchForPrompt);
   const matchMethod = probe && probe.matchMethod ? String(probe.matchMethod) : '';
   const semanticNote = matchMethod.indexOf('semantic') >= 0

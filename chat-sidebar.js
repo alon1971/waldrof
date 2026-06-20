@@ -601,7 +601,7 @@
     var label = btn.querySelector('.lesson-chat-export-label');
     if (!label) return;
     label.textContent = deps.t('chat_download_word');
-    if (label.textContent === 'chat_download_word') label.textContent = 'הורד למסמך וורד';
+    if (label.textContent === 'chat_download_word') label.textContent = 'הורד למסמך וורד (תוכן הצ\'אט בלבד)';
   }
 
   function ensureFullscreenExportBar() {

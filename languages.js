@@ -521,7 +521,7 @@ const LANGUAGES = {
     grade_cache_hit:             'נטען מהמאגר — תמונת גיל מעודכנת (ללא המתנה ל-AI)',
     grade_chat_enrichments_title:'העשרות מעוזר פדגוגי',
     grade_chat_enrichment_q:     'שאלה {n}',
-    chat_download_word:          'הורד למסמך וורד',
+    chat_download_word:          'הורד למסמך וורד (תוכן הצ\'אט בלבד)',
     chat_greeting:               'שלום {name}, אני העוזר הפדגוגי שלך. בחר כיתה ונושא, או שאל אותי כל שאלה פדגוגית כאן.',
     chat_input_label:            'שאלה לעוזר הפדגוגי',
     chat_input_placeholder:      'שאל שאלה פדגוגית — לפני או אחרי יצירת תכנית שיעור...',
