@@ -899,10 +899,96 @@
       transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     .catalog-open-upload:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(139, 58, 58, 0.38); }
-    .catalog-upload-drawer { animation: catalogDrawerIn 0.28s ease; }
-    @keyframes catalogDrawerIn {
-      from { opacity: 0; transform: translateY(-8px); }
-      to { opacity: 1; transform: translateY(0); }
+    .catalog-dashboard-header {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-bottom: 0.25rem;
+      scroll-margin-top: 5.5rem;
+    }
+    @media (min-width: 640px) {
+      .catalog-dashboard-header {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.25rem;
+      }
+    }
+    .catalog-upload-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 120;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+    .catalog-upload-modal.hidden { display: none !important; }
+    body.catalog-modal-open { overflow: hidden; }
+    .catalog-upload-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(45, 36, 28, 0.45);
+      backdrop-filter: blur(2px);
+    }
+    .catalog-upload-modal-dialog {
+      position: relative;
+      z-index: 1;
+      width: min(100%, 42rem);
+      margin: auto;
+      background: #fff;
+      border-radius: 1.25rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      box-shadow: 0 20px 50px rgba(92, 74, 58, 0.22);
+      animation: catalogModalIn 0.28s ease;
+    }
+    @keyframes catalogModalIn {
+      from { opacity: 0; transform: translateY(12px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .catalog-upload-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.35);
+      background: linear-gradient(135deg, rgba(247, 243, 235, 0.95), rgba(255, 255, 255, 0.98));
+      border-radius: 1.25rem 1.25rem 0 0;
+    }
+    .catalog-upload-modal-title {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #8B3A3A;
+      margin: 0;
+    }
+    .catalog-upload-modal-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 2.5rem;
+      min-height: 2.5rem;
+      border-radius: 0.75rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: #fff;
+      color: #5C4A3A;
+      font-size: 1.25rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .catalog-upload-modal-close:hover {
+      background: #F7F3EB;
+      border-color: rgba(92, 125, 88, 0.55);
+    }
+    .catalog-upload-modal-body { padding: 0.25rem 0 0.5rem; }
+    .catalog-upload-modal-body .catalog-upload-form {
+      margin-bottom: 0;
+      border: 0;
+      box-shadow: none;
+      border-radius: 0 0 1.25rem 1.25rem;
     }
     .catalog-file-drop {
       border: 2px dashed rgba(201, 169, 98, 0.55);
@@ -3365,7 +3451,7 @@
             <i class="fa-solid fa-users-rays text-gold"></i>
             <span data-i18n="catalog_title">מאגר קהילתי</span>
           </h2>
-          <p class="text-sm text-walnut/70 mb-5" data-i18n="catalog_desc">בחרו כיתה, העלו חומרים לנושא חדש — או היכנסו לרובריקות שנוצרו על ידי מורים בקהילה.</p>
+          <p class="text-sm text-walnut/70 mb-5" data-i18n="catalog_desc">בחרו כיתה ועיינו בחומרים מהקהילה — הוספת חומר חדש מתבצעת דרך כפתור «הוסף חומר חדש למאגר».</p>
           <div id="share-materials-mount" class="hidden" aria-hidden="true" hidden></div>
           <div id="community-catalog-section" class="community-catalog-container">
           <nav id="catalog-breadcrumb" class="flex flex-wrap items-center gap-2 text-sm text-walnut/70 mb-6" data-i18n-aria="catalog_title"></nav>
@@ -3567,6 +3653,19 @@
         </div>
       </div>
       </div>
+    </div>
+  </div>
+
+  <div id="catalog-upload-modal" class="catalog-upload-modal hidden" role="dialog" aria-modal="true" aria-labelledby="catalog-upload-modal-title" hidden>
+    <div class="catalog-upload-modal-backdrop" data-catalog-modal-close tabindex="-1" aria-hidden="true"></div>
+    <div class="catalog-upload-modal-dialog">
+      <header class="catalog-upload-modal-header">
+        <h3 id="catalog-upload-modal-title" class="catalog-upload-modal-title" data-i18n="catalog_upload_title">העלאה למאגר הקהילתי</h3>
+        <button type="button" class="catalog-upload-modal-close touch-btn" data-catalog-modal-close aria-label="סגור">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div id="catalog-upload-modal-body" class="catalog-upload-modal-body"></div>
     </div>
   </div>
 
@@ -8206,6 +8305,24 @@
       try { localStorage.setItem(COMMUNITY_OWNED_STORAGE_KEY, JSON.stringify(store)); } catch (e) { /* ignore */ }
     }
 
+    const COMMUNITY_ADMIN_EMAILS = ['alon1971@gmail.com'];
+    const COMMUNITY_ADMIN_NAMES = ['alon yerushalmy', 'אלון ירושלמי'];
+
+    function isCommunityAdminUser() {
+      if (typeof WaldorfAuth === 'undefined') return false;
+      const profile = WaldorfAuth.getContributorProfile && WaldorfAuth.getContributorProfile();
+      if (profile) {
+        const email = String(profile.email || '').toLowerCase().trim();
+        if (email && COMMUNITY_ADMIN_EMAILS.indexOf(email) >= 0) return true;
+        const name = String(profile.name || profile.displayName || '').toLowerCase().trim();
+        if (name && COMMUNITY_ADMIN_NAMES.indexOf(name) >= 0) return true;
+      }
+      const displayName = WaldorfAuth.getUserDisplayName
+        ? String(WaldorfAuth.getUserDisplayName() || '').toLowerCase().trim()
+        : '';
+      return displayName && COMMUNITY_ADMIN_NAMES.indexOf(displayName) >= 0;
+    }
+
     function canManageCommunityMaterialSync(item, authUserId, ownedStore) {
       if (!item) return false;
       const materialId = resolveCommunityMaterialId(item);
@@ -8221,12 +8338,11 @@
       return false;
     }
 
-    /** Catalog list: show edit/delete whenever the row has a canonical id (API uses service role). */
     function canManageCatalogMaterial(file, authUserId, ownedStore) {
       const materialId = file && (file.id || resolveCommunityMaterialId(file));
       if (!materialId) return false;
-      if (canManageCommunityMaterialSync(file, authUserId, ownedStore)) return true;
-      return true;
+      if (isCommunityAdminUser()) return true;
+      return canManageCommunityMaterialSync(file, authUserId, ownedStore);
     }
 
     async function canManageCommunityMaterial(item) {
@@ -11406,52 +11522,152 @@
         .sort(function (a, b) { return a.label.localeCompare(b.label, 'he'); });
     }
 
+    function mapCacheItemToCatalogFile(item) {
+      const materialId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
+      return {
+        id: materialId,
+        dbId: materialId,
+        title: item.title,
+        topic: item.topic,
+        notes: item.notes,
+        authorName: item.authorName,
+        userId: item.userId || null,
+        gradeLevel: item.gradeLevel,
+        createdAt: item.createdAt,
+        fileName: item.fileName,
+        filePath: item.filePath,
+        fileUrl: item.fileUrl,
+        fileSize: item.fileSize,
+        fileType: item.fileType,
+        canManage: false,
+      };
+    }
+
+    function collectCatalogFilesForGrade(gradeId) {
+      return filterByGrade(appState.communityCache, gradeId)
+        .map(mapCacheItemToCatalogFile)
+        .filter(function (item) { return Boolean(item.id); })
+        .sort(function (a, b) {
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
+        });
+    }
+
     function collectCatalogFiles(gradeId, topicId) {
       const topicKey = normalizeTopicKey(topicId);
-      return filterByGrade(appState.communityCache, gradeId)
-        .filter(function (item) { return normalizeTopicKey(item.topic) === topicKey; })
-        .map(function (item) {
-          const materialId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
-          return {
-            id: materialId,
-            dbId: materialId,
-            title: item.title,
-            topic: item.topic,
-            notes: item.notes,
-            authorName: item.authorName,
-            userId: item.userId || null,
-            gradeLevel: item.gradeLevel,
-            createdAt: item.createdAt,
-            fileName: item.fileName,
-            filePath: item.filePath,
-            fileUrl: item.fileUrl,
-            fileSize: item.fileSize,
-            fileType: item.fileType,
-            canManage: false,
-          };
-        })
-        .filter(function (item) { return Boolean(item.id); });
+      return collectCatalogFilesForGrade(gradeId)
+        .filter(function (item) { return normalizeTopicKey(item.topic) === topicKey; });
     }
 
-    function catalogUploadWrapHtml(gradeId, presetTopic, readonlyTopic, buttonLabel) {
-      const label = buttonLabel || t('catalog_share_open');
-      return '<div class="catalog-upload-wrap mb-6">' +
-        '<button type="button" class="catalog-open-upload touch-btn" aria-expanded="false" aria-controls="catalog-upload-drawer-' + escapeHtml(String(gradeId)) + '">' +
-        '<i class="fa-solid fa-cloud-arrow-up"></i> ' + escapeHtml(label) + '</button>' +
-        '<div id="catalog-upload-drawer-' + escapeHtml(String(gradeId)) + '" class="catalog-upload-drawer hidden mt-4">' +
-        catalogUploadFormHtml(gradeId, presetTopic, readonlyTopic) +
-        '</div></div>';
+    function catalogUploadButtonHtml(gradeId, presetTopic, readonlyTopic, buttonLabel) {
+      const label = buttonLabel || t('catalog_add_material');
+      const topicAttr = String(presetTopic || '').replace(/"/g, '&quot;');
+      const ro = readonlyTopic ? 'true' : 'false';
+      return '<button type="button" class="catalog-open-upload touch-btn shrink-0" ' +
+        'data-grade="' + escapeHtml(String(gradeId)) + '" ' +
+        'data-topic="' + escapeHtml(topicAttr) + '" ' +
+        'data-topic-readonly="' + ro + '" ' +
+        'aria-haspopup="dialog">' +
+        '<i class="fa-solid fa-plus" aria-hidden="true"></i> ' + escapeHtml(label) + '</button>';
     }
 
-    function closeCatalogUploadDrawer(form) {
-      const drawer = form && form.closest('.catalog-upload-drawer');
-      if (!drawer) return;
-      mutateCatalogDom(function () {
-        drawer.classList.add('hidden');
-        const wrap = drawer.closest('.catalog-upload-wrap');
-        const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
-        if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+    function getCatalogUploadModal() {
+      return document.getElementById('catalog-upload-modal');
+    }
+
+    function resolveCatalogUploadActiveGrade(fallbackGradeId) {
+      return appState.grade || catalogState.gradeId || fallbackGradeId || '';
+    }
+
+    function resetCatalogUploadForm(form, opts) {
+      if (!form) return;
+      opts = opts || {};
+      const topicInput = form.querySelector('[name="catalog-topic"]');
+      const readonlyTopic = Boolean(opts.keepReadonlyTopic) || Boolean(topicInput && topicInput.readOnly);
+      const presetTopic = opts.presetTopic != null ? String(opts.presetTopic) : '';
+      form.reset();
+      resetCatalogFileDisplay(form);
+      const activeGrade = resolveCatalogUploadActiveGrade(form.getAttribute('data-grade'));
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      if (gradeSelect && activeGrade) gradeSelect.value = activeGrade;
+      const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
+      if (fileRadio) fileRadio.checked = true;
+      setCatalogShareMode(form, 'file');
+      ['catalog-desc', 'catalog-author', 'catalog-share-url'].forEach(function (name) {
+        const el = form.querySelector('[name="' + name + '"]');
+        if (el) el.value = '';
       });
+      if (topicInput) topicInput.value = readonlyTopic ? presetTopic : (opts.presetTopic || '');
+      const msgEl = form.querySelector('.catalog-upload-msg');
+      if (msgEl) {
+        msgEl.classList.add('hidden');
+        msgEl.textContent = '';
+        msgEl.classList.remove('text-terracotta');
+        msgEl.classList.add('text-sage-dark');
+      }
+    }
+
+    function openCatalogUploadModal(gradeId, presetTopic, readonlyTopic) {
+      const modal = getCatalogUploadModal();
+      const body = document.getElementById('catalog-upload-modal-body');
+      if (!modal || !body) return;
+      const activeGrade = resolveCatalogUploadActiveGrade(gradeId);
+      body.innerHTML = catalogUploadFormHtml(activeGrade, presetTopic, readonlyTopic);
+      const form = body.querySelector('.catalog-upload-form');
+      bindSingleCatalogUploadForm(form);
+      resetCatalogUploadForm(form, { presetTopic: presetTopic || '', keepReadonlyTopic: readonlyTopic });
+      modal.classList.remove('hidden');
+      modal.removeAttribute('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+      window.communityUploadDrawerOpen = true;
+      document.body.classList.add('catalog-modal-open');
+      persistCommunityFormDraft(true);
+      const topicInput = body.querySelector('[name="catalog-topic"]');
+      if (topicInput && !topicInput.readOnly) topicInput.focus({ preventScroll: true });
+    }
+
+    function closeCatalogUploadModal() {
+      const modal = getCatalogUploadModal();
+      if (!modal) return;
+      const form = modal.querySelector('.catalog-upload-form');
+      if (form) syncCommunityFormDraftFromForm(form, false);
+      modal.classList.add('hidden');
+      modal.setAttribute('hidden', '');
+      modal.setAttribute('aria-hidden', 'true');
+      window.communityUploadDrawerOpen = false;
+      document.body.classList.remove('catalog-modal-open');
+      persistCommunityFormDraft(false);
+    }
+
+    function bindCatalogUploadModalChrome() {
+      const modal = getCatalogUploadModal();
+      if (!modal || modal.dataset.chromeBound) return;
+      modal.dataset.chromeBound = '1';
+      modal.querySelectorAll('[data-catalog-modal-close]').forEach(function (el) {
+        el.addEventListener('click', closeCatalogUploadModal);
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeCatalogUploadModal();
+      });
+    }
+
+    function bindCatalogUploadButtons(container) {
+      if (!container) return;
+      container.querySelectorAll('.catalog-open-upload').forEach(function (btn) {
+        if (btn.dataset.uploadBtnBound) return;
+        btn.dataset.uploadBtnBound = '1';
+        btn.addEventListener('click', function () {
+          const gradeId = btn.getAttribute('data-grade') || catalogState.gradeId;
+          const topic = btn.getAttribute('data-topic') || '';
+          const readonly = btn.getAttribute('data-topic-readonly') === 'true';
+          openCatalogUploadModal(gradeId, topic, readonly);
+        });
+      });
+    }
+
+    function restoreCommunityUploadModalState() {
+      /* Upload form stays hidden until the user clicks the share button. */
     }
 
     function defaultCommunityFormDraft() {
@@ -11518,8 +11734,8 @@
       if (drawerOpen != null) {
         window.communityUploadDrawerOpen = Boolean(drawerOpen);
       } else {
-        const drawer = form.closest('.catalog-upload-drawer');
-        window.communityUploadDrawerOpen = Boolean(drawer && !drawer.classList.contains('hidden'));
+        const modal = getCatalogUploadModal();
+        window.communityUploadDrawerOpen = Boolean(modal && !modal.classList.contains('hidden'));
       }
       persistCommunityFormDraft();
     }
@@ -11553,6 +11769,15 @@
       window.selectedUploadFiles = [];
       window.communityUploadDrawerOpen = false;
       try { localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY); } catch (e) { /* ignore */ }
+      const modal = getCatalogUploadModal();
+      const body = document.getElementById('catalog-upload-modal-body');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.setAttribute('hidden', '');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('catalog-modal-open');
+      }
+      if (body) body.innerHTML = '';
     }
 
     function resetCommunityClientStateOnReload() {
@@ -11585,20 +11810,11 @@
       });
     }
 
-    function closeAllCatalogUploadDrawers() {
+    function closeAllCatalogUploadModals() {
       document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
         syncCommunityFormDraftFromForm(form, false);
       });
-      const panel = document.getElementById('panel-catalog');
-      if (!panel) return;
-      panel.querySelectorAll('.catalog-upload-drawer').forEach(function (drawer) {
-        drawer.classList.add('hidden');
-        const wrap = drawer.closest('.catalog-upload-wrap');
-        const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
-        if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
-      });
-      window.communityUploadDrawerOpen = false;
-      persistCommunityFormDraft(false);
+      closeCatalogUploadModal();
     }
 
     function catalogGradeNavHtml(activeGradeId) {
@@ -11632,57 +11848,37 @@
       });
     }
 
-    function bindCatalogUploadDrawer(container) {
-      if (!container) return;
-      container.querySelectorAll('.catalog-upload-wrap').forEach(function (wrap) {
-        const btn = wrap.querySelector('.catalog-open-upload');
-        const drawer = wrap.querySelector('.catalog-upload-drawer');
-        if (!btn || !drawer || wrap.dataset.drawerBound) return;
-        wrap.dataset.drawerBound = '1';
-        btn.addEventListener('click', function () {
-          const opening = drawer.classList.contains('hidden');
-          mutateCatalogDom(function () {
-            drawer.classList.toggle('hidden');
-            btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
-          });
-          window.communityUploadDrawerOpen = opening;
-          const form = drawer.querySelector('.catalog-upload-form');
-          if (opening && form) {
-            bindCatalogShareModeToggle(form);
-            bindCatalogFileInput(form);
-            bindCommunityFormDraftAutosave(form);
-            applyCommunityFormDraftToForm(form);
-            const topicInput = drawer.querySelector('[name="catalog-topic"]');
-            if (topicInput && !topicInput.readOnly) topicInput.focus({ preventScroll: true });
-          } else if (form) {
-            syncCommunityFormDraftFromForm(form, false);
-          }
+    function bindSingleCatalogUploadForm(form) {
+      if (!form) return;
+      bindCatalogShareModeToggle(form);
+      bindCatalogFileInput(form);
+      bindCommunityFormDraftAutosave(form);
+      if (form.dataset.formBound) return;
+      form.dataset.formBound = '1';
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      if (gradeSelect) {
+        gradeSelect.addEventListener('change', function () {
+          syncCommunityFormDraftFromForm(form);
+          const newGradeId = (gradeSelect.value || '').trim();
+          if (!newGradeId || String(newGradeId) === String(catalogState.gradeId)) return;
+          closeCatalogUploadModal();
+          renderCatalog('grade', newGradeId);
         });
+      }
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        handleCatalogUploadSubmit(form);
       });
     }
 
-    function restoreCommunityUploadDrawerState(container) {
+    function bindCatalogUploadForms(container) {
       if (!container) return;
-      loadCommunityFormDraftFromStorage();
-      container.querySelectorAll('.catalog-upload-wrap').forEach(function (wrap) {
-        const form = wrap.querySelector('.catalog-upload-form');
-        const drawer = wrap.querySelector('.catalog-upload-drawer');
-        const btn = wrap.querySelector('.catalog-open-upload');
-        if (!form || !drawer) return;
-        applyCommunityFormDraftToForm(form);
-        if (window.communityUploadDrawerOpen) {
-          mutateCatalogDom(function () {
-            drawer.classList.remove('hidden');
-            if (btn) btn.setAttribute('aria-expanded', 'true');
-          });
-        }
-      });
+      container.querySelectorAll('.catalog-upload-form').forEach(bindSingleCatalogUploadForm);
     }
 
     function bindCommunityFormDraftAutosave(form) {
       if (!form || form.dataset.draftBound) return;
       form.dataset.draftBound = '1';
-      applyCommunityFormDraftToForm(form);
       function saveNow() { syncCommunityFormDraftFromForm(form); }
       form.addEventListener('input', saveNow);
       form.addEventListener('change', saveNow);
@@ -11714,18 +11910,19 @@
     }
 
     function catalogUploadFormHtml(gradeId, presetTopic, readonlyTopic) {
+      const activeGrade = resolveCatalogUploadActiveGrade(gradeId);
       const topicVal = presetTopic ? escapeHtml(presetTopic) : '';
-      const fileInputId = 'catalog-file-upload-' + String(gradeId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileInputId = 'catalog-file-upload-' + String(activeGrade || gradeId).replace(/[^a-zA-Z0-9_-]/g, '_');
       const fieldClass = catalogFieldClass();
       const topicReadonly = readonlyTopic
         ? ' readonly class="' + fieldClass.replace(/"/g, '') + ' bg-parchment/50 text-walnut"'
         : ' class="' + fieldClass.replace(/"/g, '') + '"';
-      return '<form class="catalog-upload-form space-y-4 mb-6 p-4 sm:p-6 rounded-2xl border border-sage/30 bg-white shadow-sm" dir="rtl" data-grade="' + escapeHtml(String(gradeId)) + '" data-catalog-form-version="3">' +
+      return '<form class="catalog-upload-form space-y-4 mb-6 p-4 sm:p-6 rounded-2xl border border-sage/30 bg-white shadow-sm" dir="rtl" data-grade="' + escapeHtml(String(activeGrade)) + '" data-catalog-form-version="3">' +
         '<h4 class="text-xl font-bold text-sage-dark mb-2">' + escapeHtml(t('catalog_upload_title')) + '</h4>' +
         '<div class="w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1" for="catalog-grade-' + fileInputId + '">' + escapeHtml(t('catalog_grade_label')) + ' <span class="text-terracotta">*</span></label>' +
         '<select id="catalog-grade-' + fileInputId + '" name="catalog-grade" required class="' + fieldClass.replace(/"/g, '') + '">' +
-        renderCatalogGradeSelectOptions(gradeId) +
+        renderCatalogGradeSelectOptions(activeGrade) +
         '</select></div>' +
         '<div class="w-full">' +
         '<label class="block text-sm font-medium text-walnut mb-1">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
@@ -11901,14 +12098,13 @@
           msgEl.classList.add('text-sage-dark');
         }
         clearCommunityFormDraftOnSuccess();
-        const scrollY = capturePageScrollY();
-        closeCatalogUploadDrawer(form);
+        closeCatalogUploadModal();
         if (catalogState.view === 'materials') {
           await renderCatalogMaterials(gradeId, subject);
         } else {
           await renderCatalogGradePanel(gradeId);
         }
-        restorePageScrollY(scrollY);
+        scrollToCatalogContent(catalogState.view);
         updateCommunityBadge();
       } catch (err) {
         showCommunityUploadError(err);
@@ -11923,30 +12119,6 @@
           submitBtn.textContent = t('catalog_submit');
         }
       }
-    }
-
-    function bindCatalogUploadForms(container) {
-      if (!container) return;
-      container.querySelectorAll('.catalog-upload-form').forEach(function (form) {
-        bindCatalogShareModeToggle(form);
-        bindCatalogFileInput(form);
-        bindCommunityFormDraftAutosave(form);
-        const gradeSelect = form.querySelector('[name="catalog-grade"]');
-        if (gradeSelect && !form.dataset.gradeNavBound) {
-          form.dataset.gradeNavBound = '1';
-          gradeSelect.addEventListener('change', function () {
-            syncCommunityFormDraftFromForm(form);
-            const newGradeId = (gradeSelect.value || '').trim();
-            if (!newGradeId || String(newGradeId) === String(catalogState.gradeId)) return;
-            renderCatalog('grade', newGradeId);
-          });
-        }
-        form.addEventListener('submit', function (e) {
-          e.preventDefault();
-          handleCatalogUploadSubmit(form);
-        });
-      });
-      restoreCommunityUploadDrawerState(container);
     }
 
     function showCatalogStatus(msg, kind) {
@@ -11985,7 +12157,16 @@
     }
 
     function scrollToCatalogContent(view) {
-      /* Preserve scroll position while working in the catalog. */
+      runAfterLayout(function () {
+        const targetId = view === 'materials'
+          ? 'catalog-materials-header'
+          : (view === 'grade' ? 'catalog-grade-header' : null);
+        let target = targetId ? document.getElementById(targetId) : null;
+        if (!target) {
+          target = document.querySelector('.community-catalog-container') || document.getElementById('community-catalog-section');
+        }
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     }
 
     function renderCatalogBreadcrumb() {
@@ -12054,10 +12235,18 @@
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const topics = getDynamicTopicsForGrade(gradeId);
+      const allFiles = await attachCatalogManageFlags(collectCatalogFilesForGrade(gradeId));
       const g = GRADES.find(function (x) { return String(x.id) === String(gradeId); });
       let html = catalogGradeNavHtml(gradeId);
-      html += '<h3 class="app-page-title font-display font-bold text-burgundy mb-3">' + escapeHtml(g ? getGradeLabelById(g.id) : '') + '</h3>';
-      html += catalogUploadWrapHtml(gradeId, '', false, t('catalog_share_open'));
+      html += '<div id="catalog-grade-header" class="catalog-dashboard-header">' +
+        '<h3 class="app-page-title font-display font-bold text-burgundy mb-0">' + escapeHtml(g ? getGradeLabelById(g.id) : '') + '</h3>' +
+        catalogUploadButtonHtml(gradeId, '', false, t('catalog_add_material')) +
+        '</div>';
+      html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
+        escapeHtml(t('catalog_community_files', { count: allFiles.length })) + '</h4>';
+      html += allFiles.length
+        ? '<div class="space-y-3 mb-8">' + allFiles.map(renderCatalogFileRow).join('') + '</div>'
+        : '<p class="text-sm text-walnut/60 mb-8 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
       html += '<h4 class="font-bold text-walnut mb-3 mt-2"><i class="fa-solid fa-folder-tree text-sage icon-inline"></i> ' + escapeHtml(t('catalog_community_topics')) + '</h4>';
       if (!topics.length) {
         html += '<p class="text-sm text-walnut/60 mb-4 p-4 rounded-xl bg-parchment/60 border border-gold/20">' + escapeHtml(t('catalog_no_topics')) + '</p>';
@@ -12075,8 +12264,8 @@
       mutateCatalogDom(function () {
         el.innerHTML = html;
         bindCatalogGradeNav(el);
-        bindCatalogUploadDrawer(el);
-        bindCatalogUploadForms(el);
+        bindCatalogUploadButtons(el);
+        bindCatalogMaterialActions(document.getElementById('panel-catalog'));
         el.querySelectorAll('[data-topic]').forEach(function (btn) {
           btn.addEventListener('click', function () {
             renderCatalog('materials', gradeId, btn.getAttribute('data-topic'));
@@ -12151,19 +12340,17 @@
           '</div>'
         : '';
       const titleLine = (file.title || file.fileName || '').trim();
-      const descLine = (file.notes || file.topic || '').trim();
+      const descLine = (file.notes || '').trim();
       const metaParts = [];
       if ((file.authorName || '').trim()) metaParts.push((file.authorName || '').trim());
       if (file.createdAt) {
         const cardDate = formatCatalogCardDate(file.createdAt);
         if (cardDate) metaParts.push(cardDate);
       }
-      const metaLine = metaParts.join(', ');
+      const metaLine = metaParts.join(' · ');
       return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '">' +
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">' +
         '<div class="min-w-0 flex-1 catalog-material-text">' +
-        '<div class="flex flex-wrap items-center gap-2 mb-0.5">' +
-        '<span class="text-[10px] bg-sage/15 text-sage-dark px-2 py-0.5 rounded-full"><i class="fa-solid fa-cloud"></i> ' + escapeHtml(t('community_badge_label')) + '</span></div>' +
         (titleLine ? '<p class="catalog-material-title">' + escapeHtml(titleLine) + '</p>' : '') +
         (descLine ? '<p class="catalog-material-desc">' + escapeHtml(descLine) + '</p>' : '') +
         (metaLine ? '<p class="catalog-material-meta">' + escapeHtml(metaLine) + '</p>' : '') +
@@ -12382,10 +12569,12 @@
       }
       const files = await attachCatalogManageFlags(collectCatalogFiles(gradeId, topicId));
       const materialsHtml = catalogGradeNavHtml(gradeId) +
-        '<h3 class="app-page-title font-display font-bold text-burgundy mb-3 flex items-center gap-2">' +
+        '<div id="catalog-materials-header" class="catalog-dashboard-header">' +
+        '<h3 class="app-page-title font-display font-bold text-burgundy mb-0 flex items-center gap-2">' +
         '<i class="fa-solid fa-folder-open text-gold"></i> ' +
         escapeHtml(g ? getGradeLabelById(g.id) : '') + ' · ' + escapeHtml(topicLabel) + '</h3>' +
-        catalogUploadWrapHtml(gradeId, topicLabel, true, t('catalog_add_material')) +
+        catalogUploadButtonHtml(gradeId, topicLabel, true, t('catalog_add_material')) +
+        '</div>' +
         '<h4 class="font-bold text-walnut mb-3">' + escapeHtml(t('catalog_community_files', { count: files.length })) + '</h4>' +
         (files.length
           ? '<div class="space-y-3">' + files.map(renderCatalogFileRow).join('') + '</div>'
@@ -12393,8 +12582,7 @@
       mutateCatalogDom(function () {
         el.innerHTML = materialsHtml;
         bindCatalogGradeNav(el);
-        bindCatalogUploadDrawer(el);
-        bindCatalogUploadForms(el);
+        bindCatalogUploadButtons(el);
         bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       });
     }
@@ -12402,9 +12590,9 @@
     async function renderCatalog(view, gradeId, topicId, opts) {
       const scrollY = capturePageScrollY();
       saveAllCommunityFormDrafts();
-      const drawerWasOpen = window.communityUploadDrawerOpen;
+      const modalWasOpen = window.communityUploadDrawerOpen;
       const preservedFiles = window.selectedUploadFiles ? window.selectedUploadFiles.slice() : [];
-      if (drawerWasOpen && preservedFiles.length) {
+      if (modalWasOpen && preservedFiles.length) {
         window.selectedUploadFiles = preservedFiles;
       }
       catalogState.view = view || 'grades';
@@ -12427,13 +12615,16 @@
           showCatalogStatus('', '');
         }
         renderCatalogGrades();
+        restorePageScrollY(scrollY);
       } else if (catalogState.view === 'grade') {
         await renderCatalogGradePanel(catalogState.gradeId);
+        if (modalWasOpen) restoreCommunityUploadModalState();
+        scrollToCatalogContent('grade');
       } else if (catalogState.view === 'materials') {
         await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
+        if (modalWasOpen) restoreCommunityUploadModalState();
+        scrollToCatalogContent('materials');
       }
-      if (drawerWasOpen) window.communityUploadDrawerOpen = true;
-      restorePageScrollY(scrollY);
       persistActiveStep();
     }
 
@@ -12990,8 +13181,12 @@
             LessonChatSidebar.refreshWelcome();
           }
           var catalogPanel = document.getElementById('panel-catalog');
-          if (catalogPanel && !catalogPanel.classList.contains('hidden') && catalogState.view === 'materials' && catalogState.gradeId && catalogState.topic) {
-            renderCatalogMaterials(catalogState.gradeId, catalogState.topic);
+          if (catalogPanel && !catalogPanel.classList.contains('hidden')) {
+            if (catalogState.view === 'materials' && catalogState.gradeId && catalogState.topic) {
+              renderCatalogMaterials(catalogState.gradeId, catalogState.topic);
+            } else if (catalogState.view === 'grade' && catalogState.gradeId) {
+              renderCatalogGradePanel(catalogState.gradeId);
+            }
           }
           if (authState && authState.sessionReady && !didSessionScrollReset) {
             didSessionScrollReset = true;
@@ -13017,6 +13212,7 @@
       try { updateCloudBanner(); } catch (e) { console.warn('[waldrof] updateCloudBanner:', e); }
       try { updateTopicResearchButton(); } catch (e) { console.warn('[waldrof] updateTopicResearchButton:', e); }
       try { bindEvents(); } catch (e) { console.error('[waldrof] bindEvents failed — buttons may be inactive:', e); }
+      try { bindCatalogUploadModalChrome(); } catch (e) { console.warn('[waldrof] bindCatalogUploadModalChrome:', e); }
       if (!pageReloaded) {
         loadCommunityFormDraftFromStorage();
       }
