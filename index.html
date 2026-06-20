@@ -4917,13 +4917,160 @@
       };
     }
 
+    function tryParseArchiveJsonObject(value) {
+      if (value == null) return null;
+      if (typeof value === 'object') return value;
+      if (typeof value !== 'string') return null;
+      var text = value.trim();
+      if (!text || (text.charAt(0) !== '{' && text.charAt(0) !== '[')) return null;
+      try {
+        var parsed = JSON.parse(text);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function archiveSectionText(sec) {
+      if (!sec) return '';
+      if (typeof sec === 'string') return sec.trim();
+      return String(sec.content || sec.overview || sec.text || sec.body || sec.summary || '').trim();
+    }
+
+    function archiveEssenceTextFromData(data) {
+      if (!data || typeof data !== 'object') return '';
+      var blockPlan = data.blockPlan;
+      if (typeof blockPlan === 'string') blockPlan = tryParseArchiveJsonObject(blockPlan) || {};
+      if (!blockPlan || typeof blockPlan !== 'object') blockPlan = {};
+
+      var raw = String(
+        blockPlan.rawContent || blockPlan.content || blockPlan.overview || blockPlan.text || ''
+      ).trim();
+      if (raw) return raw;
+
+      var theory = blockPlan.theory;
+      if (typeof theory === 'string' && theory.trim()) return theory.trim();
+      if (theory && typeof theory === 'object') {
+        var theoryText = String(
+          theory.content || theory.overview || theory.summary || theory.text || theory.body || ''
+        ).trim();
+        if (theoryText) return theoryText;
+        var sections = Array.isArray(theory.sections) ? theory.sections : coerceCurriculumRows(theory.sections);
+        for (var i = 0; i < sections.length; i++) {
+          var secText = archiveSectionText(sections[i]);
+          if (secText) return secText;
+        }
+      }
+
+      var wr = data.webResearch;
+      if (wr && typeof wr === 'object') {
+        var summary = String(wr.summary || wr.overview || wr.content || wr.text || '').trim();
+        if (summary) return summary;
+      }
+      return String(data.content || data.overview || data.summary || '').trim();
+    }
+
+    function coerceArchiveLessonResultData(raw) {
+      if (!raw) return null;
+
+      if (raw.resultData != null) {
+        var inner = coerceArchiveLessonResultData(raw.resultData);
+        if (!inner) return null;
+        return Object.assign({}, inner, {
+          cacheKey: raw.cacheKey || inner.cacheKey || null,
+          gradeId: raw.gradeId || inner.gradeId || null,
+          gradeLabel: raw.gradeLabel || inner.gradeLabel || null,
+          topic: raw.topic || inner.topic || null,
+        });
+      }
+
+      var data = tryParseArchiveJsonObject(raw) || raw;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+      if (
+        data.data != null &&
+        typeof data.data === 'object' &&
+        !Array.isArray(data.data) &&
+        !data.blockPlan &&
+        !data.webResearch &&
+        !data.gradeInsights
+      ) {
+        var nested = coerceArchiveLessonResultData(data.data);
+        if (nested) data = Object.assign({}, data, nested);
+      }
+
+      var blockPlan = tryParseArchiveJsonObject(data.blockPlan) || data.blockPlan;
+      if ((!blockPlan || typeof blockPlan !== 'object') && archiveEssenceTextFromData(data)) {
+        blockPlan = {};
+      }
+      if (!blockPlan || typeof blockPlan !== 'object') return data;
+
+      var rawContent = String(
+        blockPlan.rawContent || blockPlan.content || blockPlan.overview || blockPlan.text || ''
+      ).trim();
+      if (!rawContent) {
+        var liftedEssence = archiveEssenceTextFromData(data);
+        if (liftedEssence) rawContent = liftedEssence;
+      }
+      if (rawContent && !String(blockPlan.rawContent || '').trim()) blockPlan.rawContent = rawContent;
+
+      var theory = tryParseArchiveJsonObject(blockPlan.theory) || blockPlan.theory;
+      if (typeof theory === 'string' && theory.trim()) {
+        blockPlan.theory = { title: '', sections: [{ heading: '', content: theory.trim() }] };
+      } else if (theory && typeof theory === 'object') {
+        if (!Array.isArray(theory.sections)) {
+          var parsedSections = tryParseArchiveJsonObject(theory.sections);
+          theory.sections = Array.isArray(parsedSections) ? parsedSections : coerceCurriculumRows(theory.sections);
+        }
+        if (!theory.sections.length) {
+          var theoryBody = String(
+            theory.content || theory.overview || theory.summary || theory.text || theory.body || ''
+          ).trim();
+          if (theoryBody) {
+            theory.sections = [{ heading: theory.title || theory.heading || '', content: theoryBody }];
+          }
+        }
+        theory.sections = theory.sections.map(function (sec, index) {
+          if (!sec || typeof sec !== 'object') {
+            var asText = String(sec || '').trim();
+            return asText ? { heading: '', content: asText } : null;
+          }
+          var content = archiveSectionText(sec);
+          return Object.assign({}, sec, {
+            heading: sec.heading || sec.title || '',
+            content: content || sec.content || '',
+          });
+        }).filter(Boolean);
+        blockPlan.theory = theory;
+      } else if (rawContent) {
+        blockPlan.theory = { title: '', sections: [{ heading: '', content: rawContent }] };
+      }
+
+      data.blockPlan = blockPlan;
+
+      if (!data.webResearch || typeof data.webResearch !== 'object') data.webResearch = {};
+      if (!String(data.webResearch.summary || '').trim()) {
+        var wrSummary = String(
+          data.webResearch.overview || data.webResearch.content || data.webResearch.text || ''
+        ).trim();
+        if (wrSummary) data.webResearch.summary = wrSummary;
+      }
+      if (!String(data.webResearch.summary || '').trim() && rawContent) {
+        data.webResearch.summary = rawContent;
+      }
+
+      return data;
+    }
+
     function hasTopicResearchContent(data) {
+      data = coerceArchiveLessonResultData(data);
       if (!data || !data.blockPlan) return false;
       if (String(data.blockPlan.rawContent || '').trim()) return true;
+      if (archiveEssenceTextFromData(data)) return true;
       const theory = data.blockPlan.theory;
       if (theory && Array.isArray(theory.sections) && theory.sections.length) {
         return theory.sections.some(function (sec) {
-          return sec && String(sec.content || '').trim();
+          return Boolean(archiveSectionText(sec));
         });
       }
       if (data.webResearch && String(data.webResearch.summary || '').trim()) return true;
@@ -4932,19 +5079,24 @@
 
     /** Apply completed topic research and keep the teacher on wizard Step B (never auto-open Step C). */
     function commitTopicResearchToStepB(topic, data) {
+      data = coerceArchiveLessonResultData(data);
       var topicStr = String(topic || resolveLessonTopic() || '').trim();
       if (!topicStr || !data || !hasTopicResearchContent(data)) return false;
 
       appState.topic = topicStr;
-      const rawTopic = data.blockPlan && String(data.blockPlan.rawContent || '').trim();
+      const rawTopic = String(
+        (data.blockPlan && data.blockPlan.rawContent) || archiveEssenceTextFromData(data) || ''
+      ).trim();
       if (rawTopic) {
         appState.webResearch = {
           topic: topicStr,
-          summary: '',
-          connections: [],
-          highlights: [],
+          summary: String((data.webResearch && data.webResearch.summary) || '').trim() || rawTopic,
+          connections: (data.webResearch && data.webResearch.connections) || [],
+          highlights: (data.webResearch && data.webResearch.highlights) || [],
           rawContent: rawTopic,
-          citations: Array.isArray(data.blockPlan.citations) ? data.blockPlan.citations : [],
+          citations: Array.isArray(data.blockPlan && data.blockPlan.citations)
+            ? data.blockPlan.citations
+            : ((data.webResearch && data.webResearch.citations) || []),
           _perplexityRaw: true,
         };
         appState.aiGeneratedPlan = {
@@ -4959,10 +5111,28 @@
           : { topic: topicStr, summary: '', connections: [], highlights: [] };
         appState.webResearch.topic = topicStr;
 
-        var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
-        appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topicStr, appState.gradeLabel);
+        try {
+          var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
+          appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topicStr, appState.gradeLabel);
+        } catch (normErr) {
+          console.warn('[waldrof] normalizeBlockPlan failed — using archive essence fallback:', normErr);
+          var fallbackText = archiveEssenceTextFromData(data);
+          if (!fallbackText) return false;
+          appState.webResearch.summary = fallbackText;
+          appState.webResearch.rawContent = fallbackText;
+          appState.webResearch._perplexityRaw = true;
+          appState.aiGeneratedPlan = {
+            topic: topicStr,
+            rawContent: fallbackText,
+            _perplexityRaw: true,
+          };
+        }
       }
-      appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+      try {
+        appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+      } catch (cloneErr) {
+        appState.activePlan = appState.aiGeneratedPlan;
+      }
       appState.productTabsRendered = freshProductTabsRendered();
       appState.visualGallery = normalizeGallery(data.gallery, topicStr);
       appState.topicResearchCompleted = true;
@@ -4974,7 +5144,11 @@
       updateNewResearchBarVisibility();
 
       holdPageScroll(function () {
-        renderWebResearchResult();
+        try {
+          renderWebResearchResult();
+        } catch (renderErr) {
+          console.error('[waldrof] renderWebResearchResult failed:', renderErr);
+        }
       });
       updateTopicResearchButton();
       updatePedagogyExportButtonsVisibility();
@@ -4986,64 +5160,78 @@
 
     async function applyLessonPlanFromHistory(item, options) {
       options = options || {};
-      if (!item || !item.resultData || !item.resultData.blockPlan) {
-        throw new Error(t('search_history_error'));
-      }
-      const data = item.resultData;
-      const userQuery = String(options.userQuery || options.preserveTopic || '').trim();
-      const archiveTitle = archiveLessonDisplayTopic(item) ||
-        String(item.topic || (data.webResearch && data.webResearch.topic) || '').trim();
-      let topic = archiveTitle;
-      if (userQuery) {
-        const uq = userQuery.toLowerCase();
-        const at = archiveTitle.toLowerCase();
-        const storedShort = String(item.topic || '').trim().toLowerCase();
-        if (isMisleadingArchiveAutoLoad(userQuery, archiveTitle) ||
-            (storedShort && uq.indexOf(storedShort) >= 0 && userQuery.length > storedShort.length + 2)) {
-          topic = userQuery;
-        } else if (uq === at || at.indexOf(uq) >= 0) {
-          topic = userQuery;
+      try {
+        const normalized = coerceArchiveLessonResultData(item);
+        if (!normalized || !normalized.blockPlan) {
+          throw new Error(t('search_history_error'));
         }
-      }
-      const gradeId = item.gradeId || appState.grade;
-      if (!gradeId || !topic) throw new Error(t('search_history_error'));
+        item = Object.assign({}, item || {}, { resultData: normalized });
+        const data = item.resultData;
+        const userQuery = String(options.userQuery || options.preserveTopic || '').trim();
+        const archiveTitle = archiveLessonDisplayTopic(item) ||
+          String(item.topic || (data.webResearch && data.webResearch.topic) || '').trim();
+        let topic = archiveTitle;
+        if (userQuery) {
+          const uq = userQuery.toLowerCase();
+          const at = archiveTitle.toLowerCase();
+          const storedShort = String(item.topic || '').trim().toLowerCase();
+          if (isMisleadingArchiveAutoLoad(userQuery, archiveTitle) ||
+              (storedShort && uq.indexOf(storedShort) >= 0 && userQuery.length > storedShort.length + 2)) {
+            topic = userQuery;
+          } else if (uq === at || at.indexOf(uq) >= 0) {
+            topic = userQuery;
+          }
+        }
+        const gradeId = item.gradeId || appState.grade;
+        if (!gradeId || !topic) throw new Error(t('search_history_error'));
 
-      if (topicResearchAbort) topicResearchAbort.abort();
-      topicResearchAbort = null;
-      abortAllInlineExpansions();
-      invalidateProductTabRenders();
-      resetSummarySession();
+        if (topicResearchAbort) topicResearchAbort.abort();
+        topicResearchAbort = null;
+        abortAllInlineExpansions();
+        invalidateProductTabRenders();
+        resetSummarySession();
 
-      appState.lessonCacheKey = item.cacheKey || appState.lessonCacheKey || '';
-      appState.grade = gradeId;
-      appState.gradeLabel = item.gradeLabel || getGradeLabelById(gradeId);
-      appState.topic = topic;
+        appState.lessonCacheKey = item.cacheKey || appState.lessonCacheKey || '';
+        appState.grade = gradeId;
+        appState.gradeLabel = item.gradeLabel || getGradeLabelById(gradeId);
+        appState.topic = topic;
 
-      const gradeSelect = document.getElementById('grade-select');
-      if (gradeSelect) gradeSelect.value = gradeId;
-      const topicInput = document.getElementById('topic-input');
-      if (topicInput) topicInput.value = topic;
+        const gradeSelect = document.getElementById('grade-select');
+        if (gradeSelect) gradeSelect.value = gradeId;
+        const topicInput = document.getElementById('topic-input');
+        if (topicInput) topicInput.value = topic;
 
-      if (!commitTopicResearchToStepB(topic, data)) {
-        throw new Error(t('search_history_error'));
-      }
-      scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
+        if (!commitTopicResearchToStepB(topic, data)) {
+          throw new Error(t('search_history_error'));
+        }
+        scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
-      if (isCloudConfigured()) {
-        try { await loadCommunity(); } catch (e) { /* ignore */ }
-      }
+        if (isCloudConfigured()) {
+          try { await loadCommunity(); } catch (e) { /* ignore */ }
+        }
 
-      const sessionKey = String(gradeId) + '|' + topic.trim().toLowerCase();
-      if (typeof LessonChatSidebar !== 'undefined') {
-        LessonChatSidebar.restoreSession({
-          messages: data.chatHistory || [],
-          ragContext: data.chatRagContext || '',
-          ragChunkIds: data.chatRagChunkIds || [],
-          sessionKey: sessionKey,
-          openChat: false,
-        });
-        LessonChatSidebar.updateVisibility();
-        queueCommunityLessonSync();
+        const sessionKey = String(gradeId) + '|' + topic.trim().toLowerCase();
+        if (typeof LessonChatSidebar !== 'undefined') {
+          LessonChatSidebar.restoreSession({
+            messages: data.chatHistory || [],
+            ragContext: data.chatRagContext || '',
+            ragChunkIds: data.chatRagChunkIds || [],
+            sessionKey: sessionKey,
+            openChat: false,
+          });
+          LessonChatSidebar.updateVisibility();
+          queueCommunityLessonSync();
+        }
+      } catch (err) {
+        console.error('[waldrof] applyLessonPlanFromHistory failed:', err);
+        throw err;
+      } finally {
+        setTopicResearchLoadingUi(false);
+        const historyBtn = document.getElementById('btn-topic-research');
+        if (historyBtn) {
+          historyBtn.disabled = false;
+          updateTopicResearchButton();
+        }
       }
     }
 
@@ -8601,20 +8789,36 @@
     async function applyArchiveTopicMatch(match, options) {
       options = options || {};
       if (!match) return false;
-      let item = match.item;
-      if (!item && match.cacheKey) {
-        item = await reloadArchiveLessonItem(match.cacheKey);
+      try {
+        let item = match.item;
+        if (!item && match.cacheKey) {
+          item = await reloadArchiveLessonItem(match.cacheKey);
+        }
+        if (item) {
+          const normalized = coerceArchiveLessonResultData(item);
+          if (normalized) item = Object.assign({}, item, { resultData: normalized });
+        }
+        if (!item || !item.resultData || !item.resultData.blockPlan) return false;
+        if (options.closeChat && typeof LessonChatSidebar !== 'undefined') {
+          LessonChatSidebar.setDisplayMode('bubble');
+        }
+        const userQuery = String(
+          options.userQuery || match.requestedTopic || appState.topic || document.getElementById('topic-input')?.value || ''
+        ).trim();
+        await applyLessonPlanFromHistory(item, { userQuery: userQuery });
+        if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+        return true;
+      } catch (err) {
+        console.error('[waldrof] applyArchiveTopicMatch failed:', err);
+        throw err;
+      } finally {
+        setTopicResearchLoadingUi(false);
+        const archiveBtn = document.getElementById('btn-topic-research');
+        if (archiveBtn) {
+          archiveBtn.disabled = false;
+          updateTopicResearchButton();
+        }
       }
-      if (!item || !item.resultData || !item.resultData.blockPlan) return false;
-      if (options.closeChat && typeof LessonChatSidebar !== 'undefined') {
-        LessonChatSidebar.setDisplayMode('bubble');
-      }
-      const userQuery = String(
-        options.userQuery || match.requestedTopic || appState.topic || document.getElementById('topic-input')?.value || ''
-      ).trim();
-      await applyLessonPlanFromHistory(item, { userQuery: userQuery });
-      if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
-      return true;
     }
 
     async function checkAndShowCommunityTopicAlert(serverMatches) {
@@ -11805,7 +12009,14 @@
         if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
         updateTopicResearchButton();
       } finally {
-        if (runId !== topicResearchRunId) return;
+        if (runId !== topicResearchRunId) {
+          setTopicResearchLoadingUi(false);
+          if (btn) {
+            btn.disabled = false;
+            updateTopicResearchButton();
+          }
+          return;
+        }
         topicResearchAbort = null;
         setTopicResearchLoadingUi(false);
         if (!signal.aborted && btn) btn.disabled = false;
@@ -11859,6 +12070,13 @@
               out.classList.remove('hidden');
               out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(archiveErr.message || String(archiveErr)) + '</p>';
             }
+          } finally {
+            setTopicResearchLoadingUi(false);
+            const exactBtn = document.getElementById('btn-topic-research');
+            if (exactBtn) {
+              exactBtn.disabled = false;
+              updateTopicResearchButton();
+            }
           }
           return;
         }
@@ -11866,6 +12084,12 @@
         if (archiveMatch && archiveMatch.matchType === 'partial') {
           topicResearchAbort = null;
           presentArchivePartialMatch(topic, archiveMatch);
+          setTopicResearchLoadingUi(false);
+          const partialBtn = document.getElementById('btn-topic-research');
+          if (partialBtn) {
+            partialBtn.disabled = false;
+            updateTopicResearchButton();
+          }
           return;
         }
       }

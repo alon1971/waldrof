@@ -45,6 +45,12 @@ const STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION =
   'Base pedagogical content on verified Rudolf Steiner and Waldorf sources. Never hallucinate doctrines or practices.\n' +
   '=== END STEINER / ANTHROPOSOPHIC SOURCE FIDELITY ===\n';
 
+const CHAT_NO_RAW_URLS_INSTRUCTION =
+  '\n=== CHAT — NO RAW URLS (ABSOLUTE) ===\n' +
+  'NEVER include raw http:// or https:// links, file_path strings, storage paths, or Supabase URLs in the "text" field.\n' +
+  'Guide teachers to catalog locations using grade and subject folder names only — the UI handles navigation separately.\n' +
+  '=== END CHAT — NO RAW URLS ===\n';
+
 const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
   '\n=== PEDAGOGICAL CHAT — COMMUNITY ARCHIVE FIRST → GEMINI KNOWLEDGE BASE (MANDATORY) ===\n' +
   'This chat pipeline is DECOUPLED from live web search. Do NOT perform or simulate Perplexity, Sonar, or any internet search.\n' +
@@ -56,7 +62,18 @@ const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
 const COMMUNITY_FIRST_CHAT_INSTRUCTION =
   '\n=== COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING (MANDATORY WHEN MATCHES EXIST) ===\n' +
   'When COMMUNITY MATERIALS DATABASE lists matches, open with the mandatory celebration line from context.\n' +
+  'Do NOT paste raw URLs — refer to grade and subject folder in the community catalog only.\n' +
   '=== END COMMUNITY FIRST ===\n';
+
+const CHAT_EXPANSION_MODE_INSTRUCTION =
+  '\n=== EXPANSION FOLLOW-UP — GEMINI GENERATION ONLY (MANDATORY) ===\n' +
+  'The teacher explicitly asked for MORE materials, DEEPER ideas, or additional pedagogical content.\n' +
+  'STRICT: This is a fresh-generation request — do NOT repeat community-match celebration openings, ' +
+  'archive announcements, catalog redirects, or prior file references.\n' +
+  'Do NOT open with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '» or any archive alert phrasing.\n' +
+  'Generate rich, original Waldorf pedagogical content: practical activities, classroom flow, developmental context, ' +
+  'and book/article recommendations (title + author only — never URLs).\n' +
+  '=== END EXPANSION FOLLOW-UP ===\n';
 
 const CHAT_JSON_OUTPUT_INSTRUCTION =
   '\n=== CHAT OUTPUT: RAW JSON ONLY (MANDATORY) ===\n' +
@@ -68,28 +85,67 @@ const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
   'Never invent fake bold citations or [1][2] markers when no community match exists.\n' +
   '=== END CHAT — STRICT GROUNDING ===\n';
 
-function pedagogicalChatSystemPrompt(extra) {
-  return (
+function resolveChatPromptMode(body) {
+  if (isChatPedagogicalExpansionRequest(body)) return 'expansion';
+  if (
+    body &&
+    body.communityMaterialsProbe &&
+    body.communityMaterialsProbe.count > 0
+  ) {
+    return 'community_match';
+  }
+  return 'gemini_kb';
+}
+
+function pedagogicalChatSystemPrompt(extra, mode) {
+  const baseRole =
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — an expert educational consultant. ' +
     'Help teachers with follow-up questions as a supportive, highly accurate pedagogical peer. ' +
-    'COMMUNITY ARCHIVE FIRST: Always check the COMMUNITY MATERIALS DATABASE in the user message before answering. ' +
-    'When matches exist, celebrate them, guide the teacher to the exact community-catalog location, and cite any direct file link from context. ' +
-    'When no community match exists, answer from your native pedagogical knowledge base with practical insights and book/article recommendations. ' +
     'STRICT: This chat is Gemini-only — never use, simulate, or reference Perplexity, Sonar, or live web search. ' +
-    'You may READ lesson context from cached grade/topic data in the user message but must NEVER regenerate or overwrite Phase A/B/C core content. ' +
-    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
-    PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
-    COMMUNITY_FIRST_CHAT_INSTRUCTION +
+    'You may READ lesson context from cached grade/topic data in the user message but must NEVER regenerate or overwrite Phase A/B/C core content. ';
+
+  const sharedTail =
+    CHAT_NO_RAW_URLS_INSTRUCTION +
     CHAT_NO_INVENTED_CITATIONS_INSTRUCTION +
     CHAT_JSON_OUTPUT_INSTRUCTION +
     JSON_ONLY_INSTRUCTION +
     JSON_RESPONSE_ENFORCEMENT +
     JSON_VALID_SYNTAX_INSTRUCTION +
     ' Write all chat replies in Hebrew inside the JSON "text" field. ' +
-    'When Supabase community context is empty or lacks a direct match, open with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '» and give practical Waldorf guidance — never fake bold citations or structured placeholders. ' +
-    'Deliver full, practical answers grounded in community archive context or your pedagogical knowledge base.' +
     NO_LATEX_BLOCK +
-    (extra || '')
+    (extra || '');
+
+  if (mode === 'expansion') {
+    return (
+      baseRole +
+      'The teacher wants MORE pedagogical materials or DEEPER ideas — deliver fresh, practical Hebrew content from your Waldorf knowledge base. ' +
+      'Ignore any community archive blocks in the user message; they are background only and must NOT drive your reply. ' +
+      STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
+      CHAT_EXPANSION_MODE_INSTRUCTION +
+      sharedTail
+    );
+  }
+
+  if (mode === 'community_match') {
+    return (
+      baseRole +
+      'COMMUNITY ARCHIVE MATCH: A verified community file matched this question. ' +
+      'Celebrate it in your opening, guide the teacher to the exact community-catalog location (grade → subject folder), ' +
+      'and enrich from matched title/subject/description metadata — never paste raw URLs. ' +
+      STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
+      PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
+      COMMUNITY_FIRST_CHAT_INSTRUCTION +
+      sharedTail
+    );
+  }
+
+  return (
+    baseRole +
+    'No direct community archive match for this question. Answer from your native pedagogical knowledge base with practical insights and book/article recommendations. ' +
+    'Open with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '» and give practical Waldorf guidance — never fake bold citations or structured placeholders. ' +
+    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
+    PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
+    sharedTail
   );
 }
 
@@ -267,15 +323,51 @@ function isChatPedagogicalExpansionRequest(body) {
   const msg = String((body && body.userMessage) || '').trim();
   if (!msg) return false;
   const compact = msg.replace(/\s+/g, ' ');
+  if (/חומר\s+נוסף/u.test(compact)) return true;
   if (/עוד\s+חומרים?/u.test(compact)) return true;
   if (/\b(תן|תני|תנו)\s+לי\s+עוד\b/u.test(compact)) return true;
-  if (/\bעוד\s+(רעיונות|פעילויות|דוגמאות|הצעות|חומרים?)\b/u.test(compact)) return true;
-  if (/\b(מידע|תוכן|חומר)\s+נוסף\b/u.test(compact)) return true;
+  if (/\bעוד\s+(רעיונות|פעילויות|דוגמאות|הצעות|חומרים?|הצעות\s+פדגוגיות)\b/u.test(compact)) return true;
+  if (/\b(מידע|תוכן|חומר|רעיונות|פעילויות|דוגמאות|הצעות)\s+נוספ(?:ים|ות|ה)?\b/u.test(compact)) return true;
   if (/\b(רעיונות|תוכן|הרחבה)\s+(פדגוגי|פדגוגיים|עמוק|נוסף|נוספים)\b/u.test(compact)) return true;
-  if (/\bהעמק\b/u.test(compact) || /\bהרחב(?:ה|ו)?\b/u.test(compact)) return true;
+  if (/\b(יש|יש\s+לך|יש\s+לכם)\s+עוד\b/u.test(compact)) return true;
+  if (/\b(אפשר|בוא(?:ו)?|בואי)\s+עוד\b/u.test(compact)) return true;
+  if (/\bהעמק\b/u.test(compact) || /\bהרחב(?:ה|ו|י)?\b/u.test(compact)) return true;
   if (/\b(deeper|more)\s+(pedagogical|materials?|ideas?|content)\b/i.test(compact)) return true;
   if (/\bmore\s+materials?\b/i.test(compact)) return true;
   return false;
+}
+
+function stripRawUrlsFromChatText(text) {
+  const raw = String(text || '');
+  if (!raw.trim()) return raw;
+  return raw
+    .replace(/קישור\s+ישיר[^\n.]*/giu, '')
+    .replace(/https?:\/\/[^\s)\]>"']+/gi, '')
+    .replace(/(?:^|\n)\s*(?:file_path|url)\s*[:=]\s*\S+/gim, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+\./g, '.')
+    .replace(/\.\s*\./g, '.')
+    .trim();
+}
+
+function sanitizeChatReplyPayload(data, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  if (!data || !data.chatReply || typeof data.chatReply !== 'object') return data;
+
+  if (typeof data.chatReply.answer === 'string') {
+    data.chatReply.answer = stripRawUrlsFromChatText(data.chatReply.answer);
+  }
+  if (typeof data.chatReply.answerHtml === 'string') {
+    data.chatReply.answerHtml = stripRawUrlsFromChatText(data.chatReply.answerHtml);
+  }
+
+  if (opts.expansionRequest) {
+    data.chatReply.routedToCommunity = false;
+    delete data.chatReply.communityMatchCount;
+    delete data.chatReply.matchMethod;
+  }
+
+  return data;
 }
 
 /**
@@ -283,13 +375,14 @@ function isChatPedagogicalExpansionRequest(body) {
  */
 async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
   const expansionRequest = isChatPedagogicalExpansionRequest(body);
-  const hasCommunityMatch = !expansionRequest && Boolean(
-    body.communityMaterialsProbe &&
-    body.communityMaterialsProbe.count > 0
-  );
+  const promptMode = resolveChatPromptMode(body);
+  const hasCommunityMatch = promptMode === 'community_match';
+
   const chatExtra = extraSystem + (
-    hasCommunityMatch
-      ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH: Start with the mandatory opening; guide the teacher to the exact catalog location and any direct file link from context.'
+    expansionRequest
+      ? ' PEDAGOGICAL CHAT — EXPANSION FOLLOW-UP: Fresh Gemini generation only. Skip all community archive redirects and celebration openings.'
+      : hasCommunityMatch
+      ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH: Start with the mandatory opening; guide the teacher to the exact catalog location (grade → subject). Never paste raw URLs.'
       : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE: No community archive match. Act as expert educational consultant; recommend relevant books, essays, and articles. No live web search.'
   );
   let lastRaw = '';
@@ -299,16 +392,20 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
     const retrySuffix = isRetry
       ? ' CRITICAL RETRY: Your previous reply was rejected — return ONLY valid JSON {"text":"..."} with no markdown fences or extra text.'
       : '';
-    const systemContent = pedagogicalChatSystemPrompt(chatExtra + retrySuffix);
+    const systemContent = pedagogicalChatSystemPrompt(chatExtra + retrySuffix, promptMode);
     let raw;
     try {
       if (isRetry) {
         console.warn('[chat] Silent Gemini retry (attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
       }
-      console.log('[chat] Gemini-only pipeline', hasCommunityMatch ? '(community archive + Gemini)' : '(Gemini knowledge base fallback)');
+      console.log(
+        '[chat] Gemini-only pipeline',
+        expansionRequest ? '(expansion — fresh pedagogical generation)' :
+        hasCommunityMatch ? '(community archive + Gemini)' : '(Gemini knowledge base fallback)'
+      );
       raw = await callGeminiV1(systemContent, userPrompt, {
         model: GEMINI_GENERATION_MODEL,
-        temperature: isRetry ? 0.2 : 0.35,
+        temperature: isRetry ? 0.2 : (expansionRequest ? 0.45 : 0.35),
         jsonMode: true,
         responseSchema: getChatFollowupResponseSchema(),
       });
@@ -322,9 +419,9 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
       rethrowChatError(geminiErr, 'שגיאה בעוזר הפדגוגי — נסו שוב בעוד רגע.');
     }
 
-    const data = normalizeChatFollowupFromModel(raw);
+    const data = sanitizeChatReplyPayload(normalizeChatFollowupFromModel(raw), { expansionRequest: expansionRequest });
     if (data && data._parseFallback) {
-      return data;
+      return sanitizeChatReplyPayload(data, { expansionRequest: expansionRequest });
     }
     if (cacheDb.extractChatAnswerText(data)) {
       if (hasCommunityMatch) {
@@ -333,18 +430,20 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
         data.chatReply.communityMatchCount = body.communityMaterialsProbe.count;
         data.chatReply.matchMethod = body.communityMaterialsProbe.matchMethod || 'none';
       }
-      return data;
+      return sanitizeChatReplyPayload(data, { expansionRequest: expansionRequest });
     }
     if (attempt >= MODEL_PARSE_MAX_ATTEMPTS) {
-      return normalizeChatFollowupFromModel(lastRaw || '');
+      return sanitizeChatReplyPayload(normalizeChatFollowupFromModel(lastRaw || ''), { expansionRequest: expansionRequest });
     }
   }
 
-  return normalizeChatFollowupFromModel(lastRaw || '');
+  return sanitizeChatReplyPayload(normalizeChatFollowupFromModel(lastRaw || ''), { expansionRequest: expansionRequest });
 }
 
 module.exports = {
   fetchPedagogicalChat,
   isChatPedagogicalExpansionRequest,
   pedagogicalChatSystemPrompt,
+  resolveChatPromptMode,
+  stripRawUrlsFromChatText,
 };
