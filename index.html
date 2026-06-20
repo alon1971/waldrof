@@ -3346,7 +3346,7 @@
             <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
               <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
                 <i class="fa-solid fa-spinner fa-spin text-xl text-sage" aria-hidden="true"></i>
-                <span id="grade-research-loading-text" data-i18n="grade_insights_generating">מפיק תמונת גיל, רעיונות והרחבות קהילה...</span>
+                <span id="grade-research-loading-text" data-i18n="grade_insights_loading">טוען תובנות...</span>
               </p>
               <button type="button" id="btn-grade-research-cancel" class="touch-btn shrink-0 px-5 py-3 rounded-xl w-full sm:w-auto">
                 <span data-i18n="grade_research_cancel">ביטול ובחירת כיתה מחדש</span>
@@ -3748,7 +3748,7 @@
      */
     const USE_DIRECT_PERPLEXITY = false;
     const PERPLEXITY_API_KEY_DIRECT = '';
-    /** Archive-only: grade/topic load from Supabase cached_results — no live Gemini/Perplexity. */
+    /** Cache-first grade/topic: Supabase hit returns instantly; cache miss triggers Perplexity Sonar via /api/generate. */
     const ARCHIVE_ONLY_MODE = true;
     const AI_GENERATE_ENDPOINT = '/api/generate';
 
@@ -4693,19 +4693,44 @@
       };
     }
 
+    function hasTopicResearchContent(data) {
+      if (!data || !data.blockPlan) return false;
+      if (String(data.blockPlan.rawContent || '').trim()) return true;
+      return Boolean(data.blockPlan.inspiration && data.blockPlan.curriculum);
+    }
+
     /** Apply completed topic research and keep the teacher on wizard Step B (never auto-open Step C). */
     function commitTopicResearchToStepB(topic, data) {
       var topicStr = String(topic || resolveLessonTopic() || '').trim();
-      if (!topicStr || !data || !data.blockPlan) return false;
+      if (!topicStr || !data || !hasTopicResearchContent(data)) return false;
 
       appState.topic = topicStr;
-      appState.webResearch = data.webResearch
-        ? Object.assign({}, data.webResearch)
-        : { topic: topicStr, summary: '', connections: [], highlights: [] };
-      appState.webResearch.topic = topicStr;
+      const rawTopic = data.blockPlan && String(data.blockPlan.rawContent || '').trim();
+      if (rawTopic) {
+        appState.webResearch = {
+          topic: topicStr,
+          summary: '',
+          connections: [],
+          highlights: [],
+          rawContent: rawTopic,
+          citations: Array.isArray(data.blockPlan.citations) ? data.blockPlan.citations : [],
+          _perplexityRaw: true,
+        };
+        appState.aiGeneratedPlan = {
+          topic: topicStr,
+          rawContent: rawTopic,
+          citations: appState.webResearch.citations,
+          _perplexityRaw: true,
+        };
+      } else {
+        appState.webResearch = data.webResearch
+          ? Object.assign({}, data.webResearch)
+          : { topic: topicStr, summary: '', connections: [], highlights: [] };
+        appState.webResearch.topic = topicStr;
 
-      var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
-      appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topicStr, appState.gradeLabel);
+        var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
+        appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topicStr, appState.gradeLabel);
+      }
       appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       appState.productTabsRendered = freshProductTabsRendered();
       appState.visualGallery = normalizeGallery(data.gallery, topicStr);
@@ -5656,6 +5681,23 @@
       syncGradeInsightsTitle(gradeId);
       const gi = (data && data.gradeInsights) ? data.gradeInsights : {};
       let html = '';
+
+      if (String(gi.rawContent || '').trim()) {
+        html = buildPerplexityExpansionHtml({
+          rawContent: gi.rawContent,
+          citations: gi.citations,
+        });
+        holdPageScroll(function () {
+          document.getElementById('grade-insights-body').innerHTML = html || (
+            '<p class="text-walnut/70">' + escapeHtml(t('grade_insights_empty')) + '</p>'
+          );
+        });
+        ensurePedagogySuggestionEvents();
+        updatePedagogyExportButtonsVisibility();
+        nudgeGoogleTranslate();
+        syncLessonChatFabLayout();
+        return;
+      }
 
       const part1Html = gi.part1AgePictureHtml || gi.archivesSynthesisHtml || '';
       const part1Bullets = gi.part1DevelopmentBullets || gi.developmentBullets || [];
@@ -7772,25 +7814,33 @@
       const wr = appState.webResearch;
       const out = document.getElementById('web-research-result');
       if (!wr) return;
-      let html = '<p class="leading-relaxed">' + escapeHtml(wr.summary) + '</p>';
-      if (wr.highlights && wr.highlights.length) {
-        html += '<div class="space-y-2 mt-3">';
-        wr.highlights.forEach(function (h, index) {
-          const text = typeof h === 'string' ? h : (h.text || h.highlight || '');
-          html += renderPedagogySuggestionCard({
-            id: buildPedagogyItemId('web', 'highlight', index, text),
-            type: 'web',
-            subtype: 'highlight',
-            title: '',
-            preview: text,
-            context: 'web-research · ' + (wr.topic || ''),
-          });
+      let html = '';
+      if (String(wr.rawContent || '').trim()) {
+        html = buildPerplexityExpansionHtml({
+          rawContent: wr.rawContent,
+          citations: wr.citations,
         });
-        html += '</div>';
-      }
-      if (wr.connections && wr.connections.length) {
-        html += '<p class="mt-2 text-xs text-walnut/60">' + escapeHtml(t('web_research_age_conn')) + ': ' +
-          (wr.connections || []).map(escapeHtml).join(' · ') + '</p>';
+      } else {
+        html = '<p class="leading-relaxed">' + escapeHtml(wr.summary) + '</p>';
+        if (wr.highlights && wr.highlights.length) {
+          html += '<div class="space-y-2 mt-3">';
+          wr.highlights.forEach(function (h, index) {
+            const text = typeof h === 'string' ? h : (h.text || h.highlight || '');
+            html += renderPedagogySuggestionCard({
+              id: buildPedagogyItemId('web', 'highlight', index, text),
+              type: 'web',
+              subtype: 'highlight',
+              title: '',
+              preview: text,
+              context: 'web-research · ' + (wr.topic || ''),
+            });
+          });
+          html += '</div>';
+        }
+        if (wr.connections && wr.connections.length) {
+          html += '<p class="mt-2 text-xs text-walnut/60">' + escapeHtml(t('web_research_age_conn')) + ': ' +
+            (wr.connections || []).map(escapeHtml).join(' · ') + '</p>';
+        }
       }
       holdPageScroll(function () {
         out.innerHTML = html;
@@ -10692,7 +10742,7 @@
       const btn = document.getElementById('btn-grade-submit');
       const hint = document.getElementById('api-hint-step1');
       if (loadingText) {
-        loadingText.textContent = t('grade_insights_generating');
+        loadingText.textContent = t('grade_insights_loading');
       }
       holdPageScroll(function () {
         if (loadingEl) {
@@ -10796,7 +10846,15 @@
         const data = await fetchGradeInsightsAI(signal);
         if (runId !== gradeResearchRunId || signal.aborted) return;
         appState.gradeResearch = data;
-        if (!data || !data.gradeInsights) {
+        const gi = data && data.gradeInsights;
+        const hasGradeContent = gi && (
+          String(gi.rawContent || '').trim() ||
+          gi.part1AgePictureHtml ||
+          gi.part2ClassroomIdeasHtml ||
+          (gi.part1DevelopmentBullets && gi.part1DevelopmentBullets.length) ||
+          (gi.part2ClassroomIdeas && gi.part2ClassroomIdeas.length)
+        );
+        if (!hasGradeContent) {
           throw new Error(isEnglish()
             ? 'Incomplete AI response — grade insights missing. Please try again.'
             : 'תשובת AI לא שלמה — חסרה תמונת גיל. נסו שוב.');
@@ -10825,7 +10883,7 @@
       const loadingText = document.getElementById('topic-research-loading-text');
       const btn = document.getElementById('btn-topic-research');
       if (loadingText) {
-        loadingText.textContent = t('topic_research_deep');
+        loadingText.textContent = t('topic_research_loading_archive');
       }
       holdPageScroll(function () {
         if (loadingEl) {
@@ -11045,7 +11103,7 @@
         const communityMatches = (data && data._communityMatches) ||
           (data && data._meta && data._meta.communityMatches) || [];
 
-        if (!data.blockPlan) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
+        if (!hasTopicResearchContent(data)) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         }
@@ -11124,35 +11182,9 @@
 
         if (archiveMatch && archiveMatch.matchType === 'partial') {
           topicResearchAbort = null;
-          if (ARCHIVE_ONLY_MODE) {
-            const outPartial = document.getElementById('web-research-result');
-            if (outPartial) {
-              outPartial.classList.remove('hidden');
-              outPartial.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
-                escapeHtml(t('archive_not_found')) + '</p>';
-            }
-            return;
-          }
           presentArchivePartialMatch(topic, archiveMatch);
           return;
         }
-      }
-
-      if (ARCHIVE_ONLY_MODE) {
-        topicResearchAbort = null;
-        setTopicResearchLoadingUi(false);
-        const outMiss = document.getElementById('web-research-result');
-        if (outMiss) {
-          outMiss.classList.remove('hidden');
-          outMiss.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
-            escapeHtml(t('archive_not_found')) + '</p>';
-        }
-        const missBtn = document.getElementById('btn-topic-research');
-        if (missBtn) {
-          missBtn.disabled = false;
-          updateTopicResearchButton();
-        }
-        return;
       }
 
       appState.topicResearchCompleted = false;
@@ -11171,7 +11203,7 @@
       if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
       if (topicAlert) { topicAlert.classList.add('hidden'); topicAlert.innerHTML = ''; }
 
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_scanning')) + '</span>';
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_loading_archive')) + '</span>';
       setTopicResearchLoadingUi(true);
       btn.disabled = true;
 
@@ -13449,7 +13481,7 @@
       updateTopicResearchButton();
       const loadingText = document.getElementById('topic-research-loading-text');
       const cancelLabel = document.querySelector('#btn-topic-research-cancel [data-i18n]');
-      if (loadingText) loadingText.textContent = t('topic_research_deep');
+      if (loadingText) loadingText.textContent = t('topic_research_loading_archive');
       if (cancelLabel) cancelLabel.textContent = t('topic_research_cancel');
       const catalogPanel = document.getElementById('panel-catalog');
       if (isWorkspaceOpen() && catalogPanel && !catalogPanel.classList.contains('hidden')) {
@@ -13469,7 +13501,7 @@
       }
       updatePedagogyExportButtonsVisibility();
       const gradeLoadingText = document.getElementById('grade-research-loading-text');
-      if (gradeLoadingText) gradeLoadingText.textContent = t('grade_insights_generating');
+      if (gradeLoadingText) gradeLoadingText.textContent = t('grade_insights_loading');
       if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.refreshI18n();
       if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
         LessonChatSidebar.refreshWelcome();

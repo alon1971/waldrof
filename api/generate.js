@@ -26,7 +26,7 @@ const jsonRepair = require('./json-repair');
 const env = require('./env');
 const perplexityClient = require('./perplexity-client');
 
-/** Grade/topic: Supabase cached_results only — no Gemini/Perplexity (set ARCHIVE_ONLY=false to re-enable live AI). */
+/** Grade/topic: cache-first from Supabase; on miss run Perplexity Sonar (raw baseline archive). Set ARCHIVE_ONLY=false to allow hybrid Gemini enrichment on miss. */
 const ARCHIVE_ONLY_MODE = process.env.ARCHIVE_ONLY !== 'false';
 
 const {
@@ -429,9 +429,15 @@ function isOnDemandExpansionPhase(body) {
   return phase === 'pedagogy_deep_dive' || phase === 'archive_summary';
 }
 
-/** «הרחבה ואספקטים פרקטיים» — Perplexity Sonar only; no Gemini enrichment. */
+/** On-demand Perplexity Sonar only — raw research saved to cache (no Gemini). */
+function isPerplexityOnlyOnDemandPhase(body) {
+  if (!body || !body.phase) return false;
+  return body.phase === 'pedagogy_deep_dive' || body.phase === 'grade' || body.phase === 'topic';
+}
+
+/** @deprecated Use isPerplexityOnlyOnDemandPhase */
 function isPerplexityOnlyExpansionPhase(body) {
-  return body && body.phase === 'pedagogy_deep_dive';
+  return isPerplexityOnlyOnDemandPhase(body);
 }
 
 function hasPedagogyDeepDiveContent(dive) {
@@ -459,36 +465,74 @@ function buildPerplexityExpansionPayload(body, rawPayload) {
   };
 }
 
-async function fetchPerplexityOnlyExpansion(body, logContext) {
+function buildPerplexityGradePayload(body, rawPayload) {
+  const citations = Array.isArray(rawPayload.citations) ? rawPayload.citations.filter(Boolean) : [];
+  return {
+    gradeInsights: {
+      rawContent: String(rawPayload.content || '').trim(),
+      citations: citations,
+      source: 'perplexity-sonar',
+      model: rawPayload.model || perplexityClient.PERPLEXITY_SEARCH_MODEL,
+      searchedAt: rawPayload.searchedAt || new Date().toISOString(),
+      gradeLabel: String(body.gradeLabel || '').trim(),
+    },
+  };
+}
+
+function buildPerplexityTopicPayload(body, rawPayload) {
+  const citations = Array.isArray(rawPayload.citations) ? rawPayload.citations.filter(Boolean) : [];
+  const topic = String(body.topic || '').trim();
+  return {
+    webResearch: {
+      topic: topic,
+      summary: '',
+      connections: [],
+      highlights: [],
+    },
+    blockPlan: {
+      rawContent: String(rawPayload.content || '').trim(),
+      citations: citations,
+      source: 'perplexity-sonar',
+      model: rawPayload.model || perplexityClient.PERPLEXITY_SEARCH_MODEL,
+      searchedAt: rawPayload.searchedAt || new Date().toISOString(),
+      topic: topic,
+    },
+    gallery: [],
+  };
+}
+
+function buildPerplexityOnDemandPayload(body, rawPayload) {
   const phase = body.phase;
-  console.log('[expansion] Perplexity-only pipeline for', phase);
+  if (phase === 'pedagogy_deep_dive') return buildPerplexityExpansionPayload(body, rawPayload);
+  if (phase === 'grade') return buildPerplexityGradePayload(body, rawPayload);
+  if (phase === 'topic') return buildPerplexityTopicPayload(body, rawPayload);
+  return buildPerplexityExpansionPayload(body, rawPayload);
+}
+
+async function fetchPerplexityOnlyOnDemand(body, logContext) {
+  const phase = body.phase;
+  console.log('[on-demand] Perplexity-only pipeline for', phase);
   let rawPayload;
   try {
     rawPayload = await fetchOrRunPerplexityResearch(body, logContext);
   } catch (searchErr) {
     const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
-    console.error('[expansion] Perplexity search failed for', phase, ':', msg);
+    console.error('[on-demand] Perplexity search failed for', phase, ':', msg);
     throw new Error(msg || 'שגיאה בחיפוש Perplexity — נסו שוב בעוד רגע.');
   }
   if (!String(rawPayload.content || '').trim()) {
     throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
   }
-  return buildPerplexityExpansionPayload(body, rawPayload);
+  return buildPerplexityOnDemandPayload(body, rawPayload);
+}
+
+/** @deprecated Use fetchPerplexityOnlyOnDemand */
+async function fetchPerplexityOnlyExpansion(body, logContext) {
+  return fetchPerplexityOnlyOnDemand(body, logContext);
 }
 
 function isArchiveOnlyLookup(body) {
   return ARCHIVE_ONLY_MODE && isDecoupledGenerationPhase(body);
-}
-
-function buildArchiveNotFoundError(body) {
-  const phase = body && body.phase;
-  const err = new Error(
-    phase === 'grade'
-      ? 'תמונת גיל לא נמצאה בארכיון.'
-      : 'נושא לא נמצא בארכיון.'
-  );
-  err.statusCode = 404;
-  return err;
 }
 
 function resolveHybridSystemBuilder(body, baseOpts) {
@@ -1710,7 +1754,7 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
 
 function shouldUseHybridRouting(body) {
   if (!body || body.phase === 'test') return false;
-  if (isPerplexityOnlyExpansionPhase(body)) return false;
+  if (isPerplexityOnlyOnDemandPhase(body)) return false;
   return Boolean(perplexityClient.resolveApiKey() && env.getGeminiApiKey());
 }
 
@@ -1760,8 +1804,15 @@ function extractPerplexityMessageContent(data) {
 
 function validatePhaseResult(phase, data) {
   if (!data || typeof data !== 'object') return false;
-  if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
-  if (phase === 'topic') return validateTopicBlockPlan(data.blockPlan);
+  if (phase === 'grade') {
+    if (!data.gradeInsights || typeof data.gradeInsights !== 'object') return false;
+    if (String(data.gradeInsights.rawContent || '').trim()) return true;
+    return Boolean(cacheDb.normalizeGradeResultForCache(data));
+  }
+  if (phase === 'topic') {
+    if (data.blockPlan && String(data.blockPlan.rawContent || '').trim()) return true;
+    return validateTopicBlockPlan(data.blockPlan);
+  }
   if (phase === 'chat_followup') {
     return Boolean(cacheDb.extractChatAnswerText(data));
   }
@@ -1818,8 +1869,8 @@ function rethrowApiClientError(err, fallbackMessage) {
  * while the client request stays open (spinner remains active).
  */
 async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
-  if (isPerplexityOnlyExpansionPhase(body)) {
-    return fetchPerplexityOnlyExpansion(body, logContext);
+  if (isPerplexityOnlyOnDemandPhase(body)) {
+    return fetchPerplexityOnlyOnDemand(body, logContext);
   }
   if (shouldUseHybridRouting(body)) {
     return fetchHybridModelWithRetry(
@@ -2036,14 +2087,14 @@ async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, 
 }
 
 function resolveApiKey(body) {
-  if (body && isPerplexityOnlyExpansionPhase(body)) {
+  if (body && isPerplexityOnlyOnDemandPhase(body)) {
     return perplexityClient.resolveApiKey() || null;
   }
   return env.getGeminiApiKey() || null;
 }
 
 function missingKeyError(body) {
-  if (body && isPerplexityOnlyExpansionPhase(body)) {
+  if (body && isPerplexityOnlyOnDemandPhase(body)) {
     return 'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY ב-Render → Environment ופרסמו מחדש.';
   }
   return MISSING_KEY_ERROR;
@@ -2559,11 +2610,8 @@ async function executeGenerate(body, apiKey, requestContext) {
         }
       }
       console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
-      if (isArchiveOnlyLookup(body)) {
-        throw buildArchiveNotFoundError(body);
-      }
-      if (isPerplexityOnlyExpansionPhase(body)) {
-        console.log('[expansion] pipeline: Perplexity sonar only (no Gemini)');
+      if (isPerplexityOnlyOnDemandPhase(body)) {
+        console.log('[on-demand] pipeline: Perplexity sonar only (no Gemini) for', body.phase);
       } else if (shouldUseHybridRouting(body)) {
         console.log('[hybrid] pipeline: Perplexity sonar → raw cache → Gemini', GEMINI_GENERATION_MODEL);
       }
@@ -2649,7 +2697,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
-    (isPerplexityOnlyExpansionPhase(body)
+    (isPerplexityOnlyOnDemandPhase(body)
       ? ''
       : isOnDemandExpansion
       ? ' ON-DEMAND EXPANSION: Perplexity raw research is the sole factual input — no Drive or community archive excerpts. ' +
@@ -2710,7 +2758,7 @@ async function executeGenerate(body, apiKey, requestContext) {
       }
       const cachePayload = isChatFollowup
         ? cacheDb.packChatFollowupForCache(data)
-        : (isPerplexityOnlyExpansionPhase(body)
+        : (isPerplexityOnlyOnDemandPhase(body)
           ? cacheDb.stampPerplexityOnlyMetadata(data)
           : (shouldUseHybridRouting(body)
             ? cacheDb.stampHybridGeneratedMetadata(data)
@@ -2760,9 +2808,9 @@ async function executeGenerate(body, apiKey, requestContext) {
       table: cacheDb.TABLE_NAME,
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
       hybridPipeline: shouldUseHybridRouting(body),
-      perplexityOnly: isPerplexityOnlyExpansionPhase(body),
+      perplexityOnly: isPerplexityOnlyOnDemandPhase(body),
       consolidatedArchive: ragMeta.chunkCount > 0,
-      contentHierarchy: isPerplexityOnlyExpansionPhase(body)
+      contentHierarchy: isPerplexityOnlyOnDemandPhase(body)
         ? 'perplexity-sonar-only'
         : (isDecoupledGen
           ? 'perplexity_raw+gemini_master_educator'

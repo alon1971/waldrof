@@ -319,7 +319,7 @@ function coerceCachedResultData(raw) {
 }
 
 /** Cache metadata keys that mark hybrid/archive-upgraded rows (required for grade/topic cache hits). */
-const CACHE_ENHANCEMENT_META_KEYS = ['_hybridGenerated', '_archiveUpgrade'];
+const CACHE_ENHANCEMENT_META_KEYS = ['_hybridGenerated', '_archiveUpgrade', '_perplexityOnly'];
 
 function attachCacheEnhancementMetadata(source, target) {
   if (!source || !target || typeof source !== 'object' || typeof target !== 'object') return target;
@@ -343,6 +343,21 @@ function normalizeGradeResultForCache(raw) {
     gi = data.data.gradeInsights;
   }
   if (!gi || typeof gi !== 'object' || Array.isArray(gi)) return null;
+
+  if (String(gi.rawContent || '').trim()) {
+    const out = {
+      gradeInsights: {
+        rawContent: String(gi.rawContent).trim(),
+        citations: Array.isArray(gi.citations) ? gi.citations.filter(Boolean) : [],
+        source: gi.source || 'perplexity-sonar',
+        model: gi.model || null,
+        searchedAt: gi.searchedAt || null,
+        gradeLabel: gi.gradeLabel || null,
+      },
+    };
+    attachCacheEnhancementMetadata(data, out);
+    return out;
+  }
 
   const cloned = cloneJsonSafe(gi);
   if (!cloned) return null;
@@ -429,13 +444,32 @@ function sanitizeChatEnrichmentEntry(entry) {
   };
 }
 
+function isPerplexityBaselineCachedPayload(phase, data) {
+  const coerced = coerceCachedResultData(data);
+  if (!coerced || typeof coerced !== 'object') return false;
+  if (coerced._perplexityOnly && coerced._perplexityOnly.version) return true;
+  if (phase === 'grade') {
+    const gi = coerced.gradeInsights;
+    return gi && typeof gi === 'object' && String(gi.rawContent || '').trim();
+  }
+  if (phase === 'topic') {
+    const bp = coerced.blockPlan;
+    return bp && typeof bp === 'object' && String(bp.rawContent || '').trim();
+  }
+  return false;
+}
+
 function isValidCachedPayload(phase, data) {
   if (!data || typeof data !== 'object') return false;
   if (phase === RAW_PERPLEXITY_PHASE) {
     return Boolean(String(data.content || '').trim());
   }
   if (phase === 'grade') return Boolean(normalizeGradeResultForCache(data));
-  if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
+  if (phase === 'topic') {
+    const bp = data.blockPlan;
+    if (bp && typeof bp === 'object' && String(bp.rawContent || '').trim()) return true;
+    return Boolean(bp && typeof bp === 'object');
+  }
   if (phase === 'chat_followup') {
     return Boolean(extractChatAnswerText(data));
   }
@@ -463,6 +497,7 @@ function isEnhancedCachedPayload(phase, data) {
   if (!coerced || typeof coerced !== 'object') return false;
   if (phase !== 'topic' && phase !== 'grade') return isValidCachedPayload(phase, coerced);
   if (!isValidCachedPayload(phase, coerced)) return false;
+  if (isPerplexityBaselineCachedPayload(phase, coerced)) return true;
   if (coerced._archiveUpgrade && coerced._archiveUpgrade.version) return true;
   if (coerced._hybridGenerated && coerced._hybridGenerated.version) return true;
   return false;
