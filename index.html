@@ -8039,15 +8039,20 @@
     function resolveCommunityMaterialId(source) {
       if (source == null) return null;
       if (typeof source === 'string' || typeof source === 'number') {
-        const direct = String(source).trim();
-        return direct || null;
+        return normalizeMaterialUuid(source) || null;
       }
       const raw = source.id != null
         ? source.id
         : (source.material_id != null ? source.material_id : (source.materialId != null ? source.materialId : null));
       if (raw == null) return null;
-      const id = String(raw).trim();
-      return id || null;
+      return normalizeMaterialUuid(raw) || null;
+    }
+
+    function normalizeMaterialUuid(raw) {
+      const id = String(raw || '').trim().replace(/^["'{]+|["'}]+$/g, '');
+      if (!id) return '';
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      return uuidRe.test(id) ? id.toLowerCase() : id;
     }
 
     function parseCommunityApiError(text, status) {
@@ -8424,18 +8429,28 @@
       } catch (parseErr) {
         throw new Error(bodyText || res.statusText || 'Upload failed');
       }
-      if (!res.ok || json.error) {
+      if (!res.ok || json.error || json.success === false) {
         const err = new Error(json.error || bodyText || ('Upload failed (' + res.status + ')'));
         err.details = json;
         throw err;
       }
-      const data = json.data || json;
+      const data = json.success === true ? json.data : (json.data || json);
+      if (!data) {
+        throw new Error('Upload failed: empty server response');
+      }
       if (data.batch && Array.isArray(data.files)) {
         return {
           batch: true,
           files: data.files,
-          materials: data.materials || data.files.map(function (item) { return item.material; }).filter(Boolean),
+          materials: (data.materials || data.files.map(function (item) { return item.material; }).filter(Boolean))
+            .map(function (row) {
+              if (row && row.id) upsertCommunityCacheRow(row);
+              return row;
+            }),
         };
+      }
+      if (data.material && data.material.id) {
+        upsertCommunityCacheRow(data.material);
       }
       return {
         batch: false,
@@ -8477,7 +8492,7 @@
     }
 
     async function deleteCommunityMaterialRecord(id) {
-      const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
+      const pk = normalizeMaterialUuid(resolveCommunityMaterialId(id) || String(id || '').trim());
       if (!pk) throw new Error('Material id is required');
       if (canUseCommunityUploadApi()) {
         const headers = await getCommunityMutateHeaders();

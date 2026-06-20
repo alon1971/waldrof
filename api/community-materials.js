@@ -99,11 +99,46 @@ function extractMaterialId(body, req) {
   if (!id && body && body.id != null) {
     id = String(body.id).trim();
   }
-  return id;
+  return normalizeMaterialUuid(id);
+}
+
+const MATERIAL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normalizeMaterialUuid(raw) {
+  const id = String(raw || '').trim().replace(/^["'{]+|["'}]+$/g, '');
+  if (!id) return '';
+  return MATERIAL_UUID_RE.test(id) ? id.toLowerCase() : id;
+}
+
+function isValidMaterialUuid(id) {
+  return MATERIAL_UUID_RE.test(String(id || '').trim());
+}
+
+function resolveCanonicalMaterialId(row, fallbackId) {
+  const fromRow = row && row[MATERIAL_PK_COLUMN] != null ? row[MATERIAL_PK_COLUMN] : (row && row.id);
+  const canonical = normalizeMaterialUuid(fromRow || fallbackId);
+  return canonical || '';
 }
 
 function materialFilterQuery(value) {
-  return MATERIAL_PK_COLUMN + '=eq.' + String(value).trim();
+  const pk = normalizeMaterialUuid(value);
+  if (!pk) return MATERIAL_PK_COLUMN + '=is.null';
+  return MATERIAL_PK_COLUMN + '=eq.' + encodeURIComponent(pk);
+}
+
+function requireValidMaterialId(id, label) {
+  const pk = normalizeMaterialUuid(id);
+  if (!pk) {
+    const err = new Error('Missing material ID in both query and body');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!isValidMaterialUuid(pk)) {
+    const err = new Error((label || 'Material') + ' ID must be a valid UUID');
+    err.statusCode = 400;
+    throw err;
+  }
+  return pk;
 }
 
 function packCommunityExtras(extras) {
@@ -249,8 +284,8 @@ async function listCommunityMaterials() {
 }
 
 async function fetchMaterialById(id) {
-  const pk = String(id || '').trim();
-  if (!pk) return null;
+  const pk = normalizeMaterialUuid(id);
+  if (!pk || !isValidMaterialUuid(pk)) return null;
   const path = '/rest/v1/' + MATERIALS_TABLE + '?select=*&' + materialFilterQuery(pk) + '&limit=1';
   if (hasServiceRoleKey()) {
     try {
@@ -284,13 +319,8 @@ async function deleteStorageObject(filePath) {
 }
 
 async function patchCommunityMaterial(body, req) {
-  const id = extractMaterialId(body || {}, req);
+  const id = requireValidMaterialId(extractMaterialId(body || {}, req));
   console.log('[community-materials] Backend patch triggered for ID:', id);
-  if (!id) {
-    const err = new Error('Missing material ID in both query and body');
-    err.statusCode = 400;
-    throw err;
-  }
 
   if (!hasServiceRoleKey()) {
     const err = new Error('SUPABASE_SERVICE_ROLE_KEY is required for community material mutations');
@@ -304,6 +334,7 @@ async function patchCommunityMaterial(body, req) {
     err.statusCode = 404;
     throw err;
   }
+  const canonicalId = resolveCanonicalMaterialId(current, id);
 
   const payload = {};
   if (body.topic != null && String(body.topic).trim()) {
@@ -328,7 +359,7 @@ async function patchCommunityMaterial(body, req) {
     throw err;
   }
 
-  const patchPath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id);
+  const patchPath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(canonicalId);
   const patchOptions = {
     method: 'PATCH',
     headers: {
@@ -356,13 +387,8 @@ async function patchCommunityMaterial(body, req) {
 }
 
 async function deleteCommunityMaterial(body, req) {
-  const id = extractMaterialId(body || {}, req);
+  const id = requireValidMaterialId(extractMaterialId(body || {}, req));
   console.log('[community-materials] Backend delete triggered for ID:', id);
-  if (!id) {
-    const err = new Error('Missing material ID in both query and body');
-    err.statusCode = 400;
-    throw err;
-  }
 
   if (!hasServiceRoleKey()) {
     const err = new Error('SUPABASE_SERVICE_ROLE_KEY is required for community material mutations');
@@ -376,10 +402,12 @@ async function deleteCommunityMaterial(body, req) {
     err.statusCode = 404;
     throw err;
   }
+  const canonicalId = resolveCanonicalMaterialId(current, id);
+  console.log('[community-materials] Canonical delete ID:', canonicalId);
 
   let kbDeleted = false;
   try {
-    await communityIngest.deleteBySourceMaterialId(id);
+    await communityIngest.deleteBySourceMaterialId(canonicalId);
     kbDeleted = true;
   } catch (kbErr) {
     console.warn('[community-materials] knowledge base delete failed:', kbErr.message || kbErr);
@@ -395,7 +423,7 @@ async function deleteCommunityMaterial(body, req) {
     }
   }
 
-  const deletePath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(id);
+  const deletePath = '/rest/v1/' + MATERIALS_TABLE + '?' + materialFilterQuery(canonicalId);
   const deleteOptions = { method: 'DELETE', headers: { Prefer: 'return=representation' } };
   let result;
   try {
@@ -416,7 +444,7 @@ async function deleteCommunityMaterial(body, req) {
     err.responseText = result.text;
     throw err;
   }
-  return { id: id, deletedCount: deletedRows.length, storageDeleted: storageDeleted, kbDeleted: kbDeleted };
+  return { id: canonicalId, deletedCount: deletedRows.length, storageDeleted: storageDeleted, kbDeleted: kbDeleted };
 }
 
 async function legacyHandler(req, res) {

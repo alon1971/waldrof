@@ -140,6 +140,10 @@ async function insertCommunityMaterial(gradeId, topic, publicUrl, fileName, extr
   if (userId) payload.user_id = userId;
 
   async function postInsert(rec) {
+    const row = Object.assign({}, rec);
+    delete row.id;
+    delete row.created_at;
+    delete row.updated_at;
     const res = await fetch(cfg.url + '/rest/v1/' + MATERIALS_TABLE, {
       method: 'POST',
       headers: {
@@ -158,7 +162,14 @@ async function insertCommunityMaterial(gradeId, topic, publicUrl, fileName, extr
       throw err;
     }
     const data = text ? JSON.parse(text) : [];
-    return Array.isArray(data) ? data[0] : data;
+    const inserted = Array.isArray(data) ? data[0] : data;
+    if (!inserted || !inserted.id) {
+      const err = new Error('community_materials insert returned no row id');
+      err.statusCode = 500;
+      err.responseText = text;
+      throw err;
+    }
+    return inserted;
   }
 
   try {
@@ -251,6 +262,7 @@ async function uploadSingleCommunityFile(body, verifiedUser) {
   }
 
   return {
+    success: true,
     ok: true,
     storagePath: uploaded.storagePath,
     publicUrl: uploaded.publicUrl,
@@ -266,6 +278,10 @@ async function executeCommunityUpload(req) {
     const err = new Error('Request body is missing');
     err.statusCode = 400;
     throw err;
+  }
+  if (body.id != null) {
+    console.warn('[community-upload] Ignoring client-supplied id on upload; Supabase generates the row id');
+    delete body.id;
   }
 
   const verifiedUser = await authContext.resolveVerifiedUser(req, body);
@@ -300,6 +316,7 @@ async function executeCommunityUpload(req) {
       results.push(single);
     }
     return {
+      success: true,
       ok: true,
       batch: true,
       count: results.length,
@@ -323,7 +340,7 @@ async function legacyHandler(req, res) {
 
   try {
     const data = await executeCommunityUpload(req);
-    return sendJson(res, 200, { data: data });
+    return sendJson(res, 200, { success: true, data: data });
   } catch (err) {
     const status = err.statusCode || 500;
     console.error('[community-upload]', status, err.message || err, err.responseText || '');
