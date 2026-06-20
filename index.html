@@ -4004,6 +4004,7 @@
       communityAutoSync: true,
       archiveSuggestionPending: false,
       archiveRejectedSearch: null,
+      isSubmitting: false,
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -7840,13 +7841,42 @@
     async function refreshCatalogAfterCommunityDelete(pk) {
       forgetCommunityOwnership(pk);
       appState.communityCache = appState.communityCache.filter(function (m) {
-        return String(m.id || m.dbId || resolveCommunityMaterialId(m)) !== pk;
+        const rowPk = normalizeMaterialUuid(m.id || m.dbId || resolveCommunityMaterialId(m) || '');
+        return rowPk !== pk;
       });
       appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
+      releaseCatalogUploadLocks();
       updateCommunityBadge();
       await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
       if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
       renderCommunityMaterials();
+    }
+
+    function releaseCatalogUploadLocks() {
+      appState.isSubmitting = false;
+      window.catalogDeleteInFlight = false;
+      document.querySelectorAll('.catalog-upload-form').forEach(function (form) {
+        const submitBtn = form.querySelector('[type="submit"]');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = t('catalog_submit');
+        }
+        const msgEl = form.querySelector('.catalog-upload-msg');
+        if (msgEl) {
+          msgEl.classList.add('hidden');
+          msgEl.textContent = '';
+          msgEl.classList.remove('text-terracotta');
+          msgEl.classList.add('text-sage-dark');
+        }
+        const fileInput = form.querySelector('[name="catalog-file"]');
+        if (fileInput) fileInput.disabled = false;
+        const linkInput = form.querySelector('[name="catalog-share-url"]');
+        if (linkInput) linkInput.disabled = false;
+      });
+      document.querySelectorAll('.catalog-open-upload').forEach(function (btn) {
+        btn.disabled = false;
+      });
     }
 
     function formatSupabaseError(err) {
@@ -11386,10 +11416,12 @@
     function closeCatalogUploadDrawer(form) {
       const drawer = form && form.closest('.catalog-upload-drawer');
       if (!drawer) return;
-      drawer.classList.add('hidden');
-      const wrap = drawer.closest('.catalog-upload-wrap');
-      const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
-      if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+      mutateCatalogDom(function () {
+        drawer.classList.add('hidden');
+        const wrap = drawer.closest('.catalog-upload-wrap');
+        const openBtn = wrap && wrap.querySelector('.catalog-open-upload');
+        if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+      });
     }
 
     function defaultCommunityFormDraft() {
@@ -11579,9 +11611,11 @@
         wrap.dataset.drawerBound = '1';
         btn.addEventListener('click', function () {
           const opening = drawer.classList.contains('hidden');
-          drawer.classList.toggle('hidden');
+          mutateCatalogDom(function () {
+            drawer.classList.toggle('hidden');
+            btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+          });
           window.communityUploadDrawerOpen = opening;
-          btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
           const form = drawer.querySelector('.catalog-upload-form');
           if (opening && form) {
             bindCatalogShareModeToggle(form);
@@ -11607,8 +11641,10 @@
         if (!form || !drawer) return;
         applyCommunityFormDraftToForm(form);
         if (window.communityUploadDrawerOpen) {
-          drawer.classList.remove('hidden');
-          if (btn) btn.setAttribute('aria-expanded', 'true');
+          mutateCatalogDom(function () {
+            drawer.classList.remove('hidden');
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+          });
         }
       });
     }
@@ -11740,12 +11776,13 @@
       const linkInput = form.querySelector('[name="catalog-share-url"]');
       if (!fileInput) return;
       fileInput.addEventListener('change', function () {
+        const scrollY = capturePageScrollY();
         window.selectedUploadFiles = fileInput.files && fileInput.files.length
           ? Array.prototype.slice.call(fileInput.files)
           : [];
         updateCatalogFileDisplay(form, window.selectedUploadFiles);
         syncCommunityFormDraftFromForm(form);
-        scrollToCommunityCatalogView();
+        restorePageScrollY(scrollY);
       });
       if (linkInput) {
         linkInput.addEventListener('input', function () {
@@ -11834,13 +11871,14 @@
           msgEl.classList.add('text-sage-dark');
         }
         clearCommunityFormDraftOnSuccess();
+        const scrollY = capturePageScrollY();
         closeCatalogUploadDrawer(form);
         if (catalogState.view === 'materials') {
           await renderCatalogMaterials(gradeId, subject);
         } else {
           await renderCatalogGradePanel(gradeId);
         }
-        scrollToCommunityCatalogView();
+        restorePageScrollY(scrollY);
         updateCommunityBadge();
       } catch (err) {
         showCommunityUploadError(err);
@@ -11890,6 +11928,23 @@
       el.textContent = msg;
     }
 
+    function capturePageScrollY() {
+      return window.scrollY || window.pageYOffset || 0;
+    }
+
+    function restorePageScrollY(y) {
+      if (typeof y !== 'number') return;
+      runAfterLayout(function () {
+        window.scrollTo(0, y);
+      });
+    }
+
+    function mutateCatalogDom(mutator) {
+      var y = capturePageScrollY();
+      holdPageScroll(mutator);
+      restorePageScrollY(y);
+    }
+
     function scrollToCommunityCatalogView() {
       runAfterLayout(function () {
         const catalogContainer = document.querySelector('.community-catalog-container') || document.getElementById('community-catalog-section');
@@ -11900,7 +11955,7 @@
     }
 
     function scrollToCatalogContent(view) {
-      scrollToCommunityCatalogView();
+      /* Preserve scroll position while working in the catalog. */
     }
 
     function renderCatalogBreadcrumb() {
@@ -11917,12 +11972,14 @@
         const label = catalogState.topic === '__general__' ? t('catalog_general') : catalogState.topic;
         html += ' <span aria-hidden="true">›</span> <span class="text-walnut font-semibold">' + escapeHtml(label) + '</span>';
       }
-      bc.innerHTML = html;
-      bc.querySelectorAll('.catalog-bc').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          const target = btn.getAttribute('data-bc');
-          if (target === 'grades') renderCatalog('grades');
-          else if (target === 'grade') renderCatalog('grade', catalogState.gradeId);
+      mutateCatalogDom(function () {
+        bc.innerHTML = html;
+        bc.querySelectorAll('.catalog-bc').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            const target = btn.getAttribute('data-bc');
+            if (target === 'grades') renderCatalog('grades');
+            else if (target === 'grade') renderCatalog('grade', catalogState.gradeId);
+          });
         });
       });
     }
@@ -11935,20 +11992,22 @@
       el.classList.remove('hidden');
       if (gradePanel) gradePanel.classList.add('hidden');
       if (materialsEl) materialsEl.classList.add('hidden');
-      el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
-        GRADES.map(function (g) {
-          const topics = getDynamicTopicsForGrade(g.id);
-          const n = filterByGrade(appState.communityCache, g.id).length;
-          return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50" data-grade="' + g.id + '">' +
-            '<div class="flex items-start gap-3">' +
-            '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid fa-folder"></i></span>' +
-            '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getGradeLabelById(g.id)) + '</div>' +
-            '<div class="text-xs text-walnut/60 mt-0.5">' + escapeHtml(t('grade_age_prefix') + ' ' + g.age) + '</div>' +
-            '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
-        }).join('');
-      el.querySelectorAll('[data-grade]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          renderCatalog('grade', btn.getAttribute('data-grade'));
+      mutateCatalogDom(function () {
+        el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
+          GRADES.map(function (g) {
+            const topics = getDynamicTopicsForGrade(g.id);
+            const n = filterByGrade(appState.communityCache, g.id).length;
+            return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50" data-grade="' + g.id + '">' +
+              '<div class="flex items-start gap-3">' +
+              '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid fa-folder"></i></span>' +
+              '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getGradeLabelById(g.id)) + '</div>' +
+              '<div class="text-xs text-walnut/60 mt-0.5">' + escapeHtml(t('grade_age_prefix') + ' ' + g.age) + '</div>' +
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
+          }).join('');
+        el.querySelectorAll('[data-grade]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            renderCatalog('grade', btn.getAttribute('data-grade'));
+          });
         });
       });
     }
@@ -11983,16 +12042,17 @@
               '<div class="text-xs text-sage-dark mt-1">' + escapeHtml(t('catalog_files_in_topic', { count: topic.count })) + '</div></div></div></button>';
           }).join('') + '</div>';
       }
-      el.innerHTML = html;
-      bindCatalogGradeNav(el);
-      bindCatalogUploadDrawer(el);
-      bindCatalogUploadForms(el);
-      el.querySelectorAll('[data-topic]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          renderCatalog('materials', gradeId, btn.getAttribute('data-topic'));
+      mutateCatalogDom(function () {
+        el.innerHTML = html;
+        bindCatalogGradeNav(el);
+        bindCatalogUploadDrawer(el);
+        bindCatalogUploadForms(el);
+        el.querySelectorAll('[data-topic]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            renderCatalog('materials', gradeId, btn.getAttribute('data-topic'));
+          });
         });
       });
-      scrollToCatalogContent('grade');
     }
 
     function catalogMaterialEditFormHtml(file) {
@@ -12114,17 +12174,21 @@
       closeCatalogMaterialEditPanels(row.parentElement);
       const panel = row.querySelector('.catalog-material-edit-panel');
       if (!panel) return;
-      panel.innerHTML = catalogMaterialEditFormHtml(Object.assign({}, item, { id: pk }));
-      panel.classList.remove('hidden');
-      row.classList.add('is-editing');
+      mutateCatalogDom(function () {
+        panel.innerHTML = catalogMaterialEditFormHtml(Object.assign({}, item, { id: pk }));
+        panel.classList.remove('hidden');
+        row.classList.add('is-editing');
+      });
       const form = panel.querySelector('.catalog-material-edit-form');
       if (!form) return;
       const cancelBtn = form.querySelector('.catalog-material-edit-cancel');
       if (cancelBtn) {
         cancelBtn.addEventListener('click', function () {
-          row.classList.remove('is-editing');
-          panel.classList.add('hidden');
-          panel.innerHTML = '';
+          mutateCatalogDom(function () {
+            row.classList.remove('is-editing');
+            panel.classList.add('hidden');
+            panel.innerHTML = '';
+          });
         });
       }
       form.addEventListener('submit', function (e) {
@@ -12207,12 +12271,8 @@
         return;
       }
       if (!confirm('האם אתה בטוח שברצונך למחוק חומר זה?')) return;
-
-      forgetCommunityOwnership(pk);
-      appState.communityCache = appState.communityCache.filter(function(m) { return m.id !== id; });
-      appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-      updateCommunityBadge();
-      renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic, { skipCommunityReload: true });
+      if (window.catalogDeleteInFlight) return;
+      window.catalogDeleteInFlight = true;
 
       (async function() {
         try {
@@ -12222,12 +12282,38 @@
             headers: headers,
             cache: 'no-store',
           });
+          const text = await response.text();
           if (!response.ok) {
-            console.error('[community] delete failed:', response.status, await response.text());
+            const errMsg = parseCommunityApiError(text, response.status);
+            console.error('[community] delete failed:', response.status, text);
+            alert(errMsg || ('מחיקה נכשלה (' + response.status + ')'));
+            releaseCatalogUploadLocks();
+            return;
           }
+          let json;
+          try {
+            json = parseCommunityMutateJson(text, response.status);
+          } catch (parseErr) {
+            console.error('[community] delete response parse failed:', parseErr);
+            alert(parseErr.message || 'מחיקה נכשלה: תגובת שרת לא תקינה');
+            releaseCatalogUploadLocks();
+            return;
+          }
+          try {
+            assertCommunityDeleteResult(json, pk);
+          } catch (assertErr) {
+            if (!isOrphanCommunityMaterialError(assertErr && assertErr.message)) {
+              console.error('[community] delete assert failed:', assertErr);
+              alert(assertErr.message || 'מחיקה נכשלה');
+              releaseCatalogUploadLocks();
+              return;
+            }
+          }
+          await refreshCatalogAfterCommunityDelete(pk);
         } catch (err) {
           console.error('[community] delete network error:', err);
           alert('שגיאת רשת במחיקה: ' + (err.message || String(err)));
+          releaseCatalogUploadLocks();
         }
       })();
     };
@@ -12261,7 +12347,7 @@
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const files = await attachCatalogManageFlags(collectCatalogFiles(gradeId, topicId));
-      el.innerHTML = catalogGradeNavHtml(gradeId) +
+      const materialsHtml = catalogGradeNavHtml(gradeId) +
         '<h3 class="app-page-title font-display font-bold text-burgundy mb-3 flex items-center gap-2">' +
         '<i class="fa-solid fa-folder-open text-gold"></i> ' +
         escapeHtml(g ? getGradeLabelById(g.id) : '') + ' · ' + escapeHtml(topicLabel) + '</h3>' +
@@ -12270,14 +12356,17 @@
         (files.length
           ? '<div class="space-y-3">' + files.map(renderCatalogFileRow).join('') + '</div>'
           : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>');
-      bindCatalogGradeNav(el);
-      bindCatalogUploadDrawer(el);
-      bindCatalogUploadForms(el);
-      bindCatalogMaterialActions(document.getElementById('panel-catalog'));
-      scrollToCatalogContent('materials');
+      mutateCatalogDom(function () {
+        el.innerHTML = materialsHtml;
+        bindCatalogGradeNav(el);
+        bindCatalogUploadDrawer(el);
+        bindCatalogUploadForms(el);
+        bindCatalogMaterialActions(document.getElementById('panel-catalog'));
+      });
     }
 
     async function renderCatalog(view, gradeId, topicId, opts) {
+      const scrollY = capturePageScrollY();
       saveAllCommunityFormDrafts();
       const drawerWasOpen = window.communityUploadDrawerOpen;
       const preservedFiles = window.selectedUploadFiles ? window.selectedUploadFiles.slice() : [];
@@ -12304,13 +12393,13 @@
           showCatalogStatus('', '');
         }
         renderCatalogGrades();
-        scrollToCatalogContent('grades');
       } else if (catalogState.view === 'grade') {
         await renderCatalogGradePanel(catalogState.gradeId);
       } else if (catalogState.view === 'materials') {
         await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
       }
       if (drawerWasOpen) window.communityUploadDrawerOpen = true;
+      restorePageScrollY(scrollY);
       persistActiveStep();
     }
 
