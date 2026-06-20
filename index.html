@@ -3981,6 +3981,9 @@
 
     function buildExpansionContentHtml(exp) {
       const data = exp || {};
+      if (data._perplexityRaw && data.expansionHtml) {
+        return buildPerplexityExpansionHtml({ rawContent: data.expansionHtml, citations: data.inspirationReferences });
+      }
       let html = '';
       if (data.expansionHtml) {
         html += ensureAiHtml(data.expansionHtml);
@@ -6492,19 +6495,57 @@
       return invokeWaldorfResearch(payload, { signal: signal });
     }
 
+    function formatPerplexityRawText(text) {
+      if (!text) return '<div class="prose-ai"></div>';
+      const s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(text)));
+      if (looksLikeAiHtml(s)) return ensureAiHtml(s);
+      return '<div class="prose-ai leading-relaxed whitespace-pre-wrap">' + formatAiMarkdown(s) + '</div>';
+    }
+
+    function buildPerplexityExpansionHtml(dive) {
+      const data = dive || {};
+      const rawContent = String(data.rawContent || '').trim();
+      if (!rawContent) return '';
+      let html = formatPerplexityRawText(rawContent);
+      const citations = Array.isArray(data.citations) ? data.citations.filter(Boolean) : [];
+      if (citations.length) {
+        html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h4><ul class="list-disc mr-5 space-y-1 i18n-list">';
+        citations.forEach(function (url) {
+          html += '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="text-sage-dark underline">' + escapeHtml(url) + '</a></li>';
+        });
+        html += '</ul>';
+      }
+      return html;
+    }
+
     function pedagogyDeepDiveToExpansion(data) {
       if (!data) return null;
+      const rawContent = String(data.rawContent || '').trim();
+      if (rawContent) {
+        return {
+          classroomImplementation: '',
+          parentCommunityAspects: '',
+          practicalSteps: [],
+          inspirationReferences: Array.isArray(data.citations) ? data.citations : [],
+          expansionHtml: rawContent,
+          _perplexityRaw: true,
+        };
+      }
       return {
         classroomImplementation: data.classroomImplementation || data.essence || data.summary || '',
         parentCommunityAspects: data.parentCommunityAspects || data.pedagogicalContext || data.relevance || '',
         practicalSteps: data.practicalSteps || data.keyPoints || [],
         inspirationReferences: data.inspirationReferences || data.materialsNeeded || data.pedagogicalAngles || [],
-        expansionHtml: data.summaryHtml || '',
+        expansionHtml: data.summaryHtml || data.contentHtml || '',
       };
     }
 
     function buildPedagogySummaryHtml(summary) {
       const raw = (summary && summary.pedagogyDeepDive) || (summary && summary.archiveSummary) || summary || {};
+      if (String(raw.rawContent || '').trim()) {
+        const html = buildPerplexityExpansionHtml(raw);
+        if (html) return html;
+      }
       const expansionHtml = buildExpansionContentHtml(pedagogyDeepDiveToExpansion(raw));
       if (expansionHtml) return expansionHtml;
       return '<p class="text-walnut/70">' + escapeHtml(t('pedagogy_summary_empty')) + '</p>';

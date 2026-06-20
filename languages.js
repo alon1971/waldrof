@@ -339,8 +339,8 @@ const LANGUAGES = {
 
     pedagogy_deep_btn:           'הרחבה ואספקטים פרקטיים 📝',
     pedagogy_modal_title:        'הסבר מלא ומערך פעילות',
-    pedagogy_summary_loading:    'מבצע מחקר הרחבה פדגוגי...',
-    pedagogy_summary_loading_sub:'מחפש מקורות ברשת ומעצב הסבר מעשי עשיר — זה עשוי לקחת עד דקה.',
+    pedagogy_summary_loading:    'מבצע מחקר הרחבה פדגוגי (Perplexity)...',
+    pedagogy_summary_loading_sub:'מחפש מקורות ברשת — זה עשוי לקחת עד דקה.',
     pedagogy_essence:            'מהות הפעילות',
     pedagogy_context:            'הקשר פדגוגי ורלוונטיות לתקופה',
     pedagogy_steps:              'שלבי ביצוע פרקטיים בכיתה',
@@ -916,8 +916,8 @@ const LANGUAGES = {
 
     pedagogy_deep_btn:           'Practical expansion & aspects 📝',
     pedagogy_modal_title:        'Full guide & activity plan',
-    pedagogy_summary_loading:    'Conducting pedagogical expansion research...',
-    pedagogy_summary_loading_sub:'Searching the web and shaping a rich practical guide — this may take up to a minute.',
+    pedagogy_summary_loading:    'Conducting pedagogical expansion research (Perplexity)...',
+    pedagogy_summary_loading_sub:'Searching the web for sources — this may take up to a minute.',
     pedagogy_essence:            'Activity essence',
     pedagogy_context:            'Pedagogical context & block relevance',
     pedagogy_steps:              'Practical classroom steps',
