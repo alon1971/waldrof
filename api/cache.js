@@ -2109,7 +2109,7 @@ function formatCommunityMaterialRow(row) {
   return {
     id: row.id || null,
     source: 'catalog',
-    title: parsedTitle || row.file_name || topic || 'חומר קהילתי',
+    title: parsedTitle || topic || 'חומר קהילתי',
     topic: topic,
     gradeId: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : null),
     fileName: row.file_name || '',
@@ -2142,7 +2142,7 @@ function formatCommunityKnowledgeRow(row) {
     id: row.id || null,
     sourceMaterialId: row.source_material_id || null,
     source: 'knowledge_base',
-    title: row.title || internalFileName || bundleTopic || 'חומר קהילתי',
+    title: row.title || bundleTopic || 'חומר קהילתי',
     topic: String(row.topic || bundleTopic || '').trim(),
     bundleTopic: bundleTopic,
     internalFileName: internalFileName,
@@ -2163,8 +2163,6 @@ function scoreCommunityKnowledgeHit(query, row) {
   let best = 0;
 
   [
-    hit.internalFileName,
-    hit.fileName,
     hit.title,
     hit.topic,
     hit.bundleTopic,
@@ -2179,19 +2177,18 @@ function scoreCommunityKnowledgeHit(query, row) {
   }
 
   const bundleTopicScore = scoreTopicSimilarity(query, hit.bundleTopic || hit.topic, '');
-  const internalScore = Math.max(
-    scoreTopicSimilarity(query, hit.internalFileName, ''),
-    scoreTopicSimilarity(query, hit.fileName, ''),
+  const titleScore = Math.max(
+    scoreTopicSimilarity(query, hit.title, ''),
     row.content ? scoreTopicSimilarity(query, String(row.content).slice(0, 1200), '') : 0
   );
 
   hit.similarity = best;
 
-  if (internalScore >= 0.45 && bundleTopicScore < 0.45 && (hit.bundleTopic || hit.topic)) {
+  if (titleScore >= 0.45 && bundleTopicScore < 0.45 && (hit.bundleTopic || hit.topic)) {
     const folderName = hit.bundleTopic || hit.topic;
     hit.matchedInBundle = true;
     hit.matchType = 'nested_in_bundle';
-    hit.displayTitle = hit.internalFileName || hit.title;
+    hit.displayTitle = hit.title;
     hit.alertText = 'נמצא חומר רלוונטי בתוך התיקייה «' + folderName + '» במאגר הקהילתי!';
     hit.topic = folderName;
   }
@@ -2200,7 +2197,7 @@ function scoreCommunityKnowledgeHit(query, row) {
 }
 
 function scoreCommunityHitSimilarity(query, hit) {
-  const candidates = [hit.topic, hit.title, hit.fileName].filter(Boolean);
+  const candidates = [hit.topic, hit.title, hit.displayTitle].filter(Boolean);
   let best = 0;
   candidates.forEach(function (candidate) {
     const score = scoreTopicSimilarity(query, candidate, '');
@@ -2226,11 +2223,10 @@ function dedupeCommunityHits(hits) {
 
 function buildCommunityHitHaystack(hit) {
   return [
+    hit.displayTitle,
     hit.title,
     hit.topic,
     hit.bundleTopic,
-    hit.fileName,
-    hit.internalFileName,
     hit.contentPreview,
   ].filter(Boolean).join(' ');
 }
@@ -2366,7 +2362,6 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
       const orParts = [];
       terms.forEach(function (term) {
         orParts.push('topic.ilike.*' + term + '*');
-        orParts.push('file_name.ilike.*' + term + '*');
         orParts.push('notes.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');
@@ -2434,7 +2429,6 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
         orParts.push('title.ilike.*' + term + '*');
         orParts.push('topic.ilike.*' + term + '*');
         orParts.push('content.ilike.*' + term + '*');
-        orParts.push('file_name.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');
     }

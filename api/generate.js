@@ -517,7 +517,7 @@ function resolveTeacherFirstName(body) {
 }
 
 function formatCommunityMatchForPrompt(match, index) {
-  const title = match.displayTitle || match.title || match.fileName || match.topic || ('חומר ' + (index + 1));
+  const title = match.displayTitle || match.title || match.topic || ('חומר ' + (index + 1));
   const topic = match.topic || match.bundleTopic || '';
   const gradeId = match.gradeId || '';
   const contributor = match.contributorName || '';
@@ -538,7 +538,7 @@ function buildCommunityMatchCriticalSystemBlock(probe, body) {
   const matchedFile = matches[0];
   const teacherName = resolveTeacherFirstName(body);
   const gradeLabel = String(body.gradeLabel || '').trim() || ('כיתה ' + (resolvedGradeId(body) || '?'));
-  const title = matchedFile.displayTitle || matchedFile.title || matchedFile.fileName || matchedFile.topic || 'חומר קהילתי';
+  const title = matchedFile.displayTitle || matchedFile.title || matchedFile.topic || 'חומר קהילתי';
   const openingLine =
     teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + title + '». ' +
     'גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.';
@@ -573,7 +573,7 @@ function buildCommunityMaterialsContextBlock(probe, body) {
     );
   }
 
-  const primaryTitle = matches[0].displayTitle || matches[0].title || matches[0].fileName || matches[0].topic || 'חומר קהילתי';
+  const primaryTitle = matches[0].displayTitle || matches[0].title || matches[0].topic || 'חומר קהילתי';
   const mandatoryOpening =
     teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + primaryTitle + '». ' +
     'גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.';
