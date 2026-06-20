@@ -12167,41 +12167,39 @@
       openCatalogMaterialEdit(pk);
     }
 
-    async function deleteCommunityMaterialHandler(id) {
+    window.editCommunityMaterial = editCommunityMaterialHandler;
+
+    window.deleteCommunityMaterial = function(id) {
       const pk = normalizeMaterialUuid(id);
       if (!pk) {
         console.warn('[community] delete skipped: missing material id');
         return;
       }
-      if (!window.confirm(t('catalog_delete_confirm') || 'האם אתה בטוח שברצונך למחוק חומר זה?')) return;
-      const row = findCatalogMaterialRow(pk);
-      if (row) row.classList.add('opacity-60', 'pointer-events-none');
-      try {
-        const result = await deleteCommunityMaterialRecord(pk);
-        if (!result || (result.deletedCount != null && Number(result.deletedCount) < 1)) {
-          await refreshCatalogAfterCommunityDelete(pk);
-          alert('הרשומה הוסרה מהתצוגה המקומית');
-          return;
-        }
-        await refreshCatalogAfterCommunityDelete(pk);
-        alert('החומר נמחק בהצלחה');
-      } catch (err) {
-        if (err && err.orphanLocalOnly) {
-          await refreshCatalogAfterCommunityDelete(pk);
-          alert('הרשומה הוסרה מהתצוגה המקומית');
-          return;
-        }
-        if (row) row.classList.remove('opacity-60', 'pointer-events-none');
-        console.error('Delete error:', err);
-        alert('שגיאה במחיקה: ' + (err.message || 'שגיאת רשת במחיקה'));
-      }
-    }
+      if (!confirm('האם אתה בטוח שברצונך למחוק חומר זה?')) return;
 
-    function registerCatalogMaterialWindowHandlers() {
-      window.editCommunityMaterial = editCommunityMaterialHandler;
-      window.deleteCommunityMaterial = deleteCommunityMaterialHandler;
-    }
-    registerCatalogMaterialWindowHandlers();
+      forgetCommunityOwnership(pk);
+      appState.communityCache = appState.communityCache.filter(function(m) { return m.id !== id; });
+      appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      updateCommunityBadge();
+      renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic, { skipCommunityReload: true });
+
+      (async function() {
+        try {
+          const headers = await getCommunityMutateHeaders();
+          const response = await fetch(communityMaterialsMutateUrl(pk), {
+            method: 'DELETE',
+            headers: headers,
+            cache: 'no-store',
+          });
+          if (!response.ok) {
+            console.error('[community] delete failed:', response.status, await response.text());
+          }
+        } catch (err) {
+          console.error('[community] delete network error:', err);
+          alert('שגיאת רשת במחיקה: ' + (err.message || String(err)));
+        }
+      })();
+    };
 
     function bindCatalogMaterialActions(container) {
       const root = container || document.getElementById('panel-catalog');
@@ -12214,23 +12212,11 @@
           e.stopPropagation();
           const pk = normalizeMaterialUuid(editBtn.getAttribute('data-id') || '');
           if (pk) editCommunityMaterialHandler(pk);
-          return;
-        }
-        const deleteBtn = e.target && e.target.closest ? e.target.closest('.catalog-material-delete') : null;
-        if (deleteBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          const pk = normalizeMaterialUuid(deleteBtn.getAttribute('data-id') || '');
-          if (pk) {
-            deleteCommunityMaterialHandler(pk).catch(function (err) {
-              console.error('Delete error:', err);
-            });
-          }
         }
       });
     }
 
-    async function renderCatalogMaterials(gradeId, topicId) {
+    async function renderCatalogMaterials(gradeId, topicId, opts) {
       const el = document.getElementById('catalog-materials');
       const gradesEl = document.getElementById('catalog-grades');
       const gradePanel = document.getElementById('catalog-grade-panel');
@@ -12240,7 +12226,7 @@
       el.classList.remove('hidden');
       const g = GRADES.find(function (x) { return String(x.id) === String(gradeId); });
       const topicLabel = topicId || '';
-      if (isCloudConfigured()) {
+      if (isCloudConfigured() && !(opts && opts.skipCommunityReload)) {
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const files = await attachCatalogManageFlags(collectCatalogFiles(gradeId, topicId));
@@ -12260,7 +12246,7 @@
       scrollToCatalogContent('materials');
     }
 
-    async function renderCatalog(view, gradeId, topicId) {
+    async function renderCatalog(view, gradeId, topicId, opts) {
       saveAllCommunityFormDrafts();
       const drawerWasOpen = window.communityUploadDrawerOpen;
       const preservedFiles = window.selectedUploadFiles ? window.selectedUploadFiles.slice() : [];
@@ -12291,7 +12277,7 @@
       } else if (catalogState.view === 'grade') {
         await renderCatalogGradePanel(catalogState.gradeId);
       } else if (catalogState.view === 'materials') {
-        await renderCatalogMaterials(catalogState.gradeId, catalogState.topic);
+        await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
       }
       if (drawerWasOpen) window.communityUploadDrawerOpen = true;
       persistActiveStep();
@@ -12643,7 +12629,6 @@
     function bindEvents() {
       bindHeaderExplicitAuthActions();
       bindCatalogMaterialActions(document.getElementById('panel-catalog'));
-      registerCatalogMaterialWindowHandlers();
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
         if (!btn || btn.disabled) return;
