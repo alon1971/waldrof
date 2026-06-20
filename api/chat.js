@@ -98,7 +98,13 @@ function resolveChatPromptMode(body) {
   return 'gemini_kb';
 }
 
-function pedagogicalChatSystemPrompt(extra, mode) {
+function isChatGradeDecoupled(body, promptMode) {
+  return pedagogicalScope.shouldBypassPedagogicalScopeForChat(body, promptMode || resolveChatPromptMode(body));
+}
+
+function pedagogicalChatSystemPrompt(extra, mode, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const inferredGradeBlock = opts.inferredGradeBlock || '';
   const baseRole =
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — an expert educational consultant. ' +
     'Help teachers with follow-up questions as a supportive, highly accurate pedagogical peer. ' +
@@ -107,6 +113,7 @@ function pedagogicalChatSystemPrompt(extra, mode) {
 
   const sharedTail =
     pedagogicalScope.CHAT_GRADE_DECOUPLED_INSTRUCTION +
+    inferredGradeBlock +
     CHAT_NO_RAW_URLS_INSTRUCTION +
     CHAT_NO_INVENTED_CITATIONS_INSTRUCTION +
     CHAT_JSON_OUTPUT_INSTRUCTION +
@@ -378,10 +385,17 @@ function sanitizeChatReplyPayload(data, options) {
 async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
   const expansionRequest = isChatPedagogicalExpansionRequest(body);
   const promptMode = resolveChatPromptMode(body);
+  const gradeDecoupled = isChatGradeDecoupled(body, promptMode);
   const hasCommunityMatch = promptMode === 'community_match';
+  const userMessage = String((body && body.userMessage) || '').trim();
+  const inferredGradeBlock = gradeDecoupled && userMessage
+    ? pedagogicalScope.buildChatInferredGradeBlock(userMessage)
+    : '';
 
-  if (pedagogicalScope.shouldBypassPedagogicalScopeForChat(body, promptMode)) {
-    console.log('[chat] grade-decoupled side-chat mode:', promptMode, '— skipping UI grade scope lock');
+  if (gradeDecoupled) {
+    body.chatGradeDecoupled = true;
+    body.skipPedagogicalScopeValidation = true;
+    console.log('[chat] grade-decoupled side-chat mode:', promptMode, '— UI grade scope lock bypassed');
   }
 
   const chatExtra = extraSystem + (
@@ -398,7 +412,9 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
     const retrySuffix = isRetry
       ? ' CRITICAL RETRY: Your previous reply was rejected — return ONLY valid JSON {"text":"..."} with no markdown fences or extra text.'
       : '';
-    const systemContent = pedagogicalChatSystemPrompt(chatExtra + retrySuffix, promptMode);
+    const systemContent = pedagogicalChatSystemPrompt(chatExtra + retrySuffix, promptMode, {
+      inferredGradeBlock: inferredGradeBlock,
+    });
     let raw;
     try {
       if (isRetry) {
@@ -448,6 +464,7 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
 
 module.exports = {
   fetchPedagogicalChat,
+  isChatGradeDecoupled,
   isChatPedagogicalExpansionRequest,
   pedagogicalChatSystemPrompt,
   resolveChatPromptMode,

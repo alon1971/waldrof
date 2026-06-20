@@ -1587,6 +1587,7 @@ function buildUserPrompt(body) {
       ragBlock +
       (chatGlobalScan ? '' : buildGradeLockBlock(body)) +
       pedagogicalScope.CHAT_GRADE_DECOUPLED_INSTRUCTION +
+      pedagogicalScope.buildChatInferredGradeBlock(question) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
       communityBlock +
