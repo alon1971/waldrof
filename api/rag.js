@@ -736,11 +736,11 @@ async function searchCommunityByContent(query, body, matchCount) {
   const titleOrParts = terms.concat(meshTerms).map(function (term) {
     return 'title.ilike.*' + term + '*';
   });
+  const subjectOrParts = terms.concat(meshTerms).map(function (term) {
+    return 'topic.ilike.*' + term + '*';
+  });
   const contentOrParts = terms.concat(meshTerms).map(function (term) {
     return 'content.ilike.*' + term + '*';
-  });
-  const fileNameOrParts = terms.map(function (term) {
-    return 'file_name.ilike.*' + term + '*';
   });
 
   const params = new URLSearchParams();
@@ -750,7 +750,7 @@ async function searchCommunityByContent(query, body, matchCount) {
   );
   params.set('order', 'created_at.desc');
   params.set('limit', String((matchCount || COMMUNITY_MATCH_COUNT) * 6));
-  params.set('or', '(' + titleOrParts.concat(contentOrParts, fileNameOrParts).join(',') + ')');
+  params.set('or', '(' + titleOrParts.concat(subjectOrParts, contentOrParts).join(',') + ')');
 
   const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
   if (gradeId && !(body && body.chatGlobalScan)) params.set('grade_id', 'eq.' + gradeId);
@@ -946,7 +946,8 @@ async function retrieveForRequest(body) {
   const priorContext = String(body.ragContext || '').trim();
   const priorIds = Array.isArray(body.ragChunkIds) ? body.ragChunkIds.map(String) : [];
 
-  const driveArchiveEnrichment = DRIVE_ENRICHMENT_PHASES.has(phase);
+  const chatCommunityOnly = phase === 'chat_followup' || body.chatCommunityRagOnly === true;
+  const driveArchiveEnrichment = !chatCommunityOnly && DRIVE_ENRICHMENT_PHASES.has(phase);
   let driveResult = { chunks: [], method: 'none' };
   let communityResult = { chunks: [], method: 'none' };
   let legacyKeywordChunks = [];
@@ -954,7 +955,11 @@ async function retrieveForRequest(body) {
   let cacheChunks = [];
 
   try {
-    if (driveArchiveEnrichment) {
+    if (chatCommunityOnly) {
+      communityResult = await searchCommunityKnowledgeEnrichment(query, body, COMMUNITY_MATCH_COUNT)
+        .catch(function () { return { chunks: [], method: 'none' }; });
+      communityLegacyChunks = await searchCommunityByTopic(body, 4).catch(function () { return []; });
+    } else if (driveArchiveEnrichment) {
       const parallel = await Promise.all([
         searchDriveArchiveEnrichment(query, body, DEFAULT_MATCH_COUNT).catch(function () { return { chunks: [], method: 'none' }; }),
         searchCommunityKnowledgeEnrichment(query, body, COMMUNITY_MATCH_COUNT).catch(function () { return { chunks: [], method: 'none' }; }),
@@ -990,13 +995,17 @@ async function retrieveForRequest(body) {
   const driveChunks = sortChunksForRag(driveResult.chunks || [], body);
   const communityChunks = sortChunksForRag(
     dedupeChunks(
-      (communityResult.chunks || []).concat(communityLegacyChunks, legacyKeywordChunks)
+      chatCommunityOnly
+        ? (communityResult.chunks || []).concat(communityLegacyChunks)
+        : (communityResult.chunks || []).concat(communityLegacyChunks, legacyKeywordChunks)
     ),
     body
   ).slice(0, COMMUNITY_MATCH_COUNT + 2);
 
   const combinedForIds = dedupeChunks(
-    driveChunks.concat(communityChunks, cacheChunks)
+    chatCommunityOnly
+      ? communityChunks
+      : driveChunks.concat(communityChunks, cacheChunks)
   ).slice(0, DEFAULT_MATCH_COUNT + COMMUNITY_MATCH_COUNT + CACHE_MATCH_COUNT);
 
   const freshChunks = combinedForIds.filter(function (chunk) {

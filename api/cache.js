@@ -2252,12 +2252,16 @@ function parseCommunityTitleFromNotes(rawNotes) {
 function formatCommunityMaterialRow(row) {
   const notes = row.notes || row.description || '';
   const parsedTitle = parseCommunityTitleFromNotes(notes);
+  const description = parseCommunityDescriptionFromNotes(notes);
   const topic = String(row.topic || '').trim();
   return {
     id: row.id || null,
     source: 'catalog',
     title: parsedTitle || topic || 'חומר קהילתי',
     topic: topic,
+    subject: topic,
+    catalogTopic: topic,
+    description: description,
     gradeId: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : null),
     fileName: row.file_name || '',
     fileUrl: resolveCommunityFileUrlFromRow(row),
@@ -2284,13 +2288,23 @@ function formatCommunityKnowledgeRow(row) {
   const internalFileName = String(
     meta.internal_file_name || row.file_name || row.title || ''
   ).trim();
+  const catalogTopic = String(
+    (bundleMaterial && bundleMaterial.topic) ||
+    bundleTopic ||
+    ''
+  ).trim();
+  const rowTopic = String(row.topic || '').trim();
+  const resolvedTopic = catalogTopic || (rowTopic && !looksLikeUserChatQuestion(rowTopic) ? rowTopic : '');
 
   return {
     id: row.id || null,
     sourceMaterialId: row.source_material_id || null,
     source: 'knowledge_base',
     title: row.title || bundleTopic || 'חומר קהילתי',
-    topic: String(row.topic || bundleTopic || '').trim(),
+    topic: resolvedTopic,
+    subject: resolvedTopic,
+    catalogTopic: catalogTopic || resolvedTopic,
+    description: String(row.content || '').slice(0, 300),
     bundleTopic: bundleTopic,
     internalFileName: internalFileName,
     gradeId: row.grade_id != null ? String(row.grade_id) : null,
@@ -2312,6 +2326,8 @@ function scoreCommunityKnowledgeHit(query, row) {
   [
     hit.title,
     hit.topic,
+    hit.subject,
+    hit.description,
     hit.bundleTopic,
     hit.contentPreview,
   ].filter(Boolean).forEach(function (candidate) {
@@ -2331,20 +2347,28 @@ function scoreCommunityKnowledgeHit(query, row) {
 
   hit.similarity = best;
 
-  if (titleScore >= 0.45 && bundleTopicScore < 0.45 && (hit.bundleTopic || hit.topic)) {
-    const folderName = hit.bundleTopic || hit.topic;
+  if (titleScore >= 0.45 && bundleTopicScore < 0.45 && (hit.bundleTopic || hit.catalogTopic || hit.topic)) {
+    const folderName = hit.catalogTopic || hit.bundleTopic || hit.topic;
     hit.matchedInBundle = true;
     hit.matchType = 'nested_in_bundle';
     hit.displayTitle = hit.title;
     hit.alertText = 'נמצא חומר רלוונטי בתוך התיקייה «' + folderName + '» במאגר הקהילתי!';
     hit.topic = folderName;
+    hit.catalogTopic = folderName;
   }
 
   return hit;
 }
 
 function scoreCommunityHitSimilarity(query, hit) {
-  const candidates = [hit.topic, hit.title, hit.displayTitle].filter(Boolean);
+  const candidates = [
+    hit.title,
+    hit.displayTitle,
+    hit.topic,
+    hit.subject,
+    hit.description,
+    hit.contentPreview,
+  ].filter(Boolean);
   let best = 0;
   candidates.forEach(function (candidate) {
     const score = scoreTopicSimilarity(query, candidate, '');
@@ -2373,7 +2397,9 @@ function buildCommunityHitHaystack(hit) {
     hit.displayTitle,
     hit.title,
     hit.topic,
+    hit.subject,
     hit.bundleTopic,
+    hit.description,
     hit.contentPreview,
   ].filter(Boolean).join(' ');
 }
@@ -2429,6 +2455,46 @@ function parseCommunityDescriptionFromNotes(rawNotes) {
   return clean.slice(0, 200);
 }
 
+/** Detect raw chat questions — never use as catalog folder navigation targets. */
+function looksLikeUserChatQuestion(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/[?؟]/.test(s)) return true;
+  if (/^(האם|מהו?|איפה|היכן|למה|מדוע|איך|האם יש|תוכל|תוכלי)\b/.test(s)) return true;
+  if (s.split(/\s+/).filter(Boolean).length >= 8) return true;
+  return false;
+}
+
+/**
+ * Canonical community_materials.topic folder name for catalog navigation.
+ * Never returns the user's raw chat question.
+ */
+function resolveCommunityCatalogTopic(hit) {
+  if (!hit || typeof hit !== 'object') return '';
+
+  const explicit = String(hit.catalogTopic || '').trim();
+  if (explicit && !looksLikeUserChatQuestion(explicit)) return explicit;
+
+  const bundleTopic = String(hit.bundleTopic || '').trim();
+  if (bundleTopic && !looksLikeUserChatQuestion(bundleTopic)) return bundleTopic;
+
+  const topic = String(hit.topic || '').trim();
+  if (topic && !looksLikeUserChatQuestion(topic)) return topic;
+
+  return '';
+}
+
+function withCatalogNavigationFields(hit) {
+  if (!hit || typeof hit !== 'object') return hit;
+  const catalogTopic = resolveCommunityCatalogTopic(hit);
+  const gradeLabel = hit.gradeLabel || resolveGradeLabelFromId(hit.gradeId, null) || null;
+  return Object.assign({}, hit, {
+    catalogTopic: catalogTopic || hit.catalogTopic || '',
+    gradeLabel: gradeLabel,
+    materialId: hit.sourceMaterialId || hit.id || hit.materialId || null,
+  });
+}
+
 function buildSemanticCatalogEntries(materialRows, kbRows) {
   const entries = [];
 
@@ -2440,7 +2506,7 @@ function buildSemanticCatalogEntries(materialRows, kbRows) {
       id: hit.id,
       title: hit.title,
       topic: hit.topic,
-      description: parseCommunityDescriptionFromNotes(row.notes || row.description || ''),
+      description: hit.description || parseCommunityDescriptionFromNotes(row.notes || row.description || ''),
       hit: hit,
     });
   });
@@ -2509,7 +2575,6 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
       const orParts = [];
       terms.forEach(function (term) {
         orParts.push('topic.ilike.*' + term + '*');
-        orParts.push('file_name.ilike.*' + term + '*');
         orParts.push('notes.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');
@@ -2605,7 +2670,7 @@ function resolveGradeLabelFromId(gradeId, gradeLabel) {
 
 function formatCachedArchiveAsCommunityMatch(row, query) {
   if (!row) return null;
-  const topic = String(row.topic || row.query_text || '').trim();
+  const topic = String(row.topic || '').trim();
   const gradeId = row.grade_id != null ? String(row.grade_id) : '';
   const gradeLabel = resolveGradeLabelFromId(gradeId, row.grade_label);
   const title = topic || String(row.query_text || '').trim() || 'ארכיון מחקר';
@@ -2614,6 +2679,7 @@ function formatCachedArchiveAsCommunityMatch(row, query) {
     source: 'cached_archive',
     title: title,
     topic: topic,
+    catalogTopic: topic,
     gradeId: gradeId || null,
     gradeLabel: gradeLabel || null,
     fileName: '',
@@ -2831,7 +2897,7 @@ async function findCommunityMaterials(options) {
   }
 
   return {
-    matches: matches,
+    matches: matches.map(withCatalogNavigationFields),
     count: matches.length,
     query: query,
     matchMethod: matches.length ? matchMethod : 'none',
@@ -2879,6 +2945,9 @@ module.exports = {
   buildSemanticCatalogEntries,
   keywordSubstringMatchCommunity,
   buildCommunitySearchTerms,
+  looksLikeUserChatQuestion,
+  resolveCommunityCatalogTopic,
+  withCatalogNavigationFields,
   COMMUNITY_MATERIALS_TABLE,
   COMMUNITY_KB_TABLE,
 };
