@@ -429,6 +429,53 @@ function isOnDemandExpansionPhase(body) {
   return phase === 'pedagogy_deep_dive' || phase === 'archive_summary';
 }
 
+/** «הרחבה ואספקטים פרקטיים» — Perplexity Sonar only; no Gemini enrichment. */
+function isPerplexityOnlyExpansionPhase(body) {
+  return body && body.phase === 'pedagogy_deep_dive';
+}
+
+function hasPedagogyDeepDiveContent(dive) {
+  if (!dive || typeof dive !== 'object') return false;
+  return Boolean(
+    String(dive.rawContent || '').trim() ||
+    String(dive.summaryHtml || '').trim() ||
+    String(dive.contentHtml || '').trim() ||
+    String(dive.classroomImplementation || '').trim() ||
+    String(dive.essence || '').trim()
+  );
+}
+
+function buildPerplexityExpansionPayload(body, rawPayload) {
+  const citations = Array.isArray(rawPayload.citations) ? rawPayload.citations.filter(Boolean) : [];
+  return {
+    pedagogyDeepDive: {
+      title: String(body.activityTitle || body.sourceTitle || '').trim(),
+      rawContent: String(rawPayload.content || '').trim(),
+      citations: citations,
+      source: 'perplexity-sonar',
+      model: rawPayload.model || perplexityClient.PERPLEXITY_SEARCH_MODEL,
+      searchedAt: rawPayload.searchedAt || new Date().toISOString(),
+    },
+  };
+}
+
+async function fetchPerplexityOnlyExpansion(body, logContext) {
+  const phase = body.phase;
+  console.log('[expansion] Perplexity-only pipeline for', phase);
+  let rawPayload;
+  try {
+    rawPayload = await fetchOrRunPerplexityResearch(body, logContext);
+  } catch (searchErr) {
+    const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
+    console.error('[expansion] Perplexity search failed for', phase, ':', msg);
+    throw new Error(msg || 'שגיאה בחיפוש Perplexity — נסו שוב בעוד רגע.');
+  }
+  if (!String(rawPayload.content || '').trim()) {
+    throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+  }
+  return buildPerplexityExpansionPayload(body, rawPayload);
+}
+
 function isArchiveOnlyLookup(body) {
   return ARCHIVE_ONLY_MODE && isDecoupledGenerationPhase(body);
 }
@@ -1663,6 +1710,7 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
 
 function shouldUseHybridRouting(body) {
   if (!body || body.phase === 'test') return false;
+  if (isPerplexityOnlyExpansionPhase(body)) return false;
   return Boolean(perplexityClient.resolveApiKey() && env.getGeminiApiKey());
 }
 
@@ -1717,7 +1765,7 @@ function validatePhaseResult(phase, data) {
   if (phase === 'chat_followup') {
     return Boolean(cacheDb.extractChatAnswerText(data));
   }
-  if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
+  if (phase === 'pedagogy_deep_dive') return hasPedagogyDeepDiveContent(data.pedagogyDeepDive);
   if (phase === 'archive_search') return Boolean(data.archiveSearch);
   if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
   if (phase === 'drive') return Boolean(data.driveMerge);
@@ -1770,6 +1818,9 @@ function rethrowApiClientError(err, fallbackMessage) {
  * while the client request stays open (spinner remains active).
  */
 async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
+  if (isPerplexityOnlyExpansionPhase(body)) {
+    return fetchPerplexityOnlyExpansion(body, logContext);
+  }
   if (shouldUseHybridRouting(body)) {
     return fetchHybridModelWithRetry(
       body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext
@@ -1984,8 +2035,18 @@ async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, 
   return cacheDb.stampHybridGeneratedMetadata(buildModelParseFallback(phase, lastRaw || '', body));
 }
 
-function resolveApiKey() {
+function resolveApiKey(body) {
+  if (body && isPerplexityOnlyExpansionPhase(body)) {
+    return perplexityClient.resolveApiKey() || null;
+  }
   return env.getGeminiApiKey() || null;
+}
+
+function missingKeyError(body) {
+  if (body && isPerplexityOnlyExpansionPhase(body)) {
+    return 'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY ב-Render → Environment ופרסמו מחדש.';
+  }
+  return MISSING_KEY_ERROR;
 }
 
 function setCors(res) {
@@ -2196,9 +2257,9 @@ async function handleGeneratePost(parsedBody, requestContext) {
     cacheDb.normalizeGradeCacheRequest(parsedBody);
   }
   const archiveOnlyLookup = isArchiveOnlyLookup(parsedBody);
-  const apiKey = resolveApiKey();
+  const apiKey = resolveApiKey(parsedBody);
   if (!apiKey && !archiveOnlyLookup) {
-    const err = new Error(MISSING_KEY_ERROR);
+    const err = new Error(missingKeyError(parsedBody));
     err.statusCode = 500;
     throw err;
   }
@@ -2501,7 +2562,9 @@ async function executeGenerate(body, apiKey, requestContext) {
       if (isArchiveOnlyLookup(body)) {
         throw buildArchiveNotFoundError(body);
       }
-      if (shouldUseHybridRouting(body)) {
+      if (isPerplexityOnlyExpansionPhase(body)) {
+        console.log('[expansion] pipeline: Perplexity sonar only (no Gemini)');
+      } else if (shouldUseHybridRouting(body)) {
         console.log('[hybrid] pipeline: Perplexity sonar → raw cache → Gemini', GEMINI_GENERATION_MODEL);
       }
     }
@@ -2586,7 +2649,9 @@ async function executeGenerate(body, apiKey, requestContext) {
     (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
-    (isOnDemandExpansion
+    (isPerplexityOnlyExpansionPhase(body)
+      ? ''
+      : isOnDemandExpansion
       ? ' ON-DEMAND EXPANSION: Perplexity raw research is the sole factual input — no Drive or community archive excerpts. ' +
         'Gemini acts as Master Waldorf Educator: synthesize into ONE rich pedagogyDeepDive (or archiveSummary) for the single requested bullet/source. No URLs in JSON output.'
       : isDecoupledGen
@@ -2645,9 +2710,11 @@ async function executeGenerate(body, apiKey, requestContext) {
       }
       const cachePayload = isChatFollowup
         ? cacheDb.packChatFollowupForCache(data)
-        : (shouldUseHybridRouting(body)
-          ? cacheDb.stampHybridGeneratedMetadata(data)
-          : data);
+        : (isPerplexityOnlyExpansionPhase(body)
+          ? cacheDb.stampPerplexityOnlyMetadata(data)
+          : (shouldUseHybridRouting(body)
+            ? cacheDb.stampHybridGeneratedMetadata(data)
+            : data));
       const savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
       if (savedKey) {
         const merged = ragMeta.chunkCount > 0;
@@ -2693,12 +2760,15 @@ async function executeGenerate(body, apiKey, requestContext) {
       table: cacheDb.TABLE_NAME,
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
       hybridPipeline: shouldUseHybridRouting(body),
+      perplexityOnly: isPerplexityOnlyExpansionPhase(body),
       consolidatedArchive: ragMeta.chunkCount > 0,
-      contentHierarchy: isDecoupledGen
-        ? 'perplexity_raw+gemini_master_educator'
-        : (shouldUseHybridRouting(body)
-          ? 'perplexity_raw+gemini_enrichment'
-          : 'web_primary_drive_enrichment'),
+      contentHierarchy: isPerplexityOnlyExpansionPhase(body)
+        ? 'perplexity-sonar-only'
+        : (isDecoupledGen
+          ? 'perplexity_raw+gemini_master_educator'
+          : (shouldUseHybridRouting(body)
+            ? 'perplexity_raw+gemini_enrichment'
+            : 'web_primary_drive_enrichment')),
       liveDriveRefresh: Boolean(ragMeta.liveDriveRefresh),
       rag: ragMeta,
       ragContext: body.ragContext || '',
@@ -2739,9 +2809,9 @@ async function legacyHandler(req, res) {
     return sendJson(res, 400, { error: message || 'Invalid JSON body' });
   }
 
-  const apiKey = resolveApiKey();
+  const apiKey = resolveApiKey(body);
   if (!apiKey && !isArchiveOnlyLookup(body)) {
-    return sendJson(res, 500, { error: MISSING_KEY_ERROR });
+    return sendJson(res, 500, { error: missingKeyError(body) });
   }
 
   try {
@@ -2783,9 +2853,9 @@ async function fetchHandler(request) {
     return Response.json({ error: message || 'Invalid JSON body' }, { status: 400, headers });
   }
 
-  const apiKey = resolveApiKey();
+  const apiKey = resolveApiKey(body);
   if (!apiKey && !isArchiveOnlyLookup(body)) {
-    return Response.json({ error: MISSING_KEY_ERROR }, { status: 500, headers });
+    return Response.json({ error: missingKeyError(body) }, { status: 500, headers });
   }
 
   try {

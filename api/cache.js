@@ -439,7 +439,17 @@ function isValidCachedPayload(phase, data) {
   if (phase === 'chat_followup') {
     return Boolean(extractChatAnswerText(data));
   }
-  if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
+  if (phase === 'pedagogy_deep_dive') {
+    const dive = data.pedagogyDeepDive;
+    if (!dive || typeof dive !== 'object') return false;
+    return Boolean(
+      String(dive.rawContent || '').trim() ||
+      String(dive.summaryHtml || '').trim() ||
+      String(dive.contentHtml || '').trim() ||
+      String(dive.classroomImplementation || '').trim() ||
+      String(dive.essence || '').trim()
+    );
+  }
   if (phase === 'archive_search') return Boolean(data.archiveSearch);
   if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
   if (phase === 'drive') return Boolean(data.driveMerge);
@@ -465,6 +475,17 @@ function stampHybridGeneratedMetadata(resultData) {
     version: HYBRID_GENERATED_VERSION,
     generatedAt: new Date().toISOString(),
     pipeline: 'perplexity-sonar+gemini-2.5-flash',
+  };
+  return data;
+}
+
+function stampPerplexityOnlyMetadata(resultData) {
+  const data = coerceCachedResultData(resultData);
+  if (!data || typeof data !== 'object') return resultData;
+  data._perplexityOnly = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    pipeline: 'perplexity-sonar-only',
   };
   return data;
 }
@@ -2796,6 +2817,7 @@ module.exports = {
   buildCachedGeneratePayload,
   isEnhancedCachedPayload,
   stampHybridGeneratedMetadata,
+  stampPerplexityOnlyMetadata,
   getCachedResult,
   getRawPerplexityCache,
   setRawPerplexityCache,
