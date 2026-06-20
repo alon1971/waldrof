@@ -11,6 +11,8 @@ const authContext = require('./auth-context');
 const hebrewTopicMatch = require('../hebrew-topic-match');
 const jsonRepair = require('./json-repair');
 const communitySemanticMatch = require('./community-semantic-match');
+const catalogTopics = require('./catalog-topics');
+const driveCatalogSync = require('./drive-catalog-sync');
 
 const TABLE_NAME = 'cached_results';
 /** Phase stored in cached_results for raw Perplexity web-search payloads (hybrid pipeline). */
@@ -2245,10 +2247,15 @@ function buildCommunitySearchTerms(query) {
       if (cleaned.charAt(0) === 'ה' && cleaned.length > 2) terms.add(cleaned.slice(1));
     });
 
+  catalogTopics.expandCatalogTopicAliases(Array.from(terms)).forEach(function (alias) {
+    const cleaned = sanitizeCommunitySearchTerm(alias);
+    if (cleaned && cleaned.length >= 2) terms.add(cleaned);
+  });
+
   return Array.from(terms)
     .filter(function (term) { return term && term.length >= 2; })
     .sort(function (a, b) { return b.length - a.length; })
-    .slice(0, 10);
+    .slice(0, 12);
 }
 
 function resolveCommunityFileUrlFromRow(row) {
@@ -2272,18 +2279,33 @@ function parseCommunityTitleFromNotes(rawNotes) {
   return '';
 }
 
+function resolveInheritedCatalogTopicFromRow(row) {
+  if (!row || typeof row !== 'object') return '';
+  const notes = row.notes || row.description || '';
+  const fromNotes = catalogTopics.parseCatalogTopicFromNotes(notes);
+  if (fromNotes) return fromNotes;
+  const rowTopic = String(row.topic || '').trim();
+  if (rowTopic) return catalogTopics.resolveCatalogTopicFromFolderName(rowTopic);
+  return '';
+}
+
 function formatCommunityMaterialRow(row) {
   const notes = row.notes || row.description || '';
   const parsedTitle = parseCommunityTitleFromNotes(notes);
   const description = parseCommunityDescriptionFromNotes(notes);
-  const topic = String(row.topic || '').trim();
+  const rowTopic = String(row.topic || '').trim();
+  const inheritedTopic = resolveInheritedCatalogTopicFromRow(row);
+  const catalogTopic = inheritedTopic || rowTopic;
+  const topic = catalogTopic || rowTopic;
   return {
     id: row.id || null,
     source: 'catalog',
     title: parsedTitle || topic || 'חומר קהילתי',
     topic: topic,
     subject: topic,
-    catalogTopic: topic,
+    catalogTopic: catalogTopic,
+    bundleTopic: catalogTopic,
+    subfolderTopic: catalogTopics.parseCatalogTopicFromNotes(notes) || '',
     description: description,
     gradeId: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : null),
     fileName: row.file_name || '',
@@ -2308,11 +2330,13 @@ function formatCommunityKnowledgeRow(row) {
   const bundleTopic = String(
     meta.bundle_topic || bundleMaterial && bundleMaterial.topic || row.topic || ''
   ).trim();
+  const inheritedFromMaterial = bundleMaterial ? resolveInheritedCatalogTopicFromRow(bundleMaterial) : '';
   const internalFileName = String(
     meta.internal_file_name || row.file_name || row.title || ''
   ).trim();
   const rowTopic = String(row.topic || '').trim();
   const catalogTopic = String(
+    inheritedFromMaterial ||
     (bundleMaterial && bundleMaterial.topic) ||
     (bundleTopic && !looksLikeUserChatQuestion(bundleTopic) ? bundleTopic : '') ||
     (rowTopic && !looksLikeUserChatQuestion(rowTopic) ? rowTopic : '')
@@ -2416,12 +2440,21 @@ function dedupeCommunityHits(hits) {
 }
 
 function buildCommunityHitHaystack(hit) {
+  const aliasTerms = catalogTopics.expandCatalogTopicAliases([
+    hit.catalogTopic,
+    hit.bundleTopic,
+    hit.topic,
+    hit.subfolderTopic,
+  ]);
   return [
     hit.displayTitle,
     hit.title,
     hit.topic,
     hit.subject,
+    hit.catalogTopic,
     hit.bundleTopic,
+    hit.subfolderTopic,
+    aliasTerms.join(' '),
     hit.description,
     hit.contentPreview,
   ].filter(Boolean).join(' ');
@@ -2497,6 +2530,11 @@ function resolveCommunityCatalogTopic(hit) {
 
   const explicit = String(hit.catalogTopic || '').trim();
   if (explicit && !looksLikeUserChatQuestion(explicit)) return explicit;
+
+  const subfolder = String(hit.subfolderTopic || '').trim();
+  if (subfolder && !looksLikeUserChatQuestion(subfolder)) {
+    return catalogTopics.resolveCatalogTopicFromFolderName(subfolder);
+  }
 
   const bundleTopic = String(hit.bundleTopic || '').trim();
   if (bundleTopic && !looksLikeUserChatQuestion(bundleTopic)) return bundleTopic;
@@ -2980,6 +3018,10 @@ module.exports = {
   looksLikeUserChatQuestion,
   resolveCommunityCatalogTopic,
   withCatalogNavigationFields,
+  resolveInheritedCatalogTopicFromRow,
+  backgroundFetchDriveCatalog: driveCatalogSync.backgroundFetchDriveCatalogAsync,
+  syncCommunityDriveCatalog: driveCatalogSync.syncCommunityDriveCatalog,
+  isDriveCatalogSyncConfigured: driveCatalogSync.isDriveCatalogSyncConfigured,
   COMMUNITY_MATERIALS_TABLE,
   COMMUNITY_KB_TABLE,
 };

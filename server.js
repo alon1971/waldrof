@@ -457,6 +457,39 @@ async function handleApiBillingReportCron(req, res) {
   }
 }
 
+function assertCronAuthorized(req, query) {
+  const secret = env.getCronSecret();
+  if (!secret) return;
+  const auth = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  const headerSecret = req.headers['x-cron-secret'] || req.headers['X-Cron-Secret'];
+  const querySecret = query && query.secret;
+  if (auth === secret || headerSecret === secret || querySecret === secret) return;
+  const err = new Error('Unauthorized cron request');
+  err.statusCode = 401;
+  throw err;
+}
+
+async function handleApiDriveCatalogSyncCron(req, res) {
+  try {
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    const query = Object.fromEntries(parsedUrl.searchParams.entries());
+    assertCronAuthorized(req, query);
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      writeJsonResponse(res, 405, { error: 'Method not allowed' });
+      return;
+    }
+    const result = await cacheDb.syncCommunityDriveCatalog({
+      rootFolderId: query.rootFolderId || undefined,
+      gradeId: query.gradeId || undefined,
+    });
+    writeJsonResponse(res, 200, result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    console.error('[api/cron/drive-catalog-sync]', status, err.message || err);
+    writeJsonResponse(res, status, { error: err.message || String(err) });
+  }
+}
+
 const server = http.createServer(async function (req, res) {
   const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
 
@@ -519,6 +552,10 @@ const server = http.createServer(async function (req, res) {
     return handleApiBillingReportCron(req, res);
   }
 
+  if (pathname === '/api/cron/drive-catalog-sync') {
+    return handleApiDriveCatalogSyncCron(req, res);
+  }
+
   serveStatic(req, res, pathname);
 });
 
@@ -535,13 +572,18 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | GET /api/cron/billing-report | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_SERVICE_ROLE_KEY:', env.getSupabaseServiceRoleKey() ? 'set' : (env.getSupabaseAnonKey() ? 'anon only' : 'MISSING'));
+  console.log('[env] GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID:', process.env.GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID ? 'set' : 'MISSING');
   console.log('[cache] Supabase cached_results:', cacheDb.isSupabaseCacheEnabled() ? 'enabled' : 'local fallback only');
   knowledgeSeed.seedKnowledgeBaseIfEmptyAsync();
+  if (process.env.DRIVE_CATALOG_SYNC_ON_BOOT === '1' && cacheDb.isDriveCatalogSyncConfigured()) {
+    console.log('[drive-catalog-sync] scheduling background fetch on boot');
+    cacheDb.backgroundFetchDriveCatalog();
+  }
 });
 
 server.on('error', function (err) {
