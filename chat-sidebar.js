@@ -540,13 +540,11 @@
       '<style>' +
       '@page { size: A4; margin: 2.5cm 2.5cm 2.5cm 2.5cm; }' +
       "body { font-family: 'Arial', sans-serif; font-size: 12pt; line-height: 1.5; direction: " + dir + "; text-align: " + align + "; color: #333333; }" +
-      'p, span, li { font-size: 12pt !important; line-height: 1.5 !important; }' +
-      'h1 { font-size: 22pt; font-weight: bold; margin-bottom: 12px; }' +
-      'h2 { font-size: 16pt; font-weight: bold; margin-top: 18px; margin-bottom: 6px; }' +
+      'p, span, li, h1, h2, h3, h4, .meta-info, .section-user, .section-assistant { font-size: 12pt !important; line-height: 1.5 !important; }' +
       '.header-title { font-size: 22pt; font-weight: bold; color: #1e3a8a; margin-bottom: 5px; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; }' +
-      '.meta-info { font-size: 12pt; color: #666666; margin-bottom: 30px; }' +
-      '.section-user { font-size: 12pt; font-weight: bold; color: #2563eb; margin-top: 20px; margin-bottom: 5px; background: #f0f4ff; padding: 8px; border-' + (en ? 'left' : 'right') + ': 3px solid #2563eb; }' +
-      '.section-assistant { font-size: 12pt; color: #333333; margin-bottom: 25px; padding-' + (en ? 'left' : 'right') + ': 10px; line-height: 1.5; }' +
+      '.meta-info { color: #666666; margin-bottom: 30px; }' +
+      '.section-user { font-weight: bold; color: #2563eb; margin-top: 20px; margin-bottom: 5px; background: #f0f4ff; padding: 8px; border-' + (en ? 'left' : 'right') + ': 3px solid #2563eb; }' +
+      '.section-assistant { color: #333333; margin-bottom: 25px; padding-' + (en ? 'left' : 'right') + ': 10px; }' +
       'strong { color: #111827; }' +
       '</style></head><body>' +
       '<div class="header-title">' + deps.escapeHtml(title) + '</div>' +
