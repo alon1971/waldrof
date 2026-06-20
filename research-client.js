@@ -414,11 +414,8 @@
       return {
         webResearch: { topic: topic, summary: plain.slice(0, 2000), connections: [], highlights: [] },
         blockPlan: {
-          theory: { title: topic || 'תוכן שנוצר', sections: [{ heading: 'סיכום', icon: 'fa-compass', content: wrap, quotes: [] }], bibliography: { books: [], articles: [], websites: [] } },
-          inspiration: { title: '', global: [], podcast: { title: '', episodes: [] }, narrative: [] },
-          curriculum: [],
+          theory: { title: topic || 'תוכן שנוצר', sections: [{ heading: 'סיכום', icon: 'fa-compass', content: wrap, quotes: [] }] },
         },
-        gallery: [],
         _parseFallback: true,
       };
     }
@@ -484,40 +481,21 @@
     }
     if (phase === 'topic') {
       const topic = (body.topic || '').replace(/"/g, '');
-      const theoryExtra = body.theoryPrompt ? '\nTHEORY TAB INSTRUCTIONS:\n' + body.theoryPrompt + '\n' : '';
-      const inspirationExtra = body.inspirationPrompt ? '\nINSPIRATION TAB INSTRUCTIONS:\n' + body.inspirationPrompt + '\n' : '';
-      const curriculumExtra = body.curriculumPrompt ? '\nCURRICULUM TAB INSTRUCTIONS:\n' + body.curriculumPrompt + '\n' : '';
-      const bibExtra = body.bibliographyRequirements ? '\nBIBLIOGRAPHY REQUIREMENTS (MANDATORY):\n' + body.bibliographyRequirements + '\n' : '';
-      const pedagogyHint = body.pedagogyExpandHint ? '\nINSPIRATION & CURRICULUM FORMAT:\n' + body.pedagogyExpandHint + '\n' : '';
-      const noUrls = body.noUrlsInstruction ? '\nNO URLS (MANDATORY):\n' + body.noUrlsInstruction + '\n' : '\nDo NOT include internet URLs.\n';
+      const theoryExtra = body.theoryPrompt ? '\nTHEORY ESSENCE INSTRUCTIONS:\n' + body.theoryPrompt + '\n' : '';
+      const noUrls = body.noUrlsInstruction ? '\nNO URLS (MANDATORY):\n' + body.noUrlsInstruction + '\n' : '\nDo NOT include internet URLs, hyperlinks, or [N] reference brackets.\n';
       return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) + noUrls +
-        'Live web research: Waldorf main lesson block planning.\ncurrentGrade: ' + resolvedGradeId(body) +
+        LAZY_LOAD_NOTE +
+        'Synthesize PERPLEXITY WEB RESEARCH into Waldorf TOPIC ESSENCE ONLY for currentGrade ' + resolvedGradeId(body) +
         '\nGrade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\nBlock topic: «' + topic + '»\nGrade context: ' + (body.gradeContext || '') + '\n' +
-        theoryExtra + inspirationExtra + curriculumExtra + bibExtra + pedagogyHint + WEB_SEARCH_PRIORITY_INSTRUCTION +
-        'Every field in blockPlan MUST be written for currentGrade only.\n' +
-        'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
-        'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string).\n' +
-        'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
-        LAZY_LOAD_NOTE + JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only — reply MUST start with { and end with }:\n' +
+        theoryExtra +
+        'FORBIDDEN: inspiration, curriculum/daily breakdown, bibliography, sources, gallery, URLs, [1][4] brackets.\n' +
+        'Deep resources load on-demand via pedagogy_deep_dive.\n' +
+        JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only — reply MUST start with { and end with }:\n' +
         '{\n' +
-        '  "webResearch": {\n' +
-        '    "topic": "' + topic + '",\n' +
-        '    "summary": "Rich Hebrew paragraph",\n' +
-        '    "connections": ["Hebrew phrases tied to currentGrade"],\n' +
-        '    "highlights": ["Hebrew highlights for this grade only"]\n' +
-        '  },\n' +
-        '  "blockPlan": {\n' +
-        '    "theory": { "title": "Hebrew", "sections": [{ "heading": "Hebrew", "icon": "fa-compass", "content": "<p>Rich Hebrew HTML</p>", "quotes": [] }], "bibliography": { "books": [], "articles": [], "websites": [] } },\n' +
-        '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": ["paragraph"] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "paragraph" }] }, "narrative": ["paragraph"] },\n' +
-        '    "curriculum": [\n' +
-        '      { "day": 1, "topic": "Hebrew day title", "content": "4-6 Hebrew sentences", "art": "2-4 Hebrew sentences", "hint": "optional" },\n' +
-        '      { "day": 2, "topic": "Hebrew", "content": "...", "art": "...", "hint": "" }\n' +
-        '    ]\n' +
-        '  },\n' +
-        '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase", "src": "" }]\n' +
+        '  "webResearch": { "topic": "' + topic + '", "summary": "Rich Hebrew paragraph", "connections": ["Hebrew"], "highlights": ["Hebrew"] },\n' +
+        '  "blockPlan": { "theory": { "title": "Hebrew", "sections": [{ "heading": "Hebrew", "icon": "fa-compass", "content": "<p>Rich Hebrew HTML essence</p>", "quotes": [] }] } }\n' +
         '}\n' +
-        'curriculum array MUST contain exactly 15 entries (days 1 through 15) with distinct topics and rich Hebrew content.\n' +
-        'gallery MUST include 4–8 Pinterest visual inspiration entries.';
+        'blockPlan MUST contain ONLY theory — no other keys.';
     }
     if (phase === 'pedagogy_deep_dive') {
       const title = (body.activityTitle || '').replace(/"/g, "'");
@@ -574,7 +552,15 @@
   function validatePhaseResult(phase, data) {
     if (!data || typeof data !== 'object') return false;
     if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
-    if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
+    if (phase === 'topic') {
+      const bp = data.blockPlan;
+      if (bp && String(bp.rawContent || '').trim()) return true;
+      if (!bp || typeof bp !== 'object' || !bp.theory) return false;
+      const sections = bp.theory.sections;
+      return Array.isArray(sections) && sections.some(function (sec) {
+        return sec && String(sec.content || '').trim();
+      });
+    }
     if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
     if (phase === 'archive_search') return Boolean(data.archiveSearch);
     if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);

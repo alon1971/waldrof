@@ -406,6 +406,33 @@ function geminiMasterEducatorSystemPrompt(extra) {
   );
 }
 
+const PHASE_B_TOPIC_FORBIDDEN_OUTPUT =
+  '\n=== PHASE B — TOPIC ESSENCE ONLY (MANDATORY — OVERRIDES CONFLICTING RULES) ===\n' +
+  'Output ONLY the clean pedagogical essence and overview of the block topic for currentGrade.\n' +
+  'FORBIDDEN in JSON output: blockPlan.inspiration, blockPlan.curriculum, blockPlan.sources, theory.bibliography, gallery, ' +
+  'expansion / contentExpansion / artExpansion / hintExpansion objects, URLs, hyperlinks, and numeric reference brackets like [1] or [4].\n' +
+  'Do NOT generate daily lesson breakdown, inspiration blocks, background resource lists, or bibliography — those load on-demand via pedagogy_deep_dive or pedagogical chat.\n' +
+  '=== END PHASE B ===\n';
+
+/** Phase B (topic): Perplexity → Gemini — theory essence only, no expansions or resource lists. */
+function geminiTopicEssenceSystemPrompt(extra) {
+  return (
+    'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
+    GEMINI_MASTER_EDUCATOR_ROLE +
+    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
+    FACTUAL_INTEGRITY_INSTRUCTION +
+    ACADEMIC_TONE_INSTRUCTION +
+    PHASE_B_TOPIC_FORBIDDEN_OUTPUT +
+    JSON_ONLY_INSTRUCTION +
+    JSON_RESPONSE_ENFORCEMENT +
+    JSON_VALID_SYNTAX_INSTRUCTION +
+    ' Write pedagogical content in Hebrew. ' +
+    'Ground factual claims in PERPLEXITY WEB RESEARCH; synthesize into a concise, warm pedagogical essence and overview only.' +
+    NO_LATEX_BLOCK +
+    (extra || '')
+  );
+}
+
 /** On-demand «הרחבה ואספקטים פרקטיים» — Perplexity Sonar only; raw research saved to cache (no Gemini). */
 function geminiOnDemandExpansionSystemPrompt(extra) {
   return (
@@ -435,10 +462,10 @@ function isOnDemandExpansionPhase(body) {
   return phase === 'pedagogy_deep_dive' || phase === 'archive_summary';
 }
 
-/** On-demand Perplexity Sonar only — raw research saved to cache (no Gemini). */
+/** On-demand Perplexity Sonar only — raw research saved to cache (no Gemini). Topic uses hybrid Gemini for clean Phase B essence. */
 function isPerplexityOnlyOnDemandPhase(body) {
   if (!body || !body.phase) return false;
-  return body.phase === 'pedagogy_deep_dive' || body.phase === 'grade' || body.phase === 'topic';
+  return body.phase === 'pedagogy_deep_dive' || body.phase === 'grade';
 }
 
 /** @deprecated Use isPerplexityOnlyOnDemandPhase */
@@ -573,6 +600,9 @@ function resolveHybridSystemBuilder(body, baseOpts) {
   if (isOnDemandExpansionPhase(body)) {
     return geminiOnDemandExpansionSystemPrompt;
   }
+  if (body && body.phase === 'topic') {
+    return geminiTopicEssenceSystemPrompt;
+  }
   if (isDecoupledGenerationPhase(body)) {
     return geminiMasterEducatorSystemPrompt;
   }
@@ -580,6 +610,9 @@ function resolveHybridSystemBuilder(body, baseOpts) {
 }
 
 function resolveHybridSystemSuffix(body) {
+  if (body && body.phase === 'topic') {
+    return HYBRID_GEMINI_DECOUPLED_SUFFIX + PHASE_B_TOPIC_FORBIDDEN_OUTPUT;
+  }
   return (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body))
     ? HYBRID_GEMINI_DECOUPLED_SUFFIX
     : HYBRID_GEMINI_SYSTEM_SUFFIX;
@@ -1144,76 +1177,45 @@ function buildUserPrompt(body) {
   if (phase === 'topic') {
     const topic = (body.topic || '').replace(/"/g, '');
     const theoryExtra = body.theoryPrompt
-      ? '\nTHEORY TAB INSTRUCTIONS:\n' + body.theoryPrompt + '\n'
-      : '';
-    const inspirationExtra = body.inspirationPrompt
-      ? '\nINSPIRATION TAB INSTRUCTIONS:\n' + body.inspirationPrompt + '\n'
-      : '';
-    const curriculumExtra = body.curriculumPrompt
-      ? '\nCURRICULUM TAB INSTRUCTIONS:\n' + body.curriculumPrompt + '\n'
-      : '';
-    const bibExtra = body.bibliographyRequirements
-      ? '\nBIBLIOGRAPHY REQUIREMENTS (MANDATORY):\n' + body.bibliographyRequirements + '\n'
-      : '';
-    const pedagogyHint = body.pedagogyExpandHint
-      ? '\nINSPIRATION & CURRICULUM FORMAT:\n' + body.pedagogyExpandHint + '\n'
+      ? '\nTHEORY ESSENCE INSTRUCTIONS:\n' + body.theoryPrompt + '\n'
       : '';
     const noUrls = body.noUrlsInstruction
       ? '\nNO URLS (MANDATORY):\n' + body.noUrlsInstruction + '\n'
-      : '\nDo NOT include internet URLs in bibliography, HTML, summaries, or recommendations.\n';
+      : '\nDo NOT include internet URLs, hyperlinks, or href attributes anywhere in the JSON output.\n';
 
     return (
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
       noUrls +
-      'Synthesize the PERPLEXITY WEB RESEARCH provided above into a Waldorf main lesson block plan.\n' +
+      PHASE_B_TOPIC_FORBIDDEN_OUTPUT +
+      'Synthesize the PERPLEXITY WEB RESEARCH provided above into a Waldorf main-lesson TOPIC ESSENCE ONLY — pedagogical core and overview.\n' +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n' +
       'Block topic: «' + topic + '»\n' +
       'Grade context: ' + (body.gradeContext || '') + '\n' +
       theoryExtra +
-      inspirationExtra +
-      curriculumExtra +
-      bibExtra +
-      pedagogyHint +
-      'Every field in blockPlan MUST be written for currentGrade only. Do not mention activities, stories, or developmental themes from other grades.\n' +
-      'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries — do not repeat source names across body fields.\n' +
-      'webResearch.highlights: include diverse pedagogical highlights alongside priority-source findings.\n' +
-      'Produce rich, deeply anthroposophic content. Uniform 16px text in UI.\n' +
-      'theory.bibliography MUST have at least 3 books, 3 articles, 3 websites — title + author/publisher only, NEVER url fields. ' +
-      'Populate as a rich, diverse "Sources & Further Reading" landscape; cite Alon Yerushalmy only if genuinely relevant — merge his platforms into ONE entry, otherwise omit entirely.\n' +
-      'PINTEREST: populate gallery with 4–8 visual inspiration entries (experiments, main-lesson drawings, classroom displays) — Hebrew titles and precise Pinterest search phrases in "pin".\n' +
-      INLINE_EXPANSION_INSTRUCTION +
-      'CRITICAL — blockPlan MUST include ALL of these top-level keys inside blockPlan: theory, inspiration, sources, curriculum.\n' +
-      'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
-      'blockPlan.sources MUST be an object with books, articles, and websites arrays (same shape as theory.bibliography) — populate BOTH theory.bibliography and blockPlan.sources identically.\n' +
-      'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
-      'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string), ' +
-      '"contentExpansion", "artExpansion", "hintExpansion" (each same shape as expansion).\n' +
-      'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
+      'Every field MUST be written for currentGrade only. Do not mention activities, stories, or developmental themes from other grades.\n' +
+      'Produce rich, deeply anthroposophic essence content. Uniform 16px text in UI.\n' +
+      'STRICTLY FORBIDDEN: daily curriculum / 15-day breakdown, inspiration blocks, bibliography, sources lists, gallery, ' +
+      'inline expansion objects, numeric reference brackets like [1][4], and any external links.\n' +
+      'Deep dives, inspirations, resources, and daily planning are loaded later on-demand via pedagogy_deep_dive or pedagogical chat.\n' +
       JSON_ONLY_INSTRUCTION +
       JSON_RESPONSE_ENFORCEMENT +
       '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
       '{\n' +
       '  "webResearch": {\n' +
       '    "topic": "' + topic + '",\n' +
-      '    "summary": "Rich Hebrew paragraph",\n' +
-      '    "connections": ["Hebrew phrases tied to currentGrade"],\n' +
-      '    "highlights": ["Hebrew highlights for this grade only"]\n' +
+      '    "summary": "Rich Hebrew paragraph — pedagogical essence overview for this grade",\n' +
+      '    "connections": ["Hebrew phrases tying topic to currentGrade development"],\n' +
+      '    "highlights": ["3–6 Hebrew pedagogical highlights for this grade only"]\n' +
       '  },\n' +
       '  "blockPlan": {\n' +
-      '    "theory": { "title": "Hebrew", "sections": [{ "heading": "Hebrew", "icon": "fa-compass", "content": "<p>Rich Hebrew HTML paragraphs</p>", "quotes": [{ "text": "Hebrew", "source": "GA" }], "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "bibliography": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] } },\n' +
-      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] }, "narrative": [{ "text": "rich story/metaphor paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] },\n' +
-      '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] },\n' +
-      '    "curriculum": [{ "day": 1, "topic": "Hebrew", "content": "4-6 sentence guided lesson flow", "art": "2-4 sentences on art/craft", "hint": "optional", "contentExpansion": ' + EXPANSION_OBJECT_SCHEMA + ', "artExpansion": ' + EXPANSION_OBJECT_SCHEMA + ', "hintExpansion": ' + EXPANSION_OBJECT_SCHEMA + ' }]\n' +
-      '  },\n' +
-      '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase only — no URL required", "src": "" }]\n' +
+      '    "theory": { "title": "Hebrew", "sections": [{ "heading": "Hebrew", "icon": "fa-compass", "content": "<p>Rich Hebrew HTML paragraphs — essence only, no links, no [N] brackets</p>", "quotes": [{ "text": "Hebrew", "source": "GA" }] }] }\n' +
+      '  }\n' +
       '}\n' +
-      'curriculum MUST be a flat ARRAY of exactly 15 objects (days 1–15) — never wrap in { days: [...] } or similar.\n' +
-      'Each curriculum item MUST include day, topic, content, and art fields using those exact key names.\n' +
-      'blockPlan.inspiration and blockPlan.sources objects are MANDATORY — tabs will not render without them.\n' +
-      'gallery MUST include 4–8 Pinterest visual inspiration options with varied angles for the block topic.'
+      'blockPlan MUST contain ONLY theory (title + sections). No other blockPlan keys.\n' +
+      'theory.sections: 2–4 depth sections on pedagogical essence — NOT daily lessons, NOT inspiration, NOT bibliography.'
     );
   }
 
@@ -1481,43 +1483,6 @@ function getExpansionSchemaProperties() {
 }
 
 function getTopicResponseSchema() {
-  const expansionSchema = {
-    type: 'object',
-    properties: getExpansionSchemaProperties(),
-  };
-  const bibItemSchema = {
-    type: 'object',
-    properties: Object.assign({
-      title: { type: 'string' },
-      author: { type: 'string' },
-      publisher: { type: 'string' },
-      year: { type: 'string' },
-      lang: { type: 'string' },
-    }, { expansion: expansionSchema }),
-  };
-  const bibliographySchema = {
-    type: 'object',
-    properties: {
-      books: { type: 'array', items: bibItemSchema },
-      articles: { type: 'array', items: bibItemSchema },
-      websites: { type: 'array', items: bibItemSchema },
-    },
-    required: ['books', 'articles', 'websites'],
-  };
-  const curriculumDaySchema = {
-    type: 'object',
-    properties: {
-      day: { type: 'integer' },
-      topic: { type: 'string' },
-      content: { type: 'string' },
-      art: { type: 'string' },
-      hint: { type: 'string' },
-      contentExpansion: expansionSchema,
-      artExpansion: expansionSchema,
-      hintExpansion: expansionSchema,
-    },
-    required: ['day', 'topic', 'content', 'art'],
-  };
   return {
     type: 'object',
     properties: {
@@ -1539,48 +1504,72 @@ function getTopicResponseSchema() {
             properties: {
               title: { type: 'string' },
               sections: { type: 'array', items: { type: 'object' } },
-              bibliography: bibliographySchema,
             },
-            required: ['title', 'sections', 'bibliography'],
-          },
-          inspiration: {
-            type: 'object',
-            properties: {
-              title: { type: 'string' },
-              global: { type: 'array', items: { type: 'object' } },
-              podcast: { type: 'object' },
-              narrative: { type: 'array', items: { type: 'string' } },
-            },
-            required: ['title', 'global', 'podcast', 'narrative'],
-          },
-          sources: bibliographySchema,
-          curriculum: {
-            type: 'array',
-            items: curriculumDaySchema,
-            minItems: 15,
-            maxItems: 15,
+            required: ['title', 'sections'],
           },
         },
-        required: ['theory', 'inspiration', 'sources', 'curriculum'],
+        required: ['theory'],
       },
-      gallery: { type: 'array', items: { type: 'object' } },
     },
-    required: ['webResearch', 'blockPlan', 'gallery'],
+    required: ['webResearch', 'blockPlan'],
   };
+}
+
+function stripReferenceBrackets(text) {
+  return String(text || '')
+    .replace(/\[\d+\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function sanitizeTopicPhaseOutput(data) {
+  if (!data || typeof data !== 'object') return data;
+  delete data.gallery;
+  if (data.blockPlan && typeof data.blockPlan === 'object') {
+    const bp = data.blockPlan;
+    delete bp.inspiration;
+    delete bp.sources;
+    delete bp.curriculum;
+    delete bp.gallery;
+    if (bp.theory && typeof bp.theory === 'object') {
+      delete bp.theory.bibliography;
+      if (Array.isArray(bp.theory.sections)) {
+        bp.theory.sections = bp.theory.sections.map(function (sec) {
+          if (!sec || typeof sec !== 'object') return sec;
+          const next = Object.assign({}, sec);
+          delete next.expansion;
+          if (typeof next.content === 'string') next.content = stripReferenceBrackets(next.content);
+          if (typeof next.heading === 'string') next.heading = stripReferenceBrackets(next.heading);
+          return next;
+        });
+      }
+    }
+  }
+  if (data.webResearch && typeof data.webResearch === 'object') {
+    const wr = data.webResearch;
+    if (typeof wr.summary === 'string') wr.summary = stripReferenceBrackets(wr.summary);
+    if (Array.isArray(wr.highlights)) {
+      wr.highlights = wr.highlights.map(function (h) {
+        return stripReferenceBrackets(typeof h === 'string' ? h : (h && (h.text || h.highlight)) || '');
+      }).filter(Boolean);
+    }
+    if (Array.isArray(wr.connections)) {
+      wr.connections = wr.connections.map(stripReferenceBrackets).filter(Boolean);
+    }
+  }
+  return data;
 }
 
 function validateTopicBlockPlan(blockPlan) {
   if (!blockPlan || typeof blockPlan !== 'object') return false;
-  if (!blockPlan.inspiration || typeof blockPlan.inspiration !== 'object') return false;
-  if (!blockPlan.sources || typeof blockPlan.sources !== 'object') return false;
-  if (!Array.isArray(blockPlan.curriculum) || blockPlan.curriculum.length !== 15) return false;
+  if (String(blockPlan.rawContent || '').trim()) return true;
   if (!blockPlan.theory || typeof blockPlan.theory !== 'object') return false;
-  for (let i = 0; i < blockPlan.curriculum.length; i++) {
-    const day = blockPlan.curriculum[i];
-    if (!day || typeof day !== 'object') return false;
-    if (!day.topic && !day.content && !day.art) return false;
-  }
-  return true;
+  if (!Array.isArray(blockPlan.theory.sections) || !blockPlan.theory.sections.length) return false;
+  return blockPlan.theory.sections.some(function (sec) {
+    return sec && typeof sec === 'object' && (
+      String(sec.content || '').trim() || String(sec.heading || '').trim()
+    );
+  });
 }
 
 function extractGeminiV1Text(payload) {
@@ -1767,12 +1756,11 @@ function buildPerplexitySearchUserPrompt(body) {
     'Block topic: «' + topic + '»\n' +
     'Grade context: ' + (body.gradeContext || '') + '\n\n' +
     'Return a detailed Hebrew research report with:\n' +
-    '1. Waldorf pedagogical principles for this topic at this grade level\n' +
-    '2. Main-lesson block structure, biography, and artistic integration\n' +
-    '3. 15-day curriculum sequence ideas with daily themes\n' +
-    '4. Inspiration sources (Steiner/GA, anthroposophic authors, international Waldorf resources)\n' +
-    '5. Pinterest/visual inspiration search phrases for classroom displays\n' +
-    '6. A numbered "Sources" section with HTTPS reference URLs for every major claim'
+    '1. Waldorf pedagogical principles and anthroposophic developmental context for this topic at this grade level\n' +
+    '2. Core pedagogical essence and overview of the main-lesson block (biography, artistic integration, classroom rhythm)\n' +
+    '3. Grade-specific connections and pedagogical highlights\n' +
+    'Do NOT structure as a 15-day curriculum, inspiration anthology, or teacher resource bibliography — those are generated on-demand later.\n' +
+    '4. A numbered "Sources" section with HTTPS reference URLs for every major claim (for internal synthesis only — not copied into Phase B user output)'
   );
 }
 
@@ -1906,7 +1894,9 @@ function validatePhaseResult(phase, data) {
   }
   if (phase === 'topic') {
     if (data.blockPlan && String(data.blockPlan.rawContent || '').trim()) return true;
-    return validateTopicBlockPlan(data.blockPlan);
+    if (validateTopicBlockPlan(data.blockPlan)) return true;
+    if (data.webResearch && String(data.webResearch.summary || '').trim()) return true;
+    return false;
   }
   if (phase === 'chat_followup') {
     return Boolean(cacheDb.extractChatAnswerText(data));
@@ -1922,7 +1912,8 @@ function validatePhaseResult(phase, data) {
 const MODEL_PARSE_MAX_ATTEMPTS = 2;
 const JSON_RETRY_SYSTEM_SUFFIX =
   ' CRITICAL RETRY: Your previous reply was rejected — invalid JSON or missing required fields. ' +
-  'For topic phase: blockPlan MUST include inspiration (object), sources (object), and curriculum (array of exactly 15 day objects). ' +
+  'For topic phase (Phase B): blockPlan MUST contain ONLY theory (title + sections with content). ' +
+  'Do NOT include inspiration, curriculum, sources, bibliography, gallery, URLs, or [N] reference brackets. ' +
   'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
   'No ```json fences, no Hebrew/English preamble, no trailing commas.';
 const GENERIC_GENERATION_ERROR = 'לא הצלחנו ליצור את התוכן הפדגוגי. נסו שוב בעוד רגע.';
@@ -2222,6 +2213,10 @@ async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, 
     if (data && data._parseFallback) {
       console.warn('[hybrid] Using parse fallback for phase', phase, '(attempt', attempt + ')');
       return cacheDb.stampHybridGeneratedMetadata(data);
+    }
+
+    if (phase === 'topic' && data && !data._parseFallback) {
+      data = sanitizeTopicPhaseOutput(data);
     }
 
     if (!validatePhaseResult(phase, data)) {
@@ -2809,7 +2804,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     liveDriveRefresh: false,
   };
 
-  // Main generation (grade/topic): Perplexity → Gemini. On-demand pedagogy_deep_dive: Perplexity only.
+  // Main generation: grade Perplexity-only; topic Perplexity → Gemini essence. On-demand pedagogy_deep_dive: Perplexity only.
   if (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body)) {
     body.skipRag = true;
   }
@@ -2881,6 +2876,9 @@ async function executeGenerate(body, apiKey, requestContext) {
     communityCriticalBlock +
     (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
+      : '') +
+    (body.phase === 'topic'
+      ? PHASE_B_TOPIC_FORBIDDEN_OUTPUT
       : '') +
     (isPerplexityOnlyOnDemandPhase(body)
       ? ''

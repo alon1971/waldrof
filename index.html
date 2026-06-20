@@ -419,74 +419,79 @@
     .community-grade-link:hover { color: #8B3A3A; }
 
     .community-found-alert {
-      margin-top: 1rem;
-      padding: 1rem 1.1rem;
-      border-radius: 1rem;
-      border: 2px solid #C45C3E;
-      background: linear-gradient(135deg, rgba(196, 92, 62, 0.14), rgba(201, 169, 98, 0.18));
-      box-shadow: 0 8px 24px rgba(122, 42, 42, 0.12);
+      margin-top: 0.45rem;
+      padding: 0.5rem 0.6rem;
+      border-radius: 0.55rem;
+      border: 1px solid rgba(122, 155, 118, 0.38);
+      background: linear-gradient(135deg, rgba(122, 155, 118, 0.07), rgba(201, 169, 98, 0.05));
+      box-shadow: 0 1px 4px rgba(92, 125, 88, 0.07);
     }
     .community-found-alert__title {
-      font-weight: 800;
-      color: #7A2A2A;
-      font-size: 1rem;
-      line-height: 1.45;
+      font-weight: 700;
+      color: #3D5C3A;
+      font-size: 0.76rem;
+      line-height: 1.35;
       display: flex;
       align-items: flex-start;
-      gap: 0.5rem;
+      gap: 0.35rem;
+    }
+    .community-found-alert__title .fa-users-rays {
+      font-size: 0.72rem;
+      margin-top: 0.12rem;
     }
     .community-found-alert__list {
-      margin-top: 0.75rem;
+      margin-top: 0.35rem;
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.3rem;
     }
     .community-found-alert__item {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 0.5rem 0.75rem;
-      padding: 0.55rem 0.65rem;
-      border-radius: 0.65rem;
-      background: rgba(255, 255, 255, 0.82);
-      border: 1px solid rgba(122, 155, 118, 0.35);
+      gap: 0.3rem 0.45rem;
+      padding: 0.3rem 0.4rem;
+      border-radius: 0.4rem;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(122, 155, 118, 0.22);
     }
     .community-found-alert__item-title {
       font-weight: 600;
       color: #5C4A3A;
-      flex: 1 1 12rem;
+      font-size: 0.74rem;
+      line-height: 1.35;
+      flex: 1 1 8rem;
+    }
+    .community-found-alert__item-nested {
+      font-size: 0.68rem;
+      margin-top: 0.15rem;
     }
     .community-found-alert__actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.45rem;
+      gap: 0.25rem;
     }
     .community-found-alert__btn {
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
-      padding: 0.4rem 0.7rem;
+      gap: 0.25rem;
+      padding: 0.22rem 0.45rem;
       border-radius: 999px;
-      font-size: 0.82rem;
-      font-weight: 700;
+      font-size: 0.7rem;
+      font-weight: 600;
       text-decoration: none;
       border: 1px solid transparent;
       cursor: pointer;
     }
-    .community-found-alert__btn--primary {
-      background: #7A2A2A;
-      color: #fff;
-    }
-    .community-found-alert__btn--primary:hover { background: #8B3A3A; color: #fff; }
     .community-found-alert__btn--secondary {
-      background: rgba(122, 155, 118, 0.15);
+      background: rgba(122, 155, 118, 0.12);
       color: #3D5C3A;
-      border-color: rgba(122, 155, 118, 0.45);
+      border-color: rgba(122, 155, 118, 0.35);
     }
-    .community-found-alert__btn--secondary:hover { background: rgba(122, 155, 118, 0.28); }
+    .community-found-alert__btn--secondary:hover { background: rgba(122, 155, 118, 0.22); }
     #lesson-chat-community-alert,
     #lesson-chat-fullscreen-community-alert {
-      margin: 0.5rem 0.75rem 0;
+      margin: 0.3rem 0.45rem 0;
       flex-shrink: 0;
     }
     @keyframes productTabPanelEnter {
@@ -4853,7 +4858,14 @@
     function hasTopicResearchContent(data) {
       if (!data || !data.blockPlan) return false;
       if (String(data.blockPlan.rawContent || '').trim()) return true;
-      return Boolean(data.blockPlan.inspiration && data.blockPlan.curriculum);
+      const theory = data.blockPlan.theory;
+      if (theory && Array.isArray(theory.sections) && theory.sections.length) {
+        return theory.sections.some(function (sec) {
+          return sec && String(sec.content || '').trim();
+        });
+      }
+      if (data.webResearch && String(data.webResearch.summary || '').trim()) return true;
+      return false;
     }
 
     /** Apply completed topic research and keep the teacher on wizard Step B (never auto-open Step C). */
@@ -5706,6 +5718,10 @@
         topic,
         appState.webResearch
       );
+      if (!plan.inspiration) {
+        plan.inspiration = { title: '', global: [], podcast: { title: '', episodes: [] }, narrative: [] };
+      }
+      if (!Array.isArray(plan.curriculum)) plan.curriculum = [];
       if (!plan.inspiration.podcast) plan.inspiration.podcast = { title: 'תובנות', episodes: [] };
       if (!plan.inspiration.podcast.episodes) plan.inspiration.podcast.episodes = [];
       plan.inspiration.global = (plan.inspiration.global || []).map(function (block) {
@@ -5980,28 +5996,28 @@
     }
 
     function buildTheoryTabPrompt(topic, gradeLabel) {
-      const bib = getTheoryBibliographyPrompt();
-      const title = getTheoryBibliographySectionTitle();
       const gradeLock = getGradeLockInstruction();
       const gradeId = appState.grade || '';
       const noUrls = getNoUrlsInstruction();
-      const inline = getInlineExpansionInstruction();
+      const noBrackets = isEnglish()
+        ? 'FORBIDDEN: URLs, hyperlinks, numeric reference brackets like [1][4], inspiration blocks, daily curriculum breakdown, or bibliography.'
+        : 'אסור: URLs, קישורים, סוגריים ממוספרים כמו [1][4], בלוקי השראה, פירוט יומי או ביבליוגרפיה.';
       const prioritySearch = getPrioritySourcesSearchInstruction();
       if (isEnglish()) {
         return (
           'currentGrade: ' + gradeId + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
-          'Create blockPlan.theory ONLY for this exact grade. sections: 2–4 theory sections (safe HTML, no links, 16px). ' +
-          'Each section: 3–6 depth paragraphs plus mandatory "expansion" object. ' +
-          bib + ' Bibliography under "' + title + '" — each item includes expansion. No URLs.'
+          gradeLock + ' ' + noUrls + ' ' + noBrackets + ' ' + prioritySearch + ' ' +
+          'Create blockPlan.theory ONLY for this exact grade — pedagogical essence and overview. ' +
+          'sections: 2–4 essence sections (safe HTML, no links, no [N] brackets, 16px). ' +
+          'Each section: 3–6 depth paragraphs on core pedagogical meaning. No bibliography, no expansions.'
         );
       }
       return (
         'currentGrade: ' + gradeId + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
-        'צור blockPlan.theory אך ורק לכיתה זו. sections: 2–4 סעיפי רקע (HTML בטוח, ללא קישורים, 16px). ' +
-        'כל סעיף: 3–6 פסקאות עומק + אובייקט "expansion" חובה. ' +
-        bib + ' ביבליוגרפיה תחת "' + title + '" — לכל פריט expansion. ללא URLs.'
+        gradeLock + ' ' + noUrls + ' ' + noBrackets + ' ' + prioritySearch + ' ' +
+        'צור blockPlan.theory אך ורק לכיתה זו — מהות פדגוגית וסקירה. ' +
+        'sections: 2–4 סעיפי מהות (HTML בטוח, ללא קישורים, ללא סוגריים [N], 16px). ' +
+        'כל סעיף: 3–6 פסקאות על המהות הפדגוגית. ללא ביבליוגרפיה, ללא הרחבות.'
       );
     }
 
@@ -6072,18 +6088,10 @@
         topic: topicStr,
         gradeContext: gradeCtx,
         theoryPrompt: buildTheoryTabPrompt(topicStr, appState.gradeLabel),
-        inspirationPrompt: buildInspirationTabPrompt(topicStr, appState.gradeLabel),
-        curriculumPrompt: buildCurriculumTabPrompt(topicStr, appState.gradeLabel),
-        bibliographyRequirements: getTheoryBibliographyPrompt(),
-        bibliographySectionTitle: getTheoryBibliographySectionTitle(),
-        requireTheoryBibliography: true,
         currentGrade: appState.grade,
         gradeLockInstruction: getGradeLockInstruction(),
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
-        pedagogyExpandHint: isEnglish()
-          ? getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getInlineExpansionInstruction() + ' Generate rich blockPlan.inspiration and blockPlan.curriculum for currentGrade ' + appState.grade + ' (' + appState.gradeLabel + ') only. Include inline expansions on every expandable item. Bibliography: 3+ books, 3+ articles, 3+ websites — each with expansion.'
-          : getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getInlineExpansionInstruction() + ' ייצר blockPlan.inspiration ו-blockPlan.curriculum עשירים ל-currentGrade ' + appState.grade + ' («' + appState.gradeLabel + '») בלבד. הרחבות מוטמעות בכל פריט עם כפתור. ביבליוגרפיה: 3+ ספרים, 3+ מאמרים, 3+ אתרים — כל אחד עם expansion.',
       }, { signal: signal });
     }
 
@@ -6696,6 +6704,17 @@
       const s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(text)));
       if (looksLikeAiHtml(s)) return ensureAiHtml(s);
       return '<div class="prose-ai leading-relaxed whitespace-pre-wrap">' + formatAiMarkdown(s) + '</div>';
+    }
+
+    function stripPhaseBReferenceBrackets(text) {
+      return String(text || '').replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+    }
+
+    function buildPhaseBEssenceHtml(dive) {
+      const data = dive || {};
+      const rawContent = stripPhaseBReferenceBrackets(data.rawContent || '');
+      if (!rawContent) return '';
+      return formatPerplexityRawText(rawContent);
     }
 
     function buildPerplexityExpansionHtml(dive) {
@@ -7966,16 +7985,15 @@
       if (!wr) return;
       let html = '';
       if (String(wr.rawContent || '').trim()) {
-        html = buildPerplexityExpansionHtml({
+        html = buildPhaseBEssenceHtml({
           rawContent: wr.rawContent,
-          citations: wr.citations,
         });
       } else {
-        html = '<p class="leading-relaxed">' + escapeHtml(wr.summary) + '</p>';
+        html = '<p class="leading-relaxed">' + escapeHtml(stripPhaseBReferenceBrackets(wr.summary)) + '</p>';
         if (wr.highlights && wr.highlights.length) {
           html += '<div class="space-y-2 mt-3">';
           wr.highlights.forEach(function (h, index) {
-            const text = typeof h === 'string' ? h : (h.text || h.highlight || '');
+            const text = stripPhaseBReferenceBrackets(typeof h === 'string' ? h : (h.text || h.highlight || ''));
             html += renderPedagogySuggestionCard({
               id: buildPedagogyItemId('web', 'highlight', index, text),
               type: 'web',
@@ -7989,7 +8007,7 @@
         }
         if (wr.connections && wr.connections.length) {
           html += '<p class="mt-2 text-xs text-walnut/60">' + escapeHtml(t('web_research_age_conn')) + ': ' +
-            (wr.connections || []).map(escapeHtml).join(' · ') + '</p>';
+            (wr.connections || []).map(function (c) { return escapeHtml(stripPhaseBReferenceBrackets(c)); }).join(' · ') + '</p>';
         }
       }
       holdPageScroll(function () {
@@ -8694,11 +8712,21 @@
       return 'community/' + String(gradeId || '').trim() + '/' + slugifyStorageSegment(topic);
     }
 
-    function hasStructuredLessonPlan(plan) {
+    function hasTopicEssence(plan) {
       plan = plan || appState.aiGeneratedPlan;
       if (!plan) return false;
-      if (plan.theory && plan.inspiration && Array.isArray(plan.curriculum)) return true;
+      if (String(plan.rawContent || '').trim()) return true;
+      if (plan.theory && Array.isArray(plan.theory.sections) && plan.theory.sections.length) {
+        return plan.theory.sections.some(function (sec) {
+          return sec && (String(sec.content || '').trim() || String(sec.heading || '').trim());
+        });
+      }
+      if (appState.webResearch && String(appState.webResearch.summary || '').trim()) return true;
       return false;
+    }
+
+    function hasStructuredLessonPlan(plan) {
+      return hasTopicEssence(plan);
     }
 
     function hasLessonReady() {
@@ -9388,22 +9416,50 @@
       return findCatalogTopicInCommunityCache(match, match && match.gradeId) || '';
     }
 
-    async function navigateCommunityCatalogForMatch(match) {
-      const gradeId = String((match && match.gradeId) || appState.grade || '').trim();
+    function resolveCommunityMatchGradeId(match) {
+      const fromMatch = String((match && match.gradeId) || '').trim();
+      if (fromMatch) return fromMatch;
+      const label = String((match && match.gradeLabel) || '').trim();
+      if (label) {
+        const byLabel = GRADES.find(function (g) {
+          return getGradeLabelById(g.id) === label || g.label === label;
+        });
+        if (byLabel) return byLabel.id;
+      }
+      return String(appState.grade || '').trim();
+    }
+
+    function openCommunityCatalogShell() {
+      syncTopicFromInput();
+      appState.navSection = 'community';
+      showWorkspaceShell();
+      switchTab('catalog');
+      renderStepProgress();
+      updateWorkspaceChrome();
+      persistActiveStep();
+    }
+
+    async function navigateCommunityCatalogForMatch(match, overrides) {
+      overrides = overrides || {};
+      const gradeId = String(
+        overrides.gradeId || resolveCommunityMatchGradeId(match) || ''
+      ).trim();
       if (!gradeId) {
         openCommunityRepo();
         return;
       }
-      let topic = communityCatalogTopicForMatch(match);
+      let topic = overrides.topic != null
+        ? String(overrides.topic).trim()
+        : communityCatalogTopicForMatch(match);
       if (!topic && isCloudConfigured()) {
         try { await loadCommunity(); } catch (e) { /* ignore */ }
         topic = communityCatalogTopicForMatch(match);
       }
-      openCommunityRepo();
-      if (topic) {
-        renderCatalog('materials', gradeId, topic);
+      openCommunityCatalogShell();
+      if (topic && !isLikelyUserChatQuestion(topic)) {
+        await renderCatalog('materials', gradeId, topic);
       } else {
-        renderCatalog('grade', gradeId);
+        await renderCatalog('grade', gradeId);
       }
     }
 
@@ -9473,18 +9529,13 @@
           : (match.title || match.fileName || catalogTopic || ('חומר ' + (index + 1)));
         let titleHtml = escapeHtml(itemTitle);
         if (match.matchedInBundle && bundleTopic) {
-          titleHtml += '<div class="text-sm text-walnut/75 mt-1 leading-relaxed">' +
+          titleHtml += '<div class="community-found-alert__item-nested text-walnut/70 leading-snug">' +
             escapeHtml(match.alertText || t('community_found_nested_item', { folder: bundleTopic })) + '</div>';
         }
-        const gradeId = match.gradeId || appState.grade || '';
+        const gradeId = resolveCommunityMatchGradeId(match);
         html += '<div class="community-found-alert__item">' +
           '<span class="community-found-alert__item-title">' + titleHtml + '</span>' +
           '<div class="community-found-alert__actions">';
-        if (match.fileUrl) {
-          html += '<a href="' + escapeHtml(match.fileUrl) + '" target="_blank" rel="noopener" class="community-found-alert__btn community-found-alert__btn--primary">' +
-            '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> ' +
-            escapeHtml(t('community_found_open_file')) + '</a>';
-        }
         html += '<button type="button" class="community-found-alert__btn community-found-alert__btn--secondary" data-community-catalog="' + index + '" ' +
           'data-community-grade="' + escapeHtml(String(gradeId)) + '" data-community-topic="' + escapeHtml(catalogTopic) + '">' +
           '<i class="fa-solid fa-folder-open" aria-hidden="true"></i> ' +
@@ -9515,12 +9566,10 @@
           }
           const gradeFromBtn = String(btn.getAttribute('data-community-grade') || '').trim();
           const topicFromBtn = String(btn.getAttribute('data-community-topic') || '').trim();
-          if (gradeFromBtn && topicFromBtn && !isLikelyUserChatQuestion(topicFromBtn)) {
-            openCommunityRepo();
-            renderCatalog('materials', gradeFromBtn, topicFromBtn);
-            return;
-          }
-          navigateCommunityCatalogForMatch(match);
+          navigateCommunityCatalogForMatch(match, {
+            gradeId: gradeFromBtn || undefined,
+            topic: topicFromBtn || undefined,
+          });
         });
       });
     }
@@ -9630,13 +9679,8 @@
 
     function openCommunityRepoForGrade(gradeId) {
       if (!gradeId) return;
-      syncTopicFromInput();
-      appState.navSection = 'community';
-      showWorkspaceShell();
-      switchTab('catalog');
+      openCommunityCatalogShell();
       renderCatalog('grade', gradeId);
-      renderStepProgress();
-      updateWorkspaceChrome();
     }
 
     async function indexCommunityUpload(gradeId, topic, filePath, fileName, extras, materialId, options) {
@@ -11973,7 +12017,9 @@
         });
         html += '</article>';
       });
-      html += renderTheoryBibliography(bib);
+      if (bib.books.length || bib.articles.length || bib.websites.length) {
+        html += renderTheoryBibliography(bib);
+      }
       holdPageScroll(function () {
         document.getElementById('theoretical-content').innerHTML = html;
       });
@@ -12129,10 +12175,10 @@
       const cardsEl = document.getElementById('curriculum-cards');
       const tbody = document.getElementById('curriculum-body');
       if (!plan.length) {
-        var emptyMsg = '<p class="text-sm text-terracotta bg-parchment/60 rounded-xl border border-terracotta/25 p-4">' +
+        var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
           escapeHtml(isEnglish()
-            ? 'No daily plan rows were found. Run topic research again — the AI must return blockPlan.curriculum as an array of 15 objects: { day, topic, content, art, hint }.'
-            : 'לא נמצאו שורות בתכנון התקופה. הריצו מחקר נושא מחדש — ה-AI חייב להחזיר blockPlan.curriculum כמערך של 15 אובייקטים: { day, topic, content, art, hint }.') +
+            ? 'Daily lesson breakdown is generated on demand. Use «Practical expansion & aspects» on theory highlights in Step B, or ask the pedagogical chat assistant for a 15-day arc.'
+            : 'פירוט יומי נוצר לפי דרישה. השתמשו ב«הרחבה ואספקטים פרקטיים» ליד הדגשים בשלב ב׳, או בקשו מעוזר הצ׳אט הפדגוגי קשת של 15 ימים.') +
           '</p>';
         holdPageScroll(function () {
           if (cardsEl) cardsEl.innerHTML = emptyMsg;
@@ -13961,12 +14007,11 @@
               openCommunityRepo();
               return;
             }
+            openCommunityCatalogShell();
             if (!catalogTopic || isLikelyUserChatQuestion(catalogTopic)) {
-              openCommunityRepo();
               renderCatalog('grade', gid);
               return;
             }
-            openCommunityRepo();
             renderCatalog('materials', gid, catalogTopic);
           },
           renderCommunityAlert: function (matches) {

@@ -152,7 +152,7 @@ const LANGUAGES = {
     load_error:                  'שגיאה בטעינה',
 
     topic_research_scanning:     'סורק את הרשת...',
-    topic_research_deep:         'מחקר מעמיק: נושא, תיאוריה, 15 ימי לימוד והשראה ויזואלית...',
+    topic_research_deep:         'מחקר מהות פדגוגית: נושא, התאמה לגיל וסקירת מהות...',
     topic_research_loading_archive: 'טוען נושא מהארכיון...',
     cache_hit_summary:           'נטען מהמאגר — תוכנית מוכנה מיידית (ללא המתנה ל-AI).',
     cache_hit_highlight:         'רקע תיאורטי, השראה ותכנון תקופה — נשלפו מ-Supabase',
@@ -758,7 +758,7 @@ const LANGUAGES = {
     load_error:                  'Loading error',
 
     topic_research_scanning:     'Scanning the web...',
-    topic_research_deep:         'Deep research: topic, theory, 15 lesson days & visual inspiration...',
+    topic_research_deep:         'Pedagogical essence research: topic, age fit & core overview...',
     topic_research_loading_archive: 'Loading topic from archive...',
     cache_hit_summary:           'Loaded from cache — instant lesson plan (no AI wait).',
     cache_hit_highlight:         'Theory, inspiration & block planning — fetched from Supabase',

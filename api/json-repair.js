@@ -337,18 +337,8 @@ function buildModelParseFallback(phase, rawText, context) {
         theory: {
           title: topic || 'תוכן שנוצר',
           sections: [{ heading: 'סיכום', icon: 'fa-compass', content: wrap, quotes: [] }],
-          bibliography: { books: [], articles: [], websites: [] },
         },
-        inspiration: {
-          title: '',
-          global: [],
-          podcast: { title: '', episodes: [] },
-          narrative: [],
-        },
-        sources: { books: [], articles: [], websites: [] },
-        curriculum: [],
       },
-      gallery: [],
       _parseFallback: true,
     };
   }
