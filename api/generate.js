@@ -217,12 +217,10 @@ const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
 
 const COMMUNITY_FIRST_CHAT_INSTRUCTION =
   '\n=== COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING (MANDATORY WHEN MATCHES EXIST) ===\n' +
-  'When the COMMUNITY MATERIALS DATABASE block lists one or more matches (full or partial), ' +
-  'you MUST open your Hebrew reply with an enthusiastic, personal celebration addressing the teacher by first name.\n' +
-  'Required opening pattern (adapt names and material title from the provided block):\n' +
-  '«[שם פרטי], הרווחת! במאגר הקהילתי שלנו כבר העלו ב[כיתה] [שם החומר]. בנוסף, להלן דברים נוספים שמצאתי...»\n' +
-  'Use the teacher first name and grade label supplied in the COMMUNITY MATERIALS block. ' +
-  'Use the best-matching material title for [שם החומר]. Then continue with rich pedagogical content from web search and lesson context.\n' +
+  'When the COMMUNITY MATERIALS DATABASE block lists one or more matches (keyword OR semantic), ' +
+  'you MUST open your Hebrew reply with the exact celebration line supplied in that block or in CRITICAL INSTRUCTION.\n' +
+  'Required opening pattern (use teacher name, grade label, and matched file title from the provided blocks):\n' +
+  '«[שם פרטי], הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל[כיתה] «[שם הקובץ]». גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.»\n' +
   'When NO community matches are listed, proceed with your standard high-quality pedagogical assistance — no forced celebration opening.\n' +
   '=== END COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING ===\n';
 
@@ -533,6 +531,33 @@ function formatCommunityMatchForPrompt(match, index) {
   return line;
 }
 
+function buildCommunityMatchCriticalSystemBlock(probe, body) {
+  const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
+  if (!matches.length) return '';
+
+  const matchedFile = matches[0];
+  const teacherName = resolveTeacherFirstName(body);
+  const gradeLabel = String(body.gradeLabel || '').trim() || ('כיתה ' + (resolvedGradeId(body) || '?'));
+  const title = matchedFile.displayTitle || matchedFile.title || matchedFile.fileName || matchedFile.topic || 'חומר קהילתי';
+  const openingLine =
+    teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + title + '». ' +
+    'גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.';
+
+  return (
+    '\n=== CRITICAL INSTRUCTION — COMMUNITY DATABASE MATCH ===\n' +
+    'A relevant file was found in the community database (hybrid keyword/semantic search).\n' +
+    'You MUST start your Hebrew response verbatim with this exact opening sentence:\n' +
+    '«' + openingLine + '»\n' +
+    'STRICT RULES WHEN THIS MATCH EXISTS:\n' +
+    '- The verified community upload is the primary answer — announce it clearly in the opening.\n' +
+    '- Do NOT invent details about commercial plays (e.g. Roee Chen / רואי חן), publishers, or external internet productions.\n' +
+    '- Do NOT substitute web-search play or curriculum recommendations when this community file already answers the teacher.\n' +
+    '- Focus first on telling the teacher this specific file exists in their school community database and how to view it.\n' +
+    '- Only after the mandatory opening, add brief grounded context if the matched material metadata or lesson context supports it.\n' +
+    '=== END CRITICAL INSTRUCTION — COMMUNITY DATABASE MATCH ===\n'
+  );
+}
+
 function buildCommunityMaterialsContextBlock(probe, body) {
   const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
   const teacherName = resolveTeacherFirstName(body);
@@ -549,6 +574,9 @@ function buildCommunityMaterialsContextBlock(probe, body) {
   }
 
   const primaryTitle = matches[0].displayTitle || matches[0].title || matches[0].fileName || matches[0].topic || 'חומר קהילתי';
+  const mandatoryOpening =
+    teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + primaryTitle + '». ' +
+    'גש למאגר הקהילתי כדי לצפות בקובץ הנוכחי.';
   const lines = matches.slice(0, 6).map(formatCommunityMatchForPrompt);
   const matchMethod = probe && probe.matchMethod ? String(probe.matchMethod) : '';
   const semanticNote = matchMethod.indexOf('semantic') >= 0
@@ -564,9 +592,10 @@ function buildCommunityMaterialsContextBlock(probe, body) {
     'Teacher first name for opening: «' + teacherName + '»\n' +
     'Grade label for opening: «' + gradeLabel + '»\n' +
     'Best match title for opening: «' + primaryTitle + '»\n' +
-    'MANDATORY OPENING (first sentence of your Hebrew reply — ABSOLUTE, even for semantic/indirect matches):\n' +
-    '«' + teacherName + ', הרווחת! במאגר הקהילתי שלנו כבר העלו ב' + gradeLabel + ' ' + primaryTitle + '. בנוסף, להלן דברים נוספים שמצאתי...»\n' +
-    'You MUST start with this exact celebration line whenever ANY community match exists (keyword OR semantic). Then continue with additional pedagogical insights from live web search and lesson context.\n\n' +
+    'MANDATORY OPENING (first sentence of your Hebrew reply — ABSOLUTE, keyword OR semantic match):\n' +
+    '«' + mandatoryOpening + '»\n' +
+    'Do NOT invent commercial plays, external productions, or internet sources when this community file exists. ' +
+    'Lead with the community database file; only add brief grounded follow-up if supported by matched metadata.\n\n' +
     'Matched materials:\n' +
     lines.join('\n') +
     '\n=== END COMMUNITY MATERIALS DATABASE ===\n\n'
@@ -950,7 +979,7 @@ function buildUserPrompt(body) {
       'Teacher follow-up question: «' + question + '»\n\n' +
       'ANSWER STRATEGY (MANDATORY — COMMUNITY FIRST):\n' +
       (hasCommunityMatches
-        ? '0. COMMUNITY FIRST: Community materials matched above (keyword OR semantic) — open with the mandatory «הרווחת! במאגר הקהילתי שלנו...» celebration line, reference the matched title(s), then enrich with web search.\n'
+        ? '0. COMMUNITY FIRST: A verified community file matched (keyword OR semantic). Open with the mandatory opening verbatim — announce the community upload and direct the teacher to the community repository. Do NOT invent commercial plays (e.g. Roee Chen) or external internet productions.\n'
         : '0. COMMUNITY FIRST: No community match above — proceed with standard high-quality pedagogical assistance.\n') +
       (gradePriorBlock
         ? '0a. CACHED GRADE INSIGHTS (step A) are above — treat as authoritative baseline; enrich with live web search.\n'
@@ -1667,15 +1696,20 @@ async function executeGenerate(body, apiKey, requestContext) {
     'chat_followup',
   ]);
   const isChatFollowup = body.phase === 'chat_followup';
+  const communityCriticalBlock =
+    isChatFollowup && body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
+      ? buildCommunityMatchCriticalSystemBlock(body.communityMaterialsProbe, body)
+      : '';
   const extraSystem =
     gradeLockSystem +
     CONTENT_HIERARCHY_INSTRUCTION +
+    communityCriticalBlock +
     (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (isChatFollowup
       ? (body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
-        ? ' PEDAGOGICAL CHAT — COMMUNITY FIRST: Community materials matched in Supabase — celebrate in your opening per COMMUNITY FIRST instructions, then enrich with live Steiner/anthroposophic web search.'
+        ? ' PEDAGOGICAL CHAT — COMMUNITY MATCH: Start verbatim with the CRITICAL INSTRUCTION opening. Announce the community file only — do not invent external plays or commercial productions.'
         : (body.priorCachedAnswer || body.priorGradeCache
           ? ' PEDAGOGICAL CHAT ENRICHMENT: Prior cached grade insights and/or chat answers exist — refine, correct, deepen, and expand using live Steiner/anthroposophic web search. Output must surpass prior versions.'
           : ' PEDAGOGICAL CHAT: No community match — perform live web search for verified Steiner/anthroposophic sources on every question. ' +
