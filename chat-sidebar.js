@@ -65,6 +65,19 @@
     },
   };
 
+  function stripRawUrlsFromChatText(text) {
+    var raw = String(text || '');
+    if (!raw.trim()) return raw;
+    return raw
+      .replace(/קישור\s+ישיר[^\n.]*/giu, '')
+      .replace(/https?:\/\/[^\s)\]>"']+/gi, '')
+      .replace(/(?:^|\n)\s*(?:file_path|url)\s*[:=]\s*\S+/gim, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+\./g, '.')
+      .replace(/\.\s*\./g, '.')
+      .trim();
+  }
+
   function normalizeMessages(messages) {
     return (messages || []).map(function (m) {
       return {
@@ -760,9 +773,14 @@
       var data = (result && result.chatReply) ? result : (result && result.data) || result || {};
       var reply = data.chatReply || {};
       var answer = reply.answer || stripHtml(reply.answerHtml) || reply.answerHtml || '';
+      answer = stripRawUrlsFromChatText(answer);
+      if (reply.answerHtml) {
+        reply.answerHtml = stripRawUrlsFromChatText(reply.answerHtml);
+      }
       var fromCache = Boolean(result && result._fromCache);
       var meta = (result && result._meta) || {};
       var enriched = Boolean(meta.priorCacheEnriched || (reply && reply.enrichedFromPrior));
+      var isExpansionReply = meta.chatPromptMode === 'expansion' || Boolean(meta.skipCommunityAlert);
       if (meta.ragContext) state.ragContext = meta.ragContext;
       if (Array.isArray(meta.ragChunkIds)) state.ragChunkIds = meta.ragChunkIds;
       if (!answer) throw new Error(deps.t('chat_error_empty'));
@@ -776,7 +794,7 @@
       var communityMatches = (meta && Array.isArray(meta.communityMatches) && meta.communityMatches.length)
         ? meta.communityMatches
         : (result && Array.isArray(result._communityMatches) ? result._communityMatches : []);
-      var hasCommunityMatch = communityMatches.length > 0;
+      var hasCommunityMatch = !isExpansionReply && communityMatches.length > 0;
       renderMessages({ scrollToLastMessageStart: hasCommunityMatch });
       if (typeof deps.onChatStateSync === 'function') {
         deps.onChatStateSync({
@@ -790,7 +808,7 @@
           cacheKey: meta.gradeCacheKey || '',
         });
       }
-      if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert) {
+      if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert && !isExpansionReply) {
         deps.renderCommunityAlert(communityMatches);
       }
       if (hasCommunityMatch) {
