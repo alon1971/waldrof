@@ -1229,10 +1229,15 @@ async function callGeminiV1(systemPrompt, userPrompt, options) {
   }
 
   const body = {
-    systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
     generationConfig: generationConfig,
   };
+  // Stable v1 REST uses "systemInstructions"; v1beta still accepts "systemInstruction".
+  if (useStructuredApi) {
+    body.systemInstruction = { parts: [{ text: systemPrompt }] };
+  } else {
+    body.systemInstructions = { parts: [{ text: systemPrompt }] };
+  }
 
   const res = await fetch(url, {
     method: 'POST',
