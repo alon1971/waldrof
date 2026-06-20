@@ -150,9 +150,14 @@ function buildCacheKey(body) {
 
   const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
   const gradeLabel = stableNormalize(body.gradeLabel ?? '');
-  const topic = body.phase === 'topic'
-    ? normalizeTopicQuery(body.topic ?? '')
-    : stableNormalize(body.topic ?? '');
+  const isAgeExpansion = body.phase === 'pedagogy_deep_dive' || body.phase === RAW_PERPLEXITY_PHASE
+    ? stableNormalize(body.expansionScope || '') === 'age'
+    : false;
+  const topic = isAgeExpansion
+    ? ''
+    : (body.phase === 'topic'
+      ? normalizeTopicQuery(body.topic ?? '')
+      : stableNormalize(body.topic ?? ''));
   const archiveQuery = stableNormalize(body.archiveQuery ?? '');
   const activityTitle = stableNormalize(body.activityTitle ?? body.sourceTitle ?? '');
   const userMessage = stableNormalize(body.userMessage ?? '');
@@ -163,8 +168,13 @@ function buildCacheKey(body) {
     parts.push(userMessage);
   }
 
-  if (body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_summary') {
+  if (body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_summary' || body.phase === RAW_PERPLEXITY_PHASE) {
     parts.push(stableNormalize(body.activityPreview ?? body.sourceDescription ?? ''));
+    if (body.phase === 'pedagogy_deep_dive' || body.phase === RAW_PERPLEXITY_PHASE) {
+      parts.push(stableNormalize(body.expansionScope || 'topic'));
+      parts.push(stableNormalize(body.activitySubtype ?? ''));
+      parts.push(stableNormalize(body.expansionItemId ?? ''));
+    }
   }
 
   if (body.phase === 'phase_c' || body.cTab) {
@@ -176,6 +186,7 @@ function buildCacheKey(body) {
 
 function buildRow(cacheKey, body, resultData) {
   const isGrade = body.phase === 'grade';
+  const isAgeExpansion = body.phase === 'pedagogy_deep_dive' && stableNormalize(body.expansionScope || '') === 'age';
   const userEmail = body.userEmail || (body.teacherUser && body.teacherUser.email) || null;
   let verifiedUserId = authContext.pickCachedUserId(body);
   if (!verifiedUserId) {
@@ -192,7 +203,7 @@ function buildRow(cacheKey, body, resultData) {
     phase: body.phase,
     grade_id: body.currentGrade ?? body.gradeId ?? null,
     grade_label: body.gradeLabel || null,
-    topic: isGrade ? null : (body.topic || null),
+    topic: isGrade || isAgeExpansion ? null : (body.topic || null),
     query_text: isGrade
       ? (body.gradeLabel || null)
       : (body.userMessage || body.archiveQuery || body.topic || body.gradeLabel || null),
@@ -504,7 +515,7 @@ function isValidCachedPayload(phase, data) {
   return true;
 }
 
-/** True when a cached topic/grade row was upgraded or produced by the hybrid Perplexity→Gemini pipeline. */
+/** True when a cached topic/grade/phase_c row was produced by the Perplexity pipeline. */
 function isEnhancedCachedPayload(phase, data) {
   const coerced = coerceCachedResultData(data);
   if (!coerced || typeof coerced !== 'object') return false;

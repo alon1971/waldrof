@@ -1,15 +1,14 @@
 /**
- * Waldorf research API — hybrid Perplexity + Gemini proxy.
- * PERPLEXITY_API_KEY: live web search (Sonar) — primary factual anchor for new topics.
- * GEMINI_API_KEY: structured lesson-plan enrichment (gemini-2.5-flash, x-goog-api-key).
- * Chat follow-up (chat_followup): Gemini-only pipeline — Supabase community archive RAG first, then Gemini 2.5-flash (no Perplexity).
+ * Waldorf research API — strict Perplexity / Gemini separation.
+ * PERPLEXITY_API_KEY: ALL core generation (Phase A grade, Phase B topic, Phase C tabs, on-demand expansions).
+ * GEMINI_API_KEY: pedagogical side-chat ONLY (api/chat.js — chat_followup phase).
  *
- * Content hierarchy (lesson generation — decoupled):
- *   1. SUPABASE ARCHIVE — return enhanced cached_results immediately on hit
+ * Core pipeline (decoupled — Perplexity only):
+ *   1. SUPABASE ARCHIVE — return cached_results immediately on hit
  *   2. LIVE WEB SEARCH (Perplexity Sonar) — raw research saved to cached_results (phase perplexity_raw)
- *   3. GEMINI MASTER EDUCATOR — anthroposophic enrichment → cached_results
+ *   3. PERPLEXITY SYNTHESIS (sonar-pro) — structured JSON → cached_results
  *   Phase B (topic / phase_b): theory essence only. Phase C (phase_c + cTab): independent inspiration or curriculum per tab.
- *   (Drive / community RAG is NOT injected into grade/topic generation.)
+ *   On-demand expansions (pedagogy_deep_dive / archive_summary): independent Perplexity Sonar routes per button.
  *
  * Primary runtime: Render / Node.js via server.js → executeGenerate().
  * Optional: legacyHandler(req, res) for adapters; fetch(request) for Vercel serverless.
@@ -26,8 +25,9 @@ const authContext = require('./auth-context');
 const jsonRepair = require('./json-repair');
 const env = require('./env');
 const perplexityClient = require('./perplexity-client');
+const chatApi = require('./chat');
 
-/** Grade/topic: cache-first from Supabase; on miss run Perplexity Sonar (raw baseline archive). Set ARCHIVE_ONLY=false to allow hybrid Gemini enrichment on miss. */
+/** Grade/topic: cache-first from Supabase; on miss run Perplexity-only pipeline. */
 const ARCHIVE_ONLY_MODE = process.env.ARCHIVE_ONLY !== 'false';
 
 const {
@@ -486,15 +486,52 @@ function isOnDemandExpansionPhase(body) {
   return phase === 'pedagogy_deep_dive' || phase === 'archive_summary';
 }
 
-/** On-demand Perplexity Sonar only — raw research saved to cache (no Gemini). Topic uses hybrid Gemini for clean Phase B essence. */
-function isPerplexityOnlyOnDemandPhase(body) {
-  if (!body || !body.phase) return false;
-  return body.phase === 'pedagogy_deep_dive' || body.phase === 'grade';
+const EXPANSION_SCOPE_AGE = 'age';
+const EXPANSION_SCOPE_TOPIC = 'topic';
+
+/** Age-stage (הרחבות גיל) vs topic (הרחבות נושא) — strict separation for on-demand expansions. */
+function resolveExpansionScope(body) {
+  const explicit = String((body && body.expansionScope) || '').trim().toLowerCase();
+  if (explicit === 'age' || explicit === 'grade') return EXPANSION_SCOPE_AGE;
+  if (explicit === 'topic') return EXPANSION_SCOPE_TOPIC;
+  const activityType = String((body && body.activityType) || '').trim().toLowerCase();
+  if (activityType === 'grade') return EXPANSION_SCOPE_AGE;
+  return EXPANSION_SCOPE_TOPIC;
 }
 
-/** @deprecated Use isPerplexityOnlyOnDemandPhase */
+function isAgeExpansionRequest(body) {
+  return body && body.phase === 'pedagogy_deep_dive' && resolveExpansionScope(body) === EXPANSION_SCOPE_AGE;
+}
+
+function isTopicExpansionRequest(body) {
+  return body && body.phase === 'pedagogy_deep_dive' && resolveExpansionScope(body) === EXPANSION_SCOPE_TOPIC;
+}
+
+/** Strip topic from age-stage expansion requests — they must be grade-only. */
+function normalizeExpansionRequest(body) {
+  if (!body || body.phase !== 'pedagogy_deep_dive') return body;
+  body.expansionScope = resolveExpansionScope(body);
+  if (isAgeExpansionRequest(body)) {
+    body.topic = null;
+    body.archiveQuery = null;
+  }
+  return body;
+}
+
+/** On-demand expansion buttons — Perplexity Sonar raw research only (independent cache key per button). */
+function isPerplexityRawExpansionPhase(body) {
+  if (!body || !body.phase) return false;
+  return body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_summary';
+}
+
+/** @deprecated alias */
+function isPerplexityOnlyOnDemandPhase(body) {
+  return isPerplexityRawExpansionPhase(body);
+}
+
+/** @deprecated Use isPerplexityRawExpansionPhase */
 function isPerplexityOnlyExpansionPhase(body) {
-  return isPerplexityOnlyOnDemandPhase(body);
+  return isPerplexityRawExpansionPhase(body);
 }
 
 function hasPedagogyDeepDiveContent(dive) {
@@ -518,6 +555,8 @@ function buildPerplexityExpansionPayload(body, rawPayload) {
       source: 'perplexity-sonar',
       model: rawPayload.model || perplexityClient.PERPLEXITY_SEARCH_MODEL,
       searchedAt: rawPayload.searchedAt || new Date().toISOString(),
+      expansionScope: body.expansionScope || null,
+      expansionItemId: body.expansionItemId || null,
     },
   };
 }
@@ -558,11 +597,26 @@ function buildPerplexityTopicPayload(body, rawPayload) {
   };
 }
 
+function buildPerplexityArchiveSummaryPayload(body, rawPayload) {
+  const citations = Array.isArray(rawPayload.citations) ? rawPayload.citations.filter(Boolean) : [];
+  const base = {
+    rawContent: String(rawPayload.content || '').trim(),
+    citations: citations,
+    source: 'perplexity-sonar',
+    model: rawPayload.model || perplexityClient.PERPLEXITY_SEARCH_MODEL,
+    searchedAt: rawPayload.searchedAt || new Date().toISOString(),
+    title: String(body.sourceTitle || '').trim(),
+  };
+  if (body.pedagogyDeepDive) {
+    return { pedagogyDeepDive: Object.assign({ title: base.title }, base) };
+  }
+  return { archiveSummary: base };
+}
+
 function buildPerplexityOnDemandPayload(body, rawPayload) {
   const phase = body.phase;
   if (phase === 'pedagogy_deep_dive') return buildPerplexityExpansionPayload(body, rawPayload);
-  if (phase === 'grade') return buildPerplexityGradePayload(body, rawPayload);
-  if (phase === 'topic') return buildPerplexityTopicPayload(body, rawPayload);
+  if (phase === 'archive_summary') return buildPerplexityArchiveSummaryPayload(body, rawPayload);
   return buildPerplexityExpansionPayload(body, rawPayload);
 }
 
@@ -702,13 +756,19 @@ function buildActionLabel(body) {
   const b = body && typeof body === 'object' ? body : {};
   const parts = [];
   if (b.phase) parts.push(String(b.phase));
+  if (b.phase === 'pedagogy_deep_dive' && b.expansionScope) parts.push(String(b.expansionScope));
   if (b.phase === 'phase_c' && b.cTab) parts.push(String(b.cTab));
   const grade = String(b.gradeLabel || b.currentGrade || b.gradeId || '').trim();
   if (grade) parts.push(grade);
   const subject = String(
-    b.topic || b.userMessage || b.archiveQuery || b.activityTitle || ''
+    (isAgeExpansionRequest(b) ? '' : b.topic) ||
+    b.userMessage ||
+    b.archiveQuery ||
+    b.activityTitle ||
+    ''
   ).trim();
   if (subject) parts.push(subject.slice(0, 120));
+  if (b.activityTitle && b.activityTitle !== subject) parts.push(String(b.activityTitle).slice(0, 80));
   return parts.length ? parts.join(' / ') : 'unknown';
 }
 
@@ -1199,7 +1259,7 @@ function buildPhaseCUserPrompt(body) {
       pedagogyHint +
       'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries.\n' +
       'PINTEREST: populate gallery with 4–8 visual inspiration entries (experiments, main-lesson drawings, classroom displays) — Hebrew titles and precise Pinterest search phrases in "pin".\n' +
-      INLINE_EXPANSION_INSTRUCTION +
+      LAZY_LOAD_NOTE +
       'CRITICAL — blockPlan MUST include inspiration and sources objects.\n' +
       'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
       'blockPlan.sources MUST be an object with books, articles, and websites arrays — populate richly (title + author/publisher only, NEVER url fields).\n' +
@@ -1209,8 +1269,8 @@ function buildPhaseCUserPrompt(body) {
       '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
       '{\n' +
       '  "blockPlan": {\n' +
-      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] }, "narrative": [{ "text": "rich story/metaphor paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] },\n' +
-      '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] }\n' +
+      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item" }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph" }] }, "narrative": [{ "text": "rich story/metaphor paragraph" }] },\n' +
+      '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he" }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he" }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he" }] }\n' +
       '  },\n' +
       '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase only — no URL required", "src": "" }]\n' +
       '}\n' +
@@ -1223,10 +1283,10 @@ function buildPhaseCUserPrompt(body) {
     sharedHeader +
     curriculumExtra +
     pedagogyHint +
-    INLINE_EXPANSION_INSTRUCTION +
+    LAZY_LOAD_NOTE +
     'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
-    'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string), ' +
-    '"contentExpansion", "artExpansion", "hintExpansion" (each same shape as expansion).\n' +
+    'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string).\n' +
+    'Do NOT include contentExpansion, artExpansion, or hintExpansion — those load on-demand via pedagogy_deep_dive.\n' +
     'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
     'FORBIDDEN in this response: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, bibliography.\n' +
     JSON_ONLY_INSTRUCTION +
@@ -1234,7 +1294,7 @@ function buildPhaseCUserPrompt(body) {
     '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
     '{\n' +
     '  "blockPlan": {\n' +
-    '    "curriculum": [{ "day": 1, "topic": "Hebrew", "content": "4-6 sentence guided lesson flow", "art": "2-4 sentences on art/craft", "hint": "optional", "contentExpansion": ' + EXPANSION_OBJECT_SCHEMA + ', "artExpansion": ' + EXPANSION_OBJECT_SCHEMA + ', "hintExpansion": ' + EXPANSION_OBJECT_SCHEMA + ' }]\n' +
+    '    "curriculum": [{ "day": 1, "topic": "Hebrew", "content": "4-6 sentence guided lesson flow", "art": "2-4 sentences on art/craft", "hint": "optional" }]\n' +
     '  }\n' +
     '}\n' +
     'curriculum MUST be a flat ARRAY of exactly 15 objects (days 1–15) — never wrap in { days: [...] } or similar.\n' +
@@ -1270,7 +1330,7 @@ function buildUserPrompt(body) {
       'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n\n' +
       'All insights MUST match currentGrade only — never mix content from other grades.\n' +
       'Produce inspiring, deeply pedagogical content. Uniform 16px text in UI.\n' +
-      INLINE_EXPANSION_INSTRUCTION +
+      LAZY_LOAD_NOTE +
       JSON_ONLY_INSTRUCTION +
       JSON_RESPONSE_ENFORCEMENT +
       '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
@@ -1281,10 +1341,10 @@ function buildUserPrompt(body) {
       '    "archivesSynthesisHtml": "<p>Deep Hebrew synthesis from AWSNA/IASWECE/Steiner archives</p>",\n' +
       '    "developmentBullets": ["body/soul/spirit Hebrew bullets"],\n' +
       '    "part2ClassroomIdeasHtml": "<p>Rich Hebrew HTML: practical classroom ideas (5–8 paragraphs)</p>",\n' +
-      '    "part2ClassroomIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew practical paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }],\n' +
+      '    "part2ClassroomIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew practical paragraph" }],\n' +
       '    "part3CommunityExpansionsHtml": "<p>Rich Hebrew HTML: parents, community, environmental projects for this age</p>",\n' +
-      '    "part3CommunityIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }],\n' +
-      '    "globalCurricula": [{ "title": "Hebrew", "detail": "Hebrew curriculum bullet", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }],\n' +
+      '    "part3CommunityIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew paragraph" }],\n' +
+      '    "globalCurricula": [{ "title": "Hebrew", "detail": "Hebrew curriculum bullet" }],\n' +
       '    "typicalBlocks": ["Hebrew main lesson block names"],\n' +
       '    "sources": ["source name only — no URLs"]\n' +
       '  },\n' +
@@ -1351,12 +1411,43 @@ function buildUserPrompt(body) {
     const preview = (body.activityPreview || '').replace(/"/g, "'");
     const expand = body.expandInstruction ||
       'הרחב ל: (1) הסבר מלא של מהות הפעילות, (2) הקשר פדגוגי אנתרופוסופי לגיל ולתקופה, (3) שלבי ביצוע פרקטיים שלב-אחר-שלב בכיתה עבור המורה.';
+    if (isAgeExpansionRequest(body)) {
+      const gradePriorBlock = buildPriorGradeCacheBlock(body.priorGradeCache);
+      return (
+        gradePriorBlock +
+        buildGradeLockBlock(body) +
+        buildLanguageBlock(body) +
+        buildNoLatexBlock(body) +
+        'AGE-STAGE EXTENSION (הרחבת גיל/שלב התפתחותי): Expand ONE anthroposophic age-stage pedagogical idea for currentGrade ONLY.\n' +
+        'STRICT: This expansion is 100% independent of any main-lesson block topic — do NOT mention, tailor to, or search for the active topic.\n' +
+        'Use the cached grade developmental picture (when provided) plus Perplexity research on Steiner age characteristics for this grade only.\n' +
+        'currentGrade: ' + resolvedGradeId(body) + '\n' +
+        'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n' +
+        'Pedagogical section: ' + (body.activitySubtype || '') + '\n' +
+        'Age-stage idea title: «' + title + '»\n' +
+        'Preview: ' + preview + '\n\n' +
+        'EXPAND INSTRUCTION: ' + expand + '\n\n' +
+        WEB_SEARCH_PRIORITY_INSTRUCTION +
+        'Return practical age-appropriate guidance grounded in developmental anthroposophy — NOT topic-themed content.\n' +
+        JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
+        '{\n' +
+        '  "pedagogyDeepDive": {\n' +
+        '    "title": "' + title + '",\n' +
+        '    "classroomImplementation": "Hebrew: 1-2 paragraphs — age-stage practical implementation only",\n' +
+        '    "parentCommunityAspects": "Hebrew: parents/community aspects for this developmental stage",\n' +
+        '    "practicalSteps": ["4-8 Hebrew concrete steps for this grade\'s developmental picture"],\n' +
+        '    "inspirationReferences": ["3-6 named anthroposophic/Waldorf age-stage sources — NO URLs"],\n' +
+        '    "summaryHtml": "<p>Optional rich Hebrew HTML</p>"\n' +
+        '  }\n' +
+        '}'
+      );
+    }
     return (
       ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
-      "Expand a Waldorf teacher's pedagogical suggestion into a full classroom guide.\n" +
+      "TOPIC EXTENSION (הרחבת נושא): Expand a Waldorf teacher's pedagogical suggestion into a full classroom guide for the active main-lesson block.\n" +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n' +
       'Block topic: ' + (body.topic || '') + '\n' +
@@ -1367,7 +1458,7 @@ function buildUserPrompt(body) {
       'Preview: ' + preview + '\n\n' +
       'EXPAND INSTRUCTION: ' + expand + '\n\n' +
       WEB_SEARCH_PRIORITY_INSTRUCTION +
-      'This is an ON-DEMAND expansion for ONE idea only — return practical aspects and inspiration references.\n' +
+      'This is an ON-DEMAND topic expansion for ONE idea only — return practical aspects and inspiration references tied to the block topic.\n' +
       JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
       '{\n' +
       '  "pedagogyDeepDive": {\n' +
@@ -1929,6 +2020,23 @@ function buildPerplexitySearchUserPrompt(body) {
   if (phase === 'pedagogy_deep_dive') {
     const title = String(body.activityTitle || '').trim();
     const preview = String(body.activityPreview || '').trim();
+    if (isAgeExpansionRequest(body)) {
+      return (
+        'Perform a focused factual web search on Waldorf/Steiner anthroposophic developmental-age characteristics.\n' +
+        'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
+        'STRICT: Do NOT search for, mention, or tailor to any main-lesson block topic — age-stage developmental framework ONLY.\n' +
+        'Age-stage pedagogical idea to expand: «' + title + '»\n' +
+        'Preview / teacher context: ' + preview + '\n' +
+        'Pedagogical section: ' + (body.activitySubtype || '') + '\n\n' +
+        'Return a detailed Hebrew research report with:\n' +
+        '1. Anthroposophic developmental picture for THIS grade (body/soul/spirit) as it relates to this single idea\n' +
+        '2. Practical classroom implementation for this age stage only — no block-topic framing\n' +
+        '3. Concrete step-by-step teacher guidance, materials, and classroom rhythm\n' +
+        '4. Named anthroposophic/Waldorf age-stage books and lectures for inspiration\n' +
+        '5. Parent/community aspects for this developmental stage when relevant\n' +
+        '6. A numbered "Sources" section with HTTPS reference URLs for every major claim'
+      );
+    }
     return (
       'Perform a focused factual web search for a Waldorf/Steiner pedagogical deep-dive expansion on ONE specific classroom idea.\n' +
       'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
@@ -1938,7 +2046,7 @@ function buildPerplexitySearchUserPrompt(body) {
       'Activity type: ' + (body.activityType || '') + ' / ' + (body.activitySubtype || '') + '\n' +
       'Day in block (if any): ' + (body.dayNumber || 'n/a') + '\n\n' +
       'Return a detailed Hebrew research report with:\n' +
-      '1. Practical classroom implementation for THIS single idea at this grade only\n' +
+      '1. Practical classroom implementation for THIS single idea at this grade, tied to the block topic\n' +
       '2. Anthroposophic developmental context (Steiner age picture — grade-locked)\n' +
       '3. Concrete step-by-step teacher guidance, materials, and classroom rhythm\n' +
       '4. Named books, articles, and Waldorf projects for inspiration\n' +
@@ -2096,24 +2204,28 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
 }
 
 function shouldUseHybridRouting(body) {
-  if (!body || body.phase === 'test') return false;
-  if (isPedagogicalChatPhase(body)) return false;
-  if (isPerplexityOnlyOnDemandPhase(body)) return false;
-  return Boolean(perplexityClient.resolveApiKey() && env.getGeminiApiKey());
+  return false;
 }
 
-/** @deprecated Legacy alias — routes to Gemini enrichment in hybrid mode. */
+/** Perplexity sonar-pro chat completions — structured JSON synthesis from Sonar research. */
 async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
   const opts = options || {};
   const systemBuilder = typeof opts.systemPrompt === 'function' ? opts.systemPrompt : waldorfSystemPrompt;
-  const temperature = opts.temperature !== undefined ? opts.temperature : GEMINI_DEFAULT_TEMPERATURE;
-  const hybridSuffix = opts.skipHybridSuffix ? '' : HYBRID_GEMINI_SYSTEM_SUFFIX;
-  const systemContent = systemBuilder(extraSystem + hybridSuffix);
+  const systemContent = systemBuilder(extraSystem || '');
+  const temperature = opts.temperature !== undefined ? opts.temperature : 0.35;
+  const key = apiKey || perplexityClient.resolveApiKey();
+  if (!key) {
+    throw new Error('PERPLEXITY_API_KEY is not configured');
+  }
 
-  return callGeminiForGeneration(systemContent, userPrompt, temperature, {
-    model: GEMINI_GENERATION_MODEL,
-    jsonMode: opts.jsonMode === true,
-    responseSchema: opts.responseSchema,
+  return perplexityClient.callPerplexityChat({
+    apiKey: key,
+    temperature: temperature,
+    stream: opts.stream,
+    messages: [
+      { role: 'system', content: systemContent },
+      { role: 'user', content: userPrompt },
+    ],
   });
 }
 
@@ -2224,69 +2336,103 @@ function rethrowApiClientError(err, fallbackMessage) {
 }
 
 /**
- * Pedagogical chat — Gemini-only (no Perplexity). Community archive context is injected via user prompt.
+ * Core phases (grade / topic / phase_c): Perplexity Sonar research → Perplexity JSON synthesis.
  */
-async function fetchGeminiChatOnly(body, userPrompt, extraSystem, logContext) {
-  const phase = 'chat_followup';
-  const expansionRequest = isChatPedagogicalExpansionRequest(body);
-  const hasCommunityMatch = !expansionRequest && Boolean(
-    body.communityMaterialsProbe &&
-    body.communityMaterialsProbe.count > 0
-  );
-  const chatExtra = extraSystem + (
-    hasCommunityMatch
-      ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH: Start with the mandatory opening; guide the teacher to the exact catalog location and any direct file link from context.'
-      : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE: No community archive match. Act as expert educational consultant; recommend relevant books, essays, and articles. No live web search.'
-  );
+async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, logContext) {
+  const phase = body.phase;
+  const ip = (logContext && logContext.ip) || 'unknown';
+  const action = (logContext && logContext.action) || buildActionLabel(body);
   let lastRaw = '';
+
+  let rawPayload;
+  try {
+    rawPayload = await fetchOrRunPerplexityResearch(body, logContext);
+  } catch (searchErr) {
+    const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
+    console.error('[perplexity] Sonar research failed for phase', phase, ':', msg);
+    throw new Error(msg || 'שגיאה בחיפוש Perplexity — נסו שוב בעוד רגע.');
+  }
+
+  const synthesisPrompt = buildPerplexityResearchBlock(rawPayload) + userPrompt;
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
     const retrySuffix = isRetry
-      ? ' CRITICAL RETRY: Your previous reply was rejected — return ONLY valid JSON {"text":"..."} with no markdown fences or extra text.'
+      ? (phase === 'phase_c' ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
       : '';
-    const systemContent = pedagogicalChatSystemPrompt(chatExtra + retrySuffix);
+    const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
+
     let raw;
     try {
       if (isRetry) {
-        console.warn('[chat] Silent Gemini retry (attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
+        console.warn('[perplexity] Silent retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
       }
-      console.log('[chat] Gemini-only pipeline', hasCommunityMatch ? '(community archive + Gemini)' : '(Gemini knowledge base fallback)');
-      raw = await callGeminiV1(systemContent, userPrompt, {
-        model: GEMINI_GENERATION_MODEL,
+      console.log('[perplexity] Structured synthesis for phase', phase, '(attempt', attempt + ')');
+      logPerplexityCall(ip, action, 'Initiated');
+      raw = await callPerplexity(apiKey, synthesisPrompt, extraSystem + retrySuffix, {
         temperature: isRetry ? 0.2 : 0.35,
-        jsonMode: true,
-        responseSchema: getChatFollowupResponseSchema(),
+        systemPrompt: waldorfSystemPrompt,
       });
       lastRaw = raw;
-    } catch (geminiErr) {
-      const msg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
-      console.error('[chat] Gemini call failed (attempt', attempt + '):', msg);
-      if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(geminiErr)) {
+      logPerplexityCall(ip, action, 'Success');
+    } catch (aiErr) {
+      logPerplexityCall(ip, action, 'Failed');
+      const msg = aiErr instanceof Error ? aiErr.message : String(aiErr);
+      console.error('[perplexity] synthesis failed for phase', phase, '(attempt', attempt + '):', msg);
+      if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(aiErr)) {
         continue;
       }
-      rethrowApiClientError(geminiErr, 'שגיאה בעוזר הפדגוגי — נסו שוב בעוד רגע.');
+      rethrowApiClientError(aiErr, 'שגיאה בקריאה ל-Perplexity — נסו שוב בעוד רגע.');
     }
 
-    const data = normalizeChatFollowupFromModel(raw);
+    let data;
+    try {
+      data = cleanAndParseJSON(raw, {
+        phase: phase,
+        context: body,
+        fallbackOnError: useParseFallback,
+      });
+    } catch (parseErr) {
+      const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      console.error(
+        '[perplexity] JSON parse failed for phase',
+        phase,
+        '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + '):',
+        parseMsg
+      );
+      console.error('Model output preview:', String(raw).slice(0, 600));
+      if (!useParseFallback) continue;
+      data = buildModelParseFallback(phase, raw, body);
+    }
+
     if (data && data._parseFallback) {
-      return data;
+      console.warn('[perplexity] Using parse fallback for phase', phase);
+      return cacheDb.stampPerplexityOnlyMetadata(data);
     }
-    if (validatePhaseResult(phase, data, body)) {
-      if (hasCommunityMatch) {
-        data.chatReply = data.chatReply || {};
-        data.chatReply.routedToCommunity = true;
-        data.chatReply.communityMatchCount = body.communityMaterialsProbe.count;
-        data.chatReply.matchMethod = body.communityMaterialsProbe.matchMethod || 'none';
-      }
-      return data;
+
+    if (phase === 'topic' && data && !data._parseFallback) {
+      data = sanitizeTopicPhaseOutput(data);
     }
-    if (attempt >= MODEL_PARSE_MAX_ATTEMPTS) {
-      return normalizeChatFollowupFromModel(lastRaw || '');
+
+    if (!validatePhaseResult(phase, data, body)) {
+      console.error(
+        '[perplexity] Parsed JSON missing required fields for phase',
+        phase,
+        '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')'
+      );
+      console.error('Model output preview:', String(raw).slice(0, 600));
+      if (!useParseFallback) continue;
+      console.warn('[perplexity] Validation failed — returning parse fallback for phase', phase);
+      return cacheDb.stampPerplexityOnlyMetadata(buildModelParseFallback(phase, raw, body));
     }
+
+    if (isRetry) {
+      console.log('[perplexity] Silent retry succeeded for phase', phase);
+    }
+    return cacheDb.stampPerplexityOnlyMetadata(data);
   }
 
-  return normalizeChatFollowupFromModel(lastRaw || '');
+  return cacheDb.stampPerplexityOnlyMetadata(buildModelParseFallback(phase, lastRaw || '', body));
 }
 
 /**
@@ -2296,14 +2442,14 @@ async function fetchGeminiChatOnly(body, userPrompt, extraSystem, logContext) {
  */
 async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
   if (isPedagogicalChatPhase(body)) {
-    return fetchGeminiChatOnly(body, userPrompt, extraSystem, logContext);
+    return chatApi.fetchPedagogicalChat(body, userPrompt, extraSystem);
   }
-  if (isPerplexityOnlyOnDemandPhase(body)) {
+  if (isPerplexityRawExpansionPhase(body)) {
     return fetchPerplexityOnlyOnDemand(body, logContext);
   }
-  if (shouldUseHybridRouting(body)) {
-    return fetchHybridModelWithRetry(
-      body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext
+  if (isDecoupledGenerationPhase(body)) {
+    return fetchPerplexityStructuredWithRetry(
+      body, apiKey, userPrompt, extraSystem, perplexityOptions, logContext
     );
   }
 
@@ -2319,14 +2465,6 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
     const retrySuffix = isRetry && !isChatFollowup
       ? (phase === 'phase_c' ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
       : '';
-    const useJsonMode = phaseRequiresStructuredJson(phase);
-    const callOpts = Object.assign({}, baseOpts, {
-      temperature: isRetry
-        ? 0.2
-        : (baseOpts.temperature !== undefined ? baseOpts.temperature : GEMINI_DEFAULT_TEMPERATURE),
-      jsonMode: useJsonMode,
-      responseSchema: useJsonMode ? getStructuredResponseSchema(phase, body) : undefined,
-    });
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
     let raw;
@@ -2335,7 +2473,10 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
         console.warn('[generate] Silent Perplexity retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
       }
       logPerplexityCall(ip, action, 'Initiated');
-      raw = await callPerplexity(apiKey, userPrompt, extraSystem + retrySuffix, callOpts);
+      raw = await callPerplexity(apiKey, userPrompt, extraSystem + retrySuffix, {
+        temperature: isRetry ? 0.2 : 0.35,
+        systemPrompt: typeof baseOpts.systemPrompt === 'function' ? baseOpts.systemPrompt : waldorfSystemPrompt,
+      });
       lastRaw = raw;
       logPerplexityCall(ip, action, 'Success');
     } catch (aiErr) {
@@ -2527,20 +2668,14 @@ function resolveApiKey(body) {
   if (body && isPedagogicalChatPhase(body)) {
     return env.getGeminiApiKey() || null;
   }
-  if (body && isPerplexityOnlyOnDemandPhase(body)) {
-    return perplexityClient.resolveApiKey() || null;
-  }
-  return env.getGeminiApiKey() || null;
+  return perplexityClient.resolveApiKey() || null;
 }
 
 function missingKeyError(body) {
   if (body && isPedagogicalChatPhase(body)) {
     return 'מפתח Gemini לא מוגדר. הוסיפו GEMINI_API_KEY ב-Render → Environment ופרסמו מחדש.';
   }
-  if (body && isPerplexityOnlyOnDemandPhase(body)) {
-    return 'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY ב-Render → Environment ופרסמו מחדש.';
-  }
-  return MISSING_KEY_ERROR;
+  return 'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY ב-Render → Environment ופרסמו מחדש.';
 }
 
 function setCors(res) {
@@ -2550,7 +2685,7 @@ function setCors(res) {
 }
 
 const MISSING_KEY_ERROR =
-  'מפתח Gemini לא מוגדר. הוסיפו GEMINI_API_KEY ב-Render → Environment ופרסמו מחדש.';
+  'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY ב-Render → Environment ופרסמו מחדש.';
 
 function isNonBlockingSubscriptionDbError(err) {
   const msg = String((err && err.message) || err || '');
@@ -2694,7 +2829,7 @@ async function probeCommunityMaterialsForBody(body) {
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
   if (body.phase === 'chat_followup') {
-    if (isChatPedagogicalExpansionRequest(body)) {
+    if (chatApi.isChatPedagogicalExpansionRequest(body)) {
       return {
         matches: [],
         count: 0,
@@ -2792,6 +2927,9 @@ async function handleGeneratePost(parsedBody, requestContext) {
     throw err;
   }
   normalizeRequestPhase(parsedBody);
+  if (parsedBody.phase === 'pedagogy_deep_dive') {
+    normalizeExpansionRequest(parsedBody);
+  }
   if (parsedBody.phase === 'phase_c' && !resolvePhaseCTab(parsedBody)) {
     const err = new Error('phase_c requires cTab: inspiration or curriculum');
     err.statusCode = 400;
@@ -2977,6 +3115,20 @@ async function executeGenerate(body, apiKey, requestContext) {
     err.statusCode = 400;
     throw err;
   }
+  if (body.phase === 'pedagogy_deep_dive') {
+    normalizeExpansionRequest(body);
+    if (isAgeExpansionRequest(body)) {
+      try {
+        const gradePrior = await cacheDb.lookupGradeCachedContext(body);
+        if (gradePrior) {
+          body.priorGradeCache = gradePrior;
+          console.log('[age_extension] grade context loaded', gradePrior.cacheKey.slice(0, 12));
+        }
+      } catch (gradeCtxErr) {
+        console.warn('[age_extension] grade context lookup failed:', gradeCtxErr.message || gradeCtxErr);
+      }
+    }
+  }
 
   const logContext = {
     ip: resolveClientIp(requestContext),
@@ -3052,7 +3204,7 @@ async function executeGenerate(body, apiKey, requestContext) {
             || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
           if (!serveArchive) {
             console.log(
-              '[cached_results] SKIP non-enhanced archive exact match — hybrid regeneration:',
+              '[cached_results] SKIP non-enhanced archive exact match — Perplexity regeneration:',
               suggestion.topic
             );
           } else {
@@ -3107,10 +3259,10 @@ async function executeGenerate(body, apiKey, requestContext) {
       console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
       if (shouldLiveGenerateOnDemandExpansion(body)) {
         console.log('[on-demand] expansion cache MISS — live Perplexity pipeline (no archive error):', body.phase);
-      } else if (isPerplexityOnlyOnDemandPhase(body)) {
-        console.log('[on-demand] pipeline: Perplexity sonar only (no Gemini) for', body.phase);
-      } else if (shouldUseHybridRouting(body)) {
-        console.log('[hybrid] pipeline: Perplexity sonar → raw cache → Gemini', GEMINI_GENERATION_MODEL);
+      } else if (isPerplexityRawExpansionPhase(body)) {
+        console.log('[on-demand] pipeline: Perplexity Sonar only (independent expansion) for', body.phase);
+      } else if (isDecoupledGenerationPhase(body)) {
+        console.log('[perplexity] pipeline: Sonar research → Perplexity structured synthesis for', body.phase);
       }
     }
   }
@@ -3123,7 +3275,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     liveDriveRefresh: false,
   };
 
-  // Main generation: grade Perplexity-only; topic (Phase B) Perplexity → Gemini essence; phase_c Perplexity → Gemini per tab; on-demand pedagogy_deep_dive: Perplexity only.
+  // Main generation: grade/topic/phase_c → Perplexity Sonar + synthesis; expansions → Perplexity Sonar raw only; chat → Gemini (api/chat.js).
   if (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body)) {
     body.skipRag = true;
   }
@@ -3185,8 +3337,9 @@ async function executeGenerate(body, apiKey, requestContext) {
   const isChatFollowup = body.phase === 'chat_followup';
   const isDecoupledGen = isDecoupledGenerationPhase(body);
   const isOnDemandExpansion = isOnDemandExpansionPhase(body);
+  const isChatExpansion = chatApi.isChatPedagogicalExpansionRequest(body);
   const communityCriticalBlock =
-    isChatFollowup && !isChatPedagogicalExpansionRequest(body) &&
+    isChatFollowup && !isChatExpansion &&
     body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
       ? buildCommunityMatchCriticalSystemBlock(body.communityMaterialsProbe, body)
       : '';
@@ -3203,26 +3356,20 @@ async function executeGenerate(body, apiKey, requestContext) {
     (body.phase === 'phase_c'
       ? ' PHASE C — INDEPENDENT TAB («' + body.cTab + '»): Do NOT duplicate or paraphrase Phase B theory essence. Generate unique, deep tab-specific content from Perplexity research only.'
       : '') +
-    (isPerplexityOnlyOnDemandPhase(body)
-      ? ''
-      : isOnDemandExpansion
-      ? ' ON-DEMAND EXPANSION: Perplexity raw research is the sole factual input — no Drive or community archive excerpts. ' +
-        'Gemini acts as Master Waldorf Educator: synthesize into ONE rich pedagogyDeepDive (or archiveSummary) for the single requested bullet/source. No URLs in JSON output.'
-      : body.phase === 'phase_c'
-      ? ' PHASE C HYBRID: Perplexity Sonar deep research → Gemini enrichment for the «' + body.cTab + '» tab only (inspiration/sources/gallery OR 15-day curriculum). Inline expansions mandatory on expandable items. No theory.sections.'
+    (isOnDemandExpansion
+      ? (isAgeExpansionRequest(body)
+        ? ' ON-DEMAND AGE EXTENSION: Perplexity Sonar raw research — grade developmental framework ONLY, zero topic coupling. Independent cache route.'
+        : ' ON-DEMAND TOPIC EXTENSION: Perplexity Sonar raw research — deep-dive for the single requested idea within the active block topic. Independent cache route.')
       : isDecoupledGen
-      ? ' DECOUPLED MAIN GENERATION (Phase B topic essence): Perplexity raw research is the sole factual input — no Drive or community archive excerpts. ' +
-        'Gemini acts as Master Waldorf Educator: translate into concise anthroposophic Hebrew theory essence only — no inspiration, curriculum, or bibliography.'
+      ? ' DECOUPLED MAIN GENERATION: Perplexity Sonar research → Perplexity synthesis. No Gemini. No Drive/community RAG injection.'
       : isChatFollowup
-      ? (isChatPedagogicalExpansionRequest(body)
+      ? (isChatExpansion
         ? ' PEDAGOGICAL CHAT — EXPANSION FOLLOW-UP: Teacher asked for more materials or deeper ideas. ' +
           'Skip community-match announcements; deliver rich new pedagogical content from Gemini knowledge base and any RAG excerpts.'
         : body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
         ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH: Start with mandatory opening; guide teacher to catalog path and direct file link from context; enrich from matched title/subject/description.'
         : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE: No community archive match. Expert educational consultant mode — practical Waldorf guidance and book/article recommendations. No Perplexity or live web search.')
-      : isDecoupledGen
-        ? ''
-        : body.ragContext || body.ragDriveContext || body.ragCommunityContext
+      : body.ragContext || body.ragDriveContext || body.ragCommunityContext
           ? ' HYBRID SEARCH: Live web search is PRIMARY. Private Drive and shared community archive excerpts are SECONDARY enrichment — blend them into the web foundation without replacing web breadth.'
           : ' No local Drive or community archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
     (searchPhases.has(body.phase) && !isDecoupledGen && !isOnDemandExpansion && !isChatFollowup
@@ -3262,11 +3409,7 @@ async function executeGenerate(body, apiKey, requestContext) {
       }
       const cachePayload = isChatFollowup
         ? cacheDb.packChatFollowupForCache(data)
-        : (isPerplexityOnlyOnDemandPhase(body)
-          ? cacheDb.stampPerplexityOnlyMetadata(data)
-          : (shouldUseHybridRouting(body)
-            ? cacheDb.stampHybridGeneratedMetadata(data)
-            : data));
+        : cacheDb.stampPerplexityOnlyMetadata(data);
       const savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
       if (savedKey) {
         const merged = ragMeta.chunkCount > 0;
@@ -3311,21 +3454,19 @@ async function executeGenerate(body, apiKey, requestContext) {
       cacheKey: savedCacheKey || undefined,
       table: cacheDb.TABLE_NAME,
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
-      hybridPipeline: isChatFollowup ? false : shouldUseHybridRouting(body),
-      perplexityOnly: isPerplexityOnlyOnDemandPhase(body),
+      hybridPipeline: false,
+      perplexityOnly: !isChatFollowup,
       chatPipeline: isChatFollowup ? 'community_archive+gemini' : undefined,
       consolidatedArchive: ragMeta.chunkCount > 0,
       contentHierarchy: isChatFollowup
         ? ((communityProbe && communityProbe.count > 0)
           ? 'community_archive+gemini'
           : 'gemini_pedagogical_kb')
-        : (isPerplexityOnlyOnDemandPhase(body)
-          ? 'perplexity-sonar-only'
+        : (isPerplexityRawExpansionPhase(body)
+          ? 'perplexity-sonar-expansion'
           : (isDecoupledGen
-            ? 'perplexity_raw+gemini_master_educator'
-            : (shouldUseHybridRouting(body)
-              ? 'perplexity_raw+gemini_enrichment'
-              : 'web_primary_drive_enrichment'))),
+            ? 'perplexity-sonar+perplexity-synthesis'
+            : 'perplexity-direct')),
       liveDriveRefresh: Boolean(ragMeta.liveDriveRefresh),
       rag: ragMeta,
       ragContext: body.ragContext || '',
@@ -3448,4 +3589,7 @@ module.exports.isArchiveOnlyMode = function () { return ARCHIVE_ONLY_MODE; };
 module.exports.isArchiveOnlyLookup = isArchiveOnlyLookup;
 module.exports.isOnDemandExpansionPhase = isOnDemandExpansionPhase;
 module.exports.shouldLiveGenerateOnDemandExpansion = shouldLiveGenerateOnDemandExpansion;
+module.exports.resolveExpansionScope = resolveExpansionScope;
+module.exports.isAgeExpansionRequest = isAgeExpansionRequest;
+module.exports.normalizeExpansionRequest = normalizeExpansionRequest;
 module.exports.GENERATE_ROUTE_TIMEOUT_MS = GENERATE_ROUTE_TIMEOUT_MS;

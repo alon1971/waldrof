@@ -4029,8 +4029,15 @@
     }
 
     function getPedagogySummaryCacheKey(source) {
-      const name = String(source.preview || source.title || source.heading || source.id || '').trim().slice(0, 160);
-      return 'ped|' + getSummarySessionScope() + '|' + name;
+      const scope = source && source.type === 'grade' ? 'age' : 'topic';
+      const session = scope === 'age'
+        ? String(appState.grade || '')
+        : getSummarySessionScope();
+      const title = String((source && source.title) || (source && source.heading) || '').trim().slice(0, 80);
+      const preview = String((source && source.preview) || '').trim().slice(0, 80);
+      const subtype = String((source && source.subtype) || '').trim();
+      const itemId = String((source && source.id) || '').trim();
+      return 'ped|' + scope + '|' + session + '|' + subtype + '|' + title + '|' + preview + '|' + itemId;
     }
 
     function resetSummarySession() {
@@ -4098,13 +4105,26 @@
     }
 
     function getLazyLoadExpansionInstruction() {
-      return getInlineExpansionInstruction();
-    }
-
-    function getOnDemandExpansionInstruction() {
       if (isEnglish()) {
         return (
-          getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' Generate expansion for THIS SINGLE idea only. Return pedagogyDeepDive with: ' +
+          'ON-DEMAND EXPANSIONS: Do NOT include expansion, contentExpansion, artExpansion, or hintExpansion objects in this payload. ' +
+          'Each «Practical expansion & aspects» button triggers a separate live API call (age-stage or topic-specific).'
+        );
+      }
+      return (
+        'הרחבות לפי דרישה: אל תכלול expansion, contentExpansion, artExpansion או hintExpansion בתשובה זו. ' +
+        'כל כפתור «הרחבה ואספקטים פרקטיים» מפעיל קריאת API נפרדת (הרחבת גיל או הרחבת נושא).'
+      );
+    }
+
+    function getOnDemandExpansionInstruction(scope) {
+      const isAge = scope === 'age';
+      if (isEnglish()) {
+        return (
+          getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' +
+          (isAge
+            ? 'Generate an AGE-STAGE expansion for THIS SINGLE developmental idea only — 100% independent of any main-lesson topic. Return pedagogyDeepDive with: '
+            : 'Generate a TOPIC expansion for THIS SINGLE idea within the active block topic. Return pedagogyDeepDive with: ') +
           'classroomImplementation (1–2 paragraphs on practical in-class implementation), ' +
           'parentCommunityAspects (paragraph on parents/community when relevant), ' +
           'practicalSteps (4–8 concrete teacher steps), ' +
@@ -4113,7 +4133,10 @@
         );
       }
       return (
-        getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' הפק הרחבה לרעיון יחיד זה בלבד. החזר pedagogyDeepDive עם: ' +
+        getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' +
+        (isAge
+          ? 'הפק הרחבת גיל/שלב התפתחותי לרעיון יחיד זה בלבד — ללא כל קשר לנושא המקרא. החזר pedagogyDeepDive עם: '
+          : 'הפק הרחבת נושא לרעיון יחיד זה בתוך מקרא הנושא הפעיל. החזר pedagogyDeepDive עם: ') +
         'classroomImplementation (1–2 פסקאות יישום מעשי בכיתה), ' +
         'parentCommunityAspects (פסקה על הורים/קהילה כשרלוונטי), ' +
         'practicalSteps (4–8 שלבים קונקרטיים למורה), ' +
@@ -5841,7 +5864,6 @@
       const isStr = typeof item === 'string';
       const title = !isStr && item && item.title ? item.title : '';
       const detail = isStr ? item : ((item && (item.detail || item.body || item.description || item.text)) || '');
-      const expansion = normalizeExpansion(!isStr && item ? item.expansion : null);
       const id = buildPedagogyItemId('grade', prefix, index, (title || '') + detail);
       return renderPedagogySuggestionCard({
         id: id,
@@ -5851,7 +5873,6 @@
         heading: title,
         preview: detail,
         context: 'grade-insights · ' + prefix,
-        expansion: expansion,
       });
     }
 
@@ -5993,28 +6014,28 @@
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
       const noLatex = getNoLatexInstruction();
-      const inline = getInlineExpansionInstruction();
+      const lazy = getLazyLoadExpansionInstruction();
       const prioritySearch = getPrioritySourcesSearchInstruction();
       if (isEnglish()) {
         return (
-          gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + inline + ' ' + prioritySearch + ' ' +
+          gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + lazy + ' ' + prioritySearch + ' ' +
           (ageRange ? 'Age range for this grade: ' + ageRange + '. ' : '') +
           'Generate a rich anthroposophic Waldorf portrait for currentGrade ONLY. Uniform 16px in UI.\n' +
           'PART 1 — Age picture: part1AgePictureHtml (4–6 HTML paragraphs), part1DevelopmentBullets (8–12 concise Hebrew bullets as strings or {text}), archivesSynthesisHtml, developmentBullets.\n' +
-          'PART 2 — Classroom ideas: part2ClassroomIdeasHtml (5–8 HTML paragraphs), part2ClassroomIdeas (6–10 objects: {title, detail, expansion}).\n' +
-          'PART 3 — Community: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 objects: {title, detail, expansion}).\n' +
-          'Also: globalCurricula (objects with title/detail/expansion), typicalBlocks, sources (names only — NO URLs). ' +
+          'PART 2 — Classroom ideas: part2ClassroomIdeasHtml (5–8 HTML paragraphs), part2ClassroomIdeas (6–10 objects: {title, detail} only — no expansion objects).\n' +
+          'PART 3 — Community: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 objects: {title, detail} only — no expansion objects).\n' +
+          'Also: globalCurricula (objects with title/detail only), typicalBlocks, sources (names only — NO URLs). ' +
           getJsonOutputInstruction()
         );
       }
       return (
-        gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + inline + ' ' + prioritySearch + ' ' +
+        gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + lazy + ' ' + prioritySearch + ' ' +
         (ageRange ? 'טווח גיל לכיתה זו: ' + ageRange + '. ' : '') +
         'הפק תמונת גיל ולדורפית עשירה עבור currentGrade בלבד. גופן אחיד 16px.\n' +
         'חלק 1 — תמונת גיל: part1AgePictureHtml (4–6 פסקאות HTML), part1DevelopmentBullets (8–12 נקודות כמחרוזות או {text}), archivesSynthesisHtml, developmentBullets.\n' +
-        'חלק 2 — רעיונות כיתה: part2ClassroomIdeasHtml (5–8 פסקאות HTML), part2ClassroomIdeas (6–10 אובייקטים: {title, detail, expansion}).\n' +
-        'חלק 3 — קהילה: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 אובייקטים: {title, detail, expansion}).\n' +
-        'גם: globalCurricula (אובייקטים עם title/detail/expansion), typicalBlocks, sources (שמות בלבד — ללא URLs). ' +
+        'חלק 2 — רעיונות כיתה: part2ClassroomIdeasHtml (5–8 פסקאות HTML), part2ClassroomIdeas (6–10 אובייקטים: {title, detail} בלבד — ללא expansion).\n' +
+        'חלק 3 — קהילה: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 אובייקטים: {title, detail} בלבד — ללא expansion).\n' +
+        'גם: globalCurricula (אובייקטים עם title/detail בלבד), typicalBlocks, sources (שמות בלבד — ללא URLs). ' +
         getJsonOutputInstruction()
       );
     }
@@ -6063,45 +6084,45 @@
     function buildInspirationTabPrompt(topic, gradeLabel) {
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
-      const inline = getInlineExpansionInstruction();
+      const lazy = getLazyLoadExpansionInstruction();
       const prioritySearch = getPrioritySourcesSearchInstruction();
       if (isEnglish()) {
         return (
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
-          'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items ({text, expansion}). ' +
-          'podcast: 3–5 episodes {theme, insight, expansion} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
-          'narrative: 3–5 story paragraphs ({text, expansion}). 16px UI.'
+          gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
+          'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items ({text} only — no expansion). ' +
+          'podcast: 3–5 episodes {theme, insight} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
+          'narrative: 3–5 story paragraphs ({text} only). 16px UI.'
         );
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
-        'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים ({text, expansion}). ' +
-        'podcast: 3–5 פרקים {theme, insight, expansion} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
-        'narrative: 3–5 פסקאות ({text, expansion}). גופן 16px.'
+        gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
+        'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים ({text} בלבד — ללא expansion). ' +
+        'podcast: 3–5 פרקים {theme, insight} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
+        'narrative: 3–5 פסקאות ({text} בלבד). גופן 16px.'
       );
     }
 
     function buildCurriculumTabPrompt(topic, gradeLabel) {
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
-      const inline = getInlineExpansionInstruction();
+      const lazy = getLazyLoadExpansionInstruction();
       if (isEnglish()) {
         return (
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + inline + ' ' +
-          'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint, ' +
-          'contentExpansion, artExpansion, hintExpansion (mandatory expansion objects). ' +
+          gradeLock + ' ' + noUrls + ' ' + lazy + ' ' +
+          'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint only — ' +
+          'NO contentExpansion, artExpansion, or hintExpansion (loaded on-demand per button). ' +
           '3-week arc. Grade-locked. 16px UI. ' +
           getJsonOutputInstruction()
         );
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + inline + ' ' +
-        'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי, ' +
-        'contentExpansion, artExpansion, hintExpansion (אובייקטי expansion חובה). ' +
+        gradeLock + ' ' + noUrls + ' ' + lazy + ' ' +
+        'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי בלבד — ' +
+        'ללא contentExpansion, artExpansion או hintExpansion (נטענים לפי דרישה בלחיצה). ' +
         'קשת 3 שבועות. אך ורק לכיתה זו. גופן 16px. ' +
         getJsonOutputInstruction()
       );
@@ -6213,7 +6234,7 @@
         inspirationPrompt: cTab === 'inspiration' ? buildInspirationTabPrompt(topicStr, appState.gradeLabel) : undefined,
         curriculumPrompt: cTab === 'curriculum' ? buildCurriculumTabPrompt(topicStr, appState.gradeLabel) : undefined,
         bibliographyRequirements: cTab === 'inspiration' ? getTheoryBibliographyPrompt() : undefined,
-        pedagogyExpandHint: getInlineExpansionInstruction(),
+        pedagogyExpandHint: getLazyLoadExpansionInstruction(),
         currentGrade: appState.grade,
         gradeLockInstruction: getGradeLockInstruction(),
         noUrlsInstruction: getNoUrlsInstruction(),
@@ -6366,8 +6387,12 @@
         const block = btn.closest('.expansion-btn-block');
         const article = btn.closest('article');
         const inCurriculum = btn.closest('#panel-curriculum');
+        const inGradeInsights = btn.closest('#grade-insights-body');
         preview = btn.getAttribute('title') || '';
-        if (inCurriculum) {
+        if (inGradeInsights) {
+          type = 'grade';
+          subtype = 'restored';
+        } else if (inCurriculum) {
           type = 'curriculum';
           subtype = 'restored';
           const dayCell = btn.closest('tr.day-row');
@@ -6585,12 +6610,7 @@
 
       const promise = fetchPedagogyDeepDive(source, controller.signal).then(function (data) {
         const summary = (data && data.pedagogyDeepDive) ? data : ((data && data.archiveSummary) ? data : data);
-        Object.keys(appState.pedagogyRegistry).forEach(function (sid) {
-          const src = appState.pedagogyRegistry[sid];
-          if (src && getPedagogySummaryCacheKey(src) === cacheKey) {
-            appState.pedagogySummaries[sid] = summary;
-          }
-        });
+        appState.pedagogySummaries[sourceId] = summary;
         refreshPedagogyPanelsForCacheKey(cacheKey, summary);
         return summary;
       }).catch(function (e) {
@@ -6802,11 +6822,6 @@
     }
 
     function registerPedagogyItem(item) {
-      if (item && item.expansion) {
-        appState.pedagogySummaries[item.id] = {
-          pedagogyDeepDive: mapExpansionToDeepDive(item.expansion, item),
-        };
-      }
       appState.pedagogyRegistry[item.id] = item;
       return item;
     }
@@ -6840,8 +6855,12 @@
 
     async function fetchPedagogyDeepDive(source, signal) {
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
+      const isAgeScope = source && source.type === 'grade';
+      const expansionScope = isAgeScope ? 'age' : 'topic';
       const payload = {
         phase: 'pedagogy_deep_dive',
+        expansionScope: expansionScope,
+        expansionItemId: source.id || '',
         activityTitle: source.title || source.heading || '',
         activityPreview: source.preview || '',
         activityType: source.type || 'inspiration',
@@ -6851,13 +6870,15 @@
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
-        topic: appState.topic,
         currentGrade: appState.grade,
         gradeLockInstruction: getGradeLockInstruction(),
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
-        expandInstruction: getOnDemandExpansionInstruction(),
+        expandInstruction: getOnDemandExpansionInstruction(expansionScope),
       };
+      if (!isAgeScope) {
+        payload.topic = appState.topic;
+      }
       return invokeWaldorfResearch(payload, { signal: signal });
     }
 
@@ -7852,11 +7873,6 @@
         getPanel: function (sid, el) { return getPedExpandPanel(sid, el); },
         getCacheKey: getPedagogySummaryCacheKey,
         getSummary: function (sid) { return appState.pedagogySummaries[sid]; },
-        mapInlineSummary: function (source) {
-          const exp = normalizeExpansion(source.expansion);
-          if (!hasExpansionContent(exp)) return null;
-          return { pedagogyDeepDive: mapExpansionToDeepDive(exp, source) };
-        },
         setSummary: function (sid, summary) { appState.pedagogySummaries[sid] = summary; },
         renderPanel: renderPedagogyInlinePanel,
         startJob: startPedagogySummaryJob,
