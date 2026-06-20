@@ -318,6 +318,21 @@ function coerceCachedResultData(raw) {
   return data;
 }
 
+/** Cache metadata keys that mark hybrid/archive-upgraded rows (required for grade/topic cache hits). */
+const CACHE_ENHANCEMENT_META_KEYS = ['_hybridGenerated', '_archiveUpgrade'];
+
+function attachCacheEnhancementMetadata(source, target) {
+  if (!source || !target || typeof source !== 'object' || typeof target !== 'object') return target;
+  CACHE_ENHANCEMENT_META_KEYS.forEach(function (key) {
+    const meta = source[key];
+    if (meta && typeof meta === 'object' && meta.version) {
+      const cloned = cloneJsonSafe(meta);
+      target[key] = cloned || sanitizeForJsonStorage(meta);
+    }
+  });
+  return target;
+}
+
 /** Normalize grade cache payloads to { gradeInsights } for save, validation, and API responses. */
 function normalizeGradeResultForCache(raw) {
   const data = coerceCachedResultData(raw);
@@ -331,7 +346,9 @@ function normalizeGradeResultForCache(raw) {
 
   const cloned = cloneJsonSafe(gi);
   if (!cloned) return null;
-  return { gradeInsights: cloned };
+  const out = { gradeInsights: cloned };
+  attachCacheEnhancementMetadata(data, out);
+  return out;
 }
 
 function cloneJsonSafe(value) {

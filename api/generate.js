@@ -1229,14 +1229,21 @@ async function callGeminiV1(systemPrompt, userPrompt, options) {
   }
 
   const body = {
-    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
     generationConfig: generationConfig,
   };
-  // Stable v1 REST uses "systemInstructions"; v1beta still accepts "systemInstruction".
+  // Stable v1 REST rejects systemInstruction/systemInstructions — inject as first contents turn.
+  // v1beta (structured JSON) still accepts the systemInstruction field.
   if (useStructuredApi) {
+    body.contents = [{ role: 'user', parts: [{ text: userPrompt }] }];
     body.systemInstruction = { parts: [{ text: systemPrompt }] };
   } else {
-    body.systemInstructions = { parts: [{ text: systemPrompt }] };
+    const contents = [];
+    const systemText = systemPrompt != null ? String(systemPrompt).trim() : '';
+    if (systemText) {
+      contents.push({ role: 'user', parts: [{ text: systemText }] });
+    }
+    contents.push({ role: 'user', parts: [{ text: userPrompt }] });
+    body.contents = contents;
   }
 
   const res = await fetch(url, {
@@ -2297,7 +2304,11 @@ async function executeGenerate(body, apiKey, requestContext) {
           data.chatReply.enrichedFromGradeCache = true;
         }
       }
-      const cachePayload = isChatFollowup ? cacheDb.packChatFollowupForCache(data) : data;
+      const cachePayload = isChatFollowup
+        ? cacheDb.packChatFollowupForCache(data)
+        : (shouldUseHybridRouting(body)
+          ? cacheDb.stampHybridGeneratedMetadata(data)
+          : data);
       const savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
       if (savedKey) {
         const merged = ragMeta.chunkCount > 0;
