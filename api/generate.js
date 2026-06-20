@@ -1,7 +1,7 @@
 /**
- * Waldorf research API — secure Perplexity proxy.
- * Perplexity API key is read server-side only (never exposed to the browser).
- * Set PERPLEXITY_API_KEY or AI_API_KEY in Render Environment (or .env locally).
+ * Waldorf research API — secure Gemini proxy.
+ * Gemini API key is read server-side only (never exposed to the browser).
+ * Set GEMINI_API_KEY in Render Environment (or .env locally).
  *
  * Content hierarchy (lesson generation):
  *   1. LIVE WEB SEARCH (Perplexity) — primary anchor for broad, deep lesson content
@@ -20,7 +20,6 @@ const knowledgeIngest = require('./knowledge-ingest');
 const subscriptionApi = require('./subscription');
 const searchLogs = require('./search-logs');
 const authContext = require('./auth-context');
-const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
 const env = require('./env');
 
@@ -42,9 +41,6 @@ const {
     }
   });
 })();
-
-const PERPLEXITY_URL = perplexityClient.PERPLEXITY_URL;
-const PERPLEXITY_MODEL = perplexityClient.PERPLEXITY_MODEL;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1000,30 +996,60 @@ function buildUserPrompt(body) {
   throw new Error('Unknown phase');
 }
 
+async function callGeminiAI(systemPrompt, userPrompt, temperature) {
+  const geminiKey = env.getGeminiApiKey();
+  if (!geminiKey) {
+    throw new Error('שגיאה: מפתח GEMINI_API_KEY לא מוגדר בשרת');
+  }
+
+  const url =
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' +
+    encodeURIComponent(geminiKey);
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    generationConfig: { temperature: temperature != null ? temperature : 0.35 },
+  };
+  if (systemPrompt) {
+    body.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const errMsg = data.error && data.error.message ? data.error.message : 'Gemini API error';
+      throw new Error(errMsg);
+    }
+    const text =
+      data.candidates &&
+      data.candidates[0] &&
+      data.candidates[0].content &&
+      data.candidates[0].content.parts &&
+      data.candidates[0].content.parts[0] &&
+      data.candidates[0].content.parts[0].text;
+    if (!text || !String(text).trim()) {
+      throw new Error('Gemini החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+    }
+    return String(text).trim();
+  } catch (err) {
+    console.error('Gemini Error:', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/GEMINI_API_KEY/i.test(msg)) throw err;
+    throw new Error(msg || 'שגיאה בעיבוד הבקשה מול שרתי גוגל');
+  }
+}
+
 async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
   const opts = options || {};
   const systemBuilder = typeof opts.systemPrompt === 'function' ? opts.systemPrompt : waldorfSystemPrompt;
   const temperature = opts.temperature !== undefined ? opts.temperature : 0.35;
-  const useStream = opts.stream !== false;
+  const systemContent = systemBuilder(extraSystem);
 
-  try {
-    return await perplexityClient.callPerplexityChat({
-      apiKey: apiKey,
-      model: PERPLEXITY_MODEL,
-      temperature: temperature,
-      stream: useStream,
-      messages: [
-        { role: 'system', content: systemBuilder(extraSystem) },
-        { role: 'user', content: userPrompt },
-      ],
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/שגיאת רשת בחיבור ל-Perplexity|PERPLEXITY_API_KEY is not configured/i.test(msg)) {
-      throw err;
-    }
-    throw new Error(msg || 'שגיאה בקריאה ל-Perplexity — נסו שוב בעוד רגע.');
-  }
+  return callGeminiAI(systemContent, userPrompt, temperature);
 }
 
 /** Extract assistant text from Perplexity / OpenAI-compatible chat completion payloads. */
@@ -1079,7 +1105,7 @@ const GENERIC_GENERATION_ERROR = 'לא הצלחנו ליצור את התוכן �
 
 function isRetriablePerplexityCallError(err) {
   const msg = err instanceof Error ? err.message : String(err || '');
-  return !/API key|unauthorized|PERPLEXITY_API_KEY|not configured|Method not allowed/i.test(msg);
+  return !/API key|unauthorized|GEMINI_API_KEY|PERPLEXITY_API_KEY|not configured|Method not allowed/i.test(msg);
 }
 
 /**
@@ -1180,7 +1206,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
 }
 
 function resolveApiKey() {
-  return perplexityClient.resolveApiKey();
+  return env.getGeminiApiKey() || null;
 }
 
 function setCors(res) {
@@ -1190,7 +1216,7 @@ function setCors(res) {
 }
 
 const MISSING_KEY_ERROR =
-  'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY (או AI_API_KEY) ב-Render → Environment ופרסמו מחדש.';
+  'מפתח Gemini לא מוגדר. הוסיפו GEMINI_API_KEY ב-Render → Environment ופרסמו מחדש.';
 
 function isNonBlockingSubscriptionDbError(err) {
   const msg = String((err && err.message) || err || '');

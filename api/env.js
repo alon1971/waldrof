@@ -117,6 +117,10 @@ function getOpenAiApiKey() {
   return cleanKey(process.env.OPENAI_API_KEY);
 }
 
+function getGeminiApiKey() {
+  return cleanKey(process.env.GEMINI_API_KEY);
+}
+
 function getPublicClientConfig() {
   return {
     supabaseUrl: getSupabaseUrl(),
@@ -144,6 +148,7 @@ module.exports = {
   getSupabaseServerKey,
   getPerplexityApiKey,
   getOpenAiApiKey,
+  getGeminiApiKey,
   getPublicClientConfig,
   normalizeSupabaseUrl,
   isSupabaseUrlReachable,
