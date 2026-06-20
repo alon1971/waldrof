@@ -937,12 +937,7 @@ function buildUserPrompt(body) {
   if (phase === 'chat_followup') {
     const question = (body.userMessage || '').replace(/"/g, "'");
     const context = String(body.researchContext || '').slice(0, 12000);
-    const history = Array.isArray(body.chatHistory) ? body.chatHistory.slice(-6) : [];
-    const historyBlock = history.length
-      ? '\nRECENT CHAT (for continuity):\n' + history.map(function (m) {
-          return (m.role || 'user') + ': ' + String(m.content || '').slice(0, 800);
-        }).join('\n') + '\n'
-      : '';
+    const historyBlock = '';
 
     const hasContext = Boolean(context.trim());
     const hasRag = Boolean(String(body.ragContext || '').trim());
@@ -1539,6 +1534,11 @@ async function executeGenerate(body, apiKey, requestContext) {
   if (body.phase === 'grade') {
     body.skipCache = false;
     cacheDb.normalizeGradeCacheRequest(body);
+  }
+
+  // Chat: stateless — skip all cache reads/writes; community repository probe runs first below.
+  if (body.phase === 'chat_followup') {
+    body.skipCache = true;
   }
 
   const communityProbe = await probeCommunityMaterialsForBody(body);
