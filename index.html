@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="waldrof-build" content="20260619d" />
+  <meta name="waldrof-build" content="20260619e" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מתכנן תקופות לימוד אנתרופוסופי — מסע פדגוגי שלב-אחר-שלב" />
   <link rel="manifest" href="/manifest.json">
@@ -11346,7 +11346,7 @@
       return filterByGrade(appState.communityCache, gradeId)
         .filter(function (item) { return normalizeTopicKey(item.topic) === topicKey; })
         .map(function (item) {
-          const materialId = item.dbId || resolveCommunityMaterialId(item);
+          const materialId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
           return {
             id: materialId,
             dbId: materialId,
@@ -12019,16 +12019,19 @@
     }
 
     function findCatalogMaterialRow(materialId) {
-      const want = String(materialId);
+      const want = normalizeMaterialUuid(materialId);
+      if (!want) return null;
       const rows = document.querySelectorAll('.catalog-material-row[data-id]');
       for (let i = 0; i < rows.length; i++) {
-        if (rows[i].getAttribute('data-id') === want) return rows[i];
+        const rowId = normalizeMaterialUuid(rows[i].getAttribute('data-id') || '');
+        if (rowId === want) return rows[i];
       }
       return null;
     }
 
     function renderCatalogFileRow(file) {
-      const materialId = file.id || resolveCommunityMaterialId(file);
+      const materialId = normalizeMaterialUuid(file.id || resolveCommunityMaterialId(file) || '');
+      if (!materialId) return '';
       const downloadUrl = file.fileUrl;
       const external = isExternalCommunityLink(downloadUrl);
       const btnLabel = communityLinkLabel(file);
@@ -12037,17 +12040,16 @@
         ? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" class="touch-btn inline-flex items-center gap-1.5 text-sm ' +
           (external ? 'bg-sky hover:bg-sky/90' : 'bg-sage hover:bg-sage-dark') + ' text-white px-4 py-2 rounded-lg"><i class="' + btnIcon + '"></i> ' + escapeHtml(btnLabel) + '</a>'
         : '<span class="text-xs text-walnut/50">' + escapeHtml(t('community_no_file')) + '</span>';
-      const jsId = String(materialId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       const manageBtns = file.canManage
         ? '<div class="catalog-material-actions">' +
-          '<button type="button" class="catalog-material-btn catalog-material-edit" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '" onclick="window.editCommunityMaterial(\'' + jsId + '\')">✏️</button>' +
-          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(String(materialId)) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '" onclick="window.deleteCommunityMaterial(\'' + jsId + '\')">🗑️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-edit" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '" onclick="window.editCommunityMaterial(this.getAttribute(\'data-id\'))">✏️</button>' +
+          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '" onclick="window.deleteCommunityMaterial(this.getAttribute(\'data-id\'))">🗑️</button>' +
           '</div>'
         : '';
       const authorLine = file.authorName
         ? '<p class="text-xs text-walnut/55 mt-0.5">' + escapeHtml(t('catalog_author_label')) + ': ' + escapeHtml(file.authorName) + '</p>'
         : '';
-      return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(String(materialId)) + '">' +
+      return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '">' +
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">' +
         '<div class="min-w-0 flex-1">' +
         '<div class="flex flex-wrap items-center gap-2 mb-1">' +
@@ -12063,10 +12065,10 @@
     }
 
     function findCommunityItemById(id) {
-      const want = String(id || '').trim();
+      const want = normalizeMaterialUuid(id);
       if (!want) return null;
       return appState.communityCache.find(function (item) {
-        const pk = String(item.id || item.dbId || resolveCommunityMaterialId(item) || '').trim();
+        const pk = normalizeMaterialUuid(item.id || item.dbId || resolveCommunityMaterialId(item) || '');
         return pk === want;
       }) || null;
     }
@@ -12086,17 +12088,19 @@
     }
 
     function openCatalogMaterialEdit(materialId) {
-      const item = findCommunityItemById(materialId);
+      const pk = normalizeMaterialUuid(materialId);
+      if (!pk) return;
+      const item = findCommunityItemById(pk);
       if (!item) {
         alert(t('catalog_edit_not_found'));
         return;
       }
-      const row = findCatalogMaterialRow(materialId);
+      const row = findCatalogMaterialRow(pk);
       if (!row) return;
       closeCatalogMaterialEditPanels(row.parentElement);
       const panel = row.querySelector('.catalog-material-edit-panel');
       if (!panel) return;
-      panel.innerHTML = catalogMaterialEditFormHtml(Object.assign({}, item, { id: item.id || resolveCommunityMaterialId(item) }));
+      panel.innerHTML = catalogMaterialEditFormHtml(Object.assign({}, item, { id: pk }));
       panel.classList.remove('hidden');
       row.classList.add('is-editing');
       const form = panel.querySelector('.catalog-material-edit-form');
@@ -12154,13 +12158,21 @@
       }
     }
 
-    window.editCommunityMaterial = function (id) {
-      openCatalogMaterialEdit(id);
-    };
+    function editCommunityMaterialHandler(id) {
+      const pk = normalizeMaterialUuid(id);
+      if (!pk) {
+        console.warn('[community] edit skipped: missing material id');
+        return;
+      }
+      openCatalogMaterialEdit(pk);
+    }
 
-    window.deleteCommunityMaterial = async function (id) {
-      const pk = String(id || '').trim();
-      if (!pk) return;
+    async function deleteCommunityMaterialHandler(id) {
+      const pk = normalizeMaterialUuid(id);
+      if (!pk) {
+        console.warn('[community] delete skipped: missing material id');
+        return;
+      }
       if (!window.confirm(t('catalog_delete_confirm') || 'האם אתה בטוח שברצונך למחוק חומר זה?')) return;
       const row = findCatalogMaterialRow(pk);
       if (row) row.classList.add('opacity-60', 'pointer-events-none');
@@ -12183,7 +12195,40 @@
         console.error('Delete error:', err);
         alert('שגיאה במחיקה: ' + (err.message || 'שגיאת רשת במחיקה'));
       }
-    };
+    }
+
+    function registerCatalogMaterialWindowHandlers() {
+      window.editCommunityMaterial = editCommunityMaterialHandler;
+      window.deleteCommunityMaterial = deleteCommunityMaterialHandler;
+    }
+    registerCatalogMaterialWindowHandlers();
+
+    function bindCatalogMaterialActions(container) {
+      const root = container || document.getElementById('panel-catalog');
+      if (!root || root.dataset.catalogMaterialActionsBound === '1') return;
+      root.dataset.catalogMaterialActionsBound = '1';
+      root.addEventListener('click', function (e) {
+        const editBtn = e.target && e.target.closest ? e.target.closest('.catalog-material-edit') : null;
+        if (editBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const pk = normalizeMaterialUuid(editBtn.getAttribute('data-id') || '');
+          if (pk) editCommunityMaterialHandler(pk);
+          return;
+        }
+        const deleteBtn = e.target && e.target.closest ? e.target.closest('.catalog-material-delete') : null;
+        if (deleteBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const pk = normalizeMaterialUuid(deleteBtn.getAttribute('data-id') || '');
+          if (pk) {
+            deleteCommunityMaterialHandler(pk).catch(function (err) {
+              console.error('Delete error:', err);
+            });
+          }
+        }
+      });
+    }
 
     async function renderCatalogMaterials(gradeId, topicId) {
       const el = document.getElementById('catalog-materials');
@@ -12211,6 +12256,7 @@
       bindCatalogGradeNav(el);
       bindCatalogUploadDrawer(el);
       bindCatalogUploadForms(el);
+      bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       scrollToCatalogContent('materials');
     }
 
@@ -12596,6 +12642,8 @@
 
     function bindEvents() {
       bindHeaderExplicitAuthActions();
+      bindCatalogMaterialActions(document.getElementById('panel-catalog'));
+      registerCatalogMaterialWindowHandlers();
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
         if (!btn || btn.disabled) return;
