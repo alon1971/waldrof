@@ -107,12 +107,27 @@ const CURRICULUM_BLOCKS = [
   },
 ];
 
+/** Phases that write into the active grade curriculum view — grade-lock enforced here only. */
 const SCOPE_VALIDATION_PHASES = new Set([
   'topic',
   'phase_c',
-  'chat_followup',
   'pedagogy_deep_dive',
 ]);
+
+/**
+ * Side-chat modes decoupled from the active UI grade (see resolveChatPromptMode in api/chat.js).
+ * gemini_kb / community_match = free-form pedagogical Q&A; expansion = deeper side-chat follow-up.
+ */
+const CHAT_SCOPE_EXEMPT_MODES = new Set(['gemini_kb', 'community_match', 'expansion']);
+
+const CHAT_GRADE_DECOUPLED_INSTRUCTION =
+  '\n=== SIDE CHAT — GRADE DECOUPLED (MANDATORY) ===\n' +
+  'This side-chat is INDEPENDENT of the teacher\'s currently selected UI grade. ' +
+  'Infer the appropriate Waldorf grade from the teacher\'s question and topic ' +
+  '(e.g. Odysseus / Greek mythology → Grade 5; saints / animal fables → Grade 2). ' +
+  'Tailor all pedagogical guidance, materials, and recommendations to that topic\'s canonical grade — ' +
+  'never refuse or redirect based on the UI screen grade.\n' +
+  '=== END SIDE CHAT — GRADE DECOUPLED ===\n';
 
 const PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION =
   '\n=== PEDAGOGICAL SCOPE — WALDORF CURRICULUM (CRITICAL — MANDATORY) ===\n' +
@@ -220,8 +235,17 @@ function isAgeExpansionRequest(body) {
   );
 }
 
+function shouldBypassPedagogicalScopeForChat(body, promptMode) {
+  if (!body || body.phase !== 'chat_followup') return false;
+  const mode = String(promptMode || '').trim();
+  if (CHAT_SCOPE_EXEMPT_MODES.has(mode)) return true;
+  // Unknown chat mode — still decouple side-chat from UI grade by default.
+  return true;
+}
+
 function shouldValidatePedagogicalScope(body) {
   if (!body || !body.phase) return false;
+  if (body.phase === 'chat_followup') return false;
   if (!SCOPE_VALIDATION_PHASES.has(body.phase)) return false;
   if (isAgeExpansionRequest(body)) return false;
   const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
@@ -275,6 +299,7 @@ function buildScopeMismatchWarning(mismatch) {
 }
 
 function buildPedagogicalScopeUserBlock(body) {
+  if (body && body.phase === 'chat_followup') return '';
   const mismatch = checkPedagogicalScopeForBody(body);
   if (mismatch) {
     return (
@@ -334,10 +359,13 @@ module.exports = {
   GRADE_LABEL_BY_ID,
   GRADE_TOPIC_SUGGESTIONS,
   CURRICULUM_BLOCKS,
+  CHAT_GRADE_DECOUPLED_INSTRUCTION,
+  CHAT_SCOPE_EXEMPT_MODES,
   PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION,
   validatePedagogicalScope,
   checkPedagogicalScopeForBody,
   shouldValidatePedagogicalScope,
+  shouldBypassPedagogicalScopeForChat,
   extractTopicsFromBody,
   buildScopeMismatchWarning,
   buildPedagogicalScopeUserBlock,

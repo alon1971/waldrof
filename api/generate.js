@@ -1586,7 +1586,7 @@ function buildUserPrompt(body) {
     return (
       ragBlock +
       (chatGlobalScan ? '' : buildGradeLockBlock(body)) +
-      pedagogicalScope.buildPedagogicalScopeUserBlock(body) +
+      pedagogicalScope.CHAT_GRADE_DECOUPLED_INSTRUCTION +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
       communityBlock +
@@ -1773,8 +1773,51 @@ function getStructuredResponseSchema(phase, body) {
 function stripReferenceBrackets(text) {
   return String(text || '')
     .replace(/\[\d+\]/g, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[^\S\n]{2,}/g, ' ')
     .trim();
+}
+
+var SOURCE_PREFIX_LINE_RES = [
+  /^(?:«|"|'|\(|\[|\-\s*)*(?:פודקאסט\s+)?(?:«)?\s*מסעות\s+בחינוך\s*(?:»)?\s*[:–—\-]\s*/i,
+  /^(?:«|"|'|\(|\[|\-\s*)*(?:Educational|Learning)\s+[Jj]ourneys?\s*[:–—\-]\s*/i,
+  /^(?:«|"|'|\(|\[|\-\s*)*(?:לפי|על\s+פי|מתוך|מ(?:\-|)\s*)?(?:«)?\s*(?:אלון\s+ירושלמי|Alon\s+Yerushalmy)\s*(?:»)?\s*[:–—\-]\s*/i,
+  /^(?:«|"|'|\(|\[|\-\s*)*(?:according\s+to|inspired\s+by|from)\s+(?:the\s+)?(?:«)?\s*(?:אלון\s+ירושלמי|Alon\s+Yerushalmy)\s*(?:»)?\s*[:–—\-]\s*/i,
+  /^(?:«|"|'|\(|\[|\-\s*)*(?:educationpace\.com|www\.educationpace\.com)\s*[:–—\-]\s*/i,
+  /^(?:«|"|'|\(|\[|\-\s*)*(?:לפי|על\s+פי|מתוך|מ(?:\-|)\s*)?(?:«)?\s*(?:פודקאסט\s+)?(?:«)?\s*מסעות\s+בחינוך\s*(?:»)?\s*[:–—\-]\s*/i,
+];
+
+function stripSourcePrefixLine(line) {
+  var s = String(line || '');
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (var i = 0; i < SOURCE_PREFIX_LINE_RES.length; i++) {
+      var next = s.replace(SOURCE_PREFIX_LINE_RES[i], '');
+      if (next !== s) {
+        s = next;
+        changed = true;
+      }
+    }
+  }
+  return s.replace(/^[\s:–—\-]+/, '').replace(/[^\S\n]{2,}/g, ' ').trimEnd();
+}
+
+function stripSourcePrefixes(text) {
+  if (!text || typeof text !== 'string') return text;
+  return String(text)
+    .split(/\n/)
+    .map(stripSourcePrefixLine)
+    .join('\n')
+    .replace(/^\s+/, '')
+    .replace(/\s+$/, '');
+}
+
+function sanitizePedagogicalText(text) {
+  return stripSourcePrefixes(stripReferenceBrackets(text));
+}
+
+function sanitizePedagogicalTextField(value) {
+  return typeof value === 'string' ? sanitizePedagogicalText(value) : value;
 }
 
 function sanitizeTopicPhaseOutput(data) {
@@ -1793,8 +1836,8 @@ function sanitizeTopicPhaseOutput(data) {
           if (!sec || typeof sec !== 'object') return sec;
           const next = Object.assign({}, sec);
           delete next.expansion;
-          if (typeof next.content === 'string') next.content = stripReferenceBrackets(next.content);
-          if (typeof next.heading === 'string') next.heading = stripReferenceBrackets(next.heading);
+          if (typeof next.content === 'string') next.content = sanitizePedagogicalText(next.content);
+          if (typeof next.heading === 'string') next.heading = sanitizePedagogicalText(next.heading);
           return next;
         });
       }
@@ -1802,15 +1845,55 @@ function sanitizeTopicPhaseOutput(data) {
   }
   if (data.webResearch && typeof data.webResearch === 'object') {
     const wr = data.webResearch;
-    if (typeof wr.summary === 'string') wr.summary = stripReferenceBrackets(wr.summary);
+    if (typeof wr.summary === 'string') wr.summary = sanitizePedagogicalText(wr.summary);
+    if (typeof wr.rawContent === 'string') wr.rawContent = sanitizePedagogicalText(wr.rawContent);
     if (Array.isArray(wr.highlights)) {
       wr.highlights = wr.highlights.map(function (h) {
-        return stripReferenceBrackets(typeof h === 'string' ? h : (h && (h.text || h.highlight)) || '');
+        return sanitizePedagogicalText(typeof h === 'string' ? h : (h && (h.text || h.highlight)) || '');
       }).filter(Boolean);
     }
     if (Array.isArray(wr.connections)) {
-      wr.connections = wr.connections.map(stripReferenceBrackets).filter(Boolean);
+      wr.connections = wr.connections.map(sanitizePedagogicalText).filter(Boolean);
     }
+  }
+  if (typeof data.rawContent === 'string') data.rawContent = sanitizePedagogicalText(data.rawContent);
+  if (data.blockPlan && typeof data.blockPlan.rawContent === 'string') {
+    data.blockPlan.rawContent = sanitizePedagogicalText(data.blockPlan.rawContent);
+  }
+  return data;
+}
+
+function sanitizeGradePhaseOutput(data) {
+  if (!data || typeof data !== 'object') return data;
+  var gi = data.gradeInsights;
+  if (!gi || typeof gi !== 'object') return data;
+  if (typeof gi.rawContent === 'string') gi.rawContent = sanitizePedagogicalText(gi.rawContent);
+  ['part1AgePictureHtml', 'archivesSynthesisHtml', 'part2ClassroomIdeasHtml', 'part3CommunityExpansionsHtml'].forEach(function (key) {
+    if (typeof gi[key] === 'string') gi[key] = sanitizePedagogicalText(gi[key]);
+  });
+  ['part1DevelopmentBullets', 'developmentBullets', 'part2ClassroomIdeas', 'part3CommunityIdeas', 'typicalBlocks'].forEach(function (key) {
+    if (Array.isArray(gi[key])) {
+      gi[key] = gi[key].map(function (item) {
+        if (typeof item === 'string') return sanitizePedagogicalText(item);
+        if (!item || typeof item !== 'object') return item;
+        var next = Object.assign({}, item);
+        ['title', 'detail', 'body', 'description', 'text'].forEach(function (field) {
+          if (typeof next[field] === 'string') next[field] = sanitizePedagogicalText(next[field]);
+        });
+        return next;
+      });
+    }
+  });
+  if (Array.isArray(gi.globalCurricula)) {
+    gi.globalCurricula = gi.globalCurricula.map(function (item) {
+      if (typeof item === 'string') return sanitizePedagogicalText(item);
+      if (!item || typeof item !== 'object') return item;
+      var next = Object.assign({}, item);
+      ['title', 'detail', 'body', 'description', 'text'].forEach(function (field) {
+        if (typeof next[field] === 'string') next[field] = sanitizePedagogicalText(next[field]);
+      });
+      return next;
+    });
   }
   return data;
 }
@@ -1837,10 +1920,10 @@ function coerceServerCurriculumRows(raw) {
 }
 
 function normalizePhaseCInspirationItem(it) {
-  if (typeof it === 'string') return { text: it.trim() };
-  if (!it || typeof it !== 'object') return { text: String(it || '').trim() };
+  if (typeof it === 'string') return { text: sanitizePedagogicalText(it.trim()) };
+  if (!it || typeof it !== 'object') return { text: sanitizePedagogicalText(String(it || '').trim()) };
   return {
-    text: String(it.text || it.preview || it.detail || it.content || it.body || '').trim(),
+    text: sanitizePedagogicalText(String(it.text || it.preview || it.detail || it.content || it.body || '').trim()),
     expansion: it.expansion,
   };
 }
@@ -1903,8 +1986,8 @@ function normalizePhaseCInspiration(insp, rawFallback) {
       return text ? { theme: text, insight: text } : null;
     }
     return {
-      theme: String(ep.theme || ep.title || '').trim(),
-      insight: String(ep.insight || ep.text || ep.preview || ep.content || '').trim(),
+      theme: sanitizePedagogicalText(String(ep.theme || ep.title || '').trim()),
+      insight: sanitizePedagogicalText(String(ep.insight || ep.text || ep.preview || ep.content || '').trim()),
       expansion: ep.expansion,
     };
   }).filter(function (ep) { return ep && (ep.theme || ep.insight); }) : [];
@@ -1913,20 +1996,20 @@ function normalizePhaseCInspiration(insp, rawFallback) {
   if (typeof narrative === 'string' && narrative.trim()) narrative = [narrative];
   if (!Array.isArray(narrative)) narrative = [];
   narrative = narrative.map(function (n) {
-    if (typeof n === 'string') return n.trim();
-    if (!n || typeof n !== 'object') return String(n || '').trim();
-    return String(n.text || n.preview || n.content || '').trim();
+    if (typeof n === 'string') return sanitizePedagogicalText(n.trim());
+    if (!n || typeof n !== 'object') return sanitizePedagogicalText(String(n || '').trim());
+    return sanitizePedagogicalText(String(n.text || n.preview || n.content || '').trim());
   }).filter(Boolean);
 
   return {
-    title: String(insp.title || 'השראה ומקורות').trim(),
+    title: sanitizePedagogicalText(String(insp.title || 'השראה ומקורות').trim()),
     global: global,
     podcast: {
-      title: String(podcastSrc.title || 'תובנות').trim(),
+      title: sanitizePedagogicalText(String(podcastSrc.title || 'תובנות').trim()),
       episodes: episodes,
     },
     narrative: narrative,
-    rawContent: String(insp.rawContent || rawFallback || '').trim() || undefined,
+    rawContent: sanitizePedagogicalText(String(insp.rawContent || rawFallback || '').trim()) || undefined,
   };
 }
 
@@ -1940,18 +2023,18 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
   if (typeof row !== 'object') return null;
   let day = parseInt(row.day || row.dayNumber || row.n || row.number || row.index, 10);
   if (!day || isNaN(day)) day = index + 1;
-  const topic = String(
+  const topic = sanitizePedagogicalText(String(
     row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
-  ).trim();
-  const content = String(
+  ).trim());
+  const content = sanitizePedagogicalText(String(
     row.content || row.story || row.lesson || row.lessonContent ||
     row.text || row.body || row.description || row.narrative || ''
-  ).trim();
-  const art = String(
+  ).trim());
+  const art = sanitizePedagogicalText(String(
     row.art || row.artActivity || row.craft || row.artAndCraft ||
     row.handwork || row.artCraft || ''
-  ).trim();
-  const hint = String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim();
+  ).trim());
+  const hint = sanitizePedagogicalText(String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim());
   if (!topic && !content && !art && !hint) {
     if (rawFallback) {
       return { day: day, topic: 'יום ' + day, content: rawFallback, art: '', hint: '' };
@@ -2596,6 +2679,9 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
     if (phase === 'topic' && data && !data._parseFallback) {
       data = sanitizeTopicPhaseOutput(data);
     }
+    if (phase === 'grade' && data && !data._parseFallback) {
+      data = sanitizeGradePhaseOutput(data);
+    }
     if (phase === 'phase_c' && data && !data._parseFallback) {
       data = sanitizePhaseCOutput(data, body);
     }
@@ -2707,6 +2793,9 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
 
     if (phase === 'topic' && data && !data._parseFallback) {
       data = sanitizeTopicPhaseOutput(data);
+    }
+    if (phase === 'grade' && data && !data._parseFallback) {
+      data = sanitizeGradePhaseOutput(data);
     }
     if (phase === 'phase_c' && data && !data._parseFallback) {
       data = sanitizePhaseCOutput(data, body);
@@ -2830,6 +2919,9 @@ async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, 
 
     if (phase === 'topic' && data && !data._parseFallback) {
       data = sanitizeTopicPhaseOutput(data);
+    }
+    if (phase === 'grade' && data && !data._parseFallback) {
+      data = sanitizeGradePhaseOutput(data);
     }
     if (phase === 'phase_c' && data && !data._parseFallback) {
       data = sanitizePhaseCOutput(data, body);

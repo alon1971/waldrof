@@ -106,7 +106,7 @@ function pedagogicalChatSystemPrompt(extra, mode) {
     'You may READ lesson context from cached grade/topic data in the user message but must NEVER regenerate or overwrite Phase A/B/C core content. ';
 
   const sharedTail =
-    pedagogicalScope.PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION +
+    pedagogicalScope.CHAT_GRADE_DECOUPLED_INSTRUCTION +
     CHAT_NO_RAW_URLS_INSTRUCTION +
     CHAT_NO_INVENTED_CITATIONS_INSTRUCTION +
     CHAT_JSON_OUTPUT_INSTRUCTION +
@@ -377,24 +377,12 @@ function sanitizeChatReplyPayload(data, options) {
  */
 async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
   const expansionRequest = isChatPedagogicalExpansionRequest(body);
-  const scopeMismatch = pedagogicalScope.checkPedagogicalScopeForBody(body);
-  if (scopeMismatch) {
-    console.log(
-      '[chat] pedagogical scope BLOCKED:',
-      scopeMismatch.requestedTopic,
-      '— active grade',
-      scopeMismatch.currentGradeId,
-      'canonical grade',
-      scopeMismatch.canonicalGradeId
-    );
-    return sanitizeChatReplyPayload(
-      pedagogicalScope.buildScopeMismatchChatPayload(scopeMismatch),
-      { expansionRequest: expansionRequest }
-    );
-  }
-
   const promptMode = resolveChatPromptMode(body);
   const hasCommunityMatch = promptMode === 'community_match';
+
+  if (pedagogicalScope.shouldBypassPedagogicalScopeForChat(body, promptMode)) {
+    console.log('[chat] grade-decoupled side-chat mode:', promptMode, '— skipping UI grade scope lock');
+  }
 
   const chatExtra = extraSystem + (
     expansionRequest

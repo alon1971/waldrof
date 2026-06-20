@@ -720,6 +720,37 @@
       html { overflow-x: hidden; }
     }
     body.app-typography { overflow-x: visible; }
+    html,
+    body.app-typography {
+      overflow-y: auto !important;
+      height: auto !important;
+      min-height: 100%;
+    }
+    body.catalog-modal-open,
+    body.pricing-modal-open {
+      overflow: hidden !important;
+    }
+    #app-shell,
+    #app-main,
+    #wizard,
+    #workspace,
+    .workspace-layout,
+    .workspace-main,
+    #product-panels-shell,
+    .wizard-step,
+    #grade-insights-panel,
+    #grade-insights-body,
+    #web-research-result,
+    #theoretical-content,
+    #inspiration-content,
+    #daily-planning-content,
+    #curriculum-cards,
+    #workspace .tab-panel.product-tab-panel {
+      overflow: visible !important;
+      overflow-y: visible !important;
+      max-height: none !important;
+      height: auto !important;
+    }
     .app-top-nav-inner {
       display: flex;
       flex-wrap: wrap;
@@ -7293,15 +7324,53 @@
       return invokeWaldorfResearch(payload, { signal: signal });
     }
 
+    function stripSourcePrefixLine(line) {
+      var s = String(line || '');
+      var prefixRes = [
+        /^(?:«|"|'|\(|\[|\-\s*)*(?:פודקאסט\s+)?(?:«)?\s*מסעות\s+בחינוך\s*(?:»)?\s*[:–—\-]\s*/i,
+        /^(?:«|"|'|\(|\[|\-\s*)*(?:Educational|Learning)\s+[Jj]ourneys?\s*[:–—\-]\s*/i,
+        /^(?:«|"|'|\(|\[|\-\s*)*(?:לפי|על\s+פי|מתוך|מ(?:\-|)\s*)?(?:«)?\s*(?:אלון\s+ירושלמי|Alon\s+Yerushalmy)\s*(?:»)?\s*[:–—\-]\s*/i,
+        /^(?:«|"|'|\(|\[|\-\s*)*(?:according\s+to|inspired\s+by|from)\s+(?:the\s+)?(?:«)?\s*(?:אלון\s+ירושלמי|Alon\s+Yerushalmy)\s*(?:»)?\s*[:–—\-]\s*/i,
+        /^(?:«|"|'|\(|\[|\-\s*)*(?:educationpace\.com|www\.educationpace\.com)\s*[:–—\-]\s*/i,
+        /^(?:«|"|'|\(|\[|\-\s*)*(?:לפי|על\s+פי|מתוך|מ(?:\-|)\s*)?(?:«)?\s*(?:פודקאסט\s+)?(?:«)?\s*מסעות\s+בחינוך\s*(?:»)?\s*[:–—\-]\s*/i,
+      ];
+      var changed = true;
+      while (changed) {
+        changed = false;
+        prefixRes.forEach(function (re) {
+          var next = s.replace(re, '');
+          if (next !== s) {
+            s = next;
+            changed = true;
+          }
+        });
+      }
+      return s.replace(/^[\s:–—\-]+/, '').replace(/[^\S\n]{2,}/g, ' ').trimEnd();
+    }
+
+    function stripSourcePrefixes(text) {
+      if (!text) return '';
+      return String(text)
+        .split(/\n/)
+        .map(stripSourcePrefixLine)
+        .join('\n')
+        .replace(/^\s+/, '')
+        .replace(/\s+$/, '');
+    }
+
+    function sanitizePedagogicalText(text) {
+      return stripSourcePrefixes(stripPhaseBReferenceBrackets(text));
+    }
+
     function formatPerplexityRawText(text) {
       if (!text) return '<div class="prose-ai"></div>';
-      const s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(text)));
+      const s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(String(text))));
       if (looksLikeAiHtml(s)) return ensureAiHtml(s);
       return '<div class="prose-ai leading-relaxed whitespace-pre-wrap">' + formatAiMarkdown(s) + '</div>';
     }
 
     function stripPhaseBReferenceBrackets(text) {
-      return String(text || '').replace(/\[\d+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+      return String(text || '').replace(/\[\d+\]/g, '').replace(/[^\S\n]{2,}/g, ' ').trim();
     }
 
     function buildPhaseBEssenceHtml(dive) {
@@ -7927,7 +7996,7 @@
           docRichText(row.art);
           docExpansionPedagogy(row.artSourceId);
           if (row.hint) {
-            docRichText(t('curriculum_journey_prefix') + ' ' + row.hint);
+            docRichText(row.hint);
             docExpansionPedagogy(row.hintSourceId);
           }
         });
@@ -8578,11 +8647,11 @@
           rawContent: wr.rawContent,
         });
       } else {
-        html = '<p class="leading-relaxed">' + escapeHtml(stripPhaseBReferenceBrackets(wr.summary)) + '</p>';
+        html = '<p class="leading-relaxed">' + escapeHtml(sanitizePedagogicalText(wr.summary)) + '</p>';
         if (wr.highlights && wr.highlights.length) {
           html += '<div class="space-y-2 mt-3">';
           wr.highlights.forEach(function (h, index) {
-            const text = stripPhaseBReferenceBrackets(typeof h === 'string' ? h : (h.text || h.highlight || ''));
+            const text = sanitizePedagogicalText(typeof h === 'string' ? h : (h.text || h.highlight || ''));
             html += renderPedagogySuggestionCard({
               id: buildPedagogyItemId('web', 'highlight', index, text),
               type: 'web',
@@ -8596,7 +8665,7 @@
         }
         if (wr.connections && wr.connections.length) {
           html += '<p class="mt-2 text-xs text-walnut/60">' + escapeHtml(t('web_research_age_conn')) + ': ' +
-            (wr.connections || []).map(function (c) { return escapeHtml(stripPhaseBReferenceBrackets(c)); }).join(' · ') + '</p>';
+            (wr.connections || []).map(function (c) { return escapeHtml(sanitizePedagogicalText(c)); }).join(' · ') + '</p>';
         }
       }
       holdPageScroll(function () {
@@ -10737,7 +10806,7 @@
 
     function renderAiPreview(text) {
       if (!text) return '';
-      var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(text)));
+      var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(String(text))));
       if (looksLikeAiHtml(s)) return ensureAiHtml(s);
       return '<div class="prose-ai">' + formatAiMarkdown(s) + '</div>';
     }
@@ -10747,7 +10816,7 @@
       opts = opts || {};
       var wrap = opts.wrap !== false;
       if (!html || typeof html !== 'string') return wrap ? '<div class="prose-ai"></div>' : '';
-      var out = cleanLaTeX(decodeHtmlEntitiesIfNeeded(html));
+      var out = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(String(html))));
       out = out.replace(/<div[^>]*class="[^"]*prose-ai[^"]*"[^>]*>/gi, '').replace(/<\/div>\s*$/i, '');
       out = out
         .replace(/<h1(\s[^>]*)?>/gi, '<h3 class="app-subhead"$1>')
@@ -10777,7 +10846,7 @@
 
     function formatAiMarkdown(text) {
       if (!text) return '';
-      return escapeHtml(cleanLaTeX(String(text))).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      return escapeHtml(cleanLaTeX(sanitizePedagogicalText(String(text)))).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     }
     function formatDate(iso) {
       try { return new Date(iso).toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
@@ -13031,9 +13100,9 @@
 
     function curriculumHintHtml(row, layout) {
       const hintText = row.hint
-        ? escapeHtml(row.hint)
+        ? escapeHtml(sanitizePedagogicalText(row.hint))
         : escapeHtml(t('curriculum_journey_map', { day: row.day }));
-      let html = '<strong class="text-sage-dark">' + escapeHtml(t('curriculum_journey_prefix')) + '</strong> ' + hintText;
+      let html = hintText;
       if (row.hint) {
         html += renderExpansionButtonBlock(buildCurriculumPedagogyItem(row, 'hint', row.hint, layout));
       }
