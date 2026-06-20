@@ -3341,11 +3341,13 @@
           </h2>
           <p class="text-sm text-walnut/70 mb-5" data-i18n="catalog_desc">בחרו כיתה, העלו חומרים לנושא חדש — או היכנסו לרובריקות שנוצרו על ידי מורים בקהילה.</p>
           <div id="share-materials-mount" class="hidden" aria-hidden="true" hidden></div>
+          <div id="community-catalog-section" class="community-catalog-container">
           <nav id="catalog-breadcrumb" class="flex flex-wrap items-center gap-2 text-sm text-walnut/70 mb-6" data-i18n-aria="catalog_title"></nav>
           <div id="catalog-status" class="hidden text-sm mb-4"></div>
           <div id="catalog-grades" class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4"></div>
           <div id="catalog-grade-panel" class="hidden"></div>
           <div id="catalog-materials" class="hidden"></div>
+          </div>
         </div>
       </section>
 
@@ -7927,6 +7929,9 @@
       fields = fields || {};
       const payload = {};
       if (fields.topic != null) payload.topic = String(fields.topic).trim();
+      if (fields.grade != null || fields.grade_level != null) {
+        payload.grade_level = String(fields.grade_level != null ? fields.grade_level : fields.grade).trim();
+      }
       if (fields.description != null || fields.author != null || fields.title != null) {
         const item = findCommunityItemById(pk);
         const notes = packCommunityExtras({
@@ -11740,6 +11745,7 @@
           : [];
         updateCatalogFileDisplay(form, window.selectedUploadFiles);
         syncCommunityFormDraftFromForm(form);
+        scrollToCommunityCatalogView();
       });
       if (linkInput) {
         linkInput.addEventListener('input', function () {
@@ -11834,6 +11840,7 @@
         } else {
           await renderCatalogGradePanel(gradeId);
         }
+        scrollToCommunityCatalogView();
         updateCommunityBadge();
       } catch (err) {
         showCommunityUploadError(err);
@@ -11883,15 +11890,17 @@
       el.textContent = msg;
     }
 
-    function scrollToCatalogContent(view) {
+    function scrollToCommunityCatalogView() {
       runAfterLayout(function () {
-        const el = view === 'materials' ? document.getElementById('catalog-materials')
-          : view === 'grade' ? document.getElementById('catalog-grade-panel')
-          : document.getElementById('catalog-grades');
-        if (el && !el.classList.contains('hidden')) {
-          scrollElementIntoViewWithChrome(el, 'smooth', 'start');
+        const catalogContainer = document.querySelector('.community-catalog-container') || document.getElementById('community-catalog-section');
+        if (catalogContainer) {
+          catalogContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       });
+    }
+
+    function scrollToCatalogContent(view) {
+      scrollToCommunityCatalogView();
     }
 
     function renderCatalogBreadcrumb() {
@@ -11990,9 +11999,14 @@
       const materialId = file.id || resolveCommunityMaterialId(file);
       const fieldClass = catalogFieldClass();
       const fc = fieldClass.replace(/"/g, '');
+      const currentGrade = file.gradeLevel || catalogState.gradeId || '';
       return '<form class="catalog-material-edit-form space-y-3" data-id="' + escapeHtml(String(materialId)) + '" dir="rtl">' +
         '<p class="text-sm font-bold text-sage-dark">' + escapeHtml(t('catalog_edit_heading')) + '</p>' +
         '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
+        '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_grade_label')) + ' <span class="text-terracotta">*</span></label>' +
+        '<select name="edit-grade" required class="' + fc + '">' +
+        renderCatalogGradeSelectOptions(currentGrade) +
+        '</select></div>' +
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
         '<input type="text" name="edit-topic" required maxlength="120" value="' + escapeHtml(file.topic || file.title || '') + '" class="' + fc + '" /></div>' +
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_author_label')) + '</label>' +
@@ -12124,12 +12138,18 @@
     async function saveCatalogMaterialEdit(form) {
       const materialId = form.getAttribute('data-id');
       if (!materialId) return;
+      const gradeInput = form.querySelector('[name="edit-grade"]');
       const topicInput = form.querySelector('[name="edit-topic"]');
       const descInput = form.querySelector('[name="edit-desc"]');
       const authorInput = form.querySelector('[name="edit-author"]');
+      const gradeTrim = gradeInput ? gradeInput.value.trim() : '';
       const topicTrim = topicInput ? topicInput.value.trim() : '';
       const descTrim = descInput ? descInput.value.trim() : '';
       const authorTrim = authorInput ? authorInput.value.trim() : '';
+      if (!gradeTrim) {
+        alert(t('catalog_err_grade'));
+        return;
+      }
       if (!topicTrim) {
         alert(t('catalog_err_topic'));
         return;
@@ -12141,13 +12161,24 @@
       }
       try {
         await updateCommunityMaterial(materialId, {
+          grade: gradeTrim,
           topic: topicTrim,
           description: descTrim,
           author: authorTrim,
         });
         await loadCommunity();
+        const gradeChanged = String(catalogState.gradeId || '') !== String(gradeTrim);
         const topicChanged = catalogState.view === 'materials' && normalizeTopicKey(catalogState.topic) !== normalizeTopicKey(topicTrim);
-        await refreshCatalogAfterMaterialChange(topicChanged ? topicTrim : catalogState.topic);
+        if (gradeChanged) {
+          catalogState.gradeId = gradeTrim;
+          if (catalogState.view === 'materials') {
+            await renderCatalogMaterials(gradeTrim, topicChanged ? topicTrim : catalogState.topic);
+          } else {
+            await renderCatalogGradePanel(gradeTrim);
+          }
+        } else {
+          await refreshCatalogAfterMaterialChange(topicChanged ? topicTrim : catalogState.topic);
+        }
       } catch (err) {
         alert(err.message || String(err));
       } finally {

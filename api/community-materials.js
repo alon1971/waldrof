@@ -1,6 +1,6 @@
 /**
  * GET    /api/community-materials — list community_materials
- * PATCH  /api/community-materials?id=<uuid> — update topic / description / author
+ * PATCH  /api/community-materials?id=<uuid> — update grade / topic / description / author
  * DELETE /api/community-materials?id=<uuid> — delete row + storage object
  */
 const communityIngest = require('./community-ingest');
@@ -10,6 +10,18 @@ const STORAGE_BUCKET = 'community-uploads';
 const MATERIALS_TABLE = 'community_materials';
 const COMMUNITY_META_FIELD = 'notes';
 const MATERIAL_PK_COLUMN = 'id';
+const VALID_GRADE_LEVELS = new Set(['1', '2', '3', '4', '5', '6', '7', '8']);
+
+function normalizeGradeLevel(body) {
+  if (!body || typeof body !== 'object') return '';
+  if (body.grade_level != null && String(body.grade_level).trim()) {
+    return String(body.grade_level).trim();
+  }
+  if (body.grade != null && String(body.grade).trim()) {
+    return String(body.grade).trim();
+  }
+  return '';
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -337,6 +349,15 @@ async function patchCommunityMaterial(body, req) {
   const canonicalId = resolveCanonicalMaterialId(current, id);
 
   const payload = {};
+  const gradeLevel = normalizeGradeLevel(body);
+  if (gradeLevel) {
+    if (!VALID_GRADE_LEVELS.has(gradeLevel)) {
+      const err = new Error('Invalid grade');
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.grade_level = gradeLevel;
+  }
   if (body.topic != null && String(body.topic).trim()) {
     payload.topic = String(body.topic).trim();
   }
