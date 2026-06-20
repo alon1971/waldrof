@@ -35,6 +35,7 @@ const {
   parseJsonFromModel,
   unwrapParsedModelPayload,
   buildModelParseFallback,
+  stripMarkdownJsonFences,
 } = jsonRepair;
 
 (function loadDotEnv() {
@@ -310,13 +311,16 @@ const COMMUNITY_FIRST_CHAT_INSTRUCTION =
   'Start with the mandatory no-match Hebrew sentence from CHAT — STRICT GROUNDING, then continue with general Waldorf guidance.\n' +
   '=== END COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING ===\n';
 
-const CHAT_FREE_TEXT_OUTPUT_INSTRUCTION =
-  '\n=== CHAT OUTPUT: FREE TEXT / MARKDOWN (MANDATORY) ===\n' +
-  'Reply with warm, professional, Waldorf-focused Hebrew prose — plain text or light Markdown only.\n' +
-  'Use short paragraphs and bullet lists when they clarify classroom practice. Do NOT return JSON, code fences, or schema wrappers.\n' +
-  'NEVER use **bold** headings, pseudo-section titles, or fake academic labels to mimic database records or structured archives when no Supabase match exists.\n' +
-  'Use **bold** only for genuine emphasis inside prose — never as placeholders for missing community content.\n' +
-  'Write 2–6 rich paragraphs when verified sources support a full answer.\n' +
+const CHAT_JSON_OUTPUT_INSTRUCTION =
+  '\n=== CHAT OUTPUT: RAW JSON ONLY (MANDATORY) ===\n' +
+  'Return ONLY one valid JSON object — nothing before or after it.\n' +
+  'Required shape: { "text": "<your full Hebrew pedagogical reply>" }\n' +
+  'Put the entire warm, professional, Waldorf-focused Hebrew answer inside the "text" string value ' +
+  '(plain text or light Markdown allowed inside the string — use \\n for line breaks).\n' +
+  'FORBIDDEN: markdown code fences (```json, ```), preamble, postamble, or any characters outside the {…} object.\n' +
+  'The server runs JSON.parse() on your full reply — start with { and end with }.\n' +
+  'NEVER use **bold** headings or fake archive labels as placeholders when no Supabase match exists.\n' +
+  'Write 2–6 rich paragraphs inside "text" when verified sources support a full answer.\n' +
   '=== END CHAT OUTPUT ===\n';
 
 const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
@@ -593,8 +597,11 @@ function pedagogicalChatSystemPrompt(extra) {
     PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
     COMMUNITY_FIRST_CHAT_INSTRUCTION +
     CHAT_NO_INVENTED_CITATIONS_INSTRUCTION +
-    CHAT_FREE_TEXT_OUTPUT_INSTRUCTION +
-    ' Write all chat replies in Hebrew. ' +
+    CHAT_JSON_OUTPUT_INSTRUCTION +
+    JSON_ONLY_INSTRUCTION +
+    JSON_RESPONSE_ENFORCEMENT +
+    JSON_VALID_SYNTAX_INSTRUCTION +
+    ' Write all chat replies in Hebrew inside the JSON "text" field. ' +
     'When Supabase community context is empty or lacks a direct match, open with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '» and give practical Waldorf guidance — never fake bold citations or structured placeholders. ' +
     'Deliver full, practical answers grounded in community archive context or your pedagogical knowledge base.' +
     NO_LATEX_BLOCK +
@@ -1024,8 +1031,8 @@ const INLINE_EXPANSION_INSTRUCTION =
   '=== END INLINE EXPANSION ===\n';
 
 /**
- * chat_followup: accept free text / Markdown from the model.
- * If the model still returns JSON, unwrap it; otherwise treat the full reply as the answer.
+ * chat_followup: expect { "text": "..." } from Gemini JSON mode.
+ * Falls back to fence-stripped raw text wrapped as chatReply.answer when parsing fails.
  */
 function normalizeChatFollowupFromModel(raw) {
   const text = String(raw || '').trim();
@@ -1033,29 +1040,45 @@ function normalizeChatFollowupFromModel(raw) {
     return buildModelParseFallback('chat_followup', '', {});
   }
 
-  const trimmed = text.trim();
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+  try {
+    const stripped = stripMarkdownJsonFences(text);
+    let parsed;
     try {
-      const parsed = cleanAndParseJSON(text, {
+      parsed = JSON.parse(stripped);
+    } catch (directErr) {
+      parsed = cleanAndParseJSON(stripped, {
         phase: 'chat_followup',
         fallbackOnError: false,
         unwrap: true,
       });
-      if (parsed && parsed.chatReply && typeof parsed.chatReply === 'object') {
+    }
+
+    if (parsed && typeof parsed === 'object') {
+      if (typeof parsed.text === 'string' && parsed.text.trim()) {
+        return { chatReply: { answer: String(parsed.text).trim() } };
+      }
+      if (parsed.chatReply && typeof parsed.chatReply === 'object') {
         return parsed;
       }
-      if (parsed && parsed.reply) {
+      if (parsed.reply) {
         return { chatReply: { answer: String(parsed.reply).trim() } };
       }
-      if (parsed && (parsed.answer || parsed.answerHtml)) {
+      if (parsed.answer || parsed.answerHtml) {
         return { chatReply: parsed };
       }
-    } catch (jsonErr) {
-      console.warn('[generate] chat_followup JSON unwrap failed, using free text:', jsonErr.message || jsonErr);
     }
+  } catch (parseErr) {
+    console.warn(
+      '[generate] chat_followup JSON parse failed, packaging raw text:',
+      parseErr instanceof Error ? parseErr.message : parseErr
+    );
   }
 
-  return { chatReply: { answer: text } };
+  const fallbackText = stripMarkdownJsonFences(text).trim() || text;
+  return {
+    chatReply: { answer: fallbackText },
+    _parseFallback: true,
+  };
 }
 
 /** @deprecated alias — grade phase uses the same pipeline as parseJsonFromModel */
@@ -1422,9 +1445,8 @@ function buildUserPrompt(body) {
       '2. Integrate community archive materials (when matched) and lesson context when they add verified detail.\n' +
       '3. NEVER fabricate Steiner quotes, GA citations, doctrines, **bold** archive headings, or [1][2] markers.\n' +
       '4. Give a full, warm, practical Hebrew answer (2–6 paragraphs).\n' +
-      CHAT_FREE_TEXT_OUTPUT_INSTRUCTION +
-      'Write your full Hebrew answer directly as warm pedagogical prose (plain text or light Markdown). ' +
-      'Do NOT wrap the reply in JSON or code blocks.'
+      CHAT_JSON_OUTPUT_INSTRUCTION +
+      'Return ONLY: { "text": "<your full Hebrew answer here>" } — no ```json fences, no preamble.'
     );
   }
 
@@ -1433,6 +1455,19 @@ function buildUserPrompt(body) {
 
 function phaseRequiresStructuredJson(phase) {
   return phase !== 'chat_followup';
+}
+
+function getChatFollowupResponseSchema() {
+  return {
+    type: 'object',
+    properties: {
+      text: {
+        type: 'string',
+        description: 'Full Hebrew pedagogical chat reply — warm prose, plain text or light Markdown.',
+      },
+    },
+    required: ['text'],
+  };
 }
 
 function getExpansionSchemaProperties() {
@@ -1937,11 +1972,14 @@ async function fetchGeminiChatOnly(body, userPrompt, extraSystem, logContext) {
       ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH: Start with the mandatory opening; guide the teacher to the exact catalog location and any direct file link from context.'
       : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE: No community archive match. Act as expert educational consultant; recommend relevant books, essays, and articles. No live web search.'
   );
-  const systemContent = pedagogicalChatSystemPrompt(chatExtra);
   let lastRaw = '';
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
+    const retrySuffix = isRetry
+      ? ' CRITICAL RETRY: Your previous reply was rejected — return ONLY valid JSON {"text":"..."} with no markdown fences or extra text.'
+      : '';
+    const systemContent = pedagogicalChatSystemPrompt(chatExtra + retrySuffix);
     let raw;
     try {
       if (isRetry) {
@@ -1951,7 +1989,8 @@ async function fetchGeminiChatOnly(body, userPrompt, extraSystem, logContext) {
       raw = await callGeminiV1(systemContent, userPrompt, {
         model: GEMINI_GENERATION_MODEL,
         temperature: isRetry ? 0.2 : 0.35,
-        jsonMode: false,
+        jsonMode: true,
+        responseSchema: getChatFollowupResponseSchema(),
       });
       lastRaw = raw;
     } catch (geminiErr) {
