@@ -3565,9 +3565,19 @@
     const COMMUNITY_META_FIELD = 'notes';
     const COMMUNITY_OWNED_STORAGE_KEY = 'waldrof_community_owned_materials';
     const COMMUNITY_UPLOAD_DRAFT_KEY = 'community_upload_draft';
+    const COMMUNITY_MATERIALS_CACHE_KEY = 'community_materials_cache';
     window.communityFormDraft = { grade: '', topic: '', description: '', author: '', files: [], shareMode: 'file', shareUrl: '' };
-    window.selectedUploadFiles = Array.isArray(window.selectedUploadFiles) ? window.selectedUploadFiles : [];
-    window.communityUploadDrawerOpen = Boolean(window.communityUploadDrawerOpen);
+    window.selectedUploadFiles = [];
+    window.communityUploadDrawerOpen = false;
+
+    (function clearCommunityLocalCacheAtStartup() {
+      try {
+        window.communityFormDraft = { grade: '', topic: '', description: '', author: '', files: [], shareMode: 'file', shareUrl: '' };
+        localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY);
+        localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY);
+        localStorage.removeItem(COMMUNITY_OWNED_STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+    })();
     const communitySessionOwnedIds = new Set();
     const SUPABASE_STORAGE_BUCKET = 'community-uploads';
     /**
@@ -7488,7 +7498,7 @@
         if (el) el.classList.add('hidden');
         return;
       }
-      if (isCloudConfigured() && !appState.communityCache.length) {
+      if (isCloudConfigured()) {
         try { await loadCommunity(); } catch (e) { /* ignore */ }
       }
       const matches = Array.isArray(prefetchedMatches)
@@ -8088,6 +8098,19 @@
       return row;
     }
 
+    function isOrphanCommunityMaterialError(message) {
+      const msg = String(message || '').toLowerCase();
+      return msg.indexOf('no rows removed') >= 0
+        || msg.indexOf('material not found') >= 0
+        || (msg.indexOf('not found') >= 0 && msg.indexOf('community') >= 0);
+    }
+
+    function makeOrphanCommunityMaterialError(message) {
+      const err = new Error(message || 'Material not found on server');
+      err.orphanLocalOnly = true;
+      return err;
+    }
+
     function loadCommunityOwnedIds() {
       try {
         const raw = localStorage.getItem(COMMUNITY_OWNED_STORAGE_KEY);
@@ -8155,21 +8178,37 @@
       });
     }
 
-    async function fetchCommunityMaterials() {
-      if (canUseCommunityUploadApi()) {
-        try {
-          const res = await fetch(communityMaterialsApiUrl(), { cache: 'no-store' });
-          if (res.ok) {
-            const json = await res.json();
-            const rows = json.data || json;
-            if (Array.isArray(rows)) return rows;
-          } else {
-            console.warn('[community] API list failed:', await res.text());
-          }
-        } catch (apiErr) {
-          console.warn('[community] API list error:', apiErr);
+    async function fetchCommunityMaterialsFromServer() {
+      if (!canUseCommunityUploadApi()) {
+        throw new Error('Community API unavailable');
+      }
+      const res = await fetch(communityMaterialsApiUrl(), {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(parseCommunityApiError(text, res.status));
+      }
+      let json = {};
+      if (text && text.trim()) {
+        try { json = JSON.parse(text); } catch (e) {
+          throw new Error('Invalid community materials response');
         }
       }
+      const rows = json.data;
+      if (!Array.isArray(rows)) {
+        throw new Error('Invalid community materials response');
+      }
+      return rows;
+    }
+
+    async function fetchCommunityMaterialsOfflineFallback() {
       try {
         const clientRows = await fetchCommunityMaterialsViaClient();
         if (clientRows) return clientRows;
@@ -8181,6 +8220,13 @@
       const res = await fetch(url, { headers: headers, cache: 'no-store' });
       if (!res.ok) throw new Error(await res.text() || res.status);
       return res.json();
+    }
+
+    async function fetchCommunityMaterials() {
+      if (canUseCommunityUploadApi()) {
+        return fetchCommunityMaterialsFromServer();
+      }
+      return fetchCommunityMaterialsOfflineFallback();
     }
 
     /** מבנה insert רזה — רק עמודות שקיימות בטבלה: grade, topic, file_path, file_name, notes */
@@ -8442,10 +8488,22 @@
         });
         const text = await response.text();
         if (!response.ok) {
-          throw new Error(parseCommunityApiError(text, response.status));
+          const errMsg = parseCommunityApiError(text, response.status);
+          if (isOrphanCommunityMaterialError(errMsg)) {
+            throw makeOrphanCommunityMaterialError(errMsg);
+          }
+          throw new Error(errMsg);
         }
         const json = parseCommunityMutateJson(text, response.status);
-        const result = assertCommunityDeleteResult(json, pk);
+        let result;
+        try {
+          result = assertCommunityDeleteResult(json, pk);
+        } catch (assertErr) {
+          if (isOrphanCommunityMaterialError(assertErr && assertErr.message)) {
+            throw makeOrphanCommunityMaterialError(assertErr.message);
+          }
+          throw assertErr;
+        }
         forgetCommunityOwnership(pk);
         return result;
       }
@@ -8695,7 +8753,7 @@
     async function resolveCommunityMatchesForTopic(topic, gradeId, serverMatches) {
       const topicNorm = String(topic || '').trim();
       if (!topicNorm) return [];
-      if (isCloudConfigured() && !appState.communityCache.length) {
+      if (isCloudConfigured()) {
         try { await loadCommunity(); } catch (e) { /* ignore */ }
       }
       let localItems = getCommunityMaterialsForTopic(gradeId, topicNorm);
@@ -8950,14 +9008,11 @@
       });
     }
 
-    async function loadCommunity(forceRefresh) {
-      if (forceRefresh) {
-        appState.communityCache = [];
-        appState.communityForGrade = [];
-      }
+    async function loadCommunity() {
+      appState.communityCache = [];
+      appState.communityForGrade = [];
+      try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
       if (!isCloudConfigured()) {
-        appState.communityCache = [];
-        appState.communityForGrade = [];
         return;
       }
       try {
@@ -11426,6 +11481,7 @@
       appState.communityCache = [];
       appState.communityForGrade = [];
       try {
+        localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY);
         localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY);
         localStorage.removeItem(COMMUNITY_OWNED_STORAGE_KEY);
       } catch (e) { /* ignore */ }
@@ -12096,11 +12152,18 @@
       try {
         const result = await deleteCommunityMaterialRecord(pk);
         if (!result || (result.deletedCount != null && Number(result.deletedCount) < 1)) {
-          throw new Error('Delete failed: no rows removed');
+          await refreshCatalogAfterCommunityDelete(pk);
+          alert('הרשומה הוסרה מהתצוגה המקומית');
+          return;
         }
         await refreshCatalogAfterCommunityDelete(pk);
         alert('החומר נמחק בהצלחה');
       } catch (err) {
+        if (err && err.orphanLocalOnly) {
+          await refreshCatalogAfterCommunityDelete(pk);
+          alert('הרשומה הוסרה מהתצוגה המקומית');
+          return;
+        }
         if (row) row.classList.remove('opacity-60', 'pointer-events-none');
         console.error('Delete error:', err);
         alert('שגיאה במחיקה: ' + (err.message || 'שגיאת רשת במחיקה'));
@@ -12672,9 +12735,9 @@
 
     async function init() {
       var pageReloaded = isHardPageReload();
+      try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
       if (pageReloaded) {
         try { resetWizardSessionState(); } catch (e) { console.warn('[waldrof] resetWizardSessionState:', e); }
-        try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
       }
       try {
       ensurePageAtTop();
@@ -12850,7 +12913,7 @@
       }
       if (isCloudConfigured()) {
         try { subscribeRealtime(); } catch (e) { console.warn('[waldrof] subscribeRealtime:', e); }
-        try { await loadCommunity(pageReloaded); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
+        try { await loadCommunity(); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
       }
       scheduleInitialPageScrollReset();
       requestAnimationFrame(syncProductTabsStickyLayout);
@@ -12866,7 +12929,7 @@
       if (e.persisted) {
         try { resetCommunityClientStateOnReload(); } catch (err) { console.warn('[waldrof] pageshow resetCommunityClientStateOnReload:', err); }
         if (isCloudConfigured()) {
-          loadCommunity(true).then(function () {
+          loadCommunity().then(function () {
             return refreshCommunityUiAfterCacheReload();
           }).catch(function (err) { console.warn('[waldrof] pageshow loadCommunity:', err); });
         }
