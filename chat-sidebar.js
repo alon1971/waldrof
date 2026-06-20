@@ -520,12 +520,49 @@
     syncDisplayUi();
   }
 
+  function downloadChatMessagesDoc() {
+    var persistable = getPersistableMessages();
+    if (!persistable.length) {
+      alert(deps.isEnglish() ? 'No chat content to download' : 'אין תוכן בצ\'אט להורדה');
+      return;
+    }
+    var chatText = persistable.map(function (m) {
+      var prefix = m.role === 'user'
+        ? (deps.isEnglish() ? 'Question: ' : 'שאלה: ')
+        : (deps.isEnglish() ? 'Answer: ' : 'תשובה: ');
+      return prefix + (m.text || stripHtml(m.html) || '');
+    }).join('\n\n');
+    var blob = new Blob([chatText], { type: 'application/msword' });
+    var link = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = deps.isEnglish() ? 'pedagogy_chat.doc' : 'שיחה_עוזר_פדגוגי.doc';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  }
+
   function bindChatExportButton(btn) {
     if (!btn || btn.dataset.bound) return;
     btn.dataset.bound = '1';
-    btn.addEventListener('click', function () {
-      if (typeof deps.downloadPedagogyDocx === 'function') deps.downloadPedagogyDocx();
-    });
+    btn.addEventListener('click', downloadChatMessagesDoc);
+  }
+
+  function resetChatConversation() {
+    var confirmMsg = deps.isEnglish()
+      ? 'Reset the chat conversation?'
+      : 'האם ברצונך לאפס את שיחת הצ\'אט?';
+    if (!window.confirm(confirmMsg)) return;
+    clearArchiveSuggestionState();
+    state.messages = [buildGreetingMessage()];
+    state.ragContext = '';
+    state.ragChunkIds = [];
+    try { localStorage.removeItem('chat_history'); } catch (e) { /* ignore */ }
+    renderMessages();
+    if (typeof deps.onChatStateSync === 'function') {
+      deps.onChatStateSync({ messages: [], lastReply: null });
+    }
   }
 
   function syncChatExportLabel(btn) {
@@ -576,14 +613,12 @@
 
   function syncExportBarVisibility() {
     var bars = ensureChatExportBar();
-    var canExport = typeof deps.canExportPedagogyDoc === 'function'
-      ? Boolean(deps.canExportPedagogyDoc())
-      : Boolean((deps.getAppState() || {}).grade);
+    var hasChatContent = getPersistableMessages().length > 0;
     if (bars.panelBar) {
-      bars.panelBar.classList.toggle('hidden', !canExport || state.displayMode !== 'panel');
+      bars.panelBar.classList.toggle('hidden', !hasChatContent || state.displayMode !== 'panel');
     }
     if (bars.fsBar) {
-      bars.fsBar.classList.toggle('hidden', !canExport || state.displayMode !== 'fullscreen');
+      bars.fsBar.classList.toggle('hidden', !hasChatContent || state.displayMode !== 'fullscreen');
     }
   }
 
@@ -794,6 +829,8 @@
     var expandBtn = document.getElementById('lesson-chat-expand');
     var collapseBtn = document.getElementById('lesson-chat-collapse');
     var mobileCloseBtn = document.getElementById('lesson-chat-fullscreen-mobile-close');
+    var refreshBtn = document.getElementById('lesson-chat-refresh-btn');
+    var fsRefreshBtn = document.getElementById('lesson-chat-fullscreen-refresh-btn');
     var historyBtn = document.getElementById('lesson-chat-history-btn');
     var fsHistoryBtn = document.getElementById('lesson-chat-fullscreen-history-btn');
     var historyClose = document.getElementById('lesson-chat-history-close');
@@ -810,6 +847,8 @@
     if (expandBtn) expandBtn.addEventListener('click', function () { setDisplayMode('fullscreen'); });
     if (collapseBtn) collapseBtn.addEventListener('click', function () { setDisplayMode('panel'); });
     if (mobileCloseBtn) mobileCloseBtn.addEventListener('click', function () { closeHistory(); setDisplayMode('bubble'); });
+    if (refreshBtn) refreshBtn.addEventListener('click', resetChatConversation);
+    if (fsRefreshBtn) fsRefreshBtn.addEventListener('click', resetChatConversation);
     if (historyBtn) historyBtn.addEventListener('click', function () {
       if (state.historyOpen) closeHistory();
       else openHistory();
