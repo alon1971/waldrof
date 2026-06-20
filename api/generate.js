@@ -22,6 +22,7 @@ const searchLogs = require('./search-logs');
 const authContext = require('./auth-context');
 const jsonRepair = require('./json-repair');
 const env = require('./env');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const {
   cleanAndParseJSON,
@@ -1163,9 +1164,6 @@ async function callGeminiAI(systemPrompt, userPrompt, temperature, options) {
     throw new Error('שגיאה: מפתח GEMINI_API_KEY לא מוגדר בשרת');
   }
 
-  const url =
-    'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=' +
-    encodeURIComponent(geminiKey);
   const generationConfig = { temperature: temperature != null ? temperature : 0.35 };
   if (opts.jsonMode === true) {
     generationConfig.responseMimeType = 'application/json';
@@ -1173,32 +1171,20 @@ async function callGeminiAI(systemPrompt, userPrompt, temperature, options) {
       generationConfig.responseSchema = opts.responseSchema;
     }
   }
-  const body = {
-    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-    generationConfig: generationConfig,
+
+  const modelParams = {
+    model: 'gemini-1.5-flash',
+    generationConfig,
   };
   if (systemPrompt) {
-    body.systemInstruction = { parts: [{ text: systemPrompt }] };
+    modelParams.systemInstruction = systemPrompt;
   }
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      const errMsg = data.error && data.error.message ? data.error.message : 'Gemini API error';
-      throw new Error(errMsg);
-    }
-    const text =
-      data.candidates &&
-      data.candidates[0] &&
-      data.candidates[0].content &&
-      data.candidates[0].content.parts &&
-      data.candidates[0].content.parts[0] &&
-      data.candidates[0].content.parts[0].text;
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel(modelParams);
+    const result = await model.generateContent(userPrompt);
+    const text = result.response.text();
     if (!text || !String(text).trim()) {
       throw new Error('Gemini החזיר תשובה ריקה — נסו שוב בעוד רגע.');
     }
