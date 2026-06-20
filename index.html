@@ -12083,22 +12083,11 @@
         }
         await submitCatalogUpload(gradeId, subject, description, teacherName, files, docsLink);
         const topicReadonly = form.querySelector('[name="catalog-topic"][readonly]');
-        const savedTopic = topicReadonly ? subject : '';
-        form.reset();
-        resetCatalogFileDisplay(form);
-        if (gradeSelect && gradeId) gradeSelect.value = gradeId;
-        const fileRadio = form.querySelector('[name="catalog-share-mode"][value="file"]');
-        if (fileRadio) fileRadio.checked = true;
-        setCatalogShareMode(form, 'file');
-        if (topicReadonly && savedTopic) {
-          form.querySelector('[name="catalog-topic"]').value = savedTopic;
-        }
-        if (msgEl) {
-          msgEl.textContent = t('catalog_success');
-          msgEl.classList.add('text-sage-dark');
-        }
+        resetCatalogUploadForm(form, {
+          presetTopic: topicReadonly ? subject : '',
+          keepReadonlyTopic: Boolean(topicReadonly),
+        });
         clearCommunityFormDraftOnSuccess();
-        closeCatalogUploadModal();
         if (catalogState.view === 'materials') {
           await renderCatalogMaterials(gradeId, subject);
         } else {
@@ -12240,7 +12229,7 @@
       let html = catalogGradeNavHtml(gradeId);
       html += '<div id="catalog-grade-header" class="catalog-dashboard-header">' +
         '<h3 class="app-page-title font-display font-bold text-burgundy mb-0">' + escapeHtml(g ? getGradeLabelById(g.id) : '') + '</h3>' +
-        catalogUploadButtonHtml(gradeId, '', false, t('catalog_add_material')) +
+        catalogUploadButtonHtml(gradeId, '', false, t('catalog_share_open')) +
         '</div>';
       html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
         escapeHtml(t('catalog_community_files', { count: allFiles.length })) + '</h4>';
@@ -12589,23 +12578,33 @@
 
     async function renderCatalog(view, gradeId, topicId, opts) {
       const scrollY = capturePageScrollY();
-      saveAllCommunityFormDrafts();
-      const modalWasOpen = window.communityUploadDrawerOpen;
-      const preservedFiles = window.selectedUploadFiles ? window.selectedUploadFiles.slice() : [];
-      if (modalWasOpen && preservedFiles.length) {
-        window.selectedUploadFiles = preservedFiles;
+      const prevGradeId = catalogState.gradeId;
+      const prevView = catalogState.view;
+      const prevTopic = catalogState.topic;
+      const nextView = view || 'grades';
+      let nextGradeId = catalogState.gradeId;
+      let nextTopic = catalogState.topic;
+      if (nextView === 'grades' || !view) {
+        nextGradeId = null;
+        nextTopic = null;
+      } else if (nextView === 'grade') {
+        nextGradeId = gradeId;
+        nextTopic = null;
+      } else if (nextView === 'materials') {
+        nextGradeId = gradeId;
+        nextTopic = topicId;
       }
-      catalogState.view = view || 'grades';
-      if (view === 'grades' || !view) {
-        catalogState.gradeId = null;
-        catalogState.topic = null;
-      } else if (view === 'grade') {
-        catalogState.gradeId = gradeId;
-        catalogState.topic = null;
-      } else if (view === 'materials') {
-        catalogState.gradeId = gradeId;
-        catalogState.topic = topicId;
+      const contextChanged = prevView !== nextView
+        || String(prevGradeId) !== String(nextGradeId)
+        || String(prevTopic) !== String(nextTopic);
+      if (contextChanged) {
+        clearCommunityFormDraftOnSuccess();
+      } else {
+        saveAllCommunityFormDrafts();
       }
+      catalogState.view = nextView;
+      catalogState.gradeId = nextGradeId;
+      catalogState.topic = nextTopic;
       renderCatalogBreadcrumb();
       showCatalogStatus('', '');
       if (catalogState.view === 'grades') {
@@ -12615,16 +12614,14 @@
           showCatalogStatus('', '');
         }
         renderCatalogGrades();
-        restorePageScrollY(scrollY);
       } else if (catalogState.view === 'grade') {
         await renderCatalogGradePanel(catalogState.gradeId);
-        if (modalWasOpen) restoreCommunityUploadModalState();
         scrollToCatalogContent('grade');
       } else if (catalogState.view === 'materials') {
         await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
-        if (modalWasOpen) restoreCommunityUploadModalState();
         scrollToCatalogContent('materials');
       }
+      if (catalogState.view === 'grades') restorePageScrollY(scrollY);
       persistActiveStep();
     }
 
