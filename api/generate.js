@@ -400,7 +400,7 @@ function geminiMasterEducatorSystemPrompt(extra) {
   );
 }
 
-/** On-demand «הרחבה ואספקטים פרקטיים» — Perplexity research → one rich expansion JSON object. */
+/** On-demand «הרחבה ואספקטים פרקטיים» — Perplexity Sonar only; raw research saved to cache (no Gemini). */
 function geminiOnDemandExpansionSystemPrompt(extra) {
   return (
     'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
@@ -2578,7 +2578,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     liveDriveRefresh: false,
   };
 
-  // Main generation (grade/topic) and on-demand expansions: Perplexity → Gemini only — no Drive/community RAG.
+  // Main generation (grade/topic): Perplexity → Gemini. On-demand pedagogy_deep_dive: Perplexity only.
   if (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body)) {
     body.skipRag = true;
   }
