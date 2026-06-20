@@ -3321,10 +3321,14 @@
           <dt data-i18n="user_settings_renew">חידוש אוטומטי</dt>
           <dd id="user-settings-renew" class="font-medium text-walnut/75 text-end max-w-[14rem]">—</dd>
         </div>
+        <div class="flex justify-between gap-3 border-b border-gold/20 pb-2">
+          <dt data-i18n="user_settings_expires">תוקף מנוי</dt>
+          <dd id="user-settings-expires" class="font-medium text-walnut/75">—</dd>
+        </div>
       </dl>
       <button type="button" id="btn-cancel-subscription" class="user-action-btn user-action-btn--danger w-full mt-5 justify-center">
         <i class="fa-solid fa-ban" aria-hidden="true"></i>
-        <span data-i18n="user_settings_cancel_btn">הפסקת מנוי</span>
+        <span data-i18n="user_settings_cancel_btn">ביטול מנוי</span>
       </button>
     </div>
   </div>
@@ -3913,6 +3917,10 @@
           window.__WALDROF_AUTH_REDIRECT__ = String(data.authRedirectUrl).replace(/\/$/, '');
         }
         if (data.supportWhatsApp) SUPPORT_WHATSAPP = String(data.supportWhatsApp).trim();
+        window.__WALDROF_RUNTIME_CONFIG__ = data;
+        if (window.WaldorfAuth && typeof window.WaldorfAuth.applyRuntimeBillingConfig === 'function') {
+          window.WaldorfAuth.applyRuntimeBillingConfig(data);
+        }
       } catch (err) {
         console.warn('[waldrof] runtime config unavailable:', err && err.message ? err.message : err);
       }
@@ -7658,31 +7666,22 @@
     }
 
     function openPedagogyDeepDive(sourceId, triggerEl) {
-      if (!sourceId) return;
-      const source = ensurePedagogySourceRegistered(sourceId);
-      const panel = getPedExpandPanel(sourceId, triggerEl);
-      if (!source || !panel) return;
-
-      if (!panel.classList.contains('hidden')) {
-        collapsePedagogyInline(sourceId, triggerEl);
-        return;
-      }
-
-      const cacheKey = getPedagogySummaryCacheKey(source);
-      summaryPanelOpenState.ped[cacheKey] = true;
-
-      let summary = appState.pedagogySummaries[sourceId];
-      if (!summary && source.expansion) {
-        summary = { pedagogyDeepDive: mapExpansionToDeepDive(source.expansion, source) };
-        appState.pedagogySummaries[sourceId] = summary;
-      }
-
-      if (summary) {
-        renderPedagogyInlinePanel(panel, sourceId, summary);
-        return;
-      }
-
-      renderPedagogyInlinePanel(panel, sourceId, null, false, t('pedagogy_summary_empty'));
+      openOnDemandExpansion(sourceId, triggerEl, {
+        getSource: function (sid, el) { return ensurePedagogySourceRegistered(sid); },
+        getPanel: function (sid, el) { return getPedExpandPanel(sid, el); },
+        getCacheKey: getPedagogySummaryCacheKey,
+        getSummary: function (sid) { return appState.pedagogySummaries[sid]; },
+        mapInlineSummary: function (source) {
+          const exp = normalizeExpansion(source.expansion);
+          if (!hasExpansionContent(exp)) return null;
+          return { pedagogyDeepDive: mapExpansionToDeepDive(exp, source) };
+        },
+        setSummary: function (sid, summary) { appState.pedagogySummaries[sid] = summary; },
+        renderPanel: renderPedagogyInlinePanel,
+        startJob: startPedagogySummaryJob,
+        panelState: summaryPanelOpenState.ped,
+        collapse: collapsePedagogyInline,
+      });
     }
 
     function ensurePedagogySuggestionEvents() {
@@ -8695,8 +8694,30 @@
       return 'community/' + String(gradeId || '').trim() + '/' + slugifyStorageSegment(topic);
     }
 
+    function hasStructuredLessonPlan(plan) {
+      plan = plan || appState.aiGeneratedPlan;
+      if (!plan) return false;
+      if (plan.theory && plan.inspiration && Array.isArray(plan.curriculum)) return true;
+      return false;
+    }
+
     function hasLessonReady() {
-      return Boolean(appState.grade && resolveLessonTopic() && appState.aiGeneratedPlan);
+      return Boolean(appState.grade && resolveLessonTopic() && hasStructuredLessonPlan());
+    }
+
+    function restoreStepBTopicResultsView() {
+      appState.step = 2;
+      appState.navSection = 'wizard';
+      ensureStepBWizardView();
+      if (appState.webResearch) {
+        holdPageScroll(function () { renderWebResearchResult(); });
+      }
+      var toWorkspaceBtn = document.getElementById('btn-to-workspace');
+      if (toWorkspaceBtn) toWorkspaceBtn.disabled = !hasLessonReady();
+      renderStepProgress();
+      updateWorkspaceChrome();
+      updateNewResearchBarVisibility();
+      persistActiveStep();
     }
 
     function communityMaterialsApiUrl() {
@@ -9974,7 +9995,7 @@
     function canNavigateToStep(n) {
       if (n === 1) return true;
       if (n === 2) return true;
-      if (n === 3) return Boolean(appState.grade && resolveLessonTopic() && appState.aiGeneratedPlan);
+      if (n === 3) return Boolean(appState.grade && resolveLessonTopic() && hasStructuredLessonPlan());
       return false;
     }
 
@@ -10540,8 +10561,14 @@
       options = options || {};
       navSection = navSection || 'wizard';
       step = parseInt(step, 10);
-      if (navSection === 'products' && step === 3 && canNavigateToStep(3)) {
-        openProductsWorkspace(false);
+      if (navSection === 'products' && step === 3) {
+        if (canNavigateToStep(3)) {
+          openProductsWorkspace(false);
+        } else if (appState.topic && (appState.webResearch || appState.aiGeneratedPlan)) {
+          restoreStepBTopicResultsView();
+        } else {
+          goToStep(1, false);
+        }
         return;
       }
       if (navSection === 'community') {
@@ -10569,13 +10596,19 @@
         if (appState.webResearch) {
           holdPageScroll(function () { renderWebResearchResult(); });
           var toWorkspaceBtn = document.getElementById('btn-to-workspace');
-          if (toWorkspaceBtn && appState.aiGeneratedPlan) toWorkspaceBtn.disabled = false;
+          if (toWorkspaceBtn && appState.aiGeneratedPlan) toWorkspaceBtn.disabled = !hasLessonReady();
         }
         if (!options.restoreScrollY) scrollToStepB(false);
         return;
       }
-      if (step === 3 && canNavigateToStep(3)) {
-        openProductsWorkspace(false);
+      if (step === 3) {
+        if (canNavigateToStep(3)) {
+          openProductsWorkspace(false);
+        } else if (appState.topic && (appState.webResearch || appState.aiGeneratedPlan)) {
+          restoreStepBTopicResultsView();
+        } else {
+          goToStep(1, false);
+        }
         return;
       }
       if (step === 1) {
@@ -10815,14 +10848,24 @@
       syncTopicFromInput();
       var topic = resolveLessonTopic();
       if (!appState.grade || !topic || !appState.aiGeneratedPlan) return;
+      if (!hasStructuredLessonPlan()) {
+        restoreStepBTopicResultsView();
+        return;
+      }
       appState.step = 3;
       appState.navSection = 'products';
       if (!appState.activePlan) appState.activePlan = buildActivePlan();
       showWorkspaceShell();
-      ensureProductTabsHydrated();
-      switchTab(appState.activeProductTab || 'theory');
-      document.getElementById('synthesis-banner').classList.remove('hidden');
-      renderSynthesisBanner();
+      try {
+        ensureProductTabsHydrated();
+        switchTab(appState.activeProductTab || 'theory');
+        document.getElementById('synthesis-banner').classList.remove('hidden');
+        renderSynthesisBanner();
+      } catch (err) {
+        console.error('[waldrof] openProductsWorkspace render failed:', err);
+        restoreStepBTopicResultsView();
+        return;
+      }
       renderStepProgress();
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
@@ -11859,6 +11902,9 @@
     }
 
     function getRenderableBibliography(theory) {
+      if (!theory) {
+        return normalizeBibliography(null, appState.grade, appState.topic, appState.webResearch);
+      }
       var raw = extractBibliographyFromPlan({ theory: theory }) || theory.bibliography;
       return normalizeBibliography(raw, appState.grade, appState.topic, appState.webResearch);
     }
@@ -11887,7 +11933,20 @@
 
     function renderTheory() {
       appState.bibliographyRegistry = {};
-      const d = appState.activePlan.theory;
+      const plan = appState.activePlan;
+      const d = plan && plan.theory;
+      if (!d) {
+        const raw = String((plan && plan.rawContent) || (appState.webResearch && appState.webResearch.rawContent) || '').trim();
+        const citations = (plan && plan.citations) || (appState.webResearch && appState.webResearch.citations) || [];
+        holdPageScroll(function () {
+          const el = document.getElementById('theoretical-content');
+          if (!el) return;
+          el.innerHTML = raw
+            ? buildPerplexityExpansionHtml({ rawContent: raw, citations: citations })
+            : '<p class="text-sm text-terracotta">' + escapeHtml(t('research_need_topic')) + '</p>';
+        });
+        return;
+      }
       const bib = getRenderableBibliography(d);
       d.bibliography = bib;
       let html = '<div class="mb-6"><h2 class="app-page-title font-display font-bold text-burgundy">' + escapeHtml(d.title) + '</h2>' +
@@ -11927,7 +11986,14 @@
       Object.keys(appState.pedagogyRegistry).forEach(function (k) {
         if (k.indexOf('ped-insp-') === 0) delete appState.pedagogyRegistry[k];
       });
-      const d = appState.activePlan.inspiration;
+      const d = appState.activePlan && appState.activePlan.inspiration;
+      if (!d) {
+        holdPageScroll(function () {
+          const el = document.getElementById('inspiration-content');
+          if (el) el.innerHTML = '';
+        });
+        return;
+      }
       let html = '<h2 class="app-page-title font-display font-bold text-burgundy mb-4">' + escapeHtml(d.title) + '</h2>' +
         '<p class="text-walnut/65 mb-4 text-sm">' + escapeHtml(t('pedagogy_inspiration_hint')) + '</p>' +
         '<div class="grid md:grid-cols-2 gap-4">';
@@ -12055,7 +12121,7 @@
     }
 
     function renderCurriculum() {
-      const plan = appState.activePlan.curriculum || [];
+      const plan = (appState.activePlan && appState.activePlan.curriculum) || [];
       Object.keys(appState.pedagogyRegistry).forEach(function (k) {
         if (k.indexOf('ped-curr-') === 0) delete appState.pedagogyRegistry[k];
       });
