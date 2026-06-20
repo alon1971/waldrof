@@ -1815,6 +1815,223 @@ function sanitizeTopicPhaseOutput(data) {
   return data;
 }
 
+function coerceServerCurriculumRows(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'object') return [];
+  const listKeys = ['curriculum', 'days', 'items', 'lessons', 'dailyPlan', 'rows', 'entries', 'schedule', 'plan'];
+  for (let i = 0; i < listKeys.length; i++) {
+    if (Array.isArray(raw[listKeys[i]])) return raw[listKeys[i]];
+  }
+  const numKeys = Object.keys(raw).filter(function (k) { return /^\d+$/.test(String(k)); });
+  if (numKeys.length) {
+    return numKeys.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); }).map(function (k) {
+      const row = raw[k];
+      if (row && typeof row === 'object' && row.day == null && row.dayNumber == null) {
+        return Object.assign({ day: parseInt(k, 10) }, row);
+      }
+      return row;
+    });
+  }
+  return [];
+}
+
+function normalizePhaseCInspirationItem(it) {
+  if (typeof it === 'string') return { text: it.trim() };
+  if (!it || typeof it !== 'object') return { text: String(it || '').trim() };
+  return {
+    text: String(it.text || it.preview || it.detail || it.content || it.body || '').trim(),
+    expansion: it.expansion,
+  };
+}
+
+function normalizePhaseCInspiration(insp, rawFallback) {
+  if (typeof insp === 'string' && insp.trim()) {
+    return {
+      title: 'השראה ומקורות',
+      global: [{ title: 'סיכום', items: [normalizePhaseCInspirationItem(insp)] }],
+      podcast: { title: 'תובנות', episodes: [] },
+      narrative: [],
+    };
+  }
+  if (!insp || typeof insp !== 'object') {
+    if (rawFallback) {
+      return normalizePhaseCInspiration({
+        title: 'השראה ומקורות',
+        global: [{ title: 'סיכום', items: [{ text: rawFallback }] }],
+      });
+    }
+    return null;
+  }
+
+  let global = insp.global;
+  if (typeof global === 'string' && global.trim()) {
+    global = [{ title: 'סיכום', items: [global.trim()] }];
+  } else if (!Array.isArray(global)) {
+    if (global && typeof global === 'object') global = [global];
+    else global = [];
+  }
+
+  global = global.map(function (block, bi) {
+    if (typeof block === 'string') {
+      return { title: 'בלוק ' + (bi + 1), items: [normalizePhaseCInspirationItem(block)] };
+    }
+    if (!block || typeof block !== 'object') return { title: '', items: [] };
+    let items = block.items;
+    if (typeof items === 'string') items = [items];
+    if (!Array.isArray(items)) {
+      if (items && typeof items === 'object') items = [items];
+      else items = [];
+    }
+    items = items.map(normalizePhaseCInspirationItem).filter(function (it) {
+      return String(it.text || '').trim();
+    });
+    return {
+      title: String(block.title || block.heading || ('בלוק ' + (bi + 1))).trim(),
+      items: items,
+    };
+  }).filter(function (b) { return b.items.length; });
+
+  if (!global.length && rawFallback) {
+    global = [{ title: 'סיכום', items: [normalizePhaseCInspirationItem(rawFallback)] }];
+  }
+
+  const podcastSrc = insp.podcast && typeof insp.podcast === 'object' ? insp.podcast : {};
+  const episodes = Array.isArray(podcastSrc.episodes) ? podcastSrc.episodes.map(function (ep) {
+    if (!ep || typeof ep !== 'object') {
+      const text = String(ep || '').trim();
+      return text ? { theme: text, insight: text } : null;
+    }
+    return {
+      theme: String(ep.theme || ep.title || '').trim(),
+      insight: String(ep.insight || ep.text || ep.preview || ep.content || '').trim(),
+      expansion: ep.expansion,
+    };
+  }).filter(function (ep) { return ep && (ep.theme || ep.insight); }) : [];
+
+  let narrative = insp.narrative;
+  if (typeof narrative === 'string' && narrative.trim()) narrative = [narrative];
+  if (!Array.isArray(narrative)) narrative = [];
+  narrative = narrative.map(function (n) {
+    if (typeof n === 'string') return n.trim();
+    if (!n || typeof n !== 'object') return String(n || '').trim();
+    return String(n.text || n.preview || n.content || '').trim();
+  }).filter(Boolean);
+
+  return {
+    title: String(insp.title || 'השראה ומקורות').trim(),
+    global: global,
+    podcast: {
+      title: String(podcastSrc.title || 'תובנות').trim(),
+      episodes: episodes,
+    },
+    narrative: narrative,
+    rawContent: String(insp.rawContent || rawFallback || '').trim() || undefined,
+  };
+}
+
+function normalizePhaseCCurriculumRow(row, index, rawFallback) {
+  if (row == null) return null;
+  if (typeof row === 'string') {
+    const text = row.trim();
+    if (!text) return null;
+    return { day: index + 1, topic: text, content: text, art: '', hint: '' };
+  }
+  if (typeof row !== 'object') return null;
+  let day = parseInt(row.day || row.dayNumber || row.n || row.number || row.index, 10);
+  if (!day || isNaN(day)) day = index + 1;
+  const topic = String(
+    row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
+  ).trim();
+  const content = String(
+    row.content || row.story || row.lesson || row.lessonContent ||
+    row.text || row.body || row.description || row.narrative || ''
+  ).trim();
+  const art = String(
+    row.art || row.artActivity || row.craft || row.artAndCraft ||
+    row.handwork || row.artCraft || ''
+  ).trim();
+  const hint = String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim();
+  if (!topic && !content && !art && !hint) {
+    if (rawFallback) {
+      return { day: day, topic: 'יום ' + day, content: rawFallback, art: '', hint: '' };
+    }
+    return null;
+  }
+  return {
+    day: day,
+    topic: topic || ('יום ' + day),
+    content: content || rawFallback || '',
+    art: art,
+    hint: hint,
+  };
+}
+
+function normalizePhaseCCurriculum(raw, rawFallback) {
+  let rows = coerceServerCurriculumRows(raw);
+  if (!rows.length && typeof raw === 'string' && raw.trim()) {
+    rows = [{ content: raw.trim() }];
+  }
+  rows = rows.map(function (row, i) {
+    return normalizePhaseCCurriculumRow(row, i, rawFallback);
+  }).filter(Boolean).slice(0, 15);
+
+  while (rows.length < 15) {
+    const day = rows.length + 1;
+    rows.push({
+      day: day,
+      topic: 'יום ' + day,
+      content: rawFallback || '',
+      art: '',
+      hint: '',
+    });
+  }
+  return rows;
+}
+
+function normalizePhaseCSources(sources) {
+  if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
+    return { books: [], articles: [], websites: [] };
+  }
+  return {
+    books: Array.isArray(sources.books) ? sources.books : [],
+    articles: Array.isArray(sources.articles) ? sources.articles : [],
+    websites: Array.isArray(sources.websites) ? sources.websites : [],
+  };
+}
+
+function sanitizePhaseCOutput(data, body) {
+  if (!data || typeof data !== 'object') return data;
+  const cTab = resolvePhaseCTab(body || {});
+  const rawFallback = String(
+    (data.blockPlan && data.blockPlan.rawContent) ||
+    data.rawText ||
+    data.rawContent ||
+    ''
+  ).trim();
+
+  if (!data.blockPlan || typeof data.blockPlan !== 'object') {
+    data.blockPlan = {};
+  }
+  const bp = data.blockPlan;
+
+  if (cTab === 'inspiration') {
+    delete bp.theory;
+    delete bp.curriculum;
+    bp.inspiration = normalizePhaseCInspiration(bp.inspiration, rawFallback);
+    bp.sources = normalizePhaseCSources(bp.sources);
+    if (!Array.isArray(data.gallery)) data.gallery = [];
+  } else if (cTab === 'curriculum') {
+    delete bp.theory;
+    delete bp.inspiration;
+    delete bp.sources;
+    delete data.gallery;
+    bp.curriculum = normalizePhaseCCurriculum(bp.curriculum, rawFallback);
+  }
+
+  return data;
+}
+
 function validateTopicBlockPlan(blockPlan) {
   if (!blockPlan || typeof blockPlan !== 'object') return false;
   if (String(blockPlan.rawContent || '').trim()) return true;
@@ -1829,8 +2046,10 @@ function validateTopicBlockPlan(blockPlan) {
 
 function validatePhaseCBlockPlan(blockPlan, cTab) {
   if (!blockPlan || typeof blockPlan !== 'object') return false;
+  if (String(blockPlan.rawContent || '').trim()) return true;
   if (cTab === 'inspiration') {
     if (!blockPlan.inspiration || typeof blockPlan.inspiration !== 'object') return false;
+    if (String(blockPlan.inspiration.rawContent || '').trim()) return true;
     if (!Array.isArray(blockPlan.inspiration.global) || !blockPlan.inspiration.global.length) return false;
     return blockPlan.inspiration.global.some(function (block) {
       return block && Array.isArray(block.items) && block.items.length;
@@ -2377,6 +2596,9 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
     if (phase === 'topic' && data && !data._parseFallback) {
       data = sanitizeTopicPhaseOutput(data);
     }
+    if (phase === 'phase_c' && data && !data._parseFallback) {
+      data = sanitizePhaseCOutput(data, body);
+    }
 
     if (!validatePhaseResult(phase, data, body)) {
       console.error(
@@ -2481,6 +2703,13 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
     if (data && data._parseFallback) {
       console.warn('[generate] Using parse fallback for phase', phase, '(attempt', attempt + ')');
       return data;
+    }
+
+    if (phase === 'topic' && data && !data._parseFallback) {
+      data = sanitizeTopicPhaseOutput(data);
+    }
+    if (phase === 'phase_c' && data && !data._parseFallback) {
+      data = sanitizePhaseCOutput(data, body);
     }
 
     if (!validatePhaseResult(phase, data, body)) {
@@ -2601,6 +2830,9 @@ async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, 
 
     if (phase === 'topic' && data && !data._parseFallback) {
       data = sanitizeTopicPhaseOutput(data);
+    }
+    if (phase === 'phase_c' && data && !data._parseFallback) {
+      data = sanitizePhaseCOutput(data, body);
     }
 
     if (!validatePhaseResult(phase, data, body)) {
