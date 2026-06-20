@@ -2202,24 +2202,36 @@ function buildCommunitySearchQuery(options) {
   return parts.filter(Boolean).join(' ').trim();
 }
 
+function sanitizeCommunitySearchTerm(term) {
+  return String(term || '')
+    .replace(/[״"'`׳\-–—_,.;:!?؟()[\]{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function buildCommunitySearchTerms(query) {
   const q = String(query || '').trim();
   if (!q) return [];
 
   const terms = new Set();
-  const normalized = normalizeTopicQuery(q);
-  if (normalized) terms.add(normalized);
+  const normalized = sanitizeCommunitySearchTerm(normalizeTopicQuery(q));
+  if (normalized && normalized.length >= 2 && !looksLikeUserChatQuestion(normalized)) {
+    terms.add(normalized);
+  }
 
   hebrewTopicMatch.expandHebrewSearchTerms(q, 10).forEach(function (term) {
-    if (term && term.length >= 2) terms.add(term);
+    const cleaned = sanitizeCommunitySearchTerm(term);
+    if (cleaned && cleaned.length >= 2) terms.add(cleaned);
   });
 
-  q.replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+  q.replace(/[״"'`׳\-–—_,.;:!?؟()[\]{}]/g, ' ')
     .split(/\s+/)
     .filter(function (word) { return word.length >= 2; })
     .forEach(function (word) {
-      terms.add(word);
-      if (word.charAt(0) === 'ה' && word.length > 2) terms.add(word.slice(1));
+      const cleaned = sanitizeCommunitySearchTerm(word);
+      if (!cleaned || cleaned.length < 2) return;
+      terms.add(cleaned);
+      if (cleaned.charAt(0) === 'ה' && cleaned.length > 2) terms.add(cleaned.slice(1));
     });
 
   return Array.from(terms)
@@ -2288,13 +2300,13 @@ function formatCommunityKnowledgeRow(row) {
   const internalFileName = String(
     meta.internal_file_name || row.file_name || row.title || ''
   ).trim();
+  const rowTopic = String(row.topic || '').trim();
   const catalogTopic = String(
     (bundleMaterial && bundleMaterial.topic) ||
-    bundleTopic ||
-    ''
+    (bundleTopic && !looksLikeUserChatQuestion(bundleTopic) ? bundleTopic : '') ||
+    (rowTopic && !looksLikeUserChatQuestion(rowTopic) ? rowTopic : '')
   ).trim();
-  const rowTopic = String(row.topic || '').trim();
-  const resolvedTopic = catalogTopic || (rowTopic && !looksLikeUserChatQuestion(rowTopic) ? rowTopic : '');
+  const resolvedTopic = catalogTopic || rowTopic || bundleTopic;
 
   return {
     id: row.id || null,
@@ -2303,7 +2315,7 @@ function formatCommunityKnowledgeRow(row) {
     title: row.title || bundleTopic || 'חומר קהילתי',
     topic: resolvedTopic,
     subject: resolvedTopic,
-    catalogTopic: catalogTopic || resolvedTopic,
+    catalogTopic: catalogTopic,
     description: String(row.content || '').slice(0, 300),
     bundleTopic: bundleTopic,
     internalFileName: internalFileName,
@@ -2455,13 +2467,13 @@ function parseCommunityDescriptionFromNotes(rawNotes) {
   return clean.slice(0, 200);
 }
 
-/** Detect raw chat questions — never use as catalog folder navigation targets. */
+/** Detect raw chat questions — only for catalog navigation targets, not search matching. */
 function looksLikeUserChatQuestion(text) {
   const s = String(text || '').trim();
   if (!s) return false;
   if (/[?؟]/.test(s)) return true;
-  if (/^(האם|מהו?|איפה|היכן|למה|מדוע|איך|האם יש|תוכל|תוכלי)\b/.test(s)) return true;
-  if (s.split(/\s+/).filter(Boolean).length >= 8) return true;
+  if (/^(האם|מהו?|איפה|היכן|למה|מדוע|איך|האם יש|תוכל|תוכלי)\b/u.test(s)) return true;
+  if (s.split(/\s+/).filter(Boolean).length >= 10) return true;
   return false;
 }
 
@@ -2564,7 +2576,7 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
   if (!isSupabaseCacheEnabled()) return [];
 
   const params = new URLSearchParams();
-  params.set('select', 'id,grade_level,topic,file_path,file_name,google_docs_url,notes,created_at');
+  params.set('select', 'id,grade_level,topic,file_path,file_name,notes,created_at');
   params.set('order', 'created_at.desc');
   params.set('limit', '48');
   if (gradeId) params.set('grade_level', 'eq.' + gradeId);
@@ -2575,6 +2587,7 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
       const orParts = [];
       terms.forEach(function (term) {
         orParts.push('topic.ilike.*' + term + '*');
+        orParts.push('file_name.ilike.*' + term + '*');
         orParts.push('notes.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');
@@ -2584,7 +2597,11 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
   const res = await supabaseRequest('/rest/v1/' + COMMUNITY_MATERIALS_TABLE + '?' + params.toString(), {
     method: 'GET',
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    const errText = await res.text().catch(function () { return ''; });
+    console.warn('[community] materials fetch failed:', res.status, errText.slice(0, 200));
+    return [];
+  }
   const rows = await res.json();
   return Array.isArray(rows) ? rows : [];
 }
@@ -2650,7 +2667,11 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
   const res = await supabaseRequest('/rest/v1/' + COMMUNITY_KB_TABLE + '?' + params.toString(), {
     method: 'GET',
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    const errText = await res.text().catch(function () { return ''; });
+    console.warn('[community] knowledge fetch failed:', res.status, errText.slice(0, 200));
+    return [];
+  }
   const rows = await res.json();
   if (!Array.isArray(rows)) return [];
   return enrichKnowledgeRowsWithBundleMaterials(rows);

@@ -193,14 +193,24 @@ function extractCoreSubjectTerms(query, body) {
   if (normalized) terms.add(normalized);
 
   hebrewTopicMatch.expandHebrewSearchTerms(combined, 10).forEach(function (term) {
-    if (term && term.length >= 2) terms.add(term);
+    const cleaned = String(term || '')
+      .replace(/[״"'`׳\-–—_,.;:!?؟()[\]{}]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (cleaned && cleaned.length >= 2) terms.add(cleaned);
   });
 
   combined
-    .replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+    .replace(/[״"'`׳\-–—_,.;:!?؟()[\]{}]/g, ' ')
     .split(/\s+/)
     .filter(function (word) { return word.length >= 2; })
-    .forEach(function (word) { terms.add(word); });
+    .forEach(function (word) {
+      const cleaned = word
+        .replace(/[״"'`׳\-–—_,.;:!?؟()[\]{}]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleaned && cleaned.length >= 2) terms.add(cleaned);
+    });
 
   return Array.from(terms)
     .filter(function (term) { return term && term.length >= 2; })
@@ -742,15 +752,18 @@ async function searchCommunityByContent(query, body, matchCount) {
   const contentOrParts = terms.concat(meshTerms).map(function (term) {
     return 'content.ilike.*' + term + '*';
   });
+  const fileNameOrParts = terms.map(function (term) {
+    return 'file_name.ilike.*' + term + '*';
+  });
 
   const params = new URLSearchParams();
   params.set(
     'select',
-    'id,title,author,content,contributor_email,contributor_name,grade_id,topic,created_at'
+    'id,title,author,content,contributor_email,contributor_name,grade_id,topic,file_name,created_at'
   );
   params.set('order', 'created_at.desc');
   params.set('limit', String((matchCount || COMMUNITY_MATCH_COUNT) * 6));
-  params.set('or', '(' + titleOrParts.concat(subjectOrParts, contentOrParts).join(',') + ')');
+  params.set('or', '(' + titleOrParts.concat(subjectOrParts, contentOrParts, fileNameOrParts).join(',') + ')');
 
   const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
   if (gradeId && !(body && body.chatGlobalScan)) params.set('grade_id', 'eq.' + gradeId);
