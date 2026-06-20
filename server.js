@@ -30,6 +30,9 @@ const searchHistoryApi = require('./api/search-history');
 const subscriptionApi = require('./api/subscription');
 const configApi = require('./api/config');
 const knowledgeSeed = require('./api/knowledge-seed');
+const billingCheckout = require('./api/billing-checkout');
+const billingWebhooks = require('./api/billing-webhooks');
+const billingReport = require('./api/billing-report');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
   console.error('api/generate.js must export handleGeneratePost for Render Node hosting.');
@@ -39,6 +42,7 @@ if (typeof generateApi.handleGeneratePost !== 'function') {
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = __dirname;
+const GENERATE_ROUTE_TIMEOUT_MS = generateApi.GENERATE_ROUTE_TIMEOUT_MS || 120000;
 
 const API_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -132,6 +136,19 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+function applyLongRunningRouteTimeout(req, res) {
+  req.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
+  res.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
+  res.on('timeout', function () {
+    console.error('[api/generate] response timeout after', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
+    if (!res.headersSent) {
+      writeJsonResponse(res, 504, {
+        error: 'Gateway timeout — Perplexity research took too long. Please retry.',
+      });
+    }
+  });
+}
+
 async function handleApiGenerate(req, res) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, API_CORS_HEADERS);
@@ -140,6 +157,8 @@ async function handleApiGenerate(req, res) {
   if (req.method !== 'POST') {
     return writeJsonResponse(res, 405, { error: 'Method not allowed' });
   }
+
+  applyLongRunningRouteTimeout(req, res);
 
   let parsedBody = null;
   try {
@@ -157,6 +176,8 @@ async function handleApiGenerate(req, res) {
     cacheDb.normalizeGradeCacheRequest(parsedBody);
   }
 
+  const phase = parsedBody && parsedBody.phase ? parsedBody.phase : '(unknown)';
+  const generateStartedAt = Date.now();
   try {
     const result = await generateApi.handleGeneratePost(parsedBody, {
       headers: req.headers || {},
@@ -167,11 +188,23 @@ async function handleApiGenerate(req, res) {
       : (result && result.data !== undefined
         ? { data: result.data, meta: result.meta || { fromCache: false } }
         : { data: result, meta: { fromCache: false } });
+    console.log(
+      '[api/generate] 200',
+      phase,
+      Math.round((Date.now() - generateStartedAt) / 1000) + 's',
+      payload.meta && payload.meta.fromCache ? '(cache)' : '(live)'
+    );
     return writeJsonResponse(res, 200, payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const statusCode = err && err.statusCode ? err.statusCode : 500;
-    console.error('[api/generate]', statusCode, message);
+    console.error(
+      '[api/generate]',
+      statusCode,
+      phase,
+      Math.round((Date.now() - generateStartedAt) / 1000) + 's',
+      message
+    );
     if (!res.headersSent) {
       return writeJsonResponse(res, statusCode, { error: message });
     }
@@ -376,6 +409,54 @@ async function handleApiConfig(req, res) {
   }
 }
 
+async function handleApiBillingCheckout(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) body = JSON.parse(raw);
+    }
+    await billingCheckout.createCheckoutHandler({
+      method: req.method,
+      headers: req.headers,
+      body: body,
+    }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+}
+
+async function handleApiStripeWebhook(req, res) {
+  try {
+    const raw = await readBody(req);
+    const result = await billingWebhooks.handleStripeWebhookRequest(req, raw);
+    writeJsonResponse(res, 200, result);
+  } catch (err) {
+    const status = err.statusCode || 400;
+    console.error('[api/webhooks/stripe]', status, err.message || err);
+    writeJsonResponse(res, status, { error: err.message || String(err) });
+  }
+}
+
+async function handleApiBillingReportCron(req, res) {
+  try {
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    const result = await billingReport.runMonthlyReport({
+      method: req.method,
+      headers: req.headers,
+      query: Object.fromEntries(parsedUrl.searchParams.entries()),
+    });
+    writeJsonResponse(res, 200, result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    console.error('[api/cron/billing-report]', status, err.message || err);
+    writeJsonResponse(res, status, { error: err.message || String(err) });
+  }
+}
+
 const server = http.createServer(async function (req, res) {
   const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
 
@@ -426,13 +507,35 @@ const server = http.createServer(async function (req, res) {
     return handleApiConfig(req, res);
   }
 
+  if (pathname === '/api/billing/checkout') {
+    return handleApiBillingCheckout(req, res);
+  }
+
+  if (pathname === '/api/webhooks/stripe') {
+    return handleApiStripeWebhook(req, res);
+  }
+
+  if (pathname === '/api/cron/billing-report') {
+    return handleApiBillingReportCron(req, res);
+  }
+
   serveStatic(req, res, pathname);
 });
 
+server.timeout = GENERATE_ROUTE_TIMEOUT_MS;
+if (typeof server.headersTimeout === 'number') {
+  server.headersTimeout = GENERATE_ROUTE_TIMEOUT_MS + 5000;
+}
+if (typeof server.requestTimeout === 'number') {
+  server.requestTimeout = GENERATE_ROUTE_TIMEOUT_MS;
+}
+server.keepAliveTimeout = GENERATE_ROUTE_TIMEOUT_MS + 10000;
+
 server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
+  console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | GET /api/cron/billing-report | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');

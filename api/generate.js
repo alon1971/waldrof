@@ -56,6 +56,12 @@ const GEMINI_GENERATION_MODEL = 'gemini-2.5-flash';
 /** Balanced pedagogical creativity vs factual grounding for Gemini 2.5-flash enrichment. */
 const GEMINI_DEFAULT_TEMPERATURE = 0.45;
 
+/** Minimum time (ms) the HTTP route stays open for on-demand Perplexity research (pedagogy_deep_dive, archive_summary). */
+const GENERATE_ROUTE_TIMEOUT_MS = Math.max(
+  90000,
+  Number(process.env.GENERATE_ROUTE_TIMEOUT_MS) || 120000
+);
+
 const GEMINI_MASTER_EDUCATOR_ROLE =
   '\n=== GEMINI — MASTER WALDORF EDUCATOR (MANDATORY) ===\n' +
   'You are a Master Waldorf Educator and anthroposophical curriculum designer.\n' +
@@ -507,6 +513,7 @@ function buildPerplexityOnDemandPayload(body, rawPayload) {
 
 async function fetchPerplexityOnlyOnDemand(body, logContext) {
   const phase = body.phase;
+  const startedAt = Date.now();
   console.log('[on-demand] Perplexity-only pipeline for', phase);
   let rawPayload;
   try {
@@ -519,7 +526,29 @@ async function fetchPerplexityOnlyOnDemand(body, logContext) {
   if (!String(rawPayload.content || '').trim()) {
     throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
   }
-  return buildPerplexityOnDemandPayload(body, rawPayload);
+  const payload = buildPerplexityOnDemandPayload(body, rawPayload);
+
+  // On-demand expansions: persist to cached_results before the HTTP handler responds.
+  if (isOnDemandExpansionPhase(body) && !body.skipCache) {
+    try {
+      const cachePayload = cacheDb.stampPerplexityOnlyMetadata(payload);
+      const savedKey = await cacheDb.setCachedResult(body, cachePayload);
+      if (savedKey) {
+        console.log(
+          '[on-demand] cached_results SAVED before response',
+          phase,
+          savedKey.slice(0, 12),
+          '(' + Math.round((Date.now() - startedAt) / 1000) + 's)'
+        );
+        body._onDemandCacheSaved = true;
+      }
+    } catch (cacheErr) {
+      console.warn('[on-demand] cached_results save failed:', cacheErr.message || cacheErr);
+    }
+  }
+
+  console.log('[on-demand] Perplexity-only complete for', phase, '(' + Math.round((Date.now() - startedAt) / 1000) + 's)');
+  return payload;
 }
 
 /** @deprecated Use fetchPerplexityOnlyOnDemand */
@@ -528,7 +557,12 @@ async function fetchPerplexityOnlyExpansion(body, logContext) {
 }
 
 function isArchiveOnlyLookup(body) {
-  return ARCHIVE_ONLY_MODE && isDecoupledGenerationPhase(body);
+  // Grade/topic only — on-demand expansions (pedagogy_deep_dive / archive_summary) always live-generate on cache miss.
+  return ARCHIVE_ONLY_MODE && isDecoupledGenerationPhase(body) && !isOnDemandExpansionPhase(body);
+}
+
+function shouldLiveGenerateOnDemandExpansion(body) {
+  return isOnDemandExpansionPhase(body);
 }
 
 function resolveHybridSystemBuilder(body, baseOpts) {
@@ -1738,6 +1772,9 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
   const action = (logContext && logContext.action) || buildActionLabel(body);
   logPerplexityCall(ip, action, 'Initiated');
 
+  // SSE streaming keeps reverse proxies alive during long Sonar research (on-demand expansions often exceed 60s).
+  const usePerplexityStream = isOnDemandExpansionPhase(body) || isDecoupledGenerationPhase(body);
+
   let searchResult;
   try {
     searchResult = await perplexityClient.callPerplexitySearch({
@@ -1745,7 +1782,7 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
         { role: 'system', content: buildPerplexitySearchSystemPrompt() },
         { role: 'user', content: buildPerplexitySearchUserPrompt(body) },
       ],
-      stream: false,
+      stream: usePerplexityStream,
     });
     logPerplexityCall(ip, action, 'Success');
   } catch (searchErr) {
@@ -2715,7 +2752,9 @@ async function executeGenerate(body, apiKey, requestContext) {
         }
       }
       console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
-      if (isPerplexityOnlyOnDemandPhase(body)) {
+      if (shouldLiveGenerateOnDemandExpansion(body)) {
+        console.log('[on-demand] expansion cache MISS — live Perplexity pipeline (no archive error):', body.phase);
+      } else if (isPerplexityOnlyOnDemandPhase(body)) {
         console.log('[on-demand] pipeline: Perplexity sonar only (no Gemini) for', body.phase);
       } else if (shouldUseHybridRouting(body)) {
         console.log('[hybrid] pipeline: Perplexity sonar → raw cache → Gemini', GEMINI_GENERATION_MODEL);
@@ -2845,7 +2884,7 @@ async function executeGenerate(body, apiKey, requestContext) {
   }
 
   let gradeCachePatch = null;
-  if (!body.skipCache) {
+  if (!body.skipCache && !body._onDemandCacheSaved) {
     try {
       if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
         if (body.priorCachedAnswer) {
@@ -3042,3 +3081,6 @@ module.exports.resolveApiKey = resolveApiKey;
 module.exports.buildGenerateHttpPayload = buildGenerateHttpPayload;
 module.exports.isArchiveOnlyMode = function () { return ARCHIVE_ONLY_MODE; };
 module.exports.isArchiveOnlyLookup = isArchiveOnlyLookup;
+module.exports.isOnDemandExpansionPhase = isOnDemandExpansionPhase;
+module.exports.shouldLiveGenerateOnDemandExpansion = shouldLiveGenerateOnDemandExpansion;
+module.exports.GENERATE_ROUTE_TIMEOUT_MS = GENERATE_ROUTE_TIMEOUT_MS;

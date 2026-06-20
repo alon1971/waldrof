@@ -5319,8 +5319,8 @@
         var preview = String(bodyText || '').trim().slice(0, 160);
         if (/timeout|non-JSON|Vercel/i.test(parseMsg) === false && /^Unexpected token/i.test(parseErr && parseErr.message ? parseErr.message : '') && !/^\s*[{[]/.test(preview)) {
           throw new Error(isEnglish()
-            ? 'Server returned a non-JSON response (often a Vercel timeout). Confirm AI_API_KEY is set, redeploy after env changes, and allow up to 60s for live search.'
-            : 'השרת החזיר תשובה שאינה JSON (לעיתים timeout של Vercel). ודאו ש-AI_API_KEY מוגדר, פרסמו מחדש אחרי עדכון משתני סביבה, והמתינו עד 60 שניות לחיפוש חי.');
+            ? 'Server returned a non-JSON response (often a gateway timeout). Confirm PERPLEXITY_API_KEY is set, redeploy after env changes, and allow up to 90 seconds for expansion research.'
+            : 'השרת החזיר תשובה שאינה JSON (לעיתים timeout של שרת). ודאו ש-PERPLEXITY_API_KEY מוגדר, פרסמו מחדש אחרי עדכון משתני סביבה, והמתינו עד 90 שניות לחיפוש הרחבה.');
         }
         throw new Error(parseMsg || ('תשובה לא תקינה מהשרת (' + res.status + '): ' + preview));
       }
