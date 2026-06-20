@@ -95,14 +95,17 @@ function buildQueryFromBody(body) {
   if (!body || typeof body !== 'object') return '';
   const parts = [];
   if (body.userMessage) parts.push(body.userMessage);
-  if (body.topic) parts.push(body.topic);
-  if (body.archiveQuery) parts.push(body.archiveQuery);
-  if (body.gradeLabel) parts.push(body.gradeLabel);
+  if (!body.chatGlobalScan) {
+    if (body.topic) parts.push(body.topic);
+    if (body.archiveQuery) parts.push(body.archiveQuery);
+    if (body.gradeLabel) parts.push(body.gradeLabel);
+  }
+  if (body.archiveQuery && body.chatGlobalScan) parts.push(body.archiveQuery);
   if (body.activityTitle) parts.push(body.activityTitle);
   if (body.sourceTitle) parts.push(body.sourceTitle);
   if (body.sourceDescription) parts.push(String(body.sourceDescription).slice(0, 400));
   if (body.activityPreview) parts.push(String(body.activityPreview).slice(0, 400));
-  if (body.gradePrompt) parts.push(String(body.gradePrompt).slice(0, 300));
+  if (!body.chatGlobalScan && body.gradePrompt) parts.push(String(body.gradePrompt).slice(0, 300));
   return parts.filter(Boolean).join(' — ').trim();
 }
 
@@ -150,8 +153,10 @@ function folderKeysEquivalent(a, b) {
 function buildExpandedSearchQuery(query, body) {
   const parts = [String(query || '').trim()];
   const mesh = PEDAGOGICAL_SEARCH_MESH.slice();
-  if (body && body.topic) parts.push(body.topic);
-  if (body && body.gradeLabel) parts.push(body.gradeLabel);
+  if (body && !body.chatGlobalScan) {
+    if (body.topic) parts.push(body.topic);
+    if (body.gradeLabel) parts.push(body.gradeLabel);
+  }
   if (body && body.archiveQuery) parts.push(body.archiveQuery);
   mesh.forEach(function (term) { parts.push(term); });
   return Array.from(new Set(
@@ -175,7 +180,7 @@ function buildExpandedCommunitySearchQuery(query, body) {
 /** Strip grade phrases and expand Hebrew core keywords for community fuzzy matching. */
 function extractCoreSubjectTerms(query, body) {
   const parts = [];
-  if (body && body.topic) parts.push(String(body.topic).trim());
+  if (body && !body.chatGlobalScan && body.topic) parts.push(String(body.topic).trim());
   if (body && body.userMessage) parts.push(String(body.userMessage).trim());
   if (query) parts.push(String(query).trim());
   const combined = parts.filter(Boolean).join(' ').trim();
@@ -431,15 +436,22 @@ async function searchCachedPedagogy(body, matchCount) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key) return [];
 
-  const topic = String(body.topic || '').trim();
-  const gradeId = String(body.currentGrade || body.gradeId || '').trim();
+  const globalScan = Boolean(body && body.chatGlobalScan);
+  const topic = globalScan
+    ? String(body.userMessage || body.topic || '').trim()
+    : String(body.topic || '').trim();
+  const gradeId = globalScan
+    ? ''
+    : String(body.currentGrade || body.gradeId || '').trim();
   if (!topic && !gradeId) return [];
 
   const params = new URLSearchParams();
   params.set('select', 'cache_key,phase,topic,grade_id,query_text,result_data,hit_count');
   params.set('order', 'hit_count.desc,created_at.desc');
   params.set('limit', String(matchCount || CACHE_MATCH_COUNT));
-  if (topic) params.set('topic', 'ilike.*' + topic.slice(0, 80) + '*');
+  if (topic) {
+    params.set('or', '(topic.ilike.*' + topic.slice(0, 80) + '*,query_text.ilike.*' + topic.slice(0, 80) + '*)');
+  }
   if (gradeId) params.set('grade_id', 'eq.' + gradeId);
 
   const res = await fetch(cfg.url + '/rest/v1/cached_results?' + params.toString(), {
@@ -490,7 +502,7 @@ async function searchCommunityByTopic(body, matchCount) {
   params.set('or', '(' + orParts.join(',') + ')');
 
   const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
-  if (gradeId) params.set('grade_id', 'eq.' + gradeId);
+  if (gradeId && !(body && body.chatGlobalScan)) params.set('grade_id', 'eq.' + gradeId);
 
   const res = await fetch(cfg.url + '/rest/v1/' + COMMUNITY_TABLE_NAME + '?' + params.toString(), {
     headers: {
@@ -741,7 +753,7 @@ async function searchCommunityByContent(query, body, matchCount) {
   params.set('or', '(' + titleOrParts.concat(contentOrParts, fileNameOrParts).join(',') + ')');
 
   const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
-  if (gradeId) params.set('grade_id', 'eq.' + gradeId);
+  if (gradeId && !(body && body.chatGlobalScan)) params.set('grade_id', 'eq.' + gradeId);
 
   const res = await fetch(cfg.url + '/rest/v1/' + COMMUNITY_TABLE_NAME + '?' + params.toString(), {
     headers: {

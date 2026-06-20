@@ -2538,10 +2538,109 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
 /**
  * Unified hybrid community probe — keyword fuzzy + substring + semantic (LLM/embeddings).
  */
+function resolveGradeLabelFromId(gradeId, gradeLabel) {
+  const label = String(gradeLabel || '').trim();
+  if (label) return label;
+  const id = String(gradeId || '').trim();
+  if (id && GRADE_LABEL_BY_ID[id]) return GRADE_LABEL_BY_ID[id];
+  if (id) return 'כיתה ' + id;
+  return '';
+}
+
+function formatCachedArchiveAsCommunityMatch(row, query) {
+  if (!row) return null;
+  const topic = String(row.topic || row.query_text || '').trim();
+  const gradeId = row.grade_id != null ? String(row.grade_id) : '';
+  const gradeLabel = resolveGradeLabelFromId(gradeId, row.grade_label);
+  const title = topic || String(row.query_text || '').trim() || 'ארכיון מחקר';
+  return {
+    id: row.cache_key || null,
+    source: 'cached_archive',
+    title: title,
+    topic: topic,
+    gradeId: gradeId || null,
+    gradeLabel: gradeLabel || null,
+    fileName: '',
+    fileUrl: '',
+    contentPreview: String(row.query_text || topic || '').slice(0, 240),
+    similarity: scoreTopicSimilarity(query, topic, row.query_text || ''),
+    matchType: 'cached_archive',
+    cacheKey: row.cache_key || null,
+    phase: row.phase || null,
+  };
+}
+
+/**
+ * Global cached_results scan for pedagogical chat — ignores UI grade/topic filters.
+ */
+async function findCachedResultsGlobalMatch(query, options) {
+  const opts = options || {};
+  const limit = opts.limit || 5;
+  const q = String(query || '').trim();
+  if (!q || !isSupabaseCacheEnabled()) {
+    return { matches: [], count: 0, query: q, matchMethod: 'none' };
+  }
+
+  const terms = buildCommunitySearchTerms(q);
+  if (!terms.length) {
+    return { matches: [], count: 0, query: q, matchMethod: 'none' };
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.set('select', LEGACY_ROW_SELECT);
+    params.set('order', 'hit_count.desc,created_at.desc');
+    params.set('limit', '80');
+    params.set('phase', 'in.(topic,grade,chat_followup)');
+
+    const orParts = [];
+    terms.forEach(function (term) {
+      orParts.push('topic.ilike.*' + term + '*');
+      orParts.push('query_text.ilike.*' + term + '*');
+      orParts.push('grade_label.ilike.*' + term + '*');
+    });
+    params.set('or', '(' + orParts.join(',') + ')');
+
+    const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+      method: 'GET',
+    });
+    if (!res.ok) {
+      return { matches: [], count: 0, query: q, matchMethod: 'none' };
+    }
+
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length) {
+      return { matches: [], count: 0, query: q, matchMethod: 'none' };
+    }
+
+    const hits = rows.map(function (row) {
+      return formatCachedArchiveAsCommunityMatch(row, q);
+    }).filter(function (hit) {
+      return hit && (hit.similarity || 0) >= 0.35;
+    }).sort(function (a, b) {
+      return (b.similarity || 0) - (a.similarity || 0);
+    }).slice(0, limit);
+
+    return {
+      matches: hits,
+      count: hits.length,
+      query: q,
+      matchMethod: hits.length ? 'cached_archive_global' : 'none',
+    };
+  } catch (err) {
+    console.warn('[community] cached_results global probe failed:', err.message || err);
+    return { matches: [], count: 0, query: q, matchMethod: 'none' };
+  }
+}
+
 async function findCommunityMaterials(options) {
   const opts = options || {};
-  const query = buildCommunitySearchQuery(opts);
-  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  const query = opts.globalScan === true
+    ? String(opts.userMessage || opts.query || '').trim()
+    : buildCommunitySearchQuery(opts);
+  const gradeId = opts.globalScan === true
+    ? ''
+    : String(opts.gradeId || opts.currentGrade || '').trim();
   const semanticQuery = String(opts.userMessage || opts.query || query).trim();
   if (!query) return { matches: [], count: 0, query: '', matchMethod: 'none' };
 
@@ -2551,29 +2650,47 @@ async function findCommunityMaterials(options) {
 
   if (isSupabaseCacheEnabled()) {
     try {
-      const scoped = await Promise.all([
-        fetchCommunityMaterialRows(gradeId, query, true),
-        fetchCommunityKnowledgeRows(gradeId, query, true),
-      ]);
-      materialRows = scoped[0];
-      kbRows = scoped[1];
-
-      if (!materialRows.length && !kbRows.length && gradeId) {
-        const broad = await Promise.all([
+      if (opts.globalScan === true) {
+        const globalFiltered = await Promise.all([
           fetchCommunityMaterialRows('', query, true),
           fetchCommunityKnowledgeRows('', query, true),
         ]);
-        materialRows = broad[0];
-        kbRows = broad[1];
-      }
+        materialRows = globalFiltered[0];
+        kbRows = globalFiltered[1];
 
-      if (!materialRows.length && !kbRows.length) {
-        const fallback = await Promise.all([
-          fetchCommunityMaterialRows(gradeId, query, false),
-          fetchCommunityKnowledgeRows(gradeId, query, false),
+        if (!materialRows.length && !kbRows.length) {
+          const globalBroad = await Promise.all([
+            fetchCommunityMaterialRows('', query, false),
+            fetchCommunityKnowledgeRows('', query, false),
+          ]);
+          materialRows = globalBroad[0];
+          kbRows = globalBroad[1];
+        }
+      } else {
+        const scoped = await Promise.all([
+          fetchCommunityMaterialRows(gradeId, query, true),
+          fetchCommunityKnowledgeRows(gradeId, query, true),
         ]);
-        materialRows = fallback[0];
-        kbRows = fallback[1];
+        materialRows = scoped[0];
+        kbRows = scoped[1];
+
+        if (!materialRows.length && !kbRows.length && gradeId) {
+          const broad = await Promise.all([
+            fetchCommunityMaterialRows('', query, true),
+            fetchCommunityKnowledgeRows('', query, true),
+          ]);
+          materialRows = broad[0];
+          kbRows = broad[1];
+        }
+
+        if (!materialRows.length && !kbRows.length) {
+          const fallback = await Promise.all([
+            fetchCommunityMaterialRows(gradeId, query, false),
+            fetchCommunityKnowledgeRows(gradeId, query, false),
+          ]);
+          materialRows = fallback[0];
+          kbRows = fallback[1];
+        }
       }
     } catch (err) {
       console.warn('[community] materials probe failed:', err.message || err);
@@ -2610,13 +2727,26 @@ async function findCommunityMaterials(options) {
   }
 
   if (!matches.length) {
-    if (!materialRows.length && !kbRows.length && gradeId && isSupabaseCacheEnabled()) {
+    if (!materialRows.length && !kbRows.length && gradeId && !opts.globalScan && isSupabaseCacheEnabled()) {
       try {
         const gradeRows = await fetchGradeCommunityRows(gradeId);
         materialRows = gradeRows.materialRows;
         kbRows = gradeRows.kbRows;
       } catch (gradeErr) {
         console.warn('[community] grade catalog fetch failed:', gradeErr.message || gradeErr);
+      }
+    }
+
+    if (!materialRows.length && !kbRows.length && opts.globalScan && isSupabaseCacheEnabled()) {
+      try {
+        const globalCatalog = await Promise.all([
+          fetchCommunityMaterialRows('', query, false),
+          fetchCommunityKnowledgeRows('', query, false),
+        ]);
+        materialRows = globalCatalog[0];
+        kbRows = globalCatalog[1];
+      } catch (globalErr) {
+        console.warn('[community] global catalog fetch failed:', globalErr.message || globalErr);
       }
     }
 
@@ -2687,6 +2817,8 @@ module.exports = {
   scoreTopicSimilarity,
   findArchiveTopicSuggestion,
   findCommunityMaterials,
+  findCachedResultsGlobalMatch,
+  resolveGradeLabelFromId,
   buildSemanticCatalogEntries,
   keywordSubstringMatchCommunity,
   buildCommunitySearchTerms,
