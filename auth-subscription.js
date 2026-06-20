@@ -9,7 +9,9 @@
   var STORAGE_USAGE = 'waldorf_search_usage_v2';
   var STORAGE_WORD_DOWNLOADS = 'waldorf_word_downloads_v1';
   var STORAGE_IDENTITY_EMAIL = 'waldorf_identity_email_v1';
-  var SUPPORT_WHATSAPP = '';
+  var SUPPORT_WHATSAPP = '9725440548078';
+  var SUPPORT_EMAIL = 'Waldorfplanner@gmail.com';
+  var SUPPORT_PHONE_DISPLAY = '054-40548078';
 
   /** Permanent PRO tier — must match api/subscription.js PRO_USERS. */
   var PRO_USERS = ['alon1971@gmail.com'];
@@ -24,26 +26,27 @@
   var TIERS = {
     trial: {
       id: 'trial',
-      lifetimeLimit: 10,
-      wordDownloadLimit: 10,
+      lifetimeLimit: 3,
+      wordDownloadLimit: 5,
+      wordDownloadPeriod: 'monthly',
       monthlyLimit: null,
       displayUnlimited: false,
       prices: { monthly: 0, yearly: 0 },
     },
     standard: {
       id: 'standard',
-      monthlyLimit: 200,
+      monthlyLimit: 300,
       lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 50, yearly: 500 },
-      yearlySavingsKey: 'pricing_standard_yearly_deal',
+      prices: { monthly: 49, yearly: 468 },
+      yearlySavingsKey: 'pricing_pro_yearly_deal',
     },
     pro: {
       id: 'pro',
-      monthlyLimit: 1000,
+      monthlyLimit: 300,
       lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 200, yearly: 2000 },
+      prices: { monthly: 49, yearly: 468 },
       yearlySavingsKey: 'pricing_pro_yearly_deal',
     },
     school: {
@@ -65,9 +68,9 @@
     billingCycle: null,
     usagePeriod: 'lifetime',
     searchesUsed: null,
-    searchLimit: 10,
+    searchLimit: 3,
     wordDownloadsUsed: 0,
-    wordDownloadLimit: 10,
+    wordDownloadLimit: 5,
   };
 
   var listeners = [];
@@ -625,7 +628,15 @@
   function readWordDownloads() {
     try {
       var raw = localStorage.getItem(STORAGE_WORD_DOWNLOADS);
-      return Number(raw) || 0;
+      if (!raw) return 0;
+      var parsed = JSON.parse(raw);
+      if (typeof parsed === 'number') return parsed;
+      var tier = normalizeTierId(authState.tier);
+      if (tier === 'trial') {
+        if (!parsed || parsed.period !== monthKey()) return 0;
+        return Number(parsed.count) || 0;
+      }
+      return Number(parsed.count) || 0;
     } catch (e) {
       return 0;
     }
@@ -633,7 +644,11 @@
 
   function writeWordDownloads(count) {
     try {
-      localStorage.setItem(STORAGE_WORD_DOWNLOADS, String(Number(count) || 0));
+      var tier = normalizeTierId(authState.tier);
+      var payload = tier === 'trial'
+        ? { period: monthKey(), count: Number(count) || 0 }
+        : { period: monthKey(), count: Number(count) || 0 };
+      localStorage.setItem(STORAGE_WORD_DOWNLOADS, JSON.stringify(payload));
     } catch (e) { /* */ }
   }
 
@@ -646,7 +661,7 @@
     var tier = normalizeTierId(authState.tier);
     if (tier !== 'trial') return null;
     if (authState.wordDownloadLimit != null) return authState.wordDownloadLimit;
-    return getTierConfig('trial').wordDownloadLimit || 10;
+    return getTierConfig('trial').wordDownloadLimit || 5;
   }
 
   function readUsage() {
@@ -1233,9 +1248,7 @@
     var check = canPerformWordDownload();
     if (!check.allowed) {
       if (check.reason === 'auth') showAuthOverlay();
-      else {
-        showPricingModal('word_download_limit_notice');
-      }
+      else showPricingModal('paywall_word_message');
       var err = new Error(t('word_download_limit_exceeded'));
       err.code = 'WORD_DOWNLOAD_LIMIT';
       err.details = check;
@@ -1325,10 +1338,7 @@
     var check = canPerformSearch();
     if (!check.allowed) {
       if (check.reason === 'auth') showAuthOverlay();
-      else {
-        showRateLimitModal(check);
-        showPricingModal();
-      }
+      else showPricingModal('paywall_search_message');
       var err = new Error(t('rate_limit_exceeded'));
       err.code = 'RATE_LIMIT';
       err.details = check;
@@ -1440,9 +1450,10 @@
       }
     }
     if (el) {
-      renderPricingCards();
+      renderPricingComparisonTable();
       el.classList.remove('hidden');
       el.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('pricing-modal-open');
     }
   }
 
@@ -1456,6 +1467,7 @@
     if (el) {
       el.classList.add('hidden');
       el.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('pricing-modal-open');
     }
   }
 
@@ -1608,104 +1620,90 @@
   }
 
   function schoolTierEmailHref() {
-    return 'mailto:waldorf.planner.ai@gmail.com?subject=' + encodeURIComponent(t('tier_school_email_subject'));
+    return 'mailto:' + SUPPORT_EMAIL + '?subject=' + encodeURIComponent(t('tier_school_email_subject'));
   }
 
-  function renderPricingCardActions(tierId, isCurrent, featured) {
-    if (tierId === 'school') {
-      return '<a href="' + escapeHtml(schoolTierEmailHref()) + '" class="pricing-tier-btn pricing-tier-btn--outline pricing-tier-btn--mail">' +
-        '<i class="fa-solid fa-envelope" aria-hidden="true"></i> ' +
-        escapeHtml(t('tier_school_contact_btn')) +
-      '</a>';
-    }
-    if (tierId === 'trial') {
-      return '<button type="button" class="pricing-tier-btn pricing-tier-btn--outline" data-pricing-select="trial"' + (isCurrent ? ' disabled' : '') + '>' +
-        escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_start_trial')) +
-      '</button>';
-    }
-    return '<button type="button" class="pricing-tier-btn' + (featured ? '' : ' pricing-tier-btn--outline') + '" data-pricing-select="' + tierId + '"' + (isCurrent ? ' disabled' : '') + '>' +
-      escapeHtml(isCurrent ? t('pricing_current_plan') : t('pricing_upgrade_btn')) +
-    '</button>';
+  function upgradeWhatsAppUrl(prefillKey) {
+    var msg = t(prefillKey || 'paywall_whatsapp_prefill');
+    return whatsAppSupportUrl(msg);
   }
 
-  function renderPricingTierFeatures(tierId) {
-    if (tierId === 'trial') {
-      return '<li>' + escapeHtml(t('tier_trial_feature_searches')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_trial_feature_downloads')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_trial_feature_archive')) + '</li>';
-    }
-    if (tierId === 'standard') {
-      return '<li>' + escapeHtml(t('tier_standard_feature_1')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_standard_feature_2')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_standard_feature_3')) + '</li>';
-    }
-    if (tierId === 'pro') {
-      return '<li>' + escapeHtml(t('tier_pro_feature_1')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_pro_feature_2')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_pro_feature_3')) + '</li>';
-    }
-    if (tierId === 'school') {
-      return '<li>' + escapeHtml(t('tier_school_feature_1')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_school_feature_2')) + '</li>' +
-        '<li>' + escapeHtml(t('tier_school_feature_3')) + '</li>';
-    }
-    return '';
-  }
-
-  function renderPricingCards() {
-    var grid = document.getElementById('pricing-tier-grid');
-    if (!grid) return;
-    var current = normalizeTierId(authState.tier);
-    var cycle = pricingBillingCycle;
-    var order = ['trial', 'standard', 'pro', 'school'];
-
-    grid.innerHTML = order.map(function (tierId) {
-      var tier = TIERS[tierId];
-      if (!tier) return '';
-      var isCurrent = tierId === current;
-      var featured = tierId === 'pro';
-      var isSchool = tierId === 'school';
-      var price = tierId === 'trial'
-        ? t('pricing_free')
-        : (isSchool
-          ? t('tier_school_price_label')
-          : formatPrice(tier.prices[cycle], cycle));
-      var altPrice = !isSchool && tierId !== 'trial' && cycle === 'monthly'
-        ? t('pricing_or_yearly', { amount: tier.prices.yearly })
-        : (!isSchool && tierId !== 'trial' && cycle === 'yearly'
-          ? t('pricing_or_monthly', { amount: tier.prices.monthly })
-          : '');
-      var savings = !isSchool && (tierId === 'standard' || tierId === 'pro') && tier.yearlySavingsKey
-        ? '<p class="pricing-tier-savings">' + escapeHtml(t(tier.yearlySavingsKey)) + '</p>'
-        : '';
-      var limitLine = '';
-
+  function renderProPriceCell(cycle) {
+    if (cycle === 'yearly') {
       return (
-        '<article class="pricing-tier-card' + (featured ? ' pricing-tier-card--featured' : '') + (isCurrent ? ' pricing-tier-card--current' : '') + (isSchool ? ' pricing-tier-card--school' : '') + '" data-tier="' + tierId + '">' +
-          (featured ? '<span class="pricing-tier-badge">' + escapeHtml(t('pricing_most_popular')) + '</span>' : '') +
-          (isCurrent ? '<span class="pricing-tier-current">' + escapeHtml(t('pricing_current_plan')) + '</span>' : '') +
-          '<h3 class="pricing-tier-name font-display">' + escapeHtml(tierLabel(tierId)) + '</h3>' +
-          '<p class="pricing-tier-price font-display">' + escapeHtml(price) + '</p>' +
-          (altPrice ? '<p class="pricing-tier-alt">' + escapeHtml(altPrice) + '</p>' : '') +
-          savings +
-          limitLine +
-          '<ul class="pricing-tier-features">' + renderPricingTierFeatures(tierId) + '</ul>' +
-          (tierId !== 'trial' && !isSchool
-            ? '<p class="pricing-tier-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>'
-            : '') +
-          renderPricingCardActions(tierId, isCurrent, featured) +
-        '</article>'
+        '<div class="pricing-price-stack">' +
+          '<span class="pricing-price-highlight">🔥 ' + escapeHtml(t('pricing_pro_yearly_line')) + '</span>' +
+          '<span class="pricing-price-note">' + escapeHtml(t('pricing_pro_yearly_savings')) + '</span>' +
+        '</div>'
+      );
+    }
+    return (
+      '<div class="pricing-price-stack">' +
+        '<span>• ' + escapeHtml(t('pricing_pro_monthly_line')) + '</span>' +
+        '<span class="pricing-price-muted">' + escapeHtml(t('pricing_pro_monthly_yearly_equiv')) + '</span>' +
+      '</div>'
+    );
+  }
+
+  function renderPricingComparisonTable() {
+    var wrap = document.getElementById('pricing-comparison-wrap');
+    if (!wrap) return;
+    var cycle = pricingBillingCycle;
+    var current = normalizeTierId(authState.tier);
+    var displayTier = isProUser() ? 'pro' : current;
+    var rows = [
+      { feature: t('pricing_row_archive'), free: t('pricing_cell_unlimited_sparkle'), pro: t('pricing_cell_unlimited_sparkle'), school: t('pricing_cell_unlimited_sparkle') },
+      { feature: t('pricing_row_community'), free: t('pricing_cell_unlimited'), pro: t('pricing_cell_unlimited'), school: t('pricing_cell_unlimited') },
+      { feature: t('pricing_row_chat'), free: t('pricing_cell_unlimited'), pro: t('pricing_cell_unlimited'), school: t('pricing_cell_unlimited') },
+      { feature: t('pricing_row_word'), free: t('pricing_cell_word_free'), pro: t('pricing_cell_word_pro'), school: t('pricing_cell_word_pro') },
+      { feature: t('pricing_row_live_search'), free: t('pricing_cell_search_free'), pro: t('pricing_cell_search_pro'), school: t('pricing_cell_search_school') },
+      { feature: t('pricing_row_price'), free: t('pricing_cell_price_free'), pro: renderProPriceCell(cycle), school:
+          '<span>' + escapeHtml(t('pricing_cell_price_school_line1')) + '</span><br>' +
+          '<span class="pricing-contact-name">' + escapeHtml(t('pricing_cell_price_school_contact')) + '</span>' },
+    ];
+
+    var headerCells = [
+      '<th scope="col" class="pricing-table-feature-col">' + escapeHtml(t('pricing_table_feature_col')) + '</th>',
+      '<th scope="col" class="pricing-table-plan-col' + (displayTier === 'trial' ? ' pricing-table-plan-col--current' : '') + '">' + escapeHtml(t('pricing_table_free_header')) + '</th>',
+      '<th scope="col" class="pricing-table-plan-col pricing-table-plan-col--featured' + (displayTier === 'pro' || displayTier === 'standard' ? ' pricing-table-plan-col--current' : '') + '">' + escapeHtml(t('pricing_table_pro_header')) + '</th>',
+      '<th scope="col" class="pricing-table-plan-col' + (displayTier === 'school' ? ' pricing-table-plan-col--current' : '') + '">' + escapeHtml(t('pricing_table_school_header')) + '</th>',
+    ].join('');
+
+    var bodyRows = rows.map(function (row) {
+      return (
+        '<tr>' +
+          '<th scope="row" class="pricing-table-feature">' + escapeHtml(row.feature) + '</th>' +
+          '<td>' + (row.free.indexOf('<') >= 0 ? row.free : escapeHtml(row.free)) + '</td>' +
+          '<td class="pricing-table-pro-cell">' + (row.pro.indexOf('<') >= 0 ? row.pro : escapeHtml(row.pro)) + '</td>' +
+          '<td>' + (row.school.indexOf('<') >= 0 ? row.school : escapeHtml(row.school)) + '</td>' +
+        '</tr>'
       );
     }).join('');
 
-    grid.querySelectorAll('[data-pricing-select]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var tierId = btn.getAttribute('data-pricing-select');
-        mockUpgrade(tierId, pricingBillingCycle).catch(function (e) {
-          alert(e.message || String(e));
-        });
-      });
-    });
+    wrap.innerHTML =
+      '<div class="pricing-table-scroll">' +
+        '<table class="pricing-comparison-table" role="table">' +
+          '<thead><tr>' + headerCells + '</tr></thead>' +
+          '<tbody>' + bodyRows + '</tbody>' +
+        '</table>' +
+      '</div>';
+
+    var waLink = document.getElementById('pricing-upgrade-whatsapp');
+    var mailLink = document.getElementById('pricing-upgrade-email');
+    if (waLink) {
+      waLink.href = upgradeWhatsAppUrl('paywall_whatsapp_prefill');
+      waLink.setAttribute('aria-label', t('paywall_cta'));
+    }
+    if (mailLink) {
+      mailLink.href = schoolTierEmailHref();
+      mailLink.textContent = SUPPORT_EMAIL;
+    }
+    var phoneEl = document.getElementById('pricing-upgrade-phone');
+    if (phoneEl) phoneEl.textContent = SUPPORT_PHONE_DISPLAY;
+  }
+
+  function renderPricingCards() {
+    renderPricingComparisonTable();
   }
 
   function setSearchUsageMeterHidden(hidden) {
@@ -1921,6 +1919,8 @@
 
     var pricingClose = document.getElementById('pricing-modal-close');
     if (pricingClose) pricingClose.addEventListener('click', hidePricingModal);
+    var pricingDismiss = document.getElementById('pricing-modal-dismiss');
+    if (pricingDismiss) pricingDismiss.addEventListener('click', hidePricingModal);
     var pricingBackdrop = document.getElementById('pricing-modal-backdrop');
     if (pricingBackdrop) pricingBackdrop.addEventListener('click', hidePricingModal);
 
@@ -1984,7 +1984,7 @@
         document.querySelectorAll('[data-billing-cycle]').forEach(function (b) {
           b.classList.toggle('billing-toggle-btn--active', b === btn);
         });
-        renderPricingCards();
+        renderPricingComparisonTable();
       });
     });
   }
@@ -2046,7 +2046,7 @@
   }
 
   function refreshAuthI18n() {
-    renderPricingCards();
+    renderPricingComparisonTable();
     updateHeaderUi();
     updateIdentityEmailUi();
     updateSearchMeterUi();

@@ -24,9 +24,9 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
 ];
 
 const TIER_LIMITS = {
-  trial: { lifetime: 10, monthly: null, wordDownloads: 10 },
-  standard: { lifetime: null, monthly: 200, wordDownloads: null },
-  pro: { lifetime: null, monthly: 1000, wordDownloads: null },
+  trial: { lifetime: 3, monthly: null, wordDownloads: 5, wordDownloadsMonthly: true },
+  standard: { lifetime: null, monthly: 300, wordDownloads: null },
+  pro: { lifetime: null, monthly: 300, wordDownloads: null },
 };
 
 const LEGACY_TIER_MAP = {
@@ -318,6 +318,14 @@ async function resolveUser(req, body) {
   throw err;
 }
 
+function readWordDownloadsFromRow(row, tier) {
+  const month = currentMonthKey();
+  const raw = Number(row && row.word_downloads_count) || 0;
+  if (tier !== 'trial') return raw;
+  const rowMonth = monthFromRow(row);
+  return rowMonth === month ? raw : 0;
+}
+
 function buildUsagePayload(row) {
   const tier = planTypeFromRow(row);
   const limits = TIER_LIMITS[tier];
@@ -334,7 +342,7 @@ function buildUsagePayload(row) {
     period = 'monthly';
   }
 
-  const wordDownloadsUsed = Number(row.word_downloads_count) || 0;
+  const wordDownloadsUsed = readWordDownloadsFromRow(row, tier);
   const wordDownloadLimit = limits.wordDownloads;
   const wordDownloadsAllowed = wordDownloadLimit == null
     ? true
@@ -646,15 +654,22 @@ async function recordWordDownload(user, userToken) {
 
   const usageBefore = buildUsagePayload(row);
   if (!usageBefore.wordDownloadsAllowed) {
-    const err = new Error('הגעת למגבלת ההורדות במסלול החינמי. כדי להמשיך להוריד קבצים מעוצבים, יש לשדרג למסלול סטנדרט או פרו');
+    const err = new Error('הגעתם למגבלת 5 הורדות Word בחודש במסלול החינמי. שדרגו למסלול פרו להורדות ללא הגבלה.');
     err.statusCode = 429;
     err.code = 'WORD_DOWNLOAD_LIMIT';
     err.usage = usageBefore;
     throw err;
   }
 
+  const month = currentMonthKey();
+  const rowMonth = monthFromRow(row);
+  const currentDownloads = tier === 'trial' && rowMonth !== month
+    ? 0
+    : (Number(row.word_downloads_count) || 0);
+
   const updated = await updateSubscriptionRow(user.id, {
-    word_downloads_count: (Number(row.word_downloads_count) || 0) + 1,
+    word_downloads_count: currentDownloads + 1,
+    updated_at: new Date().toISOString(),
   }, row, user, userToken);
   return {
     ok: true,

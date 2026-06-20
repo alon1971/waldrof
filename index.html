@@ -1787,6 +1787,143 @@
       min-height: 2rem;
     }
 
+    /* Pricing comparison table */
+    #pricing-modal .app-modal-panel {
+      max-width: min(56rem, 96vw);
+      width: min(56rem, 96vw);
+    }
+    .pricing-table-scroll {
+      overflow-x: auto;
+      margin: 0 -0.25rem 1.25rem;
+      padding: 0 0.25rem;
+    }
+    .pricing-comparison-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: #5C4A3A;
+    }
+    .pricing-comparison-table th,
+    .pricing-comparison-table td {
+      padding: 0.65rem 0.55rem;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.35);
+      vertical-align: top;
+      text-align: center;
+    }
+    .pricing-comparison-table thead th {
+      background: linear-gradient(180deg, rgba(139, 58, 58, 0.08), rgba(255,255,255,0.6));
+      color: #8B3A3A;
+      font-weight: 700;
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 0.88rem;
+      border-bottom: 2px solid rgba(201, 169, 98, 0.5);
+    }
+    .pricing-table-feature-col,
+    .pricing-table-feature {
+      text-align: start;
+      font-weight: 600;
+      min-width: 8.5rem;
+      color: #5C4A3A;
+    }
+    .pricing-table-plan-col--featured {
+      background: rgba(122, 155, 118, 0.06);
+    }
+    .pricing-table-plan-col--current {
+      box-shadow: inset 0 -3px 0 #C9A962;
+    }
+    .pricing-table-pro-cell {
+      background: rgba(122, 155, 118, 0.04);
+      font-weight: 500;
+    }
+    .pricing-price-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      align-items: center;
+    }
+    .pricing-price-highlight {
+      font-weight: 700;
+      color: #5C7D58;
+    }
+    .pricing-price-note {
+      font-size: 0.75rem;
+      font-style: italic;
+      color: rgba(92, 74, 58, 0.75);
+    }
+    .pricing-price-muted {
+      font-size: 0.75rem;
+      color: rgba(92, 74, 58, 0.65);
+    }
+    .pricing-contact-name {
+      font-size: 0.78rem;
+      color: #8B3A3A;
+      font-weight: 600;
+    }
+    .pricing-paywall-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.65rem;
+      margin-top: 0.5rem;
+      padding-top: 0.25rem;
+      border-top: 1px solid rgba(201, 169, 98, 0.35);
+    }
+    .pricing-paywall-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      max-width: 22rem;
+      padding: 0.85rem 1.25rem;
+      border-radius: 0.85rem;
+      font-weight: 700;
+      text-decoration: none;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff;
+      border: none;
+      box-shadow: 0 6px 20px rgba(92, 125, 88, 0.25);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .pricing-paywall-cta:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(92, 125, 88, 0.3);
+      color: #fff;
+    }
+    .pricing-paywall-contact {
+      font-size: 0.8rem;
+      color: rgba(92, 74, 58, 0.75);
+      text-align: center;
+      line-height: 1.5;
+    }
+    .pricing-paywall-contact a {
+      color: #8B3A3A;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .pricing-paywall-contact a:hover { text-decoration: underline; }
+    #pricing-modal-dismiss {
+      margin-top: 0.15rem;
+      padding: 0.55rem 1rem;
+      border: none;
+      background: transparent;
+      color: rgba(92, 74, 58, 0.65);
+      font-size: 0.82rem;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    #pricing-modal-dismiss:hover { color: #5C4A3A; }
+    body.pricing-modal-open { overflow: hidden; }
+    #pricing-modal .pricing-modal-notice {
+      text-align: start;
+      white-space: pre-line;
+      background: linear-gradient(135deg, rgba(201, 169, 98, 0.12), rgba(139, 58, 58, 0.06));
+      border-color: rgba(201, 169, 98, 0.45);
+    }
+
     #rate-limit-modal .app-modal-panel { max-width: 28rem; text-align: center; }
     .rate-limit-icon {
       width: 3.5rem; height: 3.5rem; margin: 0 auto 1rem; border-radius: 50%;
@@ -3120,7 +3257,19 @@
         <button type="button" class="billing-toggle-btn billing-toggle-btn--active" data-billing-cycle="monthly" data-i18n="pricing_billing_monthly">חודשי</button>
         <button type="button" class="billing-toggle-btn" data-billing-cycle="yearly" data-i18n="pricing_billing_yearly">שנתי</button>
       </div>
-      <div id="pricing-tier-grid"></div>
+      <div id="pricing-comparison-wrap" class="pricing-comparison-wrap"></div>
+      <div class="pricing-paywall-actions">
+        <a id="pricing-upgrade-whatsapp" href="#" target="_blank" rel="noopener noreferrer" class="pricing-paywall-cta">
+          <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+          <span data-i18n="paywall_cta">לשדרוג מהיר בוואטסאפ/במייל</span>
+        </a>
+        <p class="pricing-paywall-contact">
+          <span id="pricing-upgrade-phone">054-40548078</span>
+          ·
+          <a id="pricing-upgrade-email" href="mailto:Waldorfplanner@gmail.com">Waldorfplanner@gmail.com</a>
+        </p>
+        <button type="button" id="pricing-modal-dismiss" data-i18n="paywall_dismiss">חזרה לארכיון החינמי</button>
+      </div>
     </div>
   </div>
 
@@ -5077,7 +5226,6 @@
     }
 
     async function invokeWaldorfResearch(payload, options) {
-      if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.assertSearchAllowed();
       const opts = options || {};
       const researchPayload = prepareResearchPayload(payload);
 
@@ -5170,18 +5318,21 @@
       }
       if (!res.ok || json.error) {
         const apiErrText = String(json.error || json.message || '');
+        if (res.status === 429 && json && json.code === 'RATE_LIMIT') {
+          if (typeof WaldorfAuth !== 'undefined') {
+            if (json.usage) WaldorfAuth.applyUsageFromServer(json.usage);
+            WaldorfAuth.showPricingModal('paywall_search_message');
+          }
+          const limitErr = new Error(t('rate_limit_exceeded'));
+          limitErr.code = 'RATE_LIMIT';
+          throw limitErr;
+        }
         const isGeminiClientError = res.status === 400 || res.status === 429
           || /Gemini error (429|400)\b/i.test(apiErrText)
           || /rate limit|quota exceeded|resource exhausted|too many requests|high demand|retry in [0-9.]+s/i.test(apiErrText)
           || /invalid argument|INVALID_ARGUMENT|bad request/i.test(apiErrText);
         if (isGeminiClientError) {
           throw new Error(formatExpansionErrorMessage(apiErrText || ('שגיאת שרת ' + res.status)));
-        }
-        if (res.status === 429 || (json && json.code === 'RATE_LIMIT')) {
-          if (typeof WaldorfAuth !== 'undefined') {
-            if (json.usage) WaldorfAuth.applyUsageFromServer(json.usage);
-            try { WaldorfAuth.assertSearchAllowed(); } catch (limitErr) { throw limitErr; }
-          }
         }
         if (res.status === 404) {
           const archiveMsg = String(json.error || json.message || '').trim();
@@ -9157,6 +9308,84 @@
       return best;
     }
 
+    function isLikelyUserChatQuestion(text) {
+      const s = String(text || '').trim();
+      if (!s) return false;
+      if (/[?؟]/.test(s)) return true;
+      if (/^(האם|מהו?|איפה|היכן|למה|מדוע|איך|האם יש|תוכל|תוכלי)\b/.test(s)) return true;
+      if (s.split(/\s+/).filter(Boolean).length >= 8) return true;
+      return false;
+    }
+
+    function findCatalogTopicInCommunityCache(match, gradeId) {
+      const gid = String(gradeId || (match && match.gradeId) || '').trim();
+      if (!gid) return '';
+      const items = filterByGrade(appState.communityCache, gid).filter(function (i) { return !i.isDemo; });
+      if (!items.length) return '';
+
+      const materialId = normalizeMaterialUuid(
+        (match && (match.materialId || match.sourceMaterialId || match.id)) || ''
+      );
+      if (materialId) {
+        const byId = items.find(function (item) {
+          const itemId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
+          return itemId && itemId === materialId;
+        });
+        if (byId && byId.topic) return String(byId.topic).trim();
+      }
+
+      const titleKey = normalizeTopicKey((match && (match.displayTitle || match.title)) || '');
+      if (titleKey) {
+        const folders = getDynamicTopicsForGrade(gid);
+        for (let i = 0; i < folders.length; i++) {
+          const folder = folders[i];
+          const folderKey = normalizeTopicKey(folder.id || folder.label || '');
+          if (!folderKey) continue;
+          if (folderKey === titleKey || folderKey.indexOf(titleKey) >= 0 || titleKey.indexOf(folderKey) >= 0) {
+            return String(folder.id || folder.label).trim();
+          }
+        }
+        const byTitle = items.find(function (item) {
+          const itemTitle = normalizeTopicKey(item.title || item.fileName || '');
+          return itemTitle && itemTitle === titleKey;
+        });
+        if (byTitle && byTitle.topic) return String(byTitle.topic).trim();
+      }
+      return '';
+    }
+
+    function communityCatalogTopicForMatch(match) {
+      const catalogTopic = String((match && match.catalogTopic) || '').trim();
+      if (catalogTopic && !isLikelyUserChatQuestion(catalogTopic)) return catalogTopic;
+
+      const bundleTopic = String((match && match.bundleTopic) || '').trim();
+      if (bundleTopic && !isLikelyUserChatQuestion(bundleTopic)) return bundleTopic;
+
+      const topic = String((match && match.topic) || '').trim();
+      if (topic && !isLikelyUserChatQuestion(topic)) return topic;
+
+      return findCatalogTopicInCommunityCache(match, match && match.gradeId) || '';
+    }
+
+    async function navigateCommunityCatalogForMatch(match) {
+      const gradeId = String((match && match.gradeId) || appState.grade || '').trim();
+      if (!gradeId) {
+        openCommunityRepo();
+        return;
+      }
+      let topic = communityCatalogTopicForMatch(match);
+      if (!topic && isCloudConfigured()) {
+        try { await loadCommunity(); } catch (e) { /* ignore */ }
+        topic = communityCatalogTopicForMatch(match);
+      }
+      openCommunityRepo();
+      if (topic) {
+        renderCatalog('materials', gradeId, topic);
+      } else {
+        renderCatalog('grade', gradeId);
+      }
+    }
+
     function communityMatchKey(match) {
       if (!match) return '';
       return String(match.id || match.sourceMaterialId || '') + '|' + normalizeTopicKey(match.title) + '|' + normalizeTopicKey(match.topic);
@@ -9186,11 +9415,14 @@
       (serverMatches || []).forEach(function (match) {
         add({
           id: match.id,
+          materialId: match.materialId || match.sourceMaterialId || match.id || null,
           source: match.source || 'knowledge_base',
           title: match.displayTitle || match.title || match.fileName || match.topic || 'חומר קהילתי',
           topic: match.topic || '',
+          catalogTopic: match.catalogTopic || match.bundleTopic || match.topic || '',
           bundleTopic: match.bundleTopic || match.topic || '',
           gradeId: match.gradeId || appState.grade || null,
+          gradeLabel: match.gradeLabel || null,
           fileName: match.internalFileName || match.fileName || '',
           fileUrl: match.fileUrl || '',
           matchedInBundle: Boolean(match.matchedInBundle),
@@ -9204,10 +9436,6 @@
       });
     }
 
-    function communityCatalogTopicForMatch(match) {
-      return String((match && (match.bundleTopic || match.topic || match.title)) || appState.topic || '').trim();
-    }
-
     function buildCommunityFoundAlertHtml(matches) {
       if (!matches || !matches.length) return '';
       const preview = matches.slice(0, 4);
@@ -9217,16 +9445,16 @@
         '<span>' + escapeHtml(hasNested ? t('community_found_nested_alert') : t('community_found_alert')) + '</span></div>';
       html += '<div class="community-found-alert__list">';
       preview.forEach(function (match, index) {
-        const bundleTopic = match.bundleTopic || match.topic || '';
+        const catalogTopic = communityCatalogTopicForMatch(match);
+        const bundleTopic = match.catalogTopic || match.bundleTopic || catalogTopic || '';
         const itemTitle = match.matchedInBundle
           ? (match.displayTitle || match.internalFileName || match.fileName || match.title || ('חומר ' + (index + 1)))
-          : (match.title || match.fileName || match.topic || ('חומר ' + (index + 1)));
+          : (match.title || match.fileName || catalogTopic || ('חומר ' + (index + 1)));
         let titleHtml = escapeHtml(itemTitle);
         if (match.matchedInBundle && bundleTopic) {
           titleHtml += '<div class="text-sm text-walnut/75 mt-1 leading-relaxed">' +
             escapeHtml(match.alertText || t('community_found_nested_item', { folder: bundleTopic })) + '</div>';
         }
-        const topic = communityCatalogTopicForMatch(match);
         const gradeId = match.gradeId || appState.grade || '';
         html += '<div class="community-found-alert__item">' +
           '<span class="community-found-alert__item-title">' + titleHtml + '</span>' +
@@ -9236,7 +9464,8 @@
             '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> ' +
             escapeHtml(t('community_found_open_file')) + '</a>';
         }
-        html += '<button type="button" class="community-found-alert__btn community-found-alert__btn--secondary" data-community-catalog="' + index + '">' +
+        html += '<button type="button" class="community-found-alert__btn community-found-alert__btn--secondary" data-community-catalog="' + index + '" ' +
+          'data-community-grade="' + escapeHtml(String(gradeId)) + '" data-community-topic="' + escapeHtml(catalogTopic) + '">' +
           '<i class="fa-solid fa-folder-open" aria-hidden="true"></i> ' +
           escapeHtml(t('community_found_open_repo')) + '</button>';
         html += '</div></div>';
@@ -9259,14 +9488,18 @@
         btn.addEventListener('click', function () {
           const idx = parseInt(btn.getAttribute('data-community-catalog'), 10);
           const match = built.preview[idx];
-          const gradeId = (match && match.gradeId) || appState.grade;
-          const topic = communityCatalogTopicForMatch(match);
-          if (!gradeId || !topic) {
+          if (!match) {
             openCommunityRepo();
             return;
           }
-          openCommunityRepo();
-          renderCatalog('materials', gradeId, topic);
+          const gradeFromBtn = String(btn.getAttribute('data-community-grade') || '').trim();
+          const topicFromBtn = String(btn.getAttribute('data-community-topic') || '').trim();
+          if (gradeFromBtn && topicFromBtn && !isLikelyUserChatQuestion(topicFromBtn)) {
+            openCommunityRepo();
+            renderCatalog('materials', gradeFromBtn, topicFromBtn);
+            return;
+          }
+          navigateCommunityCatalogForMatch(match);
         });
       });
     }
@@ -13656,12 +13889,19 @@
             }
           },
           openCommunityCatalog: function (gradeId, topic) {
-            if (!gradeId || !topic) {
+            const gid = String(gradeId || '').trim();
+            const catalogTopic = String(topic || '').trim();
+            if (!gid) {
               openCommunityRepo();
               return;
             }
+            if (!catalogTopic || isLikelyUserChatQuestion(catalogTopic)) {
+              openCommunityRepo();
+              renderCatalog('grade', gid);
+              return;
+            }
             openCommunityRepo();
-            renderCatalog('materials', gradeId, topic);
+            renderCatalog('materials', gid, catalogTopic);
           },
           renderCommunityAlert: function (matches) {
             var targets = [
