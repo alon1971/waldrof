@@ -26,6 +26,7 @@ const jsonRepair = require('./json-repair');
 const env = require('./env');
 const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
+const pedagogicalScope = require('./pedagogical-scope');
 
 /** Grade/topic: cache-first from Supabase; on miss run Perplexity-only pipeline. */
 const ARCHIVE_ONLY_MODE = process.env.ARCHIVE_ONLY !== 'false';
@@ -367,6 +368,7 @@ function waldorfSystemPrompt(extra) {
   return (
     'You are an expert Waldorf / Steiner-Waldorf pedagogy researcher and curriculum designer. ' +
     'Use live web search as the CORE ANCHOR to gather broad, exhaustive, high-quality educational material for every query. ' +
+    pedagogicalScope.PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION +
     CONTENT_HIERARCHY_INSTRUCTION +
     STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     WEB_SEARCH_PRIORITY_INSTRUCTION +
@@ -392,6 +394,7 @@ function waldorfSystemPrompt(extra) {
 function geminiMasterEducatorSystemPrompt(extra) {
   return (
     'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
+    pedagogicalScope.PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION +
     GEMINI_MASTER_EDUCATOR_ROLE +
     STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     FACTUAL_INTEGRITY_INSTRUCTION +
@@ -783,13 +786,15 @@ function buildGradeLockBlock(body) {
   const lockText = (body.gradeLockInstruction && body.gradeLockInstruction.trim()) || defaultLockHe;
 
   return (
+    pedagogicalScope.PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION +
     '\n=== GRADE LOCK (MANDATORY) ===\n' +
     'currentGrade (id): ' + gradeId + '\n' +
     'gradeLabel: ' + gradeLabel + '\n' +
     'age: ' + age + '\n' +
     'INSTRUCTION: ' + lockText + '\n' +
     'Reject or rewrite any idea, story, fairy tale, example, or pedagogical emphasis that belongs to a different grade.\n' +
-    '=== END GRADE LOCK ===\n'
+    '=== END GRADE LOCK ===\n' +
+    pedagogicalScope.buildPedagogicalScopeUserBlock(body)
   );
 }
 
@@ -1581,6 +1586,7 @@ function buildUserPrompt(body) {
     return (
       ragBlock +
       (chatGlobalScan ? '' : buildGradeLockBlock(body)) +
+      pedagogicalScope.buildPedagogicalScopeUserBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
       communityBlock +
@@ -3084,6 +3090,20 @@ async function executeGenerate(body, apiKey, requestContext) {
     }
   }
 
+  const scopeMismatch = pedagogicalScope.checkPedagogicalScopeForBody(body);
+  if (scopeMismatch) {
+    console.log(
+      '[pedagogical-scope] BLOCKED',
+      body.phase,
+      '«' + scopeMismatch.requestedTopic + '»',
+      '—',
+      scopeMismatch.currentGradeLabel,
+      '≠',
+      scopeMismatch.canonicalGradeLabel
+    );
+    return pedagogicalScope.buildScopeMismatchGenerateResult(body, scopeMismatch);
+  }
+
   const logContext = {
     ip: resolveClientIp(requestContext),
     action: buildActionLabel(body),
@@ -3288,6 +3308,9 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.phase !== 'chat_followup' && (resolvedGradeId(body) || body.gradeLabel)
       ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.'
       : '';
+  const scopeGuardSystem = pedagogicalScope.shouldValidatePedagogicalScope(body)
+    ? ' CRITICAL: Enforce Waldorf pedagogical scope — refuse cross-grade topics; never hallucinate justifications.'
+    : '';
 
   const searchPhases = new Set([
     'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary',
@@ -3304,6 +3327,7 @@ async function executeGenerate(body, apiKey, requestContext) {
       : '';
   const extraSystem =
     gradeLockSystem +
+    scopeGuardSystem +
     (isDecoupledGen || isOnDemandExpansion ? '' : CONTENT_HIERARCHY_INSTRUCTION) +
     communityCriticalBlock +
     (body.phase === 'grade' || body.phase === 'topic' || body.phase === 'phase_c'
