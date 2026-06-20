@@ -121,6 +121,50 @@ function getGeminiApiKey() {
   return cleanKey(process.env.GEMINI_API_KEY);
 }
 
+function getAppBaseUrl() {
+  return cleanUrl(process.env.APP_BASE_URL || process.env.AUTH_REDIRECT_URL || 'https://waldrof.onrender.com');
+}
+
+function getBillingSuccessUrl() {
+  return cleanUrl(process.env.BILLING_SUCCESS_URL || getAppBaseUrl() + '/?checkout=success');
+}
+
+function getBillingCancelUrl() {
+  return cleanUrl(process.env.BILLING_CANCEL_URL || getAppBaseUrl() + '/?checkout=cancelled');
+}
+
+function getBillingReportEmail() {
+  return cleanKey(process.env.BILLING_REPORT_EMAIL || 'Waldorfplanner@gmail.com');
+}
+
+function getCronSecret() {
+  return cleanKey(process.env.CRON_SECRET || process.env.BILLING_CRON_SECRET);
+}
+
+function getSmtpHost() {
+  return cleanKey(process.env.SMTP_HOST || 'smtp.gmail.com');
+}
+
+function getSmtpPort() {
+  return Number(process.env.SMTP_PORT || 587);
+}
+
+function getSmtpUser() {
+  return cleanKey(process.env.SMTP_USER || process.env.GMAIL_USER);
+}
+
+function getSmtpPass() {
+  return cleanKey(process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD);
+}
+
+function getSmtpFrom() {
+  return cleanKey(process.env.SMTP_FROM || process.env.SMTP_USER || process.env.GMAIL_USER);
+}
+
+function isStripeCheckoutEnabled() {
+  return Boolean(cleanKey(process.env.STRIPE_SECRET_KEY));
+}
+
 function getPublicClientConfig() {
   return {
     supabaseUrl: getSupabaseUrl(),
@@ -136,6 +180,8 @@ function getPublicClientConfig() {
     authRedirectUrl: process.env.AUTH_REDIRECT_URL || 'https://waldrof.onrender.com',
     supportWhatsApp: cleanKey(process.env.SUPPORT_WHATSAPP || process.env.SUPPORT_WHATSAPP_NUMBER || ''),
     apiSubscription: '/api/subscription',
+    apiBillingCheckout: '/api/billing/checkout',
+    stripeCheckoutEnabled: isStripeCheckoutEnabled(),
   };
 }
 
@@ -152,4 +198,15 @@ module.exports = {
   getPublicClientConfig,
   normalizeSupabaseUrl,
   isSupabaseUrlReachable,
+  getAppBaseUrl,
+  getBillingSuccessUrl,
+  getBillingCancelUrl,
+  getBillingReportEmail,
+  getCronSecret,
+  getSmtpHost,
+  getSmtpPort,
+  getSmtpUser,
+  getSmtpPass,
+  getSmtpFrom,
+  isStripeCheckoutEnabled,
 };

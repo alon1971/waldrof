@@ -66,12 +66,26 @@
     sessionReady: false,
     autoRenew: true,
     billingCycle: null,
+    expiresAt: null,
     usagePeriod: 'lifetime',
     searchesUsed: null,
     searchLimit: 3,
     wordDownloadsUsed: 0,
     wordDownloadLimit: 5,
   };
+
+  var stripeCheckoutEnabled = false;
+  var billingCheckoutUrl = '/api/billing/checkout';
+
+  function applyRuntimeBillingConfig(cfg) {
+    if (!cfg || typeof cfg !== 'object') return;
+    if (cfg.stripeCheckoutEnabled != null) stripeCheckoutEnabled = Boolean(cfg.stripeCheckoutEnabled);
+    if (cfg.apiBillingCheckout) billingCheckoutUrl = String(cfg.apiBillingCheckout);
+  }
+
+  if (global.__WALDROF_RUNTIME_CONFIG__) {
+    applyRuntimeBillingConfig(global.__WALDROF_RUNTIME_CONFIG__);
+  }
 
   var listeners = [];
   var supabaseClient = null;
@@ -705,6 +719,7 @@
     authState.usagePeriod = usage.usagePeriod || authState.usagePeriod;
     if (usage.autoRenew != null) authState.autoRenew = usage.autoRenew !== false;
     if (usage.billingCycle != null) authState.billingCycle = usage.billingCycle;
+    if (usage.expiresAt != null) authState.expiresAt = usage.expiresAt;
     if (usage.wordDownloadsUsed != null) {
       authState.wordDownloadsUsed = Number(usage.wordDownloadsUsed) || 0;
       writeWordDownloads(authState.wordDownloadsUsed);
@@ -799,6 +814,7 @@
           authState.tier = normalizeTierId(data.subscription.tier);
           authState.autoRenew = data.subscription.autoRenew !== false;
           authState.billingCycle = data.subscription.billingCycle || null;
+          authState.expiresAt = data.subscription.expiresAt || (data.usage && data.usage.expiresAt) || null;
         }
         if (data.usage) applyServerUsage(data.usage);
       }
@@ -894,6 +910,7 @@
       sessionReady: authState.sessionReady,
       autoRenew: authState.autoRenew,
       billingCycle: authState.billingCycle,
+      expiresAt: authState.expiresAt,
       usagePeriod: authState.usagePeriod || (normalizeTierId(authState.tier) === 'trial' ? 'lifetime' : 'monthly'),
       searchesToday: used,
       searchesUsed: used,
@@ -1201,6 +1218,43 @@
     notifyListeners();
   }
 
+  function startStripeCheckout(tierId, billingCycle) {
+    return getAccessToken().then(function (token) {
+      var headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = 'Bearer ' + token;
+      var identityEmail = getIdentityEmail();
+      if (identityEmail) headers['X-User-Email'] = identityEmail;
+      var body = {
+        planType: tierId,
+        billingCycle: billingCycle || pricingBillingCycle,
+        userEmail: identityEmail || undefined,
+      };
+      if (authState.user) {
+        body.teacherUser = {
+          id: authState.user.id,
+          email: authState.user.email || identityEmail,
+          displayName: authState.user.displayName,
+          tier: authState.tier,
+        };
+      }
+      return fetch(billingCheckoutUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body),
+      }).then(function (res) {
+        return res.text().then(function (text) {
+          var json;
+          try { json = text && text.trim() ? JSON.parse(text) : {}; } catch (e) { json = {}; }
+          if (!res.ok) throw new Error((json && json.error) || 'checkout error');
+          var checkoutUrl = json.data && json.data.checkoutUrl;
+          if (!checkoutUrl) throw new Error('checkout URL missing');
+          global.location.assign(checkoutUrl);
+          return json.data;
+        });
+      });
+    });
+  }
+
   function mockUpgrade(tierId, billingCycle) {
     if (!authState.isAuthenticated) return Promise.reject(new Error(t('auth_err_sign_in_first')));
     var normalized = normalizeTierId(tierId);
@@ -1212,8 +1266,13 @@
       notifyListeners();
       return Promise.resolve({ tier: normalized, billingCycle: billingCycle || 'monthly' });
     }
-    showCheckoutSoonModal(normalized, billingCycle || pricingBillingCycle);
-    return Promise.resolve({ tier: normalized, billingCycle: billingCycle || pricingBillingCycle, pendingCheckout: true });
+    var cycle = billingCycle || pricingBillingCycle;
+    if (stripeCheckoutEnabled) {
+      hidePricingModal();
+      return startStripeCheckout(normalized, cycle);
+    }
+    showCheckoutSoonModal(normalized, cycle);
+    return Promise.resolve({ tier: normalized, billingCycle: cycle, pendingCheckout: true });
   }
 
   /* ── Rate limiter ────────────────────────────────────────────────────── */
@@ -1562,9 +1621,25 @@
         ? t('user_settings_trial_renew')
         : (state.autoRenew ? t('user_settings_renew_on') : t('user_settings_renew_off'));
     }
+    var expiresEl = document.getElementById('user-settings-expires');
+    if (expiresEl) {
+      if (state.tier !== 'trial' && state.expiresAt) {
+        try {
+          var d = new Date(state.expiresAt);
+          expiresEl.textContent = isNaN(d.getTime()) ? state.expiresAt : d.toLocaleDateString('he-IL');
+        } catch (e) {
+          expiresEl.textContent = state.expiresAt;
+        }
+      } else {
+        expiresEl.textContent = '—';
+      }
+    }
     if (cancelBtn) {
       cancelBtn.classList.toggle('hidden', state.tier === 'trial');
       cancelBtn.disabled = state.tier === 'trial';
+      if (state.tier !== 'trial' && state.autoRenew === false) {
+        cancelBtn.classList.add('hidden');
+      }
     }
     if (el) {
       el.classList.remove('hidden');
@@ -1597,15 +1672,23 @@
   }
 
   function confirmCancelSubscription() {
-    return fetchSubscriptionAction('cancel_renewal').then(function (data) {
+    return fetchSubscriptionAction('cancel_subscription').then(function (data) {
       authState.autoRenew = false;
       if (data && data.subscription) {
         authState.tier = normalizeTierId(data.subscription.tier || authState.tier);
+        authState.expiresAt = data.subscription.expiresAt || authState.expiresAt;
+      }
+      if (data && data.usage && data.usage.expiresAt) {
+        authState.expiresAt = data.usage.expiresAt;
       }
       persistAuth();
       hideCancelSubscriptionModal();
       hideUserSettingsModal();
       notifyListeners();
+      if (stripeCheckoutEnabled) {
+        alert(t('cancel_subscription_success'));
+        return data;
+      }
       var followup = document.getElementById('cancel-subscription-followup');
       var link = document.getElementById('cancel-subscription-whatsapp');
       if (link) link.href = whatsAppSupportUrl(t('cancel_subscription_whatsapp_prefill'));
@@ -2042,6 +2125,16 @@
     }
     else showAuthOverlay();
     notifyListeners();
+    try {
+      var params = new URLSearchParams(global.location && global.location.search || '');
+      if (params.get('checkout') === 'success' && authState.isAuthenticated) {
+        refreshSubscriptionFromServer().then(function () {
+          if (global.history && global.history.replaceState) {
+            global.history.replaceState({}, '', global.location.pathname);
+          }
+        });
+      }
+    } catch (checkoutErr) { /* ignore */ }
     return getPublicState();
   }
 
@@ -2099,6 +2192,7 @@
     TIERS: TIERS,
     init: initAuthSubscription,
     subscribe: subscribe,
+    applyRuntimeBillingConfig: applyRuntimeBillingConfig,
     getState: getPublicState,
     canPerformSearch: canPerformSearch,
     assertSearchAllowed: assertSearchAllowed,

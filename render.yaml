@@ -27,3 +27,29 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_PRO_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_PRO_YEARLY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: BILLING_REPORT_EMAIL
+        value: Waldorfplanner@gmail.com
+
+  - type: cron
+    name: waldrof-billing-report
+    runtime: node
+    schedule: "0 8 1 * *"
+    buildCommand: npm install
+    startCommand: curl -fsS -H "Authorization: Bearer $CRON_SECRET" "https://waldrof.onrender.com/api/cron/billing-report"
+    envVars:
+      - key: CRON_SECRET
+        sync: false

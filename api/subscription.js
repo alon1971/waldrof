@@ -20,6 +20,10 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
   'word_downloads_count',
   'auto_renew',
   'expires_at',
+  'billing_cycle',
+  'stripe_customer_id',
+  'stripe_subscription_id',
+  'payment_provider',
   'updated_at',
 ];
 
@@ -326,8 +330,20 @@ function readWordDownloadsFromRow(row, tier) {
   return rowMonth === month ? raw : 0;
 }
 
+function isSubscriptionExpired(row) {
+  if (!row || !row.expires_at) return false;
+  const tier = effectiveTierFromRow(row);
+  if (tier === 'trial') return false;
+  return new Date(row.expires_at).getTime() <= Date.now();
+}
+
+function effectiveTierFromRow(row) {
+  if (isSubscriptionExpired(row)) return 'trial';
+  return planTypeFromRow(row);
+}
+
 function buildUsagePayload(row) {
-  const tier = planTypeFromRow(row);
+  const tier = effectiveTierFromRow(row);
   const limits = TIER_LIMITS[tier];
   const month = currentMonthKey();
   const used = readSearchCountFromRow(row, tier);
@@ -348,16 +364,21 @@ function buildUsagePayload(row) {
     ? true
     : wordDownloadsUsed < wordDownloadLimit;
 
+  const expired = isSubscriptionExpired(row);
+  const paidActive = tier !== 'trial' && !expired;
+
   return {
     tier: tier,
-    billingCycle: null,
+    billingCycle: row && row.billing_cycle ? row.billing_cycle : null,
     autoRenew: row.auto_renew !== false,
+    expiresAt: row && row.expires_at ? row.expires_at : null,
+    subscriptionExpired: expired,
     searchesUsed: used,
     searchLimit: limit,
     usagePeriod: period,
     usageMonth: monthFromRow(row) || month,
     remaining: limit === null ? null : Math.max(0, limit - used),
-    allowed: limit === null ? true : used < limit,
+    allowed: paidActive ? (limit === null ? true : used < limit) : (tier === 'trial' ? (limit === null ? true : used < limit) : false),
     wordDownloadsUsed: wordDownloadsUsed,
     wordDownloadLimit: wordDownloadLimit,
     wordDownloadsRemaining: wordDownloadLimit == null
@@ -545,6 +566,7 @@ async function getStatus(user, userToken) {
       tier: usage.tier,
       billingCycle: usage.billingCycle,
       autoRenew: usage.autoRenew,
+      expiresAt: usage.expiresAt,
     },
     usage: usage,
   };
@@ -565,6 +587,14 @@ async function recordSearch(user, userToken) {
   });
 
   const row = await ensureSubscription(user, userToken);
+  if (isSubscriptionExpired(row)) {
+    const usage = buildUsagePayload(row);
+    const err = new Error('תוקף המנוי הסתיים — שדרגו מחדש כדי להמשיך');
+    err.statusCode = 403;
+    err.code = 'SUBSCRIPTION_EXPIRED';
+    err.usage = usage;
+    throw err;
+  }
   const usageBefore = buildUsagePayload(row);
 
   logUsage('record_search:before_increment', {
@@ -582,7 +612,7 @@ async function recordSearch(user, userToken) {
     throw err;
   }
 
-  const tier = planTypeFromRow(row);
+  const tier = effectiveTierFromRow(row);
   const month = currentMonthKey();
   const currentCount = readSearchCountFromRow(row, tier);
   let nextCount = currentCount + 1;
@@ -641,7 +671,7 @@ async function recordWordDownload(user, userToken) {
   }
 
   const row = await ensureSubscription(user, userToken);
-  const tier = planTypeFromRow(row);
+  const tier = effectiveTierFromRow(row);
 
   if (tier !== 'trial') {
     return {
@@ -686,15 +716,44 @@ async function cancelRenewal(user, userToken) {
     err.statusCode = 400;
     throw err;
   }
-  const updated = await updateSubscriptionRow(user.id, { auto_renew: false }, row, user, userToken);
+
+  let expiresAt = row.expires_at || null;
+  const stripeSubscriptionId = row.stripe_subscription_id;
+
+  if (stripeSubscriptionId) {
+    try {
+      const billingStripe = require('./billing-stripe');
+      const billingDb = require('./billing-db');
+      if (billingStripe.isStripeEnabled()) {
+        const updated = await billingStripe.cancelSubscriptionAtPeriodEnd(stripeSubscriptionId);
+        expiresAt = billingStripe.expiresAtFromStripeSubscription(updated);
+        if (billingDb.isEnabled()) {
+          await billingDb.markSubscriptionCancelledAtPeriodEnd(user.id, expiresAt);
+        }
+      }
+    } catch (gatewayErr) {
+      console.warn(LOG_PREFIX, 'cancel gateway error', gatewayErr.message || gatewayErr);
+      const err = new Error('לא ניתן לבטל את המנוי אצל ספק התשלום — נסו שוב או פנו לתמיכה');
+      err.statusCode = 502;
+      throw err;
+    }
+  }
+
+  const updated = await updateSubscriptionRow(user.id, {
+    auto_renew: false,
+    expires_at: expiresAt,
+  }, row, user, userToken);
+
   return {
     ok: true,
     action: 'cancel_renewal',
     subscription: {
       tier: planTypeFromRow(updated),
-      billingCycle: null,
+      billingCycle: updated.billing_cycle || null,
       autoRenew: false,
+      expiresAt: updated.expires_at || null,
     },
+    usage: buildUsagePayload(updated),
   };
 }
 
@@ -745,7 +804,7 @@ async function executeSubscription(req) {
 
   if (action === 'record_search') return recordSearch(user, userToken);
   if (action === 'record_word_download') return recordWordDownload(user, userToken);
-  if (action === 'cancel_renewal') return cancelRenewal(user, userToken);
+  if (action === 'cancel_renewal' || action === 'cancel_subscription') return cancelRenewal(user, userToken);
   return getStatus(user, userToken);
 }
 
@@ -810,6 +869,14 @@ async function assertSearchAllowedFromRequest(req) {
     throw authErr;
   }
   const row = await ensureSubscription(user, userToken);
+  if (isSubscriptionExpired(row)) {
+    const usage = buildUsagePayload(row);
+    const err = new Error('תוקף המנוי הסתיים — שדרגו מחדש כדי להמשיך');
+    err.statusCode = 403;
+    err.code = 'SUBSCRIPTION_EXPIRED';
+    err.usage = usage;
+    throw err;
+  }
   const usage = buildUsagePayload(row);
   if (!usage.allowed) {
     const err = new Error('חרגתם ממכסת החיפושים — שדרגו את המסלול');
