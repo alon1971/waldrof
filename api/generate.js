@@ -1541,7 +1541,13 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipCache = true;
   }
 
-  const communityProbe = await probeCommunityMaterialsForBody(body);
+  // Chat: remove grade restrictions to ensure global repository search
+  let probeBody = { ...body };
+  if (body.phase === 'chat_followup') {
+    probeBody.currentGrade = null;
+    probeBody.gradeId = null;
+  }
+  const communityProbe = await probeCommunityMaterialsForBody(probeBody);
   if (communityProbe.count > 0) {
     console.log('[community] matched', communityProbe.count, 'material(s) for', body.phase);
   }
