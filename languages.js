@@ -314,8 +314,8 @@ const LANGUAGES = {
 
     theory_bib_title:            '📚 מראי מקום, ספרות ומקורות להעמקה',
     theory_bib_intro:            'מקורות מומלצים להעמקה בנושא «{topic}» — {grade}',
-    theory_bib_note:             'מקורות בעברית — אנתרופוסופיה ופדגוגיית ולדורף בלבד. מקורות באנגלית (עד 10). לחצו «הרחבה ואספקטים פרקטיים» להעמקה.',
-    theory_bib_note_en:          'Up to 10 leading anthroposophic/Waldorf sources in English. Click «Practical expansion & aspects» to explore.',
+    theory_bib_note:             'מקורות בעברית — אנתרופוסופיה ופדגוגיית ולדורף בלבד. מקורות באנגלית (עד 10). לחצו «הרחבה ואספקטים פרקטיים» להצגת ההרחבה המוטמעת.',
+    theory_bib_note_en:          'Up to 10 leading anthroposophic/Waldorf sources in English. Click «Practical expansion & aspects» to show the embedded expansion.',
     theory_bib_books:            'ספרים ומראי מקום',
     theory_bib_articles:         'מאמרים אנתרופוסופיים ופדגוגיים',
     theory_bib_websites:         'אתרים ומקורות מומלצים',
@@ -343,7 +343,7 @@ const LANGUAGES = {
     pedagogy_steps:              'שלבי ביצוע פרקטיים בכיתה',
     pedagogy_materials:          'חומרים ומשאבים נדרשים',
     pedagogy_summary_empty:      'לא נמצא הסבר — נסו שוב.',
-    pedagogy_inspiration_hint:   'לחצו «הרחבה ואספקטים פרקטיים» ליד כל רעיון ליישום מעשי בכיתה וחומרי השראה.',
+    pedagogy_inspiration_hint:   'לחצו «הרחבה ואספקטים פרקטיים» ליד כל רעיון להצגת יישום מעשי בכיתה וחומרי השראה (מוטמעים בתשובה).',
     pedagogy_narrative_title:    'מטאפורות ונרטיב לתקופה',
 
     synthesis_banner_title:      'סינתזה מאוחדת:',
@@ -888,8 +888,8 @@ const LANGUAGES = {
 
     theory_bib_title:            '📚 Bibliography, literature & sources for deepening',
     theory_bib_intro:            'Recommended sources for «{topic}» — {grade}',
-    theory_bib_note:             'Hebrew sources — anthroposophy & Waldorf only. English sources (up to 10). Click «Practical expansion & aspects» to explore.',
-    theory_bib_note_en:          'Up to 10 leading anthroposophic/Waldorf sources in English. Click «Practical expansion & aspects» to explore.',
+    theory_bib_note:             'Hebrew sources — anthroposophy & Waldorf only. English sources (up to 10). Click «Practical expansion & aspects» to show the embedded expansion.',
+    theory_bib_note_en:          'Up to 10 leading anthroposophic/Waldorf sources in English. Click «Practical expansion & aspects» to show the embedded expansion.',
     theory_bib_books:            'Books & references',
     theory_bib_articles:         'Anthroposophic & pedagogical articles',
     theory_bib_websites:         'Websites & recommended sources',
@@ -917,7 +917,7 @@ const LANGUAGES = {
     pedagogy_steps:              'Practical classroom steps',
     pedagogy_materials:          'Materials & resources',
     pedagogy_summary_empty:      'No expansion available — try again.',
-    pedagogy_inspiration_hint:   'Click «Practical expansion & aspects» next to each idea for classroom implementation and inspiration.',
+    pedagogy_inspiration_hint:   'Click «Practical expansion & aspects» next to each idea to show classroom implementation and inspiration (embedded in the response).',
     pedagogy_narrative_title:    'Metaphors & narrative for the block',
 
     synthesis_banner_title:      'Unified synthesis:',

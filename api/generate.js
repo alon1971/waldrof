@@ -4,11 +4,11 @@
  * GEMINI_API_KEY: structured lesson-plan enrichment (gemini-2.5-flash, x-goog-api-key).
  * Chat follow-up (chat_followup): same hybrid pipeline — Perplexity Sonar search → Gemini 2.5-flash (v1 REST).
  *
- * Content hierarchy (lesson generation):
+ * Content hierarchy (lesson generation — decoupled):
  *   1. SUPABASE ARCHIVE — return enhanced cached_results immediately on hit
  *   2. LIVE WEB SEARCH (Perplexity Sonar) — raw research saved to cached_results (phase perplexity_raw)
- *   3. GEMINI ENRICHMENT — deep structured Waldorf lesson plan → cached_results
- *   4. INGESTED GOOGLE DRIVE ARCHIVE (knowledge_base) — supplementary RAG enrichment
+ *   3. GEMINI MASTER EDUCATOR — anthroposophic enrichment + inline expansions → cached_results
+ *   (Drive / community RAG is NOT injected into grade/topic generation.)
  *
  * Primary runtime: Render / Node.js via server.js → executeGenerate().
  * Optional: legacyHandler(req, res) for adapters; fetch(request) for Vercel serverless.
@@ -52,6 +52,46 @@ const GEMINI_API_BASE_STRUCTURED = 'https://generativelanguage.googleapis.com/v1
 const GEMINI_GENERATION_MODEL = 'gemini-2.5-flash';
 /** Balanced pedagogical creativity vs factual grounding for Gemini 2.5-flash enrichment. */
 const GEMINI_DEFAULT_TEMPERATURE = 0.45;
+
+const GEMINI_MASTER_EDUCATOR_ROLE =
+  '\n=== GEMINI — MASTER WALDORF EDUCATOR (MANDATORY) ===\n' +
+  'You are a Master Waldorf Educator and anthroposophical curriculum designer.\n' +
+  'Perplexity Sonar supplied raw grade/topic research under PERPLEXITY WEB RESEARCH — your sole factual anchor.\n' +
+  'Translate and expand it into a rich, deep, beautifully styled Anthroposophical summary:\n' +
+  '- Steiner lectures and GA cycles where the research supports them\n' +
+  '- Age-appropriate developmental pictures (teeth transition, fairy-tale consciousness, puberty rhythms, etc.)\n' +
+  '- Fairy tales, main-lesson imagery, and deep practical classroom descriptions\n' +
+  'Do NOT use private Drive archives, community uploads, or local database excerpts — only PERPLEXITY WEB RESEARCH plus faithful Waldorf/Steiner pedagogical artistry.\n' +
+  '=== END GEMINI — MASTER WALDORF EDUCATOR ===\n';
+
+const HYBRID_GEMINI_DECOUPLED_SUFFIX =
+  '\n=== HYBRID PIPELINE — PERPLEXITY RESEARCH → GEMINI MASTER EDUCATOR ===\n' +
+  GEMINI_MASTER_EDUCATOR_ROLE +
+  'Live web research was performed by Perplexity Sonar and is provided under PERPLEXITY WEB RESEARCH.\n' +
+  'Do NOT perform additional web search — synthesize the provided research into the requested JSON schema.\n' +
+  '\n' +
+  '=== TWO-LAYER BOUNDARY (MANDATORY — OVERRIDES CONFLICTING RULES ABOVE) ===\n' +
+  '\n' +
+  'LAYER 1 — FACTUAL (STRICT — ZERO HALLUCINATION):\n' +
+  'For ALL historical dates, biographical facts, scientific measurements, chemical/physical data, geographic facts, ' +
+  'statistics, named events, and any objective claim of fact:\n' +
+  '- Use ONLY what appears in PERPLEXITY WEB RESEARCH.\n' +
+  '- NEVER invent, extrapolate, guess, or hallucinate historical facts or scientific data.\n' +
+  '- If a fact is absent from the provided context, omit it or note that verified data was not supplied — do NOT fill factual gaps with model knowledge.\n' +
+  '- Citations, attributions, and direct quotes must trace to provided research — never fabricate sources.\n' +
+  '\n' +
+  'LAYER 2 — PEDAGOGICAL & CREATIVE (ENCOURAGED — WALDORF EXPERTISE):\n' +
+  'For lesson design, classroom practice, and teaching artistry:\n' +
+  '- ACTIVELY draw on your deep knowledge of established Waldorf / Steiner-Waldorf pedagogy to weave verified facts into rich, age-appropriate lesson experiences.\n' +
+  '- Design rhythmic lesson flows (opening verse, recall, main lesson, artistic activity, closing) suited to currentGrade.\n' +
+  '- Craft vivid, imaginative stories, metaphors, chalkboard imagery, movement, music, and hands-on activities aligned with Waldorf main-lesson tradition.\n' +
+  '- Apply anthroposophic developmental principles (body/soul/spirit, temperament, curriculum rhythms) as a pedagogical lens — creatively but faithfully to Waldorf methodology.\n' +
+  '- Stories and metaphors may be original compositions, but any factual claims embedded within them must still obey Layer 1.\n' +
+  '- Tailor tone, complexity, and imagery precisely to the specific grade level and age — never mix content from other grades.\n' +
+  '\n' +
+  'BALANCE: Be deeply creative and pedagogically insightful in HOW you teach the facts — never creative ABOUT what the facts are.\n' +
+  '=== END TWO-LAYER BOUNDARY ===\n' +
+  '=== END HYBRID PIPELINE ===\n';
 
 const HYBRID_GEMINI_SYSTEM_SUFFIX =
   '\n=== HYBRID PIPELINE — PERPLEXITY FACTS → GEMINI ENRICHMENT ===\n' +
@@ -337,6 +377,42 @@ function waldorfSystemPrompt(extra) {
   );
 }
 
+/** Decoupled main generation (grade / topic): Perplexity research only — no Drive/community RAG. */
+function geminiMasterEducatorSystemPrompt(extra) {
+  return (
+    'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
+    GEMINI_MASTER_EDUCATOR_ROLE +
+    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
+    FACTUAL_INTEGRITY_INSTRUCTION +
+    ACADEMIC_TONE_INSTRUCTION +
+    SOURCES_CITATION_INSTRUCTION +
+    JSON_ONLY_INSTRUCTION +
+    JSON_RESPONSE_ENFORCEMENT +
+    JSON_VALID_SYNTAX_INSTRUCTION +
+    ' Write pedagogical content in Hebrew. ' +
+    'Ground factual claims in PERPLEXITY WEB RESEARCH; weave them into rich Waldorf lesson artistry. ' +
+    'Include complete inline practical expansions on every expandable UI item in the same JSON payload.' +
+    NO_LATEX_BLOCK +
+    (extra || '')
+  );
+}
+
+function isDecoupledGenerationPhase(body) {
+  const phase = body && body.phase;
+  return phase === 'grade' || phase === 'topic';
+}
+
+function resolveHybridSystemBuilder(body, baseOpts) {
+  if (isDecoupledGenerationPhase(body)) {
+    return geminiMasterEducatorSystemPrompt;
+  }
+  return typeof baseOpts.systemPrompt === 'function' ? baseOpts.systemPrompt : waldorfSystemPrompt;
+}
+
+function resolveHybridSystemSuffix(body) {
+  return isDecoupledGenerationPhase(body) ? HYBRID_GEMINI_DECOUPLED_SUFFIX : HYBRID_GEMINI_SYSTEM_SUFFIX;
+}
+
 function pedagogicalChatSystemPrompt(extra) {
   return (
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers. ' +
@@ -435,6 +511,8 @@ function buildGradeLockBlock(body) {
 }
 
 function buildRagContextBlock(body) {
+  if (isDecoupledGenerationPhase(body)) return '';
+
   const rag = String(body.ragContext || '').trim();
   const driveCtx = String(body.ragDriveContext || '').trim();
   const communityCtx = String(body.ragCommunityContext || '').trim();
@@ -567,6 +645,58 @@ function buildPriorTopicCacheBlock(topicPrior) {
   );
 }
 
+function resolveCommunityMatchGradeLabel(match, body) {
+  if (!match) {
+    return String(body && body.gradeLabel || '').trim() || ('כיתה ' + (resolvedGradeId(body) || '?'));
+  }
+  if (match.gradeLabel) return String(match.gradeLabel).trim();
+  const fromId = cacheDb.resolveGradeLabelFromId(match.gradeId, null);
+  if (fromId) return fromId;
+  return 'מאגר הקהילתי';
+}
+
+function resolveCommunityRepositoryLabel(match) {
+  if (match && match.source === 'cached_archive') {
+    return 'ארכיון המחקר השמור';
+  }
+  return 'מאגר הקהילתי';
+}
+
+function buildCommunityMatchOpening(probe, body) {
+  const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
+  if (!matches.length) return '';
+
+  const matchedFile = matches[0];
+  const teacherName = resolveTeacherFirstName(body);
+  const gradeLabel = resolveCommunityMatchGradeLabel(matchedFile, body);
+  const title = matchedFile.displayTitle || matchedFile.title || matchedFile.topic || probe.query || 'חומר קהילתי';
+  const repositoryLabel = resolveCommunityRepositoryLabel(matchedFile);
+
+  return (
+    teacherName + ', הרווחת! מצאנו ב' + repositoryLabel + ' של ' + gradeLabel + ' את «' + title + '». ' +
+    'אתה יכול להיכנס למאגר הקהילתי באתר, תחת «' + gradeLabel + '», כדי לצפות בקובץ.'
+  );
+}
+
+function buildCommunityMatchChatResponse(probe, body) {
+  const opening = buildCommunityMatchOpening(probe, body);
+  const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
+  const primary = matches[0] || {};
+  const details = matches.slice(0, 3).map(formatCommunityMatchForPrompt).join('\n');
+
+  return {
+    chatReply: {
+      answer: opening + (details ? '\n\n' + details : ''),
+      routedToCommunity: true,
+      communityMatchCount: probe.count || matches.length,
+      matchMethod: probe.matchMethod || 'none',
+      matchedGrade: resolveCommunityMatchGradeLabel(primary, body),
+      matchedTitle: primary.displayTitle || primary.title || primary.topic || probe.query || '',
+      matchedSource: primary.source || 'community',
+    },
+  };
+}
+
 function resolveTeacherFirstName(body) {
   const tu = body && body.teacherUser;
   if (!tu || typeof tu !== 'object') return 'מורה';
@@ -579,12 +709,14 @@ function resolveTeacherFirstName(body) {
 function formatCommunityMatchForPrompt(match, index) {
   const title = match.displayTitle || match.title || match.topic || ('חומר ' + (index + 1));
   const topic = match.topic || match.bundleTopic || '';
-  const gradeId = match.gradeId || '';
+  const gradeLabel = match.gradeLabel || cacheDb.resolveGradeLabelFromId(match.gradeId, null);
   const contributor = match.contributorName || '';
   const preview = match.contentPreview ? String(match.contentPreview).slice(0, 240) : '';
   let line = (index + 1) + '. «' + title + '»';
   if (topic && topic !== title) line += ' (נושא: ' + topic + ')';
-  if (gradeId) line += ' [כיתה ' + gradeId + ']';
+  if (gradeLabel) line += ' [' + gradeLabel + ']';
+  else if (match.gradeId) line += ' [כיתה ' + match.gradeId + ']';
+  if (match.source === 'cached_archive') line += ' (ארכיון מחקר שמור)';
   if (contributor) line += ' — תורם: ' + contributor;
   if (preview) line += '\n   תקציר: ' + preview;
   if (match.matchedInBundle && match.alertText) line += '\n   ' + match.alertText;
@@ -596,20 +728,15 @@ function buildCommunityMatchCriticalSystemBlock(probe, body) {
   if (!matches.length) return '';
 
   const matchedFile = matches[0];
-  const teacherName = resolveTeacherFirstName(body);
-  const gradeLabel = String(body.gradeLabel || '').trim() || ('כיתה ' + (resolvedGradeId(body) || '?'));
-  const title = matchedFile.displayTitle || matchedFile.title || matchedFile.topic || 'חומר קהילתי';
-  const openingLine =
-    teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + title + '». ' +
-    'אתה יכול להיכנס למאגר הקהילתי באתר, תחת ' + gradeLabel + ' כדי לצפות בקובץ הנוכחי.';
+  const openingLine = buildCommunityMatchOpening(probe, body);
 
   return (
     '\n=== CRITICAL INSTRUCTION — COMMUNITY DATABASE MATCH ===\n' +
-    'A relevant file was found in the community database (hybrid keyword/semantic search).\n' +
+    'A relevant file was found in the community database (global scan — keyword/semantic, ignoring UI grade/topic).\n' +
     'You MUST start your Hebrew response verbatim with this exact opening sentence:\n' +
     '«' + openingLine + '»\n' +
     'STRICT RULES WHEN THIS MATCH EXISTS:\n' +
-    '- The verified community upload is the primary answer — announce it clearly in the opening.\n' +
+    '- The verified community upload is the primary answer — announce it clearly in the opening, including the grade where it was found.\n' +
     '- Do NOT invent details about commercial plays (e.g. Roee Chen / רואי חן), publishers, or external internet productions.\n' +
     '- Do NOT substitute web-search play or curriculum recommendations when this community file already answers the teacher.\n' +
     '- Focus first on telling the teacher this specific file exists in their school community database and how to view it.\n' +
@@ -639,41 +766,40 @@ function buildCommunityRagExcerptBlock(body) {
 function buildCommunityMaterialsContextBlock(probe, body) {
   const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
   const teacherName = resolveTeacherFirstName(body);
-  const gradeLabel = String(body.gradeLabel || '').trim() || ('כיתה ' + (resolvedGradeId(body) || '?'));
   const query = probe && probe.query ? String(probe.query).trim() : '';
 
   if (!matches.length) {
     return (
-      '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base — Supabase) ===\n' +
-      'חיפוש במאגר הקהילתי' + (query ? ' עבור «' + query + '»' : '') + ' לא מצא התאמה.\n' +
-      'המשך עם סיוע פדגוגי סטנדרטי איכותי (חיפוש חי + הקשר השיעור) — אין צורך בפתיחה חגיגית.\n' +
+      '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base + cached_results — GLOBAL SCAN) ===\n' +
+      'חיפוש גלובלי במאגר הקהילתי' + (query ? ' עבור «' + query + '»' : '') + ' לא מצא התאמה (ללא סינון לפי כיתה/נושא מהממשק).\n' +
+      'המשך עם חיפוש Gemini/Perplexity כללי + ארכיון אישי — אין צורך בפתיחה חגיגית.\n' +
       '=== END COMMUNITY MATERIALS DATABASE ===\n\n'
     );
   }
 
-  const primaryTitle = matches[0].displayTitle || matches[0].title || matches[0].topic || 'חומר קהילתי';
-  const mandatoryOpening =
-    teacherName + ', הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל' + gradeLabel + ' «' + primaryTitle + '». ' +
-    'אתה יכול להיכנס למאגר הקהילתי באתר, תחת ' + gradeLabel + ' כדי לצפות בקובץ הנוכחי.';
+  const primary = matches[0];
+  const primaryTitle = primary.displayTitle || primary.title || primary.topic || 'חומר קהילתי';
+  const gradeLabel = resolveCommunityMatchGradeLabel(primary, body);
+  const mandatoryOpening = buildCommunityMatchOpening(probe, body);
   const lines = matches.slice(0, 6).map(formatCommunityMatchForPrompt);
   const matchMethod = probe && probe.matchMethod ? String(probe.matchMethod) : '';
   const semanticNote = matchMethod.indexOf('semantic') >= 0
     ? 'Match method: SEMANTIC (' + matchMethod + ') — teacher intent was linked to catalog material even without identical wording.\n'
     : (matchMethod && matchMethod !== 'keyword_fuzzy'
-      ? 'Match method: ' + matchMethod + '.\n'
-      : '');
+      ? 'Match method: ' + matchMethod + ' (global scan — UI grade/topic ignored).\n'
+      : 'Match method: global keyword scan (UI grade/topic ignored).\n');
 
   return (
-    '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base — Supabase) ===\n' +
+    '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base + cached_results — GLOBAL SCAN) ===\n' +
     'COMMUNITY MATCH FOUND — ' + matches.length + ' material(s) for this question.\n' +
     semanticNote +
     'Teacher first name for opening: «' + teacherName + '»\n' +
-    'Grade label for opening: «' + gradeLabel + '»\n' +
+    'Matched grade (from repository, NOT UI selection): «' + gradeLabel + '»\n' +
     'Best match title for opening: «' + primaryTitle + '»\n' +
     'MANDATORY OPENING (first sentence of your Hebrew reply — ABSOLUTE, keyword OR semantic match):\n' +
     '«' + mandatoryOpening + '»\n' +
     'Do NOT invent commercial plays, external productions, or internet sources when this community file exists. ' +
-    'Lead with the community database file; only add brief grounded follow-up if supported by matched metadata.\n\n' +
+    'Lead with the community database file and the grade where it was found; only add brief grounded follow-up if supported by matched metadata.\n\n' +
     'Matched materials:\n' +
     lines.join('\n') +
     '\n=== END COMMUNITY MATERIALS DATABASE ===\n\n'
@@ -682,6 +808,24 @@ function buildCommunityMaterialsContextBlock(probe, body) {
 
 const LAZY_LOAD_NOTE =
   'Do NOT include expansion, contentExpansion, artExpansion, or nested practical-expansion objects — expansions load on-demand via pedagogy_deep_dive.\n';
+
+const EXPANSION_OBJECT_SCHEMA =
+  '{ "classroomImplementation": "1-2 Hebrew paragraphs: practical in-class implementation", ' +
+  '"parentCommunityAspects": "Hebrew paragraph on parents/community when relevant", ' +
+  '"practicalSteps": ["4-8 concrete classroom steps for the teacher"], ' +
+  '"inspirationReferences": ["3-6 named books/articles/Waldorf projects — NO URLs"], ' +
+  '"expansionHtml": "<p>Optional rich Hebrew HTML</p>" }';
+
+const INLINE_EXPANSION_INSTRUCTION =
+  '\n=== INLINE EXPANSION — «הרחבה ואספקטים פרקטיים» (MANDATORY — SINGLE PAYLOAD) ===\n' +
+  'The UI shows a «הרחבה ואספקטים פרקטיים 📝» button beside expandable items — it toggles visibility only; NO second API call.\n' +
+  'You MUST include a complete "expansion" object on EVERY expandable item in THIS response:\n' +
+  EXPANSION_OBJECT_SCHEMA + '\n' +
+  'Apply to: grade part2ClassroomIdeas, part3CommunityIdeas, globalCurricula items (as objects with title/detail/expansion); ' +
+  'topic theory.sections, bibliography books/articles/websites, inspiration global items and podcast episodes; ' +
+  'curriculum days: contentExpansion, artExpansion, hintExpansion (same shape as expansion).\n' +
+  'Never omit expansions — they ship inline in this initial JSON to save cost and latency.\n' +
+  '=== END INLINE EXPANSION ===\n';
 
 /**
  * chat_followup: accept free text / Markdown from the model.
@@ -740,20 +884,18 @@ function buildUserPrompt(body) {
       : '\nDo NOT include internet URLs in sources or HTML.\n';
 
     return (
-      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
       noUrls +
       gradeExtra +
-      CONTENT_HIERARCHY_INSTRUCTION +
       WEB_SEARCH_PRIORITY_INSTRUCTION +
-      'Perform exhaustive live web research on Waldorf/Steiner anthroposophic child development for:\n' +
+      'Synthesize the PERPLEXITY WEB RESEARCH provided above into a rich anthroposophic Waldorf portrait for:\n' +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n\n' +
       'All insights MUST match currentGrade only — never mix content from other grades.\n' +
-      'Produce inspiring content — keep response fast. Uniform 16px text in UI.\n' +
-      LAZY_LOAD_NOTE +
+      'Produce inspiring, deeply pedagogical content. Uniform 16px text in UI.\n' +
+      INLINE_EXPANSION_INSTRUCTION +
       JSON_ONLY_INSTRUCTION +
       JSON_RESPONSE_ENFORCEMENT +
       '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
@@ -764,10 +906,10 @@ function buildUserPrompt(body) {
       '    "archivesSynthesisHtml": "<p>Deep Hebrew synthesis from AWSNA/IASWECE/Steiner archives</p>",\n' +
       '    "developmentBullets": ["body/soul/spirit Hebrew bullets"],\n' +
       '    "part2ClassroomIdeasHtml": "<p>Rich Hebrew HTML: practical classroom ideas (5–8 paragraphs)</p>",\n' +
-      '    "part2ClassroomIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew practical paragraph" }],\n' +
+      '    "part2ClassroomIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew practical paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }],\n' +
       '    "part3CommunityExpansionsHtml": "<p>Rich Hebrew HTML: parents, community, environmental projects for this age</p>",\n' +
-      '    "part3CommunityIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew paragraph" }],\n' +
-      '    "globalCurricula": ["6–10 Hebrew curriculum bullets"],\n' +
+      '    "part3CommunityIdeas": [{ "title": "Hebrew title", "detail": "Full Hebrew paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }],\n' +
+      '    "globalCurricula": [{ "title": "Hebrew", "detail": "Hebrew curriculum bullet", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }],\n' +
       '    "typicalBlocks": ["Hebrew main lesson block names"],\n' +
       '    "sources": ["source name only — no URLs"]\n' +
       '  },\n' +
@@ -776,7 +918,7 @@ function buildUserPrompt(body) {
       '  ]\n' +
       '}\n' +
       'gradeInsights.sources: rich diverse "Sources & Further Reading" (8–12 entries); cite Alon Yerushalmy only if genuinely relevant — merge his platforms into ONE entry, otherwise omit entirely.\n' +
-      'Provide exactly 3 teacherSummaries as plausible community-shared folder summaries.'
+      'Provide exactly 3 teacherSummaries as plausible Waldorf teacher folder summaries.'
     );
   }
 
@@ -802,12 +944,11 @@ function buildUserPrompt(body) {
       : '\nDo NOT include internet URLs in bibliography, HTML, summaries, or recommendations.\n';
 
     return (
-      ragBlock +
       buildGradeLockBlock(body) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
       noUrls +
-      'Live web research: Waldorf main lesson block planning.\n' +
+      'Synthesize the PERPLEXITY WEB RESEARCH provided above into a Waldorf main lesson block plan.\n' +
       'currentGrade: ' + resolvedGradeId(body) + '\n' +
       'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n' +
       'Block topic: «' + topic + '»\n' +
@@ -817,23 +958,20 @@ function buildUserPrompt(body) {
       curriculumExtra +
       bibExtra +
       pedagogyHint +
-      CONTENT_HIERARCHY_INSTRUCTION +
-      WEB_SEARCH_PRIORITY_INSTRUCTION +
-      'Perform exhaustive live web research for this Waldorf main lesson block. Merge web breadth with any ingested Drive archive excerpts above.\n' +
       'Every field in blockPlan MUST be written for currentGrade only. Do not mention activities, stories, or developmental themes from other grades.\n' +
       'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries — do not repeat source names across body fields.\n' +
       'webResearch.highlights: include diverse pedagogical highlights alongside priority-source findings.\n' +
-      'Produce rich content — keep response fast. Uniform 16px text in UI.\n' +
+      'Produce rich, deeply anthroposophic content. Uniform 16px text in UI.\n' +
       'theory.bibliography MUST have at least 3 books, 3 articles, 3 websites — title + author/publisher only, NEVER url fields. ' +
       'Populate as a rich, diverse "Sources & Further Reading" landscape; cite Alon Yerushalmy only if genuinely relevant — merge his platforms into ONE entry, otherwise omit entirely.\n' +
       'PINTEREST: populate gallery with 4–8 visual inspiration entries (experiments, main-lesson drawings, classroom displays) — Hebrew titles and precise Pinterest search phrases in "pin".\n' +
-      LAZY_LOAD_NOTE +
-      'The UI shows a «הרחבה ואספקטים פרקטיים 📝» button — expansions load on demand.\n' +
+      INLINE_EXPANSION_INSTRUCTION +
       'CRITICAL — blockPlan MUST include ALL of these top-level keys inside blockPlan: theory, inspiration, sources, curriculum.\n' +
       'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
       'blockPlan.sources MUST be an object with books, articles, and websites arrays (same shape as theory.bibliography) — populate BOTH theory.bibliography and blockPlan.sources identically.\n' +
       'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
-      'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string).\n' +
+      'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string), ' +
+      '"contentExpansion", "artExpansion", "hintExpansion" (each same shape as expansion).\n' +
       'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
       JSON_ONLY_INSTRUCTION +
       JSON_RESPONSE_ENFORCEMENT +
@@ -846,10 +984,10 @@ function buildUserPrompt(body) {
       '    "highlights": ["Hebrew highlights for this grade only"]\n' +
       '  },\n' +
       '  "blockPlan": {\n' +
-      '    "theory": { "title": "Hebrew", "sections": [{ "heading": "Hebrew", "icon": "fa-compass", "content": "<p>Rich Hebrew HTML paragraphs</p>", "quotes": [{ "text": "Hebrew", "source": "GA" }] }], "bibliography": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he" }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he" }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he" }] } },\n' +
-      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": ["full Hebrew paragraph per item"] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph" }] }, "narrative": ["rich story/metaphor paragraph"] },\n' +
-      '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he" }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he" }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he" }] },\n' +
-      '    "curriculum": [{ "day": 1, "topic": "Hebrew", "content": "4-6 sentence guided lesson flow", "art": "2-4 sentences on art/craft", "hint": "optional" }]\n' +
+      '    "theory": { "title": "Hebrew", "sections": [{ "heading": "Hebrew", "icon": "fa-compass", "content": "<p>Rich Hebrew HTML paragraphs</p>", "quotes": [{ "text": "Hebrew", "source": "GA" }], "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "bibliography": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] } },\n' +
+      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] }, "narrative": [{ "text": "rich story/metaphor paragraph", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] },\n' +
+      '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he", "expansion": ' + EXPANSION_OBJECT_SCHEMA + ' }] },\n' +
+      '    "curriculum": [{ "day": 1, "topic": "Hebrew", "content": "4-6 sentence guided lesson flow", "art": "2-4 sentences on art/craft", "hint": "optional", "contentExpansion": ' + EXPANSION_OBJECT_SCHEMA + ', "artExpansion": ' + EXPANSION_OBJECT_SCHEMA + ', "hintExpansion": ' + EXPANSION_OBJECT_SCHEMA + ' }]\n' +
       '  },\n' +
       '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase only — no URL required", "src": "" }]\n' +
       '}\n' +
@@ -1021,12 +1159,13 @@ function buildUserPrompt(body) {
     const question = (body.userMessage || '').replace(/"/g, "'");
     const context = String(body.researchContext || '').slice(0, 12000);
     const historyBlock = '';
+    const chatGlobalScan = body.chatGlobalScan !== false;
 
     const hasContext = Boolean(context.trim());
     const hasRag = Boolean(String(body.ragContext || '').trim());
     const priorBlock = buildPriorChatAnswerBlock(body.priorCachedAnswer);
-    const gradePriorBlock = buildPriorGradeCacheBlock(body.priorGradeCache);
-    const topicPriorBlock = buildPriorTopicCacheBlock(body.priorTopicCache);
+    const gradePriorBlock = chatGlobalScan ? '' : buildPriorGradeCacheBlock(body.priorGradeCache);
+    const topicPriorBlock = chatGlobalScan ? '' : buildPriorTopicCacheBlock(body.priorTopicCache);
     const communityBlock = buildCommunityMaterialsContextBlock(body.communityMaterialsProbe, body);
     const hasCommunityMatches = Boolean(
       body.communityMaterialsProbe &&
@@ -1041,7 +1180,7 @@ function buildUserPrompt(body) {
 
     return (
       ragBlock +
-      buildGradeLockBlock(body) +
+      (chatGlobalScan ? '' : buildGradeLockBlock(body)) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
       communityBlock +
@@ -1050,10 +1189,12 @@ function buildUserPrompt(body) {
       topicPriorBlock +
       priorBlock +
       CHAT_NO_INVENTED_CITATIONS_INSTRUCTION +
-      'You are the Pedagogical Chat Assistant helping a teacher with follow-up questions about their generated lesson plan.\n' +
-      'currentGrade: ' + resolvedGradeId(body) + '\n' +
-      'Grade: ' + (body.gradeLabel || '') + ' (age ' + (body.age || '') + ')\n' +
-      'Block topic: ' + (body.topic || '') + '\n' +
+      'You are the Pedagogical Chat Assistant helping a teacher with follow-up questions.\n' +
+      (chatGlobalScan
+        ? 'GLOBAL CHAT MODE: Search and answer based ONLY on the teacher question below — ignore any UI-selected grade/topic unless explicitly mentioned in the question.\n'
+        : 'currentGrade: ' + resolvedGradeId(body) + '\n' +
+          'Grade: ' + (body.gradeLabel || '') + ' (age ' + (body.age || '') + ')\n' +
+          'Block topic: ' + (body.topic || '') + '\n') +
       'Verified sources available: community_materials=' + (hasCommunityMatches ? 'yes (' + body.communityMaterialsProbe.count + ' match(es))' : 'no') +
       ', community_vector_search=' + (hasCommunityRag ? 'yes' : 'no') +
       ', knowledge_base=' + (hasRag ? 'yes' : 'no') + ', lesson_context=' + (hasContext ? 'yes' : 'no') + '\n' +
@@ -1063,15 +1204,15 @@ function buildUserPrompt(body) {
           'Continue with warm, general Waldorf pedagogical guidance grounded in live web search when available.\n'
         : '') +
       '\n' +
-      '=== ORIGINAL RESEARCH & LESSON CONTEXT (ground answers here when explicit) ===\n' +
+      '=== ORIGINAL RESEARCH & LESSON CONTEXT (optional background — do not restrict search to this grade/topic) ===\n' +
       (hasContext ? context : '(empty — no lesson context provided)') + '\n' +
       '=== END CONTEXT ===\n' +
       historyBlock +
-      'Teacher follow-up question: «' + question + '»\n\n' +
+      'Teacher question: «' + question + '»\n\n' +
       'ANSWER STRATEGY (MANDATORY — COMMUNITY FIRST):\n' +
       (hasCommunityMatches
-        ? '0. COMMUNITY FIRST: A verified community file matched (keyword OR semantic). Open with the mandatory opening verbatim — announce the community upload and direct the teacher to the community repository. Do NOT invent commercial plays (e.g. Roee Chen) or external internet productions.\n'
-        : '0. COMMUNITY FIRST: No direct Supabase community match — open verbatim with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»; no fake **bold** citations or pseudo-structured archive blocks.\n') +
+        ? '0. COMMUNITY FIRST: A verified community file matched globally (keyword OR semantic). Open with the mandatory opening verbatim — announce the community upload, the grade where it was found, and direct the teacher to the community repository. Do NOT invent commercial plays (e.g. Roee Chen) or external internet productions.\n'
+        : '0. COMMUNITY FIRST: No global Supabase community match — open verbatim with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»; no fake **bold** citations or pseudo-structured archive blocks.\n') +
       (gradePriorBlock
         ? '0a. CACHED GRADE INSIGHTS (step A) are above — treat as authoritative baseline; enrich with live web search.\n'
         : '') +
@@ -1100,16 +1241,30 @@ function phaseRequiresStructuredJson(phase) {
   return phase !== 'chat_followup';
 }
 
+function getExpansionSchemaProperties() {
+  return {
+    classroomImplementation: { type: 'string' },
+    parentCommunityAspects: { type: 'string' },
+    practicalSteps: { type: 'array', items: { type: 'string' } },
+    inspirationReferences: { type: 'array', items: { type: 'string' } },
+    expansionHtml: { type: 'string' },
+  };
+}
+
 function getTopicResponseSchema() {
+  const expansionSchema = {
+    type: 'object',
+    properties: getExpansionSchemaProperties(),
+  };
   const bibItemSchema = {
     type: 'object',
-    properties: {
+    properties: Object.assign({
       title: { type: 'string' },
       author: { type: 'string' },
       publisher: { type: 'string' },
       year: { type: 'string' },
       lang: { type: 'string' },
-    },
+    }, { expansion: expansionSchema }),
   };
   const bibliographySchema = {
     type: 'object',
@@ -1128,6 +1283,9 @@ function getTopicResponseSchema() {
       content: { type: 'string' },
       art: { type: 'string' },
       hint: { type: 'string' },
+      contentExpansion: expansionSchema,
+      artExpansion: expansionSchema,
+      hintExpansion: expansionSchema,
     },
     required: ['day', 'topic', 'content', 'art'],
   };
@@ -1265,7 +1423,11 @@ async function callGeminiV1(systemPrompt, userPrompt, options) {
 
   if (!res.ok) {
     const msg = payload.error && payload.error.message ? payload.error.message : raw.slice(0, 300);
-    throw new Error('Gemini error ' + res.status + ': ' + msg);
+    const err = new Error('Gemini error ' + res.status + ': ' + msg);
+    if (res.status === 429 || res.status === 400 || res.status === 403) {
+      err.statusCode = res.status;
+    }
+    throw err;
   }
 
   const text = extractGeminiV1Text(payload);
@@ -1319,12 +1481,11 @@ function buildPerplexitySearchUserPrompt(body) {
   if (phase === 'chat_followup') {
     const question = String(body.userMessage || '').trim();
     return (
-      'Perform a factual web search to answer a Waldorf teacher follow-up question about their lesson plan.\n' +
-      'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
-      'Block topic: «' + topic + '»\n' +
+      'Perform a factual web search to answer a Waldorf teacher question.\n' +
       'Teacher question: «' + question + '»\n\n' +
       'Return a detailed Hebrew research report grounded in verified Rudolf Steiner, anthroposophic, and Waldorf pedagogical sources.\n' +
-      'Cover practical classroom guidance relevant to the question and grade level.\n' +
+      'Do NOT restrict the search to any particular grade unless the teacher explicitly mentions one in the question.\n' +
+      'Cover practical classroom guidance relevant to the question.\n' +
       'Include a numbered "Sources" section with HTTPS reference URLs for every major claim.'
     );
   }
@@ -1483,9 +1644,35 @@ const JSON_RETRY_SYSTEM_SUFFIX =
   'No ```json fences, no Hebrew/English preamble, no trailing commas.';
 const GENERIC_GENERATION_ERROR = 'לא הצלחנו ליצור את התוכן הפדגוגי. נסו שוב בעוד רגע.';
 
+function isNonRetriableApiClientError(err) {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  const statusCode = err && err.statusCode;
+  if (statusCode === 429 || statusCode === 400 || statusCode === 403) return true;
+  return /Gemini error (429|400|403)\b/i.test(msg)
+    || /\berror 429\b/i.test(msg)
+    || /\berror 400\b/i.test(msg)
+    || /rate limit|quota exceeded|resource exhausted|too many requests|high demand|retry in [0-9.]+s/i.test(msg)
+    || /invalid argument|INVALID_ARGUMENT|bad request/i.test(msg);
+}
+
 function isRetriablePerplexityCallError(err) {
+  if (isNonRetriableApiClientError(err)) return false;
   const msg = err instanceof Error ? err.message : String(err || '');
   return !/API key|unauthorized|GEMINI_API_KEY|PERPLEXITY_API_KEY|not configured|Method not allowed/i.test(msg);
+}
+
+function rethrowApiClientError(err, fallbackMessage) {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  if (err instanceof Error && err.statusCode) throw err;
+  const next = new Error(msg || fallbackMessage);
+  if (isNonRetriableApiClientError(err)) {
+    if (/Gemini error 429|\berror 429\b|rate limit|quota exceeded|too many requests|high demand/i.test(msg)) {
+      next.statusCode = 429;
+    } else if (/Gemini error 400|\berror 400\b|invalid argument|INVALID_ARGUMENT|bad request/i.test(msg)) {
+      next.statusCode = 400;
+    }
+  }
+  throw next;
 }
 
 /**
@@ -1536,7 +1723,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
       if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(aiErr)) {
         continue;
       }
-      throw new Error(msg || 'שגיאה בקריאה ל-AI — נסו שוב בעוד רגע.');
+      rethrowApiClientError(aiErr, 'שגיאה בקריאה ל-AI — נסו שוב בעוד רגע.');
     }
 
     let data;
@@ -1615,8 +1802,8 @@ async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, 
   }
 
   const enrichmentPrompt = buildGeminiEnrichmentUserPrompt(body, rawPayload);
-  const systemBuilder = typeof baseOpts.systemPrompt === 'function' ? baseOpts.systemPrompt : waldorfSystemPrompt;
-  const hybridExtraSystem = extraSystem + HYBRID_GEMINI_SYSTEM_SUFFIX;
+  const systemBuilder = resolveHybridSystemBuilder(body, baseOpts);
+  const hybridExtraSystem = extraSystem + resolveHybridSystemSuffix(body);
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
@@ -1650,7 +1837,7 @@ async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, 
       if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(geminiErr)) {
         continue;
       }
-      throw new Error(msg || 'שגיאה בעיבוד Gemini — נסו שוב בעוד רגע.');
+      rethrowApiClientError(geminiErr, 'שגיאה בעיבוד Gemini — נסו שוב בעוד רגע.');
     }
 
     let data;
@@ -1790,16 +1977,82 @@ function resolveCommunityProbeQuery(body) {
   };
 }
 
+/** Pedagogical chat: global community pre-check — uses only the teacher's message, not UI grade/topic. */
+async function probeGlobalCommunityForChat(body) {
+  const userMsg = String((body && body.userMessage) || '').trim();
+  if (!userMsg) {
+    return { matches: [], count: 0, query: '', matchMethod: 'none', scope: 'global' };
+  }
+
+  const baseOpts = {
+    query: userMsg,
+    userMessage: userMsg,
+    globalScan: true,
+    semanticFallback: true,
+    globalSemantic: true,
+    limit: 8,
+  };
+
+  try {
+    let result = await cacheDb.findCommunityMaterials(baseOpts);
+
+    if (!result.count) {
+      const cached = await cacheDb.findCachedResultsGlobalMatch(userMsg, { limit: 5 });
+      if (cached.count > 0) result = cached;
+    }
+
+    if (!result.count) {
+      const terms = cacheDb.buildCommunitySearchTerms(userMsg);
+      for (let i = 0; i < terms.length; i++) {
+        const term = terms[i];
+        if (!term || term.length < 2) continue;
+        const termProbe = await cacheDb.findCommunityMaterials({
+          query: term,
+          userMessage: userMsg,
+          globalScan: true,
+          semanticFallback: true,
+          globalSemantic: true,
+          limit: 8,
+        });
+        if (termProbe.count > 0) {
+          result = termProbe;
+          break;
+        }
+      }
+    }
+
+    if (!result.count) {
+      const cachedRetry = await cacheDb.findCachedResultsGlobalMatch(userMsg, { limit: 5 });
+      if (cachedRetry.count > 0) result = cachedRetry;
+    }
+
+    if (result.count > 0 && result.matchMethod) {
+      console.log('[chat] global community match via', result.matchMethod, '—', result.count, 'hit(s)');
+    } else {
+      console.log('[chat] global community scan — no match for «' + userMsg.slice(0, 80) + '»');
+    }
+
+    return Object.assign({}, result, { scope: 'global', query: userMsg });
+  } catch (probeErr) {
+    console.warn('[chat] global community probe failed:', probeErr.message || probeErr);
+    return { matches: [], count: 0, query: userMsg, matchMethod: 'none', scope: 'global' };
+  }
+}
+
 async function probeCommunityMaterialsForBody(body) {
   if (!body || !shouldProbeCommunityMaterials(body.phase)) {
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
+  if (body.phase === 'chat_followup') {
+    return probeGlobalCommunityForChat(body);
+  }
+
   const gradeId = body.currentGrade || body.gradeId;
   const resolved = resolveCommunityProbeQuery(body);
   if (!resolved.query) {
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
-  const enableSemantic = body.phase === 'chat_followup';
+  const enableSemantic = false;
   const baseOpts = {
     query: resolved.query,
     topic: resolved.topic,
@@ -1807,54 +2060,10 @@ async function probeCommunityMaterialsForBody(body) {
     gradeId: gradeId,
     limit: 8,
     semanticFallback: enableSemantic,
-    globalSemantic: body.phase === 'chat_followup',
+    globalSemantic: false,
   };
   try {
     let result = await cacheDb.findCommunityMaterials(baseOpts);
-    if (!result.count && body.phase === 'chat_followup') {
-      const topicOnly = String(body.topic || '').trim();
-      const userMsg = String(body.userMessage || '').trim();
-      if (topicOnly && topicOnly !== userMsg) {
-        const topicProbe = await cacheDb.findCommunityMaterials({
-          query: topicOnly,
-          topic: body.topic,
-          gradeId: gradeId,
-          limit: 8,
-          semanticFallback: enableSemantic,
-          userMessage: userMsg || null,
-        });
-        if (topicProbe.count > 0) result = topicProbe;
-      } else if (!topicOnly && userMsg) {
-        if (userMsg !== resolved.query) {
-          const fullMsgProbe = await cacheDb.findCommunityMaterials({
-            query: userMsg,
-            userMessage: userMsg,
-            gradeId: gradeId,
-            limit: 8,
-            semanticFallback: enableSemantic,
-          });
-          if (fullMsgProbe.count > 0) result = fullMsgProbe;
-        }
-        if (!result.count) {
-          const terms = cacheDb.buildCommunitySearchTerms(userMsg);
-          for (let i = 0; i < terms.length; i++) {
-            const term = terms[i];
-            if (!term || term.length < 2) continue;
-            const termProbe = await cacheDb.findCommunityMaterials({
-              query: term,
-              userMessage: userMsg,
-              gradeId: gradeId,
-              limit: 8,
-              semanticFallback: enableSemantic,
-            });
-            if (termProbe.count > 0) {
-              result = termProbe;
-              break;
-            }
-          }
-        }
-      }
-    }
     if (result.count > 0 && result.matchMethod) {
       console.log('[community] probe matched via', result.matchMethod, '—', result.count, 'material(s)');
     }
@@ -1946,6 +2155,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
   const billable = result &&
     result.meta &&
     !result.meta.fromCache &&
+    !result.meta.communityRouted &&
     !result.meta.needsArchiveConfirmation &&
     result.data != null;
 
@@ -2080,6 +2290,24 @@ async function executeGenerate(body, apiKey, requestContext) {
   }
   body.communityMaterialsProbe = communityProbe;
 
+  if (body.phase === 'chat_followup' && communityProbe.count > 0) {
+    console.log('[chat] routing to community repository — skipping Gemini/Perplexity fallback');
+    const routed = buildCommunityMatchChatResponse(communityProbe, body);
+    return {
+      data: routed,
+      meta: attachCommunityMeta({
+        fromCache: false,
+        communityRouted: true,
+        chatGlobalScan: true,
+        hybridPipeline: false,
+      }, communityProbe),
+    };
+  }
+
+  if (body.phase === 'chat_followup') {
+    body.chatGlobalScan = true;
+  }
+
   if (!body.skipCache) {
     if (body.phase === 'chat_followup') {
       try {
@@ -2191,6 +2419,11 @@ async function executeGenerate(body, apiKey, requestContext) {
     liveDriveRefresh: false,
   };
 
+  // Main generation (grade/topic): decoupled from Drive/community RAG — Perplexity → Gemini only.
+  if (isDecoupledGenerationPhase(body)) {
+    body.skipRag = true;
+  }
+
   // Live Drive archive lookup — runs on every cache miss (no stale RAG cache).
   // Queries knowledge_base in real time so newly ingested "waldrof project" / "waldorf project" files are included.
   if (body.phase === 'chat_followup') {
@@ -2235,7 +2468,7 @@ async function executeGenerate(body, apiKey, requestContext) {
   }
 
   const gradeLockSystem =
-    resolvedGradeId(body) || body.gradeLabel
+    body.phase !== 'chat_followup' && (resolvedGradeId(body) || body.gradeLabel)
       ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.'
       : '';
 
@@ -2244,18 +2477,22 @@ async function executeGenerate(body, apiKey, requestContext) {
     'chat_followup',
   ]);
   const isChatFollowup = body.phase === 'chat_followup';
+  const isDecoupledGen = isDecoupledGenerationPhase(body);
   const communityCriticalBlock =
     isChatFollowup && body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
       ? buildCommunityMatchCriticalSystemBlock(body.communityMaterialsProbe, body)
       : '';
   const extraSystem =
     gradeLockSystem +
-    CONTENT_HIERARCHY_INSTRUCTION +
+    (isDecoupledGen ? '' : CONTENT_HIERARCHY_INSTRUCTION) +
     communityCriticalBlock +
     (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
-    (isChatFollowup
+    (isDecoupledGen
+      ? ' DECOUPLED MAIN GENERATION: Perplexity raw research is the sole factual input — no Drive or community archive excerpts. ' +
+        'Gemini acts as Master Waldorf Educator: translate into rich anthroposophic Hebrew content with inline expansions on every expandable UI item.'
+      : isChatFollowup
       ? (body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
         ? ' PEDAGOGICAL CHAT — COMMUNITY MATCH: Start verbatim with the CRITICAL INSTRUCTION opening. Announce the community file only — do not invent external plays or commercial productions.'
         : (body.priorCachedAnswer || body.priorGradeCache
@@ -2264,10 +2501,12 @@ async function executeGenerate(body, apiKey, requestContext) {
             'Open verbatim with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '». ' +
             'NEVER invent **bold** topic placeholders, fake archive sections, or [1][2] citations. ' +
             'Continue with warm, practical Waldorf guidance when search and lesson context support it. Decline only when no verified material exists anywhere.'))
-      : body.ragContext || body.ragDriveContext || body.ragCommunityContext
-        ? ' HYBRID SEARCH: Live web search is PRIMARY. Private Drive and shared community archive excerpts are SECONDARY enrichment — blend them into the web foundation without replacing web breadth.'
-        : ' No local Drive or community archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
-    (searchPhases.has(body.phase)
+      : isDecoupledGen
+        ? ''
+        : body.ragContext || body.ragDriveContext || body.ragCommunityContext
+          ? ' HYBRID SEARCH: Live web search is PRIMARY. Private Drive and shared community archive excerpts are SECONDARY enrichment — blend them into the web foundation without replacing web breadth.'
+          : ' No local Drive or community archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
+    (searchPhases.has(body.phase) && !isDecoupledGen
       ? ' LIVE WEB SEARCH is the core anchor — perform a broad, exhaustive internet search first. ' +
         'Check Alon Yerushalmy, «מסעות בחינוך», and educationpace.com only for genuinely relevant matches — ' +
         'never force a citation; omit entirely when search data offers no substantial topic-specific material.'
@@ -2355,9 +2594,11 @@ async function executeGenerate(body, apiKey, requestContext) {
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
       hybridPipeline: shouldUseHybridRouting(body),
       consolidatedArchive: ragMeta.chunkCount > 0,
-      contentHierarchy: shouldUseHybridRouting(body)
-        ? 'perplexity_raw+gemini_enrichment'
-        : 'web_primary_drive_enrichment',
+      contentHierarchy: isDecoupledGen
+        ? 'perplexity_raw+gemini_master_educator'
+        : (shouldUseHybridRouting(body)
+          ? 'perplexity_raw+gemini_enrichment'
+          : 'web_primary_drive_enrichment'),
       liveDriveRefresh: Boolean(ragMeta.liveDriveRefresh),
       rag: ragMeta,
       ragContext: body.ragContext || '',

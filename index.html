@@ -3801,7 +3801,25 @@
     const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
 
     const summaryJobsByKey = {};
+    const summaryFailedByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
+
+    function parseApiCooldownSeconds(message) {
+      const match = String(message || '').match(/retry in ([0-9.]+)s/i);
+      if (!match) return null;
+      const seconds = Math.ceil(parseFloat(match[1]));
+      return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+    }
+
+    function formatExpansionErrorMessage(message) {
+      const base = String(message || t('pedagogy_summary_empty')).trim();
+      const cooldown = parseApiCooldownSeconds(base);
+      if (!cooldown) return base;
+      const suffix = isEnglish()
+        ? ' Please wait ' + cooldown + ' seconds before clicking again.'
+        : ' המתינו ' + cooldown + ' שניות לפני לחיצה חוזרת.';
+      return base + suffix;
+    }
 
     function getSummarySessionScope() {
       return String(appState.grade || '') + '|' + String(appState.topic || '').trim().toLowerCase();
@@ -3824,6 +3842,7 @@
         if (job && job.controller) job.controller.abort();
       });
       Object.keys(summaryJobsByKey).forEach(function (key) { delete summaryJobsByKey[key]; });
+      Object.keys(summaryFailedByKey).forEach(function (key) { delete summaryFailedByKey[key]; });
       summaryPanelOpenState.bib = {};
       summaryPanelOpenState.ped = {};
       appState.bibliographySummaries = {};
@@ -3864,17 +3883,25 @@
       );
     }
 
-    function getLazyLoadExpansionInstruction() {
+    function getInlineExpansionInstruction() {
       if (isEnglish()) {
         return (
-          'LAZY LOADING — CRITICAL: Do NOT include expansion, contentExpansion, artExpansion, hintExpansion, or nested practical-expansion objects in this response. ' +
-          'Return ONLY the core idea text (titles, details, bullets, paragraphs). Expansions are fetched on-demand when the teacher clicks a button — keep this response fast and lean.'
+          'INLINE EXPANSION (MANDATORY): Include a complete "expansion" object on every expandable UI item in this response. ' +
+          'Shape: classroomImplementation, parentCommunityAspects, practicalSteps[], inspirationReferences[], expansionHtml. ' +
+          'Curriculum days: contentExpansion, artExpansion, hintExpansion (same shape). ' +
+          'The «Practical expansion & aspects» button toggles pre-generated content — no second API call.'
         );
       }
       return (
-        'טעינה לפי דרישה — קריטי: אל תכלול expansion, contentExpansion, artExpansion, hintExpansion או אובייקטי הרחבה מקוננים בתשובה זו. ' +
-        'החזר אך ורק את טקסט הרעיון/ההמלצה (כותרות, פרטים, נקודות, פסקאות). ההרחבות ייטענו בנפרד בלחיצה על כפתור — שמור על תשובה מהירה וקלה.'
+        'הרחבה מוטמעת (חובה): כלול אובייקט "expansion" מלא על כל פריט עם כפתור הרחבה בתשובה זו. ' +
+        'מבנה: classroomImplementation, parentCommunityAspects, practicalSteps[], inspirationReferences[], expansionHtml. ' +
+        'ימי תכנון: contentExpansion, artExpansion, hintExpansion (אותו מבנה). ' +
+        'כפתור «הרחבה ואספקטים פרקטיים» מציג/מסתיר תוכן שכבר נוצר — ללא קריאת API נוספת.'
       );
+    }
+
+    function getLazyLoadExpansionInstruction() {
+      return getInlineExpansionInstruction();
     }
 
     function getOnDemandExpansionInstruction() {
@@ -3989,7 +4016,7 @@
           'Real, verifiable sources only by name — no URLs. JSON: theory.bibliography = { books, articles, websites } with lang:"en" on every item. ' +
           'Each item: title, author or publisher, year? (if known), chapter?/detail?/description? — never url. ' +
           'MINIMUM: at least 3 books, 3 articles, 3 websites. ' +
-          'The UI renders a clickable «Practical expansion & aspects 📝» button beside every source — expansions load on demand; include title + author/publisher only. ' +
+          'The UI renders a clickable «Practical expansion & aspects 📝» button beside every source — expansions are included inline in this payload; the button toggles visibility only. ' +
           'ONLY English sources. Maximum 10 leading world sources total (GA, AWSNA, IASWECE, Charles Kovacs, Torin Finser, Betty Staley, international Waldorf institutes).'
         );
       }
@@ -4003,7 +4030,7 @@
       '"articles": [{ "title", "author?", "publisher?", "year?", "detail?", "lang": "he"|"en" }], ' +
       '"websites": [{ "title", "author?", "publisher?", "year?", "description?", "lang": "he"|"en" }] }. ' +
       'מינימום חובה: לפחות 3 ספרים, 3 מאמרים ו-3 אתרים. ' +
-      'לכל מקור בממשק יוצג כפתור «הרחבה ואספקטים פרקטיים 📝» — ההרחבה נטענת לפי דרישה; חובה למלא title ו-author/publisher בלבד. ' +
+      'לכל מקור בממשק יוצג כפתור «הרחבה ואספקטים פרקטיים 📝» — ההרחבה מגיעה מוטמעת בתשובה; הכפתור מציג/מסתיר בלבד. חובה למלא title, author/publisher ו-expansion. ' +
       'קטגוריה 1 — ספרים ומראי מקום (שם ספר, מחבר, הוצאה, שנת הוצאה, פרקים רלוונטיים). ' +
       'קטגוריה 2 — מאמרים אנתרופוסופיים ופדגוגיים. קטגוריה 3 — אתרים ומקורות מומלצים (שם האתר/ארגון והוצאה בלבד — ללא URL). ' +
       'מקורות באנגלית (lang=en): רשימה רחבה ומקיפה של עד 10 מקורות איכותיים בסך הכל בכל שלוש הקטגורות — ' +
@@ -4465,7 +4492,7 @@
       if (!p.noUrlsInstruction) p.noUrlsInstruction = getNoUrlsInstruction();
       if (!p.noLatexInstruction) p.noLatexInstruction = getNoLatexInstruction();
       if (!p.prioritySearchInstruction) p.prioritySearchInstruction = getPrioritySourcesSearchInstruction();
-      if (!p.lazyLoadInstruction) p.lazyLoadInstruction = getLazyLoadExpansionInstruction();
+      if (!p.lazyLoadInstruction) p.lazyLoadInstruction = getInlineExpansionInstruction();
       if (!p.gradeLockInstruction) p.gradeLockInstruction = getGradeLockInstruction();
       if (typeof WaldorfAuth !== 'undefined') {
         const teacher = WaldorfAuth.getContributorProfile();
@@ -5044,6 +5071,14 @@
         throw new Error(parseMsg || ('תשובה לא תקינה מהשרת (' + res.status + '): ' + preview));
       }
       if (!res.ok || json.error) {
+        const apiErrText = String(json.error || json.message || '');
+        const isGeminiClientError = res.status === 400 || res.status === 429
+          || /Gemini error (429|400)\b/i.test(apiErrText)
+          || /rate limit|quota exceeded|resource exhausted|too many requests|high demand|retry in [0-9.]+s/i.test(apiErrText)
+          || /invalid argument|INVALID_ARGUMENT|bad request/i.test(apiErrText);
+        if (isGeminiClientError) {
+          throw new Error(formatExpansionErrorMessage(apiErrText || ('שגיאת שרת ' + res.status)));
+        }
         if (res.status === 429 || (json && json.code === 'RATE_LIMIT')) {
           if (typeof WaldorfAuth !== 'undefined') {
             if (json.usage) WaldorfAuth.applyUsageFromServer(json.usage);
@@ -5191,13 +5226,19 @@
       item = sanitizeBibliographyRawItem(item);
       const label = buildBibliographyLabel(item);
       const id = buildBibliographyItemId(category, item, index);
-      return {
+      const expansion = normalizeExpansion(item.expansion);
+      const normalized = {
         id: id,
         category: category,
         label: label || t('theory_bib_source'),
         url: '',
         raw: item,
+        expansion: expansion,
       };
+      if (expansion) {
+        appState.bibliographySummaries[id] = mapExpansionToArchiveSummary(expansion, normalized);
+      }
+      return normalized;
     }
 
     function isBibliographyEmpty(bib) {
@@ -5484,6 +5525,7 @@
       const isStr = typeof item === 'string';
       const title = !isStr && item && item.title ? item.title : '';
       const detail = isStr ? item : ((item && (item.detail || item.body || item.description || item.text)) || '');
+      const expansion = normalizeExpansion(!isStr && item ? item.expansion : null);
       const id = buildPedagogyItemId('grade', prefix, index, (title || '') + detail);
       return renderPedagogySuggestionCard({
         id: id,
@@ -5493,6 +5535,7 @@
         heading: title,
         preview: detail,
         context: 'grade-insights · ' + prefix,
+        expansion: expansion,
       });
     }
 
@@ -5617,28 +5660,28 @@
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
       const noLatex = getNoLatexInstruction();
-      const lazy = getLazyLoadExpansionInstruction();
+      const inline = getInlineExpansionInstruction();
       const prioritySearch = getPrioritySourcesSearchInstruction();
       if (isEnglish()) {
         return (
-          gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + lazy + ' ' + prioritySearch + ' ' +
+          gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + inline + ' ' + prioritySearch + ' ' +
           (ageRange ? 'Age range for this grade: ' + ageRange + '. ' : '') +
-          'Generate a rich anthroposophic Waldorf portrait for currentGrade ONLY. Uniform 16px in UI. Keep response fast — no nested expansions.\n' +
+          'Generate a rich anthroposophic Waldorf portrait for currentGrade ONLY. Uniform 16px in UI.\n' +
           'PART 1 — Age picture: part1AgePictureHtml (4–6 HTML paragraphs), part1DevelopmentBullets (8–12 concise Hebrew bullets as strings or {text}), archivesSynthesisHtml, developmentBullets.\n' +
-          'PART 2 — Classroom ideas: part2ClassroomIdeasHtml (5–8 HTML paragraphs), part2ClassroomIdeas (6–10 objects: {title, detail} only).\n' +
-          'PART 3 — Community: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 objects: {title, detail} only).\n' +
-          'Also: globalCurricula (6–10 bullet strings), typicalBlocks, sources (names only — NO URLs). ' +
+          'PART 2 — Classroom ideas: part2ClassroomIdeasHtml (5–8 HTML paragraphs), part2ClassroomIdeas (6–10 objects: {title, detail, expansion}).\n' +
+          'PART 3 — Community: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 objects: {title, detail, expansion}).\n' +
+          'Also: globalCurricula (objects with title/detail/expansion), typicalBlocks, sources (names only — NO URLs). ' +
           getJsonOutputInstruction()
         );
       }
       return (
-        gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + lazy + ' ' + prioritySearch + ' ' +
+        gradeLock + ' ' + noUrls + ' ' + noLatex + ' ' + inline + ' ' + prioritySearch + ' ' +
         (ageRange ? 'טווח גיל לכיתה זו: ' + ageRange + '. ' : '') +
-        'הפק תמונת גיל ולדורפית עשירה עבור currentGrade בלבד. גופן אחיד 16px. שמור על תשובה מהירה — ללא הרחבות מקוננות.\n' +
+        'הפק תמונת גיל ולדורפית עשירה עבור currentGrade בלבד. גופן אחיד 16px.\n' +
         'חלק 1 — תמונת גיל: part1AgePictureHtml (4–6 פסקאות HTML), part1DevelopmentBullets (8–12 נקודות כמחרוזות או {text}), archivesSynthesisHtml, developmentBullets.\n' +
-        'חלק 2 — רעיונות כיתה: part2ClassroomIdeasHtml (5–8 פסקאות HTML), part2ClassroomIdeas (6–10 אובייקטים: {title, detail} בלבד).\n' +
-        'חלק 3 — קהילה: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 אובייקטים: {title, detail} בלבד).\n' +
-        'גם: globalCurricula (6–10 נקודות), typicalBlocks, sources (שמות בלבד — ללא URLs). ' +
+        'חלק 2 — רעיונות כיתה: part2ClassroomIdeasHtml (5–8 פסקאות HTML), part2ClassroomIdeas (6–10 אובייקטים: {title, detail, expansion}).\n' +
+        'חלק 3 — קהילה: part3CommunityExpansionsHtml, part3CommunityIdeas (5–8 אובייקטים: {title, detail, expansion}).\n' +
+        'גם: globalCurricula (אובייקטים עם title/detail/expansion), typicalBlocks, sources (שמות בלבד — ללא URLs). ' +
         getJsonOutputInstruction()
       );
     }
@@ -5664,66 +5707,68 @@
       const gradeLock = getGradeLockInstruction();
       const gradeId = appState.grade || '';
       const noUrls = getNoUrlsInstruction();
-      const lazy = getLazyLoadExpansionInstruction();
+      const inline = getInlineExpansionInstruction();
       const prioritySearch = getPrioritySourcesSearchInstruction();
       if (isEnglish()) {
         return (
           'currentGrade: ' + gradeId + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
+          gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
           'Create blockPlan.theory ONLY for this exact grade. sections: 2–4 theory sections (safe HTML, no links, 16px). ' +
-          'Each section: 3–6 depth paragraphs — no nested expansions. ' +
-          bib + ' Bibliography under "' + title + '". Expansions load on button click — no URLs.'
+          'Each section: 3–6 depth paragraphs plus mandatory "expansion" object. ' +
+          bib + ' Bibliography under "' + title + '" — each item includes expansion. No URLs.'
         );
       }
       return (
         'currentGrade: ' + gradeId + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
+        gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
         'צור blockPlan.theory אך ורק לכיתה זו. sections: 2–4 סעיפי רקע (HTML בטוח, ללא קישורים, 16px). ' +
-        'כל סעיף: 3–6 פסקאות עומק — ללא הרחבות מקוננות. ' +
-        bib + ' ביבליוגרפיה תחת "' + title + '". הרחבות בלחיצה על כפתור — ללא URLs.'
+        'כל סעיף: 3–6 פסקאות עומק + אובייקט "expansion" חובה. ' +
+        bib + ' ביבליוגרפיה תחת "' + title + '" — לכל פריט expansion. ללא URLs.'
       );
     }
 
     function buildInspirationTabPrompt(topic, gradeLabel) {
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
-      const lazy = getLazyLoadExpansionInstruction();
+      const inline = getInlineExpansionInstruction();
       const prioritySearch = getPrioritySourcesSearchInstruction();
       if (isEnglish()) {
         return (
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
-          'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items (strings). ' +
-          'podcast: 3–5 episodes {theme, insight} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
-          'narrative: 3–5 story paragraphs. No nested expansions. 16px UI.'
+          gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
+          'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items ({text, expansion}). ' +
+          'podcast: 3–5 episodes {theme, insight, expansion} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
+          'narrative: 3–5 story paragraphs ({text, expansion}). 16px UI.'
         );
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
-        'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים (מחרוזות). ' +
-        'podcast: 3–5 פרקים {theme, insight} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
-        'narrative: 3–5 פסקאות. ללא הרחבות מקוננות. גופן 16px.'
+        gradeLock + ' ' + noUrls + ' ' + inline + ' ' + prioritySearch + ' ' +
+        'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים ({text, expansion}). ' +
+        'podcast: 3–5 פרקים {theme, insight, expansion} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
+        'narrative: 3–5 פסקאות ({text, expansion}). גופן 16px.'
       );
     }
 
     function buildCurriculumTabPrompt(topic, gradeLabel) {
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
-      const lazy = getLazyLoadExpansionInstruction();
+      const inline = getInlineExpansionInstruction();
       if (isEnglish()) {
         return (
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + lazy + ' ' +
-          'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint — no expansion fields. ' +
+          gradeLock + ' ' + noUrls + ' ' + inline + ' ' +
+          'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint, ' +
+          'contentExpansion, artExpansion, hintExpansion (mandatory expansion objects). ' +
           '3-week arc. Grade-locked. 16px UI. ' +
           getJsonOutputInstruction()
         );
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + lazy + ' ' +
-        'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי — ללא שדות הרחבה. ' +
+        gradeLock + ' ' + noUrls + ' ' + inline + ' ' +
+        'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי, ' +
+        'contentExpansion, artExpansion, hintExpansion (אובייקטי expansion חובה). ' +
         'קשת 3 שבועות. אך ורק לכיתה זו. גופן 16px. ' +
         getJsonOutputInstruction()
       );
@@ -5759,8 +5804,8 @@
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
         pedagogyExpandHint: isEnglish()
-          ? getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getLazyLoadExpansionInstruction() + ' Generate rich blockPlan.inspiration and blockPlan.curriculum for currentGrade ' + appState.grade + ' (' + appState.gradeLabel + ') only. No nested expansions — fast response. Bibliography: 3+ books, 3+ articles, 3+ websites. Expansions load on button click.'
-          : getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getLazyLoadExpansionInstruction() + ' ייצר blockPlan.inspiration ו-blockPlan.curriculum עשירים ל-currentGrade ' + appState.grade + ' («' + appState.gradeLabel + '») בלבד. ללא הרחבות מקוננות — תשובה מהירה. ביבליוגרפיה: 3+ ספרים, 3+ מאמרים, 3+ אתרים. הרחבות בלחיצה על כפתור.',
+          ? getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getInlineExpansionInstruction() + ' Generate rich blockPlan.inspiration and blockPlan.curriculum for currentGrade ' + appState.grade + ' (' + appState.gradeLabel + ') only. Include inline expansions on every expandable item. Bibliography: 3+ books, 3+ articles, 3+ websites — each with expansion.'
+          : getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + getInlineExpansionInstruction() + ' ייצר blockPlan.inspiration ו-blockPlan.curriculum עשירים ל-currentGrade ' + appState.grade + ' («' + appState.gradeLabel + '») בלבד. הרחבות מוטמעות בכל פריט עם כפתור. ביבליוגרפיה: 3+ ספרים, 3+ מאמרים, 3+ אתרים — כל אחד עם expansion.',
       }, { signal: signal });
     }
 
@@ -5958,8 +6003,11 @@
         if (!summaryPanelOpenState.bib[cacheKey]) return;
         const summary = appState.bibliographySummaries[sid];
         const job = summaryJobsByKey[cacheKey];
+        const failedMsg = summaryFailedByKey[cacheKey];
         if (summary) {
           renderBibInlinePanelIfPresent(sid, summary);
+        } else if (failedMsg) {
+          renderBibInlinePanelIfPresent(sid, null, false, failedMsg);
         } else if (job) {
           renderBibInlinePanelIfPresent(sid, null, true);
           setBibDeepBtnDisabled(sid, true);
@@ -5975,8 +6023,11 @@
         if (!summaryPanelOpenState.ped[cacheKey]) return;
         const summary = appState.pedagogySummaries[sid];
         const job = summaryJobsByKey[cacheKey];
+        const failedMsg = summaryFailedByKey[cacheKey];
         if (summary) {
           renderPedagogyInlinePanelIfPresent(sid, summary);
+        } else if (failedMsg) {
+          renderPedagogyInlinePanelIfPresent(sid, null, false, failedMsg);
         } else if (job) {
           renderPedagogyInlinePanelIfPresent(sid, null, true);
           setPedDeepBtnDisabled(sid, true);
@@ -5993,6 +6044,7 @@
       const source = appState.bibliographyRegistry[sourceId];
       const cacheKey = source ? getBibliographySummaryCacheKey(source) : sourceId;
       delete summaryPanelOpenState.bib[cacheKey];
+      delete summaryFailedByKey[cacheKey];
       const panel = getBibExpandPanel(sourceId);
       if (panel) panel.classList.add('hidden');
       setBibDeepBtnDisabled(sourceId, false);
@@ -6002,6 +6054,7 @@
       const source = appState.pedagogyRegistry[sourceId];
       const cacheKey = source ? getPedagogySummaryCacheKey(source) : sourceId;
       delete summaryPanelOpenState.ped[cacheKey];
+      delete summaryFailedByKey[cacheKey];
       const panel = getPedExpandPanel(sourceId, triggerEl);
       if (panel) panel.classList.add('hidden');
       setPedDeepBtnDisabled(sourceId, false);
@@ -6026,6 +6079,7 @@
       const existing = summaryJobsByKey[cacheKey];
       if (existing) return existing.promise;
 
+      delete summaryFailedByKey[cacheKey];
       const controller = new AbortController();
       setBibDeepBtnDisabledForCacheKey(cacheKey, true);
       if (summaryPanelOpenState.bib[cacheKey]) {
@@ -6049,7 +6103,9 @@
         return summary;
       }).catch(function (e) {
         if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) throw e;
-        refreshBibliographyPanelsForCacheKey(cacheKey, null, e.message || String(e));
+        const errMsg = formatExpansionErrorMessage(e.message || String(e));
+        summaryFailedByKey[cacheKey] = errMsg;
+        refreshBibliographyPanelsForCacheKey(cacheKey, null, errMsg);
         throw e;
       }).finally(function () {
         delete summaryJobsByKey[cacheKey];
@@ -6067,6 +6123,7 @@
       const existing = summaryJobsByKey[cacheKey];
       if (existing) return existing.promise;
 
+      delete summaryFailedByKey[cacheKey];
       const controller = new AbortController();
       setPedDeepBtnDisabledForCacheKey(cacheKey, true);
       if (summaryPanelOpenState.ped[cacheKey]) {
@@ -6090,7 +6147,9 @@
         return summary;
       }).catch(function (e) {
         if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) throw e;
-        refreshPedagogyPanelsForCacheKey(cacheKey, null, e.message || String(e));
+        const errMsg = formatExpansionErrorMessage(e.message || String(e));
+        summaryFailedByKey[cacheKey] = errMsg;
+        refreshPedagogyPanelsForCacheKey(cacheKey, null, errMsg);
         throw e;
       }).finally(function () {
         delete summaryJobsByKey[cacheKey];
@@ -6135,7 +6194,11 @@
         return;
       }
       if (errorMsg) {
-        panel.innerHTML = '<div class="inline-expand-inner"><p class="text-terracotta m-0"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(errorMsg) + '</p>' +
+        const displayErr = formatExpansionErrorMessage(errorMsg);
+        panel.innerHTML = '<div class="inline-expand-inner"><p class="text-terracotta m-0"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(displayErr) + '</p>' +
+          '<p class="text-walnut/65 text-sm mt-2 m-0">' + escapeHtml(isEnglish()
+            ? 'Loading stopped. Click the expansion button again after the cooldown to retry.'
+            : 'הטעינה הופסקה. לחצו שוב על «הרחבה ואספקטים פרקטיים» רק לאחר ההמתנה.') + '</p>' +
           '<button type="button" class="inline-expand-close" data-bib-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         panel.classList.remove('hidden');
         return;
@@ -6160,15 +6223,19 @@
 
       const cacheKey = getBibliographySummaryCacheKey(source);
       summaryPanelOpenState.bib[cacheKey] = true;
-      panel.classList.remove('hidden');
 
-      if (appState.bibliographySummaries[sourceId]) {
-        renderBibInlinePanel(panel, sourceId, appState.bibliographySummaries[sourceId]);
+      let summary = appState.bibliographySummaries[sourceId];
+      if (!summary && source.expansion) {
+        summary = mapExpansionToArchiveSummary(source.expansion, source);
+        appState.bibliographySummaries[sourceId] = summary;
+      }
+
+      if (summary) {
+        renderBibInlinePanel(panel, sourceId, summary);
         return;
       }
 
-      renderBibInlinePanel(panel, sourceId, null, true);
-      startBibliographySummaryJob(sourceId).catch(function () { /* UI updated in job */ });
+      renderBibInlinePanel(panel, sourceId, null, false, t('theory_bib_summary_empty'));
     }
 
     function ensureTheoryBibliographyEvents() {
@@ -6245,6 +6312,11 @@
     }
 
     function registerPedagogyItem(item) {
+      if (item && item.expansion) {
+        appState.pedagogySummaries[item.id] = {
+          pedagogyDeepDive: mapExpansionToDeepDive(item.expansion, item),
+        };
+      }
       appState.pedagogyRegistry[item.id] = item;
       return item;
     }
@@ -7217,7 +7289,11 @@
         return;
       }
       if (errorMsg) {
-        panel.innerHTML = '<div class="inline-expand-inner"><p class="text-terracotta m-0"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(errorMsg) + '</p>' +
+        const displayErr = formatExpansionErrorMessage(errorMsg);
+        panel.innerHTML = '<div class="inline-expand-inner"><p class="text-terracotta m-0"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(displayErr) + '</p>' +
+          '<p class="text-walnut/65 text-sm mt-2 m-0">' + escapeHtml(isEnglish()
+            ? 'Loading stopped. Click the expansion button again after the cooldown to retry.'
+            : 'הטעינה הופסקה. לחצו שוב על «הרחבה ואספקטים פרקטיים» רק לאחר ההמתנה.') + '</p>' +
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         panel.classList.remove('hidden');
         return;
@@ -7236,20 +7312,25 @@
       if (!source || !panel) return;
 
       if (!panel.classList.contains('hidden')) {
-        collapsePedagogyInline(sourceId);
+        collapsePedagogyInline(sourceId, triggerEl);
         return;
       }
 
       const cacheKey = getPedagogySummaryCacheKey(source);
       summaryPanelOpenState.ped[cacheKey] = true;
 
-      if (appState.pedagogySummaries[sourceId]) {
-        renderPedagogyInlinePanel(panel, sourceId, appState.pedagogySummaries[sourceId]);
+      let summary = appState.pedagogySummaries[sourceId];
+      if (!summary && source.expansion) {
+        summary = { pedagogyDeepDive: mapExpansionToDeepDive(source.expansion, source) };
+        appState.pedagogySummaries[sourceId] = summary;
+      }
+
+      if (summary) {
+        renderPedagogyInlinePanel(panel, sourceId, summary);
         return;
       }
 
-      renderPedagogyInlinePanel(panel, sourceId, null, true);
-      startPedagogySummaryJob(sourceId).catch(function () { /* UI updated in job */ });
+      renderPedagogyInlinePanel(panel, sourceId, null, false, t('pedagogy_summary_empty'));
     }
 
     function ensurePedagogySuggestionEvents() {
@@ -11384,6 +11465,7 @@
           title: sec.heading,
           preview: stripHtmlText(sec.content).slice(0, 280),
           context: d.title + ' · ' + sec.heading,
+          expansion: normalizeExpansion(sec.expansion),
         });
         html += '</article>';
       });
@@ -11416,6 +11498,7 @@
             heading: b.title,
             preview: text,
             context: d.title + ' · ' + b.title,
+            expansion: normalizeExpansion(typeof it === 'object' ? it.expansion : null),
           });
         });
         html += '</div></div>';
@@ -11429,6 +11512,7 @@
           title: ep.theme,
           preview: ep.insight,
           context: d.podcast.title,
+          expansion: normalizeExpansion(ep.expansion),
         });
       });
       html += '</div></div>';
@@ -11443,6 +11527,7 @@
             title: text,
             preview: text,
             context: d.title,
+            expansion: normalizeExpansion(typeof n === 'object' ? n.expansion : null),
           });
         });
         html += '</div></div>';
@@ -11506,6 +11591,11 @@
     function buildCurriculumPedagogyItem(row, subtype, preview, layout) {
       const dayLabel = t('curriculum_day_short', { day: row.day });
       const colLabel = subtype === 'content' ? t('col_content') : (subtype === 'art' ? t('col_art') : t('col_topic'));
+      const expansion = normalizeExpansion(
+        subtype === 'content' ? row.contentExpansion :
+        subtype === 'art' ? row.artExpansion :
+        row.hintExpansion
+      );
       return {
         id: buildPedagogyItemId('curr-' + (layout || 'view'), subtype, row.day, preview),
         type: 'curriculum',
@@ -11515,6 +11605,7 @@
         preview: preview,
         context: dayLabel + ' · ' + row.topic + ' · ' + (appState.topic || ''),
         day: row.day,
+        expansion: expansion,
       };
     }
 
