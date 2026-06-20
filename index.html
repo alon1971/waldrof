@@ -917,13 +917,12 @@
     .catalog-upload-modal {
       position: fixed;
       inset: 0;
-      z-index: 120;
+      z-index: 200;
       display: flex;
       align-items: flex-start;
       justify-content: center;
       padding: 1rem;
       overflow-y: auto;
-      isolation: isolate;
     }
     .catalog-upload-modal:not(.hidden) {
       pointer-events: auto !important;
@@ -931,19 +930,20 @@
     .catalog-upload-modal.hidden { display: none !important; pointer-events: none !important; }
     body.catalog-modal-open { overflow: hidden; }
     .catalog-upload-modal-backdrop {
-      position: absolute;
+      position: fixed;
       inset: 0;
       z-index: 0;
       background: rgba(45, 36, 28, 0.45);
       backdrop-filter: blur(2px);
       -webkit-backdrop-filter: blur(2px);
+      pointer-events: auto;
     }
     .catalog-upload-modal-dialog {
       position: relative;
-      z-index: 1;
+      z-index: 2;
       width: min(100%, 42rem);
       margin: auto;
-      pointer-events: auto;
+      pointer-events: auto !important;
       background: #fff;
       border-radius: 1.25rem;
       border: 1px solid rgba(201, 169, 98, 0.45);
@@ -990,20 +990,39 @@
       background: #F7F3EB;
       border-color: rgba(92, 125, 88, 0.55);
     }
-    .catalog-upload-modal-body { padding: 0.25rem 0 0.5rem; pointer-events: auto; }
+    .catalog-upload-modal-body {
+      padding: 0.25rem 0 0.5rem;
+      pointer-events: auto !important;
+      position: relative;
+      z-index: 1;
+    }
     .catalog-upload-modal-body .catalog-upload-form {
       margin-bottom: 0;
       border: 0;
       box-shadow: none;
       border-radius: 0 0 1.25rem 1.25rem;
       pointer-events: auto !important;
+      position: relative;
+      z-index: 1;
     }
-    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body input:not([type="file"]):not([type="hidden"]),
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body input,
     .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body textarea,
     .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body select,
     .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body button,
-    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body label {
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body label,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body .catalog-file-drop,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body .catalog-file-pick-label,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body fieldset,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-header,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-close {
       pointer-events: auto !important;
+      touch-action: manipulation;
+    }
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body input:not([type="file"]):not([type="hidden"]),
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body textarea,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body select {
+      position: relative;
+      z-index: 3;
     }
     .catalog-file-drop {
       border: 2px dashed rgba(201, 169, 98, 0.55);
@@ -9268,10 +9287,9 @@
     }
 
     async function loadCommunity() {
-      appState.communityCache = [];
-      appState.communityForGrade = [];
-      try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
       if (!isCloudConfigured()) {
+        appState.communityCache = [];
+        appState.communityForGrade = [];
         return;
       }
       try {
@@ -9298,8 +9316,8 @@
             if (document.getElementById('workspace').classList.contains('hidden') === false) {
               renderCommunityMaterials();
               updateCommunityBadge();
-              if (!document.getElementById('panel-catalog').classList.contains('hidden')) {
-                renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+              if (!document.getElementById('panel-catalog').classList.contains('hidden') && !isCatalogUploadModalOpen()) {
+                renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic, { force: true });
               }
             }
           });
@@ -10412,12 +10430,36 @@
     }
 
     function renderGradeCommunityList() {
-      renderCommunityOrEnrichment(
-        document.getElementById('grade-community-list'),
-        appState.grade,
-        null,
-        { topicRequired: false }
-      );
+      const el = document.getElementById('grade-community-list');
+      if (!el || !appState.grade) {
+        if (el) el.innerHTML = '';
+        return;
+      }
+      const gradeId = appState.grade;
+      const items = getCommunityMaterialsForGrade(gradeId);
+      let html = '<div class="grade-community-panel">' +
+        '<div class="catalog-dashboard-header mb-4">' +
+        '<h4 class="font-bold text-walnut mb-0 flex items-center gap-2">' +
+        '<i class="fa-solid fa-folder-open text-gold"></i> ' +
+        escapeHtml(t('catalog_community_files', { count: items.length })) + '</h4>' +
+        catalogUploadButtonHtml(gradeId, '', false, t('catalog_add_material')) +
+        '</div>';
+      if (items.length) {
+        const preview = items.slice(0, COMMUNITY_PREVIEW_LIMIT);
+        html += '<div class="space-y-3">' + preview.map(renderCommunityPreviewCard).join('') + '</div>';
+        if (items.length > COMMUNITY_PREVIEW_LIMIT) {
+          html += '<button type="button" data-community-grade-link class="touch-btn mt-3 text-sm text-sage-dark hover:text-burgundy font-medium inline-flex items-center gap-1.5">' +
+            '<i class="fa-solid fa-folder-open"></i> ' + escapeHtml(t('community_hint_link')) + '</button>';
+        }
+      } else {
+        html += '<p class="text-sm text-walnut/60 text-center py-4">' + escapeHtml(t('catalog_no_files')) + '</p>';
+      }
+      html += '</div>';
+      holdPageScroll(function () {
+        el.innerHTML = html;
+        bindCatalogUploadButtons(el);
+        bindCommunityGradeLink(el);
+      });
     }
 
     function setGradeInsightsLoadingUi(loading) {
@@ -11643,6 +11685,11 @@
       return document.getElementById('catalog-upload-modal');
     }
 
+    function isCatalogUploadModalOpen() {
+      const modal = getCatalogUploadModal();
+      return Boolean(modal && !modal.classList.contains('hidden'));
+    }
+
     function resolveCatalogUploadActiveGrade(fallbackGradeId) {
       return appState.grade || catalogState.gradeId || fallbackGradeId || '';
     }
@@ -11677,7 +11724,8 @@
 
     function ensureCatalogUploadModalInteractive(form) {
       if (!form) return;
-      form.querySelectorAll('input:not([type="file"]):not([type="hidden"]), textarea, select, button').forEach(function (el) {
+      form.style.pointerEvents = 'auto';
+      form.querySelectorAll('input, textarea, select, button, label, fieldset, .catalog-file-drop, .catalog-file-pick-label').forEach(function (el) {
         el.disabled = false;
         el.style.pointerEvents = 'auto';
       });
@@ -11688,6 +11736,10 @@
       const body = document.getElementById('catalog-upload-modal-body');
       if (!modal || !body) return;
       const activeGrade = resolveCatalogUploadActiveGrade(gradeId);
+      if (activeGrade) {
+        catalogState.gradeId = activeGrade;
+        if (catalogState.view === 'grades') catalogState.view = 'grade';
+      }
       body.innerHTML = catalogUploadFormHtml(activeGrade, presetTopic, readonlyTopic);
       const form = body.querySelector('.catalog-upload-form');
       bindSingleCatalogUploadForm(form);
@@ -11734,8 +11786,10 @@
       container.querySelectorAll('.catalog-open-upload').forEach(function (btn) {
         if (btn.dataset.uploadBtnBound) return;
         btn.dataset.uploadBtnBound = '1';
-        btn.addEventListener('click', function () {
-          const gradeId = btn.getAttribute('data-grade') || catalogState.gradeId;
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          const gradeId = btn.getAttribute('data-grade') || catalogState.gradeId || appState.grade;
           const topic = btn.getAttribute('data-topic') || '';
           const readonly = btn.getAttribute('data-topic-readonly') === 'true';
           openCatalogUploadModal(gradeId, topic, readonly);
@@ -11937,9 +11991,7 @@
         gradeSelect.addEventListener('change', function () {
           syncCommunityFormDraftFromForm(form);
           const newGradeId = (gradeSelect.value || '').trim();
-          if (!newGradeId || String(newGradeId) === String(catalogState.gradeId)) return;
-          closeCatalogUploadModal();
-          renderCatalog('grade', newGradeId);
+          form.setAttribute('data-grade', newGradeId || '');
         });
       }
       form.addEventListener('submit', function (e) {
@@ -12643,6 +12695,8 @@
     }
 
     async function renderCatalog(view, gradeId, topicId, opts) {
+      opts = opts || {};
+      if (isCatalogUploadModalOpen() && !opts.force) return;
       const scrollY = capturePageScrollY();
       const prevGradeId = catalogState.gradeId;
       const prevView = catalogState.view;
