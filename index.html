@@ -6896,14 +6896,15 @@
     function buildSecureWordBlob(bodyHtml, langCode) {
       const lang = langCode || (isEnglish() ? 'en' : 'he');
       const dir = lang === 'en' ? 'ltr' : 'rtl';
-      const align = lang === 'en' ? 'left' : 'right';
       const htmlContent =
         '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
         '<head>\n' +
         '  <meta charset="utf-8">\n' +
         '  <style>\n' +
-        "    body { font-family: 'Arial', sans-serif; direction: " + dir + '; text-align: ' + align + '; }\n' +
-        '    p, div, h1, h2, h3, h4, li { direction: ' + dir + '; text-align: ' + align + '; unicode-bidi: embed; }\n' +
+        "    body { font-family: 'Arial', sans-serif; font-size: 12pt; line-height: 1.5; direction: " + dir + "; }\n" +
+        '    p, span, li { font-size: 12pt !important; line-height: 1.5 !important; }\n' +
+        '    h1 { font-size: 22pt; font-weight: bold; margin-bottom: 12px; }\n' +
+        '    h2 { font-size: 16pt; font-weight: bold; margin-top: 18px; margin-bottom: 6px; }\n' +
         '    blockquote { margin: 8pt 0; padding: 8pt 12pt; border-right: 3pt solid #8b4513; font-style: italic; }\n' +
         '    .expansion-block { margin: 10pt 0; padding: 8pt 12pt; border-right: 3pt solid #6b7c5c; background: #f5f3ee; }\n' +
         '  </style>\n' +
@@ -7053,20 +7054,7 @@
       const data = collectLectureExportData(sourceId);
       if (!data) throw new Error('לא נמצאה הרצאה לייצוא.');
       const lectureContentHtml = buildLectureExportHtml(data);
-      const htmlContent =
-        '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
-        '<head>\n' +
-        '  <meta charset="utf-8">\n' +
-        '  <style>\n' +
-        "    body { font-family: 'Arial', sans-serif; direction: rtl; text-align: right; }\n" +
-        '    p, div, h1, h2, h3, h4, li { direction: rtl; text-align: right; unicode-bidi: embed; }\n' +
-        '  </style>\n' +
-        '</head>\n' +
-        '<body>\n' +
-        (lectureContentHtml || '') +
-        '\n</body>\n' +
-        '</html>';
-      return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+      return buildSecureWordBlob(lectureContentHtml || '', 'he');
     }
 
     function syncArchiveLectureExportBar() {

@@ -2538,7 +2538,7 @@ async function findCommunityMaterials(options) {
     }
   }
 
-  if (!matches.length && opts.semanticFallback !== false && semanticQuery && gradeId) {
+  if (!matches.length && opts.semanticFallback !== false && semanticQuery && (gradeId || opts.globalSemantic)) {
     try {
       const catalog = buildSemanticCatalogEntries(materialRows, kbRows);
       if (catalog.length) {

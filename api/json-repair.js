@@ -345,6 +345,7 @@ function buildModelParseFallback(phase, rawText, context) {
           podcast: { title: '', episodes: [] },
           narrative: [],
         },
+        sources: { books: [], articles: [], websites: [] },
         curriculum: [],
       },
       gallery: [],

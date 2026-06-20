@@ -539,11 +539,14 @@
       '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->' +
       '<style>' +
       '@page { size: A4; margin: 2.5cm 2.5cm 2.5cm 2.5cm; }' +
-      'body { font-family: "Arial", "David", sans-serif; direction: ' + dir + '; text-align: ' + align + '; line-height: 1.4; color: #333333; }' +
-      '.header-title { font-size: 24px; font-weight: bold; color: #1e3a8a; margin-bottom: 5px; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; }' +
-      '.meta-info { font-size: 12px; color: #666666; margin-bottom: 30px; }' +
-      '.section-user { font-size: 14px; font-weight: bold; color: #2563eb; margin-top: 20px; margin-bottom: 5px; background: #f0f4ff; padding: 8px; border-' + (en ? 'left' : 'right') + ': 3px solid #2563eb; }' +
-      '.section-assistant { font-size: 14px; color: #333333; margin-bottom: 25px; padding-' + (en ? 'left' : 'right') + ': 10px; line-height: 1.5; }' +
+      "body { font-family: 'Arial', sans-serif; font-size: 12pt; line-height: 1.5; direction: " + dir + "; text-align: " + align + "; color: #333333; }" +
+      'p, span, li { font-size: 12pt !important; line-height: 1.5 !important; }' +
+      'h1 { font-size: 22pt; font-weight: bold; margin-bottom: 12px; }' +
+      'h2 { font-size: 16pt; font-weight: bold; margin-top: 18px; margin-bottom: 6px; }' +
+      '.header-title { font-size: 22pt; font-weight: bold; color: #1e3a8a; margin-bottom: 5px; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; }' +
+      '.meta-info { font-size: 12pt; color: #666666; margin-bottom: 30px; }' +
+      '.section-user { font-size: 12pt; font-weight: bold; color: #2563eb; margin-top: 20px; margin-bottom: 5px; background: #f0f4ff; padding: 8px; border-' + (en ? 'left' : 'right') + ': 3px solid #2563eb; }' +
+      '.section-assistant { font-size: 12pt; color: #333333; margin-bottom: 25px; padding-' + (en ? 'left' : 'right') + ': 10px; line-height: 1.5; }' +
       'strong { color: #111827; }' +
       '</style></head><body>' +
       '<div class="header-title">' + deps.escapeHtml(title) + '</div>' +
