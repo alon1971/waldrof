@@ -7646,24 +7646,19 @@
       if (!btn) return;
       btn.addEventListener('click', function () {
         openCommunityRepo();
-        if (appState.grade && appState.topic) {
+        if (!appState.grade) return;
+        if (appState.topic) {
           renderCatalog('materials', appState.grade, appState.topic.trim());
+        } else {
+          renderCatalog('grade', appState.grade);
         }
       });
     }
 
     function renderCommunityOrEnrichment(el, gradeId, topic, options) {
-      if (!el) return;
+      if (!el || !gradeId) return;
       options = options || {};
       const topicNorm = (topic || '').trim();
-      if (options.topicRequired === false && !topicNorm) {
-        el.innerHTML = '<p class="text-sm text-walnut/60 text-center py-4">' + escapeHtml(t('community_need_topic')) + '</p>';
-        return;
-      }
-      if (!topicNorm || !gradeId) {
-        el.innerHTML = '';
-        return;
-      }
       let items = Array.isArray(options.prefetchedItems)
         ? options.prefetchedItems.map(function (match) {
           return {
@@ -7679,13 +7674,18 @@
             isDemo: false,
           };
         })
-        : getCommunityMaterialsForTopic(gradeId, topicNorm);
+        : (topicNorm
+          ? getCommunityMaterialsForTopic(gradeId, topicNorm)
+          : getCommunityMaterialsForGrade(gradeId));
       items = sortCommunityItemsNewest(items.filter(function (i) { return !i.isDemo; }));
+      const gradeLabel = getGradeLabelById(gradeId) || t('grade_label');
+      const defaultHeading = topicNorm
+        ? 'חומרים מהקהילה לנושא «' + topicNorm + '»'
+        : t('catalog_community_files', { count: items.length });
       if (items.length) {
         const preview = items.slice(0, COMMUNITY_PREVIEW_LIMIT);
-        let html = options.heading
-          ? '<h4 class="font-bold text-burgundy mb-3 text-sm flex items-center gap-2"><i class="fa-solid fa-users-rays text-terracotta"></i> ' + escapeHtml(options.heading) + '</h4>'
-          : '';
+        let html = '<h4 class="font-bold text-burgundy mb-3 text-sm flex items-center gap-2"><i class="fa-solid fa-users-rays text-terracotta"></i> ' +
+          escapeHtml(options.heading || defaultHeading) + '</h4>';
         html += '<div class="space-y-3">' + preview.map(renderCommunityPreviewCard).join('') + '</div>';
         if (items.length > COMMUNITY_PREVIEW_LIMIT || options.showMoreLink) {
           html += '<button type="button" data-community-more class="touch-btn mt-3 text-sm text-sage-dark hover:text-burgundy font-medium inline-flex items-center gap-1.5">' +
@@ -7694,12 +7694,11 @@
         holdPageScroll(function () { el.innerHTML = html; });
         bindCommunityMoreLink(el);
       } else {
-        var emptyHtml = '';
-        if (hasGradeCommunityMaterialsBesidesTopic(gradeId, topicNorm)) {
-          emptyHtml += buildGradeCommunityHintHtml(gradeId);
-        } else {
-          emptyHtml = '<p class="text-sm text-walnut/60 text-center py-4">' + escapeHtml(t('community_empty_topic')) + '</p>';
-        }
+        var emptyHtml = topicNorm
+          ? (hasGradeCommunityMaterialsBesidesTopic(gradeId, topicNorm)
+            ? buildGradeCommunityHintHtml(gradeId)
+            : '<p class="text-sm text-walnut/60 text-center py-4">' + escapeHtml(t('community_empty_topic')) + '</p>')
+          : '<p class="text-sm text-walnut/60 text-center py-4">' + escapeHtml(t('no_community_grade')) + '</p>';
         holdPageScroll(function () { el.innerHTML = emptyHtml; });
         bindCommunityGradeLink(el);
       }
@@ -11608,12 +11607,11 @@
       const el = document.getElementById('community-materials');
       if (!el || !appState.grade) return;
       const topic = (appState.topic || '').trim();
-      if (!topic) {
-        el.innerHTML = '<p class="text-sm text-walnut/60 text-center py-4">הגדירו נושא בשלב ב׳ כדי לראות חומרים מהקהילה לתקופה.</p>';
-        return;
-      }
+      const gradeLabel = getGradeLabelById(appState.grade) || '';
       renderCommunityOrEnrichment(el, appState.grade, topic, {
-        heading: 'חומרים מהקהילה לנושא «' + topic + '»',
+        heading: topic
+          ? 'חומרים מהקהילה לנושא «' + topic + '»'
+          : (gradeLabel ? 'חומרים מהקהילה ל' + gradeLabel : t('community_materials_title')),
         showMoreLink: true,
       });
     }

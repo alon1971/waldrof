@@ -1204,15 +1204,42 @@ function shouldProbeCommunityMaterials(phase) {
   return phase === 'topic' || phase === 'chat_followup';
 }
 
+/** When the global topic is unset, derive probe terms from the live chat message. */
+function resolveCommunityProbeQuery(body) {
+  const userMsg = String((body && body.userMessage) || '').trim();
+  const topic = String((body && body.topic) || '').trim();
+  if (topic) {
+    return {
+      query: userMsg || topic,
+      topic: topic,
+      userMessage: userMsg || null,
+    };
+  }
+  if (!userMsg) {
+    return { query: '', topic: null, userMessage: null };
+  }
+  const terms = cacheDb.buildCommunitySearchTerms(userMsg);
+  const keywords = terms.filter(function (term) { return term && term.length >= 3; });
+  return {
+    query: (keywords.length ? keywords.slice(0, 6).join(' ') : userMsg),
+    topic: null,
+    userMessage: userMsg,
+  };
+}
+
 async function probeCommunityMaterialsForBody(body) {
   if (!body || !shouldProbeCommunityMaterials(body.phase)) {
     return { matches: [], count: 0, query: '' };
   }
   const gradeId = body.currentGrade || body.gradeId;
+  const resolved = resolveCommunityProbeQuery(body);
+  if (!resolved.query) {
+    return { matches: [], count: 0, query: '' };
+  }
   const baseOpts = {
-    query: String(body.userMessage || body.topic || '').trim(),
-    topic: body.topic,
-    userMessage: body.userMessage,
+    query: resolved.query,
+    topic: resolved.topic,
+    userMessage: resolved.userMessage,
     gradeId: gradeId,
     limit: 8,
   };
@@ -1229,6 +1256,33 @@ async function probeCommunityMaterialsForBody(body) {
           limit: 8,
         });
         if (topicProbe.count > 0) result = topicProbe;
+      } else if (!topicOnly && userMsg) {
+        if (userMsg !== resolved.query) {
+          const fullMsgProbe = await cacheDb.findCommunityMaterials({
+            query: userMsg,
+            userMessage: userMsg,
+            gradeId: gradeId,
+            limit: 8,
+          });
+          if (fullMsgProbe.count > 0) result = fullMsgProbe;
+        }
+        if (!result.count) {
+          const terms = cacheDb.buildCommunitySearchTerms(userMsg);
+          for (let i = 0; i < terms.length; i++) {
+            const term = terms[i];
+            if (!term || term.length < 2) continue;
+            const termProbe = await cacheDb.findCommunityMaterials({
+              query: term,
+              userMessage: userMsg,
+              gradeId: gradeId,
+              limit: 8,
+            });
+            if (termProbe.count > 0) {
+              result = termProbe;
+              break;
+            }
+          }
+        }
       }
     }
     return result;

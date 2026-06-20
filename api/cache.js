@@ -2398,6 +2398,22 @@ async function findCommunityMaterials(options) {
     });
   }
 
+  if (!matches.length && (materialRows.length || kbRows.length)) {
+    const terms = buildCommunitySearchTerms(query);
+    for (let i = 0; i < terms.length; i++) {
+      const term = terms[i];
+      if (!term || term.length < 2) continue;
+      const termHits = pickBestCommunityHits(materialRows, kbRows, term, {
+        limit: opts.limit || 8,
+        minScore: 0.45,
+      });
+      if (termHits.length) {
+        matches = termHits;
+        break;
+      }
+    }
+  }
+
   return {
     matches: matches,
     count: matches.length,
