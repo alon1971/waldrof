@@ -6101,6 +6101,129 @@
       }, { signal: signal });
     }
 
+    var phaseCLoadAbort = { inspiration: null, curriculum: null };
+
+    function summarizeTheoryEssenceForPhaseC() {
+      var plan = appState.aiGeneratedPlan;
+      if (!plan || !plan.theory) {
+        return String((appState.webResearch && appState.webResearch.summary) || '').trim();
+      }
+      var chunks = [];
+      (plan.theory.sections || []).forEach(function (sec) {
+        if (sec && sec.content) {
+          chunks.push(String(sec.heading || '') + ': ' + stripHtmlText(sec.content));
+        }
+      });
+      if (appState.webResearch && appState.webResearch.summary) {
+        chunks.unshift(appState.webResearch.summary);
+      }
+      return chunks.join('\n\n').slice(0, 4000);
+    }
+
+    function hasPhaseCInspirationContent() {
+      var insp = appState.aiGeneratedPlan && appState.aiGeneratedPlan.inspiration;
+      return !!(insp && Array.isArray(insp.global) && insp.global.some(function (b) {
+        return b && Array.isArray(b.items) && b.items.length && b.items.some(function (it) {
+          var text = typeof it === 'string' ? it : (it.text || it.preview || '');
+          return String(text).trim().length > 40;
+        });
+      }));
+    }
+
+    function hasPhaseCCurriculumContent() {
+      var rows = appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum;
+      if (!Array.isArray(rows) || rows.length < 15) return false;
+      return rows.some(function (d) {
+        return d && (String(d.content || '').trim().length > 40 || String(d.art || '').trim().length > 20);
+      });
+    }
+
+    function mergePhaseCIntoPlan(data, cTab) {
+      if (!data || !data.blockPlan || !appState.aiGeneratedPlan) return false;
+      var bp = data.blockPlan;
+      if (cTab === 'inspiration') {
+        if (bp.inspiration) appState.aiGeneratedPlan.inspiration = bp.inspiration;
+        if (bp.sources) appState.aiGeneratedPlan.sources = bp.sources;
+        if (data.gallery && data.gallery.length) {
+          appState.visualGallery = normalizeGallery(data.gallery, appState.topic || '');
+        }
+      } else if (cTab === 'curriculum' && Array.isArray(bp.curriculum)) {
+        var mergedPlan = mergeBlockPlanCurriculum(
+          mergeBlockPlanBibliography({ curriculum: bp.curriculum, theory: appState.aiGeneratedPlan.theory }, data),
+          data
+        );
+        appState.aiGeneratedPlan.curriculum = mergedPlan.curriculum;
+      }
+      appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+      return true;
+    }
+
+    async function fetchPhaseCTab(cTab, signal) {
+      var topicStr = resolveLessonTopic();
+      if (!topicStr || !appState.grade) {
+        throw new Error(isEnglish() ? 'Grade and topic are required.' : 'נדרשים כיתה ונושא.');
+      }
+      var g = GRADES.find(function (x) { return x.id === appState.grade; });
+      var gradeCtx = appState.gradeResearch
+        ? JSON.stringify(appState.gradeResearch.gradeInsights || appState.gradeResearch).slice(0, 2000)
+        : '';
+      return invokeWaldorfResearch({
+        phase: 'phase_c',
+        cTab: cTab,
+        userInitiated: true,
+        gradeId: appState.grade,
+        gradeLabel: appState.gradeLabel,
+        age: g ? g.age : '',
+        topic: topicStr,
+        gradeContext: gradeCtx,
+        theoryEssence: summarizeTheoryEssenceForPhaseC(),
+        inspirationPrompt: cTab === 'inspiration' ? buildInspirationTabPrompt(topicStr, appState.gradeLabel) : undefined,
+        curriculumPrompt: cTab === 'curriculum' ? buildCurriculumTabPrompt(topicStr, appState.gradeLabel) : undefined,
+        bibliographyRequirements: cTab === 'inspiration' ? getTheoryBibliographyPrompt() : undefined,
+        pedagogyExpandHint: getInlineExpansionInstruction(),
+        currentGrade: appState.grade,
+        gradeLockInstruction: getGradeLockInstruction(),
+        noUrlsInstruction: getNoUrlsInstruction(),
+        noLatexInstruction: getNoLatexInstruction(),
+      }, { signal: signal });
+    }
+
+    async function ensurePhaseCTabLoaded(cTab) {
+      if (!appState.aiGeneratedPlan || !hasTopicEssence()) return;
+      if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
+      if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) return;
+      if (!isResearchAvailable()) return;
+
+      if (phaseCLoadAbort[cTab]) phaseCLoadAbort[cTab].abort();
+      var controller = new AbortController();
+      phaseCLoadAbort[cTab] = controller;
+
+      var loadingEl = cTab === 'inspiration'
+        ? document.getElementById('inspiration-content')
+        : document.getElementById('curriculum-cards');
+      if (loadingEl) {
+        loadingEl.innerHTML = '<p class="text-sm text-walnut/70 p-4"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' +
+          escapeHtml(cTab === 'inspiration' ? t('tab_inspiration') + t('tab_inspiration_suffix') : t('curriculum_title')) + '</p>';
+      }
+
+      try {
+        var data = await fetchPhaseCTab(cTab, controller.signal);
+        if (phaseCLoadAbort[cTab] !== controller) return;
+        mergePhaseCIntoPlan(data, cTab);
+        appState.productTabsRendered[cTab] = false;
+        renderProductTabContent(cTab);
+        restoreAllSummaryPanels();
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error('[waldrof] phase_c load failed:', cTab, err);
+        if (loadingEl) {
+          loadingEl.innerHTML = '<p class="text-sm text-terracotta p-4">' + escapeHtml(String(err.message || err)) + '</p>';
+        }
+      } finally {
+        if (phaseCLoadAbort[cTab] === controller) phaseCLoadAbort[cTab] = null;
+      }
+    }
+
     async function fetchDriveMergeAI() {
       const files = appState.personalMaterials.map(function (m) {
         return m.title + (m.notes ? ' (' + m.notes + ')' : '');
@@ -11859,26 +11982,38 @@
       if (tabId === 'theory' && !r.theory) {
         renderTheory();
         r.theory = true;
-      } else if (tabId === 'inspiration' && !r.inspiration) {
-        if (!appState.visualGallery.length) {
-          appState.visualGallery = generateVisualGallery(appState.topic || '');
+      } else if (tabId === 'inspiration') {
+        if (!hasPhaseCInspirationContent()) {
+          ensurePhaseCTabLoaded('inspiration');
+          return;
         }
-        document.getElementById('synthesis-banner').classList.remove('hidden');
-        renderSynthesisBanner();
-        renderInspirationBase();
-        renderPinterestGallery();
-        renderPersonalInWorkspace();
-        renderTeacherDriveMergeSlots();
-        renderCommunityMaterials();
-        updateCommunityBadge();
-        r.inspiration = true;
-      } else if (tabId === 'curriculum' && !r.curriculum) {
-        renderTeacherDriveMergeSlots();
-        renderCurriculum();
-        r.curriculum = true;
-        setupThemeActionButtons();
-      } else if (tabId === 'curriculum' && r.curriculum) {
-        setupThemeActionButtons();
+        if (!r.inspiration) {
+          if (!appState.visualGallery.length) {
+            appState.visualGallery = generateVisualGallery(appState.topic || '');
+          }
+          document.getElementById('synthesis-banner').classList.remove('hidden');
+          renderSynthesisBanner();
+          renderInspirationBase();
+          renderPinterestGallery();
+          renderPersonalInWorkspace();
+          renderTeacherDriveMergeSlots();
+          renderCommunityMaterials();
+          updateCommunityBadge();
+          r.inspiration = true;
+        }
+      } else if (tabId === 'curriculum') {
+        if (!hasPhaseCCurriculumContent()) {
+          ensurePhaseCTabLoaded('curriculum');
+          return;
+        }
+        if (!r.curriculum) {
+          renderTeacherDriveMergeSlots();
+          renderCurriculum();
+          r.curriculum = true;
+          setupThemeActionButtons();
+        } else {
+          setupThemeActionButtons();
+        }
       }
     }
 

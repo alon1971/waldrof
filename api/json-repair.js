@@ -343,6 +343,38 @@ function buildModelParseFallback(phase, rawText, context) {
     };
   }
 
+  if (phase === 'phase_c') {
+    const cTab = String((ctx && (ctx.cTab || ctx.productTab || ctx.phaseCTab)) || '').toLowerCase();
+    if (cTab === 'curriculum') {
+      return {
+        blockPlan: {
+          curriculum: Array.from({ length: 15 }, function (_, i) {
+            return {
+              day: i + 1,
+              topic: 'יום ' + (i + 1),
+              content: wrap,
+              art: '',
+            };
+          }),
+        },
+        _parseFallback: true,
+      };
+    }
+    return {
+      blockPlan: {
+        inspiration: {
+          title: 'השראה ומקורות',
+          global: [{ title: 'סיכום', items: [{ text: plain.slice(0, 1200) }] }],
+          podcast: { title: 'תובנות', episodes: [] },
+          narrative: [],
+        },
+        sources: { books: [], articles: [], websites: [] },
+      },
+      gallery: [],
+      _parseFallback: true,
+    };
+  }
+
   if (phase === 'chat_followup') {
     return {
       chatReply: { answer: plain || 'לא ניתן לעבד את תשובת המודל.' },

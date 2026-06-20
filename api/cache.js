@@ -165,6 +165,10 @@ function buildCacheKey(body) {
     parts.push(stableNormalize(body.activityPreview ?? body.sourceDescription ?? ''));
   }
 
+  if (body.phase === 'phase_c' || body.cTab) {
+    parts.push(stableNormalize(body.cTab || body.productTab || body.phaseCTab || ''));
+  }
+
   return hashString(parts.join('|'));
 }
 
@@ -470,6 +474,13 @@ function isValidCachedPayload(phase, data) {
     if (bp && typeof bp === 'object' && String(bp.rawContent || '').trim()) return true;
     return Boolean(bp && typeof bp === 'object');
   }
+  if (phase === 'phase_c') {
+    const bp = data.blockPlan;
+    if (!bp || typeof bp !== 'object') return false;
+    if (bp.inspiration && typeof bp.inspiration === 'object') return true;
+    if (Array.isArray(bp.curriculum) && bp.curriculum.length >= 15) return true;
+    return false;
+  }
   if (phase === 'chat_followup') {
     return Boolean(extractChatAnswerText(data));
   }
@@ -495,7 +506,7 @@ function isValidCachedPayload(phase, data) {
 function isEnhancedCachedPayload(phase, data) {
   const coerced = coerceCachedResultData(data);
   if (!coerced || typeof coerced !== 'object') return false;
-  if (phase !== 'topic' && phase !== 'grade') return isValidCachedPayload(phase, coerced);
+  if (phase !== 'topic' && phase !== 'grade' && phase !== 'phase_c') return isValidCachedPayload(phase, coerced);
   if (!isValidCachedPayload(phase, coerced)) return false;
   if (isPerplexityBaselineCachedPayload(phase, coerced)) return true;
   if (coerced._archiveUpgrade && coerced._archiveUpgrade.version) return true;
