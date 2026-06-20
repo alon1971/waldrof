@@ -425,6 +425,13 @@
       border: 1px solid rgba(122, 155, 118, 0.38);
       background: linear-gradient(135deg, rgba(122, 155, 118, 0.07), rgba(201, 169, 98, 0.05));
       box-shadow: 0 1px 4px rgba(92, 125, 88, 0.07);
+      position: relative;
+    }
+    .community-found-alert__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.35rem;
     }
     .community-found-alert__title {
       font-weight: 700;
@@ -434,6 +441,32 @@
       display: flex;
       align-items: flex-start;
       gap: 0.35rem;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .community-found-alert__close {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.35rem;
+      height: 1.35rem;
+      margin: -0.1rem -0.05rem 0 0;
+      padding: 0;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: rgba(61, 92, 58, 0.55);
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .community-found-alert__close:hover {
+      color: #3D5C3A;
+      background: rgba(122, 155, 118, 0.14);
+    }
+    .community-found-alert__close .fa-xmark {
+      font-size: 0.72rem;
     }
     .community-found-alert__title .fa-users-rays {
       font-size: 0.72rem;
@@ -9495,8 +9528,8 @@
       return false;
     }
 
-    function findCatalogTopicInCommunityCache(match, gradeId) {
-      const gid = String(gradeId || (match && match.gradeId) || '').trim();
+    function findCatalogTopicInCommunityCacheForGrade(match, gradeId) {
+      const gid = String(gradeId || '').trim();
       if (!gid) return '';
       const items = filterByGrade(appState.communityCache, gid).filter(function (i) { return !i.isDemo; });
       if (!items.length) return '';
@@ -9512,7 +9545,15 @@
         if (byId && byId.topic) return String(byId.topic).trim();
       }
 
-      const titleKey = normalizeTopicKey((match && (match.displayTitle || match.title)) || '');
+      const fileUrl = resolveCommunityMatchFileUrl(match);
+      if (fileUrl) {
+        const byUrl = items.find(function (item) {
+          return String(item.fileUrl || '').trim() === fileUrl;
+        });
+        if (byUrl && byUrl.topic) return String(byUrl.topic).trim();
+      }
+
+      const titleKey = normalizeTopicKey((match && (match.displayTitle || match.title || match.fileName)) || '');
       if (titleKey) {
         const folders = getDynamicTopicsForGrade(gid);
         for (let i = 0; i < folders.length; i++) {
@@ -9532,6 +9573,67 @@
       return '';
     }
 
+    function findCatalogTopicInCommunityCache(match, gradeId) {
+      const gid = String(gradeId || (match && match.gradeId) || '').trim();
+      if (gid) return findCatalogTopicInCommunityCacheForGrade(match, gid);
+      for (let i = 0; i < GRADES.length; i++) {
+        const topic = findCatalogTopicInCommunityCacheForGrade(match, GRADES[i].id);
+        if (topic) return topic;
+      }
+      return '';
+    }
+
+    function findCommunityMatchGradeInCache(match) {
+      if (!match || !Array.isArray(appState.communityCache) || !appState.communityCache.length) return '';
+      const materialId = normalizeMaterialUuid(
+        match.materialId || match.sourceMaterialId || match.id || ''
+      );
+      const fileUrl = resolveCommunityMatchFileUrl(match);
+      const filePath = String(match.file_path || match.filePath || '').trim();
+      const titleKey = normalizeTopicKey(match.displayTitle || match.title || match.fileName || '');
+
+      for (let i = 0; i < appState.communityCache.length; i++) {
+        const item = appState.communityCache[i];
+        const itemId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
+        if (materialId && itemId && itemId === materialId && item.gradeLevel) {
+          return String(item.gradeLevel).trim();
+        }
+        if (fileUrl && String(item.fileUrl || '').trim() === fileUrl && item.gradeLevel) {
+          return String(item.gradeLevel).trim();
+        }
+        if (filePath && String(item.filePath || '').trim() === filePath && item.gradeLevel) {
+          return String(item.gradeLevel).trim();
+        }
+      }
+
+      if (titleKey) {
+        for (let g = 0; g < GRADES.length; g++) {
+          const gid = GRADES[g].id;
+          const items = filterByGrade(appState.communityCache, gid).filter(function (i) { return !i.isDemo; });
+          const byTitle = items.find(function (item) {
+            const itemTitle = normalizeTopicKey(item.title || item.fileName || '');
+            return itemTitle && itemTitle === titleKey;
+          });
+          if (byTitle && byTitle.gradeLevel) return String(byTitle.gradeLevel).trim();
+        }
+      }
+
+      const catalogTopic = String(
+        (match && (match.catalogTopic || match.bundleTopic || match.topic)) || ''
+      ).trim();
+      if (catalogTopic && !isLikelyUserChatQuestion(catalogTopic)) {
+        for (let g = 0; g < GRADES.length; g++) {
+          const gid = GRADES[g].id;
+          const items = filterByGrade(appState.communityCache, gid).filter(function (i) { return !i.isDemo; });
+          const byTopic = items.find(function (item) {
+            return String(item.topic || '').trim() === catalogTopic;
+          });
+          if (byTopic && byTopic.gradeLevel) return String(byTopic.gradeLevel).trim();
+        }
+      }
+      return '';
+    }
+
     function communityCatalogTopicForMatch(match) {
       const catalogTopic = String((match && match.catalogTopic) || '').trim();
       if (catalogTopic && !isLikelyUserChatQuestion(catalogTopic)) return catalogTopic;
@@ -9542,7 +9644,7 @@
       const topic = String((match && match.topic) || '').trim();
       if (topic && !isLikelyUserChatQuestion(topic)) return topic;
 
-      return findCatalogTopicInCommunityCache(match, match && match.gradeId) || '';
+      return findCatalogTopicInCommunityCache(match, resolveCommunityMatchGradeId(match)) || '';
     }
 
     function resolveCommunityMatchGradeId(match) {
@@ -9555,6 +9657,16 @@
       if (label) {
         const fromLabel = resolveCommunityGradeIdFromAny(label);
         if (fromLabel) return fromLabel;
+      }
+      const fromCache = findCommunityMatchGradeInCache(match);
+      if (fromCache) {
+        const resolvedCache = resolveCommunityGradeIdFromAny(fromCache);
+        if (resolvedCache) return resolvedCache;
+      }
+      for (let g = 0; g < GRADES.length; g++) {
+        if (findCatalogTopicInCommunityCacheForGrade(match, GRADES[g].id)) {
+          return GRADES[g].id;
+        }
       }
       return String(appState.grade || '').trim();
     }
@@ -9607,7 +9719,16 @@
 
     async function navigateCommunityCatalogForMatch(match, overrides) {
       overrides = overrides || {};
-      const gradeId = resolveCommunityGradeIdFromAny(
+      const needsCacheLookup = Boolean(
+        match && (
+          resolveCommunityMatchFileUrl(match) ||
+          match.materialId || match.sourceMaterialId || match.id
+        )
+      );
+      if (needsCacheLookup && isCloudConfigured()) {
+        try { await loadCommunity(); } catch (e) { /* ignore */ }
+      }
+      let gradeId = resolveCommunityGradeIdFromAny(
         overrides.gradeId ||
         resolveCommunityMatchGradeId(match) ||
         (match && match.gradeLabel) ||
@@ -9692,9 +9813,13 @@
       if (!matches || !matches.length) return '';
       const preview = matches.slice(0, 4);
       const hasNested = preview.some(function (match) { return match.matchedInBundle; });
-      let html = '<div class="community-found-alert__title">' +
+      let html = '<div class="community-found-alert__header">' +
+        '<div class="community-found-alert__title">' +
         '<i class="fa-solid fa-users-rays text-terracotta" aria-hidden="true"></i>' +
-        '<span>' + escapeHtml(hasNested ? t('community_found_nested_alert') : t('community_found_alert')) + '</span></div>';
+        '<span>' + escapeHtml(hasNested ? t('community_found_nested_alert') : t('community_found_alert')) + '</span></div>' +
+        '<button type="button" class="community-found-alert__close" data-community-alert-dismiss ' +
+        'aria-label="' + escapeHtml(t('community_found_dismiss')) + '">' +
+        '<i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>';
       html += '<div class="community-found-alert__list">';
       preview.forEach(function (match, index) {
         const catalogTopic = communityCatalogTopicForMatch(match);
@@ -9731,8 +9856,26 @@
       return { html: html, preview: preview };
     }
 
+    var communityAlertVisible = true;
+    var communityAlertDismissKey = '';
+
+    function hideCommunityFoundAlerts() {
+      communityAlertVisible = false;
+      [
+        document.getElementById('topic-community-alert'),
+        document.getElementById('lesson-chat-community-alert'),
+        document.getElementById('lesson-chat-fullscreen-community-alert'),
+      ].filter(Boolean).forEach(function (el) {
+        el.classList.add('hidden');
+      });
+    }
+
     function bindCommunityFoundAlert(container, matches) {
       if (!container) return;
+      if (!communityAlertVisible) {
+        container.classList.add('hidden');
+        return;
+      }
       const built = buildCommunityFoundAlertHtml(matches);
       if (!built.html) {
         container.classList.add('hidden');
@@ -9741,6 +9884,12 @@
       }
       container.innerHTML = built.html;
       container.classList.remove('hidden');
+      const dismissBtn = container.querySelector('[data-community-alert-dismiss]');
+      if (dismissBtn) {
+        dismissBtn.addEventListener('click', function () {
+          hideCommunityFoundAlerts();
+        });
+      }
       container.querySelectorAll('[data-community-catalog]').forEach(function (btn) {
         btn.addEventListener('click', function () {
           const idx = parseInt(btn.getAttribute('data-community-catalog'), 10);
@@ -9765,8 +9914,19 @@
       const el = document.getElementById('topic-community-alert');
       if (!el) return;
       if (!matches || !matches.length) {
+        communityAlertVisible = true;
+        communityAlertDismissKey = '';
         el.classList.add('hidden');
         el.innerHTML = '';
+        return;
+      }
+      const nextKey = matches.map(communityMatchKey).join('||');
+      if (nextKey !== communityAlertDismissKey) {
+        communityAlertVisible = true;
+        communityAlertDismissKey = nextKey;
+      }
+      if (!communityAlertVisible) {
+        el.classList.add('hidden');
         return;
       }
       bindCommunityFoundAlert(el, matches);
@@ -14218,10 +14378,21 @@
               document.getElementById('lesson-chat-fullscreen-community-alert'),
             ].filter(Boolean);
             if (!matches || !matches.length) {
+              communityAlertVisible = true;
+              communityAlertDismissKey = '';
               targets.forEach(function (el) {
                 el.classList.add('hidden');
                 el.innerHTML = '';
               });
+              return;
+            }
+            var nextKey = matches.map(communityMatchKey).join('||');
+            if (nextKey !== communityAlertDismissKey) {
+              communityAlertVisible = true;
+              communityAlertDismissKey = nextKey;
+            }
+            if (!communityAlertVisible) {
+              targets.forEach(function (el) { el.classList.add('hidden'); });
               return;
             }
             targets.forEach(function (el) { bindCommunityFoundAlert(el, matches); });

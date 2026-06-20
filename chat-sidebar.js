@@ -790,7 +790,7 @@
           cacheKey: meta.gradeCacheKey || '',
         });
       }
-      if (typeof deps.renderCommunityAlert === 'function') {
+      if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert) {
         deps.renderCommunityAlert(communityMatches);
       }
       if (hasCommunityMatch) {

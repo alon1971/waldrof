@@ -58,6 +58,7 @@ const LANGUAGES = {
     community_found_nested_item:   'נמצא חומר רלוונטי בתוך התיקייה «{folder}» במאגר הקהילתי!',
     community_found_open_file:   'פתיחת הקובץ',
     community_found_open_repo:   'למאגר הקהילתי',
+    community_found_dismiss:     'סגירת התראה',
     community_materials_title:   'העשרה פדגוגית וחומרים מהקהילה',
     btn_to_step2:                'המשך לשלב ב׳ — הגדרת נושא התקופה',
 
@@ -664,6 +665,7 @@ const LANGUAGES = {
     community_found_nested_item:   'Relevant material found inside the folder «{folder}» in the community repository!',
     community_found_open_file:   'Open file',
     community_found_open_repo:   'Community repository',
+    community_found_dismiss:     'Dismiss alert',
     community_materials_title:   'Pedagogical enrichment & community materials',
     btn_to_step2:                'Continue to Step B — define the block topic',
 
