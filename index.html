@@ -4382,6 +4382,79 @@
       clearLegacyWizardStorage();
     }
 
+    /** One-time purge of Grade 1 wizard/session state after corrupted cache removal. */
+    const GRADE1_CLIENT_RESET_VERSION = '2025-06-20';
+    function purgeStaleGrade1ClientState() {
+      var alreadyReset = false;
+      try {
+        alreadyReset = sessionStorage.getItem('waldorf_grade1_reset') === GRADE1_CLIENT_RESET_VERSION;
+      } catch (e) { /* ignore */ }
+      if (alreadyReset) return;
+
+      var touched = false;
+      try {
+        var raw = readWizardStorageItem(ACTIVE_STEP_STORAGE_KEY);
+        if (raw) {
+          var saved = JSON.parse(raw);
+          if (saved && String(saved.grade) === '1') {
+            removeWizardStorageItem(ACTIVE_STEP_STORAGE_KEY);
+            touched = true;
+          }
+        }
+        var snapRaw = readWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
+        if (snapRaw) {
+          var snap = JSON.parse(snapRaw);
+          if (snap && String(snap.grade) === '1') {
+            removeWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
+            touched = true;
+          }
+        }
+      } catch (e) { /* ignore */ }
+      if (String(appState.grade) === '1') {
+        appState.grade = null;
+        appState.gradeLabel = null;
+        appState.gradeResearch = null;
+        appState.topic = null;
+        appState.topicResearchCompleted = false;
+        appState.webResearch = null;
+        appState.aiGeneratedPlan = null;
+        appState.lessonCacheKey = '';
+        touched = true;
+      }
+      if (catalogState.gradeId === '1') {
+        catalogState.view = 'grades';
+        catalogState.gradeId = null;
+        catalogState.topic = null;
+        touched = true;
+      }
+      if (!touched) {
+        try { sessionStorage.setItem('waldorf_grade1_reset', GRADE1_CLIENT_RESET_VERSION); } catch (e) { /* ignore */ }
+        return;
+      }
+      if (gradeResearchAbort) {
+        gradeResearchAbort.abort();
+        gradeResearchAbort = null;
+      }
+      gradeResearchRunId += 1;
+      setGradeInsightsLoadingUi(false);
+      var insightsPanel = document.getElementById('grade-insights-panel');
+      if (insightsPanel) insightsPanel.classList.add('hidden');
+      var insightsBody = document.getElementById('grade-insights-body');
+      if (insightsBody) insightsBody.innerHTML = '';
+      var gradeCommunity = document.getElementById('grade-community-list');
+      if (gradeCommunity) gradeCommunity.innerHTML = '';
+      var hintStep1 = document.getElementById('api-hint-step1');
+      if (hintStep1) hintStep1.classList.add('hidden');
+      var gradeSel = document.getElementById('grade-select');
+      if (gradeSel && !appState.grade) {
+        gradeSel.value = '';
+        gradeSel.selectedIndex = 0;
+      }
+      var btnGrade = document.getElementById('btn-grade-submit');
+      if (btnGrade && !appState.grade) btnGrade.disabled = true;
+      try { sessionStorage.setItem('waldorf_grade1_reset', GRADE1_CLIENT_RESET_VERSION); } catch (e) { /* ignore */ }
+    }
+
     let realtimeChannel = null;
     const MAX_FILE = 5 * 1024 * 1024;
     let gradeResearchAbort = null;
@@ -6195,7 +6268,9 @@
     function renderBibInlinePanel(panel, sourceId, summary, loading, errorMsg) {
       if (!panel) return;
       if (loading) {
-        panel.innerHTML = '<div class="inline-expand-inner" role="status" aria-live="polite"><p class="text-sage-dark m-0"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('theory_bib_summary_loading')) + '</p></div>';
+        panel.innerHTML = '<div class="inline-expand-inner inline-expand-loading" role="status" aria-live="polite">' +
+          '<p class="text-sage-dark m-0 mb-2"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('theory_bib_summary_loading')) + '</p>' +
+          '<p class="text-walnut/65 text-sm m-0">' + escapeHtml(t('pedagogy_summary_loading_sub')) + '</p></div>';
         panel.classList.remove('hidden');
         return;
       }
@@ -6217,31 +6292,71 @@
       });
     }
 
-    function openBibliographyDeepSummary(sourceId) {
-      const source = appState.bibliographyRegistry[sourceId];
-      const panel = getBibExpandPanel(sourceId);
+    function openOnDemandExpansion(sourceId, triggerEl, opts) {
+      const o = opts || {};
+      const getSource = o.getSource;
+      const getPanel = o.getPanel;
+      const getCacheKey = o.getCacheKey;
+      const getSummary = o.getSummary;
+      const mapInlineSummary = o.mapInlineSummary;
+      const renderPanel = o.renderPanel;
+      const startJob = o.startJob;
+      const panelState = o.panelState;
+
+      if (!sourceId) return;
+      const source = getSource(sourceId, triggerEl);
+      const panel = getPanel(sourceId, triggerEl);
       if (!source || !panel) return;
 
       if (!panel.classList.contains('hidden')) {
-        collapseBibInline(sourceId);
+        o.collapse(sourceId, triggerEl);
         return;
       }
 
-      const cacheKey = getBibliographySummaryCacheKey(source);
-      summaryPanelOpenState.bib[cacheKey] = true;
+      const cacheKey = getCacheKey(source);
+      panelState[cacheKey] = true;
 
-      let summary = appState.bibliographySummaries[sourceId];
-      if (!summary && source.expansion) {
-        summary = mapExpansionToArchiveSummary(source.expansion, source);
-        appState.bibliographySummaries[sourceId] = summary;
+      let summary = getSummary(sourceId);
+      if (!summary && source.expansion && mapInlineSummary) {
+        summary = mapInlineSummary(source);
+        o.setSummary(sourceId, summary);
       }
 
       if (summary) {
-        renderBibInlinePanel(panel, sourceId, summary);
+        renderPanel(panel, sourceId, summary);
         return;
       }
 
-      renderBibInlinePanel(panel, sourceId, null, false, t('theory_bib_summary_empty'));
+      const failedMsg = summaryFailedByKey[cacheKey];
+      if (failedMsg) {
+        renderPanel(panel, sourceId, null, false, failedMsg);
+        return;
+      }
+
+      if (summaryJobsByKey[cacheKey]) {
+        renderPanel(panel, sourceId, null, true);
+        return;
+      }
+
+      renderPanel(panel, sourceId, null, true);
+      startJob(sourceId).catch(function () { /* error handled in job */ });
+    }
+
+    function openBibliographyDeepSummary(sourceId) {
+      openOnDemandExpansion(sourceId, null, {
+        getSource: function (sid) { return appState.bibliographyRegistry[sid]; },
+        getPanel: function (sid) { return getBibExpandPanel(sid); },
+        getCacheKey: getBibliographySummaryCacheKey,
+        getSummary: function (sid) { return appState.bibliographySummaries[sid]; },
+        mapInlineSummary: function (source) {
+          return mapExpansionToArchiveSummary(source.expansion, source);
+        },
+        setSummary: function (sid, summary) { appState.bibliographySummaries[sid] = summary; },
+        renderPanel: renderBibInlinePanel,
+        startJob: startBibliographySummaryJob,
+        panelState: summaryPanelOpenState.bib,
+        collapse: collapseBibInline,
+      });
     }
 
     function ensureTheoryBibliographyEvents() {
@@ -7290,7 +7405,9 @@
     function renderPedagogyInlinePanel(panel, sourceId, summary, loading, errorMsg) {
       if (!panel) return;
       if (loading) {
-        panel.innerHTML = '<div class="inline-expand-inner" role="status" aria-live="polite"><p class="text-sage-dark m-0"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('pedagogy_summary_loading')) + '</p></div>';
+        panel.innerHTML = '<div class="inline-expand-inner inline-expand-loading" role="status" aria-live="polite">' +
+          '<p class="text-sage-dark m-0 mb-2"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('pedagogy_summary_loading')) + '</p>' +
+          '<p class="text-walnut/65 text-sm m-0">' + escapeHtml(t('pedagogy_summary_loading_sub')) + '</p></div>';
         panel.classList.remove('hidden');
         return;
       }

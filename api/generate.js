@@ -400,9 +400,33 @@ function geminiMasterEducatorSystemPrompt(extra) {
   );
 }
 
+/** On-demand «הרחבה ואספקטים פרקטיים» — Perplexity research → one rich expansion JSON object. */
+function geminiOnDemandExpansionSystemPrompt(extra) {
+  return (
+    'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
+    GEMINI_MASTER_EDUCATOR_ROLE +
+    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
+    FACTUAL_INTEGRITY_INSTRUCTION +
+    ACADEMIC_TONE_INSTRUCTION +
+    JSON_ONLY_INSTRUCTION +
+    JSON_RESPONSE_ENFORCEMENT +
+    JSON_VALID_SYNTAX_INSTRUCTION +
+    ' Write pedagogical content in Hebrew. ' +
+    'Ground factual claims in PERPLEXITY WEB RESEARCH; weave them into one rich, deep, beautifully styled practical expansion for the single requested idea only. ' +
+    'Do NOT include URLs in the JSON output — named sources only.' +
+    NO_LATEX_BLOCK +
+    (extra || '')
+  );
+}
+
 function isDecoupledGenerationPhase(body) {
   const phase = body && body.phase;
   return phase === 'grade' || phase === 'topic';
+}
+
+function isOnDemandExpansionPhase(body) {
+  const phase = body && body.phase;
+  return phase === 'pedagogy_deep_dive' || phase === 'archive_summary';
 }
 
 function isArchiveOnlyLookup(body) {
@@ -421,6 +445,9 @@ function buildArchiveNotFoundError(body) {
 }
 
 function resolveHybridSystemBuilder(body, baseOpts) {
+  if (isOnDemandExpansionPhase(body)) {
+    return geminiOnDemandExpansionSystemPrompt;
+  }
   if (isDecoupledGenerationPhase(body)) {
     return geminiMasterEducatorSystemPrompt;
   }
@@ -428,7 +455,9 @@ function resolveHybridSystemBuilder(body, baseOpts) {
 }
 
 function resolveHybridSystemSuffix(body) {
-  return isDecoupledGenerationPhase(body) ? HYBRID_GEMINI_DECOUPLED_SUFFIX : HYBRID_GEMINI_SYSTEM_SUFFIX;
+  return (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body))
+    ? HYBRID_GEMINI_DECOUPLED_SUFFIX
+    : HYBRID_GEMINI_SYSTEM_SUFFIX;
 }
 
 function pedagogicalChatSystemPrompt(extra) {
@@ -1508,6 +1537,48 @@ function buildPerplexitySearchUserPrompt(body) {
     );
   }
 
+  if (phase === 'pedagogy_deep_dive') {
+    const title = String(body.activityTitle || '').trim();
+    const preview = String(body.activityPreview || '').trim();
+    return (
+      'Perform a focused factual web search for a Waldorf/Steiner pedagogical deep-dive expansion on ONE specific classroom idea.\n' +
+      'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
+      'Main-lesson block topic: «' + topic + '»\n' +
+      'Sub-topic / activity to expand: «' + title + '»\n' +
+      'Preview / teacher context: ' + preview + '\n' +
+      'Activity type: ' + (body.activityType || '') + ' / ' + (body.activitySubtype || '') + '\n' +
+      'Day in block (if any): ' + (body.dayNumber || 'n/a') + '\n\n' +
+      'Return a detailed Hebrew research report with:\n' +
+      '1. Practical classroom implementation for THIS single idea at this grade only\n' +
+      '2. Anthroposophic developmental context (Steiner age picture — grade-locked)\n' +
+      '3. Concrete step-by-step teacher guidance, materials, and classroom rhythm\n' +
+      '4. Named books, articles, and Waldorf projects for inspiration\n' +
+      '5. Parent/community aspects when relevant\n' +
+      '6. A numbered "Sources" section with HTTPS reference URLs for every major claim'
+    );
+  }
+
+  if (phase === 'archive_summary') {
+    const title = String(body.sourceTitle || '').trim();
+    const author = String(body.sourceAuthor || '').trim();
+    const description = String(body.sourceDescription || '').trim();
+    return (
+      'Perform a focused factual web search for a deep pedagogical summary of ONE Waldorf/anthroposophic source.\n' +
+      'Grade context: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
+      'Block topic: «' + topic + '»\n' +
+      'Source title: «' + title + '»\n' +
+      'Author/publisher: ' + author + '\n' +
+      'Source type: ' + (body.sourceType || 'article') + '\n' +
+      'Description: ' + description + '\n\n' +
+      'Return a detailed Hebrew research report with:\n' +
+      '1. Core pedagogical message of this source for Waldorf teachers\n' +
+      '2. Relevance to the current grade and block topic\n' +
+      '3. Practical classroom angles and lesson applications\n' +
+      '4. Key pedagogical points and Steiner/anthroposophic connections\n' +
+      '5. A numbered "Sources" section with HTTPS reference URLs for every major claim'
+    );
+  }
+
   return (
     'Perform a factual web search on Waldorf main-lesson block planning.\n' +
     'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
@@ -2444,8 +2515,8 @@ async function executeGenerate(body, apiKey, requestContext) {
     liveDriveRefresh: false,
   };
 
-  // Main generation (grade/topic): decoupled from Drive/community RAG — Perplexity → Gemini only.
-  if (isDecoupledGenerationPhase(body)) {
+  // Main generation (grade/topic) and on-demand expansions: Perplexity → Gemini only — no Drive/community RAG.
+  if (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body)) {
     body.skipRag = true;
   }
 
@@ -2503,18 +2574,22 @@ async function executeGenerate(body, apiKey, requestContext) {
   ]);
   const isChatFollowup = body.phase === 'chat_followup';
   const isDecoupledGen = isDecoupledGenerationPhase(body);
+  const isOnDemandExpansion = isOnDemandExpansionPhase(body);
   const communityCriticalBlock =
     isChatFollowup && body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
       ? buildCommunityMatchCriticalSystemBlock(body.communityMaterialsProbe, body)
       : '';
   const extraSystem =
     gradeLockSystem +
-    (isDecoupledGen ? '' : CONTENT_HIERARCHY_INSTRUCTION) +
+    (isDecoupledGen || isOnDemandExpansion ? '' : CONTENT_HIERARCHY_INSTRUCTION) +
     communityCriticalBlock +
     (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
-    (isDecoupledGen
+    (isOnDemandExpansion
+      ? ' ON-DEMAND EXPANSION: Perplexity raw research is the sole factual input — no Drive or community archive excerpts. ' +
+        'Gemini acts as Master Waldorf Educator: synthesize into ONE rich pedagogyDeepDive (or archiveSummary) for the single requested bullet/source. No URLs in JSON output.'
+      : isDecoupledGen
       ? ' DECOUPLED MAIN GENERATION: Perplexity raw research is the sole factual input — no Drive or community archive excerpts. ' +
         'Gemini acts as Master Waldorf Educator: translate into rich anthroposophic Hebrew content with inline expansions on every expandable UI item.'
       : isChatFollowup
@@ -2531,7 +2606,7 @@ async function executeGenerate(body, apiKey, requestContext) {
         : body.ragContext || body.ragDriveContext || body.ragCommunityContext
           ? ' HYBRID SEARCH: Live web search is PRIMARY. Private Drive and shared community archive excerpts are SECONDARY enrichment — blend them into the web foundation without replacing web breadth.'
           : ' No local Drive or community archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
-    (searchPhases.has(body.phase) && !isDecoupledGen
+    (searchPhases.has(body.phase) && !isDecoupledGen && !isOnDemandExpansion
       ? ' LIVE WEB SEARCH is the core anchor — perform a broad, exhaustive internet search first. ' +
         'Check Alon Yerushalmy, «מסעות בחינוך», and educationpace.com only for genuinely relevant matches — ' +
         'never force a citation; omit entirely when search data offers no substantial topic-specific material.'
