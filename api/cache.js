@@ -13,6 +13,9 @@ const jsonRepair = require('./json-repair');
 const communitySemanticMatch = require('./community-semantic-match');
 
 const TABLE_NAME = 'cached_results';
+/** Phase stored in cached_results for raw Perplexity web-search payloads (hybrid pipeline). */
+const RAW_PERPLEXITY_PHASE = 'perplexity_raw';
+const HYBRID_GENERATED_VERSION = '2025-06-hybrid-v1';
 
 function resolveFallbackPath() {
   const local = path.join(__dirname, '..', 'data', 'cached_results.json');
@@ -167,8 +170,17 @@ function buildCacheKey(body) {
 
 function buildRow(cacheKey, body, resultData) {
   const isGrade = body.phase === 'grade';
-  const verifiedUserId = authContext.pickCachedUserId(body);
   const userEmail = body.userEmail || (body.teacherUser && body.teacherUser.email) || null;
+  let verifiedUserId = authContext.pickCachedUserId(body);
+  if (!verifiedUserId) {
+    const candidate = (body && body.userId)
+      || (body && body.teacherUser && body.teacherUser.id)
+      || null;
+    const mapped = authContext.mapUserIdForSupabaseQuery(candidate, userEmail);
+    if (mapped === authContext.LOCAL_DEMO_MOCK_UUID) {
+      verifiedUserId = mapped;
+    }
+  }
   return {
     cache_key: cacheKey,
     phase: body.phase,
@@ -402,6 +414,9 @@ function sanitizeChatEnrichmentEntry(entry) {
 
 function isValidCachedPayload(phase, data) {
   if (!data || typeof data !== 'object') return false;
+  if (phase === RAW_PERPLEXITY_PHASE) {
+    return Boolean(String(data.content || '').trim());
+  }
   if (phase === 'grade') return Boolean(normalizeGradeResultForCache(data));
   if (phase === 'topic') return Boolean(data.blockPlan && typeof data.blockPlan === 'object');
   if (phase === 'chat_followup') {
@@ -413,6 +428,33 @@ function isValidCachedPayload(phase, data) {
   if (phase === 'drive') return Boolean(data.driveMerge);
   if (phase === 'test') return data.ok === true;
   return true;
+}
+
+/** True when a cached topic/grade row was upgraded or produced by the hybrid Perplexity→Gemini pipeline. */
+function isEnhancedCachedPayload(phase, data) {
+  const coerced = coerceCachedResultData(data);
+  if (!coerced || typeof coerced !== 'object') return false;
+  if (phase !== 'topic' && phase !== 'grade') return isValidCachedPayload(phase, coerced);
+  if (!isValidCachedPayload(phase, coerced)) return false;
+  if (coerced._archiveUpgrade && coerced._archiveUpgrade.version) return true;
+  if (coerced._hybridGenerated && coerced._hybridGenerated.version) return true;
+  return false;
+}
+
+function stampHybridGeneratedMetadata(resultData) {
+  const data = coerceCachedResultData(resultData);
+  if (!data || typeof data !== 'object') return resultData;
+  data._hybridGenerated = {
+    version: HYBRID_GENERATED_VERSION,
+    generatedAt: new Date().toISOString(),
+    pipeline: 'perplexity-sonar+gemini-2.5-flash',
+  };
+  return data;
+}
+
+function buildRawPerplexityCacheBody(body) {
+  if (!body || !body.phase) return null;
+  return Object.assign({}, body, { phase: RAW_PERPLEXITY_PHASE });
 }
 
 /** Ready-to-send cache hit — original object only, never re-parsed through model cleaners. */
@@ -903,6 +945,7 @@ function formatExactArchiveTopicMatch(best, gradeId, options) {
   if (!best || !best.row) return null;
   const payload = cloneJsonSafe(best.data) || best.data;
   if (!payload) return null;
+  if (!isEnhancedCachedPayload('topic', payload)) return null;
   return {
     matchType: 'exact',
     similarity: best.score,
@@ -1598,8 +1641,14 @@ async function lookupChatPriorAnswer(body) {
 
 /**
  * Lookup cached result. Returns { data, meta } or null.
+ * For topic/grade phases, only returns rows that pass isEnhancedCachedPayload when requireEnhanced is true.
  */
-async function getCachedResult(body) {
+async function getCachedResult(body, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const requireEnhanced = opts.requireEnhanced !== false
+    && body
+    && (body.phase === 'topic' || body.phase === 'grade');
+
   if (body && body.phase === 'grade') {
     normalizeGradeCacheRequest(body);
   }
@@ -1618,6 +1667,7 @@ async function getCachedResult(body) {
     const fallbackRaw = getFallbackCached(cacheKey);
     data = fallbackRaw ? coerceCachedResultData(fallbackRaw) : null;
     if (!data || !isValidCachedPayload(body.phase, data)) return null;
+    if (requireEnhanced && !isEnhancedCachedPayload(body.phase, data)) return null;
     const payload = body.phase === 'grade'
       ? normalizeGradeResultForCache(data)
       : cloneJsonSafe(data);
@@ -1629,11 +1679,13 @@ async function getCachedResult(body) {
         cacheKey: cacheKey,
         table: TABLE_NAME,
         source: 'fallback',
+        enhanced: isEnhancedCachedPayload(body.phase, payload),
       },
     };
   }
 
   if (!isValidCachedPayload(body.phase, data)) return null;
+  if (requireEnhanced && !isEnhancedCachedPayload(body.phase, data)) return null;
 
   bumpHitCountAsync(cacheKey, row.hit_count);
   const payload = body.phase === 'grade'
@@ -1648,8 +1700,30 @@ async function getCachedResult(body) {
       table: TABLE_NAME,
       source: isSupabaseCacheEnabled() ? 'supabase' : 'fallback',
       legacyMigrated: row.cache_key !== cacheKey,
+      enhanced: isEnhancedCachedPayload(body.phase, payload),
     },
   };
+}
+
+/** Load raw Perplexity web-search payload from cached_results (phase perplexity_raw). */
+async function getRawPerplexityCache(body) {
+  const rawBody = buildRawPerplexityCacheBody(body);
+  if (!rawBody) return null;
+  const cached = await getCachedResult(rawBody, { requireEnhanced: false });
+  if (!cached || !cached.data) return null;
+  return cached.data;
+}
+
+/** Persist raw Perplexity web-search payload for future hybrid enrichment runs. */
+async function setRawPerplexityCache(body, rawPayload) {
+  const rawBody = buildRawPerplexityCacheBody(body);
+  if (!rawBody || !rawPayload) return null;
+  const safe = sanitizeForJsonStorage(Object.assign({}, rawPayload, {
+    searchedAt: rawPayload.searchedAt || new Date().toISOString(),
+    topic: rawPayload.topic || body.topic || null,
+    gradeId: rawPayload.gradeId || body.currentGrade || body.gradeId || null,
+  }));
+  return setCachedResult(rawBody, safe);
 }
 
 /**
@@ -1823,8 +1897,8 @@ function formatHistoryItem(row, options) {
 async function listTeacherSearchHistory(teacher, options) {
   const limit = (options && options.limit) || 20;
   const fetchLimit = searchHistoryFetchLimit(limit);
-  const userId = String(teacher && teacher.id || '').trim();
   const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const userId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email) || '';
 
   if (!userId && !userEmail) return [];
 
@@ -1916,8 +1990,8 @@ function listFallbackTeacherChatHistory(teacher, limit, filters) {
 async function listTeacherChatHistory(teacher, options) {
   const opts = options || {};
   const limit = Math.min(Number(opts.limit) || 30, 50);
-  const userId = String(teacher && teacher.id || '').trim();
   const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const userId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email) || '';
   const gradeId = opts.gradeId ? String(opts.gradeId) : '';
   const topic = opts.topic ? String(opts.topic).trim() : '';
 
@@ -2563,6 +2637,8 @@ async function findCommunityMaterials(options) {
 
 module.exports = {
   TABLE_NAME,
+  RAW_PERPLEXITY_PHASE,
+  HYBRID_GENERATED_VERSION,
   buildCacheKey,
   normalizeGradeCacheRequest,
   normalizeTopicQuery,
@@ -2571,7 +2647,11 @@ module.exports = {
   sanitizeForJsonStorage,
   safeJsonStringify,
   buildCachedGeneratePayload,
+  isEnhancedCachedPayload,
+  stampHybridGeneratedMetadata,
   getCachedResult,
+  getRawPerplexityCache,
+  setRawPerplexityCache,
   lookupChatPriorAnswer,
   lookupGradeCachedContext,
   lookupTopicCachedContext,

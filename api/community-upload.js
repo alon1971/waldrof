@@ -137,7 +137,11 @@ async function insertCommunityMaterial(gradeId, topic, publicUrl, fileName, extr
   };
   const notes = packCommunityExtras(extras);
   if (notes) payload[COMMUNITY_META_FIELD] = notes;
-  if (userId) payload.user_id = userId;
+  const mappedUserId = authContext.mapUserIdForSupabaseQuery(
+    userId,
+    extras && (extras.email || extras.userEmail)
+  );
+  if (mappedUserId) payload.user_id = mappedUserId;
 
   async function postInsert(rec) {
     const row = Object.assign({}, rec);

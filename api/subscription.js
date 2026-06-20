@@ -7,6 +7,7 @@
  */
 const env = require('./env');
 const cacheDb = require('./cache');
+const authContext = require('./auth-context');
 
 const TABLE = 'user_subscriptions';
 const LOG_PREFIX = '[subscription]';
@@ -278,6 +279,14 @@ async function verifySupabaseToken(token) {
   };
 }
 
+function applyLocalDemoUserIdMapping(user) {
+  return authContext.mapUserForSupabaseQuery(user);
+}
+
+function mapSupabaseUserId(userId, email) {
+  return authContext.mapUserIdForSupabaseQuery(userId, email) || String(userId || '').trim();
+}
+
 async function resolveUser(req, body) {
   const authHeader = String(req.headers.authorization || req.headers.Authorization || '');
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
@@ -286,22 +295,22 @@ async function resolveUser(req, body) {
 
   const fromBody = body && body.teacherUser;
   if (fromBody && fromBody.id) {
-    return {
+    return applyLocalDemoUserIdMapping({
       id: fromBody.id,
       email: normalizeEmail(fromBody.email),
       name: fromBody.name || fromBody.displayName || '',
       tier: normalizeTier(fromBody.tier || fromBody.plan_type || 'trial'),
-    };
+    });
   }
 
   const email = extractUserEmail(req, body);
   if (email) {
-    return {
+    return applyLocalDemoUserIdMapping({
       id: fromBody && fromBody.id ? String(fromBody.id).trim() : ('email:' + email),
       email: email,
       name: (fromBody && (fromBody.name || fromBody.displayName)) || email.split('@')[0],
       tier: isProUserEmail(email) ? 'pro' : normalizeTier((fromBody && fromBody.tier) || 'trial'),
-    };
+    });
   }
 
   const err = new Error('יש להתחבר כדי לנהל מנוי');
@@ -350,13 +359,14 @@ function buildUsagePayload(row) {
   };
 }
 
-async function fetchSubscriptionRow(userId, userToken) {
+async function fetchSubscriptionRow(userId, userToken, emailHint) {
+  const pk = mapSupabaseUserId(userId, emailHint);
   const params = new URLSearchParams();
   params.set('select', '*');
-  params.set('user_id', 'eq.' + userId);
+  params.set('user_id', 'eq.' + pk);
   params.set('limit', '1');
 
-  logUsage('fetch:before', { user_id: userId });
+  logUsage('fetch:before', { user_id: pk, raw_user_id: userId });
 
   const res = await supabaseRequest(
     '/rest/v1/' + TABLE + '?' + params.toString(),
@@ -367,7 +377,7 @@ async function fetchSubscriptionRow(userId, userToken) {
   const row = Array.isArray(rows) && rows.length ? rows[0] : null;
 
   logUsage('fetch:after', {
-    user_id: userId,
+    user_id: pk,
     found: Boolean(row),
     search_count_monthly: row ? row.search_count_monthly : null,
     plan_type: row ? row.plan_type : null,
@@ -400,6 +410,7 @@ function subscriptionRowFromPatch(user, patch, existing) {
 }
 
 async function insertSubscriptionRow(user, patch, userToken) {
+  user = applyLocalDemoUserIdMapping(user);
   const row = subscriptionRowFromPatch(user, Object.assign({
     search_count_monthly: 0,
     word_downloads_count: 0,
@@ -428,8 +439,9 @@ async function insertSubscriptionRow(user, patch, userToken) {
 }
 
 async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
+  const pk = mapSupabaseUserId(userId, user && user.email);
   const params = new URLSearchParams();
-  params.set('user_id', 'eq.' + userId);
+  params.set('user_id', 'eq.' + pk);
 
   const writePatch = pickSubscriptionWriteFields(
     Object.assign({}, patch, {
@@ -440,7 +452,7 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   delete writePatch.user_id;
 
   logUsage('update:before', {
-    user_id: userId,
+    user_id: pk,
     patch: writePatch,
     before_count: existing ? readSearchCountFromRow(existing) : null,
   });
@@ -455,7 +467,7 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const rowsAffected = Array.isArray(rows) ? rows.length : 0;
 
   logUsage('update:after', {
-    user_id: userId,
+    user_id: pk,
     rows_affected: rowsAffected,
     response: rows,
   });
@@ -468,7 +480,7 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
       patch,
       existing
     );
-    logUsage('update:upsert_fallback', { user_id: userId, merged: merged });
+    logUsage('update:upsert_fallback', { user_id: pk, merged: merged });
 
     const upsertRes = await supabaseRequest('/rest/v1/' + TABLE + '?on_conflict=user_id', {
       method: 'POST',
@@ -477,7 +489,7 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
     }, userToken);
     const upsertRows = await readSupabaseResponse(upsertRes, 'subscription upsert');
     logUsage('update:upsert_after', {
-      user_id: userId,
+      user_id: pk,
       rows_affected: Array.isArray(upsertRows) ? upsertRows.length : 0,
       response: upsertRows,
     });
@@ -485,13 +497,14 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
     return merged;
   }
 
-  const refetched = await fetchSubscriptionRow(userId, userToken);
+  const refetched = await fetchSubscriptionRow(userId, userToken, user && user.email);
   if (refetched) return refetched;
   return subscriptionRowFromPatch(user || { id: userId, tier: 'trial' }, patch, existing);
 }
 
 async function upsertSubscriptionRow(user, patch, userToken) {
-  const existing = await fetchSubscriptionRow(user.id, userToken);
+  user = applyLocalDemoUserIdMapping(user);
+  const existing = await fetchSubscriptionRow(user.id, userToken, user.email);
   if (existing) {
     return updateSubscriptionRow(user.id, patch, existing, user, userToken);
   }
@@ -499,7 +512,8 @@ async function upsertSubscriptionRow(user, patch, userToken) {
 }
 
 async function ensureSubscription(user, userToken) {
-  let row = await fetchSubscriptionRow(user.id, userToken);
+  user = applyLocalDemoUserIdMapping(user);
+  let row = await fetchSubscriptionRow(user.id, userToken, user.email);
   if (!row) {
     logUsage('ensure:create_row', { user_id: user.id });
     row = await insertSubscriptionRow(user, {
@@ -513,6 +527,7 @@ async function ensureSubscription(user, userToken) {
 }
 
 async function getStatus(user, userToken) {
+  user = applyLocalDemoUserIdMapping(user);
   const row = await ensureSubscription(user, userToken);
   const usage = buildUsagePayload(row);
   return {
@@ -528,6 +543,7 @@ async function getStatus(user, userToken) {
 }
 
 async function recordSearch(user, userToken) {
+  user = applyLocalDemoUserIdMapping(user);
   const email = normalizeEmail(user && user.email);
   if (isProUserEmail(email)) {
     logUsage('record_search:pro_bypass', { email: email });
@@ -604,6 +620,7 @@ async function recordSearch(user, userToken) {
 }
 
 async function recordWordDownload(user, userToken) {
+  user = applyLocalDemoUserIdMapping(user);
   const email = normalizeEmail(user && user.email);
   if (isProUserEmail(email)) {
     return {
@@ -647,6 +664,7 @@ async function recordWordDownload(user, userToken) {
 }
 
 async function cancelRenewal(user, userToken) {
+  user = applyLocalDemoUserIdMapping(user);
   const row = await ensureSubscription(user, userToken);
   if (planTypeFromRow(row) === 'trial') {
     const err = new Error('אין מנוי בתשלום לביטול');
@@ -747,7 +765,7 @@ async function recordLiveSearchFromRequest(req, explicitUser) {
   }
   const userToken = extractUserToken(req);
   const user = explicitUser && explicitUser.id
-    ? explicitUser
+    ? applyLocalDemoUserIdMapping(explicitUser)
     : await resolveUser(req, body);
   if (!isEnabled()) {
     console.warn(LOG_PREFIX, 'recordLiveSearch skipped — Supabase not configured');
@@ -771,7 +789,7 @@ async function assertSearchAllowedFromRequest(req) {
   const userToken = extractUserToken(req);
   let user;
   try {
-    user = await resolveUser(req, body);
+    user = applyLocalDemoUserIdMapping(await resolveUser(req, body));
   } catch (authErr) {
     if (authErr && authErr.statusCode === 401) return { allowed: true, unauthenticated: true };
     throw authErr;

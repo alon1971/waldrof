@@ -11,7 +11,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "upload-knowledge": "node scripts/upload-text.js",
-    "sync-render": "node scripts/sync-render-env.js"
+    "sync-render": "node scripts/sync-render-env.js",
+    "upgrade-archive": "node scripts/upgradeArchive.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

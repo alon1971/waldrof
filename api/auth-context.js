@@ -5,6 +5,38 @@
 const env = require('./env');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LOCAL_DEMO_USER_KEY = 'email:demo.user@gmail.com';
+const LOCAL_DEMO_MOCK_UUID = '00000000-0000-0000-0000-000000000000';
+
+/** True only on local dev — never on Render/production hosts. */
+function isLocalDevServer() {
+  if (process.env.RENDER === 'true') return false;
+  if (process.env.VERCEL === '1' || process.env.VERCEL_ENV) return false;
+  if (process.env.RAILWAY_ENVIRONMENT) return false;
+  return true;
+}
+
+/**
+ * Map local demo identifier to a valid UUID before Supabase queries (local dev only).
+ * Production users with real JWT UUIDs pass through unchanged.
+ */
+function mapUserIdForSupabaseQuery(userId, email) {
+  const id = String(userId || '').trim();
+  const em = String(email || '').trim();
+  if (!isLocalDevServer()) return id || null;
+  if (id === LOCAL_DEMO_USER_KEY || em === LOCAL_DEMO_USER_KEY) {
+    return LOCAL_DEMO_MOCK_UUID;
+  }
+  return id || null;
+}
+
+/** Map demo user id on a teacher/subscription object before Supabase reads/writes. */
+function mapUserForSupabaseQuery(user) {
+  if (!user || typeof user !== 'object') return user;
+  const mappedId = mapUserIdForSupabaseQuery(user.id, user.email);
+  if (!mappedId || mappedId === user.id) return user;
+  return Object.assign({}, user, { id: mappedId });
+}
 
 function isValidAuthUuid(value) {
   return UUID_RE.test(String(value || '').trim());
@@ -139,6 +171,11 @@ function pickCachedUserId(body) {
 module.exports = {
   isValidAuthUuid,
   isMockUserId,
+  isLocalDevServer,
+  mapUserIdForSupabaseQuery,
+  mapUserForSupabaseQuery,
+  LOCAL_DEMO_USER_KEY,
+  LOCAL_DEMO_MOCK_UUID,
   extractBearerToken,
   verifySupabaseToken,
   resolveVerifiedUser,

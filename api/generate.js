@@ -1,12 +1,14 @@
 /**
- * Waldorf research API — secure Gemini proxy.
- * Gemini API key is read server-side only (never exposed to the browser).
- * Set GEMINI_API_KEY in Render Environment (or .env locally).
+ * Waldorf research API — hybrid Perplexity + Gemini proxy.
+ * PERPLEXITY_API_KEY: live web search (Sonar) — primary factual anchor for new topics.
+ * GEMINI_API_KEY: structured lesson-plan enrichment (gemini-2.5-flash, x-goog-api-key).
+ * Chat follow-up (chat_followup): same hybrid pipeline — Perplexity Sonar search → Gemini 2.5-flash (v1 REST).
  *
  * Content hierarchy (lesson generation):
- *   1. LIVE WEB SEARCH (Perplexity) — primary anchor for broad, deep lesson content
- *   2. INGESTED GOOGLE DRIVE ARCHIVE (knowledge_base) — supplementary Waldorf enrichment
- *   3. CONSOLIDATED OUTPUT → cached_results — serve on 99%+ similarity match
+ *   1. SUPABASE ARCHIVE — return enhanced cached_results immediately on hit
+ *   2. LIVE WEB SEARCH (Perplexity Sonar) — raw research saved to cached_results (phase perplexity_raw)
+ *   3. GEMINI ENRICHMENT — deep structured Waldorf lesson plan → cached_results
+ *   4. INGESTED GOOGLE DRIVE ARCHIVE (knowledge_base) — supplementary RAG enrichment
  *
  * Primary runtime: Render / Node.js via server.js → executeGenerate().
  * Optional: legacyHandler(req, res) for adapters; fetch(request) for Vercel serverless.
@@ -22,7 +24,7 @@ const searchLogs = require('./search-logs');
 const authContext = require('./auth-context');
 const jsonRepair = require('./json-repair');
 const env = require('./env');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const perplexityClient = require('./perplexity-client');
 
 const {
   cleanAndParseJSON,
@@ -42,6 +44,43 @@ const {
     }
   });
 })();
+
+/** Stable v1 REST API — chat follow-up and free-text Gemini calls. */
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1';
+/** v1beta — structured JSON (responseSchema / responseMimeType) for hybrid lesson enrichment. */
+const GEMINI_API_BASE_STRUCTURED = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_GENERATION_MODEL = 'gemini-2.5-flash';
+/** Balanced pedagogical creativity vs factual grounding for Gemini 2.5-flash enrichment. */
+const GEMINI_DEFAULT_TEMPERATURE = 0.45;
+
+const HYBRID_GEMINI_SYSTEM_SUFFIX =
+  '\n=== HYBRID PIPELINE — PERPLEXITY FACTS → GEMINI ENRICHMENT ===\n' +
+  'Live web research was performed by Perplexity Sonar and is provided in the user message under PERPLEXITY WEB RESEARCH.\n' +
+  'Supabase archive excerpts and RAG context (Drive / community) may also be included — treat them as additional factual inputs.\n' +
+  'Do NOT perform additional web search — synthesize the provided research and excerpts into the requested JSON schema.\n' +
+  '\n' +
+  '=== TWO-LAYER BOUNDARY (MANDATORY — OVERRIDES CONFLICTING RULES ABOVE) ===\n' +
+  '\n' +
+  'LAYER 1 — FACTUAL (STRICT — ZERO HALLUCINATION):\n' +
+  'For ALL historical dates, biographical facts, scientific measurements, chemical/physical data, geographic facts, ' +
+  'statistics, named events, and any objective claim of fact:\n' +
+  '- Use ONLY what appears in PERPLEXITY WEB RESEARCH, Supabase archive excerpts, or explicitly provided RAG context.\n' +
+  '- NEVER invent, extrapolate, guess, or hallucinate historical facts or scientific data.\n' +
+  '- If a fact is absent from the provided context, omit it or note that verified data was not supplied — do NOT fill factual gaps with model knowledge.\n' +
+  '- Citations, attributions, and direct quotes must trace to provided research — never fabricate sources.\n' +
+  '\n' +
+  'LAYER 2 — PEDAGOGICAL & CREATIVE (ENCOURAGED — WALDORF EXPERTISE):\n' +
+  'For lesson design, classroom practice, and teaching artistry:\n' +
+  '- ACTIVELY draw on your deep knowledge of established Waldorf / Steiner-Waldorf pedagogy to weave verified facts into rich, age-appropriate lesson experiences.\n' +
+  '- Design rhythmic lesson flows (opening verse, recall, main lesson, artistic activity, closing) suited to currentGrade.\n' +
+  '- Craft vivid, imaginative stories, metaphors, chalkboard imagery, movement, music, and hands-on activities aligned with Waldorf main-lesson tradition.\n' +
+  '- Apply anthroposophic developmental principles (body/soul/spirit, temperament, curriculum rhythms) as a pedagogical lens — creatively but faithfully to Waldorf methodology.\n' +
+  '- Stories and metaphors may be original compositions, but any factual claims embedded within them must still obey Layer 1.\n' +
+  '- Tailor tone, complexity, and imagery precisely to the specific grade level and age — never mix content from other grades.\n' +
+  '\n' +
+  'BALANCE: Be deeply creative and pedagogically insightful in HOW you teach the facts — never creative ABOUT what the facts are.\n' +
+  '=== END TWO-LAYER BOUNDARY ===\n' +
+  '=== END HYBRID PIPELINE ===\n';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1157,14 +1196,31 @@ function validateTopicBlockPlan(blockPlan) {
   return true;
 }
 
-async function callGeminiAI(systemPrompt, userPrompt, temperature, options) {
+function extractGeminiV1Text(payload) {
+  const candidates = payload && payload.candidates;
+  if (!Array.isArray(candidates) || !candidates.length) return '';
+  const parts = candidates[0].content && candidates[0].content.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts.map(function (part) {
+    return part && typeof part.text === 'string' ? part.text : '';
+  }).join('').trim();
+}
+
+async function callGeminiV1(systemPrompt, userPrompt, options) {
   const opts = options && typeof options === 'object' ? options : {};
-  const geminiKey = env.getGeminiApiKey();
-  if (!geminiKey) {
+  const apiKey = env.getGeminiApiKey();
+  if (!apiKey) {
     throw new Error('שגיאה: מפתח GEMINI_API_KEY לא מוגדר בשרת');
   }
 
-  const generationConfig = { temperature: temperature != null ? temperature : 0.35 };
+  const model = opts.model || GEMINI_GENERATION_MODEL;
+  const useStructuredApi = opts.jsonMode === true;
+  const apiBase = useStructuredApi ? GEMINI_API_BASE_STRUCTURED : GEMINI_API_BASE;
+  const url = apiBase + '/models/' + encodeURIComponent(model) + ':generateContent';
+
+  const generationConfig = {
+    temperature: opts.temperature != null ? opts.temperature : GEMINI_DEFAULT_TEMPERATURE,
+  };
   if (opts.jsonMode === true) {
     generationConfig.responseMimeType = 'application/json';
     if (opts.responseSchema && typeof opts.responseSchema === 'object') {
@@ -1172,38 +1228,192 @@ async function callGeminiAI(systemPrompt, userPrompt, temperature, options) {
     }
   }
 
-  const modelParams = {
-    model: 'gemini-1.5-flash',
-    generationConfig,
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    generationConfig: generationConfig,
   };
-  if (systemPrompt) {
-    modelParams.systemInstruction = systemPrompt;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const raw = await res.text();
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('Gemini returned non-JSON response (' + res.status + '): ' + raw.slice(0, 300));
   }
 
-  try {
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel(modelParams);
-    const result = await model.generateContent(userPrompt);
-    const text = result.response.text();
-    if (!text || !String(text).trim()) {
-      throw new Error('Gemini החזיר תשובה ריקה — נסו שוב בעוד רגע.');
-    }
-    return String(text).trim();
-  } catch (err) {
-    console.error('Gemini Error:', err);
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/GEMINI_API_KEY/i.test(msg)) throw err;
-    throw new Error(msg || 'שגיאה בעיבוד הבקשה מול שרתי גוגל');
+  if (!res.ok) {
+    const msg = payload.error && payload.error.message ? payload.error.message : raw.slice(0, 300);
+    throw new Error('Gemini error ' + res.status + ': ' + msg);
   }
+
+  const text = extractGeminiV1Text(payload);
+  if (!text) {
+    throw new Error('Gemini החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+  }
+  return text;
 }
 
+async function callGeminiForGeneration(systemPrompt, userPrompt, temperature, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  return callGeminiV1(systemPrompt, userPrompt, {
+    model: GEMINI_GENERATION_MODEL,
+    temperature: temperature != null ? temperature : GEMINI_DEFAULT_TEMPERATURE,
+    jsonMode: opts.jsonMode === true,
+    responseSchema: opts.responseSchema,
+  });
+}
+
+function buildPerplexitySearchSystemPrompt() {
+  return (
+    'You are a factual Waldorf / Steiner-Waldorf pedagogy research assistant. ' +
+    'Perform live web search and return accurate, well-sourced pedagogical research in Hebrew. ' +
+    'Include HTTPS reference links for major claims. ' +
+    'Prioritize: Steiner Archive, Waldorf Library (waldorflibrary.org), AWSNA, IASWECE, rsarchive.org, ' +
+    'and verified anthroposophic pedagogical sources. ' +
+    'Be comprehensive — cover child development, main-lesson structure, classroom practice, and curriculum context.'
+  );
+}
+
+function buildPerplexitySearchUserPrompt(body) {
+  const phase = body.phase;
+  const gradeId = resolvedGradeId(body);
+  const gradeLabel = body.gradeLabel || '';
+  const age = body.age || '';
+  const topic = String(body.topic || body.gradeLabel || '').trim();
+
+  if (phase === 'grade') {
+    return (
+      'Perform a factual web search on Waldorf/Steiner anthroposophic child development.\n' +
+      'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n\n' +
+      'Return a detailed Hebrew research report with:\n' +
+      '1. Age picture and developmental characteristics (body/soul/spirit)\n' +
+      '2. Pedagogical emphases and typical main-lesson blocks for this grade\n' +
+      '3. Classroom practice and community/parent aspects\n' +
+      '4. Global Waldorf curriculum references\n' +
+      '5. A numbered "Sources" section with HTTPS reference URLs for every major claim'
+    );
+  }
+
+  if (phase === 'chat_followup') {
+    const question = String(body.userMessage || '').trim();
+    return (
+      'Perform a factual web search to answer a Waldorf teacher follow-up question about their lesson plan.\n' +
+      'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
+      'Block topic: «' + topic + '»\n' +
+      'Teacher question: «' + question + '»\n\n' +
+      'Return a detailed Hebrew research report grounded in verified Rudolf Steiner, anthroposophic, and Waldorf pedagogical sources.\n' +
+      'Cover practical classroom guidance relevant to the question and grade level.\n' +
+      'Include a numbered "Sources" section with HTTPS reference URLs for every major claim.'
+    );
+  }
+
+  return (
+    'Perform a factual web search on Waldorf main-lesson block planning.\n' +
+    'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
+    'Block topic: «' + topic + '»\n' +
+    'Grade context: ' + (body.gradeContext || '') + '\n\n' +
+    'Return a detailed Hebrew research report with:\n' +
+    '1. Waldorf pedagogical principles for this topic at this grade level\n' +
+    '2. Main-lesson block structure, biography, and artistic integration\n' +
+    '3. 15-day curriculum sequence ideas with daily themes\n' +
+    '4. Inspiration sources (Steiner/GA, anthroposophic authors, international Waldorf resources)\n' +
+    '5. Pinterest/visual inspiration search phrases for classroom displays\n' +
+    '6. A numbered "Sources" section with HTTPS reference URLs for every major claim'
+  );
+}
+
+function buildPerplexityResearchBlock(rawPayload) {
+  if (!rawPayload || !String(rawPayload.content || '').trim()) return '';
+  const citations = Array.isArray(rawPayload.citations) ? rawPayload.citations : [];
+  return (
+    '\n=== PERPLEXITY WEB RESEARCH (PRIMARY FACTUAL SOURCE — MANDATORY) ===\n' +
+    'The following live web research was retrieved via Perplexity Sonar. Use it as the factual foundation.\n\n' +
+    String(rawPayload.content).trim() + '\n' +
+    (citations.length
+      ? '\nReference URLs from Perplexity:\n' + citations.map(function (url, i) {
+        return (i + 1) + '. ' + url;
+      }).join('\n') + '\n'
+      : '') +
+    '=== END PERPLEXITY WEB RESEARCH ===\n\n'
+  );
+}
+
+function buildGeminiEnrichmentUserPrompt(body, rawPayload) {
+  return buildPerplexityResearchBlock(rawPayload) + buildUserPrompt(body);
+}
+
+async function fetchOrRunPerplexityResearch(body, logContext) {
+  const cachedRaw = await cacheDb.getRawPerplexityCache(body);
+  if (cachedRaw && String(cachedRaw.content || '').trim()) {
+    console.log('[hybrid] raw Perplexity cache HIT for', body.phase);
+    return cachedRaw;
+  }
+
+  const ip = (logContext && logContext.ip) || 'unknown';
+  const action = (logContext && logContext.action) || buildActionLabel(body);
+  logPerplexityCall(ip, action, 'Initiated');
+
+  let searchResult;
+  try {
+    searchResult = await perplexityClient.callPerplexitySearch({
+      messages: [
+        { role: 'system', content: buildPerplexitySearchSystemPrompt() },
+        { role: 'user', content: buildPerplexitySearchUserPrompt(body) },
+      ],
+      stream: false,
+    });
+    logPerplexityCall(ip, action, 'Success');
+  } catch (searchErr) {
+    logPerplexityCall(ip, action, 'Failed');
+    throw searchErr;
+  }
+
+  const rawPayload = {
+    content: searchResult.content,
+    citations: searchResult.citations || [],
+    searchedAt: new Date().toISOString(),
+    topic: body.topic || null,
+    gradeId: resolvedGradeId(body) || null,
+    model: perplexityClient.PERPLEXITY_SEARCH_MODEL,
+  };
+
+  try {
+    const savedKey = await cacheDb.setRawPerplexityCache(body, rawPayload);
+    if (savedKey) {
+      console.log('[hybrid] raw Perplexity SAVED', body.phase, savedKey.slice(0, 12));
+    }
+  } catch (saveErr) {
+    console.warn('[hybrid] raw Perplexity save failed:', saveErr.message || saveErr);
+  }
+
+  return rawPayload;
+}
+
+function shouldUseHybridRouting(body) {
+  if (!body || body.phase === 'test') return false;
+  return Boolean(perplexityClient.resolveApiKey() && env.getGeminiApiKey());
+}
+
+/** @deprecated Legacy alias — routes to Gemini enrichment in hybrid mode. */
 async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
   const opts = options || {};
   const systemBuilder = typeof opts.systemPrompt === 'function' ? opts.systemPrompt : waldorfSystemPrompt;
-  const temperature = opts.temperature !== undefined ? opts.temperature : 0.35;
-  const systemContent = systemBuilder(extraSystem);
+  const temperature = opts.temperature !== undefined ? opts.temperature : GEMINI_DEFAULT_TEMPERATURE;
+  const hybridSuffix = opts.skipHybridSuffix ? '' : HYBRID_GEMINI_SYSTEM_SUFFIX;
+  const systemContent = systemBuilder(extraSystem + hybridSuffix);
 
-  return callGeminiAI(systemContent, userPrompt, temperature, {
+  return callGeminiForGeneration(systemContent, userPrompt, temperature, {
+    model: GEMINI_GENERATION_MODEL,
     jsonMode: opts.jsonMode === true,
     responseSchema: opts.responseSchema,
   });
@@ -1272,6 +1482,12 @@ function isRetriablePerplexityCallError(err) {
  * while the client request stays open (spinner remains active).
  */
 async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
+  if (shouldUseHybridRouting(body)) {
+    return fetchHybridModelWithRetry(
+      body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext
+    );
+  }
+
   const phase = body.phase;
   const baseOpts = perplexityOptions || {};
   const ip = (logContext && logContext.ip) || 'unknown';
@@ -1286,7 +1502,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
     const callOpts = Object.assign({}, baseOpts, {
       temperature: isRetry
         ? 0.2
-        : (baseOpts.temperature !== undefined ? baseOpts.temperature : 0.35),
+        : (baseOpts.temperature !== undefined ? baseOpts.temperature : GEMINI_DEFAULT_TEMPERATURE),
       jsonMode: useJsonMode,
       responseSchema: useJsonMode && phase === 'topic' ? getTopicResponseSchema() : undefined,
     });
@@ -1366,6 +1582,120 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
   return buildModelParseFallback(phase, lastRaw || '', body);
 }
 
+/**
+ * Hybrid pipeline: Perplexity Sonar web search → raw cache → Gemini 2.5-flash JSON enrichment.
+ */
+async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
+  const phase = body.phase;
+  const baseOpts = perplexityOptions || {};
+  const ip = (logContext && logContext.ip) || 'unknown';
+  const action = (logContext && logContext.action) || buildActionLabel(body);
+  let lastPreview = '';
+  let lastRaw = '';
+
+  let rawPayload;
+  try {
+    rawPayload = await fetchOrRunPerplexityResearch(body, logContext);
+  } catch (searchErr) {
+    const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
+    console.error('[hybrid] Perplexity search failed for phase', phase, ':', msg);
+    throw new Error(msg || 'שגיאה בחיפוש Perplexity — נסו שוב בעוד רגע.');
+  }
+
+  const enrichmentPrompt = buildGeminiEnrichmentUserPrompt(body, rawPayload);
+  const systemBuilder = typeof baseOpts.systemPrompt === 'function' ? baseOpts.systemPrompt : waldorfSystemPrompt;
+  const hybridExtraSystem = extraSystem + HYBRID_GEMINI_SYSTEM_SUFFIX;
+
+  for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
+    const isRetry = attempt > 1;
+    const retrySuffix = isRetry && !isChatFollowup ? JSON_RETRY_SYSTEM_SUFFIX : '';
+    const useJsonMode = phaseRequiresStructuredJson(phase);
+    const temperature = isRetry
+      ? 0.2
+      : (baseOpts.temperature !== undefined ? baseOpts.temperature : GEMINI_DEFAULT_TEMPERATURE);
+    const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
+
+    let raw;
+    try {
+      if (isRetry) {
+        console.warn('[hybrid] Silent Gemini retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
+      }
+      console.log('[hybrid] Gemini enrichment for phase', phase, '(attempt', attempt + ')');
+      raw = await callGeminiV1(
+        systemBuilder(hybridExtraSystem + retrySuffix),
+        enrichmentPrompt,
+        {
+          model: GEMINI_GENERATION_MODEL,
+          temperature: temperature,
+          jsonMode: useJsonMode,
+          responseSchema: useJsonMode && phase === 'topic' ? getTopicResponseSchema() : undefined,
+        }
+      );
+      lastRaw = raw;
+    } catch (geminiErr) {
+      const msg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
+      console.error('[hybrid] Gemini enrichment failed for phase', phase, '(attempt', attempt + '):', msg);
+      if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(geminiErr)) {
+        continue;
+      }
+      throw new Error(msg || 'שגיאה בעיבוד Gemini — נסו שוב בעוד רגע.');
+    }
+
+    let data;
+    if (isChatFollowup) {
+      data = normalizeChatFollowupFromModel(raw);
+    } else {
+      try {
+        data = cleanAndParseJSON(raw, {
+          phase: phase,
+          context: body,
+          fallbackOnError: useParseFallback,
+        });
+      } catch (parseErr) {
+        const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        lastPreview = String(raw).slice(0, 600);
+        console.error(
+          '[hybrid] JSON parse failed for phase',
+          phase,
+          '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + '):',
+          parseMsg
+        );
+        console.error('Model output preview:', lastPreview);
+        if (!useParseFallback) continue;
+        data = buildModelParseFallback(phase, raw, body);
+      }
+    }
+
+    if (data && data._parseFallback) {
+      console.warn('[hybrid] Using parse fallback for phase', phase, '(attempt', attempt + ')');
+      return cacheDb.stampHybridGeneratedMetadata(data);
+    }
+
+    if (!validatePhaseResult(phase, data)) {
+      lastPreview = String(raw).slice(0, 600);
+      console.error(
+        '[hybrid] Parsed JSON missing required fields for phase',
+        phase,
+        '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')'
+      );
+      console.error('Model output preview:', lastPreview);
+      if (!useParseFallback) continue;
+      console.warn('[hybrid] Validation failed — returning parse fallback for phase', phase);
+      return cacheDb.stampHybridGeneratedMetadata(buildModelParseFallback(phase, raw, body));
+    }
+
+    if (isRetry) {
+      console.log('[hybrid] Silent retry succeeded for phase', phase);
+    }
+    return cacheDb.stampHybridGeneratedMetadata(data);
+  }
+
+  if (isChatFollowup) {
+    return normalizeChatFollowupFromModel(lastRaw || '');
+  }
+  return cacheDb.stampHybridGeneratedMetadata(buildModelParseFallback(phase, lastRaw || '', body));
+}
+
 function resolveApiKey() {
   return env.getGeminiApiKey() || null;
 }
@@ -1381,6 +1711,9 @@ const MISSING_KEY_ERROR =
 
 function isNonBlockingSubscriptionDbError(err) {
   const msg = String((err && err.message) || err || '');
+  if (authContext.isLocalDevServer() && /invalid input syntax for type uuid/i.test(msg)) {
+    return true;
+  }
   return /foreign key constraint/i.test(msg)
     || /search_logs_profile_id_fkey/i.test(msg)
     || /Could not find the table/i.test(msg)
@@ -1777,6 +2110,12 @@ async function executeGenerate(body, apiKey, requestContext) {
           gradeId: body.currentGrade ?? body.gradeId,
         });
         if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
+          if (!cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData)) {
+            console.log(
+              '[cached_results] SKIP non-enhanced archive exact match — hybrid regeneration:',
+              suggestion.topic
+            );
+          } else {
           console.log(
             '[cached_results] HIT (consolidated archive ≥99% similarity)',
             suggestion.topic,
@@ -1795,8 +2134,10 @@ async function executeGenerate(body, apiKey, requestContext) {
               source: 'consolidated_archive',
               similarity: suggestion.similarity,
               requestedTopic: body.topic || suggestion.requestedTopic || null,
+              enhanced: true,
             }, communityProbe),
           };
+          }
         }
         if (suggestion && suggestion.matchType === 'partial') {
           console.log(
@@ -1824,6 +2165,9 @@ async function executeGenerate(body, apiKey, requestContext) {
         }
       }
       console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
+      if (shouldUseHybridRouting(body)) {
+        console.log('[hybrid] pipeline: Perplexity sonar → raw cache → Gemini', GEMINI_GENERATION_MODEL);
+      }
     }
   }
 
@@ -1918,7 +2262,7 @@ async function executeGenerate(body, apiKey, requestContext) {
       : '');
 
   const perplexityOptions = isChatFollowup
-    ? { systemPrompt: pedagogicalChatSystemPrompt, temperature: 0.2 }
+    ? { systemPrompt: pedagogicalChatSystemPrompt, temperature: 0.2, skipHybridSuffix: true }
     : {};
 
   const userPrompt = buildUserPrompt(body);
@@ -1993,8 +2337,11 @@ async function executeGenerate(body, apiKey, requestContext) {
       cacheKey: savedCacheKey || undefined,
       table: cacheDb.TABLE_NAME,
       source: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'live',
+      hybridPipeline: shouldUseHybridRouting(body),
       consolidatedArchive: ragMeta.chunkCount > 0,
-      contentHierarchy: 'web_primary_drive_enrichment',
+      contentHierarchy: shouldUseHybridRouting(body)
+        ? 'perplexity_raw+gemini_enrichment'
+        : 'web_primary_drive_enrichment',
       liveDriveRefresh: Boolean(ragMeta.liveDriveRefresh),
       rag: ragMeta,
       ragContext: body.ragContext || '',

@@ -6,6 +6,8 @@ const env = require('./env');
 const jsonRepair = require('./json-repair');
 
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
+/** Stable factual web-search model for hybrid routing (Perplexity → Gemini). */
+const PERPLEXITY_SEARCH_MODEL = 'sonar';
 const PERPLEXITY_MODEL = 'sonar-pro';
 const REQUEST_TIMEOUT_MS = 180000;
 
@@ -169,7 +171,18 @@ function mapHttpError(status, responseText) {
   return new Error('Perplexity API ' + status + ': ' + detail);
 }
 
-async function fetchPerplexity(apiKey, body, useStream) {
+function extractCitations(data) {
+  if (!data || typeof data !== 'object') return [];
+  const raw = data.citations || (data.choices && data.choices[0] && data.choices[0].citations);
+  if (!Array.isArray(raw)) return [];
+  return raw.map(function (item) {
+    if (typeof item === 'string') return item.trim();
+    if (item && typeof item.url === 'string') return item.url.trim();
+    return '';
+  }).filter(Boolean);
+}
+
+async function fetchPerplexityResponse(apiKey, body, useStream) {
   const streaming = useStream !== false;
   const requestBody = Object.assign({}, body, { stream: streaming });
   const headers = buildHeaders(apiKey, streaming);
@@ -197,7 +210,7 @@ async function fetchPerplexity(apiKey, body, useStream) {
 
     if (streaming) {
       const streamed = await readStreamResponse(res);
-      if (streamed) return streamed;
+      if (streamed) return { content: streamed, citations: [] };
       throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
     }
 
@@ -208,10 +221,15 @@ async function fetchPerplexity(apiKey, body, useStream) {
     }
     const content = extractMessageContent(data);
     if (!content) throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
-    return content;
+    return { content: content, citations: extractCitations(data) };
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+async function fetchPerplexity(apiKey, body, useStream) {
+  const result = await fetchPerplexityResponse(apiKey, body, useStream);
+  return result.content;
 }
 
 async function httpsPerplexity(apiKey, body) {
@@ -227,11 +245,12 @@ async function httpsPerplexity(apiKey, body) {
   }
   const content = extractMessageContent(data);
   if (!content) throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
-  return content;
+  return { content: content, citations: extractCitations(data) };
 }
 
 /**
  * Call Perplexity chat completions — streaming first, https fallback on fetch failure.
+ * Returns assistant text only (string).
  */
 async function callPerplexityChat(options) {
   const opts = options || {};
@@ -249,13 +268,50 @@ async function callPerplexityChat(options) {
   const useStream = opts.stream !== false;
 
   try {
-    return await fetchPerplexity(apiKey, body, useStream);
+    const result = await fetchPerplexityResponse(apiKey, body, useStream);
+    return result.content;
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
     const isNetwork = /fetch failed|network|timeout|abort|ECONN|ENOTFOUND|UND_ERR/i.test(msg);
     if (!isNetwork) throw fetchErr;
 
     console.warn('[perplexity] fetch failed, retrying via https:', msg);
+    try {
+      const result = await httpsPerplexity(apiKey, body);
+      return result.content;
+    } catch (httpsErr) {
+      const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
+      throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
+    }
+  }
+}
+
+/**
+ * Factual web search via Perplexity Sonar — returns { content, citations }.
+ */
+async function callPerplexitySearch(options) {
+  const opts = options || {};
+  const apiKey = normalizeApiKey(opts.apiKey || resolveApiKey());
+  if (!apiKey) {
+    throw new Error('PERPLEXITY_API_KEY is not configured');
+  }
+
+  const body = {
+    model: opts.model || PERPLEXITY_SEARCH_MODEL,
+    temperature: opts.temperature != null ? opts.temperature : 0.2,
+    messages: opts.messages || [],
+  };
+
+  const useStream = opts.stream === true;
+
+  try {
+    return await fetchPerplexityResponse(apiKey, body, useStream);
+  } catch (fetchErr) {
+    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+    const isNetwork = /fetch failed|network|timeout|abort|ECONN|ENOTFOUND|UND_ERR/i.test(msg);
+    if (!isNetwork) throw fetchErr;
+
+    console.warn('[perplexity] search fetch failed, retrying via https:', msg);
     try {
       return await httpsPerplexity(apiKey, body);
     } catch (httpsErr) {
@@ -268,8 +324,11 @@ async function callPerplexityChat(options) {
 module.exports = {
   PERPLEXITY_URL,
   PERPLEXITY_MODEL,
+  PERPLEXITY_SEARCH_MODEL,
   normalizeApiKey,
   resolveApiKey,
   callPerplexityChat,
+  callPerplexitySearch,
   extractMessageContent,
+  extractCitations,
 };
