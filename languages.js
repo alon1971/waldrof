@@ -104,7 +104,7 @@ const LANGUAGES = {
     tab_curriculum_suffix:       ' תקופה',
 
     pinterest_title:             'השראה חזותית ומחברות תקופה',
-    pinterest_desc:              'קישורי השראה שנמצאו במחקר החי — Pinterest, ארכיונים וולדורפיים',
+    pinterest_desc:              'קישורי השראה חזותית — Pinterest, ארכיונים וולדורפיים',
     pinterest_board_link:        'לוח השראה',
     share_community:             'שתפו עם הקהילה (ענן)',
     upload_author_ph:            'שמך',
@@ -268,7 +268,7 @@ const LANGUAGES = {
     catalog_files_in_topic:      '{count} קבצים',
     catalog_community_files:     'קבצים בקהילה ({count})',
     catalog_no_files:            'אין עדיין קבצים — לחצו על «הוסף חומר חדש למאגר +» כדי להעלות את הראשון.',
-    catalog_loading:             'טוען מ-Supabase...',
+    catalog_loading:             'טוען...',
     catalog_general:             'כללי',
     catalog_grade_label:         'כיתה',
     catalog_grade_ph:            'בחרו כיתה',
@@ -339,7 +339,7 @@ const LANGUAGES = {
 
     pedagogy_deep_btn:           'הרחבה ואספקטים פרקטיים 📝',
     pedagogy_modal_title:        'הסבר מלא ומערך פעילות',
-    pedagogy_summary_loading:    'מבצע מחקר הרחבה פדגוגי (Perplexity)...',
+    pedagogy_summary_loading:    'מבצע מחקר הרחבה פדגוגי...',
     pedagogy_summary_loading_sub:'מחפש מקורות ברשת — זה עשוי לקחת עד דקה.',
     pedagogy_essence:            'מהות הפעילות',
     pedagogy_context:            'הקשר פדגוגי ורלוונטיות לתקופה',
@@ -677,7 +677,7 @@ const LANGUAGES = {
     tab_curriculum_suffix:       ' Planning',
 
     pinterest_title:             'Visual inspiration & block notebooks',
-    pinterest_desc:              'Inspiration links from live research — Pinterest, Waldorf archives',
+    pinterest_desc:              'Visual inspiration links — Pinterest, Waldorf archives',
     pinterest_board_link:        'Inspiration board',
     share_community:             'Share with the community (cloud)',
     upload_author_ph:            'Your name',
@@ -845,7 +845,7 @@ const LANGUAGES = {
     catalog_files_in_topic:      '{count} files',
     catalog_community_files:     'Community files ({count})',
     catalog_no_files:            'No files yet — click «Add new material to the database +» to upload the first one.',
-    catalog_loading:             'Loading from Supabase...',
+    catalog_loading:             'Loading…',
     catalog_general:             'General',
     catalog_grade_label:         'Grade',
     catalog_grade_ph:            'Select grade',
@@ -916,7 +916,7 @@ const LANGUAGES = {
 
     pedagogy_deep_btn:           'Practical expansion & aspects 📝',
     pedagogy_modal_title:        'Full guide & activity plan',
-    pedagogy_summary_loading:    'Conducting pedagogical expansion research (Perplexity)...',
+    pedagogy_summary_loading:    'Conducting pedagogical expansion research...',
     pedagogy_summary_loading_sub:'Searching the web for sources — this may take up to a minute.',
     pedagogy_essence:            'Activity essence',
     pedagogy_context:            'Pedagogical context & block relevance',

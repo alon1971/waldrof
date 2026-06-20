@@ -208,9 +208,6 @@
 
   function renderMessageBubble(msg) {
     var roleClass = msg.role === 'user' ? 'lesson-chat-bubble--user' : 'lesson-chat-bubble--assistant';
-    var cacheTag = msg.fromCache
-      ? '<span class="lesson-chat-cache-tag" title="' + deps.escapeHtml(deps.t('chat_cache_hit')) + '"><i class="fa-solid fa-bolt"></i></span>'
-      : '';
     var body;
     if (msg.archiveSuggest && !msg.archiveSuggestResolved) {
       body = '<div class="lesson-chat-bubble-body">' +
@@ -232,7 +229,7 @@
     }
     return '<div class="lesson-chat-bubble ' + roleClass + '"' +
       (msg.archiveSuggestId ? ' data-archive-suggest-id="' + deps.escapeHtml(msg.archiveSuggestId) + '"' : '') +
-      '>' + cacheTag + body + '</div>';
+      '>' + body + '</div>';
   }
 
   function bindArchiveSuggestClicks(list) {

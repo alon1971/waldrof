@@ -2441,11 +2441,6 @@
       color: #5C4A3A;
       border-bottom-right-radius: 0.25rem;
     }
-    .lesson-chat-cache-tag {
-      position: absolute; top: 0.35rem; left: 0.35rem;
-      color: #C9A962; font-size: 0.7rem !important;
-    }
-    html[dir="ltr"] .lesson-chat-cache-tag { left: auto; right: 0.35rem; }
     .lesson-chat-bubble-body { margin: 0; }
     .lesson-chat-bubble--assistant .lesson-chat-bubble-body { padding-top: 0.15rem; }
 
@@ -7739,7 +7734,7 @@
       if (btn) btn.disabled = true;
       appState.archivePanelsOpen[sourceId] = true;
       panel.classList.remove('hidden');
-      panel.innerHTML = '<p class="text-sage-dark"><i class="fa-solid fa-spinner fa-spin ml-1"></i> מייצר תקציר פדגוגי מעמיק (Perplexity)...</p>';
+      panel.innerHTML = '<p class="text-sage-dark"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('theory_bib_summary_loading')) + '</p>';
 
       try {
         const data = await fetchAnthroArchiveSummary(src);
@@ -7777,7 +7772,7 @@
       const wr = appState.webResearch;
       const out = document.getElementById('web-research-result');
       if (!wr) return;
-      let html = '<h4 class="app-subhead font-bold text-burgundy mb-2"><i class="fa-solid fa-globe ml-1"></i> תוצאות מחקר רשת חי</h4><p>' + escapeHtml(wr.summary) + '</p>';
+      let html = '<p class="leading-relaxed">' + escapeHtml(wr.summary) + '</p>';
       if (wr.highlights && wr.highlights.length) {
         html += '<div class="space-y-2 mt-3">';
         wr.highlights.forEach(function (h, index) {
@@ -7793,7 +7788,10 @@
         });
         html += '</div>';
       }
-      html += '<p class="mt-2 text-xs text-walnut/60">חיבור לגיל: ' + (wr.connections || []).map(escapeHtml).join(' · ') + '</p>';
+      if (wr.connections && wr.connections.length) {
+        html += '<p class="mt-2 text-xs text-walnut/60">' + escapeHtml(t('web_research_age_conn')) + ': ' +
+          (wr.connections || []).map(escapeHtml).join(' · ') + '</p>';
+      }
       holdPageScroll(function () {
         out.innerHTML = html;
         out.classList.remove('hidden');
@@ -9668,19 +9666,9 @@
     function updateCloudBanner() {
       const el = document.getElementById('cloud-status');
       if (!el) return;
-      let html = '';
       if (!isResearchAvailable()) {
-        html += '<div class="rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-walnut mb-2">' +
+        el.innerHTML = '<div class="rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-walnut mb-2">' +
           '<i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(t('cloud_config_missing')) + '</div>';
-      }
-      if (isCloudConfigured()) {
-        html += '<div class="rounded-xl border border-sage/30 bg-white/60 px-4 py-3 text-sm text-sage-dark">' +
-          '<span class="inline-block w-2 h-2 rounded-full bg-sage animate-pulse ml-1"></span> ' + escapeHtml(t('cloud_community_on')) +
-          '<input type="checkbox" id="community-auto-sync" checked disabled class="sr-only" aria-hidden="true" />' +
-          '</div>';
-      }
-      if (html) {
-        el.innerHTML = html;
         el.classList.remove('hidden');
       } else {
         el.innerHTML = '';
@@ -10704,7 +10692,7 @@
       const btn = document.getElementById('btn-grade-submit');
       const hint = document.getElementById('api-hint-step1');
       if (loadingText) {
-        loadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'grade_insights_loading_archive' : 'grade_insights_generating');
+        loadingText.textContent = t('grade_insights_generating');
       }
       holdPageScroll(function () {
         if (loadingEl) {
@@ -10813,7 +10801,7 @@
             ? 'Incomplete AI response — grade insights missing. Please try again.'
             : 'תשובת AI לא שלמה — חסרה תמונת גיל. נסו שוב.');
         }
-        renderGradeInsightsPanel(grade, data, { fromCache: Boolean(data && data._fromCache) });
+        renderGradeInsightsPanel(grade, data);
       } catch (err) {
         if (runId !== gradeResearchRunId || signal.aborted || isGradeResearchAbortError(err)) return;
         if (isRateLimitError(err)) return;
@@ -10837,7 +10825,7 @@
       const loadingText = document.getElementById('topic-research-loading-text');
       const btn = document.getElementById('btn-topic-research');
       if (loadingText) {
-        loadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'topic_research_loading_archive' : 'topic_research_deep');
+        loadingText.textContent = t('topic_research_deep');
       }
       holdPageScroll(function () {
         if (loadingEl) {
@@ -11515,13 +11503,11 @@
     }
 
     function renderSynthesisBanner() {
-      const nPersonal = appState.personalMaterials.length;
-      const nCommunity = appState.communityForGrade.length;
-      document.getElementById('synthesis-banner').innerHTML =
-        '<strong><i class="fa-solid fa-layer-group text-sage ml-1"></i> ' + escapeHtml(t('synthesis_banner_title')) + '</strong> ' +
-        escapeHtml(t('synthesis_web')) + ' · ' + escapeHtml(t('synthesis_grade')) + ' ' + escapeHtml(appState.gradeLabel) + ' · ' +
-        nCommunity + ' ' + escapeHtml(t('synthesis_community')) + ' · ' +
-        nPersonal + ' ' + escapeHtml(t('synthesis_personal')) + (appState.driveScanned ? escapeHtml(t('synthesis_drive')) : '') + '.';
+      const topic = String(appState.topic || '').trim();
+      let html = '<strong><i class="fa-solid fa-layer-group text-sage ml-1"></i> ' + escapeHtml(t('synthesis_banner_title')) + '</strong> ' +
+        escapeHtml(appState.gradeLabel || '');
+      if (topic) html += ' · «' + escapeHtml(topic) + '»';
+      document.getElementById('synthesis-banner').innerHTML = html;
     }
 
     function shouldShowDriveMerge() {
@@ -11556,7 +11542,7 @@
             context: driveCtx,
           });
         }).join('') +
-        '</div><p class="text-walnut/55 mt-3 app-micro">' + escapeHtml(t('drive_merge_insp_note')) + '</p></div>';
+        '</div></div>';
       inspSlot.classList.remove('hidden');
       const currItem = {
         id: buildPedagogyItemId('drive', 'curr', 0, dm.curriculumNotes),
@@ -11568,7 +11554,7 @@
       };
       currSlot.innerHTML = cardStart + title +
         renderPedagogySuggestionCard(currItem) +
-        '<p class="text-walnut/55 mt-3 app-micro">' + escapeHtml(t('drive_merge_curr_note')) + '</p></div>';
+        '</div>';
       currSlot.classList.remove('hidden');
       setupPhase3ActionButtons();
       restorePedagogySummaryPanels();
@@ -13463,7 +13449,7 @@
       updateTopicResearchButton();
       const loadingText = document.getElementById('topic-research-loading-text');
       const cancelLabel = document.querySelector('#btn-topic-research-cancel [data-i18n]');
-      if (loadingText) loadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'topic_research_loading_archive' : 'topic_research_deep');
+      if (loadingText) loadingText.textContent = t('topic_research_deep');
       if (cancelLabel) cancelLabel.textContent = t('topic_research_cancel');
       const catalogPanel = document.getElementById('panel-catalog');
       if (isWorkspaceOpen() && catalogPanel && !catalogPanel.classList.contains('hidden')) {
@@ -13483,7 +13469,7 @@
       }
       updatePedagogyExportButtonsVisibility();
       const gradeLoadingText = document.getElementById('grade-research-loading-text');
-      if (gradeLoadingText) gradeLoadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'grade_insights_loading_archive' : 'grade_insights_generating');
+      if (gradeLoadingText) gradeLoadingText.textContent = t('grade_insights_generating');
       if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.refreshI18n();
       if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
         LessonChatSidebar.refreshWelcome();
