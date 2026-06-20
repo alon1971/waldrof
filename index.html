@@ -3347,7 +3347,6 @@
             <i class="fa-solid fa-globe text-sage"></i>
             <span id="grade-insights-title" data-i18n="grade_insights_default">תמונת גיל — מאגר עולמי</span>
           </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="grade_insights_sources">תוכן מתוך ארכיון Supabase — ללא ייצור AI חי.</p>
           <div id="grade-research-loading" class="hidden mb-4 p-4 rounded-xl bg-parchment/90 border-2 border-sage/25 text-sm" role="status" aria-live="polite" aria-busy="true">
             <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
               <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
@@ -10546,7 +10545,6 @@
       const loadingText = document.getElementById('grade-research-loading-text');
       const btn = document.getElementById('btn-grade-submit');
       const hint = document.getElementById('api-hint-step1');
-      const sourcesHint = document.querySelector('[data-i18n="grade_insights_sources"]');
       if (loadingText) {
         loadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'grade_insights_loading_archive' : 'grade_insights_generating');
       }
@@ -10555,7 +10553,6 @@
           loadingEl.classList.toggle('hidden', !loading);
           loadingEl.setAttribute('aria-busy', loading ? 'true' : 'false');
         }
-        if (sourcesHint) sourcesHint.classList.toggle('hidden', ARCHIVE_ONLY_MODE && loading);
         if (btn) btn.disabled = loading;
         if (hint && loading) hint.classList.add('hidden');
       });
