@@ -4,6 +4,7 @@
 async function main() {
   const body = {
     phase: 'grade',
+    userInitiated: true,
     currentGrade: '1',
     gradeId: '1',
     gradeLabel: 'כיתה א׳',
