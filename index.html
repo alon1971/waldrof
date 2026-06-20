@@ -3347,7 +3347,7 @@
             <i class="fa-solid fa-globe text-sage"></i>
             <span id="grade-insights-title" data-i18n="grade_insights_default">תמונת גיל — מאגר עולמי</span>
           </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="grade_insights_sources">המערכת מפיקה כעת את תמונת הגיל וההרחבות הפדגוגיות לכיתה שנבחרה...</p>
+          <p class="text-xs text-walnut/60 mb-4" data-i18n="grade_insights_sources">תוכן מתוך ארכיון Supabase — ללא ייצור AI חי.</p>
           <div id="grade-research-loading" class="hidden mb-4 p-4 rounded-xl bg-parchment/90 border-2 border-sage/25 text-sm" role="status" aria-live="polite" aria-busy="true">
             <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
               <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
@@ -3754,6 +3754,8 @@
      */
     const USE_DIRECT_PERPLEXITY = false;
     const PERPLEXITY_API_KEY_DIRECT = '';
+    /** Archive-only: grade/topic load from Supabase cached_results — no live Gemini/Perplexity. */
+    const ARCHIVE_ONLY_MODE = true;
     const AI_GENERATE_ENDPOINT = '/api/generate';
 
     async function loadRuntimeConfig() {
@@ -4477,6 +4479,7 @@
     }
 
     function shouldForceLiveArchiveBypass(topic, gradeId) {
+      if (ARCHIVE_ONLY_MODE) return false;
       const pending = appState.archiveRejectedSearch;
       if (!pending) return false;
       return normalizeArchiveSearchTopic(pending.topic) === normalizeArchiveSearchTopic(topic) &&
@@ -5086,6 +5089,10 @@
           }
         }
         if (res.status === 404) {
+          const archiveMsg = String(json.error || json.message || '').trim();
+          if (archiveMsg && (/ארכיון|archive/i.test(archiveMsg) || ARCHIVE_ONLY_MODE)) {
+            throw new Error(archiveMsg || (isEnglish() ? 'Content not found in archive.' : 'התוכן לא נמצא בארכיון.'));
+          }
           throw new Error(
             'נתיב /api/generate לא נמצא. הריצו מקומית: npm run dev — או פרסמו ל-Vercel עם תיקיית api/generate.js'
           );
@@ -10539,12 +10546,16 @@
       const loadingText = document.getElementById('grade-research-loading-text');
       const btn = document.getElementById('btn-grade-submit');
       const hint = document.getElementById('api-hint-step1');
-      if (loadingText) loadingText.textContent = t('grade_insights_generating');
+      const sourcesHint = document.querySelector('[data-i18n="grade_insights_sources"]');
+      if (loadingText) {
+        loadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'grade_insights_loading_archive' : 'grade_insights_generating');
+      }
       holdPageScroll(function () {
         if (loadingEl) {
           loadingEl.classList.toggle('hidden', !loading);
           loadingEl.setAttribute('aria-busy', loading ? 'true' : 'false');
         }
+        if (sourcesHint) sourcesHint.classList.toggle('hidden', ARCHIVE_ONLY_MODE && loading);
         if (btn) btn.disabled = loading;
         if (hint && loading) hint.classList.add('hidden');
       });
@@ -10670,7 +10681,9 @@
       const loadingEl = document.getElementById('topic-research-loading');
       const loadingText = document.getElementById('topic-research-loading-text');
       const btn = document.getElementById('btn-topic-research');
-      if (loadingText) loadingText.textContent = t('topic_research_deep');
+      if (loadingText) {
+        loadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'topic_research_loading_archive' : 'topic_research_deep');
+      }
       holdPageScroll(function () {
         if (loadingEl) {
           loadingEl.classList.toggle('hidden', !loading);
@@ -10968,9 +10981,35 @@
 
         if (archiveMatch && archiveMatch.matchType === 'partial') {
           topicResearchAbort = null;
+          if (ARCHIVE_ONLY_MODE) {
+            const outPartial = document.getElementById('web-research-result');
+            if (outPartial) {
+              outPartial.classList.remove('hidden');
+              outPartial.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+                escapeHtml(t('archive_not_found')) + '</p>';
+            }
+            return;
+          }
           presentArchivePartialMatch(topic, archiveMatch);
           return;
         }
+      }
+
+      if (ARCHIVE_ONLY_MODE) {
+        topicResearchAbort = null;
+        setTopicResearchLoadingUi(false);
+        const outMiss = document.getElementById('web-research-result');
+        if (outMiss) {
+          outMiss.classList.remove('hidden');
+          outMiss.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+            escapeHtml(t('archive_not_found')) + '</p>';
+        }
+        const missBtn = document.getElementById('btn-topic-research');
+        if (missBtn) {
+          missBtn.disabled = false;
+          updateTopicResearchButton();
+        }
+        return;
       }
 
       appState.topicResearchCompleted = false;
@@ -13269,7 +13308,7 @@
       updateTopicResearchButton();
       const loadingText = document.getElementById('topic-research-loading-text');
       const cancelLabel = document.querySelector('#btn-topic-research-cancel [data-i18n]');
-      if (loadingText) loadingText.textContent = t('topic_research_deep');
+      if (loadingText) loadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'topic_research_loading_archive' : 'topic_research_deep');
       if (cancelLabel) cancelLabel.textContent = t('topic_research_cancel');
       const catalogPanel = document.getElementById('panel-catalog');
       if (isWorkspaceOpen() && catalogPanel && !catalogPanel.classList.contains('hidden')) {
@@ -13289,7 +13328,7 @@
       }
       updatePedagogyExportButtonsVisibility();
       const gradeLoadingText = document.getElementById('grade-research-loading-text');
-      if (gradeLoadingText) gradeLoadingText.textContent = t('grade_insights_generating');
+      if (gradeLoadingText) gradeLoadingText.textContent = t(ARCHIVE_ONLY_MODE ? 'grade_insights_loading_archive' : 'grade_insights_generating');
       if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.refreshI18n();
       if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
         LessonChatSidebar.refreshWelcome();

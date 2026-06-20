@@ -26,6 +26,9 @@ const jsonRepair = require('./json-repair');
 const env = require('./env');
 const perplexityClient = require('./perplexity-client');
 
+/** Grade/topic: Supabase cached_results only — no Gemini/Perplexity (set ARCHIVE_ONLY=false to re-enable live AI). */
+const ARCHIVE_ONLY_MODE = process.env.ARCHIVE_ONLY !== 'false';
+
 const {
   cleanAndParseJSON,
   parseJsonLenient,
@@ -400,6 +403,21 @@ function geminiMasterEducatorSystemPrompt(extra) {
 function isDecoupledGenerationPhase(body) {
   const phase = body && body.phase;
   return phase === 'grade' || phase === 'topic';
+}
+
+function isArchiveOnlyLookup(body) {
+  return ARCHIVE_ONLY_MODE && isDecoupledGenerationPhase(body);
+}
+
+function buildArchiveNotFoundError(body) {
+  const phase = body && body.phase;
+  const err = new Error(
+    phase === 'grade'
+      ? 'תמונת גיל לא נמצאה בארכיון.'
+      : 'נושא לא נמצא בארכיון.'
+  );
+  err.statusCode = 404;
+  return err;
 }
 
 function resolveHybridSystemBuilder(body, baseOpts) {
@@ -2106,8 +2124,9 @@ async function handleGeneratePost(parsedBody, requestContext) {
   if (parsedBody.phase === 'grade') {
     cacheDb.normalizeGradeCacheRequest(parsedBody);
   }
+  const archiveOnlyLookup = isArchiveOnlyLookup(parsedBody);
   const apiKey = resolveApiKey();
-  if (!apiKey) {
+  if (!apiKey && !archiveOnlyLookup) {
     const err = new Error(MISSING_KEY_ERROR);
     err.statusCode = 500;
     throw err;
@@ -2335,7 +2354,8 @@ async function executeGenerate(body, apiKey, requestContext) {
         console.warn('[cached_results] chat prior lookup failed:', priorErr.message || priorErr);
       }
     } else {
-      const cached = await cacheDb.getCachedResult(body);
+      const cacheOpts = isArchiveOnlyLookup(body) ? { requireEnhanced: false } : {};
+      const cached = await cacheDb.getCachedResult(body, cacheOpts);
       if (cached) {
         console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
         if (!body.skipKnowledgeIngest) {
@@ -2350,36 +2370,38 @@ async function executeGenerate(body, apiKey, requestContext) {
           gradeId: body.currentGrade ?? body.gradeId,
         });
         if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
-          if (!cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData)) {
+          const serveArchive = isArchiveOnlyLookup(body)
+            || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
+          if (!serveArchive) {
             console.log(
               '[cached_results] SKIP non-enhanced archive exact match — hybrid regeneration:',
               suggestion.topic
             );
           } else {
-          console.log(
-            '[cached_results] HIT (consolidated archive ≥99% similarity)',
-            suggestion.topic,
-            suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : '',
-            'sim=' + (suggestion.similarity || 1).toFixed(3)
-          );
-          if (!body.skipKnowledgeIngest) {
-            knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
-          }
-          return {
-            data: suggestion.resultData,
-            meta: attachCommunityMeta({
-              fromCache: true,
-              cacheKey: suggestion.cacheKey,
-              table: 'cached_results',
-              source: 'consolidated_archive',
-              similarity: suggestion.similarity,
-              requestedTopic: body.topic || suggestion.requestedTopic || null,
-              enhanced: true,
-            }, communityProbe),
-          };
+            console.log(
+              '[cached_results] HIT (consolidated archive ≥99% similarity)',
+              suggestion.topic,
+              suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : '',
+              'sim=' + (suggestion.similarity || 1).toFixed(3)
+            );
+            if (!body.skipKnowledgeIngest) {
+              knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
+            }
+            return {
+              data: suggestion.resultData,
+              meta: attachCommunityMeta({
+                fromCache: true,
+                cacheKey: suggestion.cacheKey,
+                table: 'cached_results',
+                source: 'consolidated_archive',
+                similarity: suggestion.similarity,
+                requestedTopic: body.topic || suggestion.requestedTopic || null,
+                enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
+              }, communityProbe),
+            };
           }
         }
-        if (suggestion && suggestion.matchType === 'partial') {
+        if (!isArchiveOnlyLookup(body) && suggestion && suggestion.matchType === 'partial') {
           console.log(
             '[cached_results] PARTIAL archive topic — awaiting confirmation:',
             suggestion.topic,
@@ -2405,6 +2427,9 @@ async function executeGenerate(body, apiKey, requestContext) {
         }
       }
       console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
+      if (isArchiveOnlyLookup(body)) {
+        throw buildArchiveNotFoundError(body);
+      }
       if (shouldUseHybridRouting(body)) {
         console.log('[hybrid] pipeline: Perplexity sonar → raw cache → Gemini', GEMINI_GENERATION_MODEL);
       }
@@ -2631,17 +2656,17 @@ async function legacyHandler(req, res) {
     return sendJson(res, 405, { error: 'Method not allowed' });
   }
 
-  const apiKey = resolveApiKey();
-  if (!apiKey) {
-    return sendJson(res, 500, { error: MISSING_KEY_ERROR });
-  }
-
   let body;
   try {
     body = parseRequestBody(req);
   } catch (parseErr) {
     const message = parseErr instanceof Error ? parseErr.message : String(parseErr);
     return sendJson(res, 400, { error: message || 'Invalid JSON body' });
+  }
+
+  const apiKey = resolveApiKey();
+  if (!apiKey && !isArchiveOnlyLookup(body)) {
+    return sendJson(res, 500, { error: MISSING_KEY_ERROR });
   }
 
   try {
@@ -2674,11 +2699,6 @@ async function fetchHandler(request) {
     return Response.json({ error: 'Method not allowed' }, { status: 405, headers });
   }
 
-  const apiKey = resolveApiKey();
-  if (!apiKey) {
-    return Response.json({ error: MISSING_KEY_ERROR }, { status: 500, headers });
-  }
-
   let body;
   try {
     const text = await request.text();
@@ -2686,6 +2706,11 @@ async function fetchHandler(request) {
   } catch (parseErr) {
     const message = parseErr instanceof Error ? parseErr.message : String(parseErr);
     return Response.json({ error: message || 'Invalid JSON body' }, { status: 400, headers });
+  }
+
+  const apiKey = resolveApiKey();
+  if (!apiKey && !isArchiveOnlyLookup(body)) {
+    return Response.json({ error: MISSING_KEY_ERROR }, { status: 500, headers });
   }
 
   try {
@@ -2717,3 +2742,5 @@ module.exports.handleGeneratePost = handleGeneratePost;
 module.exports.executeGenerate = executeGenerate;
 module.exports.resolveApiKey = resolveApiKey;
 module.exports.buildGenerateHttpPayload = buildGenerateHttpPayload;
+module.exports.isArchiveOnlyMode = function () { return ARCHIVE_ONLY_MODE; };
+module.exports.isArchiveOnlyLookup = isArchiveOnlyLookup;

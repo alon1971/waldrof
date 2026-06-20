@@ -386,6 +386,7 @@ const server = http.createServer(async function (req, res) {
       service: 'waldrof',
       runtime: 'render-node',
       generateHandler: 'handleGeneratePost',
+      archiveOnly: typeof generateApi.isArchiveOnlyMode === 'function' ? generateApi.isArchiveOnlyMode() : false,
       cacheBackend: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
       gradeCacheKey: 'phase+gradeId',
       perplexityKey: Boolean(env.getPerplexityApiKey()),
