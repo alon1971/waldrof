@@ -12330,8 +12330,11 @@
         : '';
       const titleLine = (file.title || file.fileName || '').trim();
       const descLine = (file.notes || '').trim();
-      const metaParts = [];
-      if ((file.authorName || '').trim()) metaParts.push((file.authorName || '').trim());
+      const instructorRaw = (file.authorName || file.instructor_name || '').trim()
+        .replace(/^שם המורה\s*\(אופציונלי\)\s*:\s*/i, '')
+        .replace(/^Teacher name\s*\(optional\)\s*:\s*/i, '');
+      const instructorName = instructorRaw || 'מורה קהילתי';
+      const metaParts = [instructorName];
       if (file.createdAt) {
         const cardDate = formatCatalogCardDate(file.createdAt);
         if (cardDate) metaParts.push(cardDate);
@@ -12339,7 +12342,7 @@
       const metaLine = metaParts.join(' · ');
       return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '">' +
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">' +
-        '<div class="min-w-0 flex-1 catalog-material-text">' +
+        '<div class="min-w-0 flex-1 catalog-material-text text-dir-start">' +
         (titleLine ? '<p class="catalog-material-title">' + escapeHtml(titleLine) + '</p>' : '') +
         (descLine ? '<p class="catalog-material-desc">' + escapeHtml(descLine) + '</p>' : '') +
         (metaLine ? '<p class="catalog-material-meta">' + escapeHtml(metaLine) + '</p>' : '') +
