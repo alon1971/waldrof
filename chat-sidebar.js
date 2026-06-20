@@ -520,19 +520,50 @@
     syncDisplayUi();
   }
 
+  function formatAssistantTextForWord(text) {
+    var escaped = deps.escapeHtml(text || '');
+    return escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  }
+
+  function buildChatWordHtml(messages) {
+    var en = deps.isEnglish();
+    var dir = en ? 'ltr' : 'rtl';
+    var align = en ? 'left' : 'right';
+    var title = en ? 'Chat transcript — Pedagogy assistant' : 'תיעוד שיחה - עוזר פדגוגי';
+    var userLabel = en ? 'Question: ' : 'שאלה: ';
+    var answerLabel = en ? 'Answer:' : 'תשובה:';
+    var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+      '<head><meta charset="utf-8"><style>' +
+      'body { font-family: "Segoe UI", "Arial", "David", sans-serif; direction: ' + dir + '; text-align: ' + align + '; line-height: 1.6; padding: 20px; }' +
+      '.user-box { background-color: #f3f4f6; padding: 10px; margin-bottom: 10px; border-' + (en ? 'left' : 'right') + ': 4px solid #3b82f6; font-weight: bold; }' +
+      '.assistant-box { padding: 10px; margin-bottom: 20px; border-' + (en ? 'left' : 'right') + ': 4px solid #10b981; white-space: pre-wrap; }' +
+      'h2 { color: #1f2937; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px; }' +
+      '</style></head><body>' +
+      '<h2>' + deps.escapeHtml(title) + '</h2>';
+
+    messages.forEach(function (m) {
+      if (m.role === 'user') {
+        html += '<div class="user-box">' + userLabel + deps.escapeHtml(m.text || '') + '</div>';
+      } else {
+        var body = m.html
+          ? m.html
+          : formatAssistantTextForWord(m.text || '');
+        html += '<div class="assistant-box"><strong>' + answerLabel + '</strong><br>' + body + '</div>';
+      }
+    });
+
+    html += '</body></html>';
+    return html;
+  }
+
   function downloadChatMessagesDoc() {
     var persistable = getPersistableMessages();
     if (!persistable.length) {
       alert(deps.isEnglish() ? 'No chat content to download' : 'אין תוכן בצ\'אט להורדה');
       return;
     }
-    var chatText = persistable.map(function (m) {
-      var prefix = m.role === 'user'
-        ? (deps.isEnglish() ? 'Question: ' : 'שאלה: ')
-        : (deps.isEnglish() ? 'Answer: ' : 'תשובה: ');
-      return prefix + (m.text || stripHtml(m.html) || '');
-    }).join('\n\n');
-    var blob = new Blob([chatText], { type: 'application/msword' });
+    var htmlContent = buildChatWordHtml(persistable);
+    var blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
     var link = document.createElement('a');
     var url = URL.createObjectURL(blob);
     link.href = url;
