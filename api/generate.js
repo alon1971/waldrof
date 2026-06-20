@@ -1164,7 +1164,7 @@ async function callGeminiAI(systemPrompt, userPrompt, temperature, options) {
   }
 
   const url =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' +
+    'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=' +
     encodeURIComponent(geminiKey);
   const generationConfig = { temperature: temperature != null ? temperature : 0.35 };
   if (opts.jsonMode === true) {
