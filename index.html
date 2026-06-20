@@ -952,6 +952,32 @@
     }
     .catalog-material-btn:hover { background: #F7F3EB; border-color: rgba(92, 125, 88, 0.55); }
     .catalog-material-btn--delete:hover { border-color: rgba(139, 58, 58, 0.55); color: #8B3A3A; }
+    .catalog-material-text {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .catalog-material-title {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1rem;
+      font-weight: 700;
+      line-height: 1.35;
+      margin: 0;
+      color: #8B3A3A;
+    }
+    .catalog-material-desc {
+      margin: 0;
+      font-size: 0.875rem;
+      line-height: 1.45;
+      color: rgba(92, 74, 58, 0.78);
+    }
+    .catalog-material-meta {
+      margin: 0;
+      margin-top: 0.15rem;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      color: rgba(92, 74, 58, 0.55);
+    }
     .catalog-material-row.is-editing { border-color: rgba(92, 125, 88, 0.45); box-shadow: 0 4px 18px rgba(92, 125, 88, 0.12); }
     .catalog-material-edit-panel {
       width: 100%;
@@ -9184,6 +9210,10 @@
       try { return new Date(iso).toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
       catch { return ''; }
     }
+    function formatCatalogCardDate(iso) {
+      try { return new Date(iso).toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' }); }
+      catch { return ''; }
+    }
     function formatFileSize(b) {
       if (!b) return '0 B';
       if (b < 1024) return b + ' B';
@@ -12120,19 +12150,23 @@
           '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '" onclick="window.deleteCommunityMaterial(this.getAttribute(\'data-id\'))">🗑️</button>' +
           '</div>'
         : '';
-      const authorLine = file.authorName
-        ? '<p class="text-xs text-walnut/55 mt-0.5">' + escapeHtml(t('catalog_author_label')) + ': ' + escapeHtml(file.authorName) + '</p>'
-        : '';
+      const titleLine = (file.title || file.fileName || '').trim();
+      const descLine = (file.notes || file.topic || '').trim();
+      const metaParts = [];
+      if ((file.authorName || '').trim()) metaParts.push((file.authorName || '').trim());
+      if (file.createdAt) {
+        const cardDate = formatCatalogCardDate(file.createdAt);
+        if (cardDate) metaParts.push(cardDate);
+      }
+      const metaLine = metaParts.join(', ');
       return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '">' +
-        '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">' +
-        '<div class="min-w-0 flex-1">' +
-        '<div class="flex flex-wrap items-center gap-2 mb-1">' +
-        '<span class="text-[10px] bg-sage/15 text-sage-dark px-2 py-0.5 rounded-full"><i class="fa-solid fa-cloud"></i> ' + escapeHtml(t('community_badge_label')) + '</span>' +
-        '<strong class="text-burgundy catalog-material-topic">' + escapeHtml(file.topic || file.title) + '</strong></div>' +
-        (file.notes ? '<p class="text-sm text-walnut/75 mt-1 catalog-material-desc">' + escapeHtml(file.notes) + '</p>' : '') +
-        authorLine +
-        (file.fileName ? '<p class="text-xs text-walnut/50 mt-0.5">' + escapeHtml(file.fileName) + '</p>' : '') +
-        (file.createdAt ? '<p class="text-[10px] text-walnut/45 mt-1">' + formatDate(file.createdAt) + '</p>' : '') +
+        '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">' +
+        '<div class="min-w-0 flex-1 catalog-material-text">' +
+        '<div class="flex flex-wrap items-center gap-2 mb-0.5">' +
+        '<span class="text-[10px] bg-sage/15 text-sage-dark px-2 py-0.5 rounded-full"><i class="fa-solid fa-cloud"></i> ' + escapeHtml(t('community_badge_label')) + '</span></div>' +
+        (titleLine ? '<p class="catalog-material-title">' + escapeHtml(titleLine) + '</p>' : '') +
+        (descLine ? '<p class="catalog-material-desc">' + escapeHtml(descLine) + '</p>' : '') +
+        (metaLine ? '<p class="catalog-material-meta">' + escapeHtml(metaLine) + '</p>' : '') +
         '</div>' +
         '<div class="flex flex-wrap items-center gap-2 shrink-0">' + manageBtns + downloadBtn + '</div></div>' +
         '<div class="catalog-material-edit-panel hidden" aria-live="polite"></div></div>';
