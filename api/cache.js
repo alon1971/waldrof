@@ -10,6 +10,7 @@ const authContext = require('./auth-context');
 
 const hebrewTopicMatch = require('../hebrew-topic-match');
 const jsonRepair = require('./json-repair');
+const communitySemanticMatch = require('./community-semantic-match');
 
 const TABLE_NAME = 'cached_results';
 
@@ -2223,6 +2224,111 @@ function dedupeCommunityHits(hits) {
   return out;
 }
 
+function buildCommunityHitHaystack(hit) {
+  return [
+    hit.title,
+    hit.topic,
+    hit.bundleTopic,
+    hit.fileName,
+    hit.internalFileName,
+    hit.contentPreview,
+  ].filter(Boolean).join(' ');
+}
+
+function keywordSubstringMatchCommunity(query, materialRows, kbRows, options) {
+  const opts = options || {};
+  const limit = opts.limit || 8;
+  const terms = buildCommunitySearchTerms(query);
+  if (!terms.length) return [];
+
+  const hits = [];
+
+  (materialRows || []).forEach(function (row) {
+    const hit = formatCommunityMaterialRow(row);
+    const haystack = stableNormalize(buildCommunityHitHaystack(hit));
+    if (!haystack) return;
+    const matched = terms.some(function (term) {
+      const normalizedTerm = stableNormalize(term);
+      return normalizedTerm.length >= 2 && haystack.indexOf(normalizedTerm) >= 0;
+    });
+    if (matched) {
+      hit.similarity = 0.88;
+      hit.matchType = 'keyword_substring';
+      hits.push(hit);
+    }
+  });
+
+  (kbRows || []).forEach(function (row) {
+    const hit = scoreCommunityKnowledgeHit(query, row);
+    const haystack = stableNormalize(buildCommunityHitHaystack(hit));
+    if (!haystack) return;
+    const matched = terms.some(function (term) {
+      const normalizedTerm = stableNormalize(term);
+      return normalizedTerm.length >= 2 && haystack.indexOf(normalizedTerm) >= 0;
+    });
+    if (matched) {
+      hit.similarity = Math.max(hit.similarity || 0, 0.88);
+      hit.matchType = 'keyword_substring';
+      hits.push(hit);
+    }
+  });
+
+  return dedupeCommunityHits(hits)
+    .sort(function (a, b) { return (b.similarity || 0) - (a.similarity || 0); })
+    .slice(0, limit);
+}
+
+function parseCommunityDescriptionFromNotes(rawNotes) {
+  const notes = String(rawNotes || '');
+  const descMatch = notes.match(/\[desc:([^\]]+)\]/);
+  if (descMatch) return descMatch[1].trim();
+  const clean = notes.replace(/\[title:[^\]]+\]/g, '').replace(/\[desc:[^\]]+\]/g, '').trim();
+  return clean.slice(0, 200);
+}
+
+function buildSemanticCatalogEntries(materialRows, kbRows) {
+  const entries = [];
+
+  (materialRows || []).forEach(function (row) {
+    const hit = formatCommunityMaterialRow(row);
+    if (!hit.id) return;
+    entries.push({
+      key: 'catalog:' + hit.id,
+      id: hit.id,
+      title: hit.title,
+      topic: hit.topic,
+      description: parseCommunityDescriptionFromNotes(row.notes || row.description || ''),
+      hit: hit,
+    });
+  });
+
+  (kbRows || []).forEach(function (row) {
+    const hit = formatCommunityKnowledgeRow(row);
+    if (!hit.id) return;
+    entries.push({
+      key: 'kb:' + hit.id,
+      id: hit.id,
+      title: hit.displayTitle || hit.title,
+      topic: hit.topic || hit.bundleTopic,
+      description: hit.contentPreview || '',
+      hit: hit,
+    });
+  });
+
+  return entries;
+}
+
+async function fetchGradeCommunityRows(gradeId) {
+  const scoped = await Promise.all([
+    fetchCommunityMaterialRows(gradeId, '', false),
+    fetchCommunityKnowledgeRows(gradeId, '', false),
+  ]);
+  return {
+    materialRows: scoped[0],
+    kbRows: scoped[1],
+  };
+}
+
 function pickBestCommunityHits(materialRows, kbRows, query, options) {
   const opts = options || {};
   const limit = opts.limit || 8;
@@ -2344,16 +2450,18 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
 }
 
 /**
- * Unified fuzzy community probe — catalog (community_materials) + ingest (community_knowledge_base).
+ * Unified hybrid community probe — keyword fuzzy + substring + semantic (LLM/embeddings).
  */
 async function findCommunityMaterials(options) {
   const opts = options || {};
   const query = buildCommunitySearchQuery(opts);
   const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
-  if (!query) return { matches: [], count: 0, query: '' };
+  const semanticQuery = String(opts.userMessage || opts.query || query).trim();
+  if (!query) return { matches: [], count: 0, query: '', matchMethod: 'none' };
 
   let materialRows = [];
   let kbRows = [];
+  let matchMethod = 'keyword_fuzzy';
 
   if (isSupabaseCacheEnabled()) {
     try {
@@ -2409,8 +2517,44 @@ async function findCommunityMaterials(options) {
       });
       if (termHits.length) {
         matches = termHits;
+        matchMethod = 'keyword_term';
         break;
       }
+    }
+  }
+
+  if (!matches.length) {
+    if (!materialRows.length && !kbRows.length && gradeId && isSupabaseCacheEnabled()) {
+      try {
+        const gradeRows = await fetchGradeCommunityRows(gradeId);
+        materialRows = gradeRows.materialRows;
+        kbRows = gradeRows.kbRows;
+      } catch (gradeErr) {
+        console.warn('[community] grade catalog fetch failed:', gradeErr.message || gradeErr);
+      }
+    }
+
+    const substringHits = keywordSubstringMatchCommunity(query, materialRows, kbRows, {
+      limit: opts.limit || 8,
+    });
+    if (substringHits.length) {
+      matches = substringHits;
+      matchMethod = 'keyword_substring';
+    }
+  }
+
+  if (!matches.length && opts.semanticFallback !== false && semanticQuery && gradeId) {
+    try {
+      const catalog = buildSemanticCatalogEntries(materialRows, kbRows);
+      if (catalog.length) {
+        const semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(semanticQuery, catalog);
+        if (semanticHits.length) {
+          matches = semanticHits.slice(0, opts.limit || 8);
+          matchMethod = semanticHits[0].matchType || 'semantic';
+        }
+      }
+    } catch (semanticErr) {
+      console.warn('[community] semantic probe failed:', semanticErr.message || semanticErr);
     }
   }
 
@@ -2418,6 +2562,7 @@ async function findCommunityMaterials(options) {
     matches: matches,
     count: matches.length,
     query: query,
+    matchMethod: matches.length ? matchMethod : 'none',
   };
 }
 
@@ -2450,6 +2595,8 @@ module.exports = {
   scoreTopicSimilarity,
   findArchiveTopicSuggestion,
   findCommunityMaterials,
+  buildSemanticCatalogEntries,
+  keywordSubstringMatchCommunity,
   buildCommunitySearchTerms,
   COMMUNITY_MATERIALS_TABLE,
   COMMUNITY_KB_TABLE,

@@ -550,16 +550,23 @@ function buildCommunityMaterialsContextBlock(probe, body) {
 
   const primaryTitle = matches[0].displayTitle || matches[0].title || matches[0].fileName || matches[0].topic || 'חומר קהילתי';
   const lines = matches.slice(0, 6).map(formatCommunityMatchForPrompt);
+  const matchMethod = probe && probe.matchMethod ? String(probe.matchMethod) : '';
+  const semanticNote = matchMethod.indexOf('semantic') >= 0
+    ? 'Match method: SEMANTIC (' + matchMethod + ') — teacher intent was linked to catalog material even without identical wording.\n'
+    : (matchMethod && matchMethod !== 'keyword_fuzzy'
+      ? 'Match method: ' + matchMethod + '.\n'
+      : '');
 
   return (
     '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base — Supabase) ===\n' +
     'COMMUNITY MATCH FOUND — ' + matches.length + ' material(s) for this question.\n' +
+    semanticNote +
     'Teacher first name for opening: «' + teacherName + '»\n' +
     'Grade label for opening: «' + gradeLabel + '»\n' +
     'Best match title for opening: «' + primaryTitle + '»\n' +
-    'MANDATORY OPENING (first sentence of your Hebrew reply):\n' +
+    'MANDATORY OPENING (first sentence of your Hebrew reply — ABSOLUTE, even for semantic/indirect matches):\n' +
     '«' + teacherName + ', הרווחת! במאגר הקהילתי שלנו כבר העלו ב' + gradeLabel + ' ' + primaryTitle + '. בנוסף, להלן דברים נוספים שמצאתי...»\n' +
-    'Then continue with additional pedagogical insights from live web search and lesson context.\n\n' +
+    'You MUST start with this exact celebration line whenever ANY community match exists (keyword OR semantic). Then continue with additional pedagogical insights from live web search and lesson context.\n\n' +
     'Matched materials:\n' +
     lines.join('\n') +
     '\n=== END COMMUNITY MATERIALS DATABASE ===\n\n'
@@ -943,7 +950,7 @@ function buildUserPrompt(body) {
       'Teacher follow-up question: «' + question + '»\n\n' +
       'ANSWER STRATEGY (MANDATORY — COMMUNITY FIRST):\n' +
       (hasCommunityMatches
-        ? '0. COMMUNITY FIRST: Community materials matched above — open with the mandatory celebration line, reference the matched title(s), then enrich with web search.\n'
+        ? '0. COMMUNITY FIRST: Community materials matched above (keyword OR semantic) — open with the mandatory «הרווחת! במאגר הקהילתי שלנו...» celebration line, reference the matched title(s), then enrich with web search.\n'
         : '0. COMMUNITY FIRST: No community match above — proceed with standard high-quality pedagogical assistance.\n') +
       (gradePriorBlock
         ? '0a. CACHED GRADE INSIGHTS (step A) are above — treat as authoritative baseline; enrich with live web search.\n'
@@ -1229,19 +1236,21 @@ function resolveCommunityProbeQuery(body) {
 
 async function probeCommunityMaterialsForBody(body) {
   if (!body || !shouldProbeCommunityMaterials(body.phase)) {
-    return { matches: [], count: 0, query: '' };
+    return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
   const gradeId = body.currentGrade || body.gradeId;
   const resolved = resolveCommunityProbeQuery(body);
   if (!resolved.query) {
-    return { matches: [], count: 0, query: '' };
+    return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
+  const enableSemantic = body.phase === 'chat_followup';
   const baseOpts = {
     query: resolved.query,
     topic: resolved.topic,
     userMessage: resolved.userMessage,
     gradeId: gradeId,
     limit: 8,
+    semanticFallback: enableSemantic,
   };
   try {
     let result = await cacheDb.findCommunityMaterials(baseOpts);
@@ -1254,6 +1263,8 @@ async function probeCommunityMaterialsForBody(body) {
           topic: body.topic,
           gradeId: gradeId,
           limit: 8,
+          semanticFallback: enableSemantic,
+          userMessage: userMsg || null,
         });
         if (topicProbe.count > 0) result = topicProbe;
       } else if (!topicOnly && userMsg) {
@@ -1263,6 +1274,7 @@ async function probeCommunityMaterialsForBody(body) {
             userMessage: userMsg,
             gradeId: gradeId,
             limit: 8,
+            semanticFallback: enableSemantic,
           });
           if (fullMsgProbe.count > 0) result = fullMsgProbe;
         }
@@ -1276,6 +1288,7 @@ async function probeCommunityMaterialsForBody(body) {
               userMessage: userMsg,
               gradeId: gradeId,
               limit: 8,
+              semanticFallback: enableSemantic,
             });
             if (termProbe.count > 0) {
               result = termProbe;
@@ -1285,10 +1298,13 @@ async function probeCommunityMaterialsForBody(body) {
         }
       }
     }
+    if (result.count > 0 && result.matchMethod) {
+      console.log('[community] probe matched via', result.matchMethod, '—', result.count, 'material(s)');
+    }
     return result;
   } catch (probeErr) {
     console.warn('[community] probe failed:', probeErr.message || probeErr);
-    return { matches: [], count: 0, query: '' };
+    return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
 }
 
@@ -1297,6 +1313,7 @@ function attachCommunityMeta(meta, communityProbe) {
   base.communityMatches = (communityProbe && communityProbe.matches) || [];
   base.communityMatchCount = (communityProbe && communityProbe.count) || 0;
   if (communityProbe && communityProbe.query) base.communityQuery = communityProbe.query;
+  if (communityProbe && communityProbe.matchMethod) base.communityMatchMethod = communityProbe.matchMethod;
   return base;
 }
 
