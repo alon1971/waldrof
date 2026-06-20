@@ -923,20 +923,27 @@
       justify-content: center;
       padding: 1rem;
       overflow-y: auto;
+      isolation: isolate;
     }
-    .catalog-upload-modal.hidden { display: none !important; }
+    .catalog-upload-modal:not(.hidden) {
+      pointer-events: auto !important;
+    }
+    .catalog-upload-modal.hidden { display: none !important; pointer-events: none !important; }
     body.catalog-modal-open { overflow: hidden; }
     .catalog-upload-modal-backdrop {
-      position: fixed;
+      position: absolute;
       inset: 0;
+      z-index: 0;
       background: rgba(45, 36, 28, 0.45);
       backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
     }
     .catalog-upload-modal-dialog {
       position: relative;
       z-index: 1;
       width: min(100%, 42rem);
       margin: auto;
+      pointer-events: auto;
       background: #fff;
       border-radius: 1.25rem;
       border: 1px solid rgba(201, 169, 98, 0.45);
@@ -983,12 +990,20 @@
       background: #F7F3EB;
       border-color: rgba(92, 125, 88, 0.55);
     }
-    .catalog-upload-modal-body { padding: 0.25rem 0 0.5rem; }
+    .catalog-upload-modal-body { padding: 0.25rem 0 0.5rem; pointer-events: auto; }
     .catalog-upload-modal-body .catalog-upload-form {
       margin-bottom: 0;
       border: 0;
       box-shadow: none;
       border-radius: 0 0 1.25rem 1.25rem;
+      pointer-events: auto !important;
+    }
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body input:not([type="file"]):not([type="hidden"]),
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body textarea,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body select,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body button,
+    .catalog-upload-modal:not(.hidden) .catalog-upload-modal-body label {
+      pointer-events: auto !important;
     }
     .catalog-file-drop {
       border: 2px dashed rgba(201, 169, 98, 0.55);
@@ -1063,6 +1078,9 @@
       font-size: 0.75rem;
       line-height: 1.4;
       color: rgba(92, 74, 58, 0.55);
+    }
+    .catalog-material-date {
+      margin-top: 0.05rem;
     }
     .catalog-material-row.is-editing { border-color: rgba(92, 125, 88, 0.45); box-shadow: 0 4px 18px rgba(92, 125, 88, 0.12); }
     .catalog-material-edit-panel {
@@ -7544,16 +7562,62 @@
       });
     }
 
+    function isPlaceholderCommunityLinkName(name) {
+      const n = String(name || '').trim();
+      return /^(קישור (Google Docs|Google Drive|שיתוף))$/i.test(n);
+    }
+
+    function stripCommunityInstructorPrefix(raw) {
+      return String(raw || '').trim()
+        .replace(/^שם המורה\s*\(אופציונלי\)\s*:\s*/i, '')
+        .replace(/^Teacher name\s*\(optional\)\s*:\s*/i, '');
+    }
+
+    function resolveCatalogMaterialSubject(file) {
+      const topic = String(file.topic || '').trim();
+      if (topic) return topic;
+      const title = String(file.title || '').trim();
+      if (title && !isPlaceholderCommunityLinkName(title)) return title;
+      const fileName = String(file.fileName || '').trim();
+      if (fileName && !isPlaceholderCommunityLinkName(fileName)) return fileName;
+      return title || fileName || '';
+    }
+
+    function resolveCatalogMaterialDescription(file, subjectLine) {
+      const desc = String(file.notes || file.description || '').trim();
+      const subject = subjectLine != null ? String(subjectLine).trim() : resolveCatalogMaterialSubject(file);
+      if (desc && subject && desc === subject) return '';
+      return desc;
+    }
+
+    function buildCatalogMaterialMetadataHtml(file) {
+      const subjectLine = resolveCatalogMaterialSubject(file);
+      const descLine = resolveCatalogMaterialDescription(file, subjectLine);
+      const instructorLine = stripCommunityInstructorPrefix(file.authorName || file.instructor_name || '');
+      const dateLine = file.createdAt ? formatCatalogCardDate(file.createdAt) : '';
+      let html = '';
+      if (subjectLine) {
+        html += '<p class="catalog-material-title">' + escapeHtml(subjectLine) + '</p>';
+      }
+      if (descLine) {
+        html += '<p class="catalog-material-desc">' + escapeHtml(descLine) + '</p>';
+      }
+      if (instructorLine) {
+        html += '<p class="catalog-material-meta catalog-material-instructor">' + escapeHtml(instructorLine) + '</p>';
+      }
+      if (dateLine) {
+        html += '<p class="catalog-material-meta catalog-material-date">' + escapeHtml(dateLine) + '</p>';
+      }
+      return html;
+    }
+
     function renderCommunityPreviewCard(item) {
-      const topicLabel = escapeHtml((item.topic || item.title || 'חומר לימוד').trim());
-      const desc = escapeHtml((item.notes || '').trim());
       const linkLabel = escapeHtml(communityLinkLabel(item));
       const linkHtml = item.fileUrl
         ? '<a href="' + escapeHtml(item.fileUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-sm font-medium text-sage-dark hover:text-burgundy mt-2"><i class="' + communityLinkIconClass(item) + '"></i> ' + linkLabel + '</a>'
         : '<span class="text-xs text-walnut/50 mt-2 block">אין קובץ מצורף</span>';
       return '<article class="bg-cream/90 rounded-xl border border-sage/25 p-4 shadow-sm">' +
-        '<div class="font-bold text-burgundy text-sm mb-1">' + topicLabel + '</div>' +
-        (desc ? '<p class="text-sm text-walnut/80 leading-relaxed">' + desc + '</p>' : '') +
+        '<div class="catalog-material-text text-dir-start">' + buildCatalogMaterialMetadataHtml(item) + '</div>' +
         linkHtml + '</article>';
     }
 
@@ -7587,6 +7651,9 @@
             id: match.id,
             title: match.title || match.fileName || match.topic,
             topic: match.topic || topicNorm,
+            notes: match.notes || '',
+            authorName: match.authorName || '',
+            createdAt: match.createdAt || null,
             fileName: match.fileName || '',
             fileUrl: match.fileUrl || '',
             gradeLevel: match.gradeId || gradeId,
@@ -11608,6 +11675,14 @@
       }
     }
 
+    function ensureCatalogUploadModalInteractive(form) {
+      if (!form) return;
+      form.querySelectorAll('input:not([type="file"]):not([type="hidden"]), textarea, select, button').forEach(function (el) {
+        el.disabled = false;
+        el.style.pointerEvents = 'auto';
+      });
+    }
+
     function openCatalogUploadModal(gradeId, presetTopic, readonlyTopic) {
       const modal = getCatalogUploadModal();
       const body = document.getElementById('catalog-upload-modal-body');
@@ -11617,9 +11692,11 @@
       const form = body.querySelector('.catalog-upload-form');
       bindSingleCatalogUploadForm(form);
       resetCatalogUploadForm(form, { presetTopic: presetTopic || '', keepReadonlyTopic: readonlyTopic });
+      ensureCatalogUploadModalInteractive(form);
       modal.classList.remove('hidden');
       modal.removeAttribute('hidden');
       modal.setAttribute('aria-hidden', 'false');
+      modal.style.pointerEvents = 'auto';
       window.communityUploadDrawerOpen = true;
       document.body.classList.add('catalog-modal-open');
       persistCommunityFormDraft(true);
@@ -12328,24 +12405,10 @@
           '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '" onclick="window.deleteCommunityMaterial(this.getAttribute(\'data-id\'))">🗑️</button>' +
           '</div>'
         : '';
-      const titleLine = (file.title || file.fileName || '').trim();
-      const descLine = (file.notes || '').trim();
-      const instructorRaw = (file.authorName || file.instructor_name || '').trim()
-        .replace(/^שם המורה\s*\(אופציונלי\)\s*:\s*/i, '')
-        .replace(/^Teacher name\s*\(optional\)\s*:\s*/i, '');
-      const instructorName = instructorRaw || 'מורה קהילתי';
-      const metaParts = [instructorName];
-      if (file.createdAt) {
-        const cardDate = formatCatalogCardDate(file.createdAt);
-        if (cardDate) metaParts.push(cardDate);
-      }
-      const metaLine = metaParts.join(' · ');
       return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '">' +
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">' +
         '<div class="min-w-0 flex-1 catalog-material-text text-dir-start">' +
-        (titleLine ? '<p class="catalog-material-title">' + escapeHtml(titleLine) + '</p>' : '') +
-        (descLine ? '<p class="catalog-material-desc">' + escapeHtml(descLine) + '</p>' : '') +
-        (metaLine ? '<p class="catalog-material-meta">' + escapeHtml(metaLine) + '</p>' : '') +
+        buildCatalogMaterialMetadataHtml(file) +
         '</div>' +
         '<div class="flex flex-wrap items-center gap-2 shrink-0">' + manageBtns + downloadBtn + '</div></div>' +
         '<div class="catalog-material-edit-panel hidden" aria-live="polite"></div></div>';
