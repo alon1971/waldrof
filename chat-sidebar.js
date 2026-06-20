@@ -342,21 +342,45 @@
     }
   }
 
-  function renderMessages() {
+  function scrollChatToLastMessageStart() {
+    var list = document.getElementById('lesson-chat-messages');
+    if (!list) return;
+    var bubbles = list.querySelectorAll('.lesson-chat-bubble');
+    if (!bubbles.length) return;
+    var last = bubbles[bubbles.length - 1];
+    list.scrollTop = Math.max(0, last.offsetTop - list.offsetTop - 8);
+  }
+
+  function scrollFullscreenToLastMessageStart() {
+    var body = document.getElementById('lesson-chat-fullscreen-body');
+    if (!body) return;
+    var bubbles = body.querySelectorAll('.lesson-chat-bubble');
+    if (!bubbles.length) return;
+    var last = bubbles[bubbles.length - 1];
+    body.scrollTop = Math.max(0, last.offsetTop - body.offsetTop - 8);
+  }
+
+  function renderMessages(options) {
+    options = options || {};
     ensureWelcomeMessage();
     var list = document.getElementById('lesson-chat-messages');
     if (!list) return;
 
     list.innerHTML = state.messages.map(renderMessageBubble).join('');
-    list.scrollTop = list.scrollHeight;
+    if (options.scrollToLastMessageStart) {
+      scrollChatToLastMessageStart();
+    } else {
+      list.scrollTop = list.scrollHeight;
+    }
     syncExportBarVisibility();
     if (state.displayMode === 'fullscreen') {
-      renderFullscreenContent();
+      renderFullscreenContent(options);
       syncExportBarVisibility();
     }
   }
 
-  function renderFullscreenContent() {
+  function renderFullscreenContent(options) {
+    options = options || {};
     var body = document.getElementById('lesson-chat-fullscreen-body');
     if (!body) return;
     ensureWelcomeMessage();
@@ -367,7 +391,11 @@
     body.innerHTML = '<div class="lesson-chat-fullscreen-thread">' +
       state.messages.map(renderMessageBubble).join('') +
       '</div>';
-    body.scrollTop = body.scrollHeight;
+    if (options.scrollToLastMessageStart) {
+      scrollFullscreenToLastMessageStart();
+    } else {
+      body.scrollTop = body.scrollHeight;
+    }
   }
 
   function formatHistoryDate(iso) {
@@ -745,7 +773,11 @@
         fromCache: fromCache && !enriched,
         enriched: enriched,
       });
-      renderMessages();
+      var communityMatches = (meta && Array.isArray(meta.communityMatches) && meta.communityMatches.length)
+        ? meta.communityMatches
+        : (result && Array.isArray(result._communityMatches) ? result._communityMatches : []);
+      var hasCommunityMatch = communityMatches.length > 0;
+      renderMessages({ scrollToLastMessageStart: hasCommunityMatch });
       if (typeof deps.onChatStateSync === 'function') {
         deps.onChatStateSync({
           messages: getPersistableMessages(),
@@ -758,11 +790,14 @@
           cacheKey: meta.gradeCacheKey || '',
         });
       }
-      var communityMatches = (meta && Array.isArray(meta.communityMatches) && meta.communityMatches.length)
-        ? meta.communityMatches
-        : (result && Array.isArray(result._communityMatches) ? result._communityMatches : []);
       if (typeof deps.renderCommunityAlert === 'function') {
         deps.renderCommunityAlert(communityMatches);
+      }
+      if (hasCommunityMatch) {
+        requestAnimationFrame(function () {
+          scrollChatToLastMessageStart();
+          if (state.displayMode === 'fullscreen') scrollFullscreenToLastMessageStart();
+        });
       }
       persistSession();
     }).catch(function (err) {

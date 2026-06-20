@@ -483,6 +483,12 @@
       border: 1px solid transparent;
       cursor: pointer;
     }
+    .community-found-alert__btn--primary {
+      background: #8B3A3A;
+      color: #fff;
+      border-color: #7A2A2A;
+    }
+    .community-found-alert__btn--primary:hover { background: #7A2A2A; color: #fff; }
     .community-found-alert__btn--secondary {
       background: rgba(122, 155, 118, 0.12);
       color: #3D5C3A;
@@ -9417,14 +9423,15 @@
     }
 
     function resolveCommunityMatchGradeId(match) {
-      const fromMatch = String((match && match.gradeId) || '').trim();
-      if (fromMatch) return fromMatch;
+      const fromMatch = String((match && (match.gradeId || match.grade_id || match.grade_level)) || '').trim();
+      if (fromMatch) {
+        const resolved = resolveCommunityGradeIdFromAny(fromMatch);
+        if (resolved) return resolved;
+      }
       const label = String((match && match.gradeLabel) || '').trim();
       if (label) {
-        const byLabel = GRADES.find(function (g) {
-          return getGradeLabelById(g.id) === label || g.label === label;
-        });
-        if (byLabel) return byLabel.id;
+        const fromLabel = resolveCommunityGradeIdFromAny(label);
+        if (fromLabel) return fromLabel;
       }
       return String(appState.grade || '').trim();
     }
@@ -9439,13 +9446,57 @@
       persistActiveStep();
     }
 
+    function resolveCommunityGradeIdFromAny(raw) {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      const byId = GRADES.find(function (g) { return String(g.id) === value; });
+      if (byId) return byId.id;
+      const byLabel = GRADES.find(function (g) {
+        return g.label === value || getGradeLabelById(g.id) === value;
+      });
+      if (byLabel) return byLabel.id;
+      const digitMatch = value.match(/(\d+)/);
+      if (digitMatch) {
+        const numericId = String(parseInt(digitMatch[1], 10));
+        if (GRADES.some(function (g) { return g.id === numericId; })) return numericId;
+      }
+      return '';
+    }
+
+    function resolveCommunityMatchFileUrl(match) {
+      if (!match || typeof match !== 'object') return '';
+      const direct = String(match.fileUrl || match.url || match.google_docs_url || '').trim();
+      if (isHttpUrl(direct)) return direct;
+      const filePath = String(match.file_path || match.filePath || '').trim();
+      if (isHttpUrl(filePath)) return filePath;
+      if (filePath) return buildPublicStorageUrl(filePath);
+      const materialId = String(match.materialId || match.sourceMaterialId || match.id || '').trim();
+      if (materialId && Array.isArray(appState.communityCache) && appState.communityCache.length) {
+        const cached = appState.communityCache.find(function (item) {
+          const itemId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
+          return itemId && itemId === materialId;
+        });
+        if (cached && cached.fileUrl) return String(cached.fileUrl).trim();
+        if (cached) return resolveCommunityFileUrl(cached);
+      }
+      return '';
+    }
+
     async function navigateCommunityCatalogForMatch(match, overrides) {
       overrides = overrides || {};
-      const gradeId = String(
-        overrides.gradeId || resolveCommunityMatchGradeId(match) || ''
-      ).trim();
+      const gradeId = resolveCommunityGradeIdFromAny(
+        overrides.gradeId ||
+        resolveCommunityMatchGradeId(match) ||
+        (match && match.gradeLabel) ||
+        ''
+      );
       if (!gradeId) {
         openCommunityRepo();
+        return;
+      }
+      openCommunityCatalogShell();
+      if (overrides.preferGradeGrid === true) {
+        await renderCatalog('grade', gradeId);
         return;
       }
       let topic = overrides.topic != null
@@ -9455,7 +9506,6 @@
         try { await loadCommunity(); } catch (e) { /* ignore */ }
         topic = communityCatalogTopicForMatch(match);
       }
-      openCommunityCatalogShell();
       if (topic && !isLikelyUserChatQuestion(topic)) {
         await renderCatalog('materials', gradeId, topic);
       } else {
@@ -9490,7 +9540,7 @@
         });
       });
       (serverMatches || []).forEach(function (match) {
-        add({
+        add(Object.assign({}, match, {
           id: match.id,
           materialId: match.materialId || match.sourceMaterialId || match.id || null,
           source: match.source || 'knowledge_base',
@@ -9498,15 +9548,17 @@
           topic: match.topic || '',
           catalogTopic: match.catalogTopic || match.bundleTopic || match.topic || '',
           bundleTopic: match.bundleTopic || match.topic || '',
-          gradeId: match.gradeId || appState.grade || null,
+          gradeId: match.gradeId || match.grade_id || match.grade_level || appState.grade || null,
           gradeLabel: match.gradeLabel || null,
-          fileName: match.internalFileName || match.fileName || '',
+          fileName: match.internalFileName || match.fileName || match.file_name || '',
           fileUrl: match.fileUrl || '',
+          file_path: match.file_path || match.filePath || '',
+          url: match.url || '',
           matchedInBundle: Boolean(match.matchedInBundle),
           matchType: match.matchType || 'direct',
           alertText: match.alertText || '',
           similarity: match.similarity || 0,
-        });
+        }));
       });
       return out.sort(function (a, b) {
         return (Number(b.similarity) || 0) - (Number(a.similarity) || 0);
@@ -9533,11 +9585,21 @@
             escapeHtml(match.alertText || t('community_found_nested_item', { folder: bundleTopic })) + '</div>';
         }
         const gradeId = resolveCommunityMatchGradeId(match);
+        const gradeLabel = String(match.gradeLabel || getGradeLabelById(gradeId) || '').trim();
+        const fileUrl = resolveCommunityMatchFileUrl(match);
         html += '<div class="community-found-alert__item">' +
           '<span class="community-found-alert__item-title">' + titleHtml + '</span>' +
           '<div class="community-found-alert__actions">';
+        if (fileUrl) {
+          html += '<a href="' + escapeHtml(fileUrl) + '" target="_blank" rel="noopener" ' +
+            'class="community-found-alert__btn community-found-alert__btn--primary" data-community-file="' + index + '">' +
+            '<i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> ' +
+            escapeHtml(t('community_found_open_file')) + '</a>';
+        }
         html += '<button type="button" class="community-found-alert__btn community-found-alert__btn--secondary" data-community-catalog="' + index + '" ' +
-          'data-community-grade="' + escapeHtml(String(gradeId)) + '" data-community-topic="' + escapeHtml(catalogTopic) + '">' +
+          'data-community-grade="' + escapeHtml(gradeLabel || String(gradeId)) + '" ' +
+          'data-community-grade-id="' + escapeHtml(String(gradeId)) + '" ' +
+          'data-community-topic="' + escapeHtml(catalogTopic) + '">' +
           '<i class="fa-solid fa-folder-open" aria-hidden="true"></i> ' +
           escapeHtml(t('community_found_open_repo')) + '</button>';
         html += '</div></div>';
@@ -9564,11 +9626,13 @@
             openCommunityRepo();
             return;
           }
-          const gradeFromBtn = String(btn.getAttribute('data-community-grade') || '').trim();
+          const gradeFromBtn = String(btn.getAttribute('data-community-grade-id') || '').trim();
+          const gradeFromLabel = resolveCommunityGradeIdFromAny(btn.getAttribute('data-community-grade'));
           const topicFromBtn = String(btn.getAttribute('data-community-topic') || '').trim();
           navigateCommunityCatalogForMatch(match, {
-            gradeId: gradeFromBtn || undefined,
+            gradeId: gradeFromBtn || gradeFromLabel || resolveCommunityMatchGradeId(match) || undefined,
             topic: topicFromBtn || undefined,
+            preferGradeGrid: true,
           });
         });
       });
@@ -14001,18 +14065,17 @@
             }
           },
           openCommunityCatalog: function (gradeId, topic) {
-            const gid = String(gradeId || '').trim();
+            const gid = resolveCommunityGradeIdFromAny(gradeId);
             const catalogTopic = String(topic || '').trim();
             if (!gid) {
               openCommunityRepo();
               return;
             }
-            openCommunityCatalogShell();
-            if (!catalogTopic || isLikelyUserChatQuestion(catalogTopic)) {
-              renderCatalog('grade', gid);
-              return;
-            }
-            renderCatalog('materials', gid, catalogTopic);
+            navigateCommunityCatalogForMatch(null, {
+              gradeId: gid,
+              topic: catalogTopic || undefined,
+              preferGradeGrid: !catalogTopic || isLikelyUserChatQuestion(catalogTopic),
+            });
           },
           renderCommunityAlert: function (matches) {
             var targets = [
