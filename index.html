@@ -5342,6 +5342,9 @@
       hydrateInspirationFromUnifiedSynthesis({
         communityMatches: appState.topicCommunityMatches,
       });
+      hydrateCurriculumFromUnifiedSynthesis({
+        communityMatches: appState.topicCommunityMatches,
+      });
 
       resetSummarySession();
       ensureStepBWizardView();
@@ -6256,6 +6259,9 @@
       if (isMeaningfulArchiveInspiration(appState.aiGeneratedPlan && appState.aiGeneratedPlan.inspiration)) {
         labels.push(isEnglish() ? 'Archive' : 'ארכיון');
       }
+      if (hasMeaningfulCurriculumRows(appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum)) {
+        labels.push(t('curriculum_title'));
+      }
       return labels;
     }
 
@@ -6400,16 +6406,210 @@
       var synthesized = buildUnifiedInspirationSynthesis(options);
       if (!synthesized || !isMeaningfulArchiveInspiration(synthesized)) return false;
       appState.aiGeneratedPlan.inspiration = synthesized;
+      syncActivePlanFromGenerated();
+      return true;
+    }
+
+    function hasMeaningfulCurriculumRows(rows) {
+      if (!rows || !rows.length) return false;
+      return rows.some(function (d) {
+        return d && (
+          String(d.content || '').trim().length > 10 ||
+          String(d.art || '').trim().length > 5 ||
+          String(d.topic || '').trim().length > 3
+        );
+      });
+    }
+
+    function splitTextIntoCurriculumDays(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return [];
+      var parsed = parseCurriculumFromText(raw);
+      if (hasMeaningfulCurriculumRows(parsed)) return parsed;
+      var paragraphs = raw.split(/\n\s*\n+/).map(function (p) { return p.trim(); })
+        .filter(function (p) { return p.length > 20; });
+      if (paragraphs.length >= 2) {
+        return paragraphs.slice(0, 15).map(function (p, i) {
+          var lines = p.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+          var firstLine = (lines[0] || '').replace(/^#+\s*/, '').replace(/^\*+|\*+$/g, '').trim();
+          return {
+            day: i + 1,
+            topic: firstLine.slice(0, 120) || ('יום ' + (i + 1)),
+            content: p,
+            art: '',
+            hint: '',
+          };
+        });
+      }
+      if (raw.length > 80) {
+        return [{
+          day: 1,
+          topic: String(appState.topic || 'תכנון תקופה').trim(),
+          content: raw,
+          art: '',
+          hint: '',
+        }];
+      }
+      return [];
+    }
+
+    function normalizeCurriculumPlanRows(rows) {
+      var out = [];
+      for (var i = 0; i < rows.length && out.length < 15; i++) {
+        var norm = normalizeCurriculumRow(rows[i], out.length);
+        if (!norm) continue;
+        var hasBody = String(norm.content || '').trim().length > 10 ||
+          String(norm.art || '').trim().length > 5 ||
+          String(norm.topic || '').trim().length > 3;
+        if (!hasBody) continue;
+        norm.day = out.length + 1;
+        out.push({
+          day: norm.day,
+          topic: norm.topic || t('curriculum_day_short', { day: norm.day }),
+          content: ensureAiHtml(norm.content || ''),
+          art: ensureAiHtml(norm.art || ''),
+          hint: norm.hint || '',
+          contentExpansion: rows[i] && rows[i].contentExpansion,
+          artExpansion: rows[i] && rows[i].artExpansion,
+          hintExpansion: rows[i] && rows[i].hintExpansion,
+        });
+      }
+      return out;
+    }
+
+    function buildUnifiedCurriculumSynthesis(options) {
+      options = options || {};
+      var plan = options.plan || appState.aiGeneratedPlan;
+      if (!plan) return [];
+
+      var fromPlan = extractCurriculumFromPlan(plan, { blockPlan: plan });
+      if (!fromPlan.length) fromPlan = coerceCurriculumRows(plan.curriculum);
+      if (!fromPlan.length) fromPlan = coerceCurriculumRows(plan.days);
+      if (!fromPlan.length && typeof plan.curriculum === 'string') {
+        fromPlan = parseCurriculumFromText(plan.curriculum);
+      }
+      if (hasMeaningfulCurriculumRows(fromPlan)) {
+        return normalizeCurriculumPlanRows(fromPlan);
+      }
+
+      var seeds = [];
+      var webResearch = options.webResearch || appState.webResearch;
+      var topic = String(appState.topic || '').trim();
+      var communityMatches = options.communityMatches;
+      if (!Array.isArray(communityMatches)) communityMatches = appState.topicCommunityMatches || [];
+
+      if (webResearch && typeof webResearch === 'object') {
+        (webResearch.highlights || []).forEach(function (h) {
+          var text = typeof h === 'string' ? h : String((h && (h.text || h.highlight)) || '');
+          if (String(text).trim()) seeds.push({ topic: topic, content: String(text).trim() });
+        });
+        (webResearch.connections || []).forEach(function (c) {
+          var text = String(c || '').trim();
+          if (text) seeds.push({ topic: topic, content: text, hint: text });
+        });
+        var summary = String(webResearch.summary || webResearch.rawContent || '').trim();
+        if (summary && !seeds.length) {
+          seeds = splitTextIntoCurriculumDays(summary);
+        }
+      }
+
+      if (plan.theory && Array.isArray(plan.theory.sections)) {
+        plan.theory.sections.forEach(function (sec) {
+          var content = archiveSectionText(sec);
+          if (!content) return;
+          seeds.push({
+            topic: String((sec && sec.heading) || topic).trim() || topic,
+            content: content,
+          });
+        });
+      }
+
+      var gi = appState.gradeResearch && appState.gradeResearch.gradeInsights;
+      if (gi) {
+        (gi.part2ClassroomIdeas || []).forEach(function (idea) {
+          if (!idea) return;
+          var detail = typeof idea === 'string'
+            ? idea
+            : String((idea.detail || idea.body || idea.text || idea.description) || '').trim();
+          var title = typeof idea === 'object' ? String(idea.title || '').trim() : '';
+          if (detail || title) {
+            seeds.push({ topic: title || topic, content: detail || title, art: '' });
+          }
+        });
+        (gi.typicalBlocks || []).forEach(function (block) {
+          var text = typeof block === 'string' ? block : String(block || '');
+          if (String(text).trim()) seeds.push({ topic: topic, content: String(text).trim() });
+        });
+        (gi.globalCurricula || []).forEach(function (item) {
+          var text = typeof item === 'string'
+            ? item
+            : String((item && (item.detail || item.body || item.text || item.title)) || '').trim();
+          if (text) seeds.push({ topic: topic, content: text });
+        });
+      }
+
+      var localItems = (appState.grade && topic)
+        ? getCommunityMaterialsForTopic(appState.grade, topic)
+        : [];
+      mergeCommunityMatches(localItems, communityMatches).forEach(function (match) {
+        seeds.push({
+          topic: match.title || match.topic || topic,
+          content: communityMatchInspirationText(match),
+          art: match.notes || '',
+        });
+      });
+
+      var rawFallback = String(
+        plan.rawContent ||
+        (webResearch && (webResearch.summary || webResearch.rawContent)) ||
+        extractPhaseCRawFallback({ blockPlan: plan }) ||
+        ''
+      ).trim();
+      if (!seeds.length && rawFallback) {
+        seeds = splitTextIntoCurriculumDays(rawFallback);
+      }
+
+      if (!seeds.length) return [];
+      return normalizeCurriculumPlanRows(seeds);
+    }
+
+    function hydrateCurriculumFromUnifiedSynthesis(options) {
+      if (!appState.aiGeneratedPlan) return false;
+      var existing = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
+      if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.curriculum);
+      if (hasMeaningfulCurriculumRows(existing)) {
+        var normalized = normalizeCurriculumPlanRows(existing);
+        if (normalized.length) {
+          appState.aiGeneratedPlan.curriculum = normalized;
+          appState.aiGeneratedPlan.days = normalized.slice();
+          syncActivePlanFromGenerated();
+          return true;
+        }
+      }
+      var rows = buildUnifiedCurriculumSynthesis(options);
+      if (!hasMeaningfulCurriculumRows(rows)) return false;
+      appState.aiGeneratedPlan.curriculum = rows;
+      appState.aiGeneratedPlan.days = rows.slice();
+      syncActivePlanFromGenerated();
+      return true;
+    }
+
+    function syncActivePlanFromGenerated() {
       try {
         appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       } catch (cloneErr) {
         appState.activePlan = appState.aiGeneratedPlan;
       }
-      return true;
+    }
+
+    function hydrateUnifiedLessonSynthesis(options) {
+      var insp = hydrateInspirationFromUnifiedSynthesis(options);
+      var curr = hydrateCurriculumFromUnifiedSynthesis(options);
+      return insp || curr;
     }
 
     function renderInspirationTabPanels() {
-      hydrateInspirationFromUnifiedSynthesis();
+      hydrateUnifiedLessonSynthesis();
       if (!appState.visualGallery.length) {
         appState.visualGallery = generateVisualGallery(appState.topic || '');
       }
@@ -6420,6 +6620,13 @@
       renderTeacherDriveMergeSlots();
       renderCommunityMaterials();
       updateCommunityBadge();
+    }
+
+    function renderCurriculumTabPanels() {
+      hydrateUnifiedLessonSynthesis();
+      renderTeacherDriveMergeSlots();
+      renderCurriculum();
+      setupThemeActionButtons();
     }
 
     function coercePhaseCResponse(data, cTab) {
@@ -6998,10 +7205,12 @@
     }
 
     function hasPhaseCCurriculumContent() {
+      hydrateCurriculumFromUnifiedSynthesis();
       var plan = appState.aiGeneratedPlan;
       if (!plan) return false;
-      var rows = extractCurriculumFromPlan(plan);
+      var rows = extractCurriculumFromPlan(plan, { blockPlan: plan });
       if (!rows.length) rows = coerceCurriculumRows(plan.curriculum);
+      if (!rows.length) rows = coerceCurriculumRows(plan.days);
       if (!rows.length && typeof plan.curriculum === 'string') {
         rows = parseCurriculumFromText(plan.curriculum);
       }
@@ -7013,14 +7222,7 @@
         var dump = extractPhaseCRawFallback({ blockPlan: plan });
         if (dump) rows = parseCurriculumFromText(dump);
       }
-      if (!rows.length) return false;
-      return rows.some(function (d) {
-        return d && (
-          String(d.content || '').trim().length > 15 ||
-          String(d.art || '').trim().length > 10 ||
-          String(d.topic || '').trim().length > 3
-        );
-      });
+      return hasMeaningfulCurriculumRows(rows);
     }
 
     function mergePhaseCIntoPlan(data, cTab) {
@@ -7040,6 +7242,7 @@
           data
         );
         appState.aiGeneratedPlan.curriculum = mergedPlan.curriculum;
+        appState.aiGeneratedPlan.days = mergedPlan.curriculum.slice();
       }
       appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       return cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
@@ -7087,6 +7290,16 @@
           return;
         }
       }
+      if (cTab === 'curriculum') {
+        hydrateCurriculumFromUnifiedSynthesis();
+        if (hasPhaseCCurriculumContent()) {
+          appState.productTabsRendered.curriculum = false;
+          renderProductTabContent('curriculum');
+          setPhaseCTabLoadingUi(cTab, false);
+          ensurePageScrollUnlocked();
+          return;
+        }
+      }
       if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
       if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) return;
 
@@ -7101,6 +7314,13 @@
       var loadingEl = getPhaseCTabLoadingEl(cTab);
       if (shouldBlockLivePhaseCApi()) {
         if (cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
+          appState.productTabsRendered[cTab] = false;
+          renderProductTabContent(cTab);
+          setPhaseCTabLoadingUi(cTab, false);
+          ensurePageScrollUnlocked();
+          return;
+        }
+        if (cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis()) {
           appState.productTabsRendered[cTab] = false;
           renderProductTabContent(cTab);
           setPhaseCTabLoadingUi(cTab, false);
@@ -7174,7 +7394,11 @@
             }
           }
         }
-        if (!merged && cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
+        if (!merged && cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis()) {
+          appState.productTabsRendered[cTab] = false;
+          renderProductTabContent(cTab);
+          restoreAllSummaryPanels();
+        } else if (!merged && cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
           appState.productTabsRendered[cTab] = false;
           renderProductTabContent(cTab);
           restoreAllSummaryPanels();
@@ -7191,7 +7415,11 @@
       } catch (err) {
         if (controller.signal.aborted) return;
         console.error('[waldrof] phase_c load failed:', cTab, err);
-        if (cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
+        if (cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis()) {
+          appState.productTabsRendered[cTab] = false;
+          renderProductTabContent(cTab);
+          restoreAllSummaryPanels();
+        } else if (cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
           appState.productTabsRendered[cTab] = false;
           renderProductTabContent(cTab);
           restoreAllSummaryPanels();
@@ -12265,7 +12493,7 @@
       showWorkspaceShell();
       try {
         ensureProductTabsHydrated();
-        hydrateInspirationFromUnifiedSynthesis();
+        hydrateUnifiedLessonSynthesis();
         switchTab(appState.activeProductTab || 'theory');
         renderSynthesisBanner();
       } catch (err) {
@@ -12812,7 +13040,7 @@
 
         const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);
         appState.topicCommunityMatches = resolvedCommunity;
-        hydrateInspirationFromUnifiedSynthesis({ communityMatches: resolvedCommunity });
+        hydrateUnifiedLessonSynthesis({ communityMatches: resolvedCommunity });
 
         await checkAndShowCommunityTopicAlert(resolvedCommunity.length ? resolvedCommunity : undefined);
         queueCommunityLessonSync();
@@ -13219,7 +13447,7 @@
           renderTheory();
           r.theory = true;
         } else if (tabId === 'inspiration') {
-          hydrateInspirationFromUnifiedSynthesis();
+          hydrateUnifiedLessonSynthesis();
           var inspPanelEl = document.getElementById('inspiration-content');
           var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
           if (!hasPhaseCInspirationContent()) {
@@ -13276,37 +13504,35 @@
             r.inspiration = true;
           }
         } else if (tabId === 'curriculum') {
+          hydrateUnifiedLessonSynthesis();
+          var currPanelEl = document.getElementById('curriculum-cards');
+          var currDomEmpty = !currPanelEl || !currPanelEl.innerHTML.trim();
+          var tbodyEl = document.getElementById('curriculum-body');
+          if (currDomEmpty && tbodyEl && !tbodyEl.innerHTML.trim()) currDomEmpty = true;
           if (!hasPhaseCCurriculumContent()) {
             if (shouldBlockLivePhaseCApi()) {
-              var currEl = document.getElementById('curriculum-cards');
-              var currRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
-              var parsedArchiveRows = parseCurriculumFromText(currRaw);
-              if (!parsedArchiveRows.length) {
-                parsedArchiveRows = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
+              if (!hydrateCurriculumFromUnifiedSynthesis()) {
+                var currRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+                var parsedArchiveRows = parseCurriculumFromText(currRaw);
+                if (!parsedArchiveRows.length) {
+                  parsedArchiveRows = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
+                }
+                if (hasMeaningfulCurriculumRows(parsedArchiveRows)) {
+                  appState.aiGeneratedPlan.curriculum = normalizeCurriculumPlanRows(parsedArchiveRows);
+                  appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
+                  syncActivePlanFromGenerated();
+                }
               }
-              if (parsedArchiveRows.length) {
-                appState.aiGeneratedPlan.curriculum = parsedArchiveRows.slice(0, 15).map(function (row, i) {
-                  var norm = normalizeCurriculumRow(row, i);
-                  return norm ? {
-                    day: norm.day || (i + 1),
-                    topic: norm.topic || ('יום ' + (i + 1)),
-                    content: ensureAiHtml(norm.content || ''),
-                    art: ensureAiHtml(norm.art || ''),
-                    hint: norm.hint || '',
-                  } : null;
-                }).filter(Boolean);
-                appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
-                renderTeacherDriveMergeSlots();
-                renderCurriculum();
+              if (hasPhaseCCurriculumContent()) {
+                renderCurriculumTabPanels();
                 r.curriculum = true;
-                setupThemeActionButtons();
                 ensurePageScrollUnlocked();
                 return;
               }
               renderStructuredTextFallback(
-                currEl,
+                currPanelEl,
                 t('curriculum_title'),
-                currRaw || (isEnglish()
+                extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
                   ? 'Archived lesson — 15-day period plan was not stored in this record.'
                   : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
               );
@@ -13314,14 +13540,20 @@
               ensurePageScrollUnlocked();
               return;
             }
-            ensurePhaseCTabLoaded('curriculum');
-            return;
+            if (isResearchAvailable()) {
+              ensurePhaseCTabLoaded('curriculum');
+              return;
+            }
+            if (hydrateCurriculumFromUnifiedSynthesis()) {
+              renderCurriculumTabPanels();
+              r.curriculum = true;
+              ensurePageScrollUnlocked();
+              return;
+            }
           }
-          if (!r.curriculum) {
-            renderTeacherDriveMergeSlots();
-            renderCurriculum();
+          if (!r.curriculum || currDomEmpty) {
+            renderCurriculumTabPanels();
             r.curriculum = true;
-            setupThemeActionButtons();
           } else {
             setupThemeActionButtons();
           }
@@ -13593,7 +13825,7 @@
     }
 
     function renderInspirationBase() {
-      hydrateInspirationFromUnifiedSynthesis();
+      hydrateUnifiedLessonSynthesis();
       Object.keys(appState.pedagogyRegistry).forEach(function (k) {
         if (k.indexOf('ped-insp-') === 0) delete appState.pedagogyRegistry[k];
       });
@@ -13763,7 +13995,9 @@
     }
 
     function renderCurriculum() {
-      const plan = (appState.activePlan && appState.activePlan.curriculum) || [];
+      hydrateCurriculumFromUnifiedSynthesis();
+      const plan = (appState.activePlan && appState.activePlan.curriculum) ||
+        (appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum) || [];
       Object.keys(appState.pedagogyRegistry).forEach(function (k) {
         if (k.indexOf('ped-curr-') === 0) delete appState.pedagogyRegistry[k];
       });
