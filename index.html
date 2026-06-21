@@ -4448,6 +4448,7 @@
       pedagogyRegistry: {},
       pedagogySummaries: {},
       lessonCacheKey: '',
+      lessonFromArchive: false,
       communityAutoSync: true,
       archiveSuggestionPending: false,
       archiveRejectedSearch: null,
@@ -4517,6 +4518,7 @@
         activeProductTab: null,
         productTabsRendered: freshProductTabsRendered(),
         lessonCacheKey: '',
+        lessonFromArchive: false,
         communityAutoSync: true,
         archiveSuggestionPending: false,
         archiveRejectedSearch: null,
@@ -4968,6 +4970,63 @@
       return String(sec.content || sec.overview || sec.text || sec.body || sec.summary || '').trim();
     }
 
+    function liftArchivePhaseCFields(blockPlan, data) {
+      if (!blockPlan || typeof blockPlan !== 'object') return blockPlan;
+      if (!blockPlan.inspiration && data.inspiration) blockPlan.inspiration = data.inspiration;
+      if (!blockPlan.curriculum && data.curriculum) blockPlan.curriculum = data.curriculum;
+      if (!blockPlan.sources && data.sources) blockPlan.sources = data.sources;
+      blockPlan.inspiration = tryParseArchiveJsonObject(blockPlan.inspiration) || blockPlan.inspiration;
+      blockPlan.curriculum = tryParseArchiveJsonObject(blockPlan.curriculum) || blockPlan.curriculum;
+      blockPlan.sources = tryParseArchiveJsonObject(blockPlan.sources) || blockPlan.sources;
+      if (typeof blockPlan.inspiration === 'string' && blockPlan.inspiration.trim()) {
+        blockPlan.inspiration = { rawContent: blockPlan.inspiration.trim() };
+      }
+      var curriculumRows = extractCurriculumFromPlan(blockPlan, data);
+      if (curriculumRows.length) blockPlan.curriculum = curriculumRows;
+      return blockPlan;
+    }
+
+    function hasArchivePhaseCInBlockPlan(bp) {
+      if (!bp || typeof bp !== 'object') return false;
+      var insp = bp.inspiration;
+      if (insp) {
+        if (typeof insp === 'string' && insp.trim().length > 40) return true;
+        if (String(insp.rawContent || '').trim().length > 40) return true;
+        if (Array.isArray(insp.global) && insp.global.some(function (b) {
+          return b && Array.isArray(b.items) && b.items.length;
+        })) return true;
+      }
+      var rows = coerceCurriculumRows(bp.curriculum);
+      if (!rows.length) rows = extractCurriculumFromPlan(bp);
+      if (rows.length >= 1) {
+        return rows.some(function (d) {
+          return d && (String(d.content || '').trim().length > 20 || String(d.topic || '').trim().length > 5);
+        });
+      }
+      return false;
+    }
+
+    function hasStructuredArchiveTheory(bp) {
+      if (!bp || !bp.theory || typeof bp.theory !== 'object') return false;
+      var sections = Array.isArray(bp.theory.sections) ? bp.theory.sections : [];
+      return sections.some(function (sec) { return Boolean(archiveSectionText(sec)); });
+    }
+
+    function isCachedLessonHydration() {
+      return Boolean(appState.lessonFromArchive);
+    }
+
+    function abortPhaseCLoads() {
+      ['inspiration', 'curriculum'].forEach(function (cTab) {
+        if (phaseCLoadAbort[cTab]) {
+          phaseCLoadAbort[cTab].abort();
+          phaseCLoadAbort[cTab] = null;
+        }
+        phaseCTabLoading[cTab] = false;
+      });
+      ensurePageScrollUnlocked();
+    }
+
     function archiveEssenceTextFromData(data) {
       if (!data || typeof data !== 'object') return '';
       var blockPlan = data.blockPlan;
@@ -5030,8 +5089,19 @@
         if (nested) data = Object.assign({}, data, nested);
       }
 
+      if (!data.blockPlan && data.block_plan) {
+        data.blockPlan = data.block_plan;
+      }
+
       var blockPlan = tryParseArchiveJsonObject(data.blockPlan) || data.blockPlan;
+      if (blockPlan && typeof blockPlan === 'object' && blockPlan.blockPlan && typeof blockPlan.blockPlan === 'object') {
+        blockPlan = Object.assign({}, blockPlan.blockPlan, blockPlan);
+        delete blockPlan.blockPlan;
+      }
       if ((!blockPlan || typeof blockPlan !== 'object') && archiveEssenceTextFromData(data)) {
+        blockPlan = {};
+      }
+      if ((!blockPlan || typeof blockPlan !== 'object') && (data.inspiration || data.curriculum || data.sources)) {
         blockPlan = {};
       }
       if (!blockPlan || typeof blockPlan !== 'object') return data;
@@ -5079,6 +5149,9 @@
 
       data.blockPlan = blockPlan;
 
+      blockPlan = liftArchivePhaseCFields(blockPlan, data);
+      data.blockPlan = blockPlan;
+
       if (!data.webResearch || typeof data.webResearch !== 'object') data.webResearch = {};
       if (!String(data.webResearch.summary || '').trim()) {
         var wrSummary = String(
@@ -5115,18 +5188,29 @@
       if (!topicStr || !data || !hasTopicResearchContent(data)) return false;
 
       appState.topic = topicStr;
-      const rawTopic = String(
-        (data.blockPlan && data.blockPlan.rawContent) || archiveEssenceTextFromData(data) || ''
+      var blockPlan = mergeBlockPlanCurriculum(
+        mergeBlockPlanBibliography(data.blockPlan, data),
+        data
+      );
+      blockPlan = liftArchivePhaseCFields(blockPlan, data);
+
+      var rawTopic = String(
+        blockPlan.rawContent || archiveEssenceTextFromData(data) || ''
       ).trim();
-      if (rawTopic) {
+      var rawFallback = extractPhaseCRawFallback(data);
+      var usePerplexityRawOnly = rawTopic &&
+        !hasStructuredArchiveTheory(blockPlan) &&
+        !hasArchivePhaseCInBlockPlan(blockPlan);
+
+      if (usePerplexityRawOnly) {
         appState.webResearch = {
           topic: topicStr,
           summary: String((data.webResearch && data.webResearch.summary) || '').trim() || rawTopic,
           connections: (data.webResearch && data.webResearch.connections) || [],
           highlights: (data.webResearch && data.webResearch.highlights) || [],
           rawContent: rawTopic,
-          citations: Array.isArray(data.blockPlan && data.blockPlan.citations)
-            ? data.blockPlan.citations
+          citations: Array.isArray(blockPlan.citations)
+            ? blockPlan.citations
             : ((data.webResearch && data.webResearch.citations) || []),
           _perplexityRaw: true,
         };
@@ -5141,10 +5225,26 @@
           ? Object.assign({}, data.webResearch)
           : { topic: topicStr, summary: '', connections: [], highlights: [] };
         appState.webResearch.topic = topicStr;
+        if (!String(appState.webResearch.summary || '').trim() && rawTopic) {
+          appState.webResearch.summary = rawTopic;
+        }
+
+        if (!hasStructuredArchiveTheory(blockPlan)) {
+          blockPlan.theory = blockPlan.theory || { title: '', sections: [] };
+          if (!Array.isArray(blockPlan.theory.sections)) blockPlan.theory.sections = [];
+          if (!blockPlan.theory.sections.length && rawTopic) {
+            blockPlan.theory.sections = [{ heading: '', content: rawTopic }];
+          }
+        }
+        if (blockPlan.inspiration) {
+          blockPlan.inspiration = coerceInspirationStructure(blockPlan.inspiration, rawFallback);
+        }
+        if (!blockPlan.sources || typeof blockPlan.sources !== 'object') {
+          blockPlan.sources = { books: [], articles: [], websites: [] };
+        }
 
         try {
-          var mergedPlan = mergeBlockPlanCurriculum(mergeBlockPlanBibliography(data.blockPlan, data), data);
-          appState.aiGeneratedPlan = normalizeBlockPlan(mergedPlan, topicStr, appState.gradeLabel);
+          appState.aiGeneratedPlan = normalizeBlockPlan(blockPlan, topicStr, appState.gradeLabel);
         } catch (normErr) {
           console.warn('[waldrof] normalizeBlockPlan failed — using archive essence fallback:', normErr);
           var fallbackText = archiveEssenceTextFromData(data);
@@ -5157,8 +5257,18 @@
             rawContent: fallbackText,
             _perplexityRaw: true,
           };
+          if (blockPlan.inspiration) {
+            appState.aiGeneratedPlan.inspiration = coerceInspirationStructure(blockPlan.inspiration, rawFallback);
+          }
+          var curriculumRows = extractCurriculumFromPlan(blockPlan, data);
+          if (curriculumRows.length) {
+            appState.aiGeneratedPlan.curriculum = curriculumRows.slice(0, 15).map(function (row, i) {
+              return normalizeCurriculumRow(row, i);
+            }).filter(Boolean);
+          }
         }
       }
+
       try {
         appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       } catch (cloneErr) {
@@ -5186,6 +5296,7 @@
       ensurePedagogySuggestionEvents();
       nudgeGoogleTranslate();
       persistActiveStep();
+      ensurePageScrollUnlocked();
       return true;
     }
 
@@ -5218,10 +5329,12 @@
 
         if (topicResearchAbort) topicResearchAbort.abort();
         topicResearchAbort = null;
+        abortPhaseCLoads();
         abortAllInlineExpansions();
         invalidateProductTabRenders();
         resetSummarySession();
 
+        appState.lessonFromArchive = true;
         appState.lessonCacheKey = item.cacheKey || appState.lessonCacheKey || '';
         appState.grade = gradeId;
         appState.gradeLabel = item.gradeLabel || getGradeLabelById(gradeId);
@@ -6115,7 +6228,10 @@
     function setPhaseCTabLoadingUi(cTab, loading) {
       phaseCTabLoading[cTab] = loading;
       var loadingEl = getPhaseCTabLoadingEl(cTab);
-      if (!loadingEl) return;
+      if (!loadingEl) {
+        if (!loading) ensurePageScrollUnlocked();
+        return;
+      }
       if (loading) {
         loadingEl.innerHTML = '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
           '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
@@ -6125,14 +6241,21 @@
       }
       loadingEl.removeAttribute('aria-busy');
       var stillSpinning = /fa-spinner/.test(loadingEl.innerHTML || '');
-      if (!stillSpinning) return;
+      if (!stillSpinning) {
+        ensurePageScrollUnlocked();
+        return;
+      }
       var hasContent = cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
-      if (hasContent) return;
+      if (hasContent) {
+        ensurePageScrollUnlocked();
+        return;
+      }
       loadingEl.innerHTML = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
         escapeHtml(isEnglish()
           ? 'Content could not be structured — try again or use the pedagogical chat assistant.'
           : 'לא ניתן להציג את התוכן במבנה המלא — נסו שוב או השתמשו בעוזר הצ׳אט הפדגוגי.') +
         '</p>';
+      ensurePageScrollUnlocked();
     }
 
     function enrichBibliographyFromWebResearch(bib) {
@@ -6664,6 +6787,24 @@
       if (!appState.aiGeneratedPlan || !hasTopicEssence()) return;
       if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
       if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) return;
+
+      var loadingEl = getPhaseCTabLoadingEl(cTab);
+      if (isCachedLessonHydration()) {
+        if (loadingEl) {
+          var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+          renderStructuredTextFallback(
+            loadingEl,
+            cTab === 'inspiration' ? (t('tab_inspiration') + t('tab_inspiration_suffix')) : t('curriculum_title'),
+            cachedRaw || (isEnglish()
+              ? 'Archived lesson — inspiration/period planning was not stored in this record.'
+              : 'תכנית ארכיון — שכבת ההשראה או תכנון התקופה לא נשמרו ברשומה זו.')
+          );
+        }
+        setPhaseCTabLoadingUi(cTab, false);
+        ensurePageScrollUnlocked();
+        return;
+      }
+
       if (!isResearchAvailable()) return;
       if (phaseCTabLoading[cTab]) return;
 
@@ -12101,6 +12242,7 @@
       appState.aiGeneratedPlan = null;
       appState.activePlan = null;
       appState.visualGallery = [];
+      appState.lessonFromArchive = false;
       appState.productTabsRendered = freshProductTabsRendered();
       resetSummarySession();
       abortAllInlineExpansions();
@@ -12279,6 +12421,9 @@
         if (data && data._meta && data._meta.cacheKey) {
           appState.lessonCacheKey = data._meta.cacheKey;
         }
+        if (!(data && data._meta && data._meta.fromCache)) {
+          appState.lessonFromArchive = false;
+        }
 
         const communityMatches = (data && data._communityMatches) ||
           (data && data._meta && data._meta.communityMatches) || [];
@@ -12337,6 +12482,8 @@
       const signal = topicResearchAbort.signal;
 
       appState.topic = topic;
+      appState.lessonFromArchive = false;
+      abortPhaseCLoads();
 
       const forceLiveSearch = shouldForceLiveArchiveBypass(topic, currentGrade);
       appState.archiveRejectedSearch = null;
@@ -12689,6 +12836,20 @@
           r.theory = true;
         } else if (tabId === 'inspiration') {
           if (!hasPhaseCInspirationContent()) {
+            if (isCachedLessonHydration()) {
+              var inspEl = document.getElementById('inspiration-content');
+              var inspRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+              renderStructuredTextFallback(
+                inspEl,
+                t('tab_inspiration') + t('tab_inspiration_suffix'),
+                inspRaw || (isEnglish()
+                  ? 'Archived lesson — inspiration was not stored in this record.'
+                  : 'תכנית ארכיון — שכבת ההשראה לא נשמרה ברשומה זו.')
+              );
+              r.inspiration = true;
+              ensurePageScrollUnlocked();
+              return;
+            }
             ensurePhaseCTabLoaded('inspiration');
             return;
           }
@@ -12708,6 +12869,20 @@
           }
         } else if (tabId === 'curriculum') {
           if (!hasPhaseCCurriculumContent()) {
+            if (isCachedLessonHydration()) {
+              var currEl = document.getElementById('curriculum-cards');
+              var currRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+              renderStructuredTextFallback(
+                currEl,
+                t('curriculum_title'),
+                currRaw || (isEnglish()
+                  ? 'Archived lesson — 15-day period plan was not stored in this record.'
+                  : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
+              );
+              r.curriculum = true;
+              ensurePageScrollUnlocked();
+              return;
+            }
             ensurePhaseCTabLoaded('curriculum');
             return;
           }
@@ -14481,6 +14656,7 @@
         activeProductTab: null,
         productTabsRendered: freshProductTabsRendered(),
         lessonCacheKey: '',
+        lessonFromArchive: false,
         communityAutoSync: true,
         archiveSuggestionPending: false,
         archiveRejectedSearch: null,
@@ -14882,6 +15058,16 @@
           authRedirectUrl: getAuthRedirectUrl(),
           supportWhatsApp: SUPPORT_WHATSAPP,
         });
+        if (typeof WaldorfAuth.onLogoutCleanup === 'function') {
+          WaldorfAuth.onLogoutCleanup(function () {
+            try { resetWizardSessionState(); } catch (e) { console.warn('[waldrof] logout resetWizardSessionState:', e); }
+            try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] logout resetWizardOnPageLoad:', e); }
+            try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] logout resetCommunityClientStateOnReload:', e); }
+            if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.invalidate === 'function') {
+              try { WaldorfSearchHistory.invalidate(); } catch (e) { /* ignore */ }
+            }
+          });
+        }
       }
       if (typeof WaldorfSearchHistory !== 'undefined') {
         WaldorfSearchHistory.init({

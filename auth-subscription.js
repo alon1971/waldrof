@@ -88,6 +88,9 @@
   }
 
   var listeners = [];
+  var logoutCleanupHooks = [];
+  var logoutRequested = false;
+  var logoutFinalized = false;
   var supabaseClient = null;
   var SUPABASE_CLIENT_GLOBAL_KEY = '__waldorfSupabaseClient';
 
@@ -969,8 +972,11 @@
         if (sess && sess.user) {
           applySupabaseSession(sess);
         } else if (event === 'SIGNED_OUT') {
-          clearAuth(false);
-          showAuthOverlay();
+          if (!logoutRequested) {
+            logoutRequested = true;
+            runLogoutCleanupHooks();
+            completeLogoutRedirect();
+          }
         }
       });
       authState.sessionReady = true;
@@ -1099,18 +1105,58 @@
       });
   }
 
+  function onLogoutCleanup(fn) {
+    if (typeof fn === 'function') logoutCleanupHooks.push(fn);
+  }
+
+  function getCleanAppUrl() {
+    try {
+      var loc = global.location;
+      return loc.origin + loc.pathname;
+    } catch (e) {
+      return '/';
+    }
+  }
+
+  function runLogoutCleanupHooks() {
+    logoutCleanupHooks.forEach(function (fn) {
+      try { fn(); } catch (e) { console.warn('[Auth] logout cleanup hook failed:', e); }
+    });
+  }
+
+  function clearAllBrowserStorage() {
+    try { localStorage.clear(); } catch (e) { /* */ }
+    try { sessionStorage.clear(); } catch (e) { /* */ }
+  }
+
+  function completeLogoutRedirect() {
+    if (logoutFinalized) return;
+    logoutFinalized = true;
+    clearAllBrowserStorage();
+    resetSupabaseClient();
+    authState.isAuthenticated = false;
+    authState.user = null;
+    authState.tier = 'trial';
+    authState.provider = 'mock';
+    authState.sessionReady = true;
+    try {
+      global.location.replace(getCleanAppUrl());
+    } catch (e) {
+      global.location.href = getCleanAppUrl();
+    }
+  }
+
   function signOut() {
+    logoutRequested = true;
+    runLogoutCleanupHooks();
     var client = getSupabaseClient();
     if (client && authState.provider === 'supabase') {
-      return client.auth.signOut().then(function () {
-        clearAuth(true);
-        showAuthOverlay();
-      }).catch(function () {
-        clearAuth(true);
-        showAuthOverlay();
-      });
+      return client.auth.signOut()
+        .then(completeLogoutRedirect)
+        .catch(completeLogoutRedirect);
     }
-    return mockSignOut();
+    completeLogoutRedirect();
+    return Promise.resolve();
   }
 
   /* ── Legacy provider hooks ─────────────────────────────────────────────── */
@@ -1194,9 +1240,7 @@
   }
 
   function mockSignOut() {
-    clearAuth(true);
-    showAuthOverlay();
-    return Promise.resolve();
+    return signOut();
   }
 
   function clearAuth(removeStorage) {
@@ -2207,6 +2251,7 @@
     signInWithGoogle: signInWithGoogle,
     mockGoogleSignIn: mockGoogleSignIn,
     signOut: signOut,
+    onLogoutCleanup: onLogoutCleanup,
     mockSignIn: mockSignIn,
     mockSignUp: mockSignUp,
     mockSignOut: mockSignOut,

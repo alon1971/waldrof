@@ -335,6 +335,199 @@ function coerceCachedResultData(raw) {
   return data;
 }
 
+function tryParseArchiveJsonObject(value) {
+  if (value == null) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text || (text.charAt(0) !== '{' && text.charAt(0) !== '[')) return null;
+  return tryParseCachedJsonText(text);
+}
+
+function archiveSectionText(sec) {
+  if (!sec) return '';
+  if (typeof sec === 'string') return sec.trim();
+  return String(sec.content || sec.overview || sec.text || sec.body || sec.summary || '').trim();
+}
+
+function coerceCurriculumRows(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'object') return [];
+  const listKeys = ['days', 'items', 'lessons', 'dailyPlan', 'rows', 'entries', 'schedule', 'plan'];
+  for (let i = 0; i < listKeys.length; i++) {
+    if (Array.isArray(raw[listKeys[i]])) return raw[listKeys[i]];
+  }
+  const numKeys = Object.keys(raw).filter(function (k) { return /^\d+$/.test(String(k)); });
+  if (numKeys.length) {
+    return numKeys.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); }).map(function (k) {
+      const row = raw[k];
+      if (row && typeof row === 'object' && row.day == null && row.dayNumber == null) {
+        return Object.assign({ day: parseInt(k, 10) }, row);
+      }
+      return row;
+    });
+  }
+  return [];
+}
+
+function extractCurriculumFromArchivePlan(plan, dataRoot) {
+  const sources = [];
+  if (plan) {
+    sources.push(
+      plan.curriculum,
+      plan.dailyPlan,
+      plan.days,
+      plan.lessons,
+      plan.blockPlan && plan.blockPlan.curriculum,
+      plan.blockPlan && plan.blockPlan.dailyPlan,
+      plan.blockPlan && plan.blockPlan.days
+    );
+  }
+  if (dataRoot && dataRoot !== plan) {
+    sources.push(dataRoot.curriculum, dataRoot.dailyPlan, dataRoot.days, dataRoot.lessons);
+    if (dataRoot.blockPlan && dataRoot.blockPlan !== plan) {
+      sources.push(
+        dataRoot.blockPlan.curriculum,
+        dataRoot.blockPlan.dailyPlan,
+        dataRoot.blockPlan.days,
+        dataRoot.blockPlan.lessons
+      );
+    }
+  }
+  for (let i = 0; i < sources.length; i++) {
+    const rows = coerceCurriculumRows(sources[i]);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
+function liftArchivePhaseCFields(blockPlan, data) {
+  if (!blockPlan || typeof blockPlan !== 'object') return blockPlan;
+  if (!blockPlan.inspiration && data.inspiration) {
+    blockPlan.inspiration = data.inspiration;
+  }
+  if (!blockPlan.curriculum && data.curriculum) {
+    blockPlan.curriculum = data.curriculum;
+  }
+  if (!blockPlan.sources && data.sources) {
+    blockPlan.sources = data.sources;
+  }
+  blockPlan.inspiration = tryParseArchiveJsonObject(blockPlan.inspiration) || blockPlan.inspiration;
+  blockPlan.curriculum = tryParseArchiveJsonObject(blockPlan.curriculum) || blockPlan.curriculum;
+  blockPlan.sources = tryParseArchiveJsonObject(blockPlan.sources) || blockPlan.sources;
+  if (typeof blockPlan.inspiration === 'string' && blockPlan.inspiration.trim()) {
+    blockPlan.inspiration = { rawContent: blockPlan.inspiration.trim() };
+  }
+  const curriculumRows = extractCurriculumFromArchivePlan(blockPlan, data);
+  if (curriculumRows.length) blockPlan.curriculum = curriculumRows;
+  return blockPlan;
+}
+
+/**
+ * Normalize archived lesson result_data so theory, inspiration, and curriculum
+ * map to the nested blockPlan shape the frontend expects.
+ */
+function coerceArchiveLessonResultData(raw) {
+  if (!raw) return null;
+
+  if (raw.resultData != null) {
+    const inner = coerceArchiveLessonResultData(raw.resultData);
+    if (!inner) return null;
+    return Object.assign({}, inner, {
+      cacheKey: raw.cacheKey || inner.cacheKey || null,
+      gradeId: raw.gradeId || inner.gradeId || null,
+      gradeLabel: raw.gradeLabel || inner.gradeLabel || null,
+      topic: raw.topic || inner.topic || null,
+    });
+  }
+
+  let data = tryParseArchiveJsonObject(raw) || raw;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+  if (
+    data.data != null &&
+    typeof data.data === 'object' &&
+    !Array.isArray(data.data) &&
+    !data.blockPlan &&
+    !data.webResearch &&
+    !data.gradeInsights
+  ) {
+    const nested = coerceArchiveLessonResultData(data.data);
+    if (nested) data = Object.assign({}, data, nested);
+  }
+
+  if (!data.blockPlan && data.block_plan) {
+    data.blockPlan = data.block_plan;
+  }
+
+  let blockPlan = tryParseArchiveJsonObject(data.blockPlan) || data.blockPlan;
+  if (blockPlan && typeof blockPlan === 'object' && blockPlan.blockPlan && typeof blockPlan.blockPlan === 'object') {
+    blockPlan = Object.assign({}, blockPlan.blockPlan, blockPlan);
+    delete blockPlan.blockPlan;
+  }
+  if (!blockPlan || typeof blockPlan !== 'object') {
+    if (data.inspiration || data.curriculum || data.sources) {
+      blockPlan = {};
+    } else {
+      return data;
+    }
+  }
+
+  let rawContent = String(
+    blockPlan.rawContent || blockPlan.content || blockPlan.overview || blockPlan.text || ''
+  ).trim();
+
+  let theory = tryParseArchiveJsonObject(blockPlan.theory) || blockPlan.theory;
+  if (typeof theory === 'string' && theory.trim()) {
+    blockPlan.theory = { title: '', sections: [{ heading: '', content: theory.trim() }] };
+  } else if (theory && typeof theory === 'object') {
+    if (!Array.isArray(theory.sections)) {
+      const parsedSections = tryParseArchiveJsonObject(theory.sections);
+      theory.sections = Array.isArray(parsedSections) ? parsedSections : coerceCurriculumRows(theory.sections);
+    }
+    if (!theory.sections.length) {
+      const theoryBody = String(
+        theory.content || theory.overview || theory.summary || theory.text || theory.body || ''
+      ).trim();
+      if (theoryBody) {
+        theory.sections = [{ heading: theory.title || theory.heading || '', content: theoryBody }];
+      }
+    }
+    theory.sections = theory.sections.map(function (sec, index) {
+      if (!sec || typeof sec !== 'object') {
+        const asText = String(sec || '').trim();
+        return asText ? { heading: '', content: asText } : null;
+      }
+      const content = archiveSectionText(sec);
+      return Object.assign({}, sec, {
+        heading: sec.heading || sec.title || '',
+        content: content || sec.content || '',
+      });
+    }).filter(Boolean);
+    blockPlan.theory = theory;
+  } else if (rawContent) {
+    blockPlan.theory = { title: '', sections: [{ heading: '', content: rawContent }] };
+  }
+
+  blockPlan = liftArchivePhaseCFields(blockPlan, data);
+  if (rawContent && !String(blockPlan.rawContent || '').trim()) blockPlan.rawContent = rawContent;
+  data.blockPlan = blockPlan;
+
+  if (!data.webResearch || typeof data.webResearch !== 'object') data.webResearch = {};
+  if (!String(data.webResearch.summary || '').trim()) {
+    const wrSummary = String(
+      data.webResearch.overview || data.webResearch.content || data.webResearch.text || ''
+    ).trim();
+    if (wrSummary) data.webResearch.summary = wrSummary;
+  }
+  if (!String(data.webResearch.summary || '').trim() && rawContent) {
+    data.webResearch.summary = rawContent;
+  }
+
+  return data;
+}
+
 /** Cache metadata keys that mark hybrid/archive-upgraded rows (required for grade/topic cache hits). */
 const CACHE_ENHANCEMENT_META_KEYS = ['_hybridGenerated', '_archiveUpgrade', '_perplexityOnly'];
 
@@ -1785,9 +1978,12 @@ async function getCachedResult(body, options) {
   if (requireEnhanced && !isEnhancedCachedPayload(body.phase, data)) return null;
 
   bumpHitCountAsync(cacheKey, row.hit_count);
-  const payload = body.phase === 'grade'
+  let payload = body.phase === 'grade'
     ? normalizeGradeResultForCache(data)
     : cloneJsonSafe(data);
+  if (body.phase === 'topic' && payload) {
+    payload = coerceArchiveLessonResultData(payload) || payload;
+  }
   if (!payload) return null;
   return {
     data: payload,
@@ -1971,8 +2167,9 @@ function teacherOwnsRow(teacher, row) {
 
 function formatHistoryItem(row, options) {
   const opts = options || {};
-  const data = row.result_data || {};
-  const hasPlan = Boolean(data.blockPlan);
+  const rawData = coerceCachedResultData(row.result_data) || row.result_data || {};
+  const data = coerceArchiveLessonResultData(rawData) || rawData;
+  const hasPlan = Boolean(data && data.blockPlan);
   const includeResult = opts.includeResultData !== false;
   return {
     cacheKey: row.cache_key,
@@ -2139,10 +2336,10 @@ async function listTeacherChatHistory(teacher, options) {
 async function getCommunityLessonByCacheKey(cacheKey) {
   const row = await fetchCachedRowByKey(cacheKey);
   if (!row || row.phase !== 'topic') return null;
-  const data = coerceCachedResultData(row.result_data);
+  const data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
   if (!data || !data.blockPlan) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
-  return formatHistoryItem(row);
+  return formatHistoryItem(Object.assign({}, row, { result_data: data }));
 }
 
 /**
@@ -2152,9 +2349,10 @@ async function getTeacherLessonByCacheKey(teacher, cacheKey) {
   const row = await fetchCachedRowByKey(cacheKey);
   if (!row || row.phase !== 'topic') return null;
   if (!teacherOwnsRow(teacher, row)) return null;
-  if (!row.result_data || !row.result_data.blockPlan) return null;
+  const data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
+  if (!data || !data.blockPlan) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
-  return formatHistoryItem(row);
+  return formatHistoryItem(Object.assign({}, row, { result_data: data }));
 }
 
 /**
@@ -2994,6 +3192,7 @@ module.exports = {
   normalizeTopicQuery,
   normalizeGradeResultForCache,
   coerceCachedResultData,
+  coerceArchiveLessonResultData,
   sanitizeForJsonStorage,
   safeJsonStringify,
   buildCachedGeneratePayload,
