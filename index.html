@@ -3941,7 +3941,7 @@
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250618b"></script>
-  <script src="archive-coerce.js?v=20250621"></script>
+  <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -4575,6 +4575,7 @@
           gradeLabel: appState.gradeLabel || null,
           topic: appState.topic || null,
           lessonCacheKey: appState.lessonCacheKey || '',
+          lessonFromArchive: Boolean(appState.lessonFromArchive),
           topicResearchCompleted: Boolean(appState.topicResearchCompleted),
           snapshot: buildLessonSnapshotForSave(),
         }));
@@ -4595,6 +4596,12 @@
       appState.gradeLabel = snapshotData.gradeLabel || getGradeLabelById(gradeId);
       appState.topic = topicStr;
       appState.lessonCacheKey = snapshotData.lessonCacheKey || appState.lessonCacheKey || '';
+      appState.lessonFromArchive = Boolean(snapshotData.lessonFromArchive);
+      if (!appState.lessonFromArchive && snapshotData.snapshot && snapshotData.snapshot.blockPlan) {
+        if (hasArchivePhaseCInBlockPlan(snapshotData.snapshot.blockPlan)) {
+          appState.lessonFromArchive = true;
+        }
+      }
 
       var gradeSelect = document.getElementById('grade-select');
       if (gradeSelect) gradeSelect.value = gradeId;
@@ -4982,10 +4989,60 @@
         return WaldorfArchiveCoerce.liftArchivePhaseCFields(blockPlan, data);
       }
       if (!blockPlan || typeof blockPlan !== 'object') return blockPlan;
-      if (!blockPlan.inspiration && data.inspiration) blockPlan.inspiration = data.inspiration;
+      if (!data || typeof data !== 'object') data = {};
+      if (!isMeaningfulArchiveInspiration(blockPlan.inspiration)) {
+        var aliasKeys = getInspirationAliasKeys();
+        var i;
+        for (i = 0; i < aliasKeys.length; i++) {
+          if (data[aliasKeys[i]]) { blockPlan.inspiration = data[aliasKeys[i]]; break; }
+          if (blockPlan[aliasKeys[i]]) { blockPlan.inspiration = blockPlan[aliasKeys[i]]; break; }
+        }
+        if (!isMeaningfulArchiveInspiration(blockPlan.inspiration) && isMeaningfulArchiveInspiration(data.inspiration)) {
+          blockPlan.inspiration = data.inspiration;
+        }
+      }
       if (!blockPlan.curriculum && data.curriculum) blockPlan.curriculum = data.curriculum;
       if (!blockPlan.sources && data.sources) blockPlan.sources = data.sources;
       return blockPlan;
+    }
+
+    function getInspirationAliasKeys() {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.INSPIRATION_ALIASES) {
+        return WaldorfArchiveCoerce.INSPIRATION_ALIASES;
+      }
+      return [
+        'inspiration', 'inspiration_text', 'inspirationText', 'inspirationContent',
+        'inspiration_content', 'creativeInspiration', 'creative_inspiration',
+      ];
+    }
+
+    function isMeaningfulArchiveInspiration(insp) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.isMeaningfulInspiration) {
+        return WaldorfArchiveCoerce.isMeaningfulInspiration(insp);
+      }
+      if (!insp) return false;
+      if (typeof insp === 'string') return insp.trim().length > 0;
+      if (String(insp.rawContent || '').trim()) return true;
+      if (Array.isArray(insp.global) && insp.global.some(function (b) {
+        return b && Array.isArray(b.items) && b.items.length;
+      })) return true;
+      if (Array.isArray(insp.narrative) && insp.narrative.length) return true;
+      var eps = insp.podcast && insp.podcast.episodes;
+      return Array.isArray(eps) && eps.length > 0;
+    }
+
+    function extractArchiveInspirationFromData(data, blockPlan) {
+      if (!data || typeof data !== 'object') data = {};
+      if (!blockPlan || typeof blockPlan !== 'object') blockPlan = {};
+      if (isMeaningfulArchiveInspiration(blockPlan.inspiration)) return blockPlan.inspiration;
+      var aliasKeys = getInspirationAliasKeys();
+      var i;
+      for (i = 0; i < aliasKeys.length; i++) {
+        if (data[aliasKeys[i]] != null && data[aliasKeys[i]] !== '') return data[aliasKeys[i]];
+        if (blockPlan[aliasKeys[i]] != null && blockPlan[aliasKeys[i]] !== '') return blockPlan[aliasKeys[i]];
+      }
+      if (isMeaningfulArchiveInspiration(data.inspiration)) return data.inspiration;
+      return null;
     }
 
     function hasArchivePhaseCInBlockPlan(bp) {
@@ -5018,6 +5075,10 @@
     }
 
     function isCachedLessonHydration() {
+      return Boolean(appState.lessonFromArchive);
+    }
+
+    function shouldBlockLivePhaseCApi() {
       return Boolean(appState.lessonFromArchive);
     }
 
@@ -5094,11 +5155,19 @@
       if (!topicStr || !data || !hasTopicResearchContent(data)) return false;
 
       appState.topic = topicStr;
+      if (data._fromCache || (data._meta && data._meta.fromCache)) {
+        appState.lessonFromArchive = true;
+      }
       var blockPlan = mergeBlockPlanCurriculum(
         mergeBlockPlanBibliography(data.blockPlan, data),
         data
       );
       blockPlan = liftArchivePhaseCFields(blockPlan, data);
+
+      var archiveInspiration = extractArchiveInspirationFromData(data, blockPlan);
+      if (archiveInspiration != null) {
+        blockPlan.inspiration = archiveInspiration;
+      }
 
       var curriculumRows = extractCurriculumFromPlan(blockPlan, data);
       if (curriculumRows.length) blockPlan.curriculum = curriculumRows;
@@ -5139,6 +5208,8 @@
         };
         if (blockPlan.inspiration) {
           appState.aiGeneratedPlan.inspiration = coerceInspirationStructure(blockPlan.inspiration, rawFallback);
+        } else if (archiveInspiration != null) {
+          appState.aiGeneratedPlan.inspiration = coerceInspirationStructure(archiveInspiration, rawFallback);
         }
         attachArchiveCurriculumToPlan(appState.aiGeneratedPlan);
       } else {
@@ -5157,8 +5228,11 @@
             blockPlan.theory.sections = [{ heading: '', content: rawTopic }];
           }
         }
-        if (blockPlan.inspiration) {
-          blockPlan.inspiration = coerceInspirationStructure(blockPlan.inspiration, rawFallback);
+        if (blockPlan.inspiration || archiveInspiration != null) {
+          blockPlan.inspiration = coerceInspirationStructure(
+            blockPlan.inspiration || archiveInspiration,
+            rawFallback
+          );
         }
         if (!blockPlan.sources || typeof blockPlan.sources !== 'object') {
           blockPlan.sources = { books: [], articles: [], websites: [] };
@@ -5166,6 +5240,9 @@
 
         try {
           appState.aiGeneratedPlan = normalizeBlockPlan(blockPlan, topicStr, appState.gradeLabel);
+          if (blockPlan.inspiration && !isMeaningfulArchiveInspiration(appState.aiGeneratedPlan.inspiration)) {
+            appState.aiGeneratedPlan.inspiration = blockPlan.inspiration;
+          }
         } catch (normErr) {
           console.warn('[waldrof] normalizeBlockPlan failed — using archive essence fallback:', normErr);
           var fallbackText = archiveEssenceTextFromData(data);
@@ -5952,9 +6029,19 @@
         var fromBp = String(bp.rawContent || bp.content || bp.text || '').trim();
         if (fromBp) return fromBp;
         if (typeof bp.curriculum === 'string' && bp.curriculum.trim()) return bp.curriculum.trim();
+        if (typeof bp.inspiration === 'string' && bp.inspiration.trim()) return bp.inspiration.trim();
         if (bp.inspiration && typeof bp.inspiration === 'object') {
           var fromInsp = String(bp.inspiration.rawContent || '').trim();
           if (fromInsp) return fromInsp;
+          if (Array.isArray(bp.inspiration.global)) {
+            var globalText = bp.inspiration.global.map(function (b) {
+              if (!b || !Array.isArray(b.items)) return '';
+              return b.items.map(function (it) {
+                return typeof it === 'string' ? it : String(it.text || it.preview || it.detail || it.content || '');
+              }).filter(Boolean).join('\n');
+            }).filter(Boolean).join('\n\n');
+            if (globalText.trim()) return globalText.trim();
+          }
         }
         var currRows = extractCurriculumFromPlan(bp, data);
         if (currRows.length) {
@@ -5965,8 +6052,15 @@
           }).filter(Boolean).join('\n\n');
         }
       }
+      var aliasKeys = getInspirationAliasKeys();
+      var i;
+      for (i = 0; i < aliasKeys.length; i++) {
+        var aliasVal = data[aliasKeys[i]];
+        if (typeof aliasVal === 'string' && aliasVal.trim()) return aliasVal.trim();
+      }
       return String(
-        data.curriculum_text || data.curriculumText || data.rawText || data.rawContent || data.content || ''
+        data.inspiration_text || data.inspirationText || data.curriculum_text || data.curriculumText ||
+        data.rawText || data.rawContent || data.content || ''
       ).trim();
     }
 
@@ -6129,6 +6223,12 @@
     }
 
     function setPhaseCTabLoadingUi(cTab, loading) {
+      if (loading && shouldBlockLivePhaseCApi()) {
+        loading = false;
+        phaseCTabLoading[cTab] = false;
+        ensurePageScrollUnlocked();
+        return;
+      }
       phaseCTabLoading[cTab] = loading;
       var loadingEl = getPhaseCTabLoadingEl(cTab);
       if (!loadingEl) {
@@ -6616,12 +6716,13 @@
     function hasPhaseCInspirationContent() {
       var insp = appState.aiGeneratedPlan && appState.aiGeneratedPlan.inspiration;
       if (!insp) return false;
-      if (typeof insp === 'string' && insp.trim().length > 40) return true;
-      if (String(insp.rawContent || '').trim().length > 40) return true;
+      if (isMeaningfulArchiveInspiration(insp)) return true;
+      if (typeof insp === 'string' && insp.trim().length > 0) return true;
+      if (String(insp.rawContent || '').trim().length > 0) return true;
       return !!(Array.isArray(insp.global) && insp.global.some(function (b) {
         return b && Array.isArray(b.items) && b.items.length && b.items.some(function (it) {
-          var text = typeof it === 'string' ? it : (it.text || it.preview || '');
-          return String(text).trim().length > 40;
+          var text = typeof it === 'string' ? it : (it.text || it.preview || it.detail || it.content || '');
+          return String(text).trim().length > 0;
         });
       }));
     }
@@ -6709,10 +6810,36 @@
       if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
       if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) return;
 
+      if (shouldBlockLivePhaseCApi()) {
+        if (phaseCLoadAbort[cTab]) {
+          phaseCLoadAbort[cTab].abort();
+          phaseCLoadAbort[cTab] = null;
+        }
+        phaseCTabLoading[cTab] = false;
+      }
+
       var loadingEl = getPhaseCTabLoadingEl(cTab);
-      if (isCachedLessonHydration()) {
+      if (shouldBlockLivePhaseCApi()) {
         if (loadingEl) {
           var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+          if (!cachedRaw && cTab === 'inspiration') {
+            var archiveInsp = extractArchiveInspirationFromData(
+              { blockPlan: appState.aiGeneratedPlan },
+              appState.aiGeneratedPlan
+            );
+            if (archiveInsp != null) {
+              var coerced = coerceInspirationStructure(archiveInsp, cachedRaw);
+              if (coerced && isMeaningfulArchiveInspiration(coerced)) {
+                appState.aiGeneratedPlan.inspiration = coerced;
+                appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+                appState.productTabsRendered[cTab] = false;
+                renderProductTabContent(cTab);
+                setPhaseCTabLoadingUi(cTab, false);
+                ensurePageScrollUnlocked();
+                return;
+              }
+            }
+          }
           renderStructuredTextFallback(
             loadingEl,
             cTab === 'inspiration' ? (t('tab_inspiration') + t('tab_inspiration_suffix')) : t('curriculum_title'),
@@ -6722,6 +6849,7 @@
           );
         }
         setPhaseCTabLoadingUi(cTab, false);
+        appState.productTabsRendered[cTab] = true;
         ensurePageScrollUnlocked();
         return;
       }
@@ -11714,6 +11842,25 @@
       scrollToSectionStart(anchor, behavior);
     }
 
+    function resetMainViewScroll() {
+      var opts = { top: 0, left: 0, behavior: 'instant' };
+      try {
+        window.scrollTo(opts);
+      } catch (e) {
+        window.scrollTo(0, 0);
+      }
+      if (document.documentElement) {
+        try { document.documentElement.scrollTo(opts); } catch (e2) { document.documentElement.scrollTop = 0; }
+      }
+      if (document.body) {
+        try { document.body.scrollTo(opts); } catch (e3) { document.body.scrollTop = 0; }
+      }
+      var appMain = document.getElementById('app-main');
+      if (appMain) {
+        try { appMain.scrollTo(opts); } catch (e4) { appMain.scrollTop = 0; }
+      }
+    }
+
     function syncStepBChrome() {
       if (appState.grade) {
         var gradeSel = document.getElementById('grade-select');
@@ -12342,7 +12489,9 @@
         if (data && data._meta && data._meta.cacheKey) {
           appState.lessonCacheKey = data._meta.cacheKey;
         }
-        if (!(data && data._meta && data._meta.fromCache)) {
+        if (data && data._meta && data._meta.fromCache) {
+          appState.lessonFromArchive = true;
+        } else if (!(data && data._meta && data._meta.fromCache)) {
           appState.lessonFromArchive = false;
         }
 
@@ -12757,8 +12906,33 @@
           r.theory = true;
         } else if (tabId === 'inspiration') {
           if (!hasPhaseCInspirationContent()) {
-            if (isCachedLessonHydration()) {
+            if (shouldBlockLivePhaseCApi()) {
               var inspEl = document.getElementById('inspiration-content');
+              var archiveInspRaw = extractArchiveInspirationFromData(
+                { blockPlan: appState.aiGeneratedPlan },
+                appState.aiGeneratedPlan
+              );
+              if (archiveInspRaw != null) {
+                var coercedInsp = coerceInspirationStructure(archiveInspRaw, extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }));
+                if (coercedInsp && isMeaningfulArchiveInspiration(coercedInsp)) {
+                  appState.aiGeneratedPlan.inspiration = coercedInsp;
+                  appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+                  if (!appState.visualGallery.length) {
+                    appState.visualGallery = generateVisualGallery(appState.topic || '');
+                  }
+                  document.getElementById('synthesis-banner').classList.remove('hidden');
+                  renderSynthesisBanner();
+                  renderInspirationBase();
+                  renderPinterestGallery();
+                  renderPersonalInWorkspace();
+                  renderTeacherDriveMergeSlots();
+                  renderCommunityMaterials();
+                  updateCommunityBadge();
+                  r.inspiration = true;
+                  ensurePageScrollUnlocked();
+                  return;
+                }
+              }
               var inspRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
               renderStructuredTextFallback(
                 inspEl,
@@ -12790,7 +12964,7 @@
           }
         } else if (tabId === 'curriculum') {
           if (!hasPhaseCCurriculumContent()) {
-            if (isCachedLessonHydration()) {
+            if (shouldBlockLivePhaseCApi()) {
               var currEl = document.getElementById('curriculum-cards');
               var currRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
               var parsedArchiveRows = parseCurriculumFromText(currRaw);
@@ -14539,6 +14713,12 @@
     }
 
     function switchTab(id) {
+      var prevProductTab = appState.activeProductTab;
+      var prevNavSection = appState.navSection;
+      var tabViewChanged = isProductTab(id)
+        ? prevProductTab !== id
+        : (id === 'catalog' || id === 'archive' ? prevNavSection !== id : false);
+
       if (id === 'catalog') {
         appState.navSection = 'community';
         resetProductTabsNeutral();
@@ -14560,6 +14740,7 @@
         ensureProductTabsHydrated();
         revealProductTabPanel(id);
         if (id === 'curriculum') setupPhase3ActionButtons();
+        if (tabViewChanged) resetMainViewScroll();
         updateWorkspaceChrome();
         updatePedagogyExportButtonsVisibility();
         renderStepProgress();
@@ -14567,6 +14748,7 @@
         document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
         return;
       }
+      if (tabViewChanged) resetMainViewScroll();
       document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
       document.querySelectorAll('.tab-panel').forEach(function (p) {
         p.classList.add('hidden');

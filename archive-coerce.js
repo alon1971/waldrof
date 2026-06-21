@@ -33,6 +33,33 @@
     'inspiration_content', 'creativeInspiration', 'creative_inspiration',
   ];
 
+  function isMeaningfulInspiration(insp) {
+    if (!insp) return false;
+    if (typeof insp === 'string') return insp.trim().length > 0;
+    if (String(insp.rawContent || '').trim()) return true;
+    if (Array.isArray(insp.global) && insp.global.some(function (b) {
+      return b && Array.isArray(b.items) && b.items.length;
+    })) return true;
+    if (Array.isArray(insp.narrative) && insp.narrative.length) return true;
+    var eps = insp.podcast && insp.podcast.episodes;
+    return Array.isArray(eps) && eps.length > 0;
+  }
+
+  function firstInspirationAliasValue() {
+    var root = arguments[0];
+    if (!root || typeof root !== 'object') return null;
+    var i;
+    for (i = 1; i < arguments.length; i++) {
+      var keys = arguments[i];
+      var j;
+      for (j = 0; j < keys.length; j++) {
+        var val = root[keys[j]];
+        if (val != null && val !== '') return val;
+      }
+    }
+    return null;
+  }
+
   var DAY_HEADER_RE = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:(?:יום|יום\s*מס['\u2019]?|Day|DAY)\s*[#:.\-–—]?\s*)(\d{1,2})\b/gi;
   var NUMBERED_DAY_RE = /(?:^|\n)\s*(\d{1,2})\s*[.):\-–—]\s+/g;
 
@@ -195,13 +222,9 @@
     }
 
     var i;
-    if (!data.inspiration) {
-      for (i = 0; i < INSPIRATION_ALIASES.length; i++) {
-        if (data[INSPIRATION_ALIASES[i]]) {
-          data.inspiration = data[INSPIRATION_ALIASES[i]];
-          break;
-        }
-      }
+    if (!isMeaningfulInspiration(data.inspiration)) {
+      var liftedInsp = firstInspirationAliasValue(data, INSPIRATION_ALIASES);
+      if (liftedInsp != null) data.inspiration = liftedInsp;
     }
 
     if (!data.curriculum) {
@@ -280,12 +303,12 @@
     if (!data || typeof data !== 'object') data = {};
 
     var i;
-    if (!blockPlan.inspiration) {
-      for (i = 0; i < INSPIRATION_ALIASES.length; i++) {
-        var inspKey = INSPIRATION_ALIASES[i];
-        if (data[inspKey]) blockPlan.inspiration = data[inspKey];
-        if (blockPlan[inspKey]) blockPlan.inspiration = blockPlan[inspKey];
-      }
+    if (!isMeaningfulInspiration(blockPlan.inspiration)) {
+      var fromData = firstInspirationAliasValue(data, INSPIRATION_ALIASES);
+      var fromPlan = firstInspirationAliasValue(blockPlan, INSPIRATION_ALIASES);
+      if (fromData != null) blockPlan.inspiration = fromData;
+      else if (fromPlan != null) blockPlan.inspiration = fromPlan;
+      else if (isMeaningfulInspiration(data.inspiration)) blockPlan.inspiration = data.inspiration;
     }
 
     if (!blockPlan.curriculum) {
@@ -437,10 +460,12 @@
 
   return {
     CURRICULUM_LIST_KEYS: CURRICULUM_LIST_KEYS,
+    INSPIRATION_ALIASES: INSPIRATION_ALIASES,
     archiveSectionText: archiveSectionText,
     coerceCurriculumRows: coerceCurriculumRows,
     coerceArchiveLessonResultData: coerceArchiveLessonResultData,
     extractCurriculumFromArchivePlan: extractCurriculumFromArchivePlan,
+    isMeaningfulInspiration: isMeaningfulInspiration,
     liftArchivePhaseCFields: liftArchivePhaseCFields,
     looksLikeCurriculumText: looksLikeCurriculumText,
     parseCurriculumFromText: parseCurriculumFromText,
