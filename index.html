@@ -4453,6 +4453,8 @@
       communityAutoSync: true,
       archiveSuggestionPending: false,
       archiveRejectedSearch: null,
+      archiveFreshSearchPending: false,
+      archiveRejectedSuggestions: [],
       isSubmitting: false,
     };
 
@@ -4523,6 +4525,8 @@
         communityAutoSync: true,
         archiveSuggestionPending: false,
         archiveRejectedSearch: null,
+        archiveFreshSearchPending: false,
+        archiveRejectedSuggestions: [],
         communityCache: [],
         communityForGrade: [],
       });
@@ -4775,11 +4779,60 @@
     }
 
     function resetArchiveSearchFlowState() {
+      clearArchiveClarificationState();
+    }
+
+    function clearArchiveClarificationState() {
       appState.archiveSuggestionPending = false;
       hideTopicArchiveSuggestionBanner();
       if (typeof LessonChatSidebar !== 'undefined' && typeof LessonChatSidebar.clearArchiveSuggestionState === 'function') {
         LessonChatSidebar.clearArchiveSuggestionState();
       }
+    }
+
+    function archiveSuggestionRejectKey(match, gradeId) {
+      if (!match || !match.cacheKey) return '';
+      return String(gradeId != null ? gradeId : (match.gradeId || appState.grade || '')) + '|' + match.cacheKey;
+    }
+
+    function isArchiveSuggestionRejected(match) {
+      var rejectKey = archiveSuggestionRejectKey(match, match && match.gradeId);
+      if (!rejectKey || rejectKey === '|') return false;
+      return (appState.archiveRejectedSuggestions || []).some(function (r) {
+        return r && r.key === rejectKey;
+      });
+    }
+
+    function recordArchiveSuggestionRejection(match, queryTopic) {
+      var normalizedMatch = normalizeArchiveSuggestionMatch(match) || match;
+      clearArchiveClarificationState();
+      var cacheKey = normalizedMatch && normalizedMatch.cacheKey;
+      var gradeId = appState.grade;
+      if (!appState.archiveRejectedSuggestions) appState.archiveRejectedSuggestions = [];
+      if (cacheKey) {
+        var rejectKey = archiveSuggestionRejectKey(normalizedMatch, gradeId);
+        if (!appState.archiveRejectedSuggestions.some(function (r) { return r && r.key === rejectKey; })) {
+          appState.archiveRejectedSuggestions.push({
+            key: rejectKey,
+            cacheKey: cacheKey,
+            gradeId: gradeId,
+            suggestedTopic: (normalizedMatch && normalizedMatch.suggestedTopic) || '',
+            rejectedQuery: String(queryTopic || '').trim(),
+          });
+        }
+      }
+      appState.archiveFreshSearchPending = true;
+      appState.archiveRejectedSearch = {
+        topic: String(queryTopic || '').trim(),
+        gradeId: gradeId,
+        cacheKey: cacheKey || '',
+        suggestedTopic: (normalizedMatch && normalizedMatch.suggestedTopic) || '',
+      };
+    }
+
+    function filterArchiveProbeMatch(match) {
+      if (!match || isArchiveSuggestionRejected(match)) return null;
+      return match;
     }
 
     let topicArchiveSuggestionHandlers = null;
@@ -4813,12 +4866,17 @@
       return String(topic || '').trim().toLowerCase();
     }
 
-    function shouldForceLiveArchiveBypass(topic, gradeId) {
+    function shouldBypassArchiveHybridMatch(topic, gradeId) {
       if (ARCHIVE_ONLY_MODE) return false;
+      if (appState.archiveFreshSearchPending) return true;
       const pending = appState.archiveRejectedSearch;
       if (!pending) return false;
       return normalizeArchiveSearchTopic(pending.topic) === normalizeArchiveSearchTopic(topic) &&
         String(pending.gradeId || '') === String(gradeId || '');
+    }
+
+    function shouldForceLiveArchiveBypass(topic, gradeId) {
+      return shouldBypassArchiveHybridMatch(topic, gradeId);
     }
 
     function prepareResearchPayload(payload) {
@@ -9156,7 +9214,7 @@
         }
       });
       if (exactBest) {
-        return buildArchiveMatchFromItem(exactBest, 'exact', exactBestScore, topic);
+        return filterArchiveProbeMatch(buildArchiveMatchFromItem(exactBest, 'exact', exactBestScore, topic));
       }
 
       if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
@@ -9170,7 +9228,7 @@
         });
         if (canonicalItem) {
           const archiveTitle = archiveLessonDisplayTopic(canonicalItem) || canonicalTopic;
-          return {
+          return filterArchiveProbeMatch({
             matchType: 'partial',
             similarity: scoreArchiveTopicSimilarity(topic, archiveTitle),
             cacheKey: canonicalItem.cacheKey,
@@ -9178,7 +9236,7 @@
             topic: archiveTitle,
             gradeId: gradeId,
             gradeLabel: canonicalItem.gradeLabel || null,
-          };
+          });
         }
       }
 
@@ -9197,7 +9255,7 @@
       });
       if (!best) return null;
       if (isMisleadingPartialArchiveSuggestion(topic, archiveLessonDisplayTopic(best), bestScore)) return null;
-      return buildArchiveMatchFromItem(best, 'partial', bestScore, topic);
+      return filterArchiveProbeMatch(buildArchiveMatchFromItem(best, 'partial', bestScore, topic));
     }
 
     async function probeArchiveTopicMatch(topic, gradeId) {
@@ -9232,12 +9290,12 @@
         }
         if (res.ok && !json.error) {
           const data = json.data || json;
-          if (data && data.match) return data.match;
+          if (data && data.match) return filterArchiveProbeMatch(data.match);
         }
       } catch (apiErr) {
         console.warn('[archive-probe] API failed:', apiErr);
       }
-      return probeArchiveTopicMatchLocal(topic, gradeId);
+      return filterArchiveProbeMatch(probeArchiveTopicMatchLocal(topic, gradeId));
     }
 
     async function reloadArchiveLessonItem(cacheKey) {
@@ -11793,7 +11851,7 @@
     let archiveResumeLookupRunId = 0;
     async function resumePendingArchiveLookupIfNeeded() {
       if (document.hidden || hasLessonReady() || isTopicResearchLoadingUi()) return;
-      if (appState.archiveSuggestionPending) return;
+      if (appState.archiveSuggestionPending || appState.archiveFreshSearchPending) return;
       const topic = (appState.topic || (document.getElementById('topic-input') && document.getElementById('topic-input').value) || '').trim();
       const gradeId = appState.grade;
       if (!topic || !gradeId || appState.step < 2) return;
@@ -12381,6 +12439,10 @@
     function presentArchivePartialMatch(topic, archiveMatch) {
       const match = normalizeArchiveSuggestionMatch(archiveMatch);
       if (!match || !match.cacheKey || !match.suggestedTopic) return false;
+      if (isArchiveSuggestionRejected(match)) {
+        clearArchiveClarificationState();
+        return false;
+      }
 
       if (match.matchType === 'exact') {
         applyArchiveTopicMatch(match, { closeChat: false, userQuery: topic }).catch(function (err) {
@@ -12408,6 +12470,8 @@
 
       const onConfirm = function () {
         appState.archiveSuggestionPending = false;
+        appState.archiveFreshSearchPending = false;
+        appState.archiveRejectedSearch = null;
         hideTopicArchiveSuggestionBanner();
         if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.setDisplayMode('bubble');
         reloadArchiveLessonItem(match.cacheKey).then(function (item) {
@@ -12420,9 +12484,7 @@
       };
 
       const onReject = function () {
-        appState.archiveSuggestionPending = false;
-        hideTopicArchiveSuggestionBanner();
-        appState.archiveRejectedSearch = { topic: topic, gradeId: appState.grade };
+        recordArchiveSuggestionRejection(match, topic);
         topicResearchRunId += 1;
         if (topicResearchAbort) {
           topicResearchAbort.abort();
@@ -12478,12 +12540,20 @@
         if (runId !== topicResearchRunId || signal.aborted) return;
 
         if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
-          setTopicResearchLoadingUi(false);
-          if (btn) btn.disabled = false;
-          updateTopicResearchButton();
-          topicResearchAbort = null;
-          presentArchivePartialMatch(topic, data._archiveSuggestion);
-          return;
+          if (opts.skipCache === true || isArchiveSuggestionRejected(data._archiveSuggestion)) {
+            data = await fetchTopicResearchAI(topic, signal, { skipCache: true });
+            if (runId !== topicResearchRunId || signal.aborted) return;
+            if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
+              console.warn('[waldrof] archive suggestion persisted after skipCache — ignoring');
+            }
+          } else {
+            setTopicResearchLoadingUi(false);
+            if (btn) btn.disabled = false;
+            updateTopicResearchButton();
+            topicResearchAbort = null;
+            presentArchivePartialMatch(topic, data._archiveSuggestion);
+            return;
+          }
         }
 
         if (data && data._meta && data._meta.cacheKey) {
@@ -12533,7 +12603,7 @@
     }
 
     async function generateLesson() {
-      resetArchiveSearchFlowState();
+      clearArchiveClarificationState();
 
       const topic = document.getElementById('topic-input').value.trim();
       const currentGrade = appState.grade;
@@ -12555,16 +12625,15 @@
       appState.lessonFromArchive = false;
       abortPhaseCLoads();
 
-      const forceLiveSearch = shouldForceLiveArchiveBypass(topic, currentGrade);
-      appState.archiveRejectedSearch = null;
+      const bypassArchive = shouldBypassArchiveHybridMatch(topic, currentGrade);
 
-      if (!forceLiveSearch) {
+      if (!bypassArchive) {
         let archiveMatch = null;
         try {
           if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.refresh === 'function') {
             try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
           }
-          archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+          archiveMatch = filterArchiveProbeMatch(await probeArchiveTopicMatch(topic, currentGrade));
         } catch (probeErr) {
           console.warn('[archive-probe] failed:', probeErr);
         }
@@ -12644,8 +12713,12 @@
       }
 
       await runTopicResearchGeneration(topic, runId, signal, {
-        skipCache: forceLiveSearch,
+        skipCache: bypassArchive,
       });
+      if (bypassArchive) {
+        appState.archiveFreshSearchPending = false;
+        appState.archiveRejectedSearch = null;
+      }
     }
 
     function renderPersonalList() {
@@ -14786,7 +14859,10 @@
         communityAutoSync: true,
         archiveSuggestionPending: false,
         archiveRejectedSearch: null,
+        archiveFreshSearchPending: false,
+        archiveRejectedSuggestions: [],
       });
+      resetArchiveSearchFlowState();
       resetSummarySession();
       abortAllInlineExpansions();
       invalidateProductTabRenders();
@@ -15043,7 +15119,10 @@
       bindWizardNavClick(document.getElementById('btn-to-step-2'), goToStep2FromStep1);
       document.getElementById('topic-input').addEventListener('input', function () {
         appState.topic = this.value.trim();
-        if (appState.archiveSuggestionPending) resetArchiveSearchFlowState();
+        if (appState.archiveSuggestionPending) {
+          clearArchiveClarificationState();
+          appState.archiveFreshSearchPending = true;
+        }
         if (appState.grade && appState.topic) renderTopicCommunitySlot();
         schedulePersistActiveStep();
       });

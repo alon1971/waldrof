@@ -351,6 +351,7 @@
         m.archiveSuggestResolved = true;
       }
     });
+    renderMessages();
   }
 
   function showArchiveRefineHint(options) {
