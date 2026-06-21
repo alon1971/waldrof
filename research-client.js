@@ -136,13 +136,17 @@
     'PINTEREST VISUAL INSPIRATION (WALDORF PEDAGOGY ONLY — QUALITY OVER QUANTITY):\n' +
     'Return at most 2–4 highly vetted gallery entries. If only 2 perfect matches exist, return 2 — NEVER pad with generic clutter.\n' +
     'STRICT GRADE-TOPIC ISOLATION (NON-NEGOTIABLE): Every "pin" MUST pair the Waldorf pedagogical anchor with the ACTIVE grade only.\n' +
-    'Hebrew example for Grade 8 revolutions: "חינוך וולדורף" "כיתה ח" מהפכות. English example: Waldorf "Class 8" revolutions.\n' +
-    'Each pin MUST explicitly include the active grade ("כיתה ח", "Grade 8", or "Waldorf Class 8") AND "וולדורף"/"Waldorf"/"Steiner".\n' +
-    'FORBIDDEN: pins mentioning any other grade (e.g. כיתה ה / Grade 5 when context is Grade 8), bare topic-only queries, coloring pages, commercial stationery.\n' +
-    'BILINGUAL FALLBACK — map niche Hebrew terms to grade-paired English queries: "Waldorf Class N Form Drawing", "מחברת תקופה וולדורף כיתה N".\n' +
+    'BILINGUAL SEARCH ANCHORING — Pinterest pins MUST be clean, unquoted ENGLISH only (NEVER Hebrew exact-match quotes).\n' +
+    'Transform Hebrew topics to English educational keywords. Example: «המהפכה הצרפתית כיתה ח» → Waldorf Class 8 revolutions.\n' +
+    'Template: Waldorf Class N {englishTopic} — no quotation marks, max 2–4 keywords.\n' +
+    'FORBIDDEN: Hebrew quoted pins, pins mentioning any other grade, bare topic-only queries, coloring pages, commercial stationery.\n' +
+    'BILINGUAL FALLBACK — map niche Hebrew terms to grade-paired English queries:\n' +
+    '- "רישום צורה" → Waldorf Class N form drawing\n' +
+    '- "ציור גיר" → Waldorf Class N blackboard drawing\n' +
+    '- "מחברת תקופה" → Waldorf Class N main lesson book\n' +
     'Each "pin" MUST be a SHORT search of at most 2–4 high-impact keywords — never one long concatenated string.\n' +
-    'Hebrew board titles may be descriptive; "pin" phrases must stay short, grade-locked, and Waldorf-anchored.\n' +
-    'WALDORF PEDAGOGICAL WEB RESOURCES (Phase C inspiration): actively search official Israeli Waldorf schools (שקד, חרדוף), waldorf.org.il, AWSNA, Waldorf World, Goetheanum, «אדם עולם» — include verified HTTPS links ONLY when they match BOTH the block subject AND Waldorf pedagogical context.\n' +
+    'Hebrew board titles may be descriptive; "pin" phrases must stay short, grade-locked, and Waldorf-anchored in English.\n' +
+    'WALDORF PEDAGOGICAL WEB RESOURCES (Phase C inspiration): use Google site-restricted search redirects for Israeli Waldorf articles — NEVER invent direct school URLs.\n' +
     '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
   const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
@@ -190,169 +194,41 @@
     );
   }
 
-  const PINTEREST_MAX_GALLERY_ITEMS = 4;
-
-  const PINTEREST_WALDORF_ANCHORS = [
-    'וולדורף', 'ולדורף', 'waldorf', 'steiner', 'אנתרופוסופיה', 'anthroposoph',
-  ];
-
-  const HEBREW_GRADE_LETTER_TO_NUM = {
-    'א': 1, 'ב': 2, 'ג': 3, 'ד': 4, 'ה': 5, 'ו': 6, 'ז': 7, 'ח': 8, 'ט': 9,
-    'י': 10, 'יא': 11, 'יב': 12,
-  };
-
-  const HEBREW_GRADE_NUM_TO_LETTER = {
-    1: 'א', 2: 'ב', 3: 'ג', 4: 'ד', 5: 'ה', 6: 'ו', 7: 'ז', 8: 'ח', 9: 'ט',
-    10: 'י', 11: 'יא', 12: 'יב',
-  };
-
-  function pinterestItemText(item) {
-    if (!item) return '';
-    return [item.board, item.title, item.pin, item.url, item.src].filter(Boolean).join(' ');
-  }
-
-  function hasWaldorfPedagogyAnchor(text) {
-    var lc = String(text || '').toLowerCase();
-    return PINTEREST_WALDORF_ANCHORS.some(function (anchor) {
-      return lc.indexOf(anchor.toLowerCase()) !== -1;
-    });
-  }
-
-  function parseGradeNumberFromToken(token) {
-    if (!token) return null;
-    var t = String(token).trim().replace(/['׳"]/g, '');
-    if (/^\d{1,2}$/.test(t)) return parseInt(t, 10);
-    if (HEBREW_GRADE_LETTER_TO_NUM[t]) return HEBREW_GRADE_LETTER_TO_NUM[t];
+  function getQueryGen() {
+    if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration) return WaldorfQueryGeneration;
     return null;
   }
 
-  function extractGradeNumbersFromText(text) {
-    var src = String(text || '');
-    var nums = [];
-    var match;
-    var reHe = /כיתה\s*([א-ת]{1,2})['׳"]?/gi;
-    while ((match = reHe.exec(src)) !== null) {
-      var heNum = parseGradeNumberFromToken(match[1]);
-      if (heNum) nums.push(heNum);
-    }
-    var reEn = /(?:grade|class|waldorf\s+class)\s*(\d{1,2})/gi;
-    while ((match = reEn.exec(src)) !== null) {
-      var enNum = parseInt(match[1], 10);
-      if (enNum >= 1 && enNum <= 12) nums.push(enNum);
-    }
-    return nums;
+  const PINTEREST_MAX_GALLERY_ITEMS = 4;
+
+  function buildStrictPinterestQuery(rawPin, topic, body) {
+    var qg = getQueryGen();
+    if (qg) return qg.buildPinterestSearchQuery(rawPin, topic, body);
+    return '';
   }
 
-  function activeGradeNumber(body) {
-    var id = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
-    var n = parseInt(id, 10);
-    return n >= 1 && n <= 12 ? n : null;
-  }
-
-  function hebrewGradeLabelForId(gradeId) {
-    var n = parseInt(String(gradeId || ''), 10);
-    var letter = HEBREW_GRADE_NUM_TO_LETTER[n];
-    return letter ? ('כיתה ' + letter) : '';
-  }
-
-  function hasActiveGradeAnchor(text, body) {
-    var gradeNum = activeGradeNumber(body);
-    if (!gradeNum) return true;
-    var src = String(text || '');
-    if (extractGradeNumbersFromText(src).indexOf(gradeNum) !== -1) return true;
-    var heLetter = HEBREW_GRADE_NUM_TO_LETTER[gradeNum];
-    if (heLetter && new RegExp('כיתה\\s*' + heLetter, 'i').test(src)) return true;
-    if (new RegExp('(?:grade|class|waldorf\\s+class)\\s*' + gradeNum + '\\b', 'i').test(src)) return true;
+  function passesStrictPinterestItemFilter(item, body) {
+    var qg = getQueryGen();
+    if (qg) return qg.passesStrictPinterestItemFilter(item, body);
     return false;
   }
 
   function hasMismatchedGradeInText(text, body) {
-    var active = activeGradeNumber(body);
-    if (!active) return false;
-    return extractGradeNumbersFromText(text).some(function (n) { return n !== active; });
-  }
-
-  function containsHebrewText(text) {
-    return /[\u0590-\u05FF]/.test(String(text || ''));
-  }
-
-  function shortenPinterestTopic(raw) {
-    var text = String(raw || '').trim();
-    if (!text) return '';
-    var parts = text.split(/\s*[—–\-|]\s*/).map(function (p) { return p.trim(); }).filter(Boolean);
-    if (parts.length > 1) {
-      parts.sort(function (a, b) { return a.length - b.length; });
-      for (var i = 0; i < parts.length; i++) {
-        if (parts[i].length >= 2 && parts[i].length <= 28) return parts[i];
-      }
-    }
-    return text.split(/\s+/).slice(0, 4).join(' ');
-  }
-
-  function buildStrictPinterestQuery(rawPin, topic, body) {
-    var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
-    var topicCore = shortenPinterestTopic(rawPin || topic);
-    if (!topicCore) return '';
-
-    var existing = String(rawPin || topic || '').trim();
-    if (hasWaldorfPedagogyAnchor(existing) && hasActiveGradeAnchor(existing, body)) {
-      return existing.replace(/\s+/g, ' ').trim();
-    }
-
-    var heGrade = hebrewGradeLabelForId(gradeId) ||
-      String(body.gradeLabel || '').replace(/\s*\(.*\)$/, '').trim();
-    if (containsHebrewText(topicCore) || containsHebrewText(rawPin)) {
-      var heTopic = topicCore
-        .replace(/\b(?:וולדורף|ולדורף|waldorf|steiner)\b/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      return ('"חינוך וולדורף" "' + heGrade + '" ' + heTopic).replace(/\s+/g, ' ').trim();
-    }
-    var enTopic = topicCore.replace(/^waldorf\s+/i, '').trim();
-    return ('Waldorf "Class ' + gradeId + '" ' + enTopic).replace(/\s+/g, ' ').trim();
-  }
-
-  function passesStrictPinterestItemFilter(item, body) {
-    var blob = pinterestItemText(item);
-    if (!blob) return false;
-    if (hasMismatchedGradeInText(blob, body)) return false;
-    if (!hasWaldorfPedagogyAnchor(blob)) return false;
-    if (!hasActiveGradeAnchor(blob, body)) return false;
-    return true;
+    var qg = getQueryGen();
+    if (qg) return qg.hasMismatchedGradeInText(text, body);
+    return false;
   }
 
   function sanitizePinterestGalleryItem(item, body, topic) {
-    if (!item || typeof item !== 'object') return null;
-    if (hasMismatchedGradeInText(pinterestItemText(item), body)) return null;
-    var pin = buildStrictPinterestQuery(item.pin || item.title || '', topic, body);
-    if (!pin) return null;
-    var sanitized = {
-      board: String(item.board || item.title || 'השראה ויזואלית').trim(),
-      title: String(item.title || item.board || pin).trim(),
-      pin: pin,
-      src: String(item.src || '').trim(),
-      url: String(item.url || '').trim(),
-    };
-    if (!passesStrictPinterestItemFilter(sanitized, body)) return null;
-    if (!sanitized.url && pin) {
-      sanitized.url = 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(pin);
-    }
-    return sanitized;
+    var qg = getQueryGen();
+    if (qg) return qg.sanitizePinterestGalleryItem(item, body, topic);
+    return null;
   }
 
   function sanitizePinterestGallery(gallery, body) {
-    var topic = String((body && body.topic) || '').trim();
-    var seen = Object.create(null);
-    var out = [];
-    (Array.isArray(gallery) ? gallery : []).forEach(function (item) {
-      var sanitized = sanitizePinterestGalleryItem(item, body, topic);
-      if (!sanitized) return;
-      var key = String(sanitized.pin || '').toLowerCase().trim();
-      if (!key || seen[key]) return;
-      seen[key] = true;
-      out.push(sanitized);
-    });
-    return out.slice(0, PINTEREST_MAX_GALLERY_ITEMS);
+    var qg = getQueryGen();
+    if (qg) return qg.sanitizePinterestGallery(gallery, body, PINTEREST_MAX_GALLERY_ITEMS);
+    return [];
   }
 
   function applyPedagogicalResourcesFallback(resources, body) {

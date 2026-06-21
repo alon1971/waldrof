@@ -3951,8 +3951,9 @@
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250621b"></script>
-  <script src="waldorf-web-seed.js?v=20250621d"></script>
-  <script src="research-client.js?v=20250621e"></script>
+  <script src="waldorf-query-generation.js?v=20250621a"></script>
+  <script src="waldorf-web-seed.js?v=20250621e"></script>
+  <script src="research-client.js?v=20250621f"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
@@ -7002,6 +7003,14 @@
     function buildPedagogyAnchoredPinterestQuery(raw, topic) {
       var text = String(raw || '').trim();
       if (!text || extractPinterestUrl(text)) return text;
+      if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.buildPinterestSearchQuery) {
+        return WaldorfQueryGeneration.buildPinterestSearchQuery(text, topic, {
+          topic: topic || appState.topic,
+          currentGrade: appState.grade,
+          gradeId: appState.grade,
+          gradeLabel: appState.gradeLabel,
+        });
+      }
       if (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.buildStrictPinterestQuery) {
         return WaldorfResearchClient.buildStrictPinterestQuery(text, topic, {
           topic: topic || appState.topic,
@@ -7010,38 +7019,21 @@
           gradeLabel: appState.gradeLabel,
         });
       }
-      var phrase = matchPinterestWaldorfPhrase(text);
-      if (phrase) return phrase.en;
-
-      if (/כיתה\s*[א-ת]['׳]?/.test(text) && /מחברת/.test(text) && !hasWaldorfPedagogyAnchor(text)) {
-        return 'מחברת תקופה וולדורף';
-      }
-
-      var gradeOnly = text.match(/כיתה\s*[א-ת]['׳]?/);
-      if (gradeOnly && !hasWaldorfPedagogyAnchor(text)) {
-        if (/מחברת|תקופה/.test(text)) return 'מחברת תקופה וולדורף';
-        return 'וולדורף ' + gradeOnly[0];
-      }
-
-      var blockTheme = extractBlockThemeFromText(text) || extractBlockThemeFromText(topic);
-      if (blockTheme && !hasWaldorfPedagogyAnchor(text)) {
-        return ensureWaldorfPedagogyAnchor(blockTheme);
-      }
-
-      var compacted = compactPinterestQuery([text], PINTEREST_QUERY_MAX_TOKENS);
-      if (!compacted) compacted = shortenTopicCore(topic) || text;
-      return ensureWaldorfPedagogyAnchor(compacted);
+      return ensureWaldorfPedagogyAnchor(shortenTopicCore(text) || text);
     }
 
     function buildPinterestSearchUrl(query) {
       var q = String(query || '').trim();
-      if (!q || !hasWaldorfPedagogyAnchor(q)) return '';
-      var gradeBody = {
-        currentGrade: appState.grade,
-        gradeId: appState.grade,
-        gradeLabel: appState.gradeLabel,
-      };
+      if (!q) return '';
+      if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.buildPinterestSearchUrl) {
+        return WaldorfQueryGeneration.buildPinterestSearchUrl(q);
+      }
       if (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.passesStrictPinterestItemFilter) {
+        var gradeBody = {
+          currentGrade: appState.grade,
+          gradeId: appState.grade,
+          gradeLabel: appState.gradeLabel,
+        };
         if (!WaldorfResearchClient.passesStrictPinterestItemFilter({ pin: q, title: q }, gradeBody)) return '';
       }
       return 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(q);
@@ -7620,7 +7612,16 @@
       var topicStr = String(topic || appState.topic || '').trim();
       var gradeLabel = String(appState.gradeLabel || '').trim();
       var rawUrl = String(item.url || item.link || item.href || '').trim();
-      if (!/^https?:\/\//i.test(rawUrl)) return null;
+      if (!/^https?:\/\//i.test(rawUrl)) {
+        if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.buildArticleGoogleSearchUrl) {
+          rawUrl = WaldorfQueryGeneration.buildArticleGoogleSearchUrl(topicStr, gradeLabel);
+        }
+        if (!rawUrl) return null;
+      }
+      if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.shouldForceArticleSearchRedirect &&
+          WaldorfQueryGeneration.shouldForceArticleSearchRedirect(rawUrl)) {
+        rawUrl = WaldorfQueryGeneration.buildArticleGoogleSearchUrl(topicStr, gradeLabel);
+      }
       var url = sanitizePedagogicalResourceUrl(rawUrl, topicStr, {
         topic: topicStr,
         gradeLabel: gradeLabel,

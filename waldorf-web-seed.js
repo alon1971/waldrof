@@ -11,6 +11,16 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  var queryGen = null;
+  try {
+    if (typeof require === 'function') {
+      queryGen = require('./waldorf-query-generation.js');
+    }
+  } catch (e) { /* browser bundle */ }
+  if (!queryGen && typeof WaldorfQueryGeneration !== 'undefined') {
+    queryGen = WaldorfQueryGeneration;
+  }
+
   var GOOGLE_SEARCH_BASE = 'https://www.google.com/search?q=';
 
   var WALDORF_WEB_SEED_DOMAINS = [
@@ -94,13 +104,20 @@
 
   function buildGoogleSiteSearchUrl(searchDomains, topic, extraTerms) {
     var domains = Array.isArray(searchDomains) ? searchDomains : [searchDomains];
-    var domain = domains[0];
-    if (!domain) return '';
+    if (!domains.length || !domains[0]) return '';
+    var gradeLabel = '';
+    if (extraTerms && /כיתה\s*[א-ת]/i.test(String(extraTerms))) {
+      gradeLabel = String(extraTerms).match(/כיתה\s*[א-ת]['׳]?/i)[0];
+    }
+    if (queryGen && queryGen.buildArticleGoogleSearchUrl) {
+      return queryGen.buildArticleGoogleSearchUrl(topic, gradeLabel, { domains: domains });
+    }
     var query = encodeGoogleQuery([
-      'site:' + domain,
-      topic,
-      extraTerms,
+      domains.map(function (d) { return 'site:' + d; }).join(' OR '),
+      '"' + String(topic || '').trim() + '"',
+      gradeLabel || extraTerms,
       'וולדורף',
+      'Main Lesson',
     ]);
     return GOOGLE_SEARCH_BASE + encodeURIComponent(query);
   }
@@ -233,22 +250,24 @@
 
     if (isSafeGoogleSiteSearchUrl(u) && !isBrokenOrGuessedPedagogicalUrl(u)) return u;
 
-    if (context.verified === true && looksLikeVerifiedDeepLink(u)) return u;
-
-    if (looksLikeVerifiedDeepLink(u) && !isBrokenOrGuessedPedagogicalUrl(u)) return u;
-
     var seed = findSeedForUrl(u) ||
       (context.seedId ? findSeedById(context.seedId) : null);
     var t = String(topic || context.topic || '').trim() || 'וולדורף';
     var grade = String(context.gradeLabel || '').trim();
 
-    if (seed) {
-      return buildFallbackSearchUrl(seed, t, grade);
+    var forceIsraeliRedirect = queryGen && queryGen.shouldForceArticleSearchRedirect &&
+      queryGen.shouldForceArticleSearchRedirect(u);
+
+    if (seed || forceIsraeliRedirect || isBrokenOrGuessedPedagogicalUrl(u)) {
+      if (seed) return buildFallbackSearchUrl(seed, t, grade);
+      if (queryGen && queryGen.buildArticleGoogleSearchUrl) {
+        return queryGen.buildArticleGoogleSearchUrl(t, grade);
+      }
+      return buildGoogleSiteSearchUrl('waldorf.org.il', t, grade || 'וולדורף');
     }
 
-    if (isBrokenOrGuessedPedagogicalUrl(u)) {
-      return buildGoogleSiteSearchUrl('waldorf.org.il', t, 'וולדורף');
-    }
+    if (context.verified === true && looksLikeVerifiedDeepLink(u)) return u;
+    if (looksLikeVerifiedDeepLink(u) && !isBrokenOrGuessedPedagogicalUrl(u)) return u;
 
     return u;
   }
@@ -257,15 +276,22 @@
     var t = String(topic || '').trim();
     var grade = String(gradeLabel || '').trim();
     var queries = [];
+    if (queryGen && queryGen.buildArticleGoogleSearchQuery) {
+      queries.push(queryGen.buildArticleGoogleSearchQuery(t, grade));
+    }
     WALDORF_WEB_SEED_DOMAINS.forEach(function (seed) {
       if (!t) return;
       (seed.searchDomains || [seed.domain]).forEach(function (domain) {
-        queries.push('site:' + domain + ' ' + t + (grade ? ' ' + grade : '') + ' וולדורף');
+        if (queryGen && queryGen.buildArticleGoogleSearchQuery) {
+          queries.push(queryGen.buildArticleGoogleSearchQuery(t, grade, { domains: [domain] }));
+        } else {
+          queries.push('site:' + domain + ' "' + t + '"' + (grade ? ' ' + grade : '') + ' וולדורף Main Lesson');
+        }
       });
     });
     WALDORF_SEMINAR_SEARCH_TERMS.forEach(function (term) {
       if (!t) return;
-      queries.push(term + ' ' + t);
+      queries.push(term + ' ' + t + ' וולדורף פדגוגיה');
     });
     return queries;
   }
