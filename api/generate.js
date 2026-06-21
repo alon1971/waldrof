@@ -121,11 +121,11 @@ const WEB_SEARCH_PRIORITY_INSTRUCTION =
   'If there is no meaningful match (e.g. Chemistry, Physics, or other topics not covered by his materials), OMIT his name and platforms entirely.\n' +
   'Also actively search for diverse Waldorf/anthroposophic authors, global curriculum boards, international researchers, ' +
   'and prominent Israeli Waldorf educators beyond the priority sources — to build a broad, credible source landscape.\n' +
-  'FOR INSPIRATION / PHASE C: run MANDATORY site-restricted searches FIRST on the Waldorf domain whitelist:\n' +
-  '  site:waldorf.org.il (הפורום לחינוך וולדורף בישראל), site:adamolam.co.il (מגזין אדם עולם), site:shaked.org.il (בית ספר שקד), ' +
+  'FOR INSPIRATION / PHASE C: run MANDATORY site-restricted Google searches FIRST on the Waldorf domain whitelist:\n' +
+  '  site:waldorf.org.il, site:adamolam.co.il, site:shakedwaldorf.org.il, site:harduf-waldorf.org.il, ' +
   '  plus «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» combined with the block topic.\n' +
-  'Then broaden to AWSNA, Waldorf World, Goetheanum, waldorflibrary.org — collect HTTPS links that match BOTH block topic AND Waldorf context.\n' +
-  'NEVER return zero pedagogicalResources when whitelisted domains have search indexes — use official site search URLs as fallback.\n' +
+  'Then broaden to AWSNA, Waldorf World, Goetheanum, waldorflibrary.org — collect HTTPS deep links ONLY when verbatim from live citations.\n' +
+  'NEVER invent static URLs or search-index paths — safe Google site: fallbacks are injected server-side when needed.\n' +
   '=== END WEB SEARCH STRATEGY ===\n';
 
 const CONTENT_HIERARCHY_INSTRUCTION =
@@ -288,42 +288,40 @@ const SOURCES_CITATION_INSTRUCTION =
   'Rudolf Steiner (GA lectures where verified), anthroposophic authors (e.g. von Baravalle, Finser, Harwood, Aeppli, Rawson, Stebbing), ' +
   'AWSNA, IASWECE, the Waldorf Research Institute Library (https://waldorflibrary.org/), Steiner Archive, global Waldorf curriculum boards, and prominent Israeli / international Waldorf educators and researchers.\n' +
   'No single figure or platform may dominate — aim for breadth and professional credibility.\n' +
-  'PINTEREST VISUAL INSPIRATION (WALDORF PEDAGOGY ONLY):\n' +
-  'Actively search for Pinterest boards tied to Waldorf classroom practice — NOT generic theme boards, coloring pages, or commercial stationery.\n' +
-  'MANDATORY PEDAGOGICAL ANCHOR: Every gallery "pin" MUST include an explicit Waldorf identifier. ' +
-  'Hebrew pins MUST contain "וולדורף" or "אנתרופוסופיה". English pins MUST contain "Waldorf".\n' +
-  'BILINGUAL SEARCH FALLBACK — for niche Hebrew Waldorf terms, prefer these precise English Pinterest queries:\n' +
-  '- "רישום צורה" → "Waldorf Form Drawing"\n' +
-  '- "ציור גיר" / "ציור גיר על לוח" → "Waldorf Blackboard Drawing"\n' +
-  '- "מחברת תקופה" → "Waldorf Main Lesson Book"\n' +
-  '- "תקופת בנייה" → "Waldorf House Building main lesson"\n' +
-  '- "חשבון" → "Waldorf math lesson"\n' +
-  'INSTEAD OF generic queries like "כיתה א מחברת" or bare "חשבון", use "מחברת תקופה וולדורף", "וולדורף כיתה א", or the English equivalents above.\n' +
+  'PINTEREST VISUAL INSPIRATION (WALDORF PEDAGOGY ONLY — QUALITY OVER QUANTITY):\n' +
+  'Return at most 2–4 highly vetted gallery entries. If only 2 perfect matches exist, return 2 — NEVER pad with generic clutter.\n' +
+  'STRICT GRADE-TOPIC ISOLATION (NON-NEGOTIABLE): Every "pin" MUST pair the Waldorf pedagogical anchor with the ACTIVE grade only.\n' +
+  'Hebrew example for Grade 8 revolutions: "חינוך וולדורף" "כיתה ח" מהפכות. English example: Waldorf "Class 8" revolutions.\n' +
+  'Each pin MUST explicitly include the active grade ("כיתה ח", "Grade 8", or "Waldorf Class 8") AND "וולדורף"/"Waldorf"/"Steiner".\n' +
+  'FORBIDDEN: pins mentioning any other grade (e.g. כיתה ה / Grade 5 when context is Grade 8), bare topic-only queries, coloring pages, commercial stationery.\n' +
+  'BILINGUAL SEARCH FALLBACK — for niche Hebrew Waldorf terms, prefer grade-paired English queries:\n' +
+  '- "רישום צורה" → "Waldorf Class N Form Drawing"\n' +
+  '- "ציור גיר" / "ציור גיר על לוח" → "Waldorf Class N Blackboard Drawing"\n' +
+  '- "מחברת תקופה" → "Waldorf Class N Main Lesson Book"\n' +
+  '- "תקופת בנייה" → "Waldorf Class N House Building main lesson"\n' +
+  '- "חשבון" → "Waldorf Class N math lesson"\n' +
   'Each "pin" MUST be a SHORT Pinterest search of at most 2–4 high-impact keywords — never one long concatenated string.\n' +
-  'Generate 4–6 DISTINCT concise variations, e.g. "Waldorf Form Drawing", "מחברת תקופה וולדורף", "Waldorf blackboard drawing", "מיתולוגיה נורדית וולדורף".\n' +
-  'STRICTLY FORBIDDEN: long bundled queries, generic decorative boards, bare topic-only queries, grade+notebook without Waldorf anchor, duplicate pin phrases.\n' +
-  'Present 4–8 DISTINCT entries — Hebrew board titles (can be descriptive) and SHORT pedagogy-anchored "pin" search phrases; no URLs required.\n' +
+  'Generate 2–4 DISTINCT grade-locked variations only — Hebrew board titles (can be descriptive) and SHORT pedagogy+grade-anchored "pin" phrases; no URLs required.\n' +
+  'STRICTLY FORBIDDEN: long bundled queries, generic decorative boards, bare topic-only queries, wrong-grade pins, duplicate pin phrases.\n' +
   '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
 const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
   '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY — INSPIRATION / PHASE C) ===\n' +
-  'Actively discover and include verified HTTPS links to high-fidelity Waldorf pedagogical pages — NOT generic education blogs.\n' +
+  waldorfWebSeed.ANTI_URL_HALLUCINATION_INSTRUCTION +
+  'Actively discover verified HTTPS links to high-fidelity Waldorf pedagogical pages — NOT generic education blogs.\n' +
   'TARGETED SEARCH — MANDATORY site: queries (run ALL before generic search):\n' +
   '• site:waldorf.org.il + block topic (הפורום לחינוך וולדורף בישראל)\n' +
   '• site:adamolam.co.il + block topic (מגזין אדם עולם)\n' +
-  '• site:shaked.org.il + block topic OR «בית ספר שקד קרית טבעון וולדורף»\n' +
+  '• site:shakedwaldorf.org.il OR site:shakedtivon.edupage.org + block topic (בית ספר שקד קריית טבעון)\n' +
+  '• site:harduf-waldorf.org.il + block topic (בית ספר ולדורף הרדוף) — NEVER harduf.org.il/?s= or KehilaNet login paths\n' +
   '• «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» + block topic\n' +
-  '• Israeli Waldorf schools & training: בית ספר שקד, חרדוף, הרדוף, מרכזי הכשרה וולדורפיים בישראל\n' +
-  '• Official Israeli Waldorf Forum/Federation (waldorf.org.il and affiliated national bodies)\n' +
-  '• International hubs: AWSNA (waldorfeducation.org), Waldorf World, Goetheanum (goetheanum.ch), IASWECE, Waldorf Library (waldorflibrary.org), Steiner Archive (rsarchive.org)\n' +
-  '• Pedagogical journals & magazines: «אדם עולם» (Adam Olam) and recognized anthroposophic/Waldorf periodicals\n' +
-  'STRICT CONTEXTUAL FILTER — include a link ONLY when the page matches BOTH:\n' +
-  '  (A) the active block subject (e.g. חשבון, רישום צורה, מיתולוגיה) AND\n' +
-  '  (B) explicit Waldorf/anthroposophic pedagogical context (main-lesson block outline, grade development essay, school subject guide — NOT generic worksheets or secular lesson plans).\n' +
-  'If no page passes both filters, OMIT it — never pad with generic education URLs.\n' +
+  '• International hubs: AWSNA, Goetheanum, Waldorf Library, Steiner Archive\n' +
+  'STRICT CONTEXTUAL FILTER — include a link ONLY when the page matches BOTH block subject AND Waldorf pedagogical context.\n' +
+  'URL RULE: copy url VERBATIM from live search citations only (deep article/PDF/page). NEVER guess paths, ?s= parameters, or index.asp URLs.\n' +
+  'If no verified deep link exists for a source, OMIT that item — do NOT fabricate a URL.\n' +
   'OUTPUT SHAPE — top-level "pedagogicalResources" array (Phase C inspiration ONLY; URLs allowed HERE ONLY):\n' +
-  'Each item: { "title": "Hebrew page title", "url": "https://…", "label": "מאמר פדגוגי|מערך שיעור מאתר בית ספר|מקור וולדורף רשמי|כתב עת פדגוגי|מדריך תקופה וולדורפית", "source": "e.g. שקד / פורום וולדורף ישראל / AWSNA", "snippet": "one Hebrew sentence on relevance to currentGrade + topic" }\n' +
-  'Populate 4–10 DISTINCT items from live search. FORBIDDEN: Pinterest URLs, fabricated links, generic MOE/Ministry or secular teacher blogs.\n' +
+  'Each item: { "title": "Hebrew page title", "url": "https://…verified-deep-link-only…", "label": "…", "source": "…", "snippet": "…" }\n' +
+  'Populate 4–10 DISTINCT items from live search with verified URLs. FORBIDDEN: Pinterest URLs, fabricated links, shaked.org.il, harduf.org.il/?s=…\n' +
   'blockPlan.sources (books/articles/websites) remains name-only — NO url fields there.\n' +
   '=== END WALDORF PEDAGOGICAL WEB RESOURCES ===\n';
 
@@ -335,11 +333,177 @@ const PEDAGOGICAL_RESOURCE_LABELS = [
   'מדריך תקופה וולדורפית',
 ];
 
+const PINTEREST_MAX_GALLERY_ITEMS = 4;
+
+const PINTEREST_WALDORF_ANCHORS = [
+  'וולדורף', 'ולדורף', 'waldorf', 'steiner', 'אנתרופוסופיה', 'anthroposoph',
+];
+
+const HEBREW_GRADE_LETTER_TO_NUM = {
+  'א': 1, 'ב': 2, 'ג': 3, 'ד': 4, 'ה': 5, 'ו': 6, 'ז': 7, 'ח': 8, 'ט': 9,
+  'י': 10, 'יא': 11, 'יב': 12,
+};
+
+const HEBREW_GRADE_NUM_TO_LETTER = {
+  1: 'א', 2: 'ב', 3: 'ג', 4: 'ד', 5: 'ה', 6: 'ו', 7: 'ז', 8: 'ח', 9: 'ט',
+  10: 'י', 11: 'יא', 12: 'יב',
+};
+
+function pinterestItemText(item) {
+  if (!item) return '';
+  return [item.board, item.title, item.pin, item.url, item.src].filter(Boolean).join(' ');
+}
+
+function hasWaldorfPedagogyAnchor(text) {
+  const lc = String(text || '').toLowerCase();
+  return PINTEREST_WALDORF_ANCHORS.some(function (anchor) {
+    return lc.indexOf(anchor.toLowerCase()) !== -1;
+  });
+}
+
+function parseGradeNumberFromToken(token) {
+  if (!token) return null;
+  const t = String(token).trim().replace(/['׳"]/g, '');
+  if (/^\d{1,2}$/.test(t)) return parseInt(t, 10);
+  if (HEBREW_GRADE_LETTER_TO_NUM[t]) return HEBREW_GRADE_LETTER_TO_NUM[t];
+  return null;
+}
+
+function extractGradeNumbersFromText(text) {
+  const src = String(text || '');
+  const nums = [];
+  let match;
+  const reHe = /כיתה\s*([א-ת]{1,2})['׳"]?/gi;
+  while ((match = reHe.exec(src)) !== null) {
+    const heNum = parseGradeNumberFromToken(match[1]);
+    if (heNum) nums.push(heNum);
+  }
+  const reEn = /(?:grade|class|waldorf\s+class)\s*(\d{1,2})/gi;
+  while ((match = reEn.exec(src)) !== null) {
+    const enNum = parseInt(match[1], 10);
+    if (enNum >= 1 && enNum <= 12) nums.push(enNum);
+  }
+  return nums;
+}
+
+function activeGradeNumber(body) {
+  const id = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
+  const n = parseInt(id, 10);
+  return n >= 1 && n <= 12 ? n : null;
+}
+
+function hebrewGradeLabelForId(gradeId) {
+  const n = parseInt(String(gradeId || ''), 10);
+  const letter = HEBREW_GRADE_NUM_TO_LETTER[n];
+  return letter ? ('כיתה ' + letter) : '';
+}
+
+function hasActiveGradeAnchor(text, body) {
+  const gradeNum = activeGradeNumber(body);
+  if (!gradeNum) return true;
+  const src = String(text || '');
+  if (extractGradeNumbersFromText(src).indexOf(gradeNum) !== -1) return true;
+  const heLetter = HEBREW_GRADE_NUM_TO_LETTER[gradeNum];
+  if (heLetter && new RegExp('כיתה\\s*' + heLetter, 'i').test(src)) return true;
+  if (new RegExp('(?:grade|class|waldorf\\s+class)\\s*' + gradeNum + '\\b', 'i').test(src)) return true;
+  return false;
+}
+
+function hasMismatchedGradeInText(text, body) {
+  const active = activeGradeNumber(body);
+  if (!active) return false;
+  return extractGradeNumbersFromText(text).some(function (n) { return n !== active; });
+}
+
+function containsHebrewText(text) {
+  return /[\u0590-\u05FF]/.test(String(text || ''));
+}
+
+function shortenPinterestTopic(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  const parts = text.split(/\s*[—–\-|]\s*/).map(function (p) { return p.trim(); }).filter(Boolean);
+  if (parts.length > 1) {
+    parts.sort(function (a, b) { return a.length - b.length; });
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].length >= 2 && parts[i].length <= 28) return parts[i];
+    }
+  }
+  return text.split(/\s+/).slice(0, 4).join(' ');
+}
+
+function buildStrictPinterestQuery(rawPin, topic, body) {
+  const gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
+  const topicCore = shortenPinterestTopic(rawPin || topic);
+  if (!topicCore) return '';
+
+  const existing = String(rawPin || topic || '').trim();
+  if (hasWaldorfPedagogyAnchor(existing) && hasActiveGradeAnchor(existing, body)) {
+    return existing.replace(/\s+/g, ' ').trim();
+  }
+
+  const heGrade = hebrewGradeLabelForId(gradeId) ||
+    String(body.gradeLabel || '').replace(/\s*\(.*\)$/, '').trim();
+  if (containsHebrewText(topicCore) || containsHebrewText(rawPin)) {
+    const heTopic = topicCore
+      .replace(/\b(?:וולדורף|ולדורף|waldorf|steiner)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return ('"חינוך וולדורף" "' + heGrade + '" ' + heTopic).replace(/\s+/g, ' ').trim();
+  }
+  const enTopic = topicCore.replace(/^waldorf\s+/i, '').trim();
+  return ('Waldorf "Class ' + gradeId + '" ' + enTopic).replace(/\s+/g, ' ').trim();
+}
+
+function passesStrictPinterestItemFilter(item, body) {
+  const blob = pinterestItemText(item);
+  if (!blob) return false;
+  if (hasMismatchedGradeInText(blob, body)) return false;
+  if (!hasWaldorfPedagogyAnchor(blob)) return false;
+  if (!hasActiveGradeAnchor(blob, body)) return false;
+  return true;
+}
+
+function sanitizePinterestGalleryItem(item, body, topic) {
+  if (!item || typeof item !== 'object') return null;
+  if (hasMismatchedGradeInText(pinterestItemText(item), body)) return null;
+  const pin = buildStrictPinterestQuery(item.pin || item.title || '', topic, body);
+  if (!pin) return null;
+  const sanitized = {
+    board: String(item.board || item.title || 'השראה ויזואלית').trim(),
+    title: String(item.title || item.board || pin).trim(),
+    pin: pin,
+    src: String(item.src || '').trim(),
+    url: String(item.url || '').trim(),
+  };
+  if (!passesStrictPinterestItemFilter(sanitized, body)) return null;
+  if (!sanitized.url && pin) {
+    sanitized.url = 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(pin);
+  }
+  return sanitized;
+}
+
+function sanitizePinterestGallery(gallery, body) {
+  const topic = String((body && body.topic) || '').trim();
+  const seen = Object.create(null);
+  const out = [];
+  (Array.isArray(gallery) ? gallery : []).forEach(function (item) {
+    const sanitized = sanitizePinterestGalleryItem(item, body, topic);
+    if (!sanitized) return;
+    const key = String(sanitized.pin || '').toLowerCase().trim();
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push(sanitized);
+  });
+  return out.slice(0, PINTEREST_MAX_GALLERY_ITEMS);
+}
+
 const WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
   { pattern: /waldorf\.org\.il/i, source: 'פורום וולדורף ישראל', label: 'מקור וולדורף רשמי' },
   { pattern: /adamolam\.co\.il|adam-?olam/i, source: 'מגזין אדם עולם', label: 'כתב עת פדגוגי' },
-  { pattern: /shaked\.org\.il|shaked|שקד/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
-  { pattern: /harduf\.org\.il|harduf|חרדוף/i, source: 'בית ספר חרדוף', label: 'מערך שיעור מאתר בית ספר' },
+  { pattern: /shakedwaldorf\.org\.il|shakedtivon\.edupage\.org/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
+  { pattern: /harduf-waldorf\.org\.il/i, source: 'בית ספר ולדורף הרדוף', label: 'מערך שיעור מאתר בית ספר' },
+  { pattern: /google\.com\/search\?.*site/i, source: 'חיפוש מוגבל לאתר', label: 'מקור וולדורף רשמי' },
   { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
   { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
   { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
@@ -363,9 +527,11 @@ function inferPedagogicalResourceMeta(url) {
 }
 
 function isWaldorfPedagogicalResourceUrl(url) {
+  if (waldorfWebSeed.isAllowedPedagogicalUrl(url)) return true;
   const u = String(url || '').trim();
   if (!/^https?:\/\//i.test(u)) return false;
   if (/pinterest\.|facebook\.com|instagram\.com|youtube\.com|tiktok\.com/i.test(u)) return false;
+  if (waldorfWebSeed.isBrokenOrGuessedPedagogicalUrl(u)) return false;
   return WALDORF_PEDAGOGICAL_DOMAIN_HINTS.some(function (hint) {
     return hint.pattern.test(u);
   });
@@ -373,15 +539,28 @@ function isWaldorfPedagogicalResourceUrl(url) {
 
 function normalizePedagogicalResourceItem(item, body) {
   if (!item || typeof item !== 'object') return null;
-  const url = String(item.url || item.link || item.href || '').trim();
-  if (!/^https?:\/\//i.test(url) || !isWaldorfPedagogicalResourceUrl(url)) return null;
+  const topic = String((body && body.topic) || '').trim();
+  const gradeLabel = String((body && body.gradeLabel) || '').trim();
+  let url = String(item.url || item.link || item.href || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  url = waldorfWebSeed.sanitizePedagogicalResourceUrl(url, topic, {
+    topic: topic,
+    gradeLabel: gradeLabel,
+    verified: item._fromCitation === true || item._verified === true,
+  });
+  if (!url || !isWaldorfPedagogicalResourceUrl(url)) return null;
   const meta = inferPedagogicalResourceMeta(url);
   let label = String(item.label || item.type || item.category || '').trim();
   if (!PEDAGOGICAL_RESOURCE_LABELS.includes(label)) label = meta.label;
   const title = sanitizePedagogicalText(String(item.title || item.name || meta.source || '').trim());
-  const snippet = sanitizePedagogicalText(String(item.snippet || item.description || item.summary || '').trim());
-  const topic = String((body && body.topic) || '').trim();
-  if (topic && snippet && !waldorfWebSeed.isWhitelistedWaldorfDomain(url) && !/\?s=/.test(url)) {
+  let snippet = sanitizePedagogicalText(String(item.snippet || item.description || item.summary || '').trim());
+  if (waldorfWebSeed.isSafeGoogleSiteSearchUrl(url) && !snippet) {
+    snippet = gradeLabel
+      ? ('חיפוש Google מוגבל לאתר — נושא «' + topic + '» ב' + gradeLabel)
+      : ('חיפוש Google מוגבל לאתר — נושא «' + topic + '»');
+  }
+  if (topic && snippet && !waldorfWebSeed.isSafeGoogleSiteSearchUrl(url) &&
+      !waldorfWebSeed.looksLikeVerifiedDeepLink(url)) {
     const topicLc = topic.toLowerCase();
     const blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
     if (blob.indexOf('waldorf') === -1 && blob.indexOf('וולדורף') === -1 &&
@@ -451,6 +630,7 @@ function enrichPedagogicalResourcesFromCitations(data, body, rawPayload) {
       label: meta.label,
       source: meta.source,
       snippet: topic ? ('מקור וולדורפי רלוונטי לנושא «' + topic + '»') : '',
+      _fromCitation: true,
     }, body);
     if (!stub) return;
     existing.push(stub);
@@ -1361,10 +1541,9 @@ function buildPhaseCUserPrompt(body) {
       pedagogyHint +
       WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION +
       'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries.\n' +
-      'PINTEREST (WALDORF ONLY): populate gallery with 4–6 DISTINCT visual inspiration entries.\n' +
-      'Each "pin" MUST be a SHORT search of at most 2–3 keywords — NEVER one long concatenated string (grade+topic+block+pedagogy).\n' +
-      'Example pin variations for "עץ העולם" Grade 4 Norse Mythology: "מיתולוגיה נורדית וולדורף", "מחברת תקופה כיתה ד", "עץ העולם וולדורף".\n' +
-      'Use compact Waldorf pedagogy terms only. FORBIDDEN: long bundled queries, generic boards, bare topic-only queries, duplicates.\n' +
+      'PINTEREST (WALDORF ONLY — QUALITY OVER QUANTITY): populate gallery with 2–4 DISTINCT grade-locked visual inspiration entries ONLY.\n' +
+      'Each "pin" MUST pair Waldorf/Steiner anchor with active grade — e.g. "חינוך וולדורף" "כיתה ח" מהפכות or Waldorf "Class 8" revolutions.\n' +
+      'NEVER include pins from other grades. If only 2 perfect matches exist, return 2 — do NOT pad with generic clutter.\n' +
       LAZY_LOAD_NOTE +
       'CRITICAL — blockPlan MUST include inspiration and sources objects.\n' +
       'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
@@ -1380,10 +1559,10 @@ function buildPhaseCUserPrompt(body) {
       '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he" }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he" }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he" }] }\n' +
       '  },\n' +
       '  "pedagogicalResources": [{ "title": "Hebrew page title", "url": "https://verified-waldorf-page", "label": "מאמר פדגוגי", "source": "שקד / AWSNA / אדם עולם", "snippet": "Hebrew relevance to currentGrade + topic" }],\n' +
-      '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "pedagogy-anchored Pinterest search — e.g. Waldorf Form Drawing, מחברת תקופה וולדורף", "src": "" }]\n' +
+      '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "grade-locked Waldorf search — e.g. \\"חינוך וולדורף\\" \\"כיתה ח\\" מהפכות", "src": "" }]\n' +
       '}\n' +
       'blockPlan.inspiration.global: 3–4 blocks with 4–6 paragraph items each.\n' +
-      'gallery MUST include 4–8 DISTINCT Waldorf pedagogical Pinterest options — no duplicate pin phrases.'
+      'gallery: 2–4 DISTINCT grade-locked Waldorf Pinterest options — quality over quantity; no duplicate or wrong-grade pin phrases.'
     );
   }
 
@@ -2166,6 +2345,7 @@ function sanitizePhaseCOutput(data, body) {
     bp.inspiration = normalizePhaseCInspiration(bp.inspiration, rawFallback);
     bp.sources = normalizePhaseCSources(bp.sources);
     if (!Array.isArray(data.gallery)) data.gallery = [];
+    data.gallery = sanitizePinterestGallery(data.gallery, body);
     data.pedagogicalResources = normalizePedagogicalResources(data.pedagogicalResources, body);
   } else if (cTab === 'curriculum') {
     delete bp.theory;
@@ -2330,7 +2510,7 @@ function buildPerplexitySearchUserPrompt(body) {
         '1. Rich inspiration themes: stories, metaphors, global Waldorf perspectives, podcast-worthy insights\n' +
         '2. Named books, articles, anthroposophic authors, and international Waldorf projects\n' +
         '3. Narrative/metaphor material suited to currentGrade main-lesson consciousness\n' +
-        '4. Pinterest/visual inspiration search phrases for classroom displays and main-lesson art — EVERY phrase MUST include "וולדורף"/"אנתרופוסופיה" or "Waldorf"; use English for niche terms (e.g. "Waldorf Form Drawing", "Waldorf Main Lesson Book")\n' +
+        '4. Pinterest/visual inspiration search phrases — EVERY phrase MUST pair "וולדורף"/"Waldorf" with active grade ("כיתה N", "Grade N", "Waldorf Class N"); max 2–4 vetted entries; use English for niche terms (e.g. Waldorf "Class 8" revolutions)\n' +
         '5. Verified HTTPS links from official Waldorf schools (Israel: שקד, חרדוף, waldorf.org.il), AWSNA, Waldorf World, Goetheanum, and journals (e.g. «אדם עולם») — ONLY pages matching BOTH block topic «' + topic + '» AND Waldorf pedagogical context (main-lesson guides, grade essays, school subject outlines — NOT generic education)\n' +
         '6. Priority: «מסעות בחינוך», Alon Yerushalmy, educationpace.com only when genuinely relevant\n' +
         '7. A numbered "Sources" section with HTTPS reference URLs for every major claim\n' +
@@ -3767,6 +3947,11 @@ module.exports.isArchiveOnlyLookup = isArchiveOnlyLookup;
 module.exports.isOnDemandExpansionPhase = isOnDemandExpansionPhase;
 module.exports.shouldLiveGenerateOnDemandExpansion = shouldLiveGenerateOnDemandExpansion;
 module.exports.resolveExpansionScope = resolveExpansionScope;
+module.exports.sanitizePinterestGallery = sanitizePinterestGallery;
+module.exports.buildStrictPinterestQuery = buildStrictPinterestQuery;
+module.exports.passesStrictPinterestItemFilter = passesStrictPinterestItemFilter;
+module.exports.hasMismatchedGradeInText = hasMismatchedGradeInText;
+module.exports.PINTEREST_MAX_GALLERY_ITEMS = PINTEREST_MAX_GALLERY_ITEMS;
 module.exports.isAgeExpansionRequest = isAgeExpansionRequest;
 module.exports.normalizeExpansionRequest = normalizeExpansionRequest;
 module.exports.GENERATE_ROUTE_TIMEOUT_MS = GENERATE_ROUTE_TIMEOUT_MS;

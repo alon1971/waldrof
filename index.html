@@ -3951,8 +3951,8 @@
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250621b"></script>
-  <script src="waldorf-web-seed.js?v=20250621c"></script>
-  <script src="research-client.js?v=20250621c"></script>
+  <script src="waldorf-web-seed.js?v=20250621d"></script>
+  <script src="research-client.js?v=20250621d"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
@@ -7547,8 +7547,9 @@
     var WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
       { pattern: /waldorf\.org\.il/i, source: 'פורום וולדורף ישראל', label: 'מקור וולדורף רשמי' },
       { pattern: /adamolam\.co\.il|adam-?olam/i, source: 'מגזין אדם עולם', label: 'כתב עת פדגוגי' },
-      { pattern: /shaked\.org\.il|shaked|שקד/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
-      { pattern: /harduf\.org\.il|harduf|חרדוף/i, source: 'בית ספר חרדוף', label: 'מערך שיעור מאתר בית ספר' },
+      { pattern: /shakedwaldorf\.org\.il|shakedtivon\.edupage\.org/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
+      { pattern: /harduf-waldorf\.org\.il/i, source: 'בית ספר ולדורף הרדוף', label: 'מערך שיעור מאתר בית ספר' },
+      { pattern: /google\.com\/search\?.*site/i, source: 'חיפוש מוגבל לאתר', label: 'מקור וולדורף רשמי' },
       { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
       { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
       { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
@@ -7570,38 +7571,49 @@
     }
 
     function isWaldorfPedagogicalResourceUrl(url) {
+      if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.isAllowedPedagogicalUrl) {
+        return WaldorfWebSeed.isAllowedPedagogicalUrl(url);
+      }
       var u = String(url || '').trim();
       if (!/^https?:\/\//i.test(u)) return false;
       if (/pinterest\.|facebook\.com|instagram\.com|youtube\.com|tiktok\.com/i.test(u)) return false;
       return WALDORF_PEDAGOGICAL_DOMAIN_HINTS.some(function (hint) { return hint.pattern.test(u); });
     }
 
-    function pedagogicalResourceLabelClass(label) {
-      var map = {
-        'מאמר פדגוגי': 'bg-sage/15 text-sage-dark border-sage/30',
-        'מערך שיעור מאתר בית ספר': 'bg-burgundy/10 text-burgundy border-burgundy/25',
-        'מקור וולדורף רשמי': 'bg-gold/15 text-walnut border-gold/35',
-        'כתב עת פדגוגי': 'bg-terracotta/10 text-terracotta border-terracotta/25',
-        'מדריך תקופה וולדורפית': 'bg-sage/20 text-sage-dark border-sage/35',
-      };
-      return map[label] || 'bg-sage/10 text-sage-dark border-sage/25';
-    }
-
-    function isWhitelistedWaldorfSearchUrl(url) {
-      return /waldorf\.org\.il\/\?s=|adamolam\.co\.il\/\?s=|shaked\.org\.il\/\?s=|harduf\.org\.il\/\?s=/i.test(String(url || ''));
+    function sanitizePedagogicalResourceUrl(url, topic, context) {
+      if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.sanitizePedagogicalResourceUrl) {
+        return WaldorfWebSeed.sanitizePedagogicalResourceUrl(url, topic, context || {});
+      }
+      return String(url || '').trim();
     }
 
     function normalizePedagogicalResourceItem(item, topic) {
       if (!item || typeof item !== 'object') return null;
-      var url = String(item.url || item.link || item.href || '').trim();
-      if (!/^https?:\/\//i.test(url) || !isWaldorfPedagogicalResourceUrl(url)) return null;
+      var topicStr = String(topic || appState.topic || '').trim();
+      var gradeLabel = String(appState.gradeLabel || '').trim();
+      var rawUrl = String(item.url || item.link || item.href || '').trim();
+      if (!/^https?:\/\//i.test(rawUrl)) return null;
+      var url = sanitizePedagogicalResourceUrl(rawUrl, topicStr, {
+        topic: topicStr,
+        gradeLabel: gradeLabel,
+        verified: item._fromCitation === true || item._verified === true,
+      });
+      if (!url || !isWaldorfPedagogicalResourceUrl(url)) return null;
       var meta = inferPedagogicalResourceMeta(url);
       var label = String(item.label || item.type || item.category || '').trim();
       if (PEDAGOGICAL_RESOURCE_LABELS.indexOf(label) === -1) label = meta.label;
       var title = String(item.title || item.name || meta.source || '').trim();
       var snippet = String(item.snippet || item.description || item.summary || '').trim();
-      var topicStr = String(topic || appState.topic || '').trim();
-      if (topicStr && snippet && !isWhitelistedWaldorfSearchUrl(url)) {
+      if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.isSafeGoogleSiteSearchUrl &&
+          WaldorfWebSeed.isSafeGoogleSiteSearchUrl(url) && !snippet) {
+        snippet = gradeLabel
+          ? ('חיפוש Google מוגבל לאתר — נושא «' + topicStr + '» ב' + gradeLabel)
+          : ('חיפוש Google מוגבל לאתר — נושא «' + topicStr + '»');
+      }
+      if (topicStr && snippet && !(typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.isSafeGoogleSiteSearchUrl &&
+          WaldorfWebSeed.isSafeGoogleSiteSearchUrl(url)) &&
+          !(typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.looksLikeVerifiedDeepLink &&
+          WaldorfWebSeed.looksLikeVerifiedDeepLink(url))) {
         var topicLc = topicStr.toLowerCase();
         var blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
         if (blob.indexOf('waldorf') === -1 && blob.indexOf('וולדורף') === -1 &&
@@ -7617,6 +7629,17 @@
         source: String(item.source || item.publisher || meta.source || '').trim() || meta.source,
         snippet: snippet,
       };
+    }
+
+    function pedagogicalResourceLabelClass(label) {
+      var map = {
+        'מאמר פדגוגי': 'bg-sage/15 text-sage-dark border-sage/30',
+        'מערך שיעור מאתר בית ספר': 'bg-burgundy/10 text-burgundy border-burgundy/25',
+        'מקור וולדורף רשמי': 'bg-gold/15 text-walnut border-gold/35',
+        'כתב עת פדגוגי': 'bg-terracotta/10 text-terracotta border-terracotta/25',
+        'מדריך תקופה וולדורפית': 'bg-sage/20 text-sage-dark border-sage/35',
+      };
+      return map[label] || 'bg-sage/10 text-sage-dark border-sage/25';
     }
 
     function normalizePedagogicalResources(raw, topic) {
@@ -7666,6 +7689,7 @@
             label: meta.label,
             source: meta.source,
             snippet: topic ? ('מקור וולדורפי רלוונטי לנושא «' + topic + '»') : '',
+            _fromCitation: true,
           }, topic);
           if (stub) items.push(stub);
         });
@@ -7675,7 +7699,10 @@
 
     function ensureWebInspirationFallback(resources, topic, gradeLabel) {
       if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.ensureWebInspirationFallback) {
-        return WaldorfWebSeed.ensureWebInspirationFallback(resources, topic, gradeLabel, {
+        var prepped = WaldorfWebSeed.sanitizePedagogicalResourceList
+          ? WaldorfWebSeed.sanitizePedagogicalResourceList(resources || [], topic, gradeLabel || '')
+          : (resources || []);
+        return WaldorfWebSeed.ensureWebInspirationFallback(prepped, topic, gradeLabel, {
           minCount: 2,
           maxCount: 12,
         });
@@ -7866,17 +7893,17 @@
     function getWaldorfPedagogicalResourcesSearchInstruction() {
       if (isEnglish()) {
         return (
-          'MANDATORY site-restricted Waldorf searches FIRST: site:waldorf.org.il, site:adamolam.co.il, site:shaked.org.il, ' +
+          'MANDATORY site-restricted Waldorf searches FIRST: site:waldorf.org.il, site:adamolam.co.il, site:shakedwaldorf.org.il, site:harduf-waldorf.org.il, ' +
           'plus Harduf / David Yellin / Shiluv seminary terms with the block topic. ' +
-          'Include ONLY links where the page matches BOTH the active block subject AND Waldorf pedagogical context. ' +
-          'If zero article URLs are found, populate pedagogicalResources with official search-index URLs from waldorf.org.il and adamolam.co.il.'
+          'Include url ONLY when copied verbatim from live search citations (deep article/PDF pages). ' +
+          'NEVER invent ?s= paths, index.asp, or shaked.org.il — safe Google site: fallbacks are added automatically when needed.'
         );
       }
       return (
-        'חיפוש site: חובה תחילה: site:waldorf.org.il (פורום וולדורף ישראל), site:adamolam.co.il (אדם עולם), site:shaked.org.il (שקד), ' +
+        'חיפוש site: חובה תחילה: site:waldorf.org.il, site:adamolam.co.il, site:shakedwaldorf.org.il, site:harduf-waldorf.org.il, ' +
         'וגם «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» עם נושא התקופה. ' +
-        'כלול קישורים רק כאשר העמוד תואם גם את נושא התקופה וגם הקשר פדגוגי וולדורפי. ' +
-        'אם לא נמצאו מאמרים — מלא pedagogicalResources בקישורי אינדקס חיפוש רשמיים (waldorf.org.il/?s=…, adamolam.co.il/?s=…).'
+        'כלול url רק כשהועתק verbatim מציטוט חיפוש חי (עמוד/PDF אמיתי). ' +
+        'אסור להמציא נתיבי ?s=, index.asp או shaked.org.il — קישורי Google site: בטוחים מתווספים אוטומטית.'
       );
     }
 
