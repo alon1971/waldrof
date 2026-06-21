@@ -1715,6 +1715,85 @@
     }
   }
 
+  var CONTACT_EMAIL = 'waldrofplanner@gmail.com';
+
+  function splitDisplayName(displayName) {
+    var parts = String(displayName || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return { first: '', last: '' };
+    if (parts.length === 1) return { first: parts[0], last: '' };
+    return { first: parts[0], last: parts.slice(1).join(' ') };
+  }
+
+  function showContactModal() {
+    var el = document.getElementById('contact-modal');
+    var firstEl = document.getElementById('contact-first-name');
+    var lastEl = document.getElementById('contact-last-name');
+    var emailEl = document.getElementById('contact-email');
+    var phoneEl = document.getElementById('contact-phone');
+    var messageEl = document.getElementById('contact-message');
+    var displayName = getUserDisplayName();
+    var nameParts = splitDisplayName(displayName);
+    if (firstEl && !firstEl.value) firstEl.value = nameParts.first || getUserFirstName() || '';
+    if (lastEl && !lastEl.value) lastEl.value = nameParts.last || '';
+    if (emailEl && !emailEl.value) {
+      var email = authState.isAuthenticated && authState.user && authState.user.email
+        ? authState.user.email
+        : getIdentityEmail();
+      if (email) emailEl.value = email;
+    }
+    if (phoneEl && phoneEl.value) { /* keep user input */ }
+    if (messageEl && messageEl.value) { /* keep user input */ }
+    if (el) {
+      el.classList.remove('hidden');
+      el.setAttribute('aria-hidden', 'false');
+      if (firstEl) firstEl.focus();
+    }
+  }
+
+  function hideContactModal() {
+    var el = document.getElementById('contact-modal');
+    if (el) {
+      el.classList.add('hidden');
+      el.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function submitContactForm(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    var firstEl = document.getElementById('contact-first-name');
+    var lastEl = document.getElementById('contact-last-name');
+    var emailEl = document.getElementById('contact-email');
+    var phoneEl = document.getElementById('contact-phone');
+    var messageEl = document.getElementById('contact-message');
+    var firstName = firstEl ? String(firstEl.value || '').trim() : '';
+    var lastName = lastEl ? String(lastEl.value || '').trim() : '';
+    var email = emailEl ? String(emailEl.value || '').trim() : '';
+    var phone = phoneEl ? String(phoneEl.value || '').trim() : '';
+    var message = messageEl ? String(messageEl.value || '').trim() : '';
+    if (!firstName || !email) {
+      if (firstEl && !firstName) firstEl.focus();
+      else if (emailEl) emailEl.focus();
+      return;
+    }
+    var fullName = [firstName, lastName].filter(Boolean).join(' ');
+    var subject = t('contact_email_subject', { name: fullName });
+    var bodyLines = [
+      t('contact_email_line_name', { name: fullName }),
+      t('contact_email_line_email', { email: email }),
+    ];
+    if (phone) bodyLines.push(t('contact_email_line_phone', { phone: phone }));
+    if (message) {
+      bodyLines.push('');
+      bodyLines.push(t('contact_email_line_message'));
+      bodyLines.push(message);
+    }
+    var mailto = 'mailto:' + CONTACT_EMAIL
+      + '?subject=' + encodeURIComponent(subject)
+      + '&body=' + encodeURIComponent(bodyLines.join('\n'));
+    hideContactModal();
+    window.location.href = mailto;
+  }
+
   function confirmCancelSubscription() {
     return fetchSubscriptionAction('cancel_subscription').then(function (data) {
       authState.autoRenew = false;
@@ -2023,6 +2102,19 @@
     var btnSignOut = document.getElementById('btn-auth-signout');
     if (btnSignOut) btnSignOut.addEventListener('click', function () { signOut(); });
 
+    document.querySelectorAll('#btn-header-contact, #btn-header-contact-inline, #btn-header-contact-guest').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        showContactModal();
+      });
+    });
+    var contactForm = document.getElementById('contact-form');
+    if (contactForm) contactForm.addEventListener('submit', submitContactForm);
+    var contactClose = document.getElementById('contact-modal-close');
+    if (contactClose) contactClose.addEventListener('click', hideContactModal);
+    var contactBackdrop = document.getElementById('contact-modal-backdrop');
+    if (contactBackdrop) contactBackdrop.addEventListener('click', hideContactModal);
+
     var chromeActions = document.querySelector('.app-chrome-actions-row');
     if (chromeActions && !chromeActions.dataset.authChromeBound) {
       chromeActions.dataset.authChromeBound = '1';
@@ -2040,6 +2132,11 @@
         if (e.target.closest('#btn-auth-signout')) {
           e.preventDefault();
           signOut();
+          return;
+        }
+        if (e.target.closest('#btn-header-contact, #btn-header-contact-inline, #btn-header-contact-guest')) {
+          e.preventDefault();
+          showContactModal();
         }
       });
     }
@@ -2264,6 +2361,8 @@
     hidePricingModal: hidePricingModal,
     showUserSettingsModal: showUserSettingsModal,
     hideUserSettingsModal: hideUserSettingsModal,
+    showContactModal: showContactModal,
+    hideContactModal: hideContactModal,
     refreshSubscriptionFromServer: refreshSubscriptionFromServer,
     applyUsageFromServer: applyUsageFromServer,
     syncUsageAfterLiveSearch: syncUsageAfterLiveSearch,

@@ -25,16 +25,6 @@
 
   var WALDORF_WEB_SEED_DOMAINS = [
     {
-      id: 'waldorf_forum',
-      domain: 'waldorf.org.il',
-      searchDomains: ['waldorf.org.il'],
-      source: 'הפורום לחינוך וולדורף בישראל',
-      label: 'מקור וולדורף רשמי',
-      baseUrl: 'https://www.waldorf.org.il',
-      fallbackMode: 'google_site',
-      searchExtra: 'וולדורף',
-    },
-    {
       id: 'adam_olam',
       domain: 'adamolam.co.il',
       searchDomains: ['adamolam.co.il'],
@@ -45,27 +35,44 @@
       searchExtra: 'וולדורף',
     },
     {
-      id: 'shaked',
-      domain: 'shakedwaldorf.org.il',
-      searchDomains: ['shakedwaldorf.org.il', 'shakedtivon.edupage.org'],
-      brokenDomains: ['shaked.org.il'],
-      source: 'בית ספר שקד קריית טבעון',
-      label: 'מערך שיעור מאתר בית ספר',
-      baseUrl: 'https://www.shakedwaldorf.org.il',
-      portalUrl: 'https://shakedtivon.edupage.org',
+      id: 'zomer',
+      domain: 'zomer.org.il',
+      searchDomains: ['zomer.org.il'],
+      source: 'זומר',
+      label: 'מקור וולדורף רשמי',
+      baseUrl: 'https://www.zomer.org.il',
       fallbackMode: 'google_site',
-      searchExtra: 'וולדורף שקד קריית טבעון',
+      searchExtra: 'וולדורף',
     },
     {
-      id: 'harduf',
-      domain: 'harduf-waldorf.org.il',
-      searchDomains: ['harduf-waldorf.org.il'],
-      brokenDomains: ['harduf.org.il'],
-      source: 'בית ספר ולדורף הרדוף',
-      label: 'מערך שיעור מאתר בית ספר',
-      baseUrl: 'https://harduf-waldorf.org.il',
+      id: 'elyashev',
+      domain: 'elyashev.co.il',
+      searchDomains: ['elyashev.co.il'],
+      source: 'אלישב',
+      label: 'מקור וולדורף רשמי',
+      baseUrl: 'https://www.elyashev.co.il',
       fallbackMode: 'google_site',
-      searchExtra: 'וולדורף הרדוף',
+      searchExtra: 'וולדורף',
+    },
+    {
+      id: 'waldorf_forum',
+      domain: 'waldorf-forum.org.il',
+      searchDomains: ['waldorf-forum.org.il'],
+      source: 'פורום וולדורף',
+      label: 'מקור וולדורף רשמי',
+      baseUrl: 'https://www.waldorf-forum.org.il',
+      fallbackMode: 'google_site',
+      searchExtra: 'וולדורף',
+    },
+    {
+      id: 'anatta',
+      domain: 'anatta.co.il',
+      searchDomains: ['anatta.co.il'],
+      source: 'ענתה',
+      label: 'מקור וולדורף רשמי',
+      baseUrl: 'https://www.anatta.co.il',
+      fallbackMode: 'google_site',
+      searchExtra: 'וולדורף',
     },
   ];
 
@@ -288,10 +295,12 @@
       if (seed) return buildFallbackSearchUrl(seed, t, grade);
       if (queryGen && queryGen.buildPerDomainArticleSearchUrl) {
         var resolved = findSeedForUrl(u);
-        var domain = resolved ? (resolved.searchDomains || [resolved.domain])[0] : 'waldorf.org.il';
-        return queryGen.buildPerDomainArticleSearchUrl(domain, t, grade);
+        var domain = resolved
+          ? (resolved.searchDomains || [resolved.domain])[0]
+          : hostnameFromUrl(u);
+        if (domain) return queryGen.buildPerDomainArticleSearchUrl(domain, t, grade);
       }
-      return buildGoogleSiteSearchUrl('waldorf.org.il', t, grade);
+      return buildGoogleSiteSearchUrl('adamolam.co.il', t, grade);
     }
 
     if (context.verified === true && looksLikeVerifiedDeepLink(u, context)) return u;

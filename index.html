@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20250627g" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20250627h" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -1654,6 +1654,18 @@
     body.is-pro-user #btn-user-settings {
       display: none !important;
     }
+    body.is-pro-user #btn-header-contact-inline {
+      display: none !important;
+    }
+    body.is-pro-user #btn-header-contact-guest {
+      display: none !important;
+    }
+    body:not(.is-pro-user) #btn-header-contact {
+      display: none !important;
+    }
+    #user-account-bar:not(.hidden) ~ #btn-header-contact-guest {
+      display: none !important;
+    }
     .user-tier-badge {
       display: inline-flex; align-items: center; padding: 0.2rem 0.6rem;
       border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
@@ -1760,6 +1772,46 @@
       color: #5C4A3A; cursor: pointer; display: flex; align-items: center; justify-content: center;
     }
     html[dir="ltr"] .app-modal-close { left: auto; right: 1rem; }
+    #contact-modal .app-modal-panel { max-width: 32rem; }
+    .contact-form-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 1rem;
+    }
+    @media (max-width: 480px) { .contact-form-grid { grid-template-columns: 1fr; } }
+    .contact-form-field { text-align: start; }
+    .contact-form-field--full { grid-column: 1 / -1; }
+    .contact-form-field label {
+      display: block; font-size: 0.875rem; font-weight: 600; color: #5C4A3A; margin-bottom: 0.35rem;
+    }
+    .contact-form-field input,
+    .contact-form-field textarea {
+      width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem;
+      border: 1px solid rgba(201, 169, 98, 0.5); background: rgba(255,255,255,0.85);
+      color: #5C4A3A; outline: none; transition: box-shadow 0.15s, border-color 0.15s;
+      font: inherit;
+    }
+    .contact-form-field textarea { min-height: 6.5rem; resize: vertical; line-height: 1.5; }
+    .contact-form-field input:focus,
+    .contact-form-field textarea:focus { border-color: #7A9B76; box-shadow: 0 0 0 3px rgba(122, 155, 118, 0.2); }
+    .contact-form-submit {
+      width: 100%; margin-top: 0.25rem; padding: 0.85rem 1rem;
+      border: none; border-radius: 0.85rem; cursor: pointer; font-weight: 700;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff;
+      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.35);
+      transition: transform 0.12s, box-shadow 0.15s;
+    }
+    .contact-form-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(92, 125, 88, 0.4); }
+    .contact-owner-details {
+      margin-top: 1.25rem; padding-top: 1rem;
+      border-top: 1px solid rgba(201, 169, 98, 0.35);
+      font-size: 0.85rem; color: rgba(92, 74, 58, 0.85); line-height: 1.55;
+    }
+    .contact-owner-details h3 {
+      font-family: 'Frank Ruhl Libre', serif; font-size: 0.95rem; font-weight: 700;
+      color: #8B3A3A; margin: 0 0 0.5rem;
+    }
+    .contact-owner-details p { margin: 0.2rem 0; }
+    .contact-owner-details a { color: #5C7D58; text-decoration: none; }
+    .contact-owner-details a:hover { text-decoration: underline; }
     .pricing-header { text-align: center; margin-bottom: 1.5rem; }
     .pricing-header h2 { font-family: 'Frank Ruhl Libre', serif; font-size: 1.5rem; color: #8B3A3A; margin: 0; }
     .pricing-header p { color: rgba(92, 74, 58, 0.7); margin-top: 0.35rem; font-size: 0.9rem; }
@@ -3432,6 +3484,46 @@
     </div>
   </div>
 
+  <!-- Contact us -->
+  <div id="contact-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title">
+    <div id="contact-modal-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel">
+      <button type="button" id="contact-modal-close" class="app-modal-close" data-i18n-aria="contact_close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+      <h2 id="contact-modal-title" class="font-display text-burgundy text-lg font-bold mb-4" data-i18n="contact_modal_title">צור קשר</h2>
+      <form id="contact-form" novalidate>
+        <div class="contact-form-grid">
+          <div class="contact-form-field">
+            <label for="contact-first-name" data-i18n="contact_first_name">שם פרטי</label>
+            <input type="text" id="contact-first-name" name="firstName" autocomplete="given-name" required />
+          </div>
+          <div class="contact-form-field">
+            <label for="contact-last-name" data-i18n="contact_last_name">שם משפחה</label>
+            <input type="text" id="contact-last-name" name="lastName" autocomplete="family-name" />
+          </div>
+          <div class="contact-form-field contact-form-field--full">
+            <label for="contact-email" data-i18n="contact_email">מייל</label>
+            <input type="email" id="contact-email" name="email" autocomplete="email" required />
+          </div>
+          <div class="contact-form-field contact-form-field--full">
+            <label for="contact-phone" data-i18n="contact_phone">טלפון</label>
+            <input type="tel" id="contact-phone" name="phone" autocomplete="tel" />
+          </div>
+          <div class="contact-form-field contact-form-field--full">
+            <label for="contact-message" data-i18n="contact_notes">הערות</label>
+            <textarea id="contact-message" name="message" rows="4"></textarea>
+          </div>
+        </div>
+        <button type="submit" id="contact-form-submit" class="contact-form-submit mt-3" data-i18n="contact_submit">שליחה</button>
+      </form>
+      <aside class="contact-owner-details" aria-label="פרטי יצירת קשר">
+        <h3 data-i18n="contact_owner_heading">פרטי יצירת קשר</h3>
+        <p><span data-i18n="contact_owner_name_label">שם:</span> אלון ירושלמי (Alon Yerushalmy)</p>
+        <p><span data-i18n="contact_owner_email_label">מייל:</span> <a href="mailto:waldrofplanner@gmail.com">waldrofplanner@gmail.com</a></p>
+        <p><span data-i18n="contact_owner_phone_label">טלפון:</span> <a href="tel:+972544548078">0544548078</a></p>
+      </aside>
+    </div>
+  </div>
+
   <div id="app-site-chrome" class="app-site-chrome">
   <header class="border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="max-w-6xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5">
@@ -3467,6 +3559,10 @@
             <div class="header-user-actions">
               <span id="user-tier-badge" class="user-tier-badge user-tier-badge--trial"></span>
               <div id="header-pro-explicit-actions" class="header-pro-explicit-actions" aria-label="פעולות חשבון">
+                <button type="button" id="btn-header-contact" class="user-action-btn header-explicit-action">
+                  <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+                  <span data-i18n="contact_us_btn">צור קשר</span>
+                </button>
                 <button type="button" id="btn-header-manage-sub" class="user-action-btn header-explicit-action user-action-btn--manage" data-i18n-aria="user_settings_title" title="ניהול מנוי">
                   <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
                   <span>ניהול מנוי</span>
@@ -3479,6 +3575,10 @@
               <button type="button" id="btn-user-settings" class="user-action-btn" data-i18n-aria="user_settings_title" title="הגדרות חשבון">
                 <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
               </button>
+              <button type="button" id="btn-header-contact-inline" class="user-action-btn">
+                <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+                <span data-i18n="contact_us_btn">צור קשר</span>
+              </button>
               <button type="button" id="btn-open-pricing" class="user-action-btn user-action-btn--upgrade">
                 <i class="fa-solid fa-arrow-up-right-dots" aria-hidden="true"></i>
                 <span data-i18n="auth_upgrade">שדרוג</span>
@@ -3489,6 +3589,10 @@
               </button>
             </div>
           </div>
+          <button type="button" id="btn-header-contact-guest" class="user-action-btn">
+            <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+            <span data-i18n="contact_us_btn">צור קשר</span>
+          </button>
           <button type="button" id="lang-toggle" class="lang-toggle lang-toggle--he-active notranslate" aria-label="החלף שפה">
             <span class="lang-toggle-label">EN</span>
           </button>
@@ -3947,12 +4051,12 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20260619e"></script>
+  <script src="auth-subscription.js?v=20260621a"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250621b"></script>
-  <script src="waldorf-query-generation.js?v=20250621b"></script>
-  <script src="waldorf-web-seed.js?v=20250621f"></script>
+  <script src="waldorf-query-generation.js?v=20250621c"></script>
+  <script src="waldorf-web-seed.js?v=20250621g"></script>
   <script src="research-client.js?v=20250621g"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
@@ -7596,10 +7700,16 @@
       }
       if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.shouldForceArticleSearchRedirect &&
           WaldorfQueryGeneration.shouldForceArticleSearchRedirect(rawUrl)) {
-        var redirectDomain = 'waldorf.org.il';
+        var redirectDomain = (WaldorfQueryGeneration.TRUSTED_DOMAINS && WaldorfQueryGeneration.TRUSTED_DOMAINS[0]) || 'adamolam.co.il';
         if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.findSeedForUrl) {
           var seedMatch = WaldorfWebSeed.findSeedForUrl(rawUrl);
-          if (seedMatch) redirectDomain = (seedMatch.searchDomains || [seedMatch.domain])[0];
+          if (seedMatch) {
+            redirectDomain = (seedMatch.searchDomains || [seedMatch.domain])[0];
+          } else {
+            try {
+              redirectDomain = new URL(rawUrl).hostname.replace(/^www\./i, '') || redirectDomain;
+            } catch (e) { /* keep default */ }
+          }
         }
         rawUrl = WaldorfQueryGeneration.buildPerDomainArticleSearchUrl(redirectDomain, topicStr, gradeLabel);
       }

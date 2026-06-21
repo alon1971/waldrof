@@ -404,15 +404,26 @@ function normalizePedagogicalResourceItem(item, body) {
   let url = String(item.url || item.link || item.href || '').trim();
   if (!/^https?:\/\//i.test(url)) {
     if (waldorfQueryGen.buildPerDomainArticleSearchUrl) {
-      url = waldorfQueryGen.buildPerDomainArticleSearchUrl('waldorf.org.il', topic, gradeLabel);
+      const defaultDomain = (waldorfQueryGen.TRUSTED_DOMAINS && waldorfQueryGen.TRUSTED_DOMAINS[0]) || 'adamolam.co.il';
+      url = waldorfQueryGen.buildPerDomainArticleSearchUrl(defaultDomain, topic, gradeLabel);
     }
     if (!url) return null;
   }
   if (waldorfQueryGen.shouldForceArticleSearchRedirect && waldorfQueryGen.shouldForceArticleSearchRedirect(url)) {
     const seedDomain = waldorfWebSeed.findSeedForUrl(url);
-    const domain = seedDomain
+    let domain = seedDomain
       ? (seedDomain.searchDomains || [seedDomain.domain])[0]
-      : 'waldorf.org.il';
+      : '';
+    if (!domain) {
+      try {
+        domain = new URL(url).hostname.replace(/^www\./i, '');
+      } catch (e) {
+        domain = '';
+      }
+    }
+    if (!domain) {
+      domain = (waldorfQueryGen.TRUSTED_DOMAINS && waldorfQueryGen.TRUSTED_DOMAINS[0]) || 'adamolam.co.il';
+    }
     url = waldorfQueryGen.buildPerDomainArticleSearchUrl(domain, topic, gradeLabel);
   }
   url = waldorfWebSeed.sanitizePedagogicalResourceUrl(url, topic, {
