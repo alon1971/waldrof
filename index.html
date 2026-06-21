@@ -3941,7 +3941,7 @@
   <script src="auth-subscription.js?v=20260619e"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="hebrew-topic-match.js?v=20250621a"></script>
+  <script src="hebrew-topic-match.js?v=20250621b"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
@@ -4802,8 +4802,14 @@
       }
       return t('grade_topic_mismatch', {
         topic: mismatch.requestedTopic || mismatch.requestedTopicRaw || '',
-        currentGrade: mismatch.currentGradeLabel || '',
-        canonicalGrade: mismatch.canonicalGradeLabel || '',
+        currentGrade: (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+          typeof WaldorfHebrewTopicMatch.gradeShortLabelForMessage === 'function')
+          ? WaldorfHebrewTopicMatch.gradeShortLabelForMessage(mismatch.currentGradeId, mismatch.currentGradeLabel)
+          : (mismatch.currentGradeLabel || ''),
+        canonicalGrade: (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+          typeof WaldorfHebrewTopicMatch.gradeShortLabelForMessage === 'function')
+          ? WaldorfHebrewTopicMatch.gradeShortLabelForMessage(mismatch.canonicalGradeId, mismatch.canonicalGradeLabel)
+          : (mismatch.canonicalGradeLabel || ''),
       });
     }
 
@@ -7159,12 +7165,17 @@
       var embeddedPinUrl = extractPinterestUrl(optimized.pin);
       var embeddedItemUrl = extractPinterestUrl(optimized.url) || extractPinterestUrl(optimized.src);
       if (embeddedPinUrl || embeddedItemUrl) {
-        var boardOrPinUrl = sanitizePinterestSearchUrl(embeddedItemUrl || embeddedPinUrl, topic);
+        var targetUrl = embeddedItemUrl || embeddedPinUrl;
+        var boardOrPinUrl = sanitizePinterestSearchUrl(targetUrl, topic);
         if (boardOrPinUrl) {
           optimized.url = boardOrPinUrl;
           if (embeddedPinUrl) optimized.pin = '';
+          return optimized;
         }
-        return optimized;
+        if (targetUrl.indexOf('/search/') === -1) {
+          optimized.url = targetUrl;
+          return optimized;
+        }
       }
       if (optimized.pin) optimized.pin = simplifyPinterestPin(optimized.pin, topic);
       else if (optimized.title) optimized.pin = simplifyPinterestPin(optimized.title, topic);
@@ -13538,6 +13549,12 @@
     }
 
     function presentArchivePartialMatch(topic, archiveMatch) {
+      const gradeMismatch = checkTopicGradeMismatch(topic, appState.grade);
+      if (gradeMismatch) {
+        presentGradeMismatchNotice(gradeMismatch);
+        return true;
+      }
+
       const match = normalizeArchiveSuggestionMatch(archiveMatch);
       if (!match || !match.cacheKey || !match.suggestedTopic) return false;
       if (isArchiveSuggestionRejected(match)) {

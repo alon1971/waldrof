@@ -322,6 +322,14 @@
     return GRADE_LABEL_BY_ID[String(gradeId || '').trim()] || ('כיתה ' + gradeId);
   }
 
+  function gradeShortLabelForMessage(gradeId, gradeLabel) {
+    var fromLabel = String(gradeLabel || '').trim();
+    if (fromLabel) {
+      return fromLabel.replace(/^כיתה\s+/u, '').trim();
+    }
+    return gradeLabelForId(gradeId).replace(/^כיתה\s+/u, '').trim();
+  }
+
   /**
    * Resolve a query to its canonical Waldorf grade when it names a guarded epoch topic.
    * @returns {null|object}
@@ -373,9 +381,11 @@
   function buildGradeMismatchMessage(mismatch) {
     var m = mismatch || {};
     var topic = m.requestedTopic || m.requestedTopicRaw || 'נושא זה';
+    var currentShort = gradeShortLabelForMessage(m.currentGradeId, m.currentGradeLabel);
+    var canonicalShort = gradeShortLabelForMessage(m.canonicalGradeId, m.canonicalGradeLabel);
     return (
-      'בחרת ' + topic + ' לכיתה ' + (m.currentGradeLabel || '') +
-      ' — זהו נושא המיועד לכיתה ' + (m.canonicalGradeLabel || '') +
+      'בחרת ' + topic + ' לכיתה ' + currentShort +
+      ' — זהו נושא המיועד לכיתה ' + canonicalShort +
       '. אנא בחר שנית או דייק את השאלה.'
     );
   }
@@ -647,6 +657,7 @@
     findPedagogicalEpochGrade: findPedagogicalEpochGrade,
     checkPedagogicalGradeMismatch: checkPedagogicalGradeMismatch,
     buildGradeMismatchMessage: buildGradeMismatchMessage,
+    gradeShortLabelForMessage: gradeShortLabelForMessage,
     gradeLabelForId: gradeLabelForId,
     PEDAGOGICAL_EPOCH_GRADE_TOPICS: PEDAGOGICAL_EPOCH_GRADE_TOPICS,
     isDefinitiveOperationalSkillTitle: isDefinitiveOperationalSkillTitle,

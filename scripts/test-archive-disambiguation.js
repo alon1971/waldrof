@@ -95,6 +95,16 @@ gradeGuardCases.forEach(function (c) {
   const partialOk = c.expectMismatch ? !partialAllowed : true;
   if (!partialOk) failed++;
   console.log((partialOk ? 'OK' : 'FAIL'), '  blocks partial suggestion:', !partialAllowed);
+  if (c.expectMismatch && mismatch) {
+    var msg = disambig.buildGradeMismatchError(mismatch);
+    var msgOk = msg.indexOf('לכיתה ג') >= 0 || msg.indexOf('לכיתה ז') >= 0 ||
+      msg.indexOf('לכיתה ד') >= 0 || msg.indexOf('לכיתה ה') >= 0 || msg.indexOf('לכיתה ו') >= 0;
+    if (c.topic === 'רנסנס' && c.gradeId === '3') {
+      msgOk = msg === 'בחרת רנסנס לכיתה ג׳ — זהו נושא המיועד לכיתה ז׳. אנא בחר שנית או דייק את השאלה.';
+    }
+    if (!msgOk) failed++;
+    console.log((msgOk ? 'OK' : 'FAIL'), '  message format:', msg);
+  }
 });
 
 console.log('\npartial threshold:', disambig.ARCHIVE_PARTIAL_SUGGEST_MIN_SCORE);

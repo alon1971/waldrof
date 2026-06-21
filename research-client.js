@@ -130,10 +130,13 @@
     'Rudolf Steiner (GA lectures where verified), anthroposophic authors (e.g. von Baravalle, Finser, Harwood, Aeppli, Rawson, Stebbing), ' +
     'AWSNA, IASWECE, the Waldorf Research Institute Library (https://waldorflibrary.org/), Steiner Archive, global Waldorf curriculum boards, and prominent Israeli / international Waldorf educators and researchers.\n' +
     'No single figure or platform may dominate — aim for breadth and professional credibility.\n' +
-    'PINTEREST VISUAL INSPIRATION (WALDORF ONLY):\n' +
-    'Each gallery "pin" MUST be a SHORT Pinterest search of at most 2–3 high-impact keywords — never one long concatenated string.\n' +
-    'Generate DISTINCT concise variations, e.g. "מיתולוגיה נורדית וולדורף", "מחברת תקופה כיתה ד", "עץ העולם וולדורף".\n' +
-    'Hebrew board titles may be descriptive; "pin" phrases must stay short for Pinterest search.\n' +
+    'PINTEREST VISUAL INSPIRATION (WALDORF PEDAGOGY ONLY):\n' +
+    'MANDATORY: Every gallery "pin" MUST include "וולדורף"/"אנתרופוסופיה" or "Waldorf".\n' +
+    'BILINGUAL FALLBACK — map niche Hebrew terms to English Pinterest queries: "רישום צורה"→"Waldorf Form Drawing", "מחברת תקופה"→"Waldorf Main Lesson Book", "ציור גיר על לוח"→"Waldorf Blackboard Drawing", "חשבון"→"Waldorf math lesson".\n' +
+    'FORBIDDEN: generic "כיתה א מחברת", bare topic-only queries, coloring pages, commercial stationery.\n' +
+    'Each "pin" MUST be a SHORT Pinterest search of at most 2–4 pedagogy-anchored keywords — never one long concatenated string.\n' +
+    'Generate DISTINCT concise variations, e.g. "Waldorf Form Drawing", "מחברת תקופה וולדורף", "Waldorf blackboard drawing".\n' +
+    'Hebrew board titles may be descriptive; "pin" phrases must stay short and Waldorf-anchored for Pinterest search.\n' +
     '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
   const LAZY_LOAD_NOTE =
