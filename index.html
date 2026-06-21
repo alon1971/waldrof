@@ -5213,6 +5213,8 @@
       if (!topicStr || !data || !hasTopicResearchContent(data)) return false;
 
       appState.topic = topicStr;
+      resetVisualGalleryState({ clearDom: false });
+      appState._visualGallerySessionKey = visualGallerySessionKey();
       if (data._fromCache || (data._meta && data._meta.fromCache)) {
         appState.lessonFromArchive = true;
       }
@@ -5400,6 +5402,7 @@
         topicResearchAbort = null;
         abortPhaseCLoads();
         abortAllInlineExpansions();
+        resetVisualGalleryState();
         invalidateProductTabRenders();
         resetSummarySession();
 
@@ -5408,6 +5411,7 @@
         appState.grade = gradeId;
         appState.gradeLabel = item.gradeLabel || getGradeLabelById(gradeId);
         appState.topic = topic;
+        appState._visualGallerySessionKey = visualGallerySessionKey();
 
         const gradeSelect = document.getElementById('grade-select');
         if (gradeSelect) gradeSelect.value = gradeId;
@@ -6578,6 +6582,7 @@
     }
 
     function renderInspirationTabPanels() {
+      syncVisualGalleryOnLessonContextChange();
       hydrateUnifiedLessonSynthesis();
       if (!appState.visualGallery.length) {
         appState.visualGallery = generateVisualGallery(appState.topic || '');
@@ -6944,6 +6949,54 @@
       };
     }
 
+    function visualGallerySessionKey() {
+      return [
+        String(appState.grade || '').trim(),
+        String(appState.topic || '').trim(),
+        String(appState.lessonCacheKey || '').trim(),
+      ].join('|');
+    }
+
+    function remountPinterestGalleryContainer(sessionKey) {
+      var existing = document.getElementById('pinterest-gallery');
+      if (!existing || !existing.parentNode) return existing || null;
+      var replacement = document.createElement('div');
+      replacement.id = 'pinterest-gallery';
+      replacement.className = existing.className;
+      replacement.setAttribute('data-gallery-key', sessionKey || '');
+      replacement.innerHTML = '';
+      existing.parentNode.replaceChild(replacement, existing);
+      return replacement;
+    }
+
+    function resetVisualGalleryState(options) {
+      options = options || {};
+      appState.visualGallery = [];
+      appState._visualGalleryMountedKey = '';
+      if (options.clearDom !== false) {
+        remountPinterestGalleryContainer('');
+      }
+    }
+
+    function ensurePinterestGalleryContainer() {
+      var sessionKey = visualGallerySessionKey();
+      var galEl = document.getElementById('pinterest-gallery');
+      if (!galEl) return null;
+      var domKey = galEl.getAttribute('data-gallery-key') || '';
+      if (domKey !== sessionKey || appState._visualGalleryMountedKey !== sessionKey) {
+        galEl = remountPinterestGalleryContainer(sessionKey);
+        appState._visualGalleryMountedKey = sessionKey;
+      }
+      return galEl;
+    }
+
+    function syncVisualGalleryOnLessonContextChange() {
+      var nextKey = visualGallerySessionKey();
+      if (appState._visualGallerySessionKey === nextKey) return;
+      appState._visualGallerySessionKey = nextKey;
+      resetVisualGalleryState();
+    }
+
     function pushVisualGalleryCandidates(bucket, value) {
       if (value == null) return;
       if (Array.isArray(value)) {
@@ -7015,15 +7068,8 @@
     function hydrateVisualGalleryFromSources(options) {
       options = options || {};
       var collected = collectVisualGallerySources(options);
-      if (collected.length) {
-        appState.visualGallery = collected;
-        return true;
-      }
-      if (appState.visualGallery && appState.visualGallery.length) {
-        appState.visualGallery = finalizeVisualGallery(appState.visualGallery, appState.topic || '');
-        return appState.visualGallery.length > 0;
-      }
-      return false;
+      appState.visualGallery = collected;
+      return collected.length > 0;
     }
 
     function normalizeGallery(items, topic) {
@@ -9780,7 +9826,12 @@
     }
 
     function isMisleadingPartialArchiveSuggestion(query, suggestedTopic, score) {
-      if (score != null && score >= 0.95) return false;
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+          typeof WaldorfHebrewTopicMatch.isInvalidCrossDomainTopicSuggestion === 'function' &&
+          WaldorfHebrewTopicMatch.isInvalidCrossDomainTopicSuggestion(query, suggestedTopic)) {
+        return true;
+      }
+      if (score != null && score >= 0.88) return false;
       const q = String(query || '').trim().toLowerCase();
       const s = String(suggestedTopic || '').trim().toLowerCase();
       if (!q || !s || q === s) return false;
@@ -9860,6 +9911,7 @@
       if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
           WaldorfHebrewTopicMatch.shouldProbeCanonicalArchiveTopic &&
           WaldorfHebrewTopicMatch.getGradeCanonicalArchiveTopic &&
+          !bypassSemantic &&
           WaldorfHebrewTopicMatch.shouldProbeCanonicalArchiveTopic(gradeId, topic)) {
         const canonicalTopic = WaldorfHebrewTopicMatch.getGradeCanonicalArchiveTopic(gradeId);
         const canonicalItem = items.find(function (item) {
@@ -12884,6 +12936,9 @@
       appState.gradeResearch = null;
       appState.topic = null;
       appState.topicResearchCompleted = false;
+      appState.lessonCacheKey = '';
+      resetVisualGalleryState();
+      appState._visualGallerySessionKey = visualGallerySessionKey();
       invalidateProductTabRenders();
 
       const topicInputReset = document.getElementById('topic-input');
@@ -13006,7 +13061,9 @@
       appState.webResearch = null;
       appState.aiGeneratedPlan = null;
       appState.activePlan = null;
-      appState.visualGallery = [];
+      appState.lessonCacheKey = '';
+      resetVisualGalleryState();
+      appState._visualGallerySessionKey = '';
       appState.lessonFromArchive = false;
       appState.productTabsRendered = freshProductTabsRendered();
       resetSummarySession();
@@ -13320,6 +13377,9 @@
       appState.aiGeneratedPlan = null;
       appState.activePlan = null;
       appState.webResearch = null;
+      appState.lessonCacheKey = '';
+      resetVisualGalleryState();
+      appState._visualGallerySessionKey = visualGallerySessionKey();
       resetSummarySession();
       abortAllInlineExpansions();
       invalidateProductTabRenders();
@@ -13553,10 +13613,6 @@
     }
 
     function generateVisualGallery(topic) {
-      hydrateVisualGalleryFromSources({ plan: appState.activePlan || appState.aiGeneratedPlan });
-      if (appState.visualGallery && appState.visualGallery.length) {
-        return appState.visualGallery.slice();
-      }
       var tpc = String(topic || appState.topic || '').trim();
       if (!tpc) return [];
       return normalizeGallery([
@@ -14078,7 +14134,8 @@
     }
 
     function renderPinterestGallery() {
-      const galEl = document.getElementById('pinterest-gallery');
+      syncVisualGalleryOnLessonContextChange();
+      const galEl = ensurePinterestGalleryContainer();
       if (!galEl) return;
       hydrateVisualGalleryFromSources({ plan: appState.activePlan || appState.aiGeneratedPlan });
       if (!appState.visualGallery.length) {
@@ -15498,7 +15555,7 @@
       gradeResearchRunId += 1;
       Object.assign(appState, {
         step: 1, navSection: 'wizard', grade: null, gradeLabel: null, topic: null, topicResearchCompleted: false, webResearch: null,
-        personalMaterials: [], driveScanned: false, activePlan: null, visualGallery: [],
+        personalMaterials: [], driveScanned: false, activePlan: null,
         gradeResearch: null, aiGeneratedPlan: null, driveMerge: null,
         archiveQuery: '', archiveSearch: null, archiveSourcesById: {}, archiveSummaries: {}, archivePanelsOpen: {}, archiveActiveExportId: null,
         bibliographyRegistry: {},
@@ -15514,6 +15571,8 @@
         archiveRejectedSuggestions: [],
         topicCommunityMatches: [],
       });
+      resetVisualGalleryState();
+      appState._visualGallerySessionKey = '';
       resetArchiveSearchFlowState();
       resetSummarySession();
       abortAllInlineExpansions();
