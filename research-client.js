@@ -771,6 +771,7 @@
           WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION +
           WEB_SEARCH_PRIORITY_INSTRUCTION +
           'Grade: ' + gradeLabel + ' | Block topic: «' + topic + '»\n' +
+          'PINTEREST: 2–4 grade-locked gallery pins ONLY — each pin MUST pair Waldorf anchor with active grade (e.g. "חינוך וולדורף" "כיתה ח" מהפכות or Waldorf "Class 8" revolutions). Drop wrong-grade pins; quality over quantity.\n' +
           JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
           '{\n' +
           '  "blockPlan": { "inspiration": { "title": "Hebrew", "global": [], "podcast": { "title": "Hebrew", "episodes": [] }, "narrative": [] }, "sources": { "books": [], "articles": [], "websites": [] } },\n' +

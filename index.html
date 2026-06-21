@@ -3952,7 +3952,7 @@
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250621b"></script>
   <script src="waldorf-web-seed.js?v=20250621d"></script>
-  <script src="research-client.js?v=20250621d"></script>
+  <script src="research-client.js?v=20250621e"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
@@ -7002,7 +7002,14 @@
     function buildPedagogyAnchoredPinterestQuery(raw, topic) {
       var text = String(raw || '').trim();
       if (!text || extractPinterestUrl(text)) return text;
-
+      if (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.buildStrictPinterestQuery) {
+        return WaldorfResearchClient.buildStrictPinterestQuery(text, topic, {
+          topic: topic || appState.topic,
+          currentGrade: appState.grade,
+          gradeId: appState.grade,
+          gradeLabel: appState.gradeLabel,
+        });
+      }
       var phrase = matchPinterestWaldorfPhrase(text);
       if (phrase) return phrase.en;
 
@@ -7029,6 +7036,14 @@
     function buildPinterestSearchUrl(query) {
       var q = String(query || '').trim();
       if (!q || !hasWaldorfPedagogyAnchor(q)) return '';
+      var gradeBody = {
+        currentGrade: appState.grade,
+        gradeId: appState.grade,
+        gradeLabel: appState.gradeLabel,
+      };
+      if (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.passesStrictPinterestItemFilter) {
+        if (!WaldorfResearchClient.passesStrictPinterestItemFilter({ pin: q, title: q }, gradeBody)) return '';
+      }
       return 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(q);
     }
 
@@ -7167,12 +7182,12 @@
         variants.push({
           board: 'מחברות תקופה',
           title: 'מחברת תקופה וולדורף — ' + gradeLbl,
-          pin: 'מחברת תקופה וולדורף',
+          pin: buildPedagogyAnchoredPinterestQuery('מחברת תקופה וולדורף ' + gradeLbl, topic),
         });
         variants.push({
-          board: 'מחברות תקופה',
-          title: 'וולדורף ' + gradeLbl,
-          pin: 'וולדורף ' + gradeLbl,
+          board: 'נושא השיעור',
+          title: tpc + ' — ' + gradeLbl,
+          pin: buildPedagogyAnchoredPinterestQuery(tpc + ' ' + gradeLbl, topic),
         });
       }
       return variants;
@@ -7201,6 +7216,17 @@
     function passesPinterestPedagogyKeywordGate(item) {
       var blob = visualGalleryItemText(item);
       if (!blob) return false;
+      var gradeBody = {
+        currentGrade: appState.grade,
+        gradeId: appState.grade,
+        gradeLabel: appState.gradeLabel,
+      };
+      if (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.hasMismatchedGradeInText) {
+        if (WaldorfResearchClient.hasMismatchedGradeInText(blob, gradeBody)) return false;
+      }
+      if (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.passesStrictPinterestItemFilter) {
+        return WaldorfResearchClient.passesStrictPinterestItemFilter(item, gradeBody);
+      }
       var lc = blob.toLowerCase();
       if (PINTEREST_PEDAGOGY_KEYWORD_GATE.some(function (kw) {
         return lc.indexOf(kw.toLowerCase()) !== -1;
@@ -7242,15 +7268,7 @@
     }
 
     function ensurePinterestGalleryFallback(items, topic, options) {
-      var out = (items || []).slice();
-      if (out.length >= 3) return out;
-      var seeds = buildPinterestSearchVariants(topic, options)
-        .concat(PINTEREST_WALDORF_SEED_QUERIES);
-      seeds.forEach(function (seed) {
-        var optimized = optimizePinterestGalleryItem(seed, topic);
-        if (optimized) out.push(optimized);
-      });
-      return out;
+      return items || [];
     }
 
     function visualGalleryItemText(item) {
@@ -7343,11 +7361,21 @@
       });
       var waldorf = filterWaldorfVisualGallery(optimized, topicStr);
       var deduped = dedupeVisualGalleryByUrl(waldorf, topicStr);
-      var withFallback = ensurePinterestGalleryFallback(deduped, topicStr, options);
-      var finalized = withFallback.map(function (item) {
+      var finalized = deduped.map(function (item) {
         return optimizePinterestGalleryItem(item, topicStr);
       });
-      return dedupeVisualGalleryByUrl(filterWaldorfVisualGallery(finalized, topicStr), topicStr).slice(0, 12);
+      var filtered = dedupeVisualGalleryByUrl(filterWaldorfVisualGallery(finalized, topicStr), topicStr);
+      var maxItems = (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.PINTEREST_MAX_GALLERY_ITEMS)
+        ? WaldorfResearchClient.PINTEREST_MAX_GALLERY_ITEMS : 4;
+      if (typeof WaldorfResearchClient !== 'undefined' && WaldorfResearchClient.sanitizePinterestGallery) {
+        return WaldorfResearchClient.sanitizePinterestGallery(filtered, {
+          topic: topicStr,
+          currentGrade: appState.grade,
+          gradeId: appState.grade,
+          gradeLabel: appState.gradeLabel,
+        });
+      }
+      return filtered.slice(0, maxItems);
     }
 
     function resolvePinterestUrl(item, topic) {
