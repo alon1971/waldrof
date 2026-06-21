@@ -3941,6 +3941,7 @@
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250618b"></script>
+  <script src="archive-coerce.js?v=20250621"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -4951,6 +4952,9 @@
     }
 
     function tryParseArchiveJsonObject(value) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.tryParseArchiveJsonObject) {
+        return WaldorfArchiveCoerce.tryParseArchiveJsonObject(value);
+      }
       if (value == null) return null;
       if (typeof value === 'object') return value;
       if (typeof value !== 'string') return null;
@@ -4965,24 +4969,22 @@
     }
 
     function archiveSectionText(sec) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.archiveSectionText) {
+        return WaldorfArchiveCoerce.archiveSectionText(sec);
+      }
       if (!sec) return '';
       if (typeof sec === 'string') return sec.trim();
       return String(sec.content || sec.overview || sec.text || sec.body || sec.summary || '').trim();
     }
 
     function liftArchivePhaseCFields(blockPlan, data) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.liftArchivePhaseCFields) {
+        return WaldorfArchiveCoerce.liftArchivePhaseCFields(blockPlan, data);
+      }
       if (!blockPlan || typeof blockPlan !== 'object') return blockPlan;
       if (!blockPlan.inspiration && data.inspiration) blockPlan.inspiration = data.inspiration;
       if (!blockPlan.curriculum && data.curriculum) blockPlan.curriculum = data.curriculum;
       if (!blockPlan.sources && data.sources) blockPlan.sources = data.sources;
-      blockPlan.inspiration = tryParseArchiveJsonObject(blockPlan.inspiration) || blockPlan.inspiration;
-      blockPlan.curriculum = tryParseArchiveJsonObject(blockPlan.curriculum) || blockPlan.curriculum;
-      blockPlan.sources = tryParseArchiveJsonObject(blockPlan.sources) || blockPlan.sources;
-      if (typeof blockPlan.inspiration === 'string' && blockPlan.inspiration.trim()) {
-        blockPlan.inspiration = { rawContent: blockPlan.inspiration.trim() };
-      }
-      var curriculumRows = extractCurriculumFromPlan(blockPlan, data);
-      if (curriculumRows.length) blockPlan.curriculum = curriculumRows;
       return blockPlan;
     }
 
@@ -4996,11 +4998,14 @@
           return b && Array.isArray(b.items) && b.items.length;
         })) return true;
       }
-      var rows = coerceCurriculumRows(bp.curriculum);
-      if (!rows.length) rows = extractCurriculumFromPlan(bp);
+      var rows = extractCurriculumFromPlan(bp);
+      if (!rows.length) rows = coerceCurriculumRows(bp.curriculum);
+      if (!rows.length && typeof bp.curriculum === 'string') {
+        rows = parseCurriculumFromText(bp.curriculum);
+      }
       if (rows.length >= 1) {
         return rows.some(function (d) {
-          return d && (String(d.content || '').trim().length > 20 || String(d.topic || '').trim().length > 5);
+          return d && (String(d.content || '').trim().length > 15 || String(d.topic || '').trim().length > 3);
         });
       }
       return false;
@@ -5061,109 +5066,10 @@
     }
 
     function coerceArchiveLessonResultData(raw) {
-      if (!raw) return null;
-
-      if (raw.resultData != null) {
-        var inner = coerceArchiveLessonResultData(raw.resultData);
-        if (!inner) return null;
-        return Object.assign({}, inner, {
-          cacheKey: raw.cacheKey || inner.cacheKey || null,
-          gradeId: raw.gradeId || inner.gradeId || null,
-          gradeLabel: raw.gradeLabel || inner.gradeLabel || null,
-          topic: raw.topic || inner.topic || null,
-        });
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.coerceArchiveLessonResultData) {
+        return WaldorfArchiveCoerce.coerceArchiveLessonResultData(raw);
       }
-
-      var data = tryParseArchiveJsonObject(raw) || raw;
-      if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-
-      if (
-        data.data != null &&
-        typeof data.data === 'object' &&
-        !Array.isArray(data.data) &&
-        !data.blockPlan &&
-        !data.webResearch &&
-        !data.gradeInsights
-      ) {
-        var nested = coerceArchiveLessonResultData(data.data);
-        if (nested) data = Object.assign({}, data, nested);
-      }
-
-      if (!data.blockPlan && data.block_plan) {
-        data.blockPlan = data.block_plan;
-      }
-
-      var blockPlan = tryParseArchiveJsonObject(data.blockPlan) || data.blockPlan;
-      if (blockPlan && typeof blockPlan === 'object' && blockPlan.blockPlan && typeof blockPlan.blockPlan === 'object') {
-        blockPlan = Object.assign({}, blockPlan.blockPlan, blockPlan);
-        delete blockPlan.blockPlan;
-      }
-      if ((!blockPlan || typeof blockPlan !== 'object') && archiveEssenceTextFromData(data)) {
-        blockPlan = {};
-      }
-      if ((!blockPlan || typeof blockPlan !== 'object') && (data.inspiration || data.curriculum || data.sources)) {
-        blockPlan = {};
-      }
-      if (!blockPlan || typeof blockPlan !== 'object') return data;
-
-      var rawContent = String(
-        blockPlan.rawContent || blockPlan.content || blockPlan.overview || blockPlan.text || ''
-      ).trim();
-      if (!rawContent) {
-        var liftedEssence = archiveEssenceTextFromData(data);
-        if (liftedEssence) rawContent = liftedEssence;
-      }
-      if (rawContent && !String(blockPlan.rawContent || '').trim()) blockPlan.rawContent = rawContent;
-
-      var theory = tryParseArchiveJsonObject(blockPlan.theory) || blockPlan.theory;
-      if (typeof theory === 'string' && theory.trim()) {
-        blockPlan.theory = { title: '', sections: [{ heading: '', content: theory.trim() }] };
-      } else if (theory && typeof theory === 'object') {
-        if (!Array.isArray(theory.sections)) {
-          var parsedSections = tryParseArchiveJsonObject(theory.sections);
-          theory.sections = Array.isArray(parsedSections) ? parsedSections : coerceCurriculumRows(theory.sections);
-        }
-        if (!theory.sections.length) {
-          var theoryBody = String(
-            theory.content || theory.overview || theory.summary || theory.text || theory.body || ''
-          ).trim();
-          if (theoryBody) {
-            theory.sections = [{ heading: theory.title || theory.heading || '', content: theoryBody }];
-          }
-        }
-        theory.sections = theory.sections.map(function (sec, index) {
-          if (!sec || typeof sec !== 'object') {
-            var asText = String(sec || '').trim();
-            return asText ? { heading: '', content: asText } : null;
-          }
-          var content = archiveSectionText(sec);
-          return Object.assign({}, sec, {
-            heading: sec.heading || sec.title || '',
-            content: content || sec.content || '',
-          });
-        }).filter(Boolean);
-        blockPlan.theory = theory;
-      } else if (rawContent) {
-        blockPlan.theory = { title: '', sections: [{ heading: '', content: rawContent }] };
-      }
-
-      data.blockPlan = blockPlan;
-
-      blockPlan = liftArchivePhaseCFields(blockPlan, data);
-      data.blockPlan = blockPlan;
-
-      if (!data.webResearch || typeof data.webResearch !== 'object') data.webResearch = {};
-      if (!String(data.webResearch.summary || '').trim()) {
-        var wrSummary = String(
-          data.webResearch.overview || data.webResearch.content || data.webResearch.text || ''
-        ).trim();
-        if (wrSummary) data.webResearch.summary = wrSummary;
-      }
-      if (!String(data.webResearch.summary || '').trim() && rawContent) {
-        data.webResearch.summary = rawContent;
-      }
-
-      return data;
+      return raw;
     }
 
     function hasTopicResearchContent(data) {
@@ -5194,13 +5100,24 @@
       );
       blockPlan = liftArchivePhaseCFields(blockPlan, data);
 
+      var curriculumRows = extractCurriculumFromPlan(blockPlan, data);
+      if (curriculumRows.length) blockPlan.curriculum = curriculumRows;
+
       var rawTopic = String(
         blockPlan.rawContent || archiveEssenceTextFromData(data) || ''
       ).trim();
       var rawFallback = extractPhaseCRawFallback(data);
-      var usePerplexityRawOnly = rawTopic &&
-        !hasStructuredArchiveTheory(blockPlan) &&
-        !hasArchivePhaseCInBlockPlan(blockPlan);
+      var hasStructuredTheory = hasStructuredArchiveTheory(blockPlan);
+      var hasPhaseC = hasArchivePhaseCInBlockPlan(blockPlan);
+      var usePerplexityRawOnly = rawTopic && !hasStructuredTheory && !hasPhaseC && !curriculumRows.length;
+
+      function attachArchiveCurriculumToPlan(plan) {
+        if (!plan || !curriculumRows.length) return plan;
+        plan.curriculum = curriculumRows.slice(0, 15).map(function (row, i) {
+          return normalizeCurriculumRow(row, i);
+        }).filter(Boolean);
+        return plan;
+      }
 
       if (usePerplexityRawOnly) {
         appState.webResearch = {
@@ -5220,6 +5137,10 @@
           citations: appState.webResearch.citations,
           _perplexityRaw: true,
         };
+        if (blockPlan.inspiration) {
+          appState.aiGeneratedPlan.inspiration = coerceInspirationStructure(blockPlan.inspiration, rawFallback);
+        }
+        attachArchiveCurriculumToPlan(appState.aiGeneratedPlan);
       } else {
         appState.webResearch = data.webResearch
           ? Object.assign({}, data.webResearch)
@@ -5229,7 +5150,7 @@
           appState.webResearch.summary = rawTopic;
         }
 
-        if (!hasStructuredArchiveTheory(blockPlan)) {
+        if (!hasStructuredTheory) {
           blockPlan.theory = blockPlan.theory || { title: '', sections: [] };
           if (!Array.isArray(blockPlan.theory.sections)) blockPlan.theory.sections = [];
           if (!blockPlan.theory.sections.length && rawTopic) {
@@ -5255,18 +5176,16 @@
           appState.aiGeneratedPlan = {
             topic: topicStr,
             rawContent: fallbackText,
+            theory: blockPlan.theory || { title: '', sections: [{ heading: '', content: fallbackText }] },
+            inspiration: blockPlan.inspiration
+              ? coerceInspirationStructure(blockPlan.inspiration, rawFallback)
+              : undefined,
+            sources: blockPlan.sources || { books: [], articles: [], websites: [] },
             _perplexityRaw: true,
           };
-          if (blockPlan.inspiration) {
-            appState.aiGeneratedPlan.inspiration = coerceInspirationStructure(blockPlan.inspiration, rawFallback);
-          }
-          var curriculumRows = extractCurriculumFromPlan(blockPlan, data);
-          if (curriculumRows.length) {
-            appState.aiGeneratedPlan.curriculum = curriculumRows.slice(0, 15).map(function (row, i) {
-              return normalizeCurriculumRow(row, i);
-            }).filter(Boolean);
-          }
+          attachArchiveCurriculumToPlan(appState.aiGeneratedPlan);
         }
+        attachArchiveCurriculumToPlan(appState.aiGeneratedPlan);
       }
 
       try {
@@ -5969,53 +5888,24 @@
     }
 
     function coerceCurriculumRows(raw) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.coerceCurriculumRows) {
+        return WaldorfArchiveCoerce.coerceCurriculumRows(raw);
+      }
       if (!raw) return [];
       if (Array.isArray(raw)) return raw;
-      if (typeof raw !== 'object') return [];
-      var listKeys = ['days', 'items', 'lessons', 'dailyPlan', 'rows', 'entries', 'schedule', 'plan'];
-      for (var i = 0; i < listKeys.length; i++) {
-        if (Array.isArray(raw[listKeys[i]])) return raw[listKeys[i]];
-      }
-      var numKeys = Object.keys(raw).filter(function (k) { return /^\d+$/.test(String(k)); });
-      if (numKeys.length) {
-        return numKeys.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); }).map(function (k) {
-          var row = raw[k];
-          if (row && typeof row === 'object' && row.day == null && row.dayNumber == null) {
-            return Object.assign({ day: parseInt(k, 10) }, row);
-          }
-          return row;
-        });
-      }
       return [];
     }
 
     function extractCurriculumFromPlan(plan, dataRoot) {
-      var sources = [];
-      if (plan) {
-        sources.push(
-          plan.curriculum,
-          plan.dailyPlan,
-          plan.days,
-          plan.lessons,
-          plan.blockPlan && plan.blockPlan.curriculum,
-          plan.blockPlan && plan.blockPlan.dailyPlan,
-          plan.blockPlan && plan.blockPlan.days
-        );
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.extractCurriculumFromArchivePlan) {
+        return WaldorfArchiveCoerce.extractCurriculumFromArchivePlan(plan, dataRoot);
       }
-      if (dataRoot && dataRoot !== plan) {
-        sources.push(dataRoot.curriculum, dataRoot.dailyPlan, dataRoot.days, dataRoot.lessons);
-        if (dataRoot.blockPlan && dataRoot.blockPlan !== plan) {
-          sources.push(
-            dataRoot.blockPlan.curriculum,
-            dataRoot.blockPlan.dailyPlan,
-            dataRoot.blockPlan.days,
-            dataRoot.blockPlan.lessons
-          );
-        }
-      }
-      for (var i = 0; i < sources.length; i++) {
-        var rows = coerceCurriculumRows(sources[i]);
-        if (rows.length) return rows;
+      return coerceCurriculumRows(plan && plan.curriculum);
+    }
+
+    function parseCurriculumFromText(text) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.parseCurriculumFromText) {
+        return WaldorfArchiveCoerce.parseCurriculumFromText(text);
       }
       return [];
     }
@@ -6061,12 +5951,23 @@
       if (bp && typeof bp === 'object') {
         var fromBp = String(bp.rawContent || bp.content || bp.text || '').trim();
         if (fromBp) return fromBp;
+        if (typeof bp.curriculum === 'string' && bp.curriculum.trim()) return bp.curriculum.trim();
         if (bp.inspiration && typeof bp.inspiration === 'object') {
           var fromInsp = String(bp.inspiration.rawContent || '').trim();
           if (fromInsp) return fromInsp;
         }
+        var currRows = extractCurriculumFromPlan(bp, data);
+        if (currRows.length) {
+          return currRows.map(function (row, i) {
+            var n = normalizeCurriculumRow(row, i);
+            if (!n) return '';
+            return 'יום ' + n.day + ': ' + (n.topic || '') + '\n' + (n.content || '') + (n.art ? '\nאמנות: ' + n.art : '');
+          }).filter(Boolean).join('\n\n');
+        }
       }
-      return String(data.rawText || data.rawContent || data.content || '').trim();
+      return String(
+        data.curriculum_text || data.curriculumText || data.rawText || data.rawContent || data.content || ''
+      ).trim();
     }
 
     function coerceInspirationStructure(insp, rawFallback) {
@@ -6171,8 +6072,10 @@
       } else if (cTab === 'curriculum') {
         var rows = coerceCurriculumRows(data.blockPlan.curriculum);
         if (!rows.length && typeof data.blockPlan.curriculum === 'string') {
-          rows = [{ content: data.blockPlan.curriculum.trim() }];
+          rows = parseCurriculumFromText(data.blockPlan.curriculum);
         }
+        if (!rows.length) rows = extractCurriculumFromPlan(data.blockPlan, data);
+        if (!rows.length && rawFallback) rows = parseCurriculumFromText(rawFallback);
         rows = rows.map(function (row, i) {
           return normalizeCurriculumRow(row, i) || {
             day: i + 1,
@@ -6724,10 +6627,28 @@
     }
 
     function hasPhaseCCurriculumContent() {
-      var rows = appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum;
-      if (!Array.isArray(rows) || rows.length < 15) return false;
+      var plan = appState.aiGeneratedPlan;
+      if (!plan) return false;
+      var rows = extractCurriculumFromPlan(plan);
+      if (!rows.length) rows = coerceCurriculumRows(plan.curriculum);
+      if (!rows.length && typeof plan.curriculum === 'string') {
+        rows = parseCurriculumFromText(plan.curriculum);
+      }
+      if (!rows.length) {
+        var rawCurr = String(plan.rawCurriculum || plan.curriculumRaw || '').trim();
+        if (rawCurr) rows = parseCurriculumFromText(rawCurr);
+      }
+      if (!rows.length) {
+        var dump = extractPhaseCRawFallback({ blockPlan: plan });
+        if (dump) rows = parseCurriculumFromText(dump);
+      }
+      if (!rows.length) return false;
       return rows.some(function (d) {
-        return d && (String(d.content || '').trim().length > 40 || String(d.art || '').trim().length > 20 || String(d.topic || '').trim().length > 10);
+        return d && (
+          String(d.content || '').trim().length > 15 ||
+          String(d.art || '').trim().length > 10 ||
+          String(d.topic || '').trim().length > 3
+        );
       });
     }
 
@@ -12872,6 +12793,29 @@
             if (isCachedLessonHydration()) {
               var currEl = document.getElementById('curriculum-cards');
               var currRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+              var parsedArchiveRows = parseCurriculumFromText(currRaw);
+              if (!parsedArchiveRows.length) {
+                parsedArchiveRows = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
+              }
+              if (parsedArchiveRows.length) {
+                appState.aiGeneratedPlan.curriculum = parsedArchiveRows.slice(0, 15).map(function (row, i) {
+                  var norm = normalizeCurriculumRow(row, i);
+                  return norm ? {
+                    day: norm.day || (i + 1),
+                    topic: norm.topic || ('יום ' + (i + 1)),
+                    content: ensureAiHtml(norm.content || ''),
+                    art: ensureAiHtml(norm.art || ''),
+                    hint: norm.hint || '',
+                  } : null;
+                }).filter(Boolean);
+                appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+                renderTeacherDriveMergeSlots();
+                renderCurriculum();
+                r.curriculum = true;
+                setupThemeActionButtons();
+                ensurePageScrollUnlocked();
+                return;
+              }
               renderStructuredTextFallback(
                 currEl,
                 t('curriculum_title'),

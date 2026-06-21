@@ -583,6 +583,14 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
   return sanitizeChatReplyPayload(normalizeChatFollowupFromModel(lastRaw || ''), sanitizeOpts);
 }
 
+function resolveChatApiKey() {
+  return env.getGeminiApiKey() || null;
+}
+
+function missingChatApiKeyError() {
+  return 'מפתח Gemini לא מוגדר. הוסיפו GEMINI_API_KEY ב-Render → Environment ופרסמו מחדש.';
+}
+
 module.exports = {
   clearCommunityArchiveContextForExpansion,
   fetchPedagogicalChat,
@@ -590,7 +598,9 @@ module.exports = {
   isChatGradeDecoupled,
   isChatPedagogicalExpansionRequest,
   isFirstChatTurnInSession,
+  missingChatApiKeyError,
   pedagogicalChatSystemPrompt,
+  resolveChatApiKey,
   resolveChatPromptMode,
   shouldTreatChatAsPedagogicalExpansion,
   stripCommunityGreetingFromChatText,

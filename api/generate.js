@@ -27,6 +27,7 @@ const env = require('./env');
 const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
+const archiveCoerce = require('../archive-coerce');
 
 /** Grade/topic: cache-first from Supabase; on miss run Perplexity-only pipeline. */
 const ARCHIVE_ONLY_MODE = process.env.ARCHIVE_ONLY !== 'false';
@@ -51,88 +52,11 @@ const {
   });
 })();
 
-/** Stable v1 REST API — chat follow-up and free-text Gemini calls. */
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1';
-/** v1beta — structured JSON (responseSchema / responseMimeType) for hybrid lesson enrichment. */
-const GEMINI_API_BASE_STRUCTURED = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_GENERATION_MODEL = 'gemini-2.5-flash';
-/** Balanced pedagogical creativity vs factual grounding for Gemini 2.5-flash enrichment. */
-const GEMINI_DEFAULT_TEMPERATURE = 0.45;
-
 /** Minimum time (ms) the HTTP route stays open for on-demand Perplexity research (pedagogy_deep_dive, archive_summary). */
 const GENERATE_ROUTE_TIMEOUT_MS = Math.max(
   90000,
   Number(process.env.GENERATE_ROUTE_TIMEOUT_MS) || 120000
 );
-
-const GEMINI_MASTER_EDUCATOR_ROLE =
-  '\n=== GEMINI — MASTER WALDORF EDUCATOR (MANDATORY) ===\n' +
-  'You are a Master Waldorf Educator and anthroposophical curriculum designer.\n' +
-  'Perplexity Sonar supplied raw grade/topic research under PERPLEXITY WEB RESEARCH — your sole factual anchor.\n' +
-  'Translate and expand it into a rich, deep, beautifully styled Anthroposophical summary:\n' +
-  '- Steiner lectures and GA cycles where the research supports them\n' +
-  '- Age-appropriate developmental pictures (teeth transition, fairy-tale consciousness, puberty rhythms, etc.)\n' +
-  '- Fairy tales, main-lesson imagery, and deep practical classroom descriptions\n' +
-  'Do NOT use private Drive archives, community uploads, or local database excerpts — only PERPLEXITY WEB RESEARCH plus faithful Waldorf/Steiner pedagogical artistry.\n' +
-  '=== END GEMINI — MASTER WALDORF EDUCATOR ===\n';
-
-const HYBRID_GEMINI_DECOUPLED_SUFFIX =
-  '\n=== HYBRID PIPELINE — PERPLEXITY RESEARCH → GEMINI MASTER EDUCATOR ===\n' +
-  GEMINI_MASTER_EDUCATOR_ROLE +
-  'Live web research was performed by Perplexity Sonar and is provided under PERPLEXITY WEB RESEARCH.\n' +
-  'Do NOT perform additional web search — synthesize the provided research into the requested JSON schema.\n' +
-  '\n' +
-  '=== TWO-LAYER BOUNDARY (MANDATORY — OVERRIDES CONFLICTING RULES ABOVE) ===\n' +
-  '\n' +
-  'LAYER 1 — FACTUAL (STRICT — ZERO HALLUCINATION):\n' +
-  'For ALL historical dates, biographical facts, scientific measurements, chemical/physical data, geographic facts, ' +
-  'statistics, named events, and any objective claim of fact:\n' +
-  '- Use ONLY what appears in PERPLEXITY WEB RESEARCH.\n' +
-  '- NEVER invent, extrapolate, guess, or hallucinate historical facts or scientific data.\n' +
-  '- If a fact is absent from the provided context, omit it or note that verified data was not supplied — do NOT fill factual gaps with model knowledge.\n' +
-  '- Citations, attributions, and direct quotes must trace to provided research — never fabricate sources.\n' +
-  '\n' +
-  'LAYER 2 — PEDAGOGICAL & CREATIVE (ENCOURAGED — WALDORF EXPERTISE):\n' +
-  'For lesson design, classroom practice, and teaching artistry:\n' +
-  '- ACTIVELY draw on your deep knowledge of established Waldorf / Steiner-Waldorf pedagogy to weave verified facts into rich, age-appropriate lesson experiences.\n' +
-  '- Design rhythmic lesson flows (opening verse, recall, main lesson, artistic activity, closing) suited to currentGrade.\n' +
-  '- Craft vivid, imaginative stories, metaphors, chalkboard imagery, movement, music, and hands-on activities aligned with Waldorf main-lesson tradition.\n' +
-  '- Apply anthroposophic developmental principles (body/soul/spirit, temperament, curriculum rhythms) as a pedagogical lens — creatively but faithfully to Waldorf methodology.\n' +
-  '- Stories and metaphors may be original compositions, but any factual claims embedded within them must still obey Layer 1.\n' +
-  '- Tailor tone, complexity, and imagery precisely to the specific grade level and age — never mix content from other grades.\n' +
-  '\n' +
-  'BALANCE: Be deeply creative and pedagogically insightful in HOW you teach the facts — never creative ABOUT what the facts are.\n' +
-  '=== END TWO-LAYER BOUNDARY ===\n' +
-  '=== END HYBRID PIPELINE ===\n';
-
-const HYBRID_GEMINI_SYSTEM_SUFFIX =
-  '\n=== HYBRID PIPELINE — PERPLEXITY FACTS → GEMINI ENRICHMENT ===\n' +
-  'Live web research was performed by Perplexity Sonar and is provided in the user message under PERPLEXITY WEB RESEARCH.\n' +
-  'Supabase archive excerpts and RAG context (Drive / community) may also be included — treat them as additional factual inputs.\n' +
-  'Do NOT perform additional web search — synthesize the provided research and excerpts into the requested JSON schema.\n' +
-  '\n' +
-  '=== TWO-LAYER BOUNDARY (MANDATORY — OVERRIDES CONFLICTING RULES ABOVE) ===\n' +
-  '\n' +
-  'LAYER 1 — FACTUAL (STRICT — ZERO HALLUCINATION):\n' +
-  'For ALL historical dates, biographical facts, scientific measurements, chemical/physical data, geographic facts, ' +
-  'statistics, named events, and any objective claim of fact:\n' +
-  '- Use ONLY what appears in PERPLEXITY WEB RESEARCH, Supabase archive excerpts, or explicitly provided RAG context.\n' +
-  '- NEVER invent, extrapolate, guess, or hallucinate historical facts or scientific data.\n' +
-  '- If a fact is absent from the provided context, omit it or note that verified data was not supplied — do NOT fill factual gaps with model knowledge.\n' +
-  '- Citations, attributions, and direct quotes must trace to provided research — never fabricate sources.\n' +
-  '\n' +
-  'LAYER 2 — PEDAGOGICAL & CREATIVE (ENCOURAGED — WALDORF EXPERTISE):\n' +
-  'For lesson design, classroom practice, and teaching artistry:\n' +
-  '- ACTIVELY draw on your deep knowledge of established Waldorf / Steiner-Waldorf pedagogy to weave verified facts into rich, age-appropriate lesson experiences.\n' +
-  '- Design rhythmic lesson flows (opening verse, recall, main lesson, artistic activity, closing) suited to currentGrade.\n' +
-  '- Craft vivid, imaginative stories, metaphors, chalkboard imagery, movement, music, and hands-on activities aligned with Waldorf main-lesson tradition.\n' +
-  '- Apply anthroposophic developmental principles (body/soul/spirit, temperament, curriculum rhythms) as a pedagogical lens — creatively but faithfully to Waldorf methodology.\n' +
-  '- Stories and metaphors may be original compositions, but any factual claims embedded within them must still obey Layer 1.\n' +
-  '- Tailor tone, complexity, and imagery precisely to the specific grade level and age — never mix content from other grades.\n' +
-  '\n' +
-  'BALANCE: Be deeply creative and pedagogically insightful in HOW you teach the facts — never creative ABOUT what the facts are.\n' +
-  '=== END TWO-LAYER BOUNDARY ===\n' +
-  '=== END HYBRID PIPELINE ===\n';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -390,27 +314,6 @@ function waldorfSystemPrompt(extra) {
   );
 }
 
-/** Decoupled main generation (grade / topic): Perplexity research only — no Drive/community RAG. */
-function geminiMasterEducatorSystemPrompt(extra) {
-  return (
-    'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
-    pedagogicalScope.PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION +
-    GEMINI_MASTER_EDUCATOR_ROLE +
-    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
-    FACTUAL_INTEGRITY_INSTRUCTION +
-    ACADEMIC_TONE_INSTRUCTION +
-    SOURCES_CITATION_INSTRUCTION +
-    JSON_ONLY_INSTRUCTION +
-    JSON_RESPONSE_ENFORCEMENT +
-    JSON_VALID_SYNTAX_INSTRUCTION +
-    ' Write pedagogical content in Hebrew. ' +
-    'Ground factual claims in PERPLEXITY WEB RESEARCH; weave them into rich Waldorf lesson artistry. ' +
-    'Include complete inline practical expansions on every expandable UI item in the same JSON payload.' +
-    NO_LATEX_BLOCK +
-    (extra || '')
-  );
-}
-
 const PHASE_B_TOPIC_FORBIDDEN_OUTPUT =
   '\n=== PHASE B — TOPIC ESSENCE ONLY (MANDATORY — OVERRIDES CONFLICTING RULES) ===\n' +
   'Output ONLY the clean pedagogical essence and overview of the block topic for currentGrade.\n' +
@@ -418,44 +321,6 @@ const PHASE_B_TOPIC_FORBIDDEN_OUTPUT =
   'expansion / contentExpansion / artExpansion / hintExpansion objects, URLs, hyperlinks, and numeric reference brackets like [1] or [4].\n' +
   'Do NOT generate daily lesson breakdown, inspiration blocks, background resource lists, or bibliography — those load on-demand via pedagogy_deep_dive or pedagogical chat.\n' +
   '=== END PHASE B ===\n';
-
-/** Phase B (topic): Perplexity → Gemini — theory essence only, no expansions or resource lists. */
-function geminiTopicEssenceSystemPrompt(extra) {
-  return (
-    'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
-    GEMINI_MASTER_EDUCATOR_ROLE +
-    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
-    FACTUAL_INTEGRITY_INSTRUCTION +
-    ACADEMIC_TONE_INSTRUCTION +
-    PHASE_B_TOPIC_FORBIDDEN_OUTPUT +
-    JSON_ONLY_INSTRUCTION +
-    JSON_RESPONSE_ENFORCEMENT +
-    JSON_VALID_SYNTAX_INSTRUCTION +
-    ' Write pedagogical content in Hebrew. ' +
-    'Ground factual claims in PERPLEXITY WEB RESEARCH; synthesize into a concise, warm pedagogical essence and overview only.' +
-    NO_LATEX_BLOCK +
-    (extra || '')
-  );
-}
-
-/** On-demand «הרחבה ואספקטים פרקטיים» — Perplexity Sonar only; raw research saved to cache (no Gemini). */
-function geminiOnDemandExpansionSystemPrompt(extra) {
-  return (
-    'You are a Master Waldorf Educator and anthroposophical curriculum designer. ' +
-    GEMINI_MASTER_EDUCATOR_ROLE +
-    STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
-    FACTUAL_INTEGRITY_INSTRUCTION +
-    ACADEMIC_TONE_INSTRUCTION +
-    JSON_ONLY_INSTRUCTION +
-    JSON_RESPONSE_ENFORCEMENT +
-    JSON_VALID_SYNTAX_INSTRUCTION +
-    ' Write pedagogical content in Hebrew. ' +
-    'Ground factual claims in PERPLEXITY WEB RESEARCH; weave them into one rich, deep, beautifully styled practical expansion for the single requested idea only. ' +
-    'Do NOT include URLs in the JSON output — named sources only.' +
-    NO_LATEX_BLOCK +
-    (extra || '')
-  );
-}
 
 function resolvePhaseCTab(body) {
   const tab = String((body && (body.cTab || body.productTab || body.phaseCTab)) || '').trim().toLowerCase();
@@ -676,34 +541,6 @@ function isArchiveOnlyLookup(body) {
 
 function shouldLiveGenerateOnDemandExpansion(body) {
   return isOnDemandExpansionPhase(body);
-}
-
-function resolveHybridSystemBuilder(body, baseOpts) {
-  if (isOnDemandExpansionPhase(body)) {
-    return geminiOnDemandExpansionSystemPrompt;
-  }
-  if (body && body.phase === 'topic') {
-    return geminiTopicEssenceSystemPrompt;
-  }
-  if (body && body.phase === 'phase_c') {
-    return geminiMasterEducatorSystemPrompt;
-  }
-  if (isDecoupledGenerationPhase(body)) {
-    return geminiMasterEducatorSystemPrompt;
-  }
-  return typeof baseOpts.systemPrompt === 'function' ? baseOpts.systemPrompt : waldorfSystemPrompt;
-}
-
-function resolveHybridSystemSuffix(body) {
-  if (body && body.phase === 'topic') {
-    return HYBRID_GEMINI_DECOUPLED_SUFFIX + PHASE_B_TOPIC_FORBIDDEN_OUTPUT;
-  }
-  if (body && body.phase === 'phase_c') {
-    return HYBRID_GEMINI_DECOUPLED_SUFFIX;
-  }
-  return (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body))
-    ? HYBRID_GEMINI_DECOUPLED_SUFFIX
-    : HYBRID_GEMINI_SYSTEM_SUFFIX;
 }
 
 function pedagogicalChatSystemPrompt(extra, mode) {
@@ -1929,24 +1766,7 @@ function sanitizeGradePhaseOutput(data) {
 }
 
 function coerceServerCurriculumRows(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== 'object') return [];
-  const listKeys = ['curriculum', 'days', 'items', 'lessons', 'dailyPlan', 'rows', 'entries', 'schedule', 'plan'];
-  for (let i = 0; i < listKeys.length; i++) {
-    if (Array.isArray(raw[listKeys[i]])) return raw[listKeys[i]];
-  }
-  const numKeys = Object.keys(raw).filter(function (k) { return /^\d+$/.test(String(k)); });
-  if (numKeys.length) {
-    return numKeys.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); }).map(function (k) {
-      const row = raw[k];
-      if (row && typeof row === 'object' && row.day == null && row.dayNumber == null) {
-        return Object.assign({ day: parseInt(k, 10) }, row);
-      }
-      return row;
-    });
-  }
-  return [];
+  return archiveCoerce.coerceCurriculumRows(raw);
 }
 
 function normalizePhaseCInspirationItem(it) {
@@ -2083,7 +1903,11 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
 function normalizePhaseCCurriculum(raw, rawFallback) {
   let rows = coerceServerCurriculumRows(raw);
   if (!rows.length && typeof raw === 'string' && raw.trim()) {
-    rows = [{ content: raw.trim() }];
+    rows = archiveCoerce.parseCurriculumFromText(raw);
+    if (!rows.length) rows = [{ content: raw.trim() }];
+  }
+  if (!rows.length && rawFallback) {
+    rows = archiveCoerce.parseCurriculumFromText(rawFallback);
   }
   rows = rows.map(function (row, i) {
     return normalizePhaseCCurriculumRow(row, i, rawFallback);
@@ -2175,99 +1999,6 @@ function validatePhaseCBlockPlan(blockPlan, cTab) {
     if (!day.topic && !day.content && !day.art) return false;
   }
   return true;
-}
-
-function extractGeminiV1Text(payload) {
-  const candidates = payload && payload.candidates;
-  if (!Array.isArray(candidates) || !candidates.length) return '';
-  const parts = candidates[0].content && candidates[0].content.parts;
-  if (!Array.isArray(parts)) return '';
-  return parts.map(function (part) {
-    return part && typeof part.text === 'string' ? part.text : '';
-  }).join('').trim();
-}
-
-async function callGeminiV1(systemPrompt, userPrompt, options) {
-  const opts = options && typeof options === 'object' ? options : {};
-  const apiKey = env.getGeminiApiKey();
-  if (!apiKey) {
-    throw new Error('שגיאה: מפתח GEMINI_API_KEY לא מוגדר בשרת');
-  }
-
-  const model = opts.model || GEMINI_GENERATION_MODEL;
-  const useStructuredApi = opts.jsonMode === true;
-  const apiBase = useStructuredApi ? GEMINI_API_BASE_STRUCTURED : GEMINI_API_BASE;
-  const url = apiBase + '/models/' + encodeURIComponent(model) + ':generateContent';
-
-  const generationConfig = {
-    temperature: opts.temperature != null ? opts.temperature : GEMINI_DEFAULT_TEMPERATURE,
-  };
-  if (opts.jsonMode === true) {
-    generationConfig.responseMimeType = 'application/json';
-    if (opts.responseSchema && typeof opts.responseSchema === 'object') {
-      generationConfig.responseSchema = opts.responseSchema;
-    }
-  }
-
-  const body = {
-    generationConfig: generationConfig,
-  };
-  // Stable v1 REST rejects systemInstruction/systemInstructions — inject as first contents turn.
-  // v1beta (structured JSON) still accepts the systemInstruction field.
-  if (useStructuredApi) {
-    body.contents = [{ role: 'user', parts: [{ text: userPrompt }] }];
-    body.systemInstruction = { parts: [{ text: systemPrompt }] };
-  } else {
-    const contents = [];
-    const systemText = systemPrompt != null ? String(systemPrompt).trim() : '';
-    if (systemText) {
-      contents.push({ role: 'user', parts: [{ text: systemText }] });
-    }
-    contents.push({ role: 'user', parts: [{ text: userPrompt }] });
-    body.contents = contents;
-  }
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify(body),
-  });
-
-  const raw = await res.text();
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch (e) {
-    throw new Error('Gemini returned non-JSON response (' + res.status + '): ' + raw.slice(0, 300));
-  }
-
-  if (!res.ok) {
-    const msg = payload.error && payload.error.message ? payload.error.message : raw.slice(0, 300);
-    const err = new Error('Gemini error ' + res.status + ': ' + msg);
-    if (res.status === 429 || res.status === 400 || res.status === 403) {
-      err.statusCode = res.status;
-    }
-    throw err;
-  }
-
-  const text = extractGeminiV1Text(payload);
-  if (!text) {
-    throw new Error('Gemini החזיר תשובה ריקה — נסו שוב בעוד רגע.');
-  }
-  return text;
-}
-
-async function callGeminiForGeneration(systemPrompt, userPrompt, temperature, options) {
-  const opts = options && typeof options === 'object' ? options : {};
-  return callGeminiV1(systemPrompt, userPrompt, {
-    model: GEMINI_GENERATION_MODEL,
-    temperature: temperature != null ? temperature : GEMINI_DEFAULT_TEMPERATURE,
-    jsonMode: opts.jsonMode === true,
-    responseSchema: opts.responseSchema,
-  });
 }
 
 function buildPerplexitySearchSystemPrompt() {
@@ -2445,10 +2176,6 @@ function buildPerplexityResearchBlock(rawPayload) {
   );
 }
 
-function buildGeminiEnrichmentUserPrompt(body, rawPayload) {
-  return buildPerplexityResearchBlock(rawPayload) + buildUserPrompt(body);
-}
-
 async function fetchOrRunPerplexityResearch(body, logContext) {
   const cachedRaw = await cacheDb.getRawPerplexityCache(body);
   if (cachedRaw && String(cachedRaw.content || '').trim()) {
@@ -2497,10 +2224,6 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
   }
 
   return rawPayload;
-}
-
-function shouldUseHybridRouting(body) {
-  return false;
 }
 
 /** Perplexity sonar-pro chat completions — structured JSON synthesis from Sonar research. */
@@ -2856,142 +2579,16 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
   return buildModelParseFallback(phase, lastRaw || '', body);
 }
 
-/**
- * Hybrid pipeline: Perplexity Sonar web search → raw cache → Gemini 2.5-flash JSON enrichment.
- */
-async function fetchHybridModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
-  const phase = body.phase;
-  const baseOpts = perplexityOptions || {};
-  const ip = (logContext && logContext.ip) || 'unknown';
-  const action = (logContext && logContext.action) || buildActionLabel(body);
-  let lastPreview = '';
-  let lastRaw = '';
-
-  let rawPayload;
-  try {
-    rawPayload = await fetchOrRunPerplexityResearch(body, logContext);
-  } catch (searchErr) {
-    const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
-    console.error('[hybrid] Perplexity search failed for phase', phase, ':', msg);
-    throw new Error(msg || 'שגיאה בחיפוש Perplexity — נסו שוב בעוד רגע.');
-  }
-
-  const enrichmentPrompt = buildGeminiEnrichmentUserPrompt(body, rawPayload);
-  const systemBuilder = resolveHybridSystemBuilder(body, baseOpts);
-  const hybridExtraSystem = extraSystem + resolveHybridSystemSuffix(body);
-
-  for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
-    const isRetry = attempt > 1;
-    const retrySuffix = isRetry && !isChatFollowup
-      ? (phase === 'phase_c' ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
-      : '';
-    const useJsonMode = phaseRequiresStructuredJson(phase);
-    const temperature = isRetry
-      ? 0.2
-      : (baseOpts.temperature !== undefined ? baseOpts.temperature : GEMINI_DEFAULT_TEMPERATURE);
-    const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
-
-    let raw;
-    try {
-      if (isRetry) {
-        console.warn('[hybrid] Silent Gemini retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
-      }
-      console.log('[hybrid] Gemini enrichment for phase', phase, '(attempt', attempt + ')');
-      raw = await callGeminiV1(
-        systemBuilder(hybridExtraSystem + retrySuffix),
-        enrichmentPrompt,
-        {
-          model: GEMINI_GENERATION_MODEL,
-          temperature: temperature,
-          jsonMode: useJsonMode,
-          responseSchema: useJsonMode ? getStructuredResponseSchema(phase, body) : undefined,
-        }
-      );
-      lastRaw = raw;
-    } catch (geminiErr) {
-      const msg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
-      console.error('[hybrid] Gemini enrichment failed for phase', phase, '(attempt', attempt + '):', msg);
-      if (attempt < MODEL_PARSE_MAX_ATTEMPTS && isRetriablePerplexityCallError(geminiErr)) {
-        continue;
-      }
-      rethrowApiClientError(geminiErr, 'שגיאה בעיבוד Gemini — נסו שוב בעוד רגע.');
-    }
-
-    let data;
-    if (isChatFollowup) {
-      data = normalizeChatFollowupFromModel(raw);
-    } else {
-      try {
-        data = cleanAndParseJSON(raw, {
-          phase: phase,
-          context: body,
-          fallbackOnError: useParseFallback,
-        });
-      } catch (parseErr) {
-        const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-        lastPreview = String(raw).slice(0, 600);
-        console.error(
-          '[hybrid] JSON parse failed for phase',
-          phase,
-          '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + '):',
-          parseMsg
-        );
-        console.error('Model output preview:', lastPreview);
-        if (!useParseFallback) continue;
-        data = buildModelParseFallback(phase, raw, body);
-      }
-    }
-
-    if (data && data._parseFallback) {
-      console.warn('[hybrid] Using parse fallback for phase', phase, '(attempt', attempt + ')');
-      return cacheDb.stampHybridGeneratedMetadata(data);
-    }
-
-    if (phase === 'topic' && data && !data._parseFallback) {
-      data = sanitizeTopicPhaseOutput(data);
-    }
-    if (phase === 'grade' && data && !data._parseFallback) {
-      data = sanitizeGradePhaseOutput(data);
-    }
-    if (phase === 'phase_c' && data && !data._parseFallback) {
-      data = sanitizePhaseCOutput(data, body);
-    }
-
-    if (!validatePhaseResult(phase, data, body)) {
-      lastPreview = String(raw).slice(0, 600);
-      console.error(
-        '[hybrid] Parsed JSON missing required fields for phase',
-        phase,
-        '(attempt ' + attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')'
-      );
-      console.error('Model output preview:', lastPreview);
-      if (!useParseFallback) continue;
-      console.warn('[hybrid] Validation failed — returning parse fallback for phase', phase);
-      return cacheDb.stampHybridGeneratedMetadata(buildModelParseFallback(phase, raw, body));
-    }
-
-    if (isRetry) {
-      console.log('[hybrid] Silent retry succeeded for phase', phase);
-    }
-    return cacheDb.stampHybridGeneratedMetadata(data);
-  }
-
-  if (isChatFollowup) {
-    return normalizeChatFollowupFromModel(lastRaw || '');
-  }
-  return cacheDb.stampHybridGeneratedMetadata(buildModelParseFallback(phase, lastRaw || '', body));
-}
-
 function resolveApiKey(body) {
   if (body && isPedagogicalChatPhase(body)) {
-    return env.getGeminiApiKey() || null;
+    return chatApi.resolveChatApiKey();
   }
   return perplexityClient.resolveApiKey() || null;
 }
 
 function missingKeyError(body) {
   if (body && isPedagogicalChatPhase(body)) {
-    return 'מפתח Gemini לא מוגדר. הוסיפו GEMINI_API_KEY ב-Render → Environment ופרסמו מחדש.';
+    return chatApi.missingChatApiKeyError();
   }
   return 'מפתח Perplexity לא מוגדר. הוסיפו PERPLEXITY_API_KEY ב-Render → Environment ופרסמו מחדש.';
 }
