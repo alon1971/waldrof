@@ -616,8 +616,7 @@
     .wizard-step,
     #grade-insights-panel,
     #web-research-result,
-    #workspace .tab-panel:not(.product-tab-panel),
-    #synthesis-banner {
+    #workspace .tab-panel:not(.product-tab-panel) {
       animation: none !important;
       opacity: 1 !important;
     }
@@ -3724,7 +3723,6 @@
       <section id="panel-theory" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-theory" hidden><div id="theoretical-content"></div></section>
 
       <section id="panel-inspiration" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-inspiration" hidden>
-        <div id="synthesis-banner" class="mb-6 p-4 rounded-2xl bg-gradient-to-l from-sage/15 to-gold/10 border border-sage/30 text-sm"></div>
         <div id="teacher-drive-inspiration-slot" class="hidden mb-6"></div>
         <div id="inspiration-content"></div>
 
@@ -5331,7 +5329,10 @@
         appState.activePlan = appState.aiGeneratedPlan;
       }
       appState.productTabsRendered = freshProductTabsRendered();
-      appState.visualGallery = normalizeGallery(data.gallery, topicStr);
+      hydrateVisualGalleryFromSources({ data: data, plan: appState.aiGeneratedPlan });
+      if (!appState.visualGallery.length) {
+        appState.visualGallery = normalizeGallery(data.gallery, topicStr);
+      }
       appState.topicResearchCompleted = true;
 
       if (Array.isArray(data._communityMatches) && data._communityMatches.length) {
@@ -6236,39 +6237,6 @@
       return parts.filter(Boolean).join(' · ');
     }
 
-    function getUnifiedSynthesisSourceLabels() {
-      var labels = [];
-      var wr = appState.webResearch;
-      if (wr && (
-        String(wr.summary || wr.rawContent || '').trim() ||
-        (Array.isArray(wr.highlights) && wr.highlights.length) ||
-        (Array.isArray(wr.connections) && wr.connections.length)
-      )) {
-        labels.push(t('synthesis_web'));
-      }
-      var gi = appState.gradeResearch && appState.gradeResearch.gradeInsights;
-      if (gi && stripHtmlText(gi.archivesSynthesisHtml || '')) {
-        labels.push(t('archives_synthesis'));
-      }
-      var comm = appState.topicCommunityMatches || [];
-      if (comm.length) {
-        labels.push(t('synthesis_community'));
-      } else if (appState.grade && appState.topic && getCommunityMaterialsForTopic(appState.grade, appState.topic).length) {
-        labels.push(t('synthesis_community'));
-      }
-      if (isMeaningfulArchiveInspiration(appState.aiGeneratedPlan && appState.aiGeneratedPlan.inspiration)) {
-        labels.push(isEnglish() ? 'Archive' : 'ארכיון');
-      }
-      if (hasMeaningfulCurriculumRows(appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum)) {
-        labels.push(t('curriculum_title'));
-      }
-      return labels;
-    }
-
-    function hasUnifiedInspirationSources() {
-      return getUnifiedSynthesisSourceLabels().length > 0;
-    }
-
     function buildUnifiedInspirationSynthesis(options) {
       options = options || {};
       var plan = options.plan || appState.aiGeneratedPlan;
@@ -6605,6 +6573,7 @@
     function hydrateUnifiedLessonSynthesis(options) {
       var insp = hydrateInspirationFromUnifiedSynthesis(options);
       var curr = hydrateCurriculumFromUnifiedSynthesis(options);
+      hydrateVisualGalleryFromSources(options);
       return insp || curr;
     }
 
@@ -6613,7 +6582,6 @@
       if (!appState.visualGallery.length) {
         appState.visualGallery = generateVisualGallery(appState.topic || '');
       }
-      renderSynthesisBanner();
       renderInspirationBase();
       renderPinterestGallery();
       renderPersonalInWorkspace();
@@ -6839,29 +6807,145 @@
     }
 
     function resolvePinterestUrl(item, topic) {
-      const direct = extractPinterestUrl(item && item.pin) || extractPinterestUrl(item && item.src);
+      const direct = extractPinterestUrl(item && item.url) ||
+        extractPinterestUrl(item && item.link) ||
+        extractPinterestUrl(item && item.href) ||
+        extractPinterestUrl(item && item.pinUrl) ||
+        extractPinterestUrl(item && item.pin) ||
+        extractPinterestUrl(item && item.src);
       if (direct) return direct;
-      const query = String((item && item.pin) || (item && item.title) || topic || '').trim();
+      const query = String((item && item.pin) || (item && item.query) || (item && item.search) ||
+        (item && item.title) || topic || '').trim();
       if (!query) return '';
       return 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(query);
     }
 
-    function buildPinterestLinkHtml(url) {
+    function buildPinterestLinkHtml(url, label) {
       if (!url) return '';
-      return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" style="color: #0066cc; text-decoration: underline; font-weight: bold;">לחצו כאן להשראה חזותית בפינטרסט</a>';
+      var text = label || t('pinterest_link') || 'קישור ללוח';
+      return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" ' +
+        'class="inline-flex items-center gap-1 rounded-full border border-terracotta/30 bg-white px-2.5 py-1 text-xs font-semibold text-terracotta hover:bg-terracotta/10">' +
+        '<i class="fa-brands fa-pinterest" aria-hidden="true"></i> ' + escapeHtml(text) + '</a>';
+    }
+
+    function coerceVisualGalleryItem(item, index, topic) {
+      if (item == null) return null;
+      if (typeof item === 'string') {
+        var text = item.trim();
+        if (!text) return null;
+        var embedded = extractPinterestUrl(text);
+        return {
+          board: t('pinterest_board_link') || 'השראה ויזואלית',
+          title: embedded ? (text.replace(embedded, '').trim() || ('השראה ' + (index + 1))) : text.slice(0, 120),
+          pin: embedded ? '' : text,
+          src: embedded || '',
+          url: embedded || '',
+        };
+      }
+      if (typeof item !== 'object') return null;
+      var title = String(item.title || item.name || item.label || item.text || item.board || '').trim();
+      var pin = String(item.pin || item.query || item.search || item.searchPhrase || '').trim();
+      var src = String(item.src || item.image || item.thumbnail || item.img || '').trim();
+      var url = String(item.url || item.link || item.href || item.pinUrl || '').trim();
+      if (!title && !pin && !src && !url) return null;
+      if (!src && url && extractPinterestUrl(url)) src = extractPinterestUrl(url);
+      if (!pin && url && !extractPinterestUrl(url)) pin = url;
+      if (!title) title = pin || url || ('השראה ' + (index + 1));
+      return {
+        board: String(item.board || item.category || item.type || t('pinterest_board_link') || 'השראה ויזואלית').trim(),
+        title: title,
+        pin: pin || (extractPinterestUrl(url) ? '' : title),
+        src: src,
+        url: url || src || extractPinterestUrl(pin) || '',
+      };
+    }
+
+    function pushVisualGalleryCandidates(bucket, value) {
+      if (value == null) return;
+      if (Array.isArray(value)) {
+        value.forEach(function (entry) { pushVisualGalleryCandidates(bucket, entry); });
+        return;
+      }
+      if (typeof value === 'object' && Array.isArray(value.items)) {
+        pushVisualGalleryCandidates(bucket, value.items);
+        return;
+      }
+      bucket.push(value);
+    }
+
+    function extractPinterestLinksFromText(text) {
+      var matches = String(text || '').match(/https?:\/\/(?:www\.)?pinterest\.[^\s<>"']+/gi) || [];
+      return matches.map(function (url, i) {
+        return { title: (t('pinterest_link') || 'Pinterest') + ' ' + (i + 1), url: url, src: url };
+      });
+    }
+
+    function collectVisualGallerySources(options) {
+      options = options || {};
+      var data = options.data;
+      var plan = options.plan || appState.aiGeneratedPlan;
+      var items = [];
+      function fromNode(node) {
+        if (!node || typeof node !== 'object') return;
+        pushVisualGalleryCandidates(items, node.gallery);
+        pushVisualGalleryCandidates(items, node.visualGallery);
+        pushVisualGalleryCandidates(items, node.pinterest);
+        pushVisualGalleryCandidates(items, node.links);
+        pushVisualGalleryCandidates(items, node.visualAids);
+        if (node.inspiration && typeof node.inspiration === 'object') {
+          var insp = node.inspiration;
+          pushVisualGalleryCandidates(items, insp.gallery);
+          pushVisualGalleryCandidates(items, insp.pinterest);
+          pushVisualGalleryCandidates(items, insp.links);
+          pushVisualGalleryCandidates(items, insp.visualAids);
+          (insp.global || []).forEach(function (block) {
+            if (!block) return;
+            pushVisualGalleryCandidates(items, block.gallery);
+            pushVisualGalleryCandidates(items, block.pinterest);
+            pushVisualGalleryCandidates(items, block.links);
+            pushVisualGalleryCandidates(items, block.visualAids);
+            (block.items || []).forEach(function (line) {
+              extractPinterestLinksFromText(line).forEach(function (link) { items.push(link); });
+            });
+          });
+        }
+        if (node.webResearch && typeof node.webResearch === 'object') {
+          fromNode(node.webResearch);
+        }
+        ['summary', 'rawContent', 'overview', 'content', 'text'].forEach(function (key) {
+          extractPinterestLinksFromText(node[key]).forEach(function (link) { items.push(link); });
+        });
+      }
+      if (data) fromNode(data);
+      if (plan) fromNode(plan);
+      if (appState.webResearch) fromNode({ webResearch: appState.webResearch });
+      var topic = String(appState.topic || '').trim();
+      var normalized = [];
+      items.forEach(function (item) {
+        var coerced = coerceVisualGalleryItem(item, normalized.length, topic);
+        if (coerced) normalized.push(coerced);
+      });
+      return normalizeGallery(normalized, topic);
+    }
+
+    function hydrateVisualGalleryFromSources(options) {
+      options = options || {};
+      var collected = collectVisualGallerySources(options);
+      if (collected.length) {
+        appState.visualGallery = collected;
+        return true;
+      }
+      if (appState.visualGallery && appState.visualGallery.length) return true;
+      return false;
     }
 
     function normalizeGallery(items, topic) {
-      return (items || []).slice(0, 12).filter(function (p) {
-        return p && (p.src || p.pin || p.title);
-      }).map(function (p, i) {
-        return {
-          board: p.board || 'השראה ויזואלית',
-          title: p.title || ('השראה ' + (i + 1)),
-          pin: p.pin || '',
-          src: p.src || '',
-        };
+      var out = [];
+      (items || []).slice(0, 12).forEach(function (p, i) {
+        var coerced = coerceVisualGalleryItem(p, out.length, topic);
+        if (coerced) out.push(coerced);
       });
+      return out;
     }
 
     function syncGradeInsightsTitle(gradeId) {
@@ -7234,7 +7318,10 @@
         if (bp.inspiration) appState.aiGeneratedPlan.inspiration = bp.inspiration;
         if (bp.sources) appState.aiGeneratedPlan.sources = bp.sources;
         if (data.gallery && data.gallery.length) {
-          appState.visualGallery = normalizeGallery(data.gallery, appState.topic || '');
+          hydrateVisualGalleryFromSources({ data: data, plan: appState.aiGeneratedPlan });
+          if (!appState.visualGallery.length) {
+            appState.visualGallery = normalizeGallery(data.gallery, appState.topic || '');
+          }
         }
       } else if (cTab === 'curriculum' && Array.isArray(bp.curriculum)) {
         var mergedPlan = mergeBlockPlanCurriculum(
@@ -12495,7 +12582,6 @@
         ensureProductTabsHydrated();
         hydrateUnifiedLessonSynthesis();
         switchTab(appState.activeProductTab || 'theory');
-        renderSynthesisBanner();
       } catch (err) {
         console.error('[waldrof] openProductsWorkspace render failed:', err);
         restoreStepBTopicResultsView();
@@ -13209,7 +13295,6 @@
 
     function refreshWorkspaceIfOpen() {
       if (document.getElementById('workspace').classList.contains('hidden')) return;
-      renderSynthesisBanner();
       renderTeacherDriveMergeSlots();
       if (!appState.productTabsRendered.inspiration) {
         ensureAllProductTabsMounted();
@@ -13380,10 +13465,17 @@
     }
 
     function generateVisualGallery(topic) {
+      hydrateVisualGalleryFromSources({ plan: appState.activePlan || appState.aiGeneratedPlan });
       if (appState.visualGallery && appState.visualGallery.length) {
         return appState.visualGallery.slice();
       }
-      return [];
+      var tpc = String(topic || appState.topic || '').trim();
+      if (!tpc) return [];
+      return normalizeGallery([{
+        board: t('pinterest_board_link') || 'לוח השראה',
+        title: tpc,
+        pin: tpc + ' waldorf main lesson',
+      }], tpc);
     }
 
     // ---------- Workspace render ----------
@@ -13398,8 +13490,6 @@
       if (inspBase) inspBase.innerHTML = '';
       var pinGal = document.getElementById('pinterest-gallery');
       if (pinGal) pinGal.innerHTML = '';
-      var synth = document.getElementById('synthesis-banner');
-      if (synth) { synth.innerHTML = ''; synth.classList.add('hidden'); }
       var commMat = document.getElementById('community-materials');
       if (commMat) commMat.innerHTML = '';
       var cards = document.getElementById('curriculum-cards');
@@ -13481,7 +13571,6 @@
                   ? 'Archived lesson — inspiration was not stored in this record.'
                   : 'תכנית ארכיון — שכבת ההשראה לא נשמרה ברשומה זו.')
               );
-              renderSynthesisBanner();
               renderCommunityMaterials();
               updateCommunityBadge();
               r.inspiration = true;
@@ -13612,31 +13701,6 @@
       updateNewResearchBarVisibility();
       initAnthroArchivePanel();
       nudgeGoogleTranslate();
-    }
-
-    function renderSynthesisBanner() {
-      const banner = document.getElementById('synthesis-banner');
-      if (!banner) return;
-      const topic = String(appState.topic || '').trim();
-      const sources = getUnifiedSynthesisSourceLabels();
-      if (!sources.length && !hasPhaseCInspirationContent()) {
-        banner.classList.add('hidden');
-        banner.innerHTML = '';
-        return;
-      }
-      let html = '<strong><i class="fa-solid fa-layer-group text-sage ml-1"></i> ' + escapeHtml(t('synthesis_banner_title')) + '</strong> ' +
-        escapeHtml(appState.gradeLabel || '');
-      if (topic) html += ' · «' + escapeHtml(topic) + '»';
-      if (sources.length) {
-        html += '<div class="mt-2 flex flex-wrap gap-2">';
-        sources.forEach(function (label) {
-          html += '<span class="inline-flex items-center rounded-full bg-white/80 border border-sage/25 px-2.5 py-0.5 text-xs text-walnut/80">' +
-            escapeHtml(label) + '</span>';
-        });
-        html += '</div>';
-      }
-      banner.classList.remove('hidden');
-      banner.innerHTML = html;
     }
 
     function shouldShowDriveMerge() {
@@ -13927,25 +13991,28 @@
     function renderPinterestGallery() {
       const galEl = document.getElementById('pinterest-gallery');
       if (!galEl) return;
+      hydrateVisualGalleryFromSources({ plan: appState.activePlan || appState.aiGeneratedPlan });
+      if (!appState.visualGallery.length) {
+        appState.visualGallery = generateVisualGallery(appState.topic || '');
+      }
       if (!appState.visualGallery.length) {
         galEl.innerHTML = '';
         return;
       }
       holdPageScroll(function () {
         const topic = appState.topic || '';
-        galEl.innerHTML = appState.visualGallery.map(function (p) {
+        const cardsHtml = appState.visualGallery.map(function (p) {
           const pinUrl = resolvePinterestUrl(p, topic);
           const board = p.board ? '<span class="inline-block text-[10px] bg-burgundy/10 text-burgundy px-2 py-0.5 rounded-full mb-1">' + escapeHtml(p.board) + '</span>' : '';
           const imgHtml = p.src
             ? '<img src="' + escapeHtml(p.src) + '" alt="' + escapeHtml(p.title) + '" class="w-full object-cover pin-card-img" loading="lazy" />'
             : '<div class="w-full pin-card-img bg-burgundy/5 flex items-center justify-center text-terracotta"><i class="fa-brands fa-pinterest text-3xl" aria-hidden="true"></i></div>';
-          const hintHtml = pinUrl
-            ? '<p class="mt-1 text-[10px] text-terracotta/80 font-medium">לחצו להשראה חזותית בפינטרסט</p>'
-            : '';
+          const linkChip = pinUrl ? buildPinterestLinkHtml(pinUrl, t('pinterest_link')) : '';
           const cardInner = imgHtml +
             '<div class="p-2.5 text-xs">' + board +
             '<p class="font-medium text-walnut group-hover:text-terracotta leading-snug">' + escapeHtml(p.title) + '</p>' +
-            hintHtml + '</div>';
+            (linkChip ? '<div class="mt-2">' + linkChip + '</div>' : '') +
+            '</div>';
           if (!pinUrl) {
             return '<div class="pin-card block rounded-xl overflow-hidden border border-gold/25 bg-white shadow-sm hover:shadow-md group">' +
               cardInner + '</div>';
@@ -13955,6 +14022,13 @@
             'style="cursor: pointer;" title="' + escapeHtml(p.title) + '">' +
             cardInner + '</a>';
         }).join('');
+        const chipsHtml = appState.visualGallery.map(function (p) {
+          const pinUrl = resolvePinterestUrl(p, topic);
+          if (!pinUrl) return '';
+          return buildPinterestLinkHtml(pinUrl, p.title || t('pinterest_link'));
+        }).filter(Boolean).join('');
+        galEl.innerHTML = cardsHtml +
+          (chipsHtml ? '<div class="col-span-full flex flex-wrap gap-2 mt-2 pt-2 border-t border-gold/20">' + chipsHtml + '</div>' : '');
       });
     }
 
