@@ -236,6 +236,20 @@ function getTopicResponseSchema() {
         required: ['theory', 'inspiration', 'sources', 'curriculum'],
       },
       gallery: { type: 'array', items: { type: 'object' } },
+      pedagogicalResources: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            url: { type: 'string' },
+            label: { type: 'string' },
+            source: { type: 'string' },
+            snippet: { type: 'string' },
+          },
+          required: ['title', 'url', 'label'],
+        },
+      },
     },
     required: ['webResearch', 'blockPlan', 'gallery'],
   };
@@ -339,6 +353,7 @@ function buildUpgradeUserPrompt(row) {
       '- blockPlan.theory: deep Hebrew HTML sections with bibliography (books, articles, websites — no URLs)\n' +
       '- blockPlan.inspiration: global ideas, podcast themes, narrative paragraphs\n' +
       '- blockPlan.sources: same bibliography shape as theory.bibliography\n' +
+      '- pedagogicalResources: 4–10 verified HTTPS links from Israeli Waldorf schools (שקד, חרדוף, waldorf.org.il), AWSNA, Goetheanum, «אדם עולם» — subject + Waldorf context only; label each (מאמר פדגוגי, מערך שיעור מאתר בית ספר, וכו׳)\n' +
       '- blockPlan.curriculum: EXACTLY 15 day objects (days 1–15) with day, topic, content, art, optional hint\n' +
       '- gallery: 4–8 Pinterest visual inspiration entries (Hebrew titles, search phrases in pin — no URLs)\n' +
       'Return JSON only matching the topic schema.'

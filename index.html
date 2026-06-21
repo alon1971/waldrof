@@ -3729,12 +3729,21 @@
         <div id="teacher-drive-inspiration-slot" class="hidden mb-6"></div>
         <div id="inspiration-content"></div>
 
+        <div id="pedagogical-resources-section" class="hidden mt-8 bg-white/85 rounded-2xl border border-sage/25 p-4 sm:p-6 shadow-sm w-full box-border">
+          <h3 class="app-subhead font-display font-bold text-sage-dark mb-2">
+            <i class="fa-solid fa-book-open text-sage icon-inline"></i>
+            <span data-i18n="pedagogical_resources_title">מאמרים ומקורות וולדורפיים מהרשת</span>
+          </h3>
+          <p class="text-xs text-walnut/60 mb-4" data-i18n="pedagogical_resources_desc">מאמרים, מערכי שיעור ומדריכים מאתרי בתי ספר וולדורפיים, פדרציות וכתבי עת — מסוננים לפי הנושא והכיתה</p>
+          <div id="pedagogical-resources-list" class="space-y-3"></div>
+        </div>
+
         <div class="mt-8 bg-white/85 rounded-2xl border border-burgundy/20 p-4 sm:p-6 shadow-sm w-full box-border">
           <h3 class="app-subhead font-display font-bold text-burgundy mb-2">
             <i class="fa-brands fa-pinterest text-terracotta icon-inline"></i>
             <span data-i18n="pinterest_title">השראה חזותית ומחברות תקופה</span>
           </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">קישורי השראה שנמצאו במחקר החי — Pinterest, ארכיונים וולדורפיים</p>
+          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה</p>
           <div id="pinterest-gallery" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3"></div>
         </div>
 
@@ -4434,6 +4443,7 @@
       communityCache: [],
       communityForGrade: [],
       visualGallery: [],
+      pedagogicalResources: [],
       gradeResearch: null,
       aiGeneratedPlan: null,
       driveMerge: null,
@@ -4515,7 +4525,7 @@
       clearPersistedActiveStep();
       Object.assign(appState, {
         step: 1, navSection: 'wizard', grade: null, gradeLabel: null, topic: null, topicResearchCompleted: false, webResearch: null,
-        personalMaterials: [], driveScanned: false, activePlan: null, visualGallery: [],
+        personalMaterials: [], driveScanned: false, activePlan: null, visualGallery: [], pedagogicalResources: [],
         gradeResearch: null, aiGeneratedPlan: null, driveMerge: null,
         archiveQuery: '', archiveSearch: null, archiveSourcesById: {}, archiveSummaries: {}, archivePanelsOpen: {}, archiveActiveExportId: null,
         bibliographyRegistry: {},
@@ -5098,6 +5108,9 @@
         gallery: appState.visualGallery
           ? JSON.parse(JSON.stringify(appState.visualGallery))
           : null,
+        pedagogicalResources: appState.pedagogicalResources
+          ? JSON.parse(JSON.stringify(appState.pedagogicalResources))
+          : null,
       };
     }
 
@@ -5420,6 +5433,7 @@
       if (!appState.visualGallery.length) {
         appState.visualGallery = normalizeGallery(data.gallery, topicStr);
       }
+      hydratePedagogicalResourcesFromSources({ data: data, plan: appState.aiGeneratedPlan });
       appState.topicResearchCompleted = true;
 
       if (Array.isArray(data._communityMatches) && data._communityMatches.length) {
@@ -6674,6 +6688,7 @@
       var insp = hydrateInspirationFromUnifiedSynthesis(options);
       var curr = hydrateCurriculumFromUnifiedSynthesis(options);
       hydrateVisualGalleryFromSources(options);
+      hydratePedagogicalResourcesFromSources(options);
       return insp || curr;
     }
 
@@ -6684,6 +6699,7 @@
         appState.visualGallery = generateVisualGallery(appState.topic || '');
       }
       renderInspirationBase();
+      renderPedagogicalResourcesSection();
       renderPinterestGallery();
       renderPersonalInWorkspace();
       renderTeacherDriveMergeSlots();
@@ -6709,6 +6725,7 @@
           data.blockPlan.sources = { books: [], articles: [], websites: [] };
         }
         if (!Array.isArray(data.gallery)) data.gallery = [];
+        data.pedagogicalResources = normalizePedagogicalResources(data.pedagogicalResources, appState.topic || '');
       } else if (cTab === 'curriculum') {
         var rows = coerceCurriculumRows(data.blockPlan.curriculum);
         if (!rows.length && typeof data.blockPlan.curriculum === 'string') {
@@ -7369,9 +7386,14 @@
     function resetVisualGalleryState(options) {
       options = options || {};
       appState.visualGallery = [];
+      appState.pedagogicalResources = [];
       appState._visualGalleryMountedKey = '';
       if (options.clearDom !== false) {
         remountPinterestGalleryContainer('');
+        var pedSection = document.getElementById('pedagogical-resources-section');
+        var pedList = document.getElementById('pedagogical-resources-list');
+        if (pedSection) pedSection.classList.add('hidden');
+        if (pedList) pedList.innerHTML = '';
       }
     }
 
@@ -7467,6 +7489,176 @@
       var collected = collectVisualGallerySources(options);
       appState.visualGallery = collected;
       return collected.length > 0;
+    }
+
+    var PEDAGOGICAL_RESOURCE_LABELS = [
+      'מאמר פדגוגי',
+      'מערך שיעור מאתר בית ספר',
+      'מקור וולדורף רשמי',
+      'כתב עת פדגוגי',
+      'מדריך תקופה וולדורפית',
+    ];
+
+    var WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
+      { pattern: /waldorf\.org\.il/i, source: 'פורום וולדורף ישראל', label: 'מקור וולדורף רשמי' },
+      { pattern: /shaked|שקד/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
+      { pattern: /harduf|חרדוף/i, source: 'בית ספר חרדוף', label: 'מערך שיעור מאתר בית ספר' },
+      { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
+      { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
+      { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
+      { pattern: /iaswece/i, source: 'IASWECE', label: 'מקור וולדורף רשמי' },
+      { pattern: /waldorflibrary/i, source: 'ספריית מכון המחקר הוולדורפי', label: 'מאמר פדגוגי' },
+      { pattern: /rsarchive|steinerarchive/i, source: 'Steiner Archive', label: 'מאמר פדגוגי' },
+      { pattern: /adam-?olam|אדם.?עולם/i, source: 'כתב עת אדם עולם', label: 'כתב עת פדגוגי' },
+      { pattern: /anthroposophy|אנתרופוסופיה/i, source: 'מקור אנתרופוסופי', label: 'מאמר פדגוגי' },
+      { pattern: /waldorf/i, source: 'מקור וולדורף', label: 'מקור וולדורף רשמי' },
+    ];
+
+    function inferPedagogicalResourceMeta(url) {
+      var u = String(url || '');
+      for (var i = 0; i < WALDORF_PEDAGOGICAL_DOMAIN_HINTS.length; i++) {
+        var hint = WALDORF_PEDAGOGICAL_DOMAIN_HINTS[i];
+        if (hint.pattern.test(u)) return { source: hint.source, label: hint.label };
+      }
+      return { source: 'מקור וולדורף', label: 'מאמר פדגוגי' };
+    }
+
+    function isWaldorfPedagogicalResourceUrl(url) {
+      var u = String(url || '').trim();
+      if (!/^https?:\/\//i.test(u)) return false;
+      if (/pinterest\.|facebook\.com|instagram\.com|youtube\.com|tiktok\.com/i.test(u)) return false;
+      return WALDORF_PEDAGOGICAL_DOMAIN_HINTS.some(function (hint) { return hint.pattern.test(u); });
+    }
+
+    function pedagogicalResourceLabelClass(label) {
+      var map = {
+        'מאמר פדגוגי': 'bg-sage/15 text-sage-dark border-sage/30',
+        'מערך שיעור מאתר בית ספר': 'bg-burgundy/10 text-burgundy border-burgundy/25',
+        'מקור וולדורף רשמי': 'bg-gold/15 text-walnut border-gold/35',
+        'כתב עת פדגוגי': 'bg-terracotta/10 text-terracotta border-terracotta/25',
+        'מדריך תקופה וולדורפית': 'bg-sage/20 text-sage-dark border-sage/35',
+      };
+      return map[label] || 'bg-sage/10 text-sage-dark border-sage/25';
+    }
+
+    function normalizePedagogicalResourceItem(item, topic) {
+      if (!item || typeof item !== 'object') return null;
+      var url = String(item.url || item.link || item.href || '').trim();
+      if (!/^https?:\/\//i.test(url) || !isWaldorfPedagogicalResourceUrl(url)) return null;
+      var meta = inferPedagogicalResourceMeta(url);
+      var label = String(item.label || item.type || item.category || '').trim();
+      if (PEDAGOGICAL_RESOURCE_LABELS.indexOf(label) === -1) label = meta.label;
+      var title = String(item.title || item.name || meta.source || '').trim();
+      var snippet = String(item.snippet || item.description || item.summary || '').trim();
+      var topicStr = String(topic || appState.topic || '').trim();
+      if (topicStr && snippet) {
+        var topicLc = topicStr.toLowerCase();
+        var blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
+        if (blob.indexOf('waldorf') === -1 && blob.indexOf('וולדורף') === -1 &&
+            blob.indexOf('ולדורף') === -1 && blob.indexOf('אנתרופוסופ') === -1 &&
+            blob.indexOf(topicLc) === -1 && topicLc.length > 3) {
+          return null;
+        }
+      }
+      return {
+        title: title || meta.source,
+        url: url,
+        label: label,
+        source: String(item.source || item.publisher || meta.source || '').trim() || meta.source,
+        snippet: snippet,
+      };
+    }
+
+    function normalizePedagogicalResources(raw, topic) {
+      var list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.items) ? raw.items : []);
+      var seen = Object.create(null);
+      var out = [];
+      list.forEach(function (item) {
+        var norm = normalizePedagogicalResourceItem(item, topic);
+        if (!norm || seen[norm.url]) return;
+        seen[norm.url] = true;
+        out.push(norm);
+      });
+      return out.slice(0, 12);
+    }
+
+    function collectPedagogicalResourceSources(options) {
+      options = options || {};
+      var data = options.data;
+      var plan = options.plan || appState.aiGeneratedPlan || appState.activePlan;
+      var topic = String(appState.topic || '').trim();
+      var items = [];
+      function pushList(list) {
+        normalizePedagogicalResources(list, topic).forEach(function (item) { items.push(item); });
+      }
+      if (data) {
+        pushList(data.pedagogicalResources);
+        if (data.blockPlan) pushList(data.blockPlan.pedagogicalResources);
+      }
+      if (plan) {
+        pushList(plan.pedagogicalResources);
+        if (plan.inspiration && plan.inspiration.pedagogicalResources) {
+          pushList(plan.inspiration.pedagogicalResources);
+        }
+      }
+      if (appState.pedagogicalResources && appState.pedagogicalResources.length) {
+        pushList(appState.pedagogicalResources);
+      }
+      var wr = options.webResearch || appState.webResearch;
+      if (wr && Array.isArray(wr.citations)) {
+        wr.citations.forEach(function (url) {
+          var u = String(url || '').trim();
+          if (!isWaldorfPedagogicalResourceUrl(u)) return;
+          var meta = inferPedagogicalResourceMeta(u);
+          var stub = normalizePedagogicalResourceItem({
+            title: meta.source + (topic ? ' — ' + topic : ''),
+            url: u,
+            label: meta.label,
+            source: meta.source,
+            snippet: topic ? ('מקור וולדורפי רלוונטי לנושא «' + topic + '»') : '',
+          }, topic);
+          if (stub) items.push(stub);
+        });
+      }
+      return normalizePedagogicalResources(items, topic);
+    }
+
+    function hydratePedagogicalResourcesFromSources(options) {
+      options = options || {};
+      var collected = collectPedagogicalResourceSources(options);
+      appState.pedagogicalResources = collected;
+      if (appState.aiGeneratedPlan) appState.aiGeneratedPlan.pedagogicalResources = collected.slice();
+      if (appState.activePlan) appState.activePlan.pedagogicalResources = collected.slice();
+      return collected.length > 0;
+    }
+
+    function renderPedagogicalResourcesSection() {
+      hydratePedagogicalResourcesFromSources({ plan: appState.activePlan || appState.aiGeneratedPlan });
+      var section = document.getElementById('pedagogical-resources-section');
+      var listEl = document.getElementById('pedagogical-resources-list');
+      if (!section || !listEl) return;
+      var resources = appState.pedagogicalResources || [];
+      if (!resources.length) {
+        section.classList.add('hidden');
+        listEl.innerHTML = '';
+        return;
+      }
+      section.classList.remove('hidden');
+      var html = resources.map(function (res) {
+        var labelClass = pedagogicalResourceLabelClass(res.label);
+        return '<article class="rounded-xl border border-sage/20 bg-white/90 p-4 shadow-sm hover:shadow-md transition-shadow">' +
+          '<div class="flex flex-wrap items-center gap-2 mb-2">' +
+          '<span class="inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ' + labelClass + '">' +
+          escapeHtml(res.label) + '</span>' +
+          (res.source ? '<span class="text-[11px] text-walnut/55">' + escapeHtml(res.source) + '</span>' : '') +
+          '</div>' +
+          '<a href="' + escapeHtml(res.url) + '" target="_blank" rel="noopener noreferrer" ' +
+          'class="font-semibold text-sage-dark hover:text-burgundy leading-snug block mb-1">' +
+          escapeHtml(res.title) + ' <i class="fa-solid fa-arrow-up-left-from-square text-[10px] opacity-60" aria-hidden="true"></i></a>' +
+          (res.snippet ? '<p class="text-sm text-walnut/70 leading-relaxed">' + escapeHtml(res.snippet) + '</p>' : '') +
+          '</article>';
+      }).join('');
+      holdPageScroll(function () { listEl.innerHTML = html; });
     }
 
     function normalizeGallery(items, topic, options) {
@@ -7608,20 +7800,52 @@
       syncLessonChatFabLayout();
     }
 
+    function getWaldorfPedagogicalResourcesSearchInstruction() {
+      if (isEnglish()) {
+        return (
+          'Targeted Waldorf web resource search: Israeli Waldorf schools (Shaked, Harduf, waldorf.org.il), ' +
+          'training centers, AWSNA, Waldorf World, Goetheanum, Adam Olam («אדם עולם») magazine. ' +
+          'Include ONLY links where the page matches BOTH the active block subject AND Waldorf pedagogical context ' +
+          '(main-lesson block outline, grade development essay, school subject guide — NOT generic education).'
+        );
+      }
+      return (
+        'חיפוש ממוקד למקורות וולדורפיים: בתי ספר בישראל (שקד, חרדוף, waldorf.org.il), מרכזי הכשרה, AWSNA, Waldorf World, גויתאנום, כתב עת «אדם עולם». ' +
+        'כלול קישורים רק כאשר העמוד תואם גם את נושא התקופה וגם הקשר פדגוגי וולדורפי/אנתרופוסופי ' +
+        '(מערך תקופה, מאמר התפתחות לכיתה, מדריך מקצועי מבית ספר — לא חומר חינוך כללי).'
+      );
+    }
+
+    function getPedagogicalResourcesUrlInstruction() {
+      if (isEnglish()) {
+        return (
+          'URL EXCEPTION (inspiration tab only): HTTPS urls are ALLOWED ONLY in the top-level pedagogicalResources array. ' +
+          'Each item: { title, url, label, source, snippet }. Labels: pedagogical article | school lesson plan | official Waldorf source | pedagogical journal | Waldorf block guide. ' +
+          'FORBIDDEN: URLs in inspiration text, sources bibliography, or gallery. ' + getWaldorfPedagogicalResourcesSearchInstruction()
+        );
+      }
+      return (
+        'חריג URL (לשונית השראה בלבד): מותר לכלול HTTPS רק במערך pedagogicalResources. ' +
+        'כל פריט: { title, url, label, source, snippet }. תוויות: מאמר פדגוגי | מערך שיעור מאתר בית ספר | מקור וולדורף רשמי | כתב עת פדגוגי | מדריך תקופה וולדורפית. ' +
+        'אסור URL בטקסט השראה, ביבליוגרפיה או גלריה. ' + getWaldorfPedagogicalResourcesSearchInstruction()
+      );
+    }
+
     function getPrioritySourcesSearchInstruction() {
+      const waldorfWeb = getWaldorfPedagogicalResourcesSearchInstruction();
       if (isEnglish()) {
         return (
           'Broad internet search for general educational/pedagogical material. ' +
           'Always search the Waldorf Research Institute Library (https://waldorflibrary.org/) as a core archive alongside other web sources — do not restrict to this site alone. ' +
           'Also check and prioritize Alon Yerushalmy, the «מסעות בחינוך» podcast, and educationpace.com; ' +
-          'integrate relevant findings alongside general web results.'
+          'integrate relevant findings alongside general web results. ' + waldorfWeb
         );
       }
       return (
         'חיפוש אינטרנט רחב למידע חינוכי ופדגוגי כללי. ' +
         'תמיד חפש גם בספריית מכון המחקר הוולדורפי הרשמית (https://waldorflibrary.org/) כארכיון ליבה לצד מקורות רשת אחרים — אל תגביל את החיפוש לאתר זה בלבד. ' +
         'בדוק והעדף גם תוכן רלוונטי מאלון ירושלמי, מפודקאסט «מסעות בחינוך» ומ-educationpace.com; ' +
-        'שלב ממצאים רלוונטיים לצד תוצאות רשת כלליות.'
+        'שלב ממצאים רלוונטיים לצד תוצאות רשת כלליות. ' + waldorfWeb
       );
     }
 
@@ -7715,24 +7939,26 @@
 
     function buildInspirationTabPrompt(topic, gradeLabel) {
       const gradeLock = getGradeLockInstruction();
-      const noUrls = getNoUrlsInstruction();
+      const urlPolicy = getPedagogicalResourcesUrlInstruction();
       const lazy = getLazyLoadExpansionInstruction();
       const prioritySearch = getPrioritySourcesSearchInstruction();
       if (isEnglish()) {
         return (
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
+          gradeLock + ' ' + urlPolicy + ' ' + lazy + ' ' + prioritySearch + ' ' +
           'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items ({text} only — no expansion). ' +
           'podcast: 3–5 episodes {theme, insight} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
-          'narrative: 3–5 story paragraphs ({text} only). 16px UI.'
+          'narrative: 3–5 story paragraphs ({text} only). ' +
+          'pedagogicalResources: 4–10 verified HTTPS links from Waldorf schools, federations, and journals (שקד, חרדוף, waldorf.org.il, AWSNA, Goetheanum, Adam Olam) — subject + Waldorf context only. 16px UI.'
         );
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + lazy + ' ' + prioritySearch + ' ' +
+        gradeLock + ' ' + urlPolicy + ' ' + lazy + ' ' + prioritySearch + ' ' +
         'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים ({text} בלבד — ללא expansion). ' +
         'podcast: 3–5 פרקים {theme, insight} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
-        'narrative: 3–5 פסקאות ({text} בלבד). גופן 16px.'
+        'narrative: 3–5 פסקאות ({text} בלבד). ' +
+        'pedagogicalResources: 4–10 קישורי HTTPS מאומתים מבתי ספר, פדרציות וכתבי עת וולדורפיים (שקד, חרדוף, waldorf.org.il, AWSNA, גויתאנום, אדם עולם) — רק כשהעמוד תואם נושא + הקשר וולדורפי. גופן 16px.'
       );
     }
 
@@ -7850,6 +8076,12 @@
       if (cTab === 'inspiration') {
         if (bp.inspiration) appState.aiGeneratedPlan.inspiration = bp.inspiration;
         if (bp.sources) appState.aiGeneratedPlan.sources = bp.sources;
+        if (data.pedagogicalResources && data.pedagogicalResources.length) {
+          appState.aiGeneratedPlan.pedagogicalResources = normalizePedagogicalResources(data.pedagogicalResources, appState.topic || '');
+          appState.pedagogicalResources = appState.aiGeneratedPlan.pedagogicalResources.slice();
+        } else {
+          hydratePedagogicalResourcesFromSources({ data: data, plan: appState.aiGeneratedPlan });
+        }
         if (data.gallery && data.gallery.length) {
           hydrateVisualGalleryFromSources({ data: data, plan: appState.aiGeneratedPlan });
           if (!appState.visualGallery.length) {
@@ -7893,7 +8125,7 @@
         pedagogyExpandHint: getLazyLoadExpansionInstruction(),
         currentGrade: appState.grade,
         gradeLockInstruction: getGradeLockInstruction(),
-        noUrlsInstruction: getNoUrlsInstruction(),
+        noUrlsInstruction: cTab === 'inspiration' ? getPedagogicalResourcesUrlInstruction() : getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
       }, { signal: signal });
     }

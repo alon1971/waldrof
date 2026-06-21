@@ -454,6 +454,12 @@
     }
 
     if (!data.gallery && data.visualGallery) data.gallery = data.visualGallery;
+    if (!data.pedagogicalResources && blockPlan && Array.isArray(blockPlan.pedagogicalResources)) {
+      data.pedagogicalResources = blockPlan.pedagogicalResources;
+    }
+    if (!data.pedagogicalResources && Array.isArray(data.waldorfWebResources)) {
+      data.pedagogicalResources = data.waldorfWebResources;
+    }
 
     return data;
   }

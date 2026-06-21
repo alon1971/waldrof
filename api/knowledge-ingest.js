@@ -166,6 +166,16 @@ function appendBlockPlanParts(plan, parts) {
       parts.push((block.title || 'השראה') + ': ' + items);
     });
   }
+  if (Array.isArray(plan.pedagogicalResources) && plan.pedagogicalResources.length) {
+    plan.pedagogicalResources.forEach(function (res) {
+      if (!res) return;
+      parts.push(
+        (res.label || 'מקור וולדורף') + ': ' + (res.title || '') +
+        (res.source ? ' (' + res.source + ')' : '') +
+        (res.snippet ? ' — ' + res.snippet : '')
+      );
+    });
+  }
   if (Array.isArray(plan.curriculum)) {
     plan.curriculum.slice(0, 15).forEach(function (day) {
       if (!day) return;

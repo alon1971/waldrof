@@ -370,6 +370,7 @@ function buildModelParseFallback(phase, rawText, context) {
         },
         sources: { books: [], articles: [], websites: [] },
       },
+      pedagogicalResources: [],
       gallery: [],
       _parseFallback: true,
     };

@@ -62,6 +62,7 @@
     'If there is no meaningful match (e.g. Chemistry, Physics, or other topics not covered by his materials), OMIT his name and platforms entirely.\n' +
     'Also actively search for diverse Waldorf/anthroposophic authors, global curriculum boards, international researchers, ' +
     'and prominent Israeli Waldorf educators beyond the priority sources — to build a broad, credible source landscape.\n' +
+    'FOR INSPIRATION: additionally search Israeli Waldorf schools (שקד, חרדוף), waldorf.org.il, AWSNA, Goetheanum, «אדם עולם» for subject-specific Waldorf guides.\n' +
     '=== END WEB SEARCH STRATEGY ===\n';
 
   const STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION =
@@ -137,7 +138,17 @@
     'Each "pin" MUST be a SHORT Pinterest search of at most 2–4 pedagogy-anchored keywords — never one long concatenated string.\n' +
     'Generate DISTINCT concise variations, e.g. "Waldorf Form Drawing", "מחברת תקופה וולדורף", "Waldorf blackboard drawing".\n' +
     'Hebrew board titles may be descriptive; "pin" phrases must stay short and Waldorf-anchored for Pinterest search.\n' +
+    'WALDORF PEDAGOGICAL WEB RESOURCES (Phase C inspiration): actively search official Israeli Waldorf schools (שקד, חרדוף), waldorf.org.il, AWSNA, Waldorf World, Goetheanum, «אדם עולם» — include verified HTTPS links ONLY when they match BOTH the block subject AND Waldorf pedagogical context.\n' +
     '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
+
+  const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
+    '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY — INSPIRATION / PHASE C) ===\n' +
+    'Discover verified HTTPS links to Waldorf school sites, federations, and pedagogical journals — NOT generic education pages.\n' +
+    'Prioritize: Israeli schools (שקד, חרדוף), waldorf.org.il, AWSNA, Waldorf World, Goetheanum, «אדם עולם».\n' +
+    'STRICT FILTER: link must match BOTH active subject AND Waldorf/anthroposophic pedagogical context.\n' +
+    'Output pedagogicalResources: [{ title, url, label, source, snippet }] — URLs allowed ONLY in this array.\n' +
+    'Labels: מאמר פדגוגי | מערך שיעור מאתר בית ספר | מקור וולדורף רשמי | כתב עת פדגוגי | מדריך תקופה וולדורפית.\n' +
+    '=== END WALDORF PEDAGOGICAL WEB RESOURCES ===\n';
 
   const LAZY_LOAD_NOTE =
     'Do NOT include expansion, contentExpansion, artExpansion, or nested practical-expansion objects — expansions load on-demand via pedagogy_deep_dive.\n';
@@ -152,6 +163,7 @@
       FACTUAL_INTEGRITY_INSTRUCTION +
       ACADEMIC_TONE_INSTRUCTION +
       SOURCES_CITATION_INSTRUCTION +
+      WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION +
       JSON_ONLY_INSTRUCTION +
       JSON_RESPONSE_ENFORCEMENT +
       JSON_VALID_SYNTAX_INSTRUCTION +
