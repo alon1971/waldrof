@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מתכנן תקופות לימוד | חינוך אנתרופוסופי</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20250627h" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20250627i" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20250616"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -1772,46 +1772,120 @@
       color: #5C4A3A; cursor: pointer; display: flex; align-items: center; justify-content: center;
     }
     html[dir="ltr"] .app-modal-close { left: auto; right: 1rem; }
-    #contact-modal .app-modal-panel { max-width: 32rem; }
-    .contact-form-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 1rem;
+    #contact-modal .app-modal-panel {
+      width: 100%;
+      max-width: 440px;
+      max-height: none;
+      overflow: visible;
+      padding: 18px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
     }
-    @media (max-width: 480px) { .contact-form-grid { grid-template-columns: 1fr; } }
-    .contact-form-field { text-align: start; }
-    .contact-form-field--full { grid-column: 1 / -1; }
+    #contact-modal .app-modal-close {
+      top: 10px;
+      left: 15px;
+      width: auto;
+      height: auto;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      font-size: 22px;
+      line-height: 1;
+      color: #666;
+      padding: 0;
+    }
+    html[dir="ltr"] #contact-modal .app-modal-close { left: auto; right: 15px; }
+    #contact-modal .contact-modal-close-icon { font-size: 22px; line-height: 1; }
+    .contact-modal-title {
+      margin: 0 0 12px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #eaeaea;
+      color: #333;
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+    .contact-name-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .contact-name-row > .contact-form-field {
+      flex: 1;
+      min-width: 0;
+      margin-bottom: 0;
+    }
+    .contact-form-field {
+      text-align: start;
+      margin-bottom: 8px;
+    }
+    .contact-form-field--notes { margin-bottom: 12px; }
     .contact-form-field label {
-      display: block; font-size: 0.875rem; font-weight: 600; color: #5C4A3A; margin-bottom: 0.35rem;
+      display: block;
+      margin-bottom: 3px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
     }
     .contact-form-field input,
     .contact-form-field textarea {
-      width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem;
-      border: 1px solid rgba(201, 169, 98, 0.5); background: rgba(255,255,255,0.85);
-      color: #5C4A3A; outline: none; transition: box-shadow 0.15s, border-color 0.15s;
-      font: inherit;
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #333;
+      background: #fff;
+      outline: none;
+      box-sizing: border-box;
     }
-    .contact-form-field textarea { min-height: 6.5rem; resize: vertical; line-height: 1.5; }
+    .contact-form-field textarea {
+      resize: none;
+      min-height: 0;
+      line-height: 1.4;
+    }
     .contact-form-field input:focus,
-    .contact-form-field textarea:focus { border-color: #7A9B76; box-shadow: 0 0 0 3px rgba(122, 155, 118, 0.2); }
+    .contact-form-field textarea:focus {
+      border-color: #607d64;
+      box-shadow: 0 0 0 2px rgba(96, 125, 100, 0.15);
+    }
     .contact-form-submit {
-      width: 100%; margin-top: 0.25rem; padding: 0.85rem 1rem;
-      border: none; border-radius: 0.85rem; cursor: pointer; font-weight: 700;
-      background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff;
-      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.35);
-      transition: transform 0.12s, box-shadow 0.15s;
+      width: 100%;
+      margin: 0;
+      padding: 8px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 15px;
+      background-color: #607d64;
+      color: #fff;
+      box-shadow: none;
+      transition: background-color 0.15s;
     }
-    .contact-form-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(92, 125, 88, 0.4); }
+    .contact-form-submit:hover {
+      background-color: #4f6a53;
+      transform: none;
+      box-shadow: none;
+    }
     .contact-owner-details {
-      margin-top: 1.25rem; padding-top: 1rem;
-      border-top: 1px solid rgba(201, 169, 98, 0.35);
-      font-size: 0.85rem; color: rgba(92, 74, 58, 0.85); line-height: 1.55;
+      margin-top: 12px;
+      padding: 8px;
+      border-top: 1px dashed #ddd;
+      font-size: 12px;
+      color: #444;
+      background: #fdfdfd;
+      border-radius: 6px;
+      line-height: 1.4;
     }
-    .contact-owner-details h3 {
-      font-family: 'Frank Ruhl Libre', serif; font-size: 0.95rem; font-weight: 700;
-      color: #8B3A3A; margin: 0 0 0.5rem;
+    .contact-owner-details a {
+      color: #4b6651;
+      text-decoration: underline;
+      pointer-events: auto;
+      position: relative;
+      z-index: 2;
     }
-    .contact-owner-details p { margin: 0.2rem 0; }
-    .contact-owner-details a { color: #5C7D58; text-decoration: none; }
-    .contact-owner-details a:hover { text-decoration: underline; }
+    .contact-owner-details a:hover { color: #3d5341; }
     .pricing-header { text-align: center; margin-bottom: 1.5rem; }
     .pricing-header h2 { font-family: 'Frank Ruhl Libre', serif; font-size: 1.5rem; color: #8B3A3A; margin: 0; }
     .pricing-header p { color: rgba(92, 74, 58, 0.7); margin-top: 0.35rem; font-size: 0.9rem; }
@@ -3488,39 +3562,39 @@
   <div id="contact-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title">
     <div id="contact-modal-backdrop" class="app-modal-backdrop"></div>
     <div class="app-modal-panel">
-      <button type="button" id="contact-modal-close" class="app-modal-close" data-i18n-aria="contact_close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
-      <h2 id="contact-modal-title" class="font-display text-burgundy text-lg font-bold mb-4" data-i18n="contact_modal_title">צור קשר</h2>
+      <button type="button" id="contact-modal-close" class="app-modal-close" data-i18n-aria="contact_close" aria-label="סגור"><span class="contact-modal-close-icon" aria-hidden="true">&times;</span></button>
+      <h4 id="contact-modal-title" class="contact-modal-title" data-i18n="contact_modal_title">יצירת קשר</h4>
       <form id="contact-form" novalidate>
-        <div class="contact-form-grid">
+        <div class="contact-name-row">
           <div class="contact-form-field">
-            <label for="contact-first-name" data-i18n="contact_first_name">שם פרטי</label>
+            <label for="contact-first-name" data-i18n="contact_first_name">שם פרטי:</label>
             <input type="text" id="contact-first-name" name="firstName" autocomplete="given-name" required />
           </div>
           <div class="contact-form-field">
-            <label for="contact-last-name" data-i18n="contact_last_name">שם משפחה</label>
-            <input type="text" id="contact-last-name" name="lastName" autocomplete="family-name" />
-          </div>
-          <div class="contact-form-field contact-form-field--full">
-            <label for="contact-email" data-i18n="contact_email">מייל</label>
-            <input type="email" id="contact-email" name="email" autocomplete="email" required />
-          </div>
-          <div class="contact-form-field contact-form-field--full">
-            <label for="contact-phone" data-i18n="contact_phone">טלפון</label>
-            <input type="tel" id="contact-phone" name="phone" autocomplete="tel" />
-          </div>
-          <div class="contact-form-field contact-form-field--full">
-            <label for="contact-message" data-i18n="contact_notes">הערות</label>
-            <textarea id="contact-message" name="message" rows="4"></textarea>
+            <label for="contact-last-name" data-i18n="contact_last_name">שם משפחה:</label>
+            <input type="text" id="contact-last-name" name="lastName" autocomplete="family-name" required />
           </div>
         </div>
-        <button type="submit" id="contact-form-submit" class="contact-form-submit mt-3" data-i18n="contact_submit">שליחה</button>
+        <div class="contact-form-field">
+          <label for="contact-email" data-i18n="contact_email">כתובת מייל:</label>
+          <input type="email" id="contact-email" name="email" autocomplete="email" required />
+        </div>
+        <div class="contact-form-field">
+          <label for="contact-phone" data-i18n="contact_phone">טלפון:</label>
+          <input type="tel" id="contact-phone" name="phone" autocomplete="tel" required />
+        </div>
+        <div class="contact-form-field contact-form-field--notes">
+          <label for="contact-message" data-i18n="contact_notes">הערות / הודעה:</label>
+          <textarea id="contact-message" name="message" rows="3" required></textarea>
+        </div>
+        <button type="submit" id="contact-form-submit" class="contact-form-submit" data-i18n="contact_submit">שלחה</button>
       </form>
-      <aside class="contact-owner-details" aria-label="פרטי יצירת קשר">
-        <h3 data-i18n="contact_owner_heading">פרטי יצירת קשר</h3>
-        <p><span data-i18n="contact_owner_name_label">שם:</span> אלון ירושלמי (Alon Yerushalmy)</p>
-        <p><span data-i18n="contact_owner_email_label">מייל:</span> <a href="mailto:waldrofplanner@gmail.com">waldrofplanner@gmail.com</a></p>
-        <p><span data-i18n="contact_owner_phone_label">טלפון:</span> <a href="tel:+972544548078">0544548078</a></p>
-      </aside>
+      <div class="contact-owner-details" aria-label="פרטי מנהל המערכת">
+        <strong data-i18n="contact_owner_heading">פרטי מנהל המערכת:</strong><br>
+        אלון ירושלמי (Alon Yerushalmy)<br>
+        מייל: <a id="contact-owner-email-link" href="mailto:waldrofplanner@gmail.com">waldrofplanner@gmail.com</a><br>
+        טלפון: <a id="contact-owner-phone-link" href="tel:0544548078">054-4548078</a>
+      </div>
     </div>
   </div>
 
@@ -4051,12 +4125,12 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20260621a"></script>
+  <script src="auth-subscription.js?v=20260621b"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250621b"></script>
-  <script src="waldorf-query-generation.js?v=20250621c"></script>
-  <script src="waldorf-web-seed.js?v=20250621g"></script>
+  <script src="waldorf-query-generation.js?v=20250621d"></script>
+  <script src="waldorf-web-seed.js?v=20250621h"></script>
   <script src="research-client.js?v=20250621g"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
@@ -7151,6 +7225,13 @@
         if (u.pathname.indexOf('/search/') === -1) return url;
         var rawQ = decodeURIComponent(u.searchParams.get('q') || '').trim();
         if (!rawQ) return '';
+        if (/\bwaldorf\b/i.test(rawQ)) {
+          if (!topic || typeof WaldorfQueryGeneration === 'undefined' ||
+              !WaldorfQueryGeneration.pinContainsTopicFocus ||
+              WaldorfQueryGeneration.pinContainsTopicFocus(rawQ, topic)) {
+            return url;
+          }
+        }
         var sanitized = buildPedagogyAnchoredPinterestQuery(rawQ, topic);
         return buildPinterestSearchUrl(sanitized);
       } catch (e) {
@@ -7311,6 +7392,16 @@
         src: item.src,
         url: item.url,
       };
+      if (optimized.url && /pinterest\.com\/search\/pins/i.test(optimized.url)) {
+        try {
+          var existingQ = decodeURIComponent(new URL(optimized.url).searchParams.get('q') || '').trim();
+          if (existingQ) optimized.pin = existingQ;
+          if (/\bwaldorf\b/i.test(existingQ) && !isCommercialPinterestLeak(optimized) &&
+              passesPinterestPedagogyKeywordGate(optimized)) {
+            return optimized;
+          }
+        } catch (e) { /* fall through */ }
+      }
       var embeddedPinUrl = extractPinterestUrl(optimized.pin);
       var embeddedItemUrl = extractPinterestUrl(optimized.url) || extractPinterestUrl(optimized.src);
       if (embeddedPinUrl || embeddedItemUrl) {

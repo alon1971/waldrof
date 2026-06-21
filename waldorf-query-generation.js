@@ -1,7 +1,7 @@
 /**
  * Centralized query generation for Inspiration (Pinterest) and Resources (articles).
- * Pinterest: three English variants (Class / main lesson book / blackboard drawing).
- * Articles: two-tier hybrid — trusted Hebrew site: searches + open Hebrew + open English.
+ * Pinterest: three physically distinct English search phrases, Set-deduped URLs.
+ * Articles: simple site: queries on trusted domains + waldorflibrary.org — no open Google searches.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -97,6 +97,15 @@
     'waldorf-forum.org.il': { source: 'פורום וולדורף', label: 'מקור וולדורף רשמי' },
     'anatta.co.il': { source: 'ענתה', label: 'מקור וולדורף רשמי' },
   };
+
+  var GLOBAL_WALDORF_REPOSITORIES = [
+    {
+      domain: 'waldorflibrary.org',
+      source: 'waldorflibrary',
+      label: 'ספריית וולדורף',
+      lang: 'en',
+    },
+  ];
 
   var ENGLISH_TOPIC_MAP = {
     'מהפכות': 'revolutions French Revolution',
@@ -325,8 +334,30 @@
     return HEBREW_GRADE_NUM_TO_LETTER[parseInt(gid, 10)] || gid;
   }
 
+  function decodePinterestQueryFromUrl(url) {
+    try {
+      return decodeURIComponent(String(url || '').split('q=')[1] || '');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function isValidPinterestSearchUrl(url) {
+    return /^https:\/\/www\.pinterest\.com\/search\/pins\/\?q=/.test(String(url || ''));
+  }
+
+  function buildSimpleSiteQuery(domain, topic) {
+    var topicStr = normalizeTopicKey(topic);
+    var host = String(domain || '').trim();
+    if (!host || !topicStr) return '';
+    if (host === 'zomer.org.il') {
+      return 'site:' + host + ' "וולדורף" ' + topicStr;
+    }
+    return 'site:' + host + ' ' + topicStr;
+  }
+
   /**
-   * Generates unique Pinterest search URLs — subject-first, three distinct variants.
+   * Three physically distinct Pinterest phrases — topic position differs per variant.
    */
   function generatePinterestQueries(grade, topic) {
     var gradeId = String(grade || '').trim();
@@ -335,56 +366,45 @@
     if (validateGradeTopicScope(gradeId, topicStr)) return [];
 
     var englishTopic = resolveEnglishTopic(topicStr);
-    var queries = [
+    var phrases = [
       'Waldorf Class ' + gradeId + ' ' + englishTopic,
-      'Waldorf main lesson book ' + englishTopic,
-      'Waldorf blackboard drawing ' + englishTopic,
+      'Waldorf ' + englishTopic + ' main lesson book',
+      'Waldorf ' + englishTopic + ' chalkboard drawing',
     ];
 
-    var seen = Object.create(null);
-    return queries.filter(function (q) {
-      var key = stableNormalize(q);
-      if (seen[key]) return false;
-      seen[key] = true;
-      return true;
-    }).map(function (q) {
+    var urls = phrases.map(function (q) {
       return PINTEREST_SEARCH_BASE + encodeURIComponent(q);
     });
+
+    return Array.from(new Set(urls));
   }
 
   /**
-   * Hybrid two-tier article searches: trusted Hebrew site: + open Hebrew + open English.
+   * Simple site: searches on trusted Hebrew domains + Waldorf Library — no generic open Google.
    */
   function generateArticleQueries(grade, topic, gradeLabel) {
-    var gradeId = String(grade || '').trim();
     var topicStr = normalizeTopicKey(topic);
     if (!topicStr) return [];
 
-    var gradeHe = resolveGradeForSearch(gradeId, gradeLabel);
     var results = [];
 
     TRUSTED_DOMAINS.forEach(function (domain) {
-      var cleanHebrewQuery = 'site:' + domain + ' "' + topicStr + '" "כיתה ' + gradeHe + '" וולדורף';
+      var query = buildSimpleSiteQuery(domain, topicStr);
       results.push({
         source: domain.split('.')[0],
         lang: 'he',
-        url: GOOGLE_SEARCH_BASE + encodeURIComponent(cleanHebrewQuery),
+        url: GOOGLE_SEARCH_BASE + encodeURIComponent(query),
       });
     });
 
-    var openHebrewQuery = '"' + topicStr + '" "כיתה ' + gradeHe + '" (וולדורף OR אנתרופוסופיה OR "מחברת תקופה")';
-    results.push({
-      source: 'google_he_open',
-      lang: 'he',
-      url: GOOGLE_SEARCH_BASE + encodeURIComponent(openHebrewQuery),
-    });
-
-    var englishTopic = resolveEnglishTopicShort(topicStr);
-    var openEnglishQuery = '"' + englishTopic + '" "Grade ' + gradeId + '" Waldorf ("main lesson" OR "pedagogy")';
-    results.push({
-      source: 'google_en_global',
-      lang: 'en',
-      url: GOOGLE_SEARCH_BASE + encodeURIComponent(openEnglishQuery),
+    var englishTopic = resolveEnglishTopic(topicStr);
+    GLOBAL_WALDORF_REPOSITORIES.forEach(function (repo) {
+      var globalQuery = 'site:' + repo.domain + ' "' + englishTopic + '"';
+      results.push({
+        source: repo.source,
+        lang: repo.lang || 'en',
+        url: GOOGLE_SEARCH_BASE + encodeURIComponent(globalQuery),
+      });
     });
 
     return results;
@@ -463,8 +483,7 @@
     var domains = options.domains || TRUSTED_DOMAINS;
     var domain = String((domains && domains[0]) || '').trim();
     if (!domain) return '';
-    var gradeHe = resolveGradeForSearch('', gradeLabel);
-    return 'site:' + domain + ' "' + normalizeTopicKey(topic) + '" "כיתה ' + gradeHe + '" וולדורף';
+    return buildSimpleSiteQuery(domain, topic);
   }
 
   function buildArticleGoogleSearchUrl(topic, gradeLabel, options) {
@@ -494,10 +513,8 @@
           meta = TRUSTED_SOURCE_LABELS[d];
         }
       });
-      if (row.source === 'google_he_open') {
-        meta = { source: 'חיפוש פתוח בעברית', label: 'מאמר פדגוגי' };
-      } else if (row.source === 'google_en_global') {
-        meta = { source: 'חיפוש גלובלי באנגלית', label: 'מקור וולדורף רשמי' };
+      if (row.source === 'waldorflibrary') {
+        meta = { source: 'ספריית וולדורף', label: 'מקור וולדורף רשמי' };
       }
       out.push({
         title: meta.source + ' — ' + display,
@@ -535,17 +552,42 @@
     var topicStr = String(topic || (body && body.topic) || '').trim();
     var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
     if (gradeId && validateGradeTopicScope(gradeId, topicStr)) return null;
-    if (isGenericPinterestClutter(pinterestItemText(item), topicStr)) return null;
 
-    var pin = buildPinterestSearchQuery(item.pin || item.title || '', topicStr, body);
-    if (!pin || !pinContainsTopicFocus(pin, topicStr)) return null;
+    var pin = '';
+    var url = String(item.url || '').trim();
+    if (isValidPinterestSearchUrl(url)) {
+      pin = decodePinterestQueryFromUrl(url);
+    } else {
+      pin = String(item.pin || item.title || '').trim();
+      if (!pin && gradeId) {
+        var variants = generatePinterestQueries(gradeId, topicStr);
+        var pick = variants[Math.abs(stableNormalize(item.board + item.title).length) % Math.max(variants.length, 1)];
+        if (pick) {
+          url = pick;
+          pin = decodePinterestQueryFromUrl(pick);
+        }
+      }
+      if (!url && pin) url = buildPinterestSearchUrl(pin);
+    }
+
+    if (!pin || !pinContainsTopicFocus(pin, topicStr)) {
+      if (!gradeId) return null;
+      var fallbackUrls = generatePinterestQueries(gradeId, topicStr);
+      var idx = Math.abs(stableNormalize(pinterestItemText(item)).length) % Math.max(fallbackUrls.length, 1);
+      if (fallbackUrls[idx]) {
+        url = fallbackUrls[idx];
+        pin = decodePinterestQueryFromUrl(url);
+      }
+    }
+    if (!pin || !url) return null;
+    if (isGenericPinterestClutter(pinterestItemText(item), topicStr) && !pinContainsTopicFocus(pin, topicStr)) return null;
 
     var sanitized = {
       board: String(item.board || item.title || 'השראה ויזואלית').trim(),
       title: String(item.title || item.board || pin).trim(),
       pin: pin,
       src: String(item.src || '').trim(),
-      url: buildPinterestSearchUrl(pin),
+      url: url,
     };
     if (!passesStrictPinterestItemFilter(sanitized, Object.assign({}, body, { topic: topicStr }))) return null;
     return sanitized;
@@ -609,11 +651,13 @@
     PINTEREST_SEARCH_BASE: PINTEREST_SEARCH_BASE,
     GOOGLE_SEARCH_BASE: GOOGLE_SEARCH_BASE,
     TRUSTED_DOMAINS: TRUSTED_DOMAINS,
+    GLOBAL_WALDORF_REPOSITORIES: GLOBAL_WALDORF_REPOSITORIES,
     GRADE_TOPIC_BLOCKS: GRADE_TOPIC_BLOCKS,
     ISRAELI_WALDORF_ARTICLE_DOMAINS: ISRAELI_WALDORF_ARTICLE_DOMAINS,
     PINTEREST_MAX_GALLERY_ITEMS: 4,
     generatePinterestQueries: generatePinterestQueries,
     generateArticleQueries: generateArticleQueries,
+    buildSimpleSiteQuery: buildSimpleSiteQuery,
     validateGradeTopicScope: validateGradeTopicScope,
     findCurriculumBlockForTopic: findCurriculumBlockForTopic,
     extractTopicProfile: extractTopicProfile,
