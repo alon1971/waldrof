@@ -31,8 +31,10 @@ const gradeGuardCases = [
   {
     topic: 'רנסנס',
     gradeId: '3',
+    gradeLabel: 'כיתה ג׳',
     expectMismatch: true,
     expectCanonicalGrade: '7',
+    expectMessage: 'בחרת רנסנס לכיתה ג׳ — זהו נושא המיועד לכיתה ז׳. אנא בחר שנית או דייק את השאלה.',
   },
   {
     topic: 'רנסנס',
@@ -76,7 +78,11 @@ cases.forEach(function (c) {
 });
 
 gradeGuardCases.forEach(function (c) {
-  const mismatch = disambig.checkPedagogicalGradeGuardrail(c.gradeId, c.topic, 'כיתה בדיקה');
+  const mismatch = disambig.checkPedagogicalGradeGuardrail(
+    c.gradeId,
+    c.topic,
+    c.gradeLabel || 'כיתה בדיקה'
+  );
   const hasMismatch = Boolean(mismatch);
   const ok = hasMismatch === c.expectMismatch &&
     (!c.expectCanonicalGrade || (mismatch && mismatch.canonicalGradeId === c.expectCanonicalGrade));
@@ -97,13 +103,11 @@ gradeGuardCases.forEach(function (c) {
   console.log((partialOk ? 'OK' : 'FAIL'), '  blocks partial suggestion:', !partialAllowed);
   if (c.expectMismatch && mismatch) {
     var msg = disambig.buildGradeMismatchError(mismatch);
-    var msgOk = msg.indexOf('לכיתה ג') >= 0 || msg.indexOf('לכיתה ז') >= 0 ||
-      msg.indexOf('לכיתה ד') >= 0 || msg.indexOf('לכיתה ה') >= 0 || msg.indexOf('לכיתה ו') >= 0;
-    if (c.topic === 'רנסנס' && c.gradeId === '3') {
-      msgOk = msg === 'בחרת רנסנס לכיתה ג׳ — זהו נושא המיועד לכיתה ז׳. אנא בחר שנית או דייק את השאלה.';
+    if (c.expectMessage) {
+      var msgOk = msg === c.expectMessage;
+      if (!msgOk) failed++;
+      console.log((msgOk ? 'OK' : 'FAIL'), '  message format:', msg);
     }
-    if (!msgOk) failed++;
-    console.log((msgOk ? 'OK' : 'FAIL'), '  message format:', msg);
   }
 });
 
