@@ -534,15 +534,27 @@ function isValidCachedPayload(phase, data) {
   return true;
 }
 
-/** True when a cached topic/grade/phase_c row was produced by the Perplexity pipeline. */
+/** True when a cached topic/grade/phase_c row is safe to auto-serve (Perplexity or legacy rich — never Gemini-upgraded). */
 function isEnhancedCachedPayload(phase, data) {
   const coerced = coerceCachedResultData(data);
   if (!coerced || typeof coerced !== 'object') return false;
   if (phase !== 'topic' && phase !== 'grade' && phase !== 'phase_c') return isValidCachedPayload(phase, coerced);
   if (!isValidCachedPayload(phase, coerced)) return false;
+  if (coerced._archiveUpgrade && coerced._archiveUpgrade.version) return false;
+  if (coerced._hybridGenerated && coerced._hybridGenerated.version) return false;
   if (isPerplexityBaselineCachedPayload(phase, coerced)) return true;
-  if (coerced._archiveUpgrade && coerced._archiveUpgrade.version) return true;
-  if (coerced._hybridGenerated && coerced._hybridGenerated.version) return true;
+  if (coerced._perplexityOnly && coerced._perplexityOnly.version) return true;
+  if (phase === 'grade' && normalizeGradeResultForCache(coerced)) return true;
+  if (phase === 'topic') {
+    const bp = coerced.blockPlan;
+    if (bp && typeof bp === 'object') {
+      const theory = bp.theory;
+      if (theory && Array.isArray(theory.sections) && theory.sections.length) return true;
+      if (String(bp.rawContent || '').trim().length > 500) return true;
+    }
+    if (coerced.webResearch && String(coerced.webResearch.summary || '').trim().length > 200) return true;
+  }
+  if (phase === 'phase_c') return true;
   return false;
 }
 
@@ -2202,12 +2214,7 @@ async function saveTopicChatSession(teacher, cacheKey, session) {
   if (session && Array.isArray(session.ragChunkIds)) {
     data.chatRagChunkIds = session.ragChunkIds.slice(0, 32).map(String);
   }
-  if (session && session.lessonSnapshot && typeof session.lessonSnapshot === 'object') {
-    var snap = session.lessonSnapshot;
-    if (snap.blockPlan) data.blockPlan = snap.blockPlan;
-    if (snap.webResearch) data.webResearch = snap.webResearch;
-    if (snap.gallery) data.gallery = snap.gallery;
-  }
+  // READ-ONLY: never overwrite structured lesson fields from chat/session snapshots.
 
   if (isSupabaseCacheEnabled()) {
     try {

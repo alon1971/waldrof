@@ -1,6 +1,6 @@
 /**
- * Pedagogical side-assistant chat — GEMINI ONLY.
- * Reads cached phase data via user prompt context; never generates or overwrites core phase payloads.
+ * Pedagogical side-assistant chat — GEMINI ONLY, READ-ONLY.
+ * Reads cached phase data via user prompt context; never generates, persists, or overwrites core phase payloads.
  */
 const env = require('./env');
 const cacheDb = require('./cache');
@@ -100,6 +100,16 @@ const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
   'Never invent fake bold citations or [1][2] markers when no community match exists.\n' +
   '=== END CHAT — STRICT GROUNDING ===\n';
 
+const CHAT_STRICT_PROMPT_ISOLATION_INSTRUCTION =
+  '\n=== CHAT — STRICT PROMPT ISOLATION (ABSOLUTE — MANDATORY) ===\n' +
+  'Answer EXCLUSIVELY and ONLY the teacher\'s typed question in this turn.\n' +
+  'FORBIDDEN: injecting, assuming, or mixing any hidden UI state — selected grade, active lesson topic, ' +
+  'cached grade/topic overviews, biographies from other grades, curriculum summaries, or site background ' +
+  'unless the teacher explicitly names them in the question text.\n' +
+  'Infer Waldorf grade ONLY from entities named in the question (e.g. אודיסאוס → Grade 5) — never from the screen.\n' +
+  'Community-archive excerpts matched to the question may enrich silently; never pivot to unrelated grades/topics.\n' +
+  '=== END CHAT — STRICT PROMPT ISOLATION ===\n';
+
 function normalizeChatHistoryRole(role) {
   const r = String(role || '').trim().toLowerCase();
   if (r === 'model' || r === 'assistant' || r === 'ai') return 'assistant';
@@ -177,7 +187,7 @@ function pedagogicalChatSystemPrompt(extra, mode, options) {
     'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — an expert educational consultant. ' +
     'Help teachers with follow-up questions as a supportive, highly accurate pedagogical peer. ' +
     'STRICT: This chat is Gemini-only — never use, simulate, or reference Perplexity, Sonar, or live web search. ' +
-    'You may READ lesson context from cached grade/topic data in the user message but must NEVER regenerate or overwrite Phase A/B/C core content. ';
+    'STRICT PROMPT ISOLATION: Answer only what the teacher typed — never bleed in UI lesson state or other grades\' curriculum. ';
 
   const conversationRule = isContinuation
     ? CHAT_CONTINUATION_NO_ARCHIVE_INSTRUCTION
@@ -185,6 +195,7 @@ function pedagogicalChatSystemPrompt(extra, mode, options) {
 
   const sharedTail =
     conversationRule +
+    CHAT_STRICT_PROMPT_ISOLATION_INSTRUCTION +
     pedagogicalScope.CHAT_GRADE_DECOUPLED_INSTRUCTION +
     inferredGradeBlock +
     CHAT_NO_RAW_URLS_INSTRUCTION +
@@ -592,12 +603,14 @@ function missingChatApiKeyError() {
 }
 
 module.exports = {
+  CHAT_STRICT_PROMPT_ISOLATION_INSTRUCTION,
   clearCommunityArchiveContextForExpansion,
   fetchPedagogicalChat,
   isChatContinuationTurn,
   isChatGradeDecoupled,
   isChatPedagogicalExpansionRequest,
   isFirstChatTurnInSession,
+  normalizeChatHistoryRole,
   missingChatApiKeyError,
   pedagogicalChatSystemPrompt,
   resolveChatApiKey,

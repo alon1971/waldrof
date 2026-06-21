@@ -375,6 +375,55 @@
     }
   }
 
+  var SCROLL_NEAR_BOTTOM_PX = 32;
+
+  function isNearScrollBottom(el) {
+    if (!el) return false;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_NEAR_BOTTOM_PX;
+  }
+
+  function captureChatScrollSnapshot() {
+    var list = document.getElementById('lesson-chat-messages');
+    var body = document.getElementById('lesson-chat-fullscreen-body');
+    return {
+      list: list ? {
+        el: list,
+        scrollTop: list.scrollTop,
+        wasNearBottom: isNearScrollBottom(list),
+      } : null,
+      fullscreen: body ? {
+        el: body,
+        scrollTop: body.scrollTop,
+        wasNearBottom: isNearScrollBottom(body),
+      } : null,
+    };
+  }
+
+  function applyChatScrollBehavior(snapshot, options) {
+    options = options || {};
+    if (options.scrollToLastMessageStart || options.lockAtResponseStart) {
+      scrollChatToLastMessageStart();
+      if (state.displayMode === 'fullscreen') scrollFullscreenToLastMessageStart();
+      return;
+    }
+    if (options.streaming) {
+      if (snapshot.list && snapshot.list.wasNearBottom) {
+        snapshot.list.el.scrollTop = snapshot.list.el.scrollHeight;
+      }
+      if (snapshot.fullscreen && snapshot.fullscreen.wasNearBottom) {
+        snapshot.fullscreen.el.scrollTop = snapshot.fullscreen.el.scrollHeight;
+      }
+      return;
+    }
+    if (options.preserveScroll) {
+      if (snapshot.list) snapshot.list.el.scrollTop = snapshot.list.scrollTop;
+      if (snapshot.fullscreen) snapshot.fullscreen.el.scrollTop = snapshot.fullscreen.scrollTop;
+      return;
+    }
+    scrollChatToLastMessageStart();
+    if (state.displayMode === 'fullscreen') scrollFullscreenToLastMessageStart();
+  }
+
   function scrollChatToLastMessageStart() {
     var list = document.getElementById('lesson-chat-messages');
     if (!list) return;
@@ -395,25 +444,23 @@
 
   function renderMessages(options) {
     options = options || {};
+    var scrollSnapshot = captureChatScrollSnapshot();
     ensureWelcomeMessage();
     var list = document.getElementById('lesson-chat-messages');
     if (!list) return;
 
     list.innerHTML = state.messages.map(renderMessageBubble).join('');
-    if (options.scrollToLastMessageStart) {
-      scrollChatToLastMessageStart();
-    } else {
-      list.scrollTop = list.scrollHeight;
-    }
+    applyChatScrollBehavior(scrollSnapshot, options);
     syncExportBarVisibility();
     if (state.displayMode === 'fullscreen') {
-      renderFullscreenContent(options);
+      renderFullscreenContent(Object.assign({}, options, { _scrollSnapshot: scrollSnapshot }));
       syncExportBarVisibility();
     }
   }
 
   function renderFullscreenContent(options) {
     options = options || {};
+    var scrollSnapshot = options._scrollSnapshot || captureChatScrollSnapshot();
     var body = document.getElementById('lesson-chat-fullscreen-body');
     if (!body) return;
     ensureWelcomeMessage();
@@ -424,11 +471,7 @@
     body.innerHTML = '<div class="lesson-chat-fullscreen-thread">' +
       state.messages.map(renderMessageBubble).join('') +
       '</div>';
-    if (options.scrollToLastMessageStart) {
-      scrollFullscreenToLastMessageStart();
-    } else {
-      body.scrollTop = body.scrollHeight;
-    }
+    applyChatScrollBehavior(scrollSnapshot, options);
   }
 
   function formatHistoryDate(iso) {
@@ -764,26 +807,19 @@
     if (typeof deps.sendResearch !== 'function') return;
 
     ensureSessionKey();
-    var app = deps.getAppState() || {};
     if (hasOnlyGreeting()) state.messages = [];
 
     state.messages.push({ role: 'user', text: text });
     if (input) input.value = '';
     if (fsInput) fsInput.value = '';
-    renderMessages();
+    renderMessages({ lockAtResponseStart: true });
     setLoading(true);
 
     var payload = {
       phase: 'chat_followup',
       userMessage: text,
-      researchContext: buildResearchContext(app),
-      ragContext: state.ragContext || '',
-      ragChunkIds: state.ragChunkIds || [],
-      currentGrade: app.grade,
-      gradeId: app.grade,
-      gradeLabel: app.gradeLabel,
-      topic: app.topic,
-      age: app.gradeAge || deps.getGradeAge() || '',
+      chatStrictIsolation: true,
+      chatGlobalScan: true,
       chatHistory: getPersistableMessages().slice(-8).map(function (m) {
         return { role: m.role, content: m.text || stripHtml(m.html) };
       }),
@@ -821,8 +857,7 @@
       var communityMatches = (meta && Array.isArray(meta.communityMatches) && meta.communityMatches.length)
         ? meta.communityMatches
         : (result && Array.isArray(result._communityMatches) ? result._communityMatches : []);
-      var hasCommunityMatch = !isExpansionReply && !isContinuationReply && communityMatches.length > 0;
-      renderMessages({ scrollToLastMessageStart: hasCommunityMatch });
+      renderMessages({ scrollToLastMessageStart: true, lockAtResponseStart: true });
       if (typeof deps.onChatStateSync === 'function') {
         deps.onChatStateSync({
           messages: getPersistableMessages(),
@@ -838,12 +873,6 @@
       if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert && !isExpansionReply && !isContinuationReply) {
         deps.renderCommunityAlert(communityMatches);
       }
-      if (hasCommunityMatch) {
-        requestAnimationFrame(function () {
-          scrollChatToLastMessageStart();
-          if (state.displayMode === 'fullscreen') scrollFullscreenToLastMessageStart();
-        });
-      }
       persistSession();
     }).catch(function (err) {
       if (err && err.code === 'RATE_LIMIT') return;
@@ -851,10 +880,26 @@
         role: 'assistant',
         text: (err && err.message) || deps.t('chat_error_generic'),
       });
-      renderMessages();
+      renderMessages({ scrollToLastMessageStart: true, lockAtResponseStart: true });
     }).finally(function () {
       setLoading(false);
     });
+  }
+
+  function updateStreamingAssistantMessage(text, html) {
+    var last = state.messages[state.messages.length - 1];
+    if (!last || last.role !== 'assistant') {
+      state.messages.push({
+        role: 'assistant',
+        text: text || '',
+        html: html != null ? html : null,
+        streaming: true,
+      });
+    } else {
+      last.text = text || '';
+      if (html != null) last.html = html;
+    }
+    renderMessages({ streaming: true });
   }
 
   function setDisplayMode(mode) {
@@ -1118,6 +1163,7 @@
     clearArchiveSuggestionState: clearArchiveSuggestionState,
     showArchiveTopicSuggestion: showArchiveTopicSuggestion,
     showArchiveRefineHint: showArchiveRefineHint,
+    updateStreamingAssistantMessage: updateStreamingAssistantMessage,
     reset: function () {
       clearArchiveSuggestionState();
       state.messages = [buildGreetingMessage()];

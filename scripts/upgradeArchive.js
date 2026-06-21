@@ -18,6 +18,12 @@
  */
 'use strict';
 
+console.error(
+  '[upgradeArchive] DISABLED — Gemini archive writes are permanently blocked.\n' +
+  'Use Perplexity generation (api/generate.js) or rollbackArchiveToTimestamp.js to restore pre-Gemini state.'
+);
+process.exit(1);
+
 const fs = require('fs');
 const path = require('path');
 const env = require('../api/env');
