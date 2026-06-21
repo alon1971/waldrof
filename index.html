@@ -3729,22 +3729,22 @@
         <div id="teacher-drive-inspiration-slot" class="hidden mb-6"></div>
         <div id="inspiration-content"></div>
 
-        <div id="pedagogical-resources-section" class="hidden mt-8 bg-white/85 rounded-2xl border border-sage/25 p-4 sm:p-6 shadow-sm w-full box-border">
-          <h3 class="app-subhead font-display font-bold text-sage-dark mb-2">
-            <i class="fa-solid fa-book-open text-sage icon-inline"></i>
-            <span data-i18n="pedagogical_resources_title">מאמרים ומקורות וולדורפיים מהרשת</span>
-          </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="pedagogical_resources_desc">מאמרים, מערכי שיעור ומדריכים מאתרי בתי ספר וולדורפיים, פדרציות וכתבי עת — מסוננים לפי הנושא והכיתה</p>
-          <div id="pedagogical-resources-list" class="space-y-3"></div>
-        </div>
-
         <div class="mt-8 bg-white/85 rounded-2xl border border-burgundy/20 p-4 sm:p-6 shadow-sm w-full box-border">
           <h3 class="app-subhead font-display font-bold text-burgundy mb-2">
             <i class="fa-brands fa-pinterest text-terracotta icon-inline"></i>
             <span data-i18n="pinterest_title">השראה חזותית ומחברות תקופה</span>
           </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה</p>
+          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה (למאמרים ומקורות טקסט — ראו למטה)</p>
           <div id="pinterest-gallery" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3"></div>
+        </div>
+
+        <div id="pedagogical-resources-section" class="hidden mt-8 bg-white/85 rounded-2xl border border-sage/25 p-4 sm:p-6 shadow-sm w-full box-border">
+          <h3 class="app-subhead font-display font-bold text-sage-dark mb-2">
+            <i class="fa-solid fa-book-open text-sage icon-inline"></i>
+            <span data-i18n="pedagogical_resources_title">מאמרים ומקורות פדגוגיים</span>
+          </h3>
+          <p class="text-xs text-walnut/60 mb-4" data-i18n="pedagogical_resources_desc">מאמרים, מערכי שיעור ומדריכים מאתרי בתי ספר וולדורפיים, פדרציות וכתבי עת — מסוננים לפי הנושא והכיתה</p>
+          <div id="pedagogical-resources-list" class="space-y-3"></div>
         </div>
 
         <div id="community-materials" class="mt-6"></div>
@@ -3951,6 +3951,8 @@
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250621b"></script>
+  <script src="waldorf-web-seed.js?v=20250621c"></script>
+  <script src="research-client.js?v=20250621c"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
@@ -6725,7 +6727,13 @@
           data.blockPlan.sources = { books: [], articles: [], websites: [] };
         }
         if (!Array.isArray(data.gallery)) data.gallery = [];
-        data.pedagogicalResources = normalizePedagogicalResources(data.pedagogicalResources, appState.topic || '');
+        var topicForPed = appState.topic || '';
+        var pedCollected = ensureWebInspirationFallback(
+          normalizePedagogicalResources(data.pedagogicalResources, topicForPed),
+          topicForPed,
+          appState.gradeLabel || ''
+        );
+        data.pedagogicalResources = normalizePedagogicalResources(pedCollected, topicForPed);
       } else if (cTab === 'curriculum') {
         var rows = coerceCurriculumRows(data.blockPlan.curriculum);
         if (!rows.length && typeof data.blockPlan.curriculum === 'string') {
@@ -7170,8 +7178,38 @@
       return variants;
     }
 
+    var PINTEREST_COMMERCIAL_LEAK_TERMS = [
+      'למכירה', 'למכירה', 'קנייה', 'קניה', 'שיווק', 'קופון', 'מבצע', 'משלוח חינם',
+      'sale', 'buy now', 'shop now', 'for sale', 'coupon', 'etsy', 'aliexpress', 'amazon',
+      'stationery', 'coloring page', 'דפי צביעה', 'צביעה להדפסה'
+    ];
+
+    var PINTEREST_PEDAGOGY_KEYWORD_GATE = [
+      'מחברת', 'ציור', 'גיר', 'אנתרופוסופיה', 'וולדורף', 'ולדורף', 'waldorf',
+      'form drawing', 'blackboard', 'main lesson', 'רישום', 'chalkboard', 'anthroposoph'
+    ];
+
+    function isCommercialPinterestLeak(item) {
+      var blob = visualGalleryItemText(item);
+      if (!blob) return false;
+      var lc = blob.toLowerCase();
+      return PINTEREST_COMMERCIAL_LEAK_TERMS.some(function (term) {
+        return lc.indexOf(String(term).toLowerCase()) !== -1;
+      });
+    }
+
+    function passesPinterestPedagogyKeywordGate(item) {
+      var blob = visualGalleryItemText(item);
+      if (!blob) return false;
+      var lc = blob.toLowerCase();
+      if (PINTEREST_PEDAGOGY_KEYWORD_GATE.some(function (kw) {
+        return lc.indexOf(kw.toLowerCase()) !== -1;
+      })) return true;
+      return hasWaldorfPedagogyAnchor(blob) || matchesWaldorfVisualKeywords(blob);
+    }
+
     function optimizePinterestGalleryItem(item, topic) {
-      if (!item) return item;
+      if (!item) return null;
       var optimized = {
         board: item.board,
         title: item.title,
@@ -7187,16 +7225,19 @@
         if (boardOrPinUrl) {
           optimized.url = boardOrPinUrl;
           if (embeddedPinUrl) optimized.pin = '';
+          if (isCommercialPinterestLeak(optimized) || !passesPinterestPedagogyKeywordGate(optimized)) return null;
           return optimized;
         }
         if (targetUrl.indexOf('/search/') === -1) {
           optimized.url = targetUrl;
+          if (isCommercialPinterestLeak(optimized) || !passesPinterestPedagogyKeywordGate(optimized)) return null;
           return optimized;
         }
       }
       if (optimized.pin) optimized.pin = simplifyPinterestPin(optimized.pin, topic);
       else if (optimized.title) optimized.pin = simplifyPinterestPin(optimized.title, topic);
       optimized.url = buildPinterestSearchUrl(optimized.pin);
+      if (isCommercialPinterestLeak(optimized) || !passesPinterestPedagogyKeywordGate(optimized)) return null;
       return optimized;
     }
 
@@ -7206,7 +7247,8 @@
       var seeds = buildPinterestSearchVariants(topic, options)
         .concat(PINTEREST_WALDORF_SEED_QUERIES);
       seeds.forEach(function (seed) {
-        out.push(optimizePinterestGalleryItem(seed, topic));
+        var optimized = optimizePinterestGalleryItem(seed, topic);
+        if (optimized) out.push(optimized);
       });
       return out;
     }
@@ -7285,6 +7327,9 @@
 
     function filterWaldorfVisualGallery(items, topic) {
       return (items || []).filter(function (item) {
+        if (!item) return false;
+        if (isCommercialPinterestLeak(item)) return false;
+        if (!passesPinterestPedagogyKeywordGate(item)) return false;
         return isWaldorfPedagogicalVisual(item, topic) && !isGenericVisualNoise(item, topic);
       });
     }
@@ -7501,8 +7546,9 @@
 
     var WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
       { pattern: /waldorf\.org\.il/i, source: 'פורום וולדורף ישראל', label: 'מקור וולדורף רשמי' },
-      { pattern: /shaked|שקד/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
-      { pattern: /harduf|חרדוף/i, source: 'בית ספר חרדוף', label: 'מערך שיעור מאתר בית ספר' },
+      { pattern: /adamolam\.co\.il|adam-?olam/i, source: 'מגזין אדם עולם', label: 'כתב עת פדגוגי' },
+      { pattern: /shaked\.org\.il|shaked|שקד/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
+      { pattern: /harduf\.org\.il|harduf|חרדוף/i, source: 'בית ספר חרדוף', label: 'מערך שיעור מאתר בית ספר' },
       { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
       { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
       { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
@@ -7541,6 +7587,10 @@
       return map[label] || 'bg-sage/10 text-sage-dark border-sage/25';
     }
 
+    function isWhitelistedWaldorfSearchUrl(url) {
+      return /waldorf\.org\.il\/\?s=|adamolam\.co\.il\/\?s=|shaked\.org\.il\/\?s=|harduf\.org\.il\/\?s=/i.test(String(url || ''));
+    }
+
     function normalizePedagogicalResourceItem(item, topic) {
       if (!item || typeof item !== 'object') return null;
       var url = String(item.url || item.link || item.href || '').trim();
@@ -7551,7 +7601,7 @@
       var title = String(item.title || item.name || meta.source || '').trim();
       var snippet = String(item.snippet || item.description || item.summary || '').trim();
       var topicStr = String(topic || appState.topic || '').trim();
-      if (topicStr && snippet) {
+      if (topicStr && snippet && !isWhitelistedWaldorfSearchUrl(url)) {
         var topicLc = topicStr.toLowerCase();
         var blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
         if (blob.indexOf('waldorf') === -1 && blob.indexOf('וולדורף') === -1 &&
@@ -7623,9 +7673,22 @@
       return normalizePedagogicalResources(items, topic);
     }
 
+    function ensureWebInspirationFallback(resources, topic, gradeLabel) {
+      if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.ensureWebInspirationFallback) {
+        return WaldorfWebSeed.ensureWebInspirationFallback(resources, topic, gradeLabel, {
+          minCount: 2,
+          maxCount: 12,
+        });
+      }
+      return resources || [];
+    }
+
     function hydratePedagogicalResourcesFromSources(options) {
       options = options || {};
+      var topic = String(appState.topic || '').trim();
       var collected = collectPedagogicalResourceSources(options);
+      collected = ensureWebInspirationFallback(collected, topic, appState.gradeLabel || '');
+      collected = normalizePedagogicalResources(collected, topic);
       appState.pedagogicalResources = collected;
       if (appState.aiGeneratedPlan) appState.aiGeneratedPlan.pedagogicalResources = collected.slice();
       if (appState.activePlan) appState.activePlan.pedagogicalResources = collected.slice();
@@ -7803,16 +7866,17 @@
     function getWaldorfPedagogicalResourcesSearchInstruction() {
       if (isEnglish()) {
         return (
-          'Targeted Waldorf web resource search: Israeli Waldorf schools (Shaked, Harduf, waldorf.org.il), ' +
-          'training centers, AWSNA, Waldorf World, Goetheanum, Adam Olam («אדם עולם») magazine. ' +
-          'Include ONLY links where the page matches BOTH the active block subject AND Waldorf pedagogical context ' +
-          '(main-lesson block outline, grade development essay, school subject guide — NOT generic education).'
+          'MANDATORY site-restricted Waldorf searches FIRST: site:waldorf.org.il, site:adamolam.co.il, site:shaked.org.il, ' +
+          'plus Harduf / David Yellin / Shiluv seminary terms with the block topic. ' +
+          'Include ONLY links where the page matches BOTH the active block subject AND Waldorf pedagogical context. ' +
+          'If zero article URLs are found, populate pedagogicalResources with official search-index URLs from waldorf.org.il and adamolam.co.il.'
         );
       }
       return (
-        'חיפוש ממוקד למקורות וולדורפיים: בתי ספר בישראל (שקד, חרדוף, waldorf.org.il), מרכזי הכשרה, AWSNA, Waldorf World, גויתאנום, כתב עת «אדם עולם». ' +
-        'כלול קישורים רק כאשר העמוד תואם גם את נושא התקופה וגם הקשר פדגוגי וולדורפי/אנתרופוסופי ' +
-        '(מערך תקופה, מאמר התפתחות לכיתה, מדריך מקצועי מבית ספר — לא חומר חינוך כללי).'
+        'חיפוש site: חובה תחילה: site:waldorf.org.il (פורום וולדורף ישראל), site:adamolam.co.il (אדם עולם), site:shaked.org.il (שקד), ' +
+        'וגם «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» עם נושא התקופה. ' +
+        'כלול קישורים רק כאשר העמוד תואם גם את נושא התקופה וגם הקשר פדגוגי וולדורפי. ' +
+        'אם לא נמצאו מאמרים — מלא pedagogicalResources בקישורי אינדקס חיפוש רשמיים (waldorf.org.il/?s=…, adamolam.co.il/?s=…).'
       );
     }
 

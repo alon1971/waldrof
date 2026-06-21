@@ -27,6 +27,7 @@ const env = require('./env');
 const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
+const waldorfWebSeed = require('../waldorf-web-seed');
 const archiveCoerce = require('../archive-coerce');
 
 /** Grade/topic: cache-first from Supabase; on miss run Perplexity-only pipeline. */
@@ -120,9 +121,11 @@ const WEB_SEARCH_PRIORITY_INSTRUCTION =
   'If there is no meaningful match (e.g. Chemistry, Physics, or other topics not covered by his materials), OMIT his name and platforms entirely.\n' +
   'Also actively search for diverse Waldorf/anthroposophic authors, global curriculum boards, international researchers, ' +
   'and prominent Israeli Waldorf educators beyond the priority sources — to build a broad, credible source landscape.\n' +
-  'FOR INSPIRATION / PHASE C: run additional targeted searches on official Israeli Waldorf school sites (שקד, חרדוף, וכו׳), ' +
-  'the Israeli Waldorf Forum (waldorf.org.il), AWSNA, Waldorf World, Goetheanum, and journals such as «אדם עולם» — ' +
-  'collect subject-specific main-lesson guides and pedagogical articles that match BOTH the block topic AND Waldorf context.\n' +
+  'FOR INSPIRATION / PHASE C: run MANDATORY site-restricted searches FIRST on the Waldorf domain whitelist:\n' +
+  '  site:waldorf.org.il (הפורום לחינוך וולדורף בישראל), site:adamolam.co.il (מגזין אדם עולם), site:shaked.org.il (בית ספר שקד), ' +
+  '  plus «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» combined with the block topic.\n' +
+  'Then broaden to AWSNA, Waldorf World, Goetheanum, waldorflibrary.org — collect HTTPS links that match BOTH block topic AND Waldorf context.\n' +
+  'NEVER return zero pedagogicalResources when whitelisted domains have search indexes — use official site search URLs as fallback.\n' +
   '=== END WEB SEARCH STRATEGY ===\n';
 
 const CONTENT_HIERARCHY_INSTRUCTION =
@@ -305,8 +308,12 @@ const SOURCES_CITATION_INSTRUCTION =
 const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
   '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY — INSPIRATION / PHASE C) ===\n' +
   'Actively discover and include verified HTTPS links to high-fidelity Waldorf pedagogical pages — NOT generic education blogs.\n' +
-  'TARGETED SEARCH — explicitly query and prioritize:\n' +
-  '• Israeli Waldorf schools & training: בית ספר שקד, חרדוף, הר דף, בית ספר וולדורף תל אביב, מרכזי הכשרה וולדורפיים בישראל\n' +
+  'TARGETED SEARCH — MANDATORY site: queries (run ALL before generic search):\n' +
+  '• site:waldorf.org.il + block topic (הפורום לחינוך וולדורף בישראל)\n' +
+  '• site:adamolam.co.il + block topic (מגזין אדם עולם)\n' +
+  '• site:shaked.org.il + block topic OR «בית ספר שקד קרית טבעון וולדורף»\n' +
+  '• «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» + block topic\n' +
+  '• Israeli Waldorf schools & training: בית ספר שקד, חרדוף, הרדוף, מרכזי הכשרה וולדורפיים בישראל\n' +
   '• Official Israeli Waldorf Forum/Federation (waldorf.org.il and affiliated national bodies)\n' +
   '• International hubs: AWSNA (waldorfeducation.org), Waldorf World, Goetheanum (goetheanum.ch), IASWECE, Waldorf Library (waldorflibrary.org), Steiner Archive (rsarchive.org)\n' +
   '• Pedagogical journals & magazines: «אדם עולם» (Adam Olam) and recognized anthroposophic/Waldorf periodicals\n' +
@@ -330,8 +337,9 @@ const PEDAGOGICAL_RESOURCE_LABELS = [
 
 const WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
   { pattern: /waldorf\.org\.il/i, source: 'פורום וולדורף ישראל', label: 'מקור וולדורף רשמי' },
-  { pattern: /shaked|שקד/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
-  { pattern: /harduf|חרדוף/i, source: 'בית ספר חרדוף', label: 'מערך שיעור מאתר בית ספר' },
+  { pattern: /adamolam\.co\.il|adam-?olam/i, source: 'מגזין אדם עולם', label: 'כתב עת פדגוגי' },
+  { pattern: /shaked\.org\.il|shaked|שקד/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
+  { pattern: /harduf\.org\.il|harduf|חרדוף/i, source: 'בית ספר חרדוף', label: 'מערך שיעור מאתר בית ספר' },
   { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
   { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
   { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
@@ -373,7 +381,7 @@ function normalizePedagogicalResourceItem(item, body) {
   const title = sanitizePedagogicalText(String(item.title || item.name || meta.source || '').trim());
   const snippet = sanitizePedagogicalText(String(item.snippet || item.description || item.summary || '').trim());
   const topic = String((body && body.topic) || '').trim();
-  if (topic && snippet) {
+  if (topic && snippet && !waldorfWebSeed.isWhitelistedWaldorfDomain(url) && !/\?s=/.test(url)) {
     const topicLc = topic.toLowerCase();
     const blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
     if (blob.indexOf('waldorf') === -1 && blob.indexOf('וולדורף') === -1 &&
@@ -396,6 +404,27 @@ function normalizePedagogicalResources(raw, body) {
   const seen = Object.create(null);
   const out = [];
   list.forEach(function (item) {
+    const norm = normalizePedagogicalResourceItem(item, body);
+    if (!norm || seen[norm.url]) return;
+    seen[norm.url] = true;
+    out.push(norm);
+  });
+  return applyPedagogicalResourcesFallback(out, body);
+}
+
+function applyPedagogicalResourcesFallback(resources, body) {
+  if (!body || resolvePhaseCTab(body) !== 'inspiration') {
+    return (resources || []).slice(0, 12);
+  }
+  const topic = String(body.topic || '').trim();
+  const gradeLabel = String(body.gradeLabel || '').trim();
+  const merged = waldorfWebSeed.ensureWebInspirationFallback(resources || [], topic, gradeLabel, {
+    minCount: 2,
+    maxCount: 12,
+  });
+  const seen = Object.create(null);
+  const out = [];
+  merged.forEach(function (item) {
     const norm = normalizePedagogicalResourceItem(item, body);
     if (!norm || seen[norm.url]) return;
     seen[norm.url] = true;
@@ -427,7 +456,7 @@ function enrichPedagogicalResourcesFromCitations(data, body, rawPayload) {
     existing.push(stub);
     seen[u] = true;
   });
-  data.pedagogicalResources = existing.slice(0, 12);
+  data.pedagogicalResources = applyPedagogicalResourcesFallback(existing, body);
   return data;
 }
 
@@ -2288,11 +2317,15 @@ function buildPerplexitySearchUserPrompt(body) {
   if (phase === 'phase_c') {
     const cTab = resolvePhaseCTab(body);
     if (cTab === 'inspiration') {
+      const siteQueries = waldorfWebSeed.buildWaldorfSiteSearchQueries(topic, gradeLabel);
       return (
         'Perform a deep, exhaustive factual web search for Waldorf/Steiner INSPIRATION & BACKGROUND MATERIAL.\n' +
         'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
         'Block topic: «' + topic + '»\n' +
         'Grade context: ' + (body.gradeContext || '') + '\n\n' +
+        waldorfWebSeed.buildWaldorfWebSeedInstruction(topic, gradeLabel) + '\n\n' +
+        'EXACT SITE-SEARCH QUERIES TO RUN FIRST:\n' +
+        siteQueries.map(function (q, i) { return (i + 1) + '. ' + q; }).join('\n') + '\n\n' +
         'Return a detailed Hebrew research report with:\n' +
         '1. Rich inspiration themes: stories, metaphors, global Waldorf perspectives, podcast-worthy insights\n' +
         '2. Named books, articles, anthroposophic authors, and international Waldorf projects\n' +

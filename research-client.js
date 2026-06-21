@@ -62,7 +62,9 @@
     'If there is no meaningful match (e.g. Chemistry, Physics, or other topics not covered by his materials), OMIT his name and platforms entirely.\n' +
     'Also actively search for diverse Waldorf/anthroposophic authors, global curriculum boards, international researchers, ' +
     'and prominent Israeli Waldorf educators beyond the priority sources — to build a broad, credible source landscape.\n' +
-    'FOR INSPIRATION: additionally search Israeli Waldorf schools (שקד, חרדוף), waldorf.org.il, AWSNA, Goetheanum, «אדם עולם» for subject-specific Waldorf guides.\n' +
+    'FOR INSPIRATION: run MANDATORY site-restricted searches FIRST: site:waldorf.org.il, site:adamolam.co.il, site:shaked.org.il, ' +
+    'plus «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» with the block topic — then AWSNA, Goetheanum, «אדם עולם».\n' +
+    'NEVER leave pedagogicalResources empty — use official Waldorf Forum / Adam Olam search index URLs when no deep link is found.\n' +
     '=== END WEB SEARCH STRATEGY ===\n';
 
   const STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION =
@@ -144,11 +146,55 @@
   const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
     '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY — INSPIRATION / PHASE C) ===\n' +
     'Discover verified HTTPS links to Waldorf school sites, federations, and pedagogical journals — NOT generic education pages.\n' +
-    'Prioritize: Israeli schools (שקד, חרדוף), waldorf.org.il, AWSNA, Waldorf World, Goetheanum, «אדם עולם».\n' +
+    'MANDATORY site: searches FIRST:\n' +
+    '• site:waldorf.org.il (הפורום לחינוך וולדורף בישראל)\n' +
+    '• site:adamolam.co.il (מגזין אדם עולם)\n' +
+    '• site:shaked.org.il OR «בית ספר שקד קרית טבעון וולדורף»\n' +
+    '• «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» + block topic\n' +
+    'Then prioritize: Israeli schools (שקד, חרדוף), AWSNA, Waldorf World, Goetheanum, «אדם עולם».\n' +
     'STRICT FILTER: link must match BOTH active subject AND Waldorf/anthroposophic pedagogical context.\n' +
+    'If live search returns zero school articles, populate pedagogicalResources with official search-index URLs ' +
+    '(e.g. https://www.waldorf.org.il/?s={topic}, https://www.adamolam.co.il/?s={topic}).\n' +
     'Output pedagogicalResources: [{ title, url, label, source, snippet }] — URLs allowed ONLY in this array.\n' +
     'Labels: מאמר פדגוגי | מערך שיעור מאתר בית ספר | מקור וולדורף רשמי | כתב עת פדגוגי | מדריך תקופה וולדורפית.\n' +
     '=== END WALDORF PEDAGOGICAL WEB RESOURCES ===\n';
+
+  function getWaldorfWebSeed() {
+    if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed) return WaldorfWebSeed;
+    return null;
+  }
+
+  function resolvePhaseCTab(body) {
+    const tab = String((body && (body.cTab || body.productTab || body.phaseCTab)) || '').trim().toLowerCase();
+    return tab === 'curriculum' ? 'curriculum' : (tab === 'inspiration' ? 'inspiration' : '');
+  }
+
+  function buildWaldorfWebSeedPromptBlock(topic, gradeLabel) {
+    const seed = getWaldorfWebSeed();
+    if (!seed) {
+      return (
+        'MANDATORY WALDORF DOMAIN WHITELIST — site:waldorf.org.il, site:adamolam.co.il, site:shaked.org.il, ' +
+        '«הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» + «' + topic + '»\n'
+      );
+    }
+    const queries = seed.buildWaldorfSiteSearchQueries(topic, gradeLabel);
+    return (
+      seed.buildWaldorfWebSeedInstruction(topic, gradeLabel) + '\n\n' +
+      'EXACT SITE-SEARCH QUERIES TO RUN FIRST:\n' +
+      queries.map(function (q, i) { return (i + 1) + '. ' + q; }).join('\n') + '\n'
+    );
+  }
+
+  function applyPedagogicalResourcesFallback(resources, body) {
+    const seed = getWaldorfWebSeed();
+    if (!seed || !body || body.phase !== 'phase_c' || resolvePhaseCTab(body) !== 'inspiration') {
+      return Array.isArray(resources) ? resources.slice(0, 12) : [];
+    }
+    return seed.ensureWebInspirationFallback(resources || [], String(body.topic || '').trim(), String(body.gradeLabel || '').trim(), {
+      minCount: 2,
+      maxCount: 12,
+    });
+  }
 
   const LAZY_LOAD_NOTE =
     'Do NOT include expansion, contentExpansion, artExpansion, or nested practical-expansion objects — expansions load on-demand via pedagogy_deep_dive.\n';
@@ -539,6 +585,31 @@
         'Deep pedagogical summary for: «' + title + '»\nAuthor: ' + (body.sourceAuthor || '') + '\n' +
         WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + '\nReturn JSON: ' + (isPedagogy ? '{"pedagogyDeepDive":{...}}' : '{"archiveSummary":{...}}');
     }
+    if (phase === 'phase_c') {
+      const cTab = resolvePhaseCTab(body);
+      const topic = (body.topic || '').replace(/"/g, '');
+      const gradeLabel = body.gradeLabel || '';
+      const seedBlock = buildWaldorfWebSeedPromptBlock(topic, gradeLabel);
+      if (cTab === 'inspiration') {
+        return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
+          '\n=== PHASE C INSPIRATION ===\n' + seedBlock + '\n' +
+          WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION +
+          WEB_SEARCH_PRIORITY_INSTRUCTION +
+          'Grade: ' + gradeLabel + ' | Block topic: «' + topic + '»\n' +
+          JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
+          '{\n' +
+          '  "blockPlan": { "inspiration": { "title": "Hebrew", "global": [], "podcast": { "title": "Hebrew", "episodes": [] }, "narrative": [] }, "sources": { "books": [], "articles": [], "websites": [] } },\n' +
+          '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Waldorf short search" }],\n' +
+          '  "pedagogicalResources": [{ "title": "Hebrew", "url": "https://www.waldorf.org.il/...", "label": "מקור וולדורף רשמי", "source": "פורום וולדורף", "snippet": "Hebrew" }]\n' +
+          '}';
+      }
+      return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
+        '\n=== PHASE C CURRICULUM ===\n' +
+        WEB_SEARCH_PRIORITY_INSTRUCTION +
+        'Grade: ' + gradeLabel + ' | Block topic: «' + topic + '»\n' +
+        JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
+        '{"blockPlan":{"curriculum":[{"day":1,"topic":"Hebrew","content":"<p>Hebrew</p>","art":"","hint":""}]}}';
+    }
     throw new Error('Unknown phase');
   }
 
@@ -564,7 +635,7 @@
     return '';
   }
 
-  function validatePhaseResult(phase, data) {
+  function validatePhaseResult(phase, data, body) {
     if (!data || typeof data !== 'object') return false;
     if (phase === 'grade') return Boolean(data.gradeInsights && typeof data.gradeInsights === 'object');
     if (phase === 'topic') {
@@ -581,6 +652,14 @@
     if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
     if (phase === 'drive') return Boolean(data.driveMerge);
     if (phase === 'test') return data.ok === true;
+    if (phase === 'phase_c') {
+      const cTab = resolvePhaseCTab(body || {});
+      if (cTab === 'inspiration') {
+        return Boolean(data.blockPlan && data.blockPlan.inspiration) ||
+          (Array.isArray(data.pedagogicalResources) && data.pedagogicalResources.length > 0);
+      }
+      return Boolean(data.blockPlan && data.blockPlan.curriculum);
+    }
     return true;
   }
 
@@ -628,7 +707,7 @@
     if (!body || !body.phase) throw new Error('Missing phase');
     const gradeLockSystem = resolvedGradeId(body) || body.gradeLabel
       ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.' : '';
-    const searchPhases = new Set(['grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary']);
+    const searchPhases = new Set(['grade', 'topic', 'phase_c', 'pedagogy_deep_dive', 'archive_search', 'archive_summary']);
     const extraSystem = gradeLockSystem +
       (body.phase === 'grade' || body.phase === 'topic'
         ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
@@ -649,8 +728,11 @@
         context: body,
         fallbackOnError: true,
       });
-      if (!validatePhaseResult(body.phase, parsed) && !parsed._parseFallback) {
+      if (!validatePhaseResult(body.phase, parsed, body) && !parsed._parseFallback) {
         return buildParseFallback(body.phase, raw, body);
+      }
+      if (body.phase === 'phase_c' && resolvePhaseCTab(body) === 'inspiration' && parsed && !parsed._parseFallback) {
+        parsed.pedagogicalResources = applyPedagogicalResourcesFallback(parsed.pedagogicalResources, body);
       }
       return parsed;
     } catch (parseErr) {

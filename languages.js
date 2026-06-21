@@ -105,8 +105,8 @@ const LANGUAGES = {
     tab_curriculum_suffix:       ' תקופה',
 
     pinterest_title:             'השראה חזותית ומחברות תקופה',
-    pinterest_desc:              'השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה (למאמרים ומקורות טקסט — ראו למעלה)',
-    pedagogical_resources_title: 'מאמרים ומקורות וולדורפיים מהרשת',
+    pinterest_desc:              'השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה (למאמרים ומקורות טקסט — ראו למטה)',
+    pedagogical_resources_title: 'מאמרים ומקורות פדגוגיים',
     pedagogical_resources_desc:  'מאמרים, מערכי שיעור ומדריכים מאתרי בתי ספר וולדורפיים, פדרציות וכתבי עת — מסוננים לפי הנושא והכיתה',
     pinterest_board_link:        'לוח השראה',
     share_community:             'שתפו עם הקהילה (ענן)',
@@ -715,7 +715,7 @@ const LANGUAGES = {
     tab_curriculum_suffix:       ' Planning',
 
     pinterest_title:             'Visual inspiration & block notebooks',
-    pinterest_desc:              'Visual inspiration only — Pinterest boards and main-lesson notebooks (for text articles and school resources, see above)',
+    pinterest_desc:              'Visual inspiration only — Pinterest boards and main-lesson notebooks (for text articles and school resources, see below)',
     pedagogical_resources_title: 'Waldorf articles & web resources',
     pedagogical_resources_desc:  'Articles, lesson plans, and guides from official Waldorf schools, federations, and journals — filtered by topic and grade',
     pinterest_board_link:        'Inspiration board',
