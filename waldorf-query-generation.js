@@ -1,6 +1,8 @@
 /**
  * Centralized query generation for Inspiration (Pinterest) and Resources (articles).
- * Shared by api/generate.js (Node), waldorf-web-seed.js, research-client.js, index.html.
+ * Design rules:
+ *  - Article site: searches = ONE domain, Hebrew-only terms, no English, no exact-quote phrases.
+ *  - Pinterest = topic keywords FIRST, then Waldorf; never generic notebook/form-drawing clutter.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -13,12 +15,6 @@
 
   var PINTEREST_SEARCH_BASE = 'https://www.pinterest.com/search/pins/?q=';
   var GOOGLE_SEARCH_BASE = 'https://www.google.com/search?q=';
-
-  var PINTEREST_WALDORF_ANCHORS = [
-    'waldorf', 'steiner', 'main lesson', 'form drawing', 'blackboard',
-  ];
-
-  var ARTICLE_PEDAGOGY_ANCHORS = ['וולדורף', 'חינוך וולדורף', 'Main Lesson', 'פדגוגיה'];
 
   var HEBREW_GRADE_LETTER_TO_NUM = {
     'א': 1, 'ב': 2, 'ג': 3, 'ד': 4, 'ה': 5, 'ו': 6, 'ז': 7, 'ח': 8, 'ט': 9,
@@ -35,103 +31,45 @@
     '5': 'כיתה ה׳', '6': 'כיתה ו׳', '7': 'כיתה ז׳', '8': 'כיתה ח׳',
   };
 
-  /** Hardcoded grade-to-topic ownership — mirrors api/pedagogical-scope.js CURRICULUM_BLOCKS. */
   var GRADE_TOPIC_BLOCKS = [
-    {
-      gradeId: '1',
-      blockLabel: 'אגדות וסיפורי טבע',
-      aliases: [
-        'אגדות', 'אגדה', 'סיפורי פיות', 'פיות', 'סיפורי טבע',
-        'fairy tale', 'fairy tales', 'nature stories',
-      ],
-    },
-    {
-      gradeId: '2',
-      blockLabel: 'משלי חיות וסיפורי צדיקים',
-      aliases: [
-        'משלי חיות', 'משל חיות', 'fables', 'animal fables',
-        'סיפורי צדיקים', 'צדיקים', 'saints', 'saint stories',
-      ],
-    },
-    {
-      gradeId: '3',
-      blockLabel: 'תנ״ך וחקלאות',
-      aliases: [
-        'תנ״ך', 'תנך', 'מקרא', 'בראשית', 'נח', 'אברהם', 'משה',
-        'חקלאות', 'בית בנין', 'בניית בית', 'בנייה', 'construction', 'house building',
-        'old testament', 'bible stories', 'farming', 'agriculture',
-      ],
-    },
-    {
-      gradeId: '4',
-      blockLabel: 'מיתולוגיה נורדית',
-      aliases: [
-        'נורדית', 'נורד', 'נורדים', 'אסגארד', 'אודין', 'תור', 'thor', 'odin',
-        'norse', 'norse mythology', 'גיאוגרפיה מקומית', 'local geography',
-      ],
-    },
-    {
-      gradeId: '5',
-      blockLabel: 'יוון העתיקה',
-      aliases: [
-        'יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר',
-        'מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey',
-        'greek mythology', 'ancient greece',
-      ],
-    },
-    {
-      gradeId: '5',
-      blockLabel: 'בוטניקה',
-      aliases: ['בוטניקה', 'צמחים', 'botany', 'plants'],
-    },
-    {
-      gradeId: '6',
-      blockLabel: 'רומא וימי ביניים',
-      aliases: [
-        'רומא', 'רומאית', 'rome', 'roman', 'roman history',
-        'ימי ביניים', 'medieval', 'middle ages',
-        'גיאולוגיה', 'geology', 'mineralogy',
-      ],
-    },
-    {
-      gradeId: '7',
-      blockLabel: 'מגלי עולם ורנסנס',
-      aliases: [
-        'מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers',
-        'רנסנס', 'renaissance', 'גלילאו', 'galileo', 'פיזיקה', 'physics', 'astronomy',
-      ],
-    },
-    {
-      gradeId: '8',
-      blockLabel: 'מהפכות והיסטוריה מודרנית',
-      aliases: [
-        'מהפכה', 'מהפכות', 'מהפכה צרפתית', 'המהפכה הצרפתית', 'revolution', 'revolutions',
-        'כימיה אורגנית', 'organic chemistry', 'היסטוריה מודרנית', 'modern history',
-      ],
-    },
+    { gradeId: '1', blockLabel: 'אגדות וסיפורי טבע', aliases: ['אגדות', 'אגדה', 'סיפורי פיות', 'פיות', 'סיפורי טבע', 'fairy tale', 'fairy tales', 'nature stories'] },
+    { gradeId: '2', blockLabel: 'משלי חיות וסיפורי צדיקים', aliases: ['משלי חיות', 'משל חיות', 'fables', 'animal fables', 'סיפורי צדיקים', 'צדיקים', 'saints', 'saint stories'] },
+    { gradeId: '3', blockLabel: 'תנ״ך וחקלאות', aliases: ['תנ״ך', 'תנך', 'מקרא', 'בראשית', 'נח', 'חקלאות', 'בית בנין', 'בניית בית', 'בנייה', 'construction', 'house building', 'old testament', 'bible stories', 'farming', 'agriculture'] },
+    { gradeId: '4', blockLabel: 'מיתולוגיה נורדית', aliases: ['נורדית', 'נורד', 'נורדים', 'אסגארד', 'אודין', 'תור', 'thor', 'odin', 'norse', 'norse mythology', 'גיאוגרפיה מקומית', 'local geography'] },
+    { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey', 'greek mythology', 'ancient greece'] },
+    { gradeId: '5', blockLabel: 'בוטניקה', aliases: ['בוטניקה', 'צמחים', 'botany', 'plants'] },
+    { gradeId: '6', blockLabel: 'רומא וימי ביניים', aliases: ['רומא', 'רומאית', 'rome', 'roman', 'roman history', 'ימי ביניים', 'medieval', 'middle ages', 'גיאולוגיה', 'geology', 'mineralogy'] },
+    { gradeId: '7', blockLabel: 'מגלי עולם ורנסנס', aliases: ['מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers', 'רנסנס', 'renaissance', 'גלילאו', 'galileo', 'פיזיקה', 'physics', 'astronomy'] },
+    { gradeId: '8', blockLabel: 'מהפכות והיסטוריה מודרנית', aliases: ['מהפכה', 'מהפכות', 'מהפכה צרפתית', 'המהפכה הצרפתית', 'revolution', 'revolutions', 'french revolution', 'כימיה אורגנית', 'organic chemistry', 'היסטוריה מודרנית', 'modern history'] },
   ];
 
-  /** Hebrew / niche Waldorf phrases → clean English Pinterest keywords (unquoted). */
-  var HEBREW_TOPIC_ENGLISH_MAP = [
-    { pattern: /מהפכה|מהפכות|revolution/i, en: 'revolutions' },
-    { pattern: /בני(?:י)?ת\s*בית|בית\s*בנין|תקופת\s*בנייה|house\s*building/i, en: 'house building main lesson' },
-    { pattern: /חקלאות|farming|agriculture/i, en: 'farming agriculture' },
-    { pattern: /רישום\s*צורה|form\s*drawing/i, en: 'form drawing' },
-    { pattern: /מחבר(?:ת|ות)\s*תקופה|main\s*lesson\s*book/i, en: 'main lesson book' },
-    { pattern: /ציור\s*גיר|blackboard|chalkboard/i, en: 'blackboard drawing' },
-    { pattern: /נורדית|norse/i, en: 'norse mythology' },
-    { pattern: /יוון|greek|אודיסאוס|odysseus/i, en: 'ancient greece mythology' },
-    { pattern: /רומא|rome|roman/i, en: 'rome history' },
-    { pattern: /רנסנס|renaissance/i, en: 'renaissance' },
-    { pattern: /מגלי\s*עולם|explorers|exploration/i, en: 'age of exploration' },
-    { pattern: /בוטניקה|botany|plants/i, en: 'botany plants' },
-    { pattern: /גיאולוגיה|geology/i, en: 'geology' },
-    { pattern: /כימיה|chemistry/i, en: 'chemistry' },
-    { pattern: /תנ״ך|תנך|מקרא|bible/i, en: 'old testament stories' },
-    { pattern: /אגדות|fairy\s*tale/i, en: 'fairy tales' },
-    { pattern: /משלי\s*חיות|fables/i, en: 'animal fables' },
-    { pattern: /צדיקים|saints/i, en: 'saint stories' },
-    { pattern: /חשבון|מתמטיקה|math|arithmetic/i, en: 'math lesson' },
+  /** Topic → Pinterest English (topic-first) + article Hebrew cores. */
+  var TOPIC_LEXICON = [
+    { pattern: /מהפכה|מהפכות|revolution/i, pinterest: ['revolutions', 'French Revolution'], articleHe: ['מהפכות', 'מהפכה צרפתית'], displayHe: 'מהפכות' },
+    { pattern: /בני(?:י)?ת\s*בית|בית\s*בנין|תקופת\s*בנייה|house\s*building/i, pinterest: ['house building', 'Waldorf building'], articleHe: ['בניית בית', 'תקופת בנייה'], displayHe: 'בניית בית' },
+    { pattern: /חקלאות|farming|agriculture/i, pinterest: ['farming', 'agriculture'], articleHe: ['חקלאות'], displayHe: 'חקלאות' },
+    { pattern: /רישום\s*צורה|form\s*drawing/i, pinterest: ['form drawing'], articleHe: ['רישום צורה'], displayHe: 'רישום צורה' },
+    { pattern: /מחבר(?:ת|ות)\s*תקופה|main\s*lesson\s*book/i, pinterest: ['main lesson book'], articleHe: ['מחברת תקופה'], displayHe: 'מחברת תקופה' },
+    { pattern: /ציור\s*גיר|blackboard|chalkboard/i, pinterest: ['chalkboard drawing'], articleHe: ['ציור גיר'], displayHe: 'ציור גיר' },
+    { pattern: /נורדית|norse/i, pinterest: ['Norse mythology'], articleHe: ['מיתולוגיה נורדית', 'נורדית'], displayHe: 'מיתולוגיה נורדית' },
+    { pattern: /יוון|greek|אודיסאוס|odysseus/i, pinterest: ['ancient Greece', 'Greek mythology'], articleHe: ['יוון העתיקה', 'מיתולוגיה יוונית'], displayHe: 'יוון העתיקה' },
+    { pattern: /רומא|rome|roman/i, pinterest: ['Roman history'], articleHe: ['רומא', 'היסטוריה רומית'], displayHe: 'רומא' },
+    { pattern: /רנסנס|renaissance/i, pinterest: ['Renaissance'], articleHe: ['רנסנס'], displayHe: 'רנסנס' },
+    { pattern: /מגלי\s*עולם|explorers|exploration/i, pinterest: ['Age of Exploration'], articleHe: ['מגלי עולם'], displayHe: 'מגלי עולם' },
+    { pattern: /בוטניקה|botany|plants/i, pinterest: ['botany'], articleHe: ['בוטניקה'], displayHe: 'בוטניקה' },
+    { pattern: /גיאולוגיה|geology/i, pinterest: ['geology'], articleHe: ['גיאולוגיה'], displayHe: 'גיאולוגיה' },
+    { pattern: /כימיה|chemistry/i, pinterest: ['chemistry'], articleHe: ['כימיה'], displayHe: 'כימיה' },
+    { pattern: /תנ״ך|תנך|מקרא|bible/i, pinterest: ['Old Testament stories'], articleHe: ['תנ״ך', 'סיפורי מקרא'], displayHe: 'תנ״ך' },
+    { pattern: /אגדות|fairy\s*tale/i, pinterest: ['fairy tales'], articleHe: ['אגדות'], displayHe: 'אגדות' },
+    { pattern: /משלי\s*חיות|fables/i, pinterest: ['animal fables'], articleHe: ['משלי חיות'], displayHe: 'משלי חיות' },
+    { pattern: /צדיקים|saints/i, pinterest: ['saint stories'], articleHe: ['סיפורי צדיקים'], displayHe: 'סיפורי צדיקים' },
+    { pattern: /חשבון|מתמטיקה|math|arithmetic/i, pinterest: ['math lesson'], articleHe: ['חשבון'], displayHe: 'חשבון' },
+  ];
+
+  var GENERIC_PINTEREST_CLUTTER = [
+    /main\s*lesson\s*book/i, /form\s*drawing/i, /chalkboard/i, /blackboard/i,
+    /מחברת\s*תקופה/i, /מחברות\s*תקופה/i, /רישום\s*צורה/i, /ציור\s*גיר/i,
+    /epoch\s*book/i, /block\s*book/i,
   ];
 
   var ISRAELI_WALDORF_ARTICLE_DOMAINS = [
@@ -139,6 +77,13 @@
     'harduf-waldorf.org.il',
     'shakedwaldorf.org.il',
     'adamolam.co.il',
+  ];
+
+  var ISRAELI_WALDORF_SEED_SOURCES = [
+    { id: 'waldorf_forum', domain: 'waldorf.org.il', source: 'הפורום לחינוך וולדורף בישראל', label: 'מקור וולדורף רשמי' },
+    { id: 'adam_olam', domain: 'adamolam.co.il', source: 'מגזין אדם עולם', label: 'כתב עת פדגוגי' },
+    { id: 'shaked', domain: 'shakedwaldorf.org.il', source: 'בית ספר שקד קריית טבעון', label: 'מערך שיעור מאתר בית ספר' },
+    { id: 'harduf', domain: 'harduf-waldorf.org.il', source: 'בית ספר ולדורף הרדוף', label: 'מערך שיעור מאתר בית ספר' },
   ];
 
   function stableNormalize(value) {
@@ -152,6 +97,10 @@
       .replace(/["'«»""]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function stripQuotes(text) {
+    return String(text || '').replace(/["'«»""]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   function containsHebrewText(text) {
@@ -208,7 +157,6 @@
     var cleaned = stripGradePhrases(topicText);
     var norm = stableNormalize(cleaned);
     if (!norm || norm.length < 2) return null;
-
     var best = null;
     var bestAliasLen = 0;
     for (var i = 0; i < GRADE_TOPIC_BLOCKS.length; i++) {
@@ -226,17 +174,57 @@
     return best;
   }
 
+  function resolveTopicLexicon(topicText) {
+    var raw = stripQuotes(stripGradePhrases(topicText));
+    if (!raw) return null;
+    for (var i = 0; i < TOPIC_LEXICON.length; i++) {
+      if (TOPIC_LEXICON[i].pattern.test(raw)) return TOPIC_LEXICON[i];
+    }
+    return null;
+  }
+
   /**
-   * @returns {null|object} mismatch when topic does not belong to gradeId
+   * Core searchable terms — short, realistic, no definite-article lock-in.
    */
+  function extractTopicProfile(topicText) {
+    var raw = stripQuotes(stripGradePhrases(topicText));
+    var lex = resolveTopicLexicon(raw);
+    if (lex) {
+      return {
+        displayHe: lex.displayHe,
+        articleHe: lex.articleHe.slice(),
+        pinterestEn: lex.pinterest.slice(),
+        raw: raw,
+      };
+    }
+    var heWords = [];
+    if (containsHebrewText(raw)) {
+      raw.split(/\s+/).forEach(function (w) {
+        var word = w.replace(/^ה/, '').trim();
+        if (word.length >= 2) heWords.push(word);
+      });
+      if (!heWords.length) heWords.push(raw.replace(/^ה/, '').trim());
+    }
+    var enWords = raw
+      .replace(/[^\u0590-\u05FFa-zA-Z0-9\s]/g, ' ')
+      .replace(/\b(?:וולדורף|ולדורף|waldorf|steiner)\b/gi, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 3);
+    return {
+      displayHe: heWords[0] || raw.slice(0, 24),
+      articleHe: heWords.length ? heWords.slice(0, 2) : [raw.slice(0, 20)],
+      pinterestEn: enWords.length ? enWords : ['Waldorf lesson'],
+      raw: raw,
+    };
+  }
+
   function validateGradeTopicScope(gradeId, topicText) {
     var gid = String(gradeId || '').trim();
     var topic = String(topicText || '').trim();
     if (!gid || !topic) return null;
-
     var block = findCurriculumBlockForTopic(topic);
     if (!block || block.gradeId === gid) return null;
-
     return {
       requestedTopicRaw: topic,
       currentGradeId: gid,
@@ -253,139 +241,146 @@
     return extractGradeNumbersFromText(text).some(function (n) { return n !== active; });
   }
 
-  function hasWaldorfPedagogyAnchor(text) {
-    var lc = String(text || '').toLowerCase();
-    return PINTEREST_WALDORF_ANCHORS.some(function (anchor) {
-      return lc.indexOf(anchor.toLowerCase()) !== -1;
-    }) || /\bwaldorf\b/i.test(lc);
-  }
-
-  function hasActiveGradeAnchor(text, body) {
-    var gradeNum = activeGradeNumber(body);
-    if (!gradeNum) return true;
-    var src = String(text || '');
-    if (extractGradeNumbersFromText(src).indexOf(gradeNum) !== -1) return true;
-    if (new RegExp('(?:grade|class|waldorf\\s+class)\\s*' + gradeNum + '\\b', 'i').test(src)) return true;
-    return false;
-  }
-
-  function stripQuotes(text) {
-    return String(text || '')
-      .replace(/["'«»""]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function shortenTopicCore(raw) {
-    var text = stripQuotes(stripGradePhrases(raw));
-    if (!text) return '';
-    var parts = text.split(/\s*[—–\-|]\s*/).map(function (p) { return p.trim(); }).filter(Boolean);
-    if (parts.length > 1) {
-      parts.sort(function (a, b) { return a.length - b.length; });
-      for (var i = 0; i < parts.length; i++) {
-        if (parts[i].length >= 2 && parts[i].length <= 28) return parts[i];
-      }
-    }
-    return text.split(/\s+/).slice(0, 4).join(' ');
-  }
-
-  function translateTopicToEnglish(topicText) {
-    var raw = stripQuotes(stripGradePhrases(topicText));
-    if (!raw) return '';
-
-    for (var i = 0; i < HEBREW_TOPIC_ENGLISH_MAP.length; i++) {
-      var entry = HEBREW_TOPIC_ENGLISH_MAP[i];
-      if (entry.pattern.test(raw)) return entry.en;
-    }
-
-    if (!containsHebrewText(raw)) {
-      return raw
-        .replace(/\b(?:וולדורף|ולדורף|waldorf|steiner)\b/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .split(/\s+/)
-        .slice(0, 4)
-        .join(' ');
-    }
-
-    return shortenTopicCore(raw)
-      .replace(/[^\u0590-\u05FFa-zA-Z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function appendArticlePedagogyAnchors(parts) {
-    var list = Array.isArray(parts) ? parts.slice() : [parts];
-    ARTICLE_PEDAGOGY_ANCHORS.forEach(function (anchor) {
-      var lc = list.join(' ').toLowerCase();
-      if (lc.indexOf(anchor.toLowerCase()) === -1) list.push(anchor);
+  function pinContainsTopicFocus(pin, topic) {
+    var profile = extractTopicProfile(topic);
+    var blob = stableNormalize(pin);
+    if (!blob) return false;
+    var hit = false;
+    profile.pinterestEn.forEach(function (term) {
+      if (stableNormalize(term).length >= 3 && blob.indexOf(stableNormalize(term)) >= 0) hit = true;
     });
-    return list.filter(Boolean);
+    profile.articleHe.forEach(function (term) {
+      if (stableNormalize(term).length >= 2 && blob.indexOf(stableNormalize(term)) >= 0) hit = true;
+    });
+    if (!hit && profile.raw.length >= 3) {
+      var rawNorm = stableNormalize(profile.raw);
+      if (blob.indexOf(rawNorm) >= 0) hit = true;
+    }
+    return hit;
+  }
+
+  function isGenericPinterestClutter(text) {
+    var s = String(text || '');
+    return GENERIC_PINTEREST_CLUTTER.some(function (re) { return re.test(s); });
+  }
+
+  function hasWaldorfPedagogyAnchor(text) {
+    return /\bwaldorf\b/i.test(String(text || '')) ||
+      /וולדורף|ולדורף/i.test(String(text || ''));
+  }
+
+  function joinQueryTokens(tokens, max) {
+    var seen = Object.create(null);
+    var out = [];
+    (tokens || []).forEach(function (tok) {
+      var t = String(tok || '').trim();
+      if (!t) return;
+      var key = stableNormalize(t);
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push(t);
+    });
+    return out.slice(0, max || 5).join(' ');
   }
 
   /**
-   * Build clean, unquoted English Pinterest search phrase.
-   * Template: Waldorf Class {grade} {englishTopic}
+   * Pinterest: topic-first English query. Primary topic words come BEFORE Waldorf.
+   * Example: "revolutions French Revolution Waldorf"
    */
   function buildPinterestSearchQuery(rawPin, topic, body) {
     var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
-    if (!gradeId) return '';
+    var topicStr = String(topic || rawPin || '').trim();
+    if (!topicStr) return '';
+    if (gradeId && validateGradeTopicScope(gradeId, topicStr)) return '';
 
-    var topicForScope = String(topic || rawPin || '').trim();
-    if (validateGradeTopicScope(gradeId, topicForScope)) return '';
+    var profile = extractTopicProfile(topicStr);
+    var source = stripQuotes(String(rawPin || '').trim());
+    if (source && !containsHebrewText(source) && !isGenericPinterestClutter(source) &&
+        pinContainsTopicFocus(source, topicStr)) {
+      if (!hasWaldorfPedagogyAnchor(source)) source = source + ' Waldorf';
+      return joinQueryTokens(source.split(/\s+/), 5);
+    }
 
-    var source = stripQuotes(String(rawPin || topic || '').trim());
-    var englishTopic = translateTopicToEnglish(source || topic);
-    if (!englishTopic) englishTopic = translateTopicToEnglish(topic);
-    if (!englishTopic) return '';
-
-    englishTopic = englishTopic
-      .replace(/\b(?:וולדורף|ולדורף|waldorf|steiner|class|grade)\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .split(/\s+/)
-      .slice(0, 4)
-      .join(' ');
-
-    if (!englishTopic) return '';
-
-    var query = ('Waldorf Class ' + gradeId + ' ' + englishTopic).replace(/\s+/g, ' ').trim();
-    if (hasMismatchedGradeInText(query, body)) return '';
-    return query;
+    var tokens = profile.pinterestEn.slice();
+    if (gradeId) tokens.push('grade ' + gradeId);
+    tokens.push('Waldorf');
+    return joinQueryTokens(tokens, 5);
   }
 
   function buildPinterestSearchUrl(query) {
     var q = String(query || '').trim();
-    if (!q || !hasWaldorfPedagogyAnchor(q)) return '';
+    if (!q) return '';
     return PINTEREST_SEARCH_BASE + encodeURIComponent(q);
   }
 
   function buildPinterestSearchUrlFromParts(rawPin, topic, body) {
     var query = buildPinterestSearchQuery(rawPin, topic, body);
-    if (!query) return '';
-    return buildPinterestSearchUrl(query);
+    return query ? buildPinterestSearchUrl(query) : '';
   }
 
   /**
-   * Google site-restricted article search — never emits direct Waldorf domain paths.
-   * Template: site:domain1 OR site:domain2 "{topic}" כיתה {grade} וולדורף Main Lesson
+   * Build 2–4 topic-centric gallery entries (no generic notebook clutter).
+   */
+  function buildPinterestGalleryForTopic(topic, body) {
+    body = body || {};
+    var topicStr = String(topic || body.topic || '').trim();
+    var gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
+    if (!topicStr) return [];
+    if (gradeId && validateGradeTopicScope(gradeId, topicStr)) return [];
+
+    var profile = extractTopicProfile(topicStr);
+    var display = profile.displayHe || topicStr;
+    var variants = [];
+    var seen = Object.create(null);
+
+    function pushVariant(board, title, pinTokens) {
+      var pin = joinQueryTokens(pinTokens, 5);
+      if (!pin || isGenericPinterestClutter(pin)) return;
+      if (!pinContainsTopicFocus(pin, topicStr)) return;
+      var key = stableNormalize(pin);
+      if (seen[key]) return;
+      seen[key] = true;
+      var url = buildPinterestSearchUrl(pin);
+      if (!url) return;
+      variants.push({ board: board, title: title, pin: pin, url: url, src: '' });
+    }
+
+    pushVariant(
+      'נושא התקופה',
+      display + ' — השראה ויזואלית',
+      profile.pinterestEn.concat(['Waldorf', 'main lesson'])
+    );
+    if (gradeId) {
+      pushVariant(
+        'כיתה ' + gradeId,
+        display + ' — כיתה ' + gradeId,
+        profile.pinterestEn.concat(['Waldorf', 'grade ' + gradeId])
+      );
+    }
+    pushVariant(
+      'היסטוריה וולדורפית',
+      display,
+      profile.pinterestEn.concat(['Waldorf', 'history', 'lesson'])
+    );
+
+    return variants.slice(0, 4);
+  }
+
+  /**
+   * Article Google search — ONE domain, Hebrew-only, short, realistic.
+   * Example: site:harduf-waldorf.org.il מהפכות וולדורף
    */
   function buildArticleGoogleSearchQuery(topic, gradeLabel, options) {
     options = options || {};
-    var t = String(topic || '').trim();
-    var grade = String(gradeLabel || '').trim();
-    if (!t) return '';
-
+    var profile = extractTopicProfile(topic);
     var domains = options.domains || ISRAELI_WALDORF_ARTICLE_DOMAINS;
-    var siteClause = domains.map(function (d) { return 'site:' + d; }).join(' OR ');
+    var domain = String((domains && domains[0]) || '').trim();
+    if (!domain) return '';
 
-    var parts = appendArticlePedagogyAnchors([
-      siteClause,
-      '"' + stripQuotes(t) + '"',
-      grade,
-    ]);
+    var primaryHe = profile.articleHe[0] || profile.displayHe || stripQuotes(topic);
+    var tokens = ['site:' + domain, primaryHe, 'וולדורף'];
 
-    return parts.filter(Boolean).join(' ');
+    return joinQueryTokens(tokens, 4);
   }
 
   function buildArticleGoogleSearchUrl(topic, gradeLabel, options) {
@@ -398,6 +393,33 @@
     return buildArticleGoogleSearchUrl(topic, gradeLabel, { domains: [domain] });
   }
 
+  /** Fallback resource rows — one simple Hebrew search per Israeli Waldorf source. */
+  function buildWebInspirationFallbackResources(topic, gradeLabel) {
+    var profile = extractTopicProfile(topic);
+    var display = profile.displayHe || String(topic || '').trim() || 'וולדורף';
+    var grade = String(gradeLabel || '').trim();
+    var out = [];
+    var seen = Object.create(null);
+
+    ISRAELI_WALDORF_SEED_SOURCES.forEach(function (seed) {
+      var url = buildPerDomainArticleSearchUrl(seed.domain, topic, gradeLabel);
+      if (!url || seen[url]) return;
+      seen[url] = true;
+      out.push({
+        title: seed.source + ' — ' + display,
+        url: url,
+        label: seed.label,
+        source: seed.source,
+        snippet: grade
+          ? ('חיפוש: ' + display + ' · ' + grade)
+          : ('חיפוש: ' + display),
+        _fallback: true,
+        _safeSearch: true,
+      });
+    });
+    return out;
+  }
+
   function pinterestItemText(item) {
     if (!item) return '';
     return [item.board, item.title, item.pin, item.url, item.src].filter(Boolean).join(' ');
@@ -407,34 +429,32 @@
     var blob = pinterestItemText(item);
     if (!blob) return false;
     if (hasMismatchedGradeInText(blob, body)) return false;
-    if (!hasWaldorfPedagogyAnchor(blob)) return false;
-    if (!hasActiveGradeAnchor(blob, body)) return false;
-    var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
-    if (gradeId && validateGradeTopicScope(gradeId, body.topic || item.pin || item.title)) return false;
-    if (/["'«»]/.test(String(item.pin || '')) && containsHebrewText(item.pin)) return false;
+    if (isGenericPinterestClutter(blob)) return false;
+    var topic = String((body && body.topic) || '').trim();
+    if (!topic) return false;
+    if (!pinContainsTopicFocus(blob, topic)) return false;
+    if (!hasWaldorfPedagogyAnchor(blob) && !/\bgrade\s*\d\b/i.test(blob)) return false;
     return true;
   }
 
   function sanitizePinterestGalleryItem(item, body, topic) {
     if (!item || typeof item !== 'object') return null;
+    var topicStr = String(topic || (body && body.topic) || '').trim();
     var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
-    if (gradeId && validateGradeTopicScope(gradeId, topic)) return null;
-    if (hasMismatchedGradeInText(pinterestItemText(item), body)) return null;
+    if (gradeId && validateGradeTopicScope(gradeId, topicStr)) return null;
+    if (isGenericPinterestClutter(pinterestItemText(item))) return null;
 
-    var pin = buildPinterestSearchQuery(item.pin || item.title || '', topic, body);
-    if (!pin) return null;
+    var pin = buildPinterestSearchQuery(item.pin || item.title || '', topicStr, body);
+    if (!pin || !pinContainsTopicFocus(pin, topicStr)) return null;
 
     var sanitized = {
       board: String(item.board || item.title || 'השראה ויזואלית').trim(),
       title: String(item.title || item.board || pin).trim(),
       pin: pin,
       src: String(item.src || '').trim(),
-      url: '',
+      url: buildPinterestSearchUrl(pin),
     };
-
-    if (!passesStrictPinterestItemFilter(sanitized, body)) return null;
-    sanitized.url = buildPinterestSearchUrl(pin);
-    if (!sanitized.url) return null;
+    if (!passesStrictPinterestItemFilter(sanitized, Object.assign({}, body, { topic: topicStr }))) return null;
     return sanitized;
   }
 
@@ -449,25 +469,45 @@
     (Array.isArray(gallery) ? gallery : []).forEach(function (item) {
       var sanitized = sanitizePinterestGalleryItem(item, body, topic);
       if (!sanitized) return;
-      var key = String(sanitized.pin || '').toLowerCase().trim();
+      var key = stableNormalize(sanitized.pin);
       if (!key || seen[key]) return;
       seen[key] = true;
       out.push(sanitized);
     });
+
+    if (!out.length && topic) {
+      buildPinterestGalleryForTopic(topic, body).forEach(function (stub) {
+        var key = stableNormalize(stub.pin);
+        if (!key || seen[key]) return;
+        seen[key] = true;
+        out.push(stub);
+      });
+    }
+
     return out.slice(0, maxItems);
   }
 
   function isIsraeliWaldorfDomain(url) {
     var u = String(url || '').toLowerCase();
-    return ISRAELI_WALDORF_ARTICLE_DOMAINS.some(function (d) {
-      return u.indexOf(d) >= 0;
-    });
+    return ISRAELI_WALDORF_ARTICLE_DOMAINS.some(function (d) { return u.indexOf(d) >= 0; });
   }
 
   function shouldForceArticleSearchRedirect(url) {
     if (!url) return false;
     if (/google\.com\/search/i.test(url)) return false;
     return isIsraeliWaldorfDomain(url);
+  }
+
+  function translateTopicToEnglish(topicText) {
+    return extractTopicProfile(topicText).pinterestEn.join(' ');
+  }
+
+  function appendArticlePedagogyAnchors(parts) {
+    var list = Array.isArray(parts) ? parts.slice() : [parts];
+    if (list.join(' ').indexOf('וולדורף') === -1 && list.join(' ').indexOf('ולדורף') === -1) {
+      list.push('וולדורף');
+    }
+    return list.filter(Boolean);
   }
 
   return {
@@ -478,20 +518,25 @@
     PINTEREST_MAX_GALLERY_ITEMS: 4,
     validateGradeTopicScope: validateGradeTopicScope,
     findCurriculumBlockForTopic: findCurriculumBlockForTopic,
+    extractTopicProfile: extractTopicProfile,
     translateTopicToEnglish: translateTopicToEnglish,
     buildPinterestSearchQuery: buildPinterestSearchQuery,
     buildStrictPinterestQuery: buildPinterestSearchQuery,
     buildPinterestSearchUrl: buildPinterestSearchUrl,
     buildPinterestSearchUrlFromParts: buildPinterestSearchUrlFromParts,
+    buildPinterestGalleryForTopic: buildPinterestGalleryForTopic,
     buildArticleGoogleSearchQuery: buildArticleGoogleSearchQuery,
     buildArticleGoogleSearchUrl: buildArticleGoogleSearchUrl,
     buildPerDomainArticleSearchUrl: buildPerDomainArticleSearchUrl,
+    buildWebInspirationFallbackResources: buildWebInspirationFallbackResources,
     appendArticlePedagogyAnchors: appendArticlePedagogyAnchors,
     sanitizePinterestGallery: sanitizePinterestGallery,
     sanitizePinterestGalleryItem: sanitizePinterestGalleryItem,
     passesStrictPinterestItemFilter: passesStrictPinterestItemFilter,
     hasMismatchedGradeInText: hasMismatchedGradeInText,
     hasWaldorfPedagogyAnchor: hasWaldorfPedagogyAnchor,
+    pinContainsTopicFocus: pinContainsTopicFocus,
+    isGenericPinterestClutter: isGenericPinterestClutter,
     hebrewGradeLabelForId: hebrewGradeLabelForId,
     shouldForceArticleSearchRedirect: shouldForceArticleSearchRedirect,
     isIsraeliWaldorfDomain: isIsraeliWaldorfDomain,

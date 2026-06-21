@@ -403,13 +403,17 @@ function normalizePedagogicalResourceItem(item, body) {
   const gradeLabel = String((body && body.gradeLabel) || '').trim();
   let url = String(item.url || item.link || item.href || '').trim();
   if (!/^https?:\/\//i.test(url)) {
-    if (waldorfQueryGen.buildArticleGoogleSearchUrl) {
-      url = waldorfQueryGen.buildArticleGoogleSearchUrl(topic, gradeLabel);
+    if (waldorfQueryGen.buildPerDomainArticleSearchUrl) {
+      url = waldorfQueryGen.buildPerDomainArticleSearchUrl('waldorf.org.il', topic, gradeLabel);
     }
     if (!url) return null;
   }
   if (waldorfQueryGen.shouldForceArticleSearchRedirect && waldorfQueryGen.shouldForceArticleSearchRedirect(url)) {
-    url = waldorfQueryGen.buildArticleGoogleSearchUrl(topic, gradeLabel);
+    const seedDomain = waldorfWebSeed.findSeedForUrl(url);
+    const domain = seedDomain
+      ? (seedDomain.searchDomains || [seedDomain.domain])[0]
+      : 'waldorf.org.il';
+    url = waldorfQueryGen.buildPerDomainArticleSearchUrl(domain, topic, gradeLabel);
   }
   url = waldorfWebSeed.sanitizePedagogicalResourceUrl(url, topic, {
     topic: topic,
