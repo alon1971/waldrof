@@ -6818,6 +6818,194 @@
       'waldorf', 'וולדורף', 'ולדורף', 'לוח שחור', 'גיר על לוח', 'מחברת', 'רישום', 'תקופה'
     ];
 
+    var PINTEREST_QUERY_STOP_WORDS = [
+      'ו', 'של', 'על', 'את', 'עם', 'the', 'a', 'an', 'for', 'and', 'or', 'book', 'books', 'drawing', 'student', 'work', 'lesson'
+    ];
+
+    var PINTEREST_WALDORF_SEED_QUERIES = [
+      { board: 'מחברות תקופה', title: 'מחברת תקופה ולדורף', pin: 'מחברת תקופה ולדורף' },
+      { board: 'ציור גיר על לוח', title: 'ציור גיר ולדורף', pin: 'ציור גיר ולדורף' },
+      { board: 'עבודות תלמידים', title: 'עבודות תלמידים ולדורף', pin: 'עבודות תלמידים ולדורף' },
+      { board: 'רישום צורה', title: 'רישום צורה ולדורף', pin: 'רישום צורה ולדורף' },
+    ];
+
+    var PINTEREST_BLOCK_THEME_HINTS = [
+      'מיתולוגיה', 'נורדית', 'יוונית', 'הנדסה', 'פיזיקה', 'כימיה', 'ביולוגיה', 'היסטוריה', 'גאוגרפיה', 'בוטניקה', 'זואולוגיה'
+    ];
+
+    var PINTEREST_QUERY_MAX_TOKENS = 3;
+
+    function getGradePinterestLabel() {
+      var gradeId = String(appState.grade || '').trim();
+      var label = String(appState.gradeLabel || '').trim();
+      var heMatch = label.match(/כיתה\s*[א-ת]['׳]?/);
+      if (heMatch) return heMatch[0];
+      var g = GRADES.find(function (x) { return String(x.id) === gradeId; });
+      if (g && g.label) return g.label.replace(/\s*\(.*\)$/, '').trim();
+      return '';
+    }
+
+    function extractPinterestTokens(text) {
+      return String(text || '')
+        .replace(/[—–\-|,/()]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .split(' ')
+        .map(function (tok) { return tok.trim(); })
+        .filter(function (tok) {
+          if (!tok || tok.length < 2) return false;
+          return PINTEREST_QUERY_STOP_WORDS.indexOf(tok.toLowerCase()) === -1;
+        });
+    }
+
+    function pickPinterestTokens(tokens, maxCount) {
+      maxCount = maxCount || PINTEREST_QUERY_MAX_TOKENS;
+      var seen = Object.create(null);
+      var out = [];
+      (tokens || []).forEach(function (tok) {
+        if (out.length >= maxCount) return;
+        var key = tok.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        out.push(tok);
+      });
+      return out;
+    }
+
+    function shortenTopicCore(topic) {
+      var raw = String(topic || '').trim();
+      if (!raw) return '';
+      var parts = raw.split(/\s*[—–\-|]\s*/).map(function (p) { return p.trim(); }).filter(Boolean);
+      if (parts.length > 1) {
+        parts.sort(function (a, b) { return a.length - b.length; });
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i].length >= 2 && parts[i].length <= 28) return parts[i];
+        }
+      }
+      return pickPinterestTokens(extractPinterestTokens(raw), PINTEREST_QUERY_MAX_TOKENS).join(' ');
+    }
+
+    function extractBlockThemeFromText(text) {
+      var source = String(text || '').trim();
+      if (!source) return '';
+      for (var i = 0; i < PINTEREST_BLOCK_THEME_HINTS.length; i++) {
+        var hint = PINTEREST_BLOCK_THEME_HINTS[i];
+        if (source.indexOf(hint) === -1) continue;
+        if (hint === 'מיתולוגיה' && source.indexOf('נורדית') !== -1) return 'מיתולוגיה נורדית';
+        if (hint === 'מיתולוגיה' && source.indexOf('יוונית') !== -1) return 'מיתולוגיה יוונית';
+        return hint;
+      }
+      return '';
+    }
+
+    function extractBlockContextFromPlan(plan) {
+      if (!plan || !plan.theory || !Array.isArray(plan.theory.sections)) return '';
+      for (var i = 0; i < plan.theory.sections.length; i++) {
+        var heading = String((plan.theory.sections[i] && plan.theory.sections[i].heading) || '').trim();
+        var theme = extractBlockThemeFromText(heading);
+        if (theme) return theme;
+      }
+      return '';
+    }
+
+    function compactPinterestQuery(parts, maxTokens) {
+      return pickPinterestTokens(
+        (parts || []).reduce(function (acc, part) {
+          return acc.concat(extractPinterestTokens(part));
+        }, []),
+        maxTokens || PINTEREST_QUERY_MAX_TOKENS
+      ).join(' ');
+    }
+
+    function simplifyPinterestPin(pin, topic) {
+      var raw = String(pin || '').trim();
+      if (!raw || extractPinterestUrl(raw)) return raw;
+      var tokens = extractPinterestTokens(raw);
+      if (tokens.length <= PINTEREST_QUERY_MAX_TOKENS) return raw;
+
+      var priority = [];
+      if (matchesWaldorfVisualKeywords(raw)) priority.push('וולדורף');
+
+      var blockTheme = extractBlockThemeFromText(raw) || extractBlockThemeFromText(topic);
+      if (blockTheme) priority.push(blockTheme);
+
+      var core = shortenTopicCore(topic);
+      if (core) priority.push(core);
+
+      var gradeLbl = getGradePinterestLabel();
+      if (gradeLbl && raw.indexOf('מחברת') !== -1) priority.push(compactPinterestQuery([gradeLbl, 'מחברת תקופה'], 2));
+
+      tokens.forEach(function (tok) {
+        if (priority.length >= PINTEREST_QUERY_MAX_TOKENS) return;
+        if (priority.some(function (p) { return p.indexOf(tok) !== -1 || tok.indexOf(p) !== -1; })) return;
+        if (PINTEREST_QUERY_STOP_WORDS.indexOf(tok.toLowerCase()) !== -1) return;
+        priority.push(tok);
+      });
+
+      return compactPinterestQuery(priority, PINTEREST_QUERY_MAX_TOKENS);
+    }
+
+    function buildPinterestSearchVariants(topic, options) {
+      options = options || {};
+      var tpc = shortenTopicCore(topic);
+      var gradeLbl = getGradePinterestLabel();
+      var blockTheme = extractBlockThemeFromText(topic) ||
+        extractBlockThemeFromText(options.blockContext || '') ||
+        extractBlockContextFromPlan(options.plan);
+      var variants = [];
+
+      if (blockTheme) {
+        variants.push({
+          board: 'נושא התקופה',
+          title: blockTheme + ' ולדורף',
+          pin: compactPinterestQuery([blockTheme, 'וולדורף'], PINTEREST_QUERY_MAX_TOKENS),
+        });
+      }
+      if (tpc) {
+        variants.push({
+          board: 'נושא השיעור',
+          title: tpc + ' ולדורף',
+          pin: compactPinterestQuery([tpc, 'וולדורף'], PINTEREST_QUERY_MAX_TOKENS),
+        });
+      }
+      if (gradeLbl) {
+        variants.push({
+          board: 'מחברות תקופה',
+          title: gradeLbl + ' — מחברת תקופה',
+          pin: compactPinterestQuery([gradeLbl, 'מחברת תקופה'], PINTEREST_QUERY_MAX_TOKENS),
+        });
+      }
+      return variants;
+    }
+
+    function optimizePinterestGalleryItem(item, topic) {
+      if (!item) return item;
+      var optimized = {
+        board: item.board,
+        title: item.title,
+        pin: item.pin,
+        src: item.src,
+        url: item.url,
+      };
+      if (extractPinterestUrl(optimized.pin) || extractPinterestUrl(optimized.url) || extractPinterestUrl(optimized.src)) {
+        return optimized;
+      }
+      if (optimized.pin) optimized.pin = simplifyPinterestPin(optimized.pin, topic);
+      else if (optimized.title) optimized.pin = simplifyPinterestPin(optimized.title, topic);
+      return optimized;
+    }
+
+    function ensurePinterestGalleryFallback(items, topic, options) {
+      var out = (items || []).slice();
+      if (out.length >= 3) return out;
+      var seeds = buildPinterestSearchVariants(topic, options)
+        .concat(PINTEREST_WALDORF_SEED_QUERIES);
+      seeds.forEach(function (seed) {
+        out.push(optimizePinterestGalleryItem(seed, topic));
+      });
+      return out;
+    }
+
     function visualGalleryItemText(item) {
       if (!item) return '';
       return [item.board, item.title, item.pin, item.url, item.src].filter(Boolean).join(' ');
@@ -6842,6 +7030,8 @@
       var pin = String(item.pin || '').trim().toLowerCase();
       var title = String(item.title || '').trim().toLowerCase();
       if (pin === topicLc || title === topicLc) return true;
+      var simplifiedPin = simplifyPinterestPin(String(item.pin || item.title || ''), topic);
+      if (extractPinterestTokens(simplifiedPin).length > PINTEREST_QUERY_MAX_TOKENS) return true;
       var url = resolvePinterestUrl(item, topic);
       if (url.indexOf('/search/pins') !== -1) {
         try {
@@ -6889,10 +7079,20 @@
       });
     }
 
-    function finalizeVisualGallery(items, topic) {
+    function finalizeVisualGallery(items, topic, options) {
+      options = options || {};
+      if (!options.plan) options.plan = appState.aiGeneratedPlan;
       var topicStr = String(topic || appState.topic || '').trim();
-      var waldorf = filterWaldorfVisualGallery(items, topicStr);
-      return dedupeVisualGalleryByUrl(waldorf, topicStr).slice(0, 12);
+      var optimized = (items || []).map(function (item) {
+        return optimizePinterestGalleryItem(item, topicStr);
+      });
+      var waldorf = filterWaldorfVisualGallery(optimized, topicStr);
+      var deduped = dedupeVisualGalleryByUrl(waldorf, topicStr);
+      var withFallback = ensurePinterestGalleryFallback(deduped, topicStr, options);
+      var finalized = withFallback.map(function (item) {
+        return optimizePinterestGalleryItem(item, topicStr);
+      });
+      return dedupeVisualGalleryByUrl(filterWaldorfVisualGallery(finalized, topicStr), topicStr).slice(0, 12);
     }
 
     function resolvePinterestUrl(item, topic) {
@@ -6903,8 +7103,9 @@
         extractPinterestUrl(item && item.pin) ||
         extractPinterestUrl(item && item.src);
       if (direct) return direct;
-      const query = String((item && item.pin) || (item && item.query) || (item && item.search) ||
+      const rawQuery = String((item && item.pin) || (item && item.query) || (item && item.search) ||
         (item && item.title) || topic || '').trim();
+      const query = simplifyPinterestPin(rawQuery, topic);
       if (!query) return '';
       return 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(query);
     }
@@ -6923,13 +7124,13 @@
         var text = item.trim();
         if (!text) return null;
         var embedded = extractPinterestUrl(text);
-        return {
+        return optimizePinterestGalleryItem({
           board: t('pinterest_board_link') || 'השראה ויזואלית',
           title: embedded ? (text.replace(embedded, '').trim() || ('השראה ' + (index + 1))) : text.slice(0, 120),
           pin: embedded ? '' : text,
           src: embedded || '',
           url: embedded || '',
-        };
+        }, topic);
       }
       if (typeof item !== 'object') return null;
       var title = String(item.title || item.name || item.label || item.text || item.board || '').trim();
@@ -6940,13 +7141,13 @@
       if (!src && url && extractPinterestUrl(url)) src = extractPinterestUrl(url);
       if (!pin && url && !extractPinterestUrl(url)) pin = url;
       if (!title) title = pin || url || ('השראה ' + (index + 1));
-      return {
+      return optimizePinterestGalleryItem({
         board: String(item.board || item.category || item.type || t('pinterest_board_link') || 'השראה ויזואלית').trim(),
         title: title,
         pin: pin || (extractPinterestUrl(url) ? '' : title),
         src: src,
         url: url || src || extractPinterestUrl(pin) || '',
-      };
+      }, topic);
     }
 
     function visualGallerySessionKey() {
@@ -7062,7 +7263,7 @@
         var coerced = coerceVisualGalleryItem(item, normalized.length, topic);
         if (coerced) normalized.push(coerced);
       });
-      return finalizeVisualGallery(normalized, topic);
+      return finalizeVisualGallery(normalized, topic, { plan: plan, data: data });
     }
 
     function hydrateVisualGalleryFromSources(options) {
@@ -7072,14 +7273,16 @@
       return collected.length > 0;
     }
 
-    function normalizeGallery(items, topic) {
+    function normalizeGallery(items, topic, options) {
       var topicStr = String(topic || appState.topic || '').trim();
+      options = options || {};
+      if (!options.plan) options.plan = appState.aiGeneratedPlan;
       var coerced = [];
       (items || []).forEach(function (p) {
         var item = coerceVisualGalleryItem(p, coerced.length, topicStr);
         if (item) coerced.push(item);
       });
-      return finalizeVisualGallery(coerced, topicStr);
+      return finalizeVisualGallery(coerced, topicStr, options);
     }
 
     function syncGradeInsightsTitle(gradeId) {
@@ -13620,12 +13823,11 @@
     function generateVisualGallery(topic) {
       var tpc = String(topic || appState.topic || '').trim();
       if (!tpc) return [];
-      return normalizeGallery([
-        { board: 'מחברות תקופה', title: tpc + ' — מחברת תקופה', pin: tpc + ' waldorf main lesson book' },
-        { board: 'ציור גיר על לוח', title: tpc + ' — ציור גיר', pin: tpc + ' waldorf blackboard chalk drawing' },
-        { board: 'עבודות תלמידים', title: tpc + ' — עבודות תלמידים ולדורף', pin: tpc + ' waldorf student work main lesson' },
-        { board: 'רישום צורה', title: tpc + ' — רישום צורה', pin: tpc + ' waldorf form drawing main lesson' },
-      ], tpc);
+      return normalizeGallery(
+        buildPinterestSearchVariants(tpc, { plan: appState.aiGeneratedPlan }),
+        tpc,
+        { plan: appState.aiGeneratedPlan }
+      );
     }
 
     // ---------- Workspace render ----------

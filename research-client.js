@@ -130,10 +130,10 @@
     'Rudolf Steiner (GA lectures where verified), anthroposophic authors (e.g. von Baravalle, Finser, Harwood, Aeppli, Rawson, Stebbing), ' +
     'AWSNA, IASWECE, the Waldorf Research Institute Library (https://waldorflibrary.org/), Steiner Archive, global Waldorf curriculum boards, and prominent Israeli / international Waldorf educators and researchers.\n' +
     'No single figure or platform may dominate — aim for breadth and professional credibility.\n' +
-    'PINTEREST VISUAL INSPIRATION:\n' +
-    'Actively search for or suggest relevant Pinterest boards and search queries tied to the pedagogical topic ' +
-    '(e.g. Waldorf Chemistry main-lesson experiments, chalkboard drawings, hands-on craft for the block).\n' +
-    'Present these cleanly in the gallery field as optional visual inspiration — descriptive Hebrew board titles and precise Pinterest search phrases in "pin"; no URLs required.\n' +
+    'PINTEREST VISUAL INSPIRATION (WALDORF ONLY):\n' +
+    'Each gallery "pin" MUST be a SHORT Pinterest search of at most 2–3 high-impact keywords — never one long concatenated string.\n' +
+    'Generate DISTINCT concise variations, e.g. "מיתולוגיה נורדית וולדורף", "מחברת תקופה כיתה ד", "עץ העולם וולדורף".\n' +
+    'Hebrew board titles may be descriptive; "pin" phrases must stay short for Pinterest search.\n' +
     '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
   const LAZY_LOAD_NOTE =

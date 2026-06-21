@@ -283,11 +283,13 @@ const SOURCES_CITATION_INSTRUCTION =
   'AWSNA, IASWECE, the Waldorf Research Institute Library (https://waldorflibrary.org/), Steiner Archive, global Waldorf curriculum boards, and prominent Israeli / international Waldorf educators and researchers.\n' +
   'No single figure or platform may dominate — aim for breadth and professional credibility.\n' +
   'PINTEREST VISUAL INSPIRATION (WALDORF PEDAGOGY ONLY):\n' +
-  'Actively search for Pinterest boards and search queries tied to Waldorf classroom practice — NOT generic theme boards.\n' +
-  'Each gallery entry MUST combine the block topic with explicit Waldorf visual-aid keywords, e.g. ' +
-  '"מחברות תקופה", "ציור גיר על לוח", "עבודות תלמידים ולדורף", "רישום צורה", "Main lesson books", "Waldorf blackboard".\n' +
-  'STRICTLY FORBIDDEN: generic decorative boards, bare topic-only queries (e.g. just the subject name), duplicate pin phrases, or non-educational links.\n' +
-  'Present 4–8 DISTINCT entries in gallery — descriptive Hebrew board titles and precise Pinterest search phrases in "pin"; no URLs required.\n' +
+  'Actively search for Pinterest boards tied to Waldorf classroom practice — NOT generic theme boards.\n' +
+  'CRITICAL — each gallery "pin" MUST be a SHORT Pinterest search of at most 2–3 high-impact keywords. ' +
+  'NEVER concatenate grade + topic + block + pedagogy into one long string (Pinterest returns 0 results for long queries).\n' +
+  'Generate 4–6 DISTINCT concise variations, e.g. "מיתולוגיה נורדית וולדורף", "מחברת תקופה כיתה ד", "עץ העולם וולדורף".\n' +
+  'Use Waldorf visual-aid terms ("מחברות תקופה", "ציור גיר על לוח", "רישום צורה", "Main lesson books", "Waldorf blackboard") as compact 2–3 word phrases only.\n' +
+  'STRICTLY FORBIDDEN: long bundled queries, generic decorative boards, bare topic-only queries, duplicate pin phrases.\n' +
+  'Present 4–8 DISTINCT entries — Hebrew board titles (can be descriptive) and SHORT "pin" search phrases; no URLs required.\n' +
   '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
 function waldorfSystemPrompt(extra) {
@@ -1176,9 +1178,10 @@ function buildPhaseCUserPrompt(body) {
       bibExtra +
       pedagogyHint +
       'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries.\n' +
-      'PINTEREST (WALDORF ONLY): populate gallery with 4–8 DISTINCT visual inspiration entries — main-lesson books, chalkboard drawings, student work, form drawing.\n' +
-      'Every "pin" search phrase MUST include explicit Waldorf pedagogy terms such as "מחברות תקופה", "ציור גיר על לוח", "עבודות תלמידים ולדורף", "רישום צורה", "Main lesson books", or "Waldorf blackboard" combined with the block topic.\n' +
-      'FORBIDDEN: generic theme boards, bare topic-only queries, duplicate pin phrases, decorative-only pins, non-educational links.\n' +
+      'PINTEREST (WALDORF ONLY): populate gallery with 4–6 DISTINCT visual inspiration entries.\n' +
+      'Each "pin" MUST be a SHORT search of at most 2–3 keywords — NEVER one long concatenated string (grade+topic+block+pedagogy).\n' +
+      'Example pin variations for "עץ העולם" Grade 4 Norse Mythology: "מיתולוגיה נורדית וולדורף", "מחברת תקופה כיתה ד", "עץ העולם וולדורף".\n' +
+      'Use compact Waldorf pedagogy terms only. FORBIDDEN: long bundled queries, generic boards, bare topic-only queries, duplicates.\n' +
       LAZY_LOAD_NOTE +
       'CRITICAL — blockPlan MUST include inspiration and sources objects.\n' +
       'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
@@ -1192,7 +1195,7 @@ function buildPhaseCUserPrompt(body) {
       '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item" }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph" }] }, "narrative": [{ "text": "rich story/metaphor paragraph" }] },\n' +
       '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he" }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he" }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he" }] }\n' +
       '  },\n' +
-      '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase only — no URL required", "src": "" }]\n' +
+      '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "2–3 word Pinterest search only — e.g. מיתולוגיה נורדית וולדורף", "src": "" }]\n' +
       '}\n' +
       'blockPlan.inspiration.global: 3–4 blocks with 4–6 paragraph items each.\n' +
       'gallery MUST include 4–8 DISTINCT Waldorf pedagogical Pinterest options — no duplicate pin phrases.'
