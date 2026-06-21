@@ -604,6 +604,7 @@ function missingChatApiKeyError() {
 
 module.exports = {
   CHAT_STRICT_PROMPT_ISOLATION_INSTRUCTION,
+  callGeminiV1,
   clearCommunityArchiveContextForExpansion,
   fetchPedagogicalChat,
   isChatContinuationTurn,

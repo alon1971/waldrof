@@ -1758,6 +1758,23 @@
     }
   }
 
+  function bindContactOwnerLinks() {
+    var emailLink = document.getElementById('contact-owner-email-link');
+    if (emailLink) {
+      emailLink.href = 'mailto:waldrofplanner@gmail.com';
+      emailLink.addEventListener('click', function (e) {
+        e.stopPropagation();
+      });
+    }
+    var phoneLink = document.getElementById('contact-owner-phone-link');
+    if (phoneLink) {
+      phoneLink.href = 'tel:0544548078';
+      phoneLink.addEventListener('click', function (e) {
+        e.stopPropagation();
+      });
+    }
+  }
+
   function submitContactForm(e) {
     if (e && e.preventDefault) e.preventDefault();
     var firstEl = document.getElementById('contact-first-name');
@@ -1770,9 +1787,12 @@
     var email = emailEl ? String(emailEl.value || '').trim() : '';
     var phone = phoneEl ? String(phoneEl.value || '').trim() : '';
     var message = messageEl ? String(messageEl.value || '').trim() : '';
-    if (!firstName || !email) {
+    if (!firstName || !lastName || !email || !phone || !message) {
       if (firstEl && !firstName) firstEl.focus();
-      else if (emailEl) emailEl.focus();
+      else if (lastEl && !lastName) lastEl.focus();
+      else if (emailEl && !email) emailEl.focus();
+      else if (phoneEl && !phone) phoneEl.focus();
+      else if (messageEl && !message) messageEl.focus();
       return;
     }
     var fullName = [firstName, lastName].filter(Boolean).join(' ');
@@ -2110,10 +2130,17 @@
     });
     var contactForm = document.getElementById('contact-form');
     if (contactForm) contactForm.addEventListener('submit', submitContactForm);
+    bindContactOwnerLinks();
     var contactClose = document.getElementById('contact-modal-close');
     if (contactClose) contactClose.addEventListener('click', hideContactModal);
     var contactBackdrop = document.getElementById('contact-modal-backdrop');
     if (contactBackdrop) contactBackdrop.addEventListener('click', hideContactModal);
+    var contactPanel = document.querySelector('#contact-modal .app-modal-panel');
+    if (contactPanel) {
+      contactPanel.addEventListener('click', function (e) {
+        e.stopPropagation();
+      });
+    }
 
     var chromeActions = document.querySelector('.app-chrome-actions-row');
     if (chromeActions && !chromeActions.dataset.authChromeBound) {
