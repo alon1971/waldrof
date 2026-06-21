@@ -31,6 +31,46 @@
     '7': 'תקופת מגלי עולם',
   };
 
+  /**
+   * Definitive Waldorf operational-skill block titles — require exact archive match;
+   * never suggest narrative epochs (Torah, mythology blocks, etc.) as alternatives.
+   */
+  var OPERATIONAL_SKILL_BLOCK_TITLES = [
+    'רישום צורה', 'form drawing',
+    'חשבון', 'מתמטיקה', 'arithmetic', 'mathematics', 'math',
+    'ציור גיר', 'ציור גיר על לוח', 'chalkboard drawing', 'chalk drawing', 'waldorf blackboard',
+    'מחברות תקופה', 'מחברת תקופה', 'main lesson books', 'main lesson book', 'epoch book', 'block book',
+    'עבודות תלמידים', 'עבודות תלמידים ולדורף', 'student work',
+    'אותיות', 'אלפבית', 'קריאה וכתיבה', 'reading and writing',
+    'מלאכה', 'handwork', 'כלי נגינה', 'eurythmy', 'אאוריתמיה',
+  ];
+
+  /** Markers for narrative / historical main-lesson epochs — must not pair with operational skills. */
+  var NARRATIVE_EPOCH_MARKERS = [
+    'בראשית', 'תורה', 'תנ״ך', 'תנך', 'מקרא', 'ביבליה', 'bible', 'genesis', 'torah',
+    'מיתולוגיה', 'mythology', 'אגדות', 'אגדה', 'fairy tale', 'fairy tales',
+    'תקופת', 'תקופה', 'epoch', 'סיפורי', 'סיפור', 'היסטוריה', 'history',
+    'נורדית', 'יוון', 'רומא', 'ימי ביניים', 'רנסנס', 'מהפכה',
+    'אודיסאוס', 'הומרוס', 'מגלי עולם', 'גילוי העולם',
+  ];
+
+  /** Universally accepted Waldorf pedagogical alias clusters (allowed disambiguation targets). */
+  var ALLOWED_PEDAGOGICAL_ALIAS_CLUSTERS = [
+    ['סיפורי הצפון', 'סיפורי צפון', 'מיתולוגיה נורדית', 'נורדית', 'norse mythology'],
+    ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'greek mythology', 'ancient greece'],
+    ['מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey'],
+    ['משלי חיות', 'fables', 'animal fables'],
+    ['סיפורי צדיקים', 'saints', 'saint stories'],
+  ];
+
+  /** Hebrew homophone / near-homophone pairs that must never morphologically match. */
+  var FALSE_MORPHOLOGY_PAIRS = [
+    ['צורה', 'תורה'],
+    ['רישום', 'בראשית'],
+    ['חשבון', 'תורה'],
+    ['חשבון', 'בראשית'],
+  ];
+
   /** Pedagogical synonym clusters — same Waldorf block / core topic in different word forms. */
   var PEDAGOGICAL_TOPIC_CLUSTERS = [
     ['גילוי', 'גילויים', 'מגלים', 'מגלי', 'מגלה', 'גילה', 'תגלית', 'תגליות', 'גלי', 'עולם', 'מסעות'],
@@ -181,7 +221,98 @@
     return best;
   }
 
+  function isKnownFalseMorphologyPair(wordA, wordB) {
+    var a = normalizeHebrewWord(wordA);
+    var b = normalizeHebrewWord(wordB);
+    if (!a || !b) return false;
+    for (var i = 0; i < FALSE_MORPHOLOGY_PAIRS.length; i++) {
+      var pair = FALSE_MORPHOLOGY_PAIRS[i];
+      var p0 = normalizeHebrewWord(pair[0]);
+      var p1 = normalizeHebrewWord(pair[1]);
+      if ((a === p0 && b === p1) || (a === p1 && b === p0)) return true;
+    }
+    return false;
+  }
+
+  function topicContainsMarker(text, markers) {
+    var norm = stableNormalize(text);
+    if (!norm) return false;
+    for (var i = 0; i < markers.length; i++) {
+      var marker = stableNormalize(markers[i]);
+      if (!marker || marker.length < 2) continue;
+      if (norm === marker || norm.indexOf(marker) >= 0) return true;
+    }
+    return false;
+  }
+
+  function isDefinitiveOperationalSkillTitle(query) {
+    var norm = stableNormalize(query);
+    if (!norm) return false;
+    for (var i = 0; i < OPERATIONAL_SKILL_BLOCK_TITLES.length; i++) {
+      var title = stableNormalize(OPERATIONAL_SKILL_BLOCK_TITLES[i]);
+      if (norm === title) return true;
+    }
+    return false;
+  }
+
+  function isNarrativeEpochTopic(text) {
+    return topicContainsMarker(text, NARRATIVE_EPOCH_MARKERS);
+  }
+
+  function isOperationalSkillTopic(text) {
+    if (isDefinitiveOperationalSkillTitle(text)) return true;
+    return topicContainsMarker(text, OPERATIONAL_SKILL_BLOCK_TITLES);
+  }
+
+  function sharesAllowedPedagogicalAlias(textA, textB) {
+    var a = stableNormalize(textA);
+    var b = stableNormalize(textB);
+    if (!a || !b) return false;
+    for (var i = 0; i < ALLOWED_PEDAGOGICAL_ALIAS_CLUSTERS.length; i++) {
+      var cluster = ALLOWED_PEDAGOGICAL_ALIAS_CLUSTERS[i];
+      var hitA = false;
+      var hitB = false;
+      for (var j = 0; j < cluster.length; j++) {
+        var alias = stableNormalize(cluster[j]);
+        if (!alias) continue;
+        if (a === alias || a.indexOf(alias) >= 0 || alias.indexOf(a) >= 0) hitA = true;
+        if (b === alias || b.indexOf(alias) >= 0 || alias.indexOf(b) >= 0) hitB = true;
+      }
+      if (hitA && hitB) return true;
+    }
+    return false;
+  }
+
+  /**
+   * True when a "did you mean" suggestion crosses Waldorf domain boundaries
+   * (e.g. Form Drawing → Genesis/Torah epoch).
+   */
+  function isInvalidCrossDomainTopicSuggestion(query, suggestedTopic) {
+    var q = String(query || '').trim();
+    var s = String(suggestedTopic || '').trim();
+    if (!q || !s) return false;
+    if (stableNormalize(q) === stableNormalize(s)) return false;
+    if (sharesAllowedPedagogicalAlias(q, s)) return false;
+
+    var qSkill = isOperationalSkillTopic(q);
+    var sSkill = isOperationalSkillTopic(s);
+    var qNarrative = isNarrativeEpochTopic(q);
+    var sNarrative = isNarrativeEpochTopic(s);
+
+    if (qSkill && sNarrative) return true;
+    if (qNarrative && sSkill) return true;
+    if (isDefinitiveOperationalSkillTitle(q) && sNarrative) return true;
+
+    return false;
+  }
+
+  function shouldBypassSemanticArchiveSuggestion(query) {
+    return isDefinitiveOperationalSkillTitle(query);
+  }
+
   function wordsMorphologicallyRelated(wordA, wordB) {
+    if (isKnownFalseMorphologyPair(wordA, wordB)) return false;
+
     var normA = normalizeHebrewWord(wordA);
     var normB = normalizeHebrewWord(wordB);
     if (!normA || !normB) return false;
@@ -269,6 +400,7 @@
     if (!matched) return 0;
 
     var coverage = matched / queryTokens.length;
+    if (isDefinitiveOperationalSkillTitle(queryRaw) && coverage < 1) return 0;
     if (matched >= 1 && coverage >= 0.34) {
       return 0.72 + Math.min(0.16, coverage * 0.16);
     }
@@ -377,5 +509,13 @@
     scoreHebrewTopicSimilarity: scoreHebrewTopicSimilarity,
     getGradeCanonicalArchiveTopic: getGradeCanonicalArchiveTopic,
     shouldProbeCanonicalArchiveTopic: shouldProbeCanonicalArchiveTopic,
+    isDefinitiveOperationalSkillTitle: isDefinitiveOperationalSkillTitle,
+    isOperationalSkillTopic: isOperationalSkillTopic,
+    isNarrativeEpochTopic: isNarrativeEpochTopic,
+    isInvalidCrossDomainTopicSuggestion: isInvalidCrossDomainTopicSuggestion,
+    shouldBypassSemanticArchiveSuggestion: shouldBypassSemanticArchiveSuggestion,
+    sharesAllowedPedagogicalAlias: sharesAllowedPedagogicalAlias,
+    OPERATIONAL_SKILL_BLOCK_TITLES: OPERATIONAL_SKILL_BLOCK_TITLES,
+    NARRATIVE_EPOCH_MARKERS: NARRATIVE_EPOCH_MARKERS,
   };
 }));

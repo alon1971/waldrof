@@ -3,14 +3,16 @@
  * 1. OpenAI lightweight classifier (gpt-4o-mini) when OPENAI_API_KEY is set.
  * 2. Embedding cosine similarity fallback (text-embedding-3-small).
  */
+const archiveDisambiguation = require('./archive-disambiguation');
+const hebrewTopicMatch = require('../hebrew-topic-match');
 const env = require('./env');
 const embeddings = require('./embeddings');
 const jsonRepair = require('./json-repair');
 
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const SEMANTIC_CHAT_MODEL = 'gpt-4o-mini';
-const EMBEDDING_MATCH_THRESHOLD = 0.42;
-const LLM_MIN_CONFIDENCE = 0.65;
+const EMBEDDING_MATCH_THRESHOLD = 0.55;
+const LLM_MIN_CONFIDENCE = 0.78;
 
 function cosineSimilarity(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) return 0;
@@ -70,8 +72,9 @@ async function callOpenAiSemanticClassifier(userQuery, entries) {
     'You are a Hebrew pedagogical librarian. Given a teacher question and a numbered catalog of community-uploaded files, ' +
     'identify which files are SEMANTICALLY relevant to the teacher intent — including indirect links ' +
     '(e.g. «הומרוס» or «מיתולוגיה יוונית» → «מסעות אודיסאוס»). ' +
+    archiveDisambiguation.ARCHIVE_DISAMBIGUATION_LLM_INSTRUCTION + ' ' +
     'Return ONLY valid JSON: {"matches":[{"key":"catalog:uuid-or-kb:uuid","confidence":0.0-1.0,"reason":"brief Hebrew"}]}. ' +
-    'Include ONLY keys from the catalog. Use confidence >= 0.65 only for genuine semantic relevance. Return {"matches":[]} when none apply.';
+    'Include ONLY keys from the catalog. Use confidence >= ' + LLM_MIN_CONFIDENCE + ' only for genuine semantic relevance. Return {"matches":[]} when none apply.';
 
   const userPrompt =
     'שאלת המורה: «' + String(userQuery || '').trim() + '»\n\n' +
@@ -181,6 +184,16 @@ async function embeddingSemanticMatch(userQuery, entries) {
   );
 }
 
+function filterCrossDomainSemanticHits(userQuery, hits) {
+  return (hits || []).filter(function (hit) {
+    const title = String((hit && (hit.title || hit.topic)) || '').trim();
+    if (!title) return false;
+    if (hebrewTopicMatch.isInvalidCrossDomainTopicSuggestion(userQuery, title)) return false;
+    if (archiveDisambiguation.isMisleadingArchiveSuggestion(userQuery, title, hit.similarity)) return false;
+    return true;
+  });
+}
+
 /**
  * Run semantic matching when keyword passes found nothing.
  * Tries LLM classifier first, then embedding similarity.
@@ -188,14 +201,15 @@ async function embeddingSemanticMatch(userQuery, entries) {
 async function findSemanticCommunityMatches(userQuery, entries) {
   const query = String(userQuery || '').trim();
   if (!query || !Array.isArray(entries) || !entries.length) return [];
+  if (hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(query)) return [];
 
-  const llmHits = await callOpenAiSemanticClassifier(query, entries);
+  const llmHits = filterCrossDomainSemanticHits(query, await callOpenAiSemanticClassifier(query, entries));
   if (llmHits.length) {
     console.log('[community-semantic] LLM matched', llmHits.length, 'material(s)');
     return llmHits;
   }
 
-  const embedHits = await embeddingSemanticMatch(query, entries);
+  const embedHits = filterCrossDomainSemanticHits(query, await embeddingSemanticMatch(query, entries));
   if (embedHits.length) {
     console.log('[community-semantic] embedding matched', embedHits.length, 'material(s)');
     return embedHits;
@@ -209,4 +223,5 @@ module.exports = {
   cosineSimilarity,
   LLM_MIN_CONFIDENCE,
   EMBEDDING_MATCH_THRESHOLD,
+  filterCrossDomainSemanticHits,
 };

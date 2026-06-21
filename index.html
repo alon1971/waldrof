@@ -3938,7 +3938,7 @@
   <script src="auth-subscription.js?v=20260619e"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="hebrew-topic-match.js?v=20250618b"></script>
+  <script src="hebrew-topic-match.js?v=20250621a"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
@@ -9868,6 +9868,9 @@
 
     function probeArchiveTopicMatchLocal(topic, gradeId) {
       if (typeof WaldorfSearchHistory === 'undefined' || typeof WaldorfSearchHistory.getItems !== 'function') return null;
+      const bypassSemantic = typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+        typeof WaldorfHebrewTopicMatch.shouldBypassSemanticArchiveSuggestion === 'function' &&
+        WaldorfHebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topic);
       const items = WaldorfSearchHistory.getItems().filter(function (item) {
         return String(item.gradeId || '') === String(gradeId || '') && item.hasLessonPlan !== false;
       });
@@ -9932,8 +9935,10 @@
         }
       }
 
+      if (bypassSemantic) return null;
+
       let best = null;
-      let bestScore = 0.5;
+      let bestScore = 0.72;
       items.forEach(function (item) {
         const candidate = archiveLessonDisplayTopic(item);
         const score = scoreArchiveItemSimilarity(topic, item);

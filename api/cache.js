@@ -9,6 +9,7 @@ const env = require('./env');
 const authContext = require('./auth-context');
 
 const hebrewTopicMatch = require('../hebrew-topic-match');
+const archiveDisambiguation = require('./archive-disambiguation');
 const jsonRepair = require('./json-repair');
 const archiveCoerce = require('../archive-coerce');
 const communitySemanticMatch = require('./community-semantic-match');
@@ -815,19 +816,34 @@ function scoreChatQuestionSimilarity(questionA, questionB) {
   return overlap / Math.max(wordsA.length, wordsB.size);
 }
 
-function archiveTopicDisplayName(row, data) {
+function archiveTopicDisplayName(row, data, queryHint) {
   const coerced = data || coerceCachedResultData(row && row.result_data);
   const candidates = [];
   function addCandidate(val) {
     const s = String(val || '').trim();
     if (s && candidates.indexOf(s) < 0) candidates.push(s);
   }
+  if (row && row.topic) addCandidate(row.topic);
+  if (row && row.query_text) addCandidate(row.query_text);
   if (coerced && coerced.webResearch && coerced.webResearch.topic) {
     addCandidate(coerced.webResearch.topic);
   }
-  if (row && row.topic) addCandidate(row.topic);
-  if (row && row.query_text) addCandidate(row.query_text);
   if (!candidates.length) return '';
+
+  const hint = String(queryHint || '').trim();
+  if (hint) {
+    let best = candidates[0];
+    let bestScore = scoreTopicSimilarity(hint, best, '');
+    candidates.forEach(function (curr) {
+      const score = scoreTopicSimilarity(hint, curr, '');
+      if (score > bestScore + 0.0001 || (Math.abs(score - bestScore) <= 0.0001 && curr.length < best.length)) {
+        best = curr;
+        bestScore = score;
+      }
+    });
+    return best;
+  }
+
   return candidates.reduce(function (best, curr) {
     return curr.length > best.length ? curr : best;
   }, candidates[0]);
@@ -847,7 +863,7 @@ function scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText) {
 
 /** Auto-serve fully enriched consolidated lesson plans from cached_results (web + Drive merge). */
 const ARCHIVE_AUTO_LOAD_SIMILARITY = 0.99;
-const ARCHIVE_PARTIAL_MIN_SCORE = 0.5;
+const ARCHIVE_PARTIAL_MIN_SCORE = archiveDisambiguation.ARCHIVE_PARTIAL_SUGGEST_MIN_SCORE;
 const ARCHIVE_PARTIAL_MAX_SCORE = ARCHIVE_AUTO_LOAD_SIMILARITY - 0.0001;
 
 function scoreTopicAutoLoadSimilarity(queryRaw, candidateTopic, candidateQueryText) {
@@ -878,16 +894,11 @@ function scoreTopicAutoLoadSimilarity(queryRaw, candidateTopic, candidateQueryTe
 }
 
 function isMisleadingArchiveAutoLoad(query, archiveTopic) {
-  return isMisleadingPartialArchiveSuggestion(query, archiveTopic, 0);
+  return archiveDisambiguation.isMisleadingArchiveSuggestion(query, archiveTopic, 0);
 }
 
 function isMisleadingPartialArchiveSuggestion(query, suggestedTopic, score) {
-  if (score >= 0.95) return false;
-  const q = stableNormalize(query);
-  const s = stableNormalize(suggestedTopic);
-  if (!q || !s || q === s) return false;
-  if (s.length >= 3 && q.indexOf(s) >= 0 && q.length >= s.length * 1.35) return true;
-  return false;
+  return archiveDisambiguation.isMisleadingArchiveSuggestion(query, suggestedTopic, score);
 }
 
 function isBetterArchiveTopicPick(next, prev) {
@@ -906,13 +917,13 @@ function pickBestArchiveTopicRow(rows, query, options) {
   let best = null;
   let bestScore = partialOnly
     ? ARCHIVE_PARTIAL_MIN_SCORE
-    : (strongOnly ? ARCHIVE_AUTO_LOAD_SIMILARITY - 0.0001 : 0.45);
+    : (strongOnly ? ARCHIVE_AUTO_LOAD_SIMILARITY - 0.0001 : ARCHIVE_PARTIAL_MIN_SCORE);
 
   (rows || []).forEach(function (row) {
     if (!row || !row.result_data) return;
     const data = coerceCachedResultData(row.result_data);
     if (!data || !isValidCachedPayload('topic', data)) return;
-    const candidateTopic = archiveTopicDisplayName(row, data);
+    const candidateTopic = archiveTopicDisplayName(row, data, query);
     if (strongOnly && isMisleadingArchiveAutoLoad(query, candidateTopic)) return;
     const score = strongOnly
       ? scoreTopicAutoLoadSimilarity(query, candidateTopic, row.query_text || '')
@@ -946,7 +957,7 @@ async function findArchiveTopicByNormalizedText(topic, gradeId) {
       return formatExactArchiveTopicMatch({
         row: row,
         data: data,
-        topic: archiveTopicDisplayName(row, data),
+        topic: archiveTopicDisplayName(row, data, topic),
         score: 1,
       }, gradeId);
     }
@@ -1028,7 +1039,7 @@ async function findArchiveTopicByQueryPrefix(topic, gradeId) {
   rows.forEach(function (row) {
     const data = coerceCachedResultData(row.result_data);
     if (!data || !isValidCachedPayload('topic', data)) return;
-    const candidateTopic = archiveTopicDisplayName(row, data);
+    const candidateTopic = archiveTopicDisplayName(row, data, topic);
     if (!candidateTopic || isMisleadingArchiveAutoLoad(topic, candidateTopic)) return;
 
     const stable = stableNormalize(candidateTopic);
@@ -1235,8 +1246,12 @@ async function findArchiveTopicSuggestion(options) {
     return normalizedMatch;
   }
 
-  const prefixMatch = await findArchiveTopicByQueryPrefix(topic, gradeId);
-  if (prefixMatch) return prefixMatch;
+  const bypassSemanticGuess = hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topic);
+
+  if (!bypassSemanticGuess) {
+    const prefixMatch = await findArchiveTopicByQueryPrefix(topic, gradeId);
+    if (prefixMatch) return prefixMatch;
+  }
 
   const strongBest = await findStrongArchiveTopicMatch(topic, gradeId);
   if (strongBest && strongBest.row) {
@@ -1245,6 +1260,11 @@ async function findArchiveTopicSuggestion(options) {
     } else {
       return formatExactArchiveTopicMatch(strongBest, gradeId, { requestedTopic: topic });
     }
+  }
+
+  if (bypassSemanticGuess) {
+    console.log('[cached_results] definitive Waldorf skill block — exact archive only, skipping disambiguation:', topic);
+    return null;
   }
 
   const canonicalSuggestion = await findCanonicalGradeArchiveSuggestion(gradeId, topic);
@@ -1271,8 +1291,8 @@ async function findArchiveTopicSuggestion(options) {
 
   if (!best || !best.row) return null;
 
-  if (isMisleadingPartialArchiveSuggestion(topic, best.topic, best.score)) {
-    console.log('[cached_results] skipped misleading partial archive suggestion:', best.topic);
+  if (!archiveDisambiguation.shouldOfferPartialArchiveSuggestion(topic, best.topic, best.score)) {
+    console.log('[cached_results] skipped partial archive suggestion:', best.topic, 'score=' + (best.score || 0).toFixed(3));
     return null;
   }
 
