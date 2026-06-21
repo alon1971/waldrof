@@ -95,7 +95,20 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
-    const match = await cacheDb.findArchiveTopicSuggestion({ topic: topic, gradeId: gradeId });
+    const match = await cacheDb.findArchiveTopicSuggestion({
+      topic: topic,
+      gradeId: gradeId,
+      gradeLabel: (body && body.gradeLabel) || null,
+    });
+    if (match && match.matchType === 'grade_mismatch') {
+      return {
+        ok: true,
+        action: 'probe_topic',
+        match: null,
+        gradeMismatch: match.gradeMismatch,
+        message: match.message || null,
+      };
+    }
     if (!match) {
       return { ok: true, action: 'probe_topic', match: null };
     }

@@ -3122,7 +3122,15 @@ async function executeGenerate(body, apiKey, requestContext) {
         const suggestion = await cacheDb.findArchiveTopicSuggestion({
           topic: body.topic,
           gradeId: body.currentGrade ?? body.gradeId,
+          gradeLabel: body.gradeLabel || null,
         });
+        if (suggestion && suggestion.matchType === 'grade_mismatch' && suggestion.gradeMismatch) {
+          console.log(
+            '[cached_results] GRADE GUARDRAIL blocked topic search:',
+            suggestion.requestedTopic || body.topic
+          );
+          return pedagogicalScope.buildScopeMismatchGenerateResult(body, suggestion.gradeMismatch, communityProbe);
+        }
         if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
           const serveArchive = isArchiveOnlyLookup(body)
             || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);

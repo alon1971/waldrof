@@ -27,6 +27,43 @@ const cases = [
   },
 ];
 
+const gradeGuardCases = [
+  {
+    topic: 'רנסנס',
+    gradeId: '3',
+    expectMismatch: true,
+    expectCanonicalGrade: '7',
+  },
+  {
+    topic: 'רנסנס',
+    gradeId: '7',
+    expectMismatch: false,
+  },
+  {
+    topic: 'נורדי',
+    gradeId: '3',
+    expectMismatch: true,
+    expectCanonicalGrade: '4',
+  },
+  {
+    topic: 'יוון',
+    gradeId: '4',
+    expectMismatch: true,
+    expectCanonicalGrade: '5',
+  },
+  {
+    topic: 'רומא',
+    gradeId: '3',
+    expectMismatch: true,
+    expectCanonicalGrade: '6',
+  },
+  {
+    topic: 'חקלאות',
+    gradeId: '3',
+    expectMismatch: false,
+  },
+];
+
 let failed = 0;
 cases.forEach(function (c) {
   const invalid = hm.isInvalidCrossDomainTopicSuggestion(c.query, c.suggested);
@@ -36,6 +73,28 @@ cases.forEach(function (c) {
   if (!ok) failed++;
   console.log((ok ? 'OK' : 'FAIL'), JSON.stringify(c.query), '->', JSON.stringify(c.suggested));
   console.log('  invalid:', invalid, 'score:', score.toFixed(3), 'bypass:', bypass);
+});
+
+gradeGuardCases.forEach(function (c) {
+  const mismatch = disambig.checkPedagogicalGradeGuardrail(c.gradeId, c.topic, 'כיתה בדיקה');
+  const hasMismatch = Boolean(mismatch);
+  const ok = hasMismatch === c.expectMismatch &&
+    (!c.expectCanonicalGrade || (mismatch && mismatch.canonicalGradeId === c.expectCanonicalGrade));
+  if (!ok) failed++;
+  console.log((ok ? 'OK' : 'FAIL'), 'grade guard', JSON.stringify(c.topic), 'in grade', c.gradeId);
+  if (mismatch) {
+    console.log('  message:', disambig.buildGradeMismatchError(mismatch));
+  }
+  const partialAllowed = disambig.shouldOfferPartialArchiveSuggestion(
+    c.topic,
+    'תקופת בנייה',
+    0.85,
+    c.gradeId,
+    'כיתה ג׳'
+  );
+  const partialOk = c.expectMismatch ? !partialAllowed : true;
+  if (!partialOk) failed++;
+  console.log((partialOk ? 'OK' : 'FAIL'), '  blocks partial suggestion:', !partialAllowed);
 });
 
 console.log('\npartial threshold:', disambig.ARCHIVE_PARTIAL_SUGGEST_MIN_SCORE);

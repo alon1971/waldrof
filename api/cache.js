@@ -1224,7 +1224,28 @@ async function findCanonicalGradeArchiveSuggestion(gradeId, topic) {
 async function findArchiveTopicSuggestion(options) {
   const topic = String(options && options.topic || '').trim();
   const gradeId = String((options && (options.gradeId || options.currentGrade)) || '').trim();
+  const gradeLabel = String((options && options.gradeLabel) || '').trim();
   if (!topic || !gradeId) return null;
+
+  const gradeMismatch = archiveDisambiguation.checkPedagogicalGradeGuardrail(gradeId, topic, gradeLabel);
+  if (gradeMismatch) {
+    console.log(
+      '[cached_results] GRADE GUARDRAIL blocked archive probe:',
+      topic,
+      '—',
+      gradeMismatch.currentGradeLabel,
+      '≠',
+      gradeMismatch.canonicalGradeLabel
+    );
+    return {
+      matchType: 'grade_mismatch',
+      gradeMismatch: gradeMismatch,
+      message: archiveDisambiguation.buildGradeMismatchError(gradeMismatch),
+      requestedTopic: topic,
+      gradeId: gradeId,
+      gradeLabel: gradeMismatch.currentGradeLabel,
+    };
+  }
 
   const topicBody = { phase: 'topic', topic: topic, currentGrade: gradeId, gradeId: gradeId };
   const cached = await getCachedResult(topicBody);
@@ -1291,7 +1312,7 @@ async function findArchiveTopicSuggestion(options) {
 
   if (!best || !best.row) return null;
 
-  if (!archiveDisambiguation.shouldOfferPartialArchiveSuggestion(topic, best.topic, best.score)) {
+  if (!archiveDisambiguation.shouldOfferPartialArchiveSuggestion(topic, best.topic, best.score, gradeId, gradeLabel)) {
     console.log('[cached_results] skipped partial archive suggestion:', best.topic, 'score=' + (best.score || 0).toFixed(3));
     return null;
   }

@@ -31,6 +31,59 @@
     '7': 'תקופת מגלי עולם',
   };
 
+  var GRADE_LABEL_BY_ID = {
+    '1': 'כיתה א׳',
+    '2': 'כיתה ב׳',
+    '3': 'כיתה ג׳',
+    '4': 'כיתה ד׳',
+    '5': 'כיתה ה׳',
+    '6': 'כיתה ו׳',
+    '7': 'כיתה ז׳',
+    '8': 'כיתה ח׳',
+  };
+
+  /**
+   * Advanced historical / narrative epochs — strict Waldorf grade ownership.
+   * Checked before any archive semantic similarity or disambiguation.
+   */
+  var PEDAGOGICAL_EPOCH_GRADE_TOPICS = [
+    {
+      gradeId: '7',
+      displayTopic: 'רנסנס',
+      aliases: [
+        'רנסנס', 'renaissance',
+        'המהפכה המדעית', 'מהפכה מדעית', 'scientific revolution',
+        'גילוי ארצות', 'גילוי העולם', 'מגלי עולם', 'מגלים', 'מסעות גילוי',
+        'age of exploration', 'explorers', 'גלילאו', 'galileo',
+      ],
+    },
+    {
+      gradeId: '4',
+      displayTopic: 'מיתולוגיה נורדית',
+      aliases: [
+        'נורדי', 'נורד', 'נורדית', 'נורדים', 'מיתולוגיה נורדית',
+        'סיפורי הצפון', 'סיפורי צפון', 'norse', 'norse mythology',
+      ],
+    },
+    {
+      gradeId: '5',
+      displayTopic: 'יוון העתיקה',
+      aliases: [
+        'יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית',
+        'אלכסנדר הגדול', 'alexander the great',
+        'greek mythology', 'ancient greece', 'הומרוס', 'הומר', 'אודיסאוס',
+      ],
+    },
+    {
+      gradeId: '6',
+      displayTopic: 'רומא',
+      aliases: [
+        'רומא', 'האימפריה הרומית', 'רומאית', 'היסטוריה רומית',
+        'rome', 'roman', 'roman empire', 'roman history',
+      ],
+    },
+  ];
+
   /**
    * Definitive Waldorf operational-skill block titles — require exact archive match;
    * never suggest narrative epochs (Torah, mythology blocks, etc.) as alternatives.
@@ -243,6 +296,88 @@
       if (norm === marker || norm.indexOf(marker) >= 0) return true;
     }
     return false;
+  }
+
+  function topicTextMatchesEpochAlias(textNorm, alias) {
+    var aliasNorm = stableNormalize(alias);
+    if (!aliasNorm || !textNorm) return false;
+    if (textNorm === aliasNorm) return true;
+    if (aliasNorm.length >= 3 && textNorm.indexOf(aliasNorm) >= 0) return true;
+    if (textNorm.length >= 4 && aliasNorm.indexOf(textNorm) >= 0) return true;
+    return false;
+  }
+
+  function displayEpochTopicLabel(topicText, epochEntry) {
+    var raw = String(topicText || '').trim();
+    if (!raw) return epochEntry ? epochEntry.displayTopic : '';
+    var norm = stableNormalize(removeGradePhrasesFromTopic(raw));
+    for (var i = 0; i < (epochEntry && epochEntry.aliases ? epochEntry.aliases.length : 0); i++) {
+      var alias = epochEntry.aliases[i];
+      if (topicTextMatchesEpochAlias(norm, alias)) return String(alias).trim();
+    }
+    return raw.length > 48 ? raw.slice(0, 48) + '…' : raw;
+  }
+
+  function gradeLabelForId(gradeId) {
+    return GRADE_LABEL_BY_ID[String(gradeId || '').trim()] || ('כיתה ' + gradeId);
+  }
+
+  /**
+   * Resolve a query to its canonical Waldorf grade when it names a guarded epoch topic.
+   * @returns {null|object}
+   */
+  function findPedagogicalEpochGrade(topicText) {
+    var cleaned = removeGradePhrasesFromTopic(topicText);
+    var norm = stableNormalize(cleaned);
+    if (!norm || norm.length < 2) return null;
+
+    var best = null;
+    var bestAliasLen = 0;
+    for (var i = 0; i < PEDAGOGICAL_EPOCH_GRADE_TOPICS.length; i++) {
+      var entry = PEDAGOGICAL_EPOCH_GRADE_TOPICS[i];
+      for (var j = 0; j < entry.aliases.length; j++) {
+        var alias = entry.aliases[j];
+        if (!topicTextMatchesEpochAlias(norm, alias)) continue;
+        var aliasLen = stableNormalize(alias).length;
+        if (!best || aliasLen > bestAliasLen) {
+          best = entry;
+          bestAliasLen = aliasLen;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * @returns {null|object} mismatch when topic belongs to a different grade than current context
+   */
+  function checkPedagogicalGradeMismatch(currentGradeId, topicText, currentGradeLabel) {
+    var gid = String(currentGradeId || '').trim();
+    var topic = String(topicText || '').trim();
+    if (!gid || !topic) return null;
+
+    var epoch = findPedagogicalEpochGrade(topic);
+    if (!epoch || epoch.gradeId === gid) return null;
+
+    return {
+      requestedTopic: displayEpochTopicLabel(topic, epoch),
+      requestedTopicRaw: topic,
+      currentGradeId: gid,
+      currentGradeLabel: String(currentGradeLabel || '').trim() || gradeLabelForId(gid),
+      canonicalGradeId: epoch.gradeId,
+      canonicalGradeLabel: gradeLabelForId(epoch.gradeId),
+      blockLabel: epoch.displayTopic,
+    };
+  }
+
+  function buildGradeMismatchMessage(mismatch) {
+    var m = mismatch || {};
+    var topic = m.requestedTopic || m.requestedTopicRaw || 'נושא זה';
+    return (
+      'בחרת ' + topic + ' לכיתה ' + (m.currentGradeLabel || '') +
+      ' — זהו נושא המיועד לכיתה ' + (m.canonicalGradeLabel || '') +
+      '. אנא בחר שנית או דייק את השאלה.'
+    );
   }
 
   function isDefinitiveOperationalSkillTitle(query) {
@@ -509,6 +644,11 @@
     scoreHebrewTopicSimilarity: scoreHebrewTopicSimilarity,
     getGradeCanonicalArchiveTopic: getGradeCanonicalArchiveTopic,
     shouldProbeCanonicalArchiveTopic: shouldProbeCanonicalArchiveTopic,
+    findPedagogicalEpochGrade: findPedagogicalEpochGrade,
+    checkPedagogicalGradeMismatch: checkPedagogicalGradeMismatch,
+    buildGradeMismatchMessage: buildGradeMismatchMessage,
+    gradeLabelForId: gradeLabelForId,
+    PEDAGOGICAL_EPOCH_GRADE_TOPICS: PEDAGOGICAL_EPOCH_GRADE_TOPICS,
     isDefinitiveOperationalSkillTitle: isDefinitiveOperationalSkillTitle,
     isOperationalSkillTopic: isOperationalSkillTopic,
     isNarrativeEpochTopic: isNarrativeEpochTopic,

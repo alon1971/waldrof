@@ -3,6 +3,7 @@
  * Blocks cross-grade pedagogical hallucinations (e.g. Odysseus in Grade 2).
  */
 const catalogTopics = require('./catalog-topics');
+const hebrewTopicMatch = require('../hebrew-topic-match');
 
 const GRADE_LABEL_BY_ID = {
   '1': 'כיתה א׳',
@@ -315,18 +316,15 @@ function buildChatInferredGradeBlock(userMessage) {
 }
 
 function buildScopeMismatchWarning(mismatch) {
+  if (hebrewTopicMatch && typeof hebrewTopicMatch.buildGradeMismatchMessage === 'function') {
+    return hebrewTopicMatch.buildGradeMismatchMessage(mismatch);
+  }
   const m = mismatch || {};
   const topic = m.requestedTopic || m.requestedTopicRaw || 'נושא זה';
-  const alts = Array.isArray(m.suggestedAlternatives) ? m.suggestedAlternatives.filter(Boolean) : [];
-  const altSuffix = alts.length
-    ? ' (כמו ' + alts.join(' או ') + ')'
-    : '';
-
   return (
-    'נושא זה (' + topic + ') שייך באופן מובהק לתוכנית הלימודים של ' +
-    m.canonicalGradeLabel + ' (' + m.blockLabel + '), ואינו מתאים למאפיינים ההתפתחותיים של ' +
-    m.currentGradeLabel + '. האם תרצה שנעבור ל' + m.canonicalGradeLabel +
-    ' או שנשנה את הנושא למשהו שמתאים ל' + m.currentGradeLabel + altSuffix + '?'
+    'בחרת ' + topic + ' לכיתה ' + (m.currentGradeLabel || '') +
+    ' — זהו נושא המיועד לכיתה ' + (m.canonicalGradeLabel || '') +
+    '. אנא בחר שנית או דייק את השאלה.'
   );
 }
 

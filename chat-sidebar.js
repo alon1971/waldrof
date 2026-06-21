@@ -376,6 +376,41 @@
     }
   }
 
+  function showGradeMismatchNotice(options) {
+    options = options || {};
+    var mismatch = options.mismatch || null;
+    var message = String(options.message || '').trim();
+    if (!message && mismatch) {
+      message = deps.t('grade_topic_mismatch', {
+        topic: mismatch.requestedTopic || mismatch.requestedTopicRaw || '',
+        currentGrade: mismatch.currentGradeLabel || '',
+        canonicalGrade: mismatch.canonicalGradeLabel || '',
+      });
+    }
+    if (!message) return;
+
+    setLoading(false);
+    if (typeof deps.resetTopicResearchLoading === 'function') {
+      deps.resetTopicResearchLoading();
+    }
+    if (state.displayMode === 'bubble') {
+      setDisplayMode(openChatModeForViewport());
+    }
+    clearArchiveSuggestionState();
+    state.messages = [{
+      role: 'assistant',
+      text: message,
+      gradeMismatch: true,
+      preserveLineBreaks: true,
+    }];
+    renderMessages();
+    if (typeof options.onAfterShow === 'function') {
+      options.onAfterShow();
+    } else if (typeof deps.focusMainTopicInput === 'function') {
+      deps.focusMainTopicInput();
+    }
+  }
+
   var SCROLL_NEAR_BOTTOM_PX = 32;
 
   function isNearScrollBottom(el) {
@@ -1164,6 +1199,7 @@
     clearArchiveSuggestionState: clearArchiveSuggestionState,
     showArchiveTopicSuggestion: showArchiveTopicSuggestion,
     showArchiveRefineHint: showArchiveRefineHint,
+    showGradeMismatchNotice: showGradeMismatchNotice,
     updateStreamingAssistantMessage: updateStreamingAssistantMessage,
     reset: function () {
       clearArchiveSuggestionState();

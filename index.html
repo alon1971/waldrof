@@ -3623,6 +3623,9 @@
               <button type="button" id="topic-archive-suggest-no" class="touch-btn px-4 py-2 rounded-lg border border-gold/40 bg-cream text-walnut text-sm font-medium hover:bg-parchment"></button>
             </div>
           </div>
+          <div id="topic-grade-mismatch" class="hidden mt-3 p-4 rounded-xl border border-terracotta/40 bg-terracotta/5 text-sm" role="alert" aria-live="assertive">
+            <p id="topic-grade-mismatch-text" class="text-walnut font-medium m-0"></p>
+          </div>
           <button type="button" id="btn-topic-research"
             class="touch-btn w-full mt-4 bg-sage hover:bg-sage-dark active:bg-sage-dark text-white font-medium rounded-xl">
             <i class="fa-solid fa-satellite-dish icon-inline"></i> <span data-i18n="btn_topic_research">חפש ברשת ונתח התאמה לגיל</span>
@@ -4785,9 +4788,85 @@
     function clearArchiveClarificationState() {
       appState.archiveSuggestionPending = false;
       hideTopicArchiveSuggestionBanner();
+      hideTopicGradeMismatchNotice();
       if (typeof LessonChatSidebar !== 'undefined' && typeof LessonChatSidebar.clearArchiveSuggestionState === 'function') {
         LessonChatSidebar.clearArchiveSuggestionState();
       }
+    }
+
+    function gradeMismatchMessage(mismatch) {
+      if (!mismatch) return '';
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+          typeof WaldorfHebrewTopicMatch.buildGradeMismatchMessage === 'function') {
+        return WaldorfHebrewTopicMatch.buildGradeMismatchMessage(mismatch);
+      }
+      return t('grade_topic_mismatch', {
+        topic: mismatch.requestedTopic || mismatch.requestedTopicRaw || '',
+        currentGrade: mismatch.currentGradeLabel || '',
+        canonicalGrade: mismatch.canonicalGradeLabel || '',
+      });
+    }
+
+    function checkTopicGradeMismatch(topic, gradeId) {
+      if (typeof WaldorfHebrewTopicMatch === 'undefined' ||
+          typeof WaldorfHebrewTopicMatch.checkPedagogicalGradeMismatch !== 'function') {
+        return null;
+      }
+      return WaldorfHebrewTopicMatch.checkPedagogicalGradeMismatch(
+        gradeId,
+        topic,
+        appState.gradeLabel || null
+      );
+    }
+
+    function hideTopicGradeMismatchNotice() {
+      const panel = document.getElementById('topic-grade-mismatch');
+      if (panel) panel.classList.add('hidden');
+    }
+
+    function showTopicGradeMismatchNotice(mismatch, options) {
+      const opts = options || {};
+      const message = gradeMismatchMessage(mismatch);
+      if (!message) return;
+      hideTopicArchiveSuggestionBanner();
+      const panel = document.getElementById('topic-grade-mismatch');
+      const textEl = document.getElementById('topic-grade-mismatch-text');
+      const out = document.getElementById('web-research-result');
+      if (panel && textEl) {
+        textEl.textContent = message;
+        panel.classList.remove('hidden');
+      }
+      if (out) {
+        out.classList.remove('hidden');
+        out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(message) + '</p>';
+      }
+      if (typeof LessonChatSidebar !== 'undefined' &&
+          typeof LessonChatSidebar.showGradeMismatchNotice === 'function') {
+        LessonChatSidebar.showGradeMismatchNotice({
+          mismatch: mismatch,
+          message: message,
+          onAfterShow: opts.onAfterShow || focusStepBTopicInput,
+        });
+      } else if (typeof opts.onAfterShow === 'function') {
+        opts.onAfterShow();
+      }
+    }
+
+    function presentGradeMismatchNotice(mismatch, options) {
+      if (!mismatch) return false;
+      clearArchiveClarificationState();
+      ensureStepBWizardView();
+      document.getElementById('workspace').classList.add('hidden');
+      document.getElementById('wizard').classList.remove('hidden');
+      setTopicResearchLoadingUi(false);
+      const btn = document.getElementById('btn-topic-research');
+      if (btn) {
+        btn.disabled = false;
+        updateTopicResearchButton();
+      }
+      topicResearchAbort = null;
+      showTopicGradeMismatchNotice(mismatch, options);
+      return true;
     }
 
     function archiveSuggestionRejectKey(match, gradeId) {
@@ -5849,6 +5928,17 @@
           _archiveSuggestion: json.meta.archiveSuggestion,
         };
       }
+      if (json.meta && json.meta.pedagogicalScopeMismatch) {
+        const scopeMismatch = json.meta.scopeMismatch || null;
+        const warning = (result && result.scopeWarning) ||
+          (result && result.webResearch && result.webResearch.summary) ||
+          (scopeMismatch ? gradeMismatchMessage(scopeMismatch) : '');
+        return {
+          _gradeMismatch: true,
+          _gradeMismatchData: scopeMismatch,
+          _gradeMismatchMessage: warning,
+        };
+      }
       if (json.meta && result && typeof result === 'object') {
         result._meta = json.meta;
         if (json.meta.fromCache) result._fromCache = true;
@@ -6813,27 +6903,118 @@
 
     var WALDORF_VISUAL_KEYWORDS = [
       'מחברות תקופה', 'מחברת תקופה', 'ציור גיר על לוח', 'עבודות תלמידים ולדורף', 'עבודות תלמידים',
-      'רישום צורה', 'main lesson books', 'main lesson book', 'waldorf blackboard', 'main lesson',
-      'chalkboard drawing', 'chalk drawing', 'form drawing', 'block book', 'epoch book',
-      'waldorf', 'וולדורף', 'ולדורף', 'לוח שחור', 'גיר על לוח', 'מחברת', 'רישום', 'תקופה'
+      'רישום צורה', 'main lesson books', 'main lesson book', 'waldorf blackboard', 'waldorf chalkboard',
+      'main lesson', 'chalkboard drawing', 'chalk drawing', 'form drawing', 'block book', 'epoch book',
+      'waldorf', 'וולדורף', 'ולדורף', 'אנתרופוסופיה', 'anthroposoph', 'לוח שחור', 'גיר על לוח',
+      'מחברת תקופה וולדורף', 'מחברות תקופה וולדורף', 'רישום צורה וולדורף'
+    ];
+
+    var PINTEREST_WALDORF_ANCHORS = [
+      'וולדורף', 'ולדורף', 'waldorf', 'אנתרופוסופיה', 'anthroposoph'
+    ];
+
+    var PINTEREST_HEBREW_WALDORF_PHRASES = [
+      { pattern: /רישום\s*צורה/i, en: 'Waldorf Form Drawing', he: 'רישום צורה וולדורף' },
+      { pattern: /ציור\s*גיר(?:\s*על\s*לוח)?|גיר\s*על\s*לוח|לוח\s*שחור/i, en: 'Waldorf Blackboard Drawing', he: 'ציור גיר וולדורף' },
+      { pattern: /מחבר(?:ת|ות)\s*תקופה/i, en: 'Waldorf Main Lesson Book', he: 'מחברת תקופה וולדורף' },
+      { pattern: /תקופת\s*בנייה/i, en: 'Waldorf House Building main lesson', he: 'תקופת בנייה וולדורף' },
+      { pattern: /חשבון/i, en: 'Waldorf math lesson', he: 'חשבון וולדורף' },
+      { pattern: /עבודות\s*תלמידים/i, en: 'Waldorf student main lesson book', he: 'עבודות תלמידים וולדורף' },
     ];
 
     var PINTEREST_QUERY_STOP_WORDS = [
-      'ו', 'של', 'על', 'את', 'עם', 'the', 'a', 'an', 'for', 'and', 'or', 'book', 'books', 'drawing', 'student', 'work', 'lesson'
+      'ו', 'של', 'על', 'את', 'עם', 'the', 'a', 'an', 'for', 'and', 'or', 'student', 'work'
     ];
 
     var PINTEREST_WALDORF_SEED_QUERIES = [
-      { board: 'מחברות תקופה', title: 'מחברת תקופה ולדורף', pin: 'מחברת תקופה ולדורף' },
-      { board: 'ציור גיר על לוח', title: 'ציור גיר ולדורף', pin: 'ציור גיר ולדורף' },
-      { board: 'עבודות תלמידים', title: 'עבודות תלמידים ולדורף', pin: 'עבודות תלמידים ולדורף' },
-      { board: 'רישום צורה', title: 'רישום צורה ולדורף', pin: 'רישום צורה ולדורף' },
+      { board: 'מחברות תקופה', title: 'מחברות תקופה וולדורף', pin: 'Waldorf Main Lesson Book' },
+      { board: 'רישום צורה', title: 'רישום צורה וולדורף', pin: 'Waldorf Form Drawing' },
+      { board: 'ציור גיר על לוח', title: 'ציור גיר וולדורף', pin: 'Waldorf blackboard drawing' },
+      { board: 'מחברות תקופה', title: 'מחברת תקופה וולדורף', pin: 'מחברות תקופה וולדורף' },
     ];
 
     var PINTEREST_BLOCK_THEME_HINTS = [
       'מיתולוגיה', 'נורדית', 'יוונית', 'הנדסה', 'פיזיקה', 'כימיה', 'ביולוגיה', 'היסטוריה', 'גאוגרפיה', 'בוטניקה', 'זואולוגיה'
     ];
 
-    var PINTEREST_QUERY_MAX_TOKENS = 3;
+    var PINTEREST_QUERY_MAX_TOKENS = 4;
+
+    function containsHebrewText(text) {
+      return /[\u0590-\u05FF]/.test(String(text || ''));
+    }
+
+    function hasWaldorfPedagogyAnchor(text) {
+      var lc = String(text || '').toLowerCase();
+      return PINTEREST_WALDORF_ANCHORS.some(function (anchor) {
+        return lc.indexOf(anchor.toLowerCase()) !== -1;
+      });
+    }
+
+    function matchPinterestWaldorfPhrase(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return null;
+      var best = null;
+      PINTEREST_HEBREW_WALDORF_PHRASES.forEach(function (entry) {
+        if (!entry.pattern.test(raw)) return;
+        if (!best || raw.match(entry.pattern)[0].length > raw.match(best.pattern)[0].length) best = entry;
+      });
+      return best;
+    }
+
+    function ensureWaldorfPedagogyAnchor(query) {
+      var q = String(query || '').trim();
+      if (!q || hasWaldorfPedagogyAnchor(q)) return q;
+      if (containsHebrewText(q)) return (q + ' וולדורף').replace(/\s+/g, ' ').trim();
+      return ('Waldorf ' + q.replace(/^waldorf\s+/i, '').trim()).replace(/\s+/g, ' ').trim();
+    }
+
+    function buildPedagogyAnchoredPinterestQuery(raw, topic) {
+      var text = String(raw || '').trim();
+      if (!text || extractPinterestUrl(text)) return text;
+
+      var phrase = matchPinterestWaldorfPhrase(text);
+      if (phrase) return phrase.en;
+
+      if (/כיתה\s*[א-ת]['׳]?/.test(text) && /מחברת/.test(text) && !hasWaldorfPedagogyAnchor(text)) {
+        return 'מחברת תקופה וולדורף';
+      }
+
+      var gradeOnly = text.match(/כיתה\s*[א-ת]['׳]?/);
+      if (gradeOnly && !hasWaldorfPedagogyAnchor(text)) {
+        if (/מחברת|תקופה/.test(text)) return 'מחברת תקופה וולדורף';
+        return 'וולדורף ' + gradeOnly[0];
+      }
+
+      var blockTheme = extractBlockThemeFromText(text) || extractBlockThemeFromText(topic);
+      if (blockTheme && !hasWaldorfPedagogyAnchor(text)) {
+        return ensureWaldorfPedagogyAnchor(blockTheme);
+      }
+
+      var compacted = compactPinterestQuery([text], PINTEREST_QUERY_MAX_TOKENS);
+      if (!compacted) compacted = shortenTopicCore(topic) || text;
+      return ensureWaldorfPedagogyAnchor(compacted);
+    }
+
+    function buildPinterestSearchUrl(query) {
+      var q = String(query || '').trim();
+      if (!q || !hasWaldorfPedagogyAnchor(q)) return '';
+      return 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(q);
+    }
+
+    function sanitizePinterestSearchUrl(url, topic) {
+      if (!url) return '';
+      try {
+        var u = new URL(url);
+        if (u.hostname.indexOf('pinterest') === -1) return url;
+        if (u.pathname.indexOf('/search/') === -1) return url;
+        var rawQ = decodeURIComponent(u.searchParams.get('q') || '').trim();
+        if (!rawQ) return '';
+        var sanitized = buildPedagogyAnchoredPinterestQuery(rawQ, topic);
+        return buildPinterestSearchUrl(sanitized);
+      } catch (e) {
+        return url;
+      }
+    }
 
     function getGradePinterestLabel() {
       var gradeId = String(appState.grade || '').trim();
@@ -6920,29 +7101,7 @@
     function simplifyPinterestPin(pin, topic) {
       var raw = String(pin || '').trim();
       if (!raw || extractPinterestUrl(raw)) return raw;
-      var tokens = extractPinterestTokens(raw);
-      if (tokens.length <= PINTEREST_QUERY_MAX_TOKENS) return raw;
-
-      var priority = [];
-      if (matchesWaldorfVisualKeywords(raw)) priority.push('וולדורף');
-
-      var blockTheme = extractBlockThemeFromText(raw) || extractBlockThemeFromText(topic);
-      if (blockTheme) priority.push(blockTheme);
-
-      var core = shortenTopicCore(topic);
-      if (core) priority.push(core);
-
-      var gradeLbl = getGradePinterestLabel();
-      if (gradeLbl && raw.indexOf('מחברת') !== -1) priority.push(compactPinterestQuery([gradeLbl, 'מחברת תקופה'], 2));
-
-      tokens.forEach(function (tok) {
-        if (priority.length >= PINTEREST_QUERY_MAX_TOKENS) return;
-        if (priority.some(function (p) { return p.indexOf(tok) !== -1 || tok.indexOf(p) !== -1; })) return;
-        if (PINTEREST_QUERY_STOP_WORDS.indexOf(tok.toLowerCase()) !== -1) return;
-        priority.push(tok);
-      });
-
-      return compactPinterestQuery(priority, PINTEREST_QUERY_MAX_TOKENS);
+      return buildPedagogyAnchoredPinterestQuery(raw, topic);
     }
 
     function buildPinterestSearchVariants(topic, options) {
@@ -6957,22 +7116,32 @@
       if (blockTheme) {
         variants.push({
           board: 'נושא התקופה',
-          title: blockTheme + ' ולדורף',
-          pin: compactPinterestQuery([blockTheme, 'וולדורף'], PINTEREST_QUERY_MAX_TOKENS),
+          title: blockTheme + ' — וולדורף',
+          pin: buildPedagogyAnchoredPinterestQuery(blockTheme + ' וולדורף', topic),
+        });
+        variants.push({
+          board: 'Main lesson block',
+          title: 'Waldorf ' + blockTheme,
+          pin: 'Waldorf ' + blockTheme + ' main lesson',
         });
       }
       if (tpc) {
         variants.push({
           board: 'נושא השיעור',
-          title: tpc + ' ולדורף',
-          pin: compactPinterestQuery([tpc, 'וולדורף'], PINTEREST_QUERY_MAX_TOKENS),
+          title: tpc + ' — וולדורף',
+          pin: buildPedagogyAnchoredPinterestQuery(tpc, topic),
         });
       }
       if (gradeLbl) {
         variants.push({
           board: 'מחברות תקופה',
-          title: gradeLbl + ' — מחברת תקופה',
-          pin: compactPinterestQuery([gradeLbl, 'מחברת תקופה'], PINTEREST_QUERY_MAX_TOKENS),
+          title: 'מחברת תקופה וולדורף — ' + gradeLbl,
+          pin: 'מחברת תקופה וולדורף',
+        });
+        variants.push({
+          board: 'מחברות תקופה',
+          title: 'וולדורף ' + gradeLbl,
+          pin: 'וולדורף ' + gradeLbl,
         });
       }
       return variants;
@@ -6987,11 +7156,19 @@
         src: item.src,
         url: item.url,
       };
-      if (extractPinterestUrl(optimized.pin) || extractPinterestUrl(optimized.url) || extractPinterestUrl(optimized.src)) {
+      var embeddedPinUrl = extractPinterestUrl(optimized.pin);
+      var embeddedItemUrl = extractPinterestUrl(optimized.url) || extractPinterestUrl(optimized.src);
+      if (embeddedPinUrl || embeddedItemUrl) {
+        var boardOrPinUrl = sanitizePinterestSearchUrl(embeddedItemUrl || embeddedPinUrl, topic);
+        if (boardOrPinUrl) {
+          optimized.url = boardOrPinUrl;
+          if (embeddedPinUrl) optimized.pin = '';
+        }
         return optimized;
       }
       if (optimized.pin) optimized.pin = simplifyPinterestPin(optimized.pin, topic);
       else if (optimized.title) optimized.pin = simplifyPinterestPin(optimized.title, topic);
+      optimized.url = buildPinterestSearchUrl(optimized.pin);
       return optimized;
     }
 
@@ -7026,19 +7203,24 @@
     function isGenericVisualNoise(item, topic) {
       if (!item) return true;
       var topicLc = String(topic || '').trim().toLowerCase();
-      if (!topicLc) return false;
       var pin = String(item.pin || '').trim().toLowerCase();
       var title = String(item.title || '').trim().toLowerCase();
-      if (pin === topicLc || title === topicLc) return true;
+      if (topicLc && (pin === topicLc || title === topicLc)) return true;
       var simplifiedPin = simplifyPinterestPin(String(item.pin || item.title || ''), topic);
-      if (extractPinterestTokens(simplifiedPin).length > PINTEREST_QUERY_MAX_TOKENS) return true;
+      if (!simplifiedPin || !hasWaldorfPedagogyAnchor(simplifiedPin)) return true;
+      if (extractPinterestTokens(simplifiedPin).length > PINTEREST_QUERY_MAX_TOKENS + 1) return true;
+      if (/^כיתה\s*[א-ת]/.test(simplifiedPin) && !/וולדורף|ולדורף|waldorf|אנתרופוסופיה/i.test(simplifiedPin)) return true;
+      if (/מחברת/.test(simplifiedPin) && !/וולדורף|ולדורף|waldorf|תקופה/i.test(simplifiedPin)) return true;
       var url = resolvePinterestUrl(item, topic);
+      if (!url) return true;
       if (url.indexOf('/search/pins') !== -1) {
         try {
-          var q = decodeURIComponent(new URL(url).searchParams.get('q') || '').toLowerCase().trim();
-          if (q === topicLc) return true;
-          if (q.indexOf('waldorf') === -1 && q.indexOf('וולדורף') === -1 && q.indexOf('ולדורף') === -1 &&
-            q.replace(topicLc, '').replace(/\s+/g, ' ').trim().length < 8) {
+          var q = decodeURIComponent(new URL(url).searchParams.get('q') || '').trim();
+          if (!hasWaldorfPedagogyAnchor(q)) return true;
+          if (topicLc && q.toLowerCase() === topicLc) return true;
+          if (topicLc && q.toLowerCase().indexOf('waldorf') === -1 && q.indexOf('וולדורף') === -1 &&
+            q.indexOf('ולדורף') === -1 && q.indexOf('אנתרופוסופיה') === -1 &&
+            q.replace(new RegExp(topicLc, 'i'), '').replace(/\s+/g, ' ').trim().length < 8) {
             return true;
           }
         } catch (e) { /* ignore malformed URL */ }
@@ -7102,12 +7284,15 @@
         extractPinterestUrl(item && item.pinUrl) ||
         extractPinterestUrl(item && item.pin) ||
         extractPinterestUrl(item && item.src);
-      if (direct) return direct;
+      if (direct) {
+        const sanitized = sanitizePinterestSearchUrl(direct, topic);
+        if (sanitized) return sanitized;
+        if (direct.indexOf('/search/') === -1) return direct;
+      }
       const rawQuery = String((item && item.pin) || (item && item.query) || (item && item.search) ||
-        (item && item.title) || topic || '').trim();
+        (item && item.title) || '').trim();
       const query = simplifyPinterestPin(rawQuery, topic);
-      if (!query) return '';
-      return 'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(query);
+      return buildPinterestSearchUrl(query);
     }
 
     function buildPinterestLinkHtml(url, label) {
@@ -10071,6 +10256,14 @@
 
     function probeArchiveTopicMatchLocal(topic, gradeId) {
       if (typeof WaldorfSearchHistory === 'undefined' || typeof WaldorfSearchHistory.getItems !== 'function') return null;
+      const localMismatch = checkTopicGradeMismatch(topic, gradeId);
+      if (localMismatch) {
+        return {
+          matchType: 'grade_mismatch',
+          gradeMismatch: localMismatch,
+          message: gradeMismatchMessage(localMismatch),
+        };
+      }
       const bypassSemantic = typeof WaldorfHebrewTopicMatch !== 'undefined' &&
         typeof WaldorfHebrewTopicMatch.shouldBypassSemanticArchiveSuggestion === 'function' &&
         WaldorfHebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topic);
@@ -10173,6 +10366,7 @@
         topic: topic,
         gradeId: gradeId,
         currentGrade: gradeId,
+        gradeLabel: appState.gradeLabel || null,
       };
       if (typeof WaldorfAuth !== 'undefined') {
         const contributor = WaldorfAuth.getContributorProfile();
@@ -10190,6 +10384,9 @@
         }
         if (res.ok && !json.error) {
           const data = json.data || json;
+          if (data && data.gradeMismatch) {
+            return { matchType: 'grade_mismatch', gradeMismatch: data.gradeMismatch, message: data.message || null };
+          }
           if (data && data.match) return filterArchiveProbeMatch(data.match);
         }
       } catch (apiErr) {
@@ -13460,6 +13657,19 @@
           }
         }
 
+        if (data && data._gradeMismatch) {
+          setTopicResearchLoadingUi(false);
+          if (btn) btn.disabled = false;
+          updateTopicResearchButton();
+          topicResearchAbort = null;
+          presentGradeMismatchNotice(data._gradeMismatchData || {
+            requestedTopic: topic,
+            currentGradeLabel: appState.gradeLabel || '',
+            canonicalGradeLabel: '',
+          });
+          return;
+        }
+
         if (data && data._meta && data._meta.cacheKey) {
           appState.lessonCacheKey = data._meta.cacheKey;
         }
@@ -13533,6 +13743,12 @@
       appState.lessonFromArchive = false;
       abortPhaseCLoads();
 
+      const gradeMismatch = checkTopicGradeMismatch(topic, currentGrade);
+      if (gradeMismatch) {
+        presentGradeMismatchNotice(gradeMismatch);
+        return;
+      }
+
       const bypassArchive = shouldBypassArchiveHybridMatch(topic, currentGrade);
 
       if (!bypassArchive) {
@@ -13541,7 +13757,12 @@
           if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.refresh === 'function') {
             try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
           }
-          archiveMatch = filterArchiveProbeMatch(await probeArchiveTopicMatch(topic, currentGrade));
+          archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+          if (archiveMatch && archiveMatch.matchType === 'grade_mismatch') {
+            presentGradeMismatchNotice(archiveMatch.gradeMismatch);
+            return;
+          }
+          archiveMatch = filterArchiveProbeMatch(archiveMatch);
         } catch (probeErr) {
           console.warn('[archive-probe] failed:', probeErr);
         }

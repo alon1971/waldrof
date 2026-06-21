@@ -583,6 +583,7 @@ const LANGUAGES = {
     archive_suggest_yes:         'כן, התכוונתי לזה',
     archive_suggest_no:          'לא, בצע חיפוש חדש',
     archive_suggest_refine:      'הבנתי. אם הניסוח הנוכחי מתאים לך – פשוט לחץ שוב על \'חפש ברשת\'.\n\nטיפ קטן: כדי לקבל את התוצאות הכי מדויקות עבורך, תמיד אפשר לשנות או למקד את הניסוח בתיבת הטקסט למעלה (שלב ב\'), ולא כאן בצ\'אט.',
+    grade_topic_mismatch:        'בחרת {topic} לכיתה {currentGrade} — זהו נושא המיועד לכיתה {canonicalGrade}. אנא בחר שנית או דייק את השאלה.',
 
     checkout_soon_title:         'הסליקה תושק בקרוב',
     checkout_soon_body:          'מערכת הסליקה האוטומטית תושק בקרוב! להפעלת המינוי מיידית, לחץ כאן ליצירת קשר בוואטסאפ',
@@ -1186,6 +1187,7 @@ const LANGUAGES = {
     archive_suggest_yes:         'Yes, that\'s what I meant',
     archive_suggest_no:          'No, run a new search',
     archive_suggest_refine:      'Got it. If the current wording works for you — simply click \'Search the web\' again.\n\nQuick tip: for the most accurate results, you can always adjust or refine the wording in the text box above (Step B), not here in the chat.',
+    grade_topic_mismatch:        'You chose {topic} for {currentGrade} — this topic is intended for {canonicalGrade}. Please choose again or refine your question.',
 
     checkout_soon_title:         'Checkout coming soon',
     checkout_soon_body:          'Automatic billing is launching soon! For immediate activation, contact us on WhatsApp',

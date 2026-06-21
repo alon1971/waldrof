@@ -16,7 +16,17 @@ const ARCHIVE_DISAMBIGUATION_LLM_INSTRUCTION =
   '(e.g. סיפורי הצפון → מיתולוגיה נורדית, or יוון → המיתולוגיה היוונית). ' +
   'Never mix core operational skills (רישום צורה / Form Drawing, חשבון / Arithmetic, ציור גיר, מחברות תקופה) ' +
   'with narrative epochs (בראשית, תורה, מיתולוגיה, תקופות היסטוריות). ' +
+  'Never suggest a same-grade archive topic when the query names an epoch that belongs to a different grade ' +
+  '(e.g. רנסנס in Grade 3 — block and return a grade-mismatch error instead of fuzzy-matching תקופת בנייה). ' +
   'If confidence is below ' + ARCHIVE_PARTIAL_HIGH_CONFIDENCE + ', return no suggestion.';
+
+function checkPedagogicalGradeGuardrail(gradeId, topic, gradeLabel) {
+  return hebrewTopicMatch.checkPedagogicalGradeMismatch(gradeId, topic, gradeLabel);
+}
+
+function buildGradeMismatchError(mismatch) {
+  return hebrewTopicMatch.buildGradeMismatchMessage(mismatch);
+}
 
 function isMisleadingArchiveSuggestion(query, suggestedTopic, score) {
   if (hebrewTopicMatch.isInvalidCrossDomainTopicSuggestion(query, suggestedTopic)) return true;
@@ -28,9 +38,10 @@ function isMisleadingArchiveSuggestion(query, suggestedTopic, score) {
   return false;
 }
 
-function shouldOfferPartialArchiveSuggestion(query, suggestedTopic, score) {
+function shouldOfferPartialArchiveSuggestion(query, suggestedTopic, score, gradeId, gradeLabel) {
   const sim = Number(score) || 0;
   if (sim < ARCHIVE_PARTIAL_SUGGEST_MIN_SCORE) return false;
+  if (gradeId && checkPedagogicalGradeGuardrail(gradeId, query, gradeLabel)) return false;
   if (isMisleadingArchiveSuggestion(query, suggestedTopic, sim)) return false;
   if (hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(query)) return false;
   return true;
@@ -40,6 +51,8 @@ module.exports = {
   ARCHIVE_PARTIAL_SUGGEST_MIN_SCORE,
   ARCHIVE_PARTIAL_HIGH_CONFIDENCE,
   ARCHIVE_DISAMBIGUATION_LLM_INSTRUCTION,
+  checkPedagogicalGradeGuardrail,
+  buildGradeMismatchError,
   isMisleadingArchiveSuggestion,
   shouldOfferPartialArchiveSuggestion,
   isDefinitiveOperationalSkillTitle: hebrewTopicMatch.isDefinitiveOperationalSkillTitle,
