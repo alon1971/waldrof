@@ -4455,6 +4455,7 @@
       archiveRejectedSearch: null,
       archiveFreshSearchPending: false,
       archiveRejectedSuggestions: [],
+      topicCommunityMatches: [],
       isSubmitting: false,
     };
 
@@ -4527,6 +4528,7 @@
         archiveRejectedSearch: null,
         archiveFreshSearchPending: false,
         archiveRejectedSuggestions: [],
+        topicCommunityMatches: [],
         communityCache: [],
         communityForGrade: [],
       });
@@ -5331,6 +5333,15 @@
       appState.productTabsRendered = freshProductTabsRendered();
       appState.visualGallery = normalizeGallery(data.gallery, topicStr);
       appState.topicResearchCompleted = true;
+
+      if (Array.isArray(data._communityMatches) && data._communityMatches.length) {
+        appState.topicCommunityMatches = data._communityMatches;
+      } else if (data._meta && Array.isArray(data._meta.communityMatches) && data._meta.communityMatches.length) {
+        appState.topicCommunityMatches = data._meta.communityMatches;
+      }
+      hydrateInspirationFromUnifiedSynthesis({
+        communityMatches: appState.topicCommunityMatches,
+      });
 
       resetSummarySession();
       ensureStepBWizardView();
@@ -6210,6 +6221,207 @@
       };
     }
 
+    function communityMatchInspirationText(match) {
+      if (!match) return '';
+      var title = match.title || match.displayTitle || match.fileName || match.topic || 'חומר קהילתי';
+      var parts = [String(title).trim()];
+      if (match.authorName) parts.push(String(match.authorName).trim());
+      if (match.notes) parts.push(String(match.notes).trim());
+      if (match.matchedInBundle && match.alertText) parts.push(String(match.alertText).trim());
+      var fileUrl = resolveCommunityMatchFileUrl(match);
+      if (fileUrl) parts.push(fileUrl);
+      return parts.filter(Boolean).join(' · ');
+    }
+
+    function getUnifiedSynthesisSourceLabels() {
+      var labels = [];
+      var wr = appState.webResearch;
+      if (wr && (
+        String(wr.summary || wr.rawContent || '').trim() ||
+        (Array.isArray(wr.highlights) && wr.highlights.length) ||
+        (Array.isArray(wr.connections) && wr.connections.length)
+      )) {
+        labels.push(t('synthesis_web'));
+      }
+      var gi = appState.gradeResearch && appState.gradeResearch.gradeInsights;
+      if (gi && stripHtmlText(gi.archivesSynthesisHtml || '')) {
+        labels.push(t('archives_synthesis'));
+      }
+      var comm = appState.topicCommunityMatches || [];
+      if (comm.length) {
+        labels.push(t('synthesis_community'));
+      } else if (appState.grade && appState.topic && getCommunityMaterialsForTopic(appState.grade, appState.topic).length) {
+        labels.push(t('synthesis_community'));
+      }
+      if (isMeaningfulArchiveInspiration(appState.aiGeneratedPlan && appState.aiGeneratedPlan.inspiration)) {
+        labels.push(isEnglish() ? 'Archive' : 'ארכיון');
+      }
+      return labels;
+    }
+
+    function hasUnifiedInspirationSources() {
+      return getUnifiedSynthesisSourceLabels().length > 0;
+    }
+
+    function buildUnifiedInspirationSynthesis(options) {
+      options = options || {};
+      var plan = options.plan || appState.aiGeneratedPlan;
+      var webResearch = options.webResearch || appState.webResearch;
+      var communityMatches = options.communityMatches;
+      if (!Array.isArray(communityMatches)) {
+        communityMatches = appState.topicCommunityMatches || [];
+      }
+      if (!plan) return null;
+
+      var existing = plan.inspiration;
+      if (isMeaningfulArchiveInspiration(existing)) {
+        return coerceInspirationStructure(existing, extractPhaseCRawFallback({ blockPlan: plan }));
+      }
+
+      var globalBlocks = [];
+      var narrative = [];
+      var rawFallback = String(
+        plan.rawContent ||
+        (webResearch && (webResearch.rawContent || webResearch.summary)) ||
+        ''
+      ).trim();
+
+      if (webResearch && typeof webResearch === 'object') {
+        var summary = String(webResearch.summary || webResearch.rawContent || '').trim();
+        if (summary) {
+          globalBlocks.push({ title: t('synthesis_web'), items: [summary] });
+        }
+        var highlights = Array.isArray(webResearch.highlights)
+          ? webResearch.highlights.map(function (h) {
+            return typeof h === 'string' ? h : String((h && (h.text || h.highlight)) || '');
+          }).filter(function (text) { return String(text).trim(); })
+          : [];
+        if (highlights.length) {
+          globalBlocks.push({
+            title: t('tab_inspiration'),
+            items: highlights,
+          });
+        }
+        var connections = Array.isArray(webResearch.connections)
+          ? webResearch.connections.map(function (c) { return String(c || '').trim(); }).filter(Boolean)
+          : [];
+        if (connections.length) narrative = connections.slice();
+      }
+
+      var gi = appState.gradeResearch && appState.gradeResearch.gradeInsights;
+      if (gi) {
+        var archiveSynth = stripHtmlText(gi.archivesSynthesisHtml || '');
+        if (archiveSynth) {
+          globalBlocks.push({ title: t('archives_synthesis'), items: [archiveSynth] });
+        }
+        var communityIdeas = Array.isArray(gi.part3CommunityIdeas) ? gi.part3CommunityIdeas : [];
+        communityIdeas.forEach(function (idea) {
+          var text = typeof idea === 'string'
+            ? idea
+            : String((idea && (idea.detail || idea.body || idea.text || idea.title)) || '').trim();
+          if (text) globalBlocks.push({ title: t('synthesis_community'), items: [text] });
+        });
+      }
+
+      var localItems = (appState.grade && appState.topic)
+        ? getCommunityMaterialsForTopic(appState.grade, appState.topic)
+        : [];
+      var mergedCommunity = mergeCommunityMatches(localItems, communityMatches);
+      if (mergedCommunity.length) {
+        globalBlocks.push({
+          title: t('synthesis_community'),
+          items: mergedCommunity.map(communityMatchInspirationText).filter(function (text) {
+            return String(text).trim();
+          }),
+        });
+      }
+
+      var sources = plan.sources;
+      if (sources && typeof sources === 'object') {
+        var refItems = [];
+        ['books', 'articles', 'websites'].forEach(function (cat) {
+          (sources[cat] || []).forEach(function (src) {
+            var label = typeof src === 'string' ? src : buildBibliographyLabel(src);
+            if (label) refItems.push(label);
+          });
+        });
+        if (refItems.length) {
+          globalBlocks.push({
+            title: (t('tab_inspiration') + t('tab_inspiration_suffix')).trim(),
+            items: refItems,
+          });
+        }
+      }
+
+      var bib = plan.theory && plan.theory.bibliography;
+      if (bib && typeof bib === 'object') {
+        var bibItems = [];
+        ['books', 'articles', 'websites'].forEach(function (cat) {
+          (bib[cat] || []).forEach(function (src) {
+            var label = typeof src === 'string' ? src : buildBibliographyLabel(src);
+            if (label) bibItems.push(label);
+          });
+        });
+        if (bibItems.length) {
+          globalBlocks.push({ title: t('tab_theory_suffix') || 'מקורות', items: bibItems });
+        }
+      }
+
+      if (!globalBlocks.length && plan.theory && Array.isArray(plan.theory.sections)) {
+        plan.theory.sections.forEach(function (sec) {
+          var text = archiveSectionText(sec);
+          if (!text) return;
+          globalBlocks.push({
+            title: String((sec && sec.heading) || t('tab_theory')).trim(),
+            items: [text],
+          });
+        });
+      }
+
+      if (!globalBlocks.length && rawFallback) {
+        globalBlocks.push({ title: t('tab_inspiration'), items: [rawFallback] });
+      }
+      if (!globalBlocks.length) return null;
+
+      return coerceInspirationStructure({
+        title: (t('tab_inspiration') + t('tab_inspiration_suffix')).trim(),
+        global: globalBlocks,
+        podcast: { title: t('pedagogy_narrative_title') || 'תובנות', episodes: [] },
+        narrative: narrative,
+        rawContent: rawFallback || undefined,
+      }, rawFallback);
+    }
+
+    function hydrateInspirationFromUnifiedSynthesis(options) {
+      if (!appState.aiGeneratedPlan) return false;
+      if (isMeaningfulArchiveInspiration(appState.aiGeneratedPlan.inspiration)) {
+        return true;
+      }
+      var synthesized = buildUnifiedInspirationSynthesis(options);
+      if (!synthesized || !isMeaningfulArchiveInspiration(synthesized)) return false;
+      appState.aiGeneratedPlan.inspiration = synthesized;
+      try {
+        appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
+      } catch (cloneErr) {
+        appState.activePlan = appState.aiGeneratedPlan;
+      }
+      return true;
+    }
+
+    function renderInspirationTabPanels() {
+      hydrateInspirationFromUnifiedSynthesis();
+      if (!appState.visualGallery.length) {
+        appState.visualGallery = generateVisualGallery(appState.topic || '');
+      }
+      renderSynthesisBanner();
+      renderInspirationBase();
+      renderPinterestGallery();
+      renderPersonalInWorkspace();
+      renderTeacherDriveMergeSlots();
+      renderCommunityMaterials();
+      updateCommunityBadge();
+    }
+
     function coercePhaseCResponse(data, cTab) {
       if (!data || typeof data !== 'object') return data;
       var rawFallback = extractPhaseCRawFallback(data);
@@ -6865,6 +7077,16 @@
 
     async function ensurePhaseCTabLoaded(cTab) {
       if (!appState.aiGeneratedPlan || !hasTopicEssence()) return;
+      if (cTab === 'inspiration') {
+        hydrateInspirationFromUnifiedSynthesis();
+        if (hasPhaseCInspirationContent()) {
+          appState.productTabsRendered.inspiration = false;
+          renderProductTabContent('inspiration');
+          setPhaseCTabLoadingUi(cTab, false);
+          ensurePageScrollUnlocked();
+          return;
+        }
+      }
       if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
       if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) return;
 
@@ -6878,6 +7100,13 @@
 
       var loadingEl = getPhaseCTabLoadingEl(cTab);
       if (shouldBlockLivePhaseCApi()) {
+        if (cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
+          appState.productTabsRendered[cTab] = false;
+          renderProductTabContent(cTab);
+          setPhaseCTabLoadingUi(cTab, false);
+          ensurePageScrollUnlocked();
+          return;
+        }
         if (loadingEl) {
           var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
           if (!cachedRaw && cTab === 'inspiration') {
@@ -6945,7 +7174,11 @@
             }
           }
         }
-        if (!merged && loadingEl && /fa-spinner/.test(loadingEl.innerHTML || '')) {
+        if (!merged && cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
+          appState.productTabsRendered[cTab] = false;
+          renderProductTabContent(cTab);
+          restoreAllSummaryPanels();
+        } else if (!merged && loadingEl && /fa-spinner/.test(loadingEl.innerHTML || '')) {
           var fallbackRaw = extractPhaseCRawFallback(data);
           if (fallbackRaw) {
             renderStructuredTextFallback(
@@ -6958,7 +7191,11 @@
       } catch (err) {
         if (controller.signal.aborted) return;
         console.error('[waldrof] phase_c load failed:', cTab, err);
-        if (loadingEl) {
+        if (cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
+          appState.productTabsRendered[cTab] = false;
+          renderProductTabContent(cTab);
+          restoreAllSummaryPanels();
+        } else if (loadingEl) {
           loadingEl.innerHTML = '<p class="text-sm text-terracotta p-4">' + escapeHtml(String(err.message || err)) + '</p>';
         }
       } finally {
@@ -12028,8 +12265,8 @@
       showWorkspaceShell();
       try {
         ensureProductTabsHydrated();
+        hydrateInspirationFromUnifiedSynthesis();
         switchTab(appState.activeProductTab || 'theory');
-        document.getElementById('synthesis-banner').classList.remove('hidden');
         renderSynthesisBanner();
       } catch (err) {
         console.error('[waldrof] openProductsWorkspace render failed:', err);
@@ -12573,7 +12810,11 @@
           throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         }
 
-        await checkAndShowCommunityTopicAlert(communityMatches.length ? communityMatches : undefined);
+        const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);
+        appState.topicCommunityMatches = resolvedCommunity;
+        hydrateInspirationFromUnifiedSynthesis({ communityMatches: resolvedCommunity });
+
+        await checkAndShowCommunityTopicAlert(resolvedCommunity.length ? resolvedCommunity : undefined);
         queueCommunityLessonSync();
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
@@ -12978,61 +13219,60 @@
           renderTheory();
           r.theory = true;
         } else if (tabId === 'inspiration') {
+          hydrateInspirationFromUnifiedSynthesis();
+          var inspPanelEl = document.getElementById('inspiration-content');
+          var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
           if (!hasPhaseCInspirationContent()) {
             if (shouldBlockLivePhaseCApi()) {
-              var inspEl = document.getElementById('inspiration-content');
-              var archiveInspRaw = extractArchiveInspirationFromData(
-                { blockPlan: appState.aiGeneratedPlan },
-                appState.aiGeneratedPlan
-              );
-              if (archiveInspRaw != null) {
-                var coercedInsp = coerceInspirationStructure(archiveInspRaw, extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }));
-                if (coercedInsp && isMeaningfulArchiveInspiration(coercedInsp)) {
-                  appState.aiGeneratedPlan.inspiration = coercedInsp;
-                  appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
-                  if (!appState.visualGallery.length) {
-                    appState.visualGallery = generateVisualGallery(appState.topic || '');
+              if (!hydrateInspirationFromUnifiedSynthesis()) {
+                var archiveInspRaw = extractArchiveInspirationFromData(
+                  { blockPlan: appState.aiGeneratedPlan },
+                  appState.aiGeneratedPlan
+                );
+                if (archiveInspRaw != null) {
+                  var coercedInsp = coerceInspirationStructure(
+                    archiveInspRaw,
+                    extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan })
+                  );
+                  if (coercedInsp && isMeaningfulArchiveInspiration(coercedInsp)) {
+                    appState.aiGeneratedPlan.inspiration = coercedInsp;
+                    appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
                   }
-                  document.getElementById('synthesis-banner').classList.remove('hidden');
-                  renderSynthesisBanner();
-                  renderInspirationBase();
-                  renderPinterestGallery();
-                  renderPersonalInWorkspace();
-                  renderTeacherDriveMergeSlots();
-                  renderCommunityMaterials();
-                  updateCommunityBadge();
-                  r.inspiration = true;
-                  ensurePageScrollUnlocked();
-                  return;
                 }
               }
-              var inspRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+              if (hasPhaseCInspirationContent()) {
+                renderInspirationTabPanels();
+                r.inspiration = true;
+                ensurePageScrollUnlocked();
+                return;
+              }
               renderStructuredTextFallback(
-                inspEl,
+                inspPanelEl,
                 t('tab_inspiration') + t('tab_inspiration_suffix'),
-                inspRaw || (isEnglish()
+                extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
                   ? 'Archived lesson — inspiration was not stored in this record.'
                   : 'תכנית ארכיון — שכבת ההשראה לא נשמרה ברשומה זו.')
               );
+              renderSynthesisBanner();
+              renderCommunityMaterials();
+              updateCommunityBadge();
               r.inspiration = true;
               ensurePageScrollUnlocked();
               return;
             }
-            ensurePhaseCTabLoaded('inspiration');
-            return;
-          }
-          if (!r.inspiration) {
-            if (!appState.visualGallery.length) {
-              appState.visualGallery = generateVisualGallery(appState.topic || '');
+            if (isResearchAvailable()) {
+              ensurePhaseCTabLoaded('inspiration');
+              return;
             }
-            document.getElementById('synthesis-banner').classList.remove('hidden');
-            renderSynthesisBanner();
-            renderInspirationBase();
-            renderPinterestGallery();
-            renderPersonalInWorkspace();
-            renderTeacherDriveMergeSlots();
-            renderCommunityMaterials();
-            updateCommunityBadge();
+            if (hydrateInspirationFromUnifiedSynthesis()) {
+              renderInspirationTabPanels();
+              r.inspiration = true;
+              ensurePageScrollUnlocked();
+              return;
+            }
+          }
+          if (!r.inspiration || inspDomEmpty) {
+            renderInspirationTabPanels();
             r.inspiration = true;
           }
         } else if (tabId === 'curriculum') {
@@ -13143,11 +13383,28 @@
     }
 
     function renderSynthesisBanner() {
+      const banner = document.getElementById('synthesis-banner');
+      if (!banner) return;
       const topic = String(appState.topic || '').trim();
+      const sources = getUnifiedSynthesisSourceLabels();
+      if (!sources.length && !hasPhaseCInspirationContent()) {
+        banner.classList.add('hidden');
+        banner.innerHTML = '';
+        return;
+      }
       let html = '<strong><i class="fa-solid fa-layer-group text-sage ml-1"></i> ' + escapeHtml(t('synthesis_banner_title')) + '</strong> ' +
         escapeHtml(appState.gradeLabel || '');
       if (topic) html += ' · «' + escapeHtml(topic) + '»';
-      document.getElementById('synthesis-banner').innerHTML = html;
+      if (sources.length) {
+        html += '<div class="mt-2 flex flex-wrap gap-2">';
+        sources.forEach(function (label) {
+          html += '<span class="inline-flex items-center rounded-full bg-white/80 border border-sage/25 px-2.5 py-0.5 text-xs text-walnut/80">' +
+            escapeHtml(label) + '</span>';
+        });
+        html += '</div>';
+      }
+      banner.classList.remove('hidden');
+      banner.innerHTML = html;
     }
 
     function shouldShowDriveMerge() {
@@ -13336,6 +13593,7 @@
     }
 
     function renderInspirationBase() {
+      hydrateInspirationFromUnifiedSynthesis();
       Object.keys(appState.pedagogyRegistry).forEach(function (k) {
         if (k.indexOf('ped-insp-') === 0) delete appState.pedagogyRegistry[k];
       });
@@ -13347,10 +13605,14 @@
       ).trim();
       let d = appState.activePlan && appState.activePlan.inspiration;
       if (!d) {
+        var synthesizedFallback = buildUnifiedInspirationSynthesis();
+        if (synthesizedFallback) d = synthesizedFallback;
+      }
+      if (!d) {
         holdPageScroll(function () {
           if (inspEl) inspEl.innerHTML = rawPlanFallback
             ? formatPerplexityRawText(rawPlanFallback)
-            : '';
+            : '<p class="text-sm text-walnut/65 p-4">' + escapeHtml(t('research_need_topic')) + '</p>';
         });
         return;
       }
@@ -14861,6 +15123,7 @@
         archiveRejectedSearch: null,
         archiveFreshSearchPending: false,
         archiveRejectedSuggestions: [],
+        topicCommunityMatches: [],
       });
       resetArchiveSearchFlowState();
       resetSummarySession();
