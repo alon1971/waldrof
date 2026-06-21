@@ -798,12 +798,13 @@
       var meta = (result && result._meta) || {};
       var enriched = Boolean(meta.priorCacheEnriched || (reply && reply.enrichedFromPrior));
       var isExpansionReply = meta.chatPromptMode === 'expansion' || Boolean(meta.skipCommunityAlert);
-      if (isExpansionReply) {
+      var isContinuationReply = meta.chatContinuation === true || meta.isFirstChatTurn === false;
+      if (isContinuationReply) {
         answer = stripCommunityGreetingFromChatText(answer);
       }
       if (reply.answerHtml) {
         reply.answerHtml = stripRawUrlsFromChatText(reply.answerHtml);
-        if (isExpansionReply) {
+        if (isExpansionReply || isContinuationReply) {
           reply.answerHtml = stripCommunityGreetingFromChatText(reply.answerHtml);
         }
       }
@@ -820,7 +821,7 @@
       var communityMatches = (meta && Array.isArray(meta.communityMatches) && meta.communityMatches.length)
         ? meta.communityMatches
         : (result && Array.isArray(result._communityMatches) ? result._communityMatches : []);
-      var hasCommunityMatch = !isExpansionReply && communityMatches.length > 0;
+      var hasCommunityMatch = !isExpansionReply && !isContinuationReply && communityMatches.length > 0;
       renderMessages({ scrollToLastMessageStart: hasCommunityMatch });
       if (typeof deps.onChatStateSync === 'function') {
         deps.onChatStateSync({
@@ -834,7 +835,7 @@
           cacheKey: meta.gradeCacheKey || '',
         });
       }
-      if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert && !isExpansionReply) {
+      if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert && !isExpansionReply && !isContinuationReply) {
         deps.renderCommunityAlert(communityMatches);
       }
       if (hasCommunityMatch) {

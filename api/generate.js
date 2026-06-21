@@ -1053,7 +1053,9 @@ function buildCommunityRagExcerptBlock(body) {
   );
 }
 
-function buildCommunityMaterialsContextBlock(probe, body) {
+function buildCommunityMaterialsContextBlock(probe, body, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const suppressMandatoryOpening = Boolean(opts.suppressMandatoryOpening);
   const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
   const teacherName = resolveTeacherFirstName(body);
   const query = probe && probe.query ? String(probe.query).trim() : '';
@@ -1062,7 +1064,9 @@ function buildCommunityMaterialsContextBlock(probe, body) {
     return (
       '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base + cached_results — GLOBAL SCAN) ===\n' +
       'חיפוש גלובלי במאגר הקהילתי' + (query ? ' עבור «' + query + '»' : '') + ' לא מצא התאמה (ללא סינון לפי כיתה/נושא מהממשק).\n' +
-      'המשך עם ידע פדגוגי מ-Gemini — אין צורך בפתיחה חגיגית.\n' +
+      (suppressMandatoryOpening
+        ? 'רקע פנימי בלבד — אל תציין זאת בתשובה (המורה כבר קיבל/ה הודעת מאגר בשיחה זו).\n'
+        : 'המשך עם ידע פדגוגי מ-Gemini — אין צורך בפתיחה חגיגית.\n') +
       '=== END COMMUNITY MATERIALS DATABASE ===\n\n'
     );
   }
@@ -1079,6 +1083,14 @@ function buildCommunityMaterialsContextBlock(probe, body) {
       ? 'Match method: ' + matchMethod + ' (global scan — UI grade/topic ignored).\n'
       : 'Match method: global keyword scan (UI grade/topic ignored).\n');
 
+  const openingLines = suppressMandatoryOpening
+    ? 'BACKGROUND ONLY — do NOT repeat archive greetings or catalog intros; the teacher already received them in this session.\n' +
+      'Use matched metadata silently to enrich your pedagogical answer.\n\n'
+    : 'MANDATORY OPENING (first sentence of your Hebrew reply — ABSOLUTE, keyword OR semantic match):\n' +
+      '«' + mandatoryOpening + '»\n' +
+      'Do NOT invent commercial plays, external productions, or internet sources when this community file exists. ' +
+      'Lead with the community database file and the grade where it was found; only add brief grounded follow-up if supported by matched metadata.\n\n';
+
   return (
     '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base + cached_results — GLOBAL SCAN) ===\n' +
     'COMMUNITY MATCH FOUND — ' + matches.length + ' material(s) for this question.\n' +
@@ -1086,10 +1098,7 @@ function buildCommunityMaterialsContextBlock(probe, body) {
     'Teacher first name for opening: «' + teacherName + '»\n' +
     'Matched grade (from repository, NOT UI selection): «' + gradeLabel + '»\n' +
     'Best match title for opening: «' + primaryTitle + '»\n' +
-    'MANDATORY OPENING (first sentence of your Hebrew reply — ABSOLUTE, keyword OR semantic match):\n' +
-    '«' + mandatoryOpening + '»\n' +
-    'Do NOT invent commercial plays, external productions, or internet sources when this community file exists. ' +
-    'Lead with the community database file and the grade where it was found; only add brief grounded follow-up if supported by matched metadata.\n\n' +
+    openingLines +
     'Matched materials:\n' +
     lines.join('\n') +
     '\n=== END COMMUNITY MATERIALS DATABASE ===\n\n'
@@ -1564,6 +1573,8 @@ function buildUserPrompt(body) {
     const historyBlock = '';
     const chatGlobalScan = body.chatGlobalScan !== false;
     const expansionRequest = isChatPedagogicalExpansionRequest(body);
+    const isFirstTurn = chatApi.isFirstChatTurnInSession(body);
+    const chatContinuation = chatApi.isChatContinuationTurn(body);
 
     const hasContext = Boolean(context.trim());
     const hasRag = Boolean(String(body.ragContext || '').trim());
@@ -1572,7 +1583,9 @@ function buildUserPrompt(body) {
     const topicPriorBlock = chatGlobalScan ? '' : buildPriorTopicCacheBlock(body.priorTopicCache);
     const communityBlock = expansionRequest
       ? ''
-      : buildCommunityMaterialsContextBlock(body.communityMaterialsProbe, body);
+      : buildCommunityMaterialsContextBlock(body.communityMaterialsProbe, body, {
+        suppressMandatoryOpening: chatContinuation,
+      });
     const hasCommunityMatches = !expansionRequest && Boolean(
       body.communityMaterialsProbe &&
       body.communityMaterialsProbe.count > 0 &&
@@ -1583,6 +1596,13 @@ function buildUserPrompt(body) {
     const communityRagBlock = expansionRequest ? '' : buildCommunityRagExcerptBlock(body);
     const hasCommunityRag = Boolean(String(body.ragCommunityContext || '').trim());
     const hasDirectCommunityMatch = !expansionRequest && (hasCommunityMatches || hasCommunityRag);
+    const continuationBlock = chatContinuation
+      ? '\n=== CHAT CONTINUATION — NO ARCHIVE NOTICES (ABSOLUTE) ===\n' +
+        'Prior assistant replies already delivered any archive or community greetings. ' +
+        'Jump DIRECTLY into pedagogical content — no מאגר/ארכיון intros, no «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '», ' +
+        'no database or retrieval status.\n' +
+        '=== END CHAT CONTINUATION ===\n'
+      : '';
 
     return (
       ragBlock +
@@ -1591,6 +1611,7 @@ function buildUserPrompt(body) {
       pedagogicalScope.buildChatInferredGradeBlock(question) +
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
+      continuationBlock +
       communityBlock +
       communityRagBlock +
       gradePriorBlock +
@@ -1602,21 +1623,26 @@ function buildUserPrompt(body) {
         ? 'EXPANSION FOLLOW-UP: The teacher explicitly asked for MORE materials or DEEPER pedagogical ideas. ' +
           'Do NOT repeat the community-match celebration opening or re-announce catalog files already discussed. ' +
           'Generate fresh, rich Waldorf pedagogical content — practical classroom ideas, activities, and book/article recommendations.\n'
+        : chatContinuation
+        ? 'CHAT CONTINUATION: Answer the follow-up directly with rich pedagogical content. ' +
+          'Do NOT repeat archive greetings, community-match openings, or database status from earlier in this session.\n'
         : '') +
       (chatGlobalScan
         ? 'GLOBAL CHAT MODE: Search and answer based ONLY on the teacher question below — ignore any UI-selected grade/topic unless explicitly mentioned in the question.\n'
         : 'currentGrade: ' + resolvedGradeId(body) + '\n' +
           'Grade: ' + (body.gradeLabel || '') + ' (age ' + (body.age || '') + ')\n' +
           'Block topic: ' + (body.topic || '') + '\n') +
-      'Verified sources available: community_materials=' + (hasCommunityMatches ? 'yes (' + body.communityMaterialsProbe.count + ' match(es))' : 'no') +
-      ', community_vector_search=' + (hasCommunityRag ? 'yes' : 'no') +
-      ', knowledge_base=' + (hasRag ? 'yes' : 'no') + ', lesson_context=' + (hasContext ? 'yes' : 'no') + '\n' +
-      (!expansionRequest && !hasDirectCommunityMatch
+      (chatContinuation
+        ? ''
+        : 'Verified sources available: community_materials=' + (hasCommunityMatches ? 'yes (' + body.communityMaterialsProbe.count + ' match(es))' : 'no') +
+          ', community_vector_search=' + (hasCommunityRag ? 'yes' : 'no') +
+          ', knowledge_base=' + (hasRag ? 'yes' : 'no') + ', lesson_context=' + (hasContext ? 'yes' : 'no') + '\n') +
+      (!expansionRequest && !chatContinuation && !hasDirectCommunityMatch
         ? 'STRICT — NO DIRECT SUPABASE COMMUNITY MATCH: Open verbatim with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '». ' +
           'Do NOT invent **bold** topic lines, fake archive sections, or [1][2] citations. ' +
           'Continue with warm, general Waldorf pedagogical guidance from your native pedagogical knowledge base.\n'
-        : !expansionRequest && hasDirectCommunityMatch
-        ? 'COMMUNITY ARCHIVE MATCH: Open with the mandatory celebration line, guide the teacher to the exact catalog path (grade → subject), then enrich the answer using title/subject/description metadata. Never paste raw URLs.\n'
+        : !expansionRequest && !chatContinuation && hasDirectCommunityMatch
+        ? 'COMMUNITY ARCHIVE MATCH (FIRST REPLY ONLY): You may mention the matched community file once. Guide the teacher to the catalog path (grade → subject), then enrich using title/subject/description metadata. Never paste raw URLs.\n'
         : '') +
       '\n' +
       '=== ORIGINAL RESEARCH & LESSON CONTEXT (optional background — do not restrict search to this grade/topic) ===\n' +
@@ -1627,9 +1653,11 @@ function buildUserPrompt(body) {
       'ANSWER STRATEGY (MANDATORY — COMMUNITY ARCHIVE FIRST → GEMINI):\n' +
       (expansionRequest
         ? '0. EXPANSION FOLLOW-UP: The teacher wants MORE materials or DEEPER ideas — skip community-match openings; generate fresh rich pedagogical content (activities, classroom flow, book/article recommendations).\n'
+        : chatContinuation
+        ? '0. CHAT CONTINUATION: Deliver the requested pedagogical content directly — no archive intros, greetings, or database commentary.\n'
         : hasCommunityMatches
-        ? '0. COMMUNITY ARCHIVE: A verified community file matched (keyword OR semantic). Open with the mandatory opening — announce the upload, grade, and catalog path. Ground your answer in the matched title/subject/description. Never paste raw URLs.\n'
-        : '0. NO COMMUNITY MATCH: Open verbatim with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»; then answer as an expert educational consultant using your native pedagogical knowledge base (books, essays, articles).\n') +
+        ? '0. COMMUNITY ARCHIVE (FIRST REPLY ONLY): A verified community file matched. You may announce it once — ground your answer in matched title/subject/description. Never paste raw URLs.\n'
+        : '0. NO COMMUNITY MATCH (FIRST REPLY ONLY): Open verbatim with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»; then answer as an expert educational consultant using your native pedagogical knowledge base (books, essays, articles).\n') +
       (gradePriorBlock
         ? '0a. CACHED GRADE INSIGHTS (step A) are above — treat as supplementary lesson context.\n'
         : '') +
@@ -3159,12 +3187,21 @@ function attachCommunityMeta(meta, communityProbe, options) {
   if (communityProbe && communityProbe.matchMethod) base.communityMatchMethod = communityProbe.matchMethod;
   if (
     opts.chatPromptMode === 'expansion' ||
+    opts.chatContinuation === true ||
     (communityProbe && communityProbe.matchMethod === 'skipped_expansion')
   ) {
     base.skipCommunityAlert = true;
-    base.chatPromptMode = 'expansion';
+    base.chatPromptMode = opts.chatPromptMode === 'expansion' ? 'expansion' : opts.chatPromptMode;
   } else if (opts.chatPromptMode) {
     base.chatPromptMode = opts.chatPromptMode;
+  }
+  if (opts.isFirstChatTurn === false) {
+    base.isFirstChatTurn = false;
+    base.chatContinuation = true;
+    base.skipCommunityAlert = true;
+  } else if (opts.isFirstChatTurn === true) {
+    base.isFirstChatTurn = true;
+    base.chatContinuation = false;
   }
   return base;
 }
@@ -3650,8 +3687,10 @@ async function executeGenerate(body, apiKey, requestContext) {
   const isDecoupledGen = isDecoupledGenerationPhase(body);
   const isOnDemandExpansion = isOnDemandExpansionPhase(body);
   const isChatExpansion = chatApi.isChatPedagogicalExpansionRequest(body);
+  const isFirstChatTurn = isChatFollowup ? chatApi.isFirstChatTurnInSession(body) : undefined;
+  const chatContinuation = isChatFollowup ? chatApi.isChatContinuationTurn(body) : false;
   const communityCriticalBlock =
-    isChatFollowup && !isChatExpansion &&
+    isChatFollowup && !isChatExpansion && !chatContinuation &&
     body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
       ? buildCommunityMatchCriticalSystemBlock(body.communityMaterialsProbe, body)
       : '';
@@ -3676,12 +3715,12 @@ async function executeGenerate(body, apiKey, requestContext) {
       : isDecoupledGen
       ? ' DECOUPLED MAIN GENERATION: Perplexity Sonar research → Perplexity synthesis. No Gemini. No Drive/community RAG injection.'
       : isChatFollowup
-      ? (isChatExpansion
-        ? ' PEDAGOGICAL CHAT — EXPANSION FOLLOW-UP: Teacher asked for more materials or deeper ideas. ' +
-          'Skip community-match announcements; deliver rich new pedagogical content from Gemini knowledge base and any RAG excerpts.'
+      ? (isChatExpansion || chatContinuation
+        ? ' PEDAGOGICAL CHAT — CONTINUATION: Jump directly into pedagogical content. ' +
+          'Do NOT repeat archive greetings, community-match openings, catalog redirects, or database status.'
         : body.communityMaterialsProbe && body.communityMaterialsProbe.count > 0
-        ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH: Start with mandatory opening; guide teacher to catalog path (grade → subject). Never paste raw URLs; enrich from matched title/subject/description.'
-        : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE: No community archive match. Expert educational consultant mode — practical Waldorf guidance and book/article recommendations. No Perplexity or live web search.')
+        ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH (FIRST REPLY ONLY): You may mention the matched community file once. Never paste raw URLs; enrich from matched title/subject/description.'
+        : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE (FIRST REPLY ONLY): No community archive match. Expert educational consultant mode — you may use the no-match opening once, then practical Waldorf guidance. No Perplexity or live web search.')
       : body.ragContext || body.ragDriveContext || body.ragCommunityContext
           ? ' HYBRID SEARCH: Live web search is PRIMARY. Private Drive and shared community archive excerpts are SECONDARY enrichment — blend them into the web foundation without replacing web breadth.'
           : ' No local Drive or community archive excerpts matched — build the full lesson plan from live web search alone. Do not shorten output.') +
@@ -3707,15 +3746,17 @@ async function executeGenerate(body, apiKey, requestContext) {
   if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
     data.chatReply = cacheDb.sanitizeForJsonStorage(data.chatReply);
     const isChatExpansion = chatApi.shouldTreatChatAsPedagogicalExpansion(body);
+    const chatContinuation = chatApi.isChatContinuationTurn(body);
+    const stripArchiveIntro = isChatExpansion || chatContinuation;
     if (typeof data.chatReply.answer === 'string') {
       data.chatReply.answer = chatApi.stripRawUrlsFromChatText(data.chatReply.answer);
-      if (isChatExpansion) {
+      if (stripArchiveIntro) {
         data.chatReply.answer = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answer);
       }
     }
     if (typeof data.chatReply.answerHtml === 'string') {
       data.chatReply.answerHtml = chatApi.stripRawUrlsFromChatText(data.chatReply.answerHtml);
-      if (isChatExpansion) {
+      if (stripArchiveIntro) {
         data.chatReply.answerHtml = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answerHtml);
       }
     }
@@ -3771,6 +3812,8 @@ async function executeGenerate(body, apiKey, requestContext) {
     ? undefined
     : chatPromptMode === 'expansion'
     ? 'gemini_expansion'
+    : chatContinuation
+    ? 'gemini_continuation'
     : chatPromptMode === 'community_match'
     ? 'community_archive+gemini'
     : 'gemini_pedagogical_kb';
@@ -3793,6 +3836,8 @@ async function executeGenerate(body, apiKey, requestContext) {
       perplexityOnly: !isChatFollowup,
       chatPipeline: chatPipelineLabel,
       chatPromptMode: chatPromptMode,
+      isFirstChatTurn: isFirstChatTurn,
+      chatContinuation: chatContinuation,
       consolidatedArchive: ragMeta.chunkCount > 0,
       contentHierarchy: chatPipelineLabel || (isPerplexityRawExpansionPhase(body)
           ? 'perplexity-sonar-expansion'
@@ -3803,7 +3848,11 @@ async function executeGenerate(body, apiKey, requestContext) {
       rag: ragMeta,
       ragContext: body.ragContext || '',
       ragChunkIds: Array.isArray(body.ragChunkIds) ? body.ragChunkIds : [],
-    }, communityProbe, { chatPromptMode: chatPromptMode }),
+    }, communityProbe, {
+      chatPromptMode: chatPromptMode,
+      isFirstChatTurn: isFirstChatTurn,
+      chatContinuation: chatContinuation,
+    }),
   };
 }
 
