@@ -60,12 +60,6 @@ const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
   'NO COMMUNITY MATCH: Open with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»\n' +
   '=== END PEDAGOGICAL CHAT ===\n';
 
-const COMMUNITY_FIRST_CHAT_INSTRUCTION =
-  '\n=== COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING (MANDATORY WHEN MATCHES EXIST) ===\n' +
-  'When COMMUNITY MATERIALS DATABASE lists matches, open with the mandatory celebration line from context.\n' +
-  'Do NOT paste raw URLs — refer to grade and subject folder in the community catalog only.\n' +
-  '=== END COMMUNITY FIRST ===\n';
-
 const CHAT_EXPANSION_MODE_INSTRUCTION =
   '\n=== EXPANSION FOLLOW-UP — GEMINI GENERATION ONLY (MANDATORY) ===\n' +
   'The teacher explicitly asked for MORE materials, DEEPER ideas, or additional pedagogical content.\n' +
@@ -86,12 +80,40 @@ const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
   'Never invent fake bold citations or [1][2] markers when no community match exists.\n' +
   '=== END CHAT — STRICT GROUNDING ===\n';
 
+function shouldTreatChatAsPedagogicalExpansion(body) {
+  if (!body || typeof body !== 'object') return false;
+  if (body.chatExpansionRequest === true || body.skipCommunityArchive === true) return true;
+  return isChatPedagogicalExpansionRequest(body);
+}
+
+function clearCommunityArchiveContextForExpansion(body) {
+  if (!body || !shouldTreatChatAsPedagogicalExpansion(body)) return false;
+  const query = String(body.userMessage || '').trim();
+  body.chatExpansionRequest = true;
+  body.skipCommunityArchive = true;
+  body.skipRag = true;
+  body.chatForceGeminiOnly = true;
+  body.communityMaterialsProbe = {
+    matches: [],
+    count: 0,
+    query: query,
+    matchMethod: 'skipped_expansion',
+    scope: 'global',
+  };
+  body.ragContext = '';
+  body.ragCommunityContext = '';
+  body.ragDriveContext = '';
+  body.ragChunkIds = [];
+  return true;
+}
+
 function resolveChatPromptMode(body) {
-  if (isChatPedagogicalExpansionRequest(body)) return 'expansion';
+  if (shouldTreatChatAsPedagogicalExpansion(body)) return 'expansion';
   if (
     body &&
     body.communityMaterialsProbe &&
-    body.communityMaterialsProbe.count > 0
+    body.communityMaterialsProbe.count > 0 &&
+    body.communityMaterialsProbe.matchMethod !== 'skipped_expansion'
   ) {
     return 'community_match';
   }
@@ -139,11 +161,11 @@ function pedagogicalChatSystemPrompt(extra, mode, options) {
     return (
       baseRole +
       'COMMUNITY ARCHIVE MATCH: A verified community file matched this question. ' +
-      'Celebrate it in your opening, guide the teacher to the exact community-catalog location (grade → subject folder), ' +
-      'and enrich from matched title/subject/description metadata — never paste raw URLs. ' +
+      'Mention the matched title and grade naturally in professional prose — do NOT use formulaic celebration greetings ' +
+      '(no «הרווחת!», no «מצאנו במאגר», no catalog redirect boilerplate). ' +
+      'Enrich from matched title/subject/description metadata — never paste raw URLs. ' +
       STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
       PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
-      COMMUNITY_FIRST_CHAT_INSTRUCTION +
       sharedTail
     );
   }
@@ -359,15 +381,43 @@ function stripRawUrlsFromChatText(text) {
     .trim();
 }
 
+function stripCommunityGreetingFromChatText(text) {
+  let result = String(text || '');
+  if (!result.trim()) return result;
+
+  result = result.replace(
+    /^([^,\n]{0,48},?\s*)?הרווחת!\s*(?:מצאנו|מישהו\s+מהקהילה)[^.!\n]*[.!]\s*/iu,
+    ''
+  );
+  result = result.replace(
+    /^[^.\n]{0,48},?\s*מצאנו\s+ב(?:מאגר|ארכיון)[^.!\n]*[.!]\s*/iu,
+    ''
+  );
+  result = result.replace(/אתה\s+יכול\s+להיכנס\s+למאגר\s+הקהילתי[^.!\n]*[.!]\s*/giu, '');
+  result = result.replace(/מיקום\s+במערכת:\s*מאגר\s+קהילתי[^.!\n]*[.!]\s*/giu, '');
+  result = result.replace(
+    new RegExp('^\\s*' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'u'),
+    ''
+  );
+
+  return result.replace(/^\s+/, '').trim();
+}
+
 function sanitizeChatReplyPayload(data, options) {
   const opts = options && typeof options === 'object' ? options : {};
   if (!data || !data.chatReply || typeof data.chatReply !== 'object') return data;
 
+  const stripGreeting = Boolean(opts.expansionRequest || opts.stripCommunityGreeting);
+
   if (typeof data.chatReply.answer === 'string') {
-    data.chatReply.answer = stripRawUrlsFromChatText(data.chatReply.answer);
+    let answer = stripRawUrlsFromChatText(data.chatReply.answer);
+    if (stripGreeting) answer = stripCommunityGreetingFromChatText(answer);
+    data.chatReply.answer = answer;
   }
   if (typeof data.chatReply.answerHtml === 'string') {
-    data.chatReply.answerHtml = stripRawUrlsFromChatText(data.chatReply.answerHtml);
+    let answerHtml = stripRawUrlsFromChatText(data.chatReply.answerHtml);
+    if (stripGreeting) answerHtml = stripCommunityGreetingFromChatText(answerHtml);
+    data.chatReply.answerHtml = answerHtml;
   }
 
   if (opts.expansionRequest) {
@@ -383,7 +433,8 @@ function sanitizeChatReplyPayload(data, options) {
  * Gemini-only pedagogical side chat (chat_followup phase).
  */
 async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
-  const expansionRequest = isChatPedagogicalExpansionRequest(body);
+  clearCommunityArchiveContextForExpansion(body);
+  const expansionRequest = shouldTreatChatAsPedagogicalExpansion(body);
   const promptMode = resolveChatPromptMode(body);
   const gradeDecoupled = isChatGradeDecoupled(body, promptMode);
   const hasCommunityMatch = promptMode === 'community_match';
@@ -463,10 +514,13 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
 }
 
 module.exports = {
+  clearCommunityArchiveContextForExpansion,
   fetchPedagogicalChat,
   isChatGradeDecoupled,
   isChatPedagogicalExpansionRequest,
   pedagogicalChatSystemPrompt,
   resolveChatPromptMode,
+  shouldTreatChatAsPedagogicalExpansion,
+  stripCommunityGreetingFromChatText,
   stripRawUrlsFromChatText,
 };

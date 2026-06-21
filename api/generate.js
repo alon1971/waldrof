@@ -1267,7 +1267,8 @@ function buildPhaseCUserPrompt(body) {
 
 function buildUserPrompt(body) {
   const phase = body.phase;
-  const ragBlock = buildRagContextBlock(body);
+  const chatExpansion = phase === 'chat_followup' && chatApi.shouldTreatChatAsPedagogicalExpansion(body);
+  const ragBlock = chatExpansion ? '' : buildRagContextBlock(body);
 
   if (phase === 'test') {
     return 'Return JSON only: {"ok":true,"message":"אישור קצר בעברית שהחיבור עובד"}';
@@ -3024,7 +3025,7 @@ function shouldProbeCommunityMaterials(phase) {
 
 /** Follow-up asks for more materials / deeper ideas — skip community re-match and alert loop. */
 function isChatPedagogicalExpansionRequest(body) {
-  return chatApi.isChatPedagogicalExpansionRequest(body);
+  return chatApi.shouldTreatChatAsPedagogicalExpansion(body);
 }
 
 /** When the global topic is unset, derive probe terms from the live chat message. */
@@ -3107,7 +3108,7 @@ async function probeCommunityMaterialsForBody(body) {
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
   if (body.phase === 'chat_followup') {
-    if (chatApi.isChatPedagogicalExpansionRequest(body)) {
+    if (chatApi.shouldTreatChatAsPedagogicalExpansion(body)) {
       return {
         matches: [],
         count: 0,
@@ -3445,6 +3446,10 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipCache = true;
   }
 
+  if (body.phase === 'chat_followup') {
+    chatApi.clearCommunityArchiveContextForExpansion(body);
+  }
+
   const communityProbe = await probeCommunityMaterialsForBody(body);
   if (communityProbe.count > 0) {
     console.log('[community] matched', communityProbe.count, 'material(s) for', body.phase);
@@ -3583,7 +3588,7 @@ async function executeGenerate(body, apiKey, requestContext) {
   // Queries knowledge_base in real time so newly ingested "waldrof project" / "waldorf project" files are included.
   // Pedagogical chat: community-archive RAG only (no Drive / cached pedagogy).
   if (body.phase === 'chat_followup') {
-    if (chatApi.isChatPedagogicalExpansionRequest(body)) {
+    if (chatApi.shouldTreatChatAsPedagogicalExpansion(body)) {
       body.skipRag = true;
       body.chatForceGeminiOnly = true;
     } else {
@@ -3701,11 +3706,18 @@ async function executeGenerate(body, apiKey, requestContext) {
 
   if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
     data.chatReply = cacheDb.sanitizeForJsonStorage(data.chatReply);
+    const isChatExpansion = chatApi.shouldTreatChatAsPedagogicalExpansion(body);
     if (typeof data.chatReply.answer === 'string') {
       data.chatReply.answer = chatApi.stripRawUrlsFromChatText(data.chatReply.answer);
+      if (isChatExpansion) {
+        data.chatReply.answer = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answer);
+      }
     }
     if (typeof data.chatReply.answerHtml === 'string') {
       data.chatReply.answerHtml = chatApi.stripRawUrlsFromChatText(data.chatReply.answerHtml);
+      if (isChatExpansion) {
+        data.chatReply.answerHtml = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answerHtml);
+      }
     }
   }
 

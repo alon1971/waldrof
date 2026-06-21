@@ -78,6 +78,26 @@
       .trim();
   }
 
+  function stripCommunityGreetingFromChatText(text) {
+    var result = String(text || '');
+    if (!result.trim()) return result;
+    result = result.replace(
+      /^([^,\n]{0,48},?\s*)?הרווחת!\s*(?:מצאנו|מישהו\s+מהקהילה)[^.!\n]*[.!]\s*/iu,
+      ''
+    );
+    result = result.replace(
+      /^[^.\n]{0,48},?\s*מצאנו\s+ב(?:מאגר|ארכיון)[^.!\n]*[.!]\s*/iu,
+      ''
+    );
+    result = result.replace(/אתה\s+יכול\s+להיכנס\s+למאגר\s+הקהילתי[^.!\n]*[.!]\s*/giu, '');
+    result = result.replace(/מיקום\s+במערכת:\s*מאגר\s+קהילתי[^.!\n]*[.!]\s*/giu, '');
+    result = result.replace(
+      /^לא מצאתי תוכן תואם במאגר הקהילתי, אך הנה הצעה פדגוגית כללית עבורך:\s*/u,
+      ''
+    );
+    return result.replace(/^\s+/, '').trim();
+  }
+
   function normalizeMessages(messages) {
     return (messages || []).map(function (m) {
       return {
@@ -774,13 +794,19 @@
       var reply = data.chatReply || {};
       var answer = reply.answer || stripHtml(reply.answerHtml) || reply.answerHtml || '';
       answer = stripRawUrlsFromChatText(answer);
-      if (reply.answerHtml) {
-        reply.answerHtml = stripRawUrlsFromChatText(reply.answerHtml);
-      }
       var fromCache = Boolean(result && result._fromCache);
       var meta = (result && result._meta) || {};
       var enriched = Boolean(meta.priorCacheEnriched || (reply && reply.enrichedFromPrior));
       var isExpansionReply = meta.chatPromptMode === 'expansion' || Boolean(meta.skipCommunityAlert);
+      if (isExpansionReply) {
+        answer = stripCommunityGreetingFromChatText(answer);
+      }
+      if (reply.answerHtml) {
+        reply.answerHtml = stripRawUrlsFromChatText(reply.answerHtml);
+        if (isExpansionReply) {
+          reply.answerHtml = stripCommunityGreetingFromChatText(reply.answerHtml);
+        }
+      }
       if (meta.ragContext) state.ragContext = meta.ragContext;
       if (Array.isArray(meta.ragChunkIds)) state.ragChunkIds = meta.ragChunkIds;
       if (!answer) throw new Error(deps.t('chat_error_empty'));
