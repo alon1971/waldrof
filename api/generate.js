@@ -282,10 +282,12 @@ const SOURCES_CITATION_INSTRUCTION =
   'Rudolf Steiner (GA lectures where verified), anthroposophic authors (e.g. von Baravalle, Finser, Harwood, Aeppli, Rawson, Stebbing), ' +
   'AWSNA, IASWECE, the Waldorf Research Institute Library (https://waldorflibrary.org/), Steiner Archive, global Waldorf curriculum boards, and prominent Israeli / international Waldorf educators and researchers.\n' +
   'No single figure or platform may dominate — aim for breadth and professional credibility.\n' +
-  'PINTEREST VISUAL INSPIRATION:\n' +
-  'Actively search for or suggest relevant Pinterest boards and search queries tied to the pedagogical topic ' +
-  '(e.g. Waldorf Chemistry main-lesson experiments, chalkboard drawings, hands-on craft for the block).\n' +
-  'Present these cleanly in the gallery field as optional visual inspiration — descriptive Hebrew board titles and precise Pinterest search phrases in "pin"; no URLs required.\n' +
+  'PINTEREST VISUAL INSPIRATION (WALDORF PEDAGOGY ONLY):\n' +
+  'Actively search for Pinterest boards and search queries tied to Waldorf classroom practice — NOT generic theme boards.\n' +
+  'Each gallery entry MUST combine the block topic with explicit Waldorf visual-aid keywords, e.g. ' +
+  '"מחברות תקופה", "ציור גיר על לוח", "עבודות תלמידים ולדורף", "רישום צורה", "Main lesson books", "Waldorf blackboard".\n' +
+  'STRICTLY FORBIDDEN: generic decorative boards, bare topic-only queries (e.g. just the subject name), duplicate pin phrases, or non-educational links.\n' +
+  'Present 4–8 DISTINCT entries in gallery — descriptive Hebrew board titles and precise Pinterest search phrases in "pin"; no URLs required.\n' +
   '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
 function waldorfSystemPrompt(extra) {
@@ -1174,7 +1176,9 @@ function buildPhaseCUserPrompt(body) {
       bibExtra +
       pedagogyHint +
       'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries.\n' +
-      'PINTEREST: populate gallery with 4–8 visual inspiration entries (experiments, main-lesson drawings, classroom displays) — Hebrew titles and precise Pinterest search phrases in "pin".\n' +
+      'PINTEREST (WALDORF ONLY): populate gallery with 4–8 DISTINCT visual inspiration entries — main-lesson books, chalkboard drawings, student work, form drawing.\n' +
+      'Every "pin" search phrase MUST include explicit Waldorf pedagogy terms such as "מחברות תקופה", "ציור גיר על לוח", "עבודות תלמידים ולדורף", "רישום צורה", "Main lesson books", or "Waldorf blackboard" combined with the block topic.\n' +
+      'FORBIDDEN: generic theme boards, bare topic-only queries, duplicate pin phrases, decorative-only pins, non-educational links.\n' +
       LAZY_LOAD_NOTE +
       'CRITICAL — blockPlan MUST include inspiration and sources objects.\n' +
       'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
@@ -1191,7 +1195,7 @@ function buildPhaseCUserPrompt(body) {
       '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Pinterest search phrase only — no URL required", "src": "" }]\n' +
       '}\n' +
       'blockPlan.inspiration.global: 3–4 blocks with 4–6 paragraph items each.\n' +
-      'gallery MUST include 4–8 Pinterest visual inspiration options with varied angles for the block topic.'
+      'gallery MUST include 4–8 DISTINCT Waldorf pedagogical Pinterest options — no duplicate pin phrases.'
     );
   }
 

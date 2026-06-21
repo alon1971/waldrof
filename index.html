@@ -6806,6 +6806,90 @@
       return '';
     }
 
+    var WALDORF_VISUAL_KEYWORDS = [
+      'מחברות תקופה', 'מחברת תקופה', 'ציור גיר על לוח', 'עבודות תלמידים ולדורף', 'עבודות תלמידים',
+      'רישום צורה', 'main lesson books', 'main lesson book', 'waldorf blackboard', 'main lesson',
+      'chalkboard drawing', 'chalk drawing', 'form drawing', 'block book', 'epoch book',
+      'waldorf', 'וולדורף', 'ולדורף', 'לוח שחור', 'גיר על לוח', 'מחברת', 'רישום', 'תקופה'
+    ];
+
+    function visualGalleryItemText(item) {
+      if (!item) return '';
+      return [item.board, item.title, item.pin, item.url, item.src].filter(Boolean).join(' ');
+    }
+
+    function matchesWaldorfVisualKeywords(text) {
+      var lc = String(text || '').toLowerCase();
+      return WALDORF_VISUAL_KEYWORDS.some(function (kw) {
+        return lc.indexOf(kw.toLowerCase()) !== -1;
+      });
+    }
+
+    function isWaldorfPedagogicalVisual(item, topic) {
+      if (!item) return false;
+      return matchesWaldorfVisualKeywords(visualGalleryItemText(item));
+    }
+
+    function isGenericVisualNoise(item, topic) {
+      if (!item) return true;
+      var topicLc = String(topic || '').trim().toLowerCase();
+      if (!topicLc) return false;
+      var pin = String(item.pin || '').trim().toLowerCase();
+      var title = String(item.title || '').trim().toLowerCase();
+      if (pin === topicLc || title === topicLc) return true;
+      var url = resolvePinterestUrl(item, topic);
+      if (url.indexOf('/search/pins') !== -1) {
+        try {
+          var q = decodeURIComponent(new URL(url).searchParams.get('q') || '').toLowerCase().trim();
+          if (q === topicLc) return true;
+          if (q.indexOf('waldorf') === -1 && q.indexOf('וולדורף') === -1 && q.indexOf('ולדורף') === -1 &&
+            q.replace(topicLc, '').replace(/\s+/g, ' ').trim().length < 8) {
+            return true;
+          }
+        } catch (e) { /* ignore malformed URL */ }
+      }
+      return false;
+    }
+
+    function normalizePinterestUrlKey(url) {
+      if (!url) return '';
+      try {
+        var u = new URL(url);
+        if (u.hostname.indexOf('pinterest') !== -1 && u.pathname.indexOf('/search/') !== -1) {
+          return 'search:' + decodeURIComponent(u.searchParams.get('q') || '').toLowerCase().trim();
+        }
+        return (u.origin + u.pathname).replace(/\/$/, '').toLowerCase();
+      } catch (e) {
+        return String(url).toLowerCase().trim();
+      }
+    }
+
+    function dedupeVisualGalleryByUrl(items, topic) {
+      var seen = Object.create(null);
+      var out = [];
+      (items || []).forEach(function (item) {
+        if (!item) return;
+        var url = resolvePinterestUrl(item, topic);
+        var key = normalizePinterestUrlKey(url);
+        if (!key || seen[key]) return;
+        seen[key] = true;
+        out.push(item);
+      });
+      return out;
+    }
+
+    function filterWaldorfVisualGallery(items, topic) {
+      return (items || []).filter(function (item) {
+        return isWaldorfPedagogicalVisual(item, topic) && !isGenericVisualNoise(item, topic);
+      });
+    }
+
+    function finalizeVisualGallery(items, topic) {
+      var topicStr = String(topic || appState.topic || '').trim();
+      var waldorf = filterWaldorfVisualGallery(items, topicStr);
+      return dedupeVisualGalleryByUrl(waldorf, topicStr).slice(0, 12);
+    }
+
     function resolvePinterestUrl(item, topic) {
       const direct = extractPinterestUrl(item && item.url) ||
         extractPinterestUrl(item && item.link) ||
@@ -6925,7 +7009,7 @@
         var coerced = coerceVisualGalleryItem(item, normalized.length, topic);
         if (coerced) normalized.push(coerced);
       });
-      return normalizeGallery(normalized, topic);
+      return finalizeVisualGallery(normalized, topic);
     }
 
     function hydrateVisualGalleryFromSources(options) {
@@ -6935,17 +7019,21 @@
         appState.visualGallery = collected;
         return true;
       }
-      if (appState.visualGallery && appState.visualGallery.length) return true;
+      if (appState.visualGallery && appState.visualGallery.length) {
+        appState.visualGallery = finalizeVisualGallery(appState.visualGallery, appState.topic || '');
+        return appState.visualGallery.length > 0;
+      }
       return false;
     }
 
     function normalizeGallery(items, topic) {
-      var out = [];
-      (items || []).slice(0, 12).forEach(function (p, i) {
-        var coerced = coerceVisualGalleryItem(p, out.length, topic);
-        if (coerced) out.push(coerced);
+      var topicStr = String(topic || appState.topic || '').trim();
+      var coerced = [];
+      (items || []).forEach(function (p) {
+        var item = coerceVisualGalleryItem(p, coerced.length, topicStr);
+        if (item) coerced.push(item);
       });
-      return out;
+      return finalizeVisualGallery(coerced, topicStr);
     }
 
     function syncGradeInsightsTitle(gradeId) {
@@ -13471,11 +13559,12 @@
       }
       var tpc = String(topic || appState.topic || '').trim();
       if (!tpc) return [];
-      return normalizeGallery([{
-        board: t('pinterest_board_link') || 'לוח השראה',
-        title: tpc,
-        pin: tpc + ' waldorf main lesson',
-      }], tpc);
+      return normalizeGallery([
+        { board: 'מחברות תקופה', title: tpc + ' — מחברת תקופה', pin: tpc + ' waldorf main lesson book' },
+        { board: 'ציור גיר על לוח', title: tpc + ' — ציור גיר', pin: tpc + ' waldorf blackboard chalk drawing' },
+        { board: 'עבודות תלמידים', title: tpc + ' — עבודות תלמידים ולדורף', pin: tpc + ' waldorf student work main lesson' },
+        { board: 'רישום צורה', title: tpc + ' — רישום צורה', pin: tpc + ' waldorf form drawing main lesson' },
+      ], tpc);
     }
 
     // ---------- Workspace render ----------
@@ -14007,11 +14096,9 @@
           const imgHtml = p.src
             ? '<img src="' + escapeHtml(p.src) + '" alt="' + escapeHtml(p.title) + '" class="w-full object-cover pin-card-img" loading="lazy" />'
             : '<div class="w-full pin-card-img bg-burgundy/5 flex items-center justify-center text-terracotta"><i class="fa-brands fa-pinterest text-3xl" aria-hidden="true"></i></div>';
-          const linkChip = pinUrl ? buildPinterestLinkHtml(pinUrl, t('pinterest_link')) : '';
           const cardInner = imgHtml +
             '<div class="p-2.5 text-xs">' + board +
             '<p class="font-medium text-walnut group-hover:text-terracotta leading-snug">' + escapeHtml(p.title) + '</p>' +
-            (linkChip ? '<div class="mt-2">' + linkChip + '</div>' : '') +
             '</div>';
           if (!pinUrl) {
             return '<div class="pin-card block rounded-xl overflow-hidden border border-gold/25 bg-white shadow-sm hover:shadow-md group">' +
@@ -14022,13 +14109,7 @@
             'style="cursor: pointer;" title="' + escapeHtml(p.title) + '">' +
             cardInner + '</a>';
         }).join('');
-        const chipsHtml = appState.visualGallery.map(function (p) {
-          const pinUrl = resolvePinterestUrl(p, topic);
-          if (!pinUrl) return '';
-          return buildPinterestLinkHtml(pinUrl, p.title || t('pinterest_link'));
-        }).filter(Boolean).join('');
-        galEl.innerHTML = cardsHtml +
-          (chipsHtml ? '<div class="col-span-full flex flex-wrap gap-2 mt-2 pt-2 border-t border-gold/20">' + chipsHtml + '</div>' : '');
+        galEl.innerHTML = cardsHtml;
       });
     }
 
