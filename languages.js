@@ -364,7 +364,7 @@ const LANGUAGES = {
     drive_merge_curr_note:       'שולב אוטומטית לתכנון התקופה (טאב 3).',
 
     curriculum_day_short:        'יום {day}',
-    curriculum_day_enrich_btn:   'קישורים והשראה 🔗',
+    curriculum_day_enrich_btn:   'הרחבה ואספקטים פרקטיים 📝',
     curriculum_tap_full:         'הקשו לפרטים מלאים',
     curriculum_journey_prefix:   'מסעות בחינוך:',
     curriculum_journey_map:      'נקודה על המפה — יום {day}',
@@ -829,7 +829,7 @@ const LANGUAGES = {
     curriculum_art_label:        'Art & craft',
     curriculum_journeys:         'Learning journeys',
     curriculum_day_short:        'Day {day}',
-    curriculum_day_enrich_btn:   'Links & inspiration 🔗',
+    curriculum_day_enrich_btn:   'Practical expansion & aspects 📝',
     curriculum_tap_full:         'Tap for full details',
     curriculum_journey_prefix:   'Educational journeys:',
     curriculum_journey_map:      'Point on the map — day {day}',

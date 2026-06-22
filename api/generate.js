@@ -1421,16 +1421,14 @@ const EXPANSION_OBJECT_SCHEMA =
   '"inspirationReferences": ["3-6 named books/articles/Waldorf projects — NO URLs"], ' +
   '"expansionHtml": "<p>Optional rich Hebrew HTML</p>" }';
 
-const INLINE_EXPANSION_INSTRUCTION =
-  '\n=== INLINE EXPANSION — «הרחבה ואספקטים פרקטיים» (MANDATORY — SINGLE PAYLOAD) ===\n' +
-  'The UI shows a «הרחבה ואספקטים פרקטיים 📝» button beside expandable items — it toggles visibility only; NO second API call.\n' +
-  'You MUST include a complete "expansion" object on EVERY expandable item in THIS response:\n' +
-  EXPANSION_OBJECT_SCHEMA + '\n' +
-  'Apply to: grade part2ClassroomIdeas, part3CommunityIdeas, globalCurricula items (as objects with title/detail/expansion); ' +
-  'topic theory.sections, bibliography books/articles/websites, inspiration global items and podcast episodes; ' +
-  'curriculum days: contentExpansion, artExpansion, hintExpansion (same shape as expansion).\n' +
-  'Never omit expansions — they ship inline in this initial JSON to save cost and latency.\n' +
-  '=== END INLINE EXPANSION ===\n';
+const CURRICULUM_INLINE_EXPANSION_INSTRUCTION =
+  '\n=== CURRICULUM DAY INLINE EXPANSION — «הרחבה ואספקטים פרקטיים» (MANDATORY) ===\n' +
+  'Each of the 15 curriculum days MUST include a complete contentExpansion object (and optionally artExpansion, hintExpansion).\n' +
+  'Shape: ' + EXPANSION_OBJECT_SCHEMA + '\n' +
+  'The UI button toggles this pre-generated pedagogical text — NO second API call.\n' +
+  'FORBIDDEN inside content/art/hint/expansion fields: URLs, Pinterest phrases, gallery pins, enrichment_links, raw search queries, or code blocks.\n' +
+  'content and art MUST remain clean Waldorf narrative text; expansions hold theoretical + practical teaching depth only.\n' +
+  '=== END CURRICULUM INLINE EXPANSION ===\n';
 
 /**
  * chat_followup: expect { "text": "..." } from Gemini JSON mode.
@@ -1577,22 +1575,22 @@ function buildPhaseCUserPrompt(body) {
     sharedHeader +
     curriculumExtra +
     pedagogyHint +
-    LAZY_LOAD_NOTE +
+    CURRICULUM_INLINE_EXPANSION_INSTRUCTION +
     'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
-    'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 rich Hebrew sentences on story/main-lesson flow — shown immediately in UI), "art" (2–4 Hebrew sentences on art/craft/handwork — shown immediately), "hint" (optional Hebrew string).\n' +
-    'content and art MUST be complete narrative text in this payload — never empty placeholders. Do NOT include contentExpansion, artExpansion, or hintExpansion (optional links load on-demand per day).\n' +
+    'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 rich Hebrew sentences on story/main-lesson flow — shown immediately in UI), "art" (2–4 Hebrew sentences on art/craft/handwork — shown immediately), "hint" (optional Hebrew string), "contentExpansion" (mandatory expansion object).\n' +
+    'content and art MUST be complete narrative text in this payload — never empty placeholders. contentExpansion is mandatory per day; artExpansion and hintExpansion optional.\n' +
     'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
-    'FORBIDDEN in this response: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, bibliography.\n' +
+    'FORBIDDEN in this response: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, bibliography, enrichment_links, pedagogicalResources, URLs.\n' +
     JSON_ONLY_INSTRUCTION +
     JSON_RESPONSE_ENFORCEMENT +
     '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
     '{\n' +
     '  "blockPlan": {\n' +
-    '    "curriculum": [{ "day": 1, "topic": "Hebrew", "content": "4-6 sentence guided lesson flow", "art": "2-4 sentences on art/craft", "hint": "optional" }]\n' +
+    '    "curriculum": [{ "day": 1, "topic": "Hebrew", "content": "4-6 sentence guided lesson flow", "art": "2-4 sentences on art/craft", "hint": "optional", "contentExpansion": { "classroomImplementation": "...", "practicalSteps": ["..."], "parentCommunityAspects": "...", "inspirationReferences": ["..."] } }]\n' +
     '  }\n' +
     '}\n' +
     'curriculum MUST be a flat ARRAY of exactly 15 objects (days 1–15) — never wrap in { days: [...] } or similar.\n' +
-    'Each curriculum item MUST include day, topic, content, and art fields using those exact key names.'
+    'Each curriculum item MUST include day, topic, content, art, and contentExpansion fields using those exact key names.'
   );
 }
 
@@ -2325,6 +2323,9 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
     content: content || rawFallback || '',
     art: art,
     hint: hint,
+    contentExpansion: row.contentExpansion && typeof row.contentExpansion === 'object' ? row.contentExpansion : undefined,
+    artExpansion: row.artExpansion && typeof row.artExpansion === 'object' ? row.artExpansion : undefined,
+    hintExpansion: row.hintExpansion && typeof row.hintExpansion === 'object' ? row.hintExpansion : undefined,
   };
 }
 

@@ -697,9 +697,20 @@
       width: 100%;
       max-width: 100%;
     }
+    #daily-planning-content {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      overflow-x: hidden;
+    }
     #daily-planning-content table {
       table-layout: fixed;
       width: 100%;
+    }
+    #daily-planning-content .day-row td,
+    #daily-planning-content .day-detail td {
+      overflow-wrap: break-word;
+      word-break: break-word;
     }
     .curriculum-day-cell {
       width: 100%;
@@ -734,11 +745,9 @@
       word-break: break-word;
     }
     .curriculum-day-enrich-panel .inline-expand-inner a {
-      pointer-events: auto;
-      color: #5C7D58;
-      text-decoration: underline;
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      pointer-events: none;
+      color: inherit;
+      text-decoration: none;
     }
     .pin-card {
       cursor: pointer;
@@ -1377,7 +1386,6 @@
       line-height: var(--app-body-line) !important;
     }
     .inline-expand-inner a { pointer-events: none; color: inherit; text-decoration: none; }
-    .curriculum-day-enrich-panel .inline-expand-inner a { pointer-events: auto; color: #5C7D58; text-decoration: underline; }
     .archive-summary-panel {
       font-size: var(--app-body-size);
       line-height: var(--app-body-line);
@@ -4042,7 +4050,7 @@
         <div id="teacher-drive-curriculum-slot" class="hidden mb-6"></div>
         <div id="daily-planning-content">
           <div id="curriculum-cards" class="md:hidden space-y-3 pb-4" data-i18n-aria="curriculum_cards_aria"></div>
-          <div class="hidden md:block overflow-x-auto rounded-2xl border border-gold/30 bg-white/80 shadow-sm">
+          <div class="hidden md:block overflow-x-hidden rounded-2xl border border-gold/30 bg-white/80 shadow-sm max-w-full">
             <table class="w-full text-sm">
               <thead>
                 <tr class="bg-sage/15 border-b border-gold/30">
@@ -4477,7 +4485,71 @@
     }
 
     function curriculumDayEnrichBtnLabel() {
-      return t('curriculum_day_enrich_btn');
+      return expansionBtnLabel();
+    }
+
+    function getCurriculumDayExpansionInstruction() {
+      if (isEnglish()) {
+        return (
+          getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' +
+          'Generate a CURRICULUM DAY pedagogical expansion for THIS SINGLE day only. Return pedagogyDeepDive with: ' +
+          'classroomImplementation (2–3 paragraphs: theoretical depth + practical main-lesson flow for this day), ' +
+          'parentCommunityAspects (paragraph on parents/community when relevant), ' +
+          'practicalSteps (4–8 concrete teacher steps for this day), ' +
+          'inspirationReferences (3–6 named Waldorf books/articles/projects — NO URLs, NO Pinterest phrases), ' +
+          'optional summaryHtml (clean Hebrew pedagogical HTML — no links, no code blocks). ' +
+          'STRICT: text-only Waldorf pedagogy — never return enrichment_links, gallery pins, or search queries.'
+        );
+      }
+      return (
+        getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' +
+        'הפק הרחבה פדגוגית ליום תכנון יחיד זה בלבד. החזר pedagogyDeepDive עם: ' +
+        'classroomImplementation (2–3 פסקאות: עומק תיאורטי + זרימת שיעור מעשית ליום זה), ' +
+        'parentCommunityAspects (פסקה על הורים/קהילה כשרלוונטי), ' +
+        'practicalSteps (4–8 שלבים קונקרטיים למורה ליום זה), ' +
+        'inspirationReferences (3–6 הפניות לספרים/מאמרים/פרויקטים ולדורפיים — ללא URLs וללא ביטויי Pinterest), ' +
+        'summaryHtml אופציונלי (HTML פדגוגי נקי בעברית — ללא קישורים וללא בלוקי קוד). ' +
+        'קשיח: טקסט פדגוגי בלבד — לעולם אל תחזיר enrichment_links, gallery או שאילתות חיפוש.'
+      );
+    }
+
+    function mergeCurriculumDayExpansion(row) {
+      if (!row || typeof row !== 'object') return null;
+      var ce = normalizeExpansion(row.contentExpansion);
+      var ae = normalizeExpansion(row.artExpansion);
+      var he = normalizeExpansion(row.hintExpansion);
+      var steps = [];
+      var refs = [];
+      [ce, ae, he].forEach(function (exp) {
+        if (!exp) return;
+        if (exp.practicalSteps && exp.practicalSteps.length) steps = steps.concat(exp.practicalSteps);
+        if (exp.inspirationReferences && exp.inspirationReferences.length) refs = refs.concat(exp.inspirationReferences);
+      });
+      var seenStep = {};
+      steps = steps.filter(function (s) {
+        var key = String(s || '').trim();
+        if (!key || seenStep[key]) return false;
+        seenStep[key] = true;
+        return true;
+      });
+      var seenRef = {};
+      refs = refs.filter(function (r) {
+        var key = String(r || '').trim();
+        if (!key || seenRef[key]) return false;
+        seenRef[key] = true;
+        return true;
+      });
+      var merged = {
+        classroomImplementation: [ce && ce.classroomImplementation, ae && ae.classroomImplementation]
+          .filter(Boolean).join('\n\n'),
+        parentCommunityAspects: [ce && ce.parentCommunityAspects, he && he.parentCommunityAspects, ae && ae.parentCommunityAspects]
+          .filter(Boolean).join('\n\n'),
+        practicalSteps: steps,
+        inspirationReferences: refs,
+        expansionHtml: [ce && ce.expansionHtml, ae && ae.expansionHtml, he && he.expansionHtml]
+          .filter(Boolean).join(''),
+      };
+      return hasExpansionContent(merged) ? merged : null;
     }
 
     function normalizeExpansion(raw) {
@@ -6519,6 +6591,9 @@
         content: content,
         art: art,
         hint: hint,
+        contentExpansion: row.contentExpansion,
+        artExpansion: row.artExpansion,
+        hintExpansion: row.hintExpansion,
       };
     }
 
@@ -6865,11 +6940,13 @@
           String(norm.topic || '').trim().length > 3;
         if (!hasBody) continue;
         norm.day = out.length + 1;
+        var cleanContent = sanitizeCurriculumDayNarrative(norm.content || '');
+        var cleanArt = sanitizeCurriculumDayNarrative(norm.art || '');
         out.push({
           day: norm.day,
           topic: norm.topic || t('curriculum_day_short', { day: norm.day }),
-          content: ensureAiHtml(norm.content || ''),
-          art: ensureAiHtml(norm.art || ''),
+          content: cleanContent ? ensureAiHtml(cleanContent) : '',
+          art: cleanArt ? ensureAiHtml(cleanArt) : '',
           hint: norm.hint || '',
           contentExpansion: rows[i] && rows[i].contentExpansion,
           artExpansion: rows[i] && rows[i].artExpansion,
@@ -6979,19 +7056,11 @@
       if (!appState.aiGeneratedPlan) return false;
       var existing = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
       if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.curriculum);
-      if (hasMeaningfulCurriculumRows(existing)) {
-        var normalized = normalizeCurriculumPlanRows(existing);
-        if (normalized.length) {
-          appState.aiGeneratedPlan.curriculum = normalized;
-          appState.aiGeneratedPlan.days = normalized.slice();
-          syncActivePlanFromGenerated();
-          return true;
-        }
-      }
-      var rows = buildUnifiedCurriculumSynthesis(options);
-      if (!hasMeaningfulCurriculumRows(rows)) return false;
-      appState.aiGeneratedPlan.curriculum = rows;
-      appState.aiGeneratedPlan.days = rows.slice();
+      if (!hasMeaningfulCurriculumRows(existing)) return false;
+      var normalized = normalizeCurriculumPlanRows(existing);
+      if (!normalized.length) return false;
+      appState.aiGeneratedPlan.curriculum = normalized;
+      appState.aiGeneratedPlan.days = normalized.slice();
       syncActivePlanFromGenerated();
       return true;
     }
@@ -8346,24 +8415,27 @@
     function buildCurriculumTabPrompt(topic, gradeLabel) {
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
+      const inlineExpand = getInlineExpansionInstruction();
       const richNarrative = isEnglish()
         ? 'Each day MUST include complete narrative text in content (4–6 rich Hebrew sentences on story/main-lesson flow) and art (2–4 sentences on art/craft/handwork) — shown immediately in the UI without any button. Never leave content or art empty or as placeholders.'
         : 'כל יום חייב לכלול טקסט נרטיבי מלא ב-content (4–6 משפטים עשירים על תוכן וסיפור) וב-art (2–4 משפטים על אמנות ומעשה) — מוצגים מיד בממשק ללא כפתור. אל תשאיר content או art ריקים או כמצייני מקום.';
       if (isEnglish()) {
         return (
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + richNarrative + ' ' +
-          'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint only — ' +
-          'NO contentExpansion, artExpansion, or hintExpansion (optional links load on-demand per day). ' +
+          gradeLock + ' ' + noUrls + ' ' + richNarrative + ' ' + inlineExpand + ' ' +
+          'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint, ' +
+          'AND contentExpansion (mandatory pedagogical expansion object — same shape as expansion). ' +
+          'Optional artExpansion and hintExpansion. NO URLs, Pinterest phrases, gallery, or enrichment_links in any day field. ' +
           '3-week arc. Grade-locked. 16px UI. ' +
           getJsonOutputInstruction()
         );
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + richNarrative + ' ' +
-        'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי בלבד — ' +
-        'ללא contentExpansion, artExpansion או hintExpansion (קישורי השראה נטענים לפי דרישה לכל יום). ' +
+        gradeLock + ' ' + noUrls + ' ' + richNarrative + ' ' + inlineExpand + ' ' +
+        'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי, ' +
+        'ו-contentExpansion חובה (אובייקט הרחבה פדגוגי — אותו מבנה כ-expansion). ' +
+        'artExpansion ו-hintExpansion אופציונליים. ללא URLs, ביטויי Pinterest, gallery או enrichment_links בשדות היום. ' +
         'קשת 3 שבועות. אך ורק לכיתה זו. גופן 16px. ' +
         getJsonOutputInstruction()
       );
@@ -8506,7 +8578,7 @@
         inspirationPrompt: cTab === 'inspiration' ? buildInspirationTabPrompt(topicStr, appState.gradeLabel) : undefined,
         curriculumPrompt: cTab === 'curriculum' ? buildCurriculumTabPrompt(topicStr, appState.gradeLabel) : undefined,
         bibliographyRequirements: cTab === 'inspiration' ? getTheoryBibliographyPrompt() : undefined,
-        pedagogyExpandHint: cTab === 'curriculum' ? undefined : getLazyLoadExpansionInstruction(),
+        pedagogyExpandHint: cTab === 'curriculum' ? getInlineExpansionInstruction() : getLazyLoadExpansionInstruction(),
         currentGrade: appState.grade,
         gradeLockInstruction: getGradeLockInstruction(),
         noUrlsInstruction: cTab === 'inspiration' ? getPedagogicalResourcesUrlInstruction() : getNoUrlsInstruction(),
@@ -9246,23 +9318,27 @@
 
     async function fetchCurriculumDayEnrichment(source, signal) {
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
-      const blockTopic = String(appState.topic || '').trim();
       const dayTopic = String((source && source.preview) || (source && source.title) || '').trim();
-      const combinedTopic = blockTopic && dayTopic && dayTopic.indexOf(blockTopic) === -1
-        ? blockTopic + ' — ' + dayTopic
-        : (dayTopic || blockTopic);
       return invokeWaldorfResearch({
-        phase: 'enrichment_links',
+        phase: 'pedagogy_deep_dive',
         userInitiated: true,
-        topic: combinedTopic,
-        activityTitle: dayTopic || blockTopic,
+        expansionScope: 'topic',
+        expansionItemId: source.id || '',
+        activityTitle: (source && source.title) || dayTopic,
+        activityPreview: dayTopic,
+        activityType: 'curriculum',
+        activitySubtype: 'enrich',
         activityContext: (source && source.context) || '',
         dayNumber: source && source.day ? source.day : '',
+        topic: appState.topic,
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
         currentGrade: appState.grade,
         gradeLockInstruction: getGradeLockInstruction(),
+        noUrlsInstruction: getNoUrlsInstruction(),
+        noLatexInstruction: getNoLatexInstruction(),
+        expandInstruction: getCurriculumDayExpansionInstruction(),
       }, { signal: signal });
     }
 
@@ -9426,7 +9502,17 @@
       return html;
     }
 
-    function buildPedagogySummaryHtml(summary) {
+    function buildPedagogySummaryHtml(summary, source) {
+      if (source && source.type === 'curriculum') {
+        const raw = (summary && summary.pedagogyDeepDive) || (summary && summary.archiveSummary) || summary || {};
+        if (String(raw.rawContent || '').trim()) {
+          const html = buildPerplexityExpansionHtml(raw);
+          if (html) return html;
+        }
+        const expansionHtml = buildExpansionContentHtml(pedagogyDeepDiveToExpansion(raw));
+        if (expansionHtml) return expansionHtml;
+        return '<p class="text-walnut/70">' + escapeHtml(t('pedagogy_summary_empty')) + '</p>';
+      }
       if (summary && summary.enrichment_links) {
         return buildEnrichmentLinksHtml(summary);
       }
@@ -10348,7 +10434,8 @@
         return;
       }
       holdPageScroll(function () {
-        panel.innerHTML = '<div class="inline-expand-inner">' + buildPedagogySummaryHtml(summary) +
+        var src = appState.pedagogyRegistry[sourceId];
+        panel.innerHTML = '<div class="inline-expand-inner">' + buildPedagogySummaryHtml(summary, src) +
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         panel.classList.remove('hidden');
       });
@@ -10360,6 +10447,10 @@
         getPanel: function (sid, el) { return getPedExpandPanel(sid, el); },
         getCacheKey: getPedagogySummaryCacheKey,
         getSummary: function (sid) { return appState.pedagogySummaries[sid]; },
+        mapInlineSummary: function (source) {
+          if (source && source.expansion) return mapExpansionToDeepDive(source.expansion, source);
+          return null;
+        },
         setSummary: function (sid, summary) { appState.pedagogySummaries[sid] = summary; },
         renderPanel: renderPedagogyInlinePanel,
         startJob: startPedagogySummaryJob,
@@ -15318,16 +15409,39 @@
       });
     }
 
+    function sanitizeCurriculumDayNarrative(text) {
+      var s = sanitizePedagogicalText(String(text || ''));
+      s = s.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]+`/g, '');
+      s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+      s = s.replace(/\bhttps?:\/\/[^\s<>"']+/gi, '');
+      s = s.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1');
+      s = s.split(/\n/).filter(function (line) {
+        var t = String(line || '').trim();
+        if (!t) return true;
+        if (/pinterest/i.test(t)) return false;
+        if (/^Waldorf\s+Class\s+\d/i.test(t)) return false;
+        if (/^[\-\*•]\s*(https?:\/\/|Waldorf\s+Class|pinterest)/i.test(t)) return false;
+        if (/^enrichment_links\b/i.test(t)) return false;
+        return true;
+      }).join('\n');
+      return s.replace(/\n{3,}/g, '\n\n').trim();
+    }
+
     function renderCurriculumDayText(text) {
       if (!text || !String(text).trim()) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
       }
-      return '<div class="curriculum-day-cell">' + renderAiPreview(text) + '</div>';
+      var cleaned = sanitizeCurriculumDayNarrative(text);
+      if (!cleaned) {
+        return '<p class="text-walnut/50 italic text-sm">—</p>';
+      }
+      return '<div class="curriculum-day-cell">' + renderAiPreview(cleaned) + '</div>';
     }
 
     function buildCurriculumDayEnrichmentItem(row, layout) {
       const dayLabel = t('curriculum_day_short', { day: row.day });
       const topic = String(row.topic || '').trim();
+      const expansion = mergeCurriculumDayExpansion(row);
       return {
         id: buildPedagogyItemId('curr-enrich', layout || 'view', row.day, topic),
         type: 'curriculum',
@@ -15337,6 +15451,7 @@
         preview: topic,
         context: dayLabel + ' · ' + topic + ' · ' + (appState.topic || ''),
         day: row.day,
+        expansion: expansion,
       };
     }
 
