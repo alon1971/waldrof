@@ -35,6 +35,7 @@
     { gradeId: '2', blockLabel: 'משלי חיות וסיפורי צדיקים', aliases: ['משלי חיות', 'משל חיות', 'fables', 'animal fables', 'סיפורי צדיקים', 'צדיקים', 'saints', 'saint stories'] },
     { gradeId: '3', blockLabel: 'תנ״ך וחקלאות', aliases: ['תנ״ך', 'תנך', 'מקרא', 'בראשית', 'נח', 'חקלאות', 'בית בנין', 'בניית בית', 'בנייה', 'construction', 'house building', 'old testament', 'bible stories', 'farming', 'agriculture'] },
     { gradeId: '4', blockLabel: 'מיתולוגיה נורדית', aliases: ['נורדית', 'נורד', 'נורדים', 'אסגארד', 'אודין', 'תור', 'thor', 'odin', 'norse', 'norse mythology', 'גיאוגרפיה מקומית', 'local geography'] },
+    { gradeId: '4', blockLabel: 'אדם וממלכת החי', aliases: ['אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי', 'ממלכת החי', 'human and animal', 'kingdom of nature'] },
     { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey', 'greek mythology', 'ancient greece'] },
     { gradeId: '5', blockLabel: 'בוטניקה', aliases: ['בוטניקה', 'צמחים', 'botany', 'plants'] },
     { gradeId: '6', blockLabel: 'רומא וימי ביניים', aliases: ['רומא', 'רומאית', 'rome', 'roman', 'roman history', 'ימי ביניים', 'medieval', 'middle ages', 'גיאולוגיה', 'geology', 'mineralogy'] },
@@ -228,12 +229,22 @@
   }
 
   function validateGradeTopicScope(gradeId, topicText) {
+    var matcher = null;
+    if (typeof module === 'object' && module.exports) {
+      try { matcher = require('./hebrew-topic-match'); } catch (e) { matcher = null; }
+    } else if (typeof WaldorfHebrewTopicMatch !== 'undefined') {
+      matcher = WaldorfHebrewTopicMatch;
+    }
+    if (matcher && typeof matcher.validateTopicGradeScope === 'function') {
+      return matcher.validateTopicGradeScope(gradeId, topicText);
+    }
     var gid = String(gradeId || '').trim();
     var topic = String(topicText || '').trim();
     if (!gid || !topic) return null;
     var block = findCurriculumBlockForTopic(topic);
     if (!block || block.gradeId === gid) return null;
     return {
+      severity: 'soft',
       requestedTopicRaw: topic,
       currentGradeId: gid,
       currentGradeLabel: GRADE_LABEL_BY_ID[gid] || ('כיתה ' + gid),

@@ -3803,6 +3803,10 @@
           </div>
           <div id="topic-grade-mismatch" class="hidden mt-3 p-4 rounded-xl border border-terracotta/40 bg-terracotta/5 text-sm" role="alert" aria-live="assertive">
             <p id="topic-grade-mismatch-text" class="text-walnut font-medium m-0"></p>
+            <div id="topic-grade-mismatch-actions" class="topic-grade-mismatch-actions flex flex-wrap gap-2 mt-3 hidden">
+              <button type="button" id="topic-grade-mismatch-proceed" class="touch-btn px-4 py-2 rounded-lg bg-sage text-white text-sm font-medium hover:bg-sage-dark"></button>
+              <button type="button" id="topic-grade-mismatch-refine" class="touch-btn px-4 py-2 rounded-lg border border-gold/40 bg-cream text-walnut text-sm font-medium hover:bg-parchment"></button>
+            </div>
           </div>
           <button type="button" id="btn-topic-research"
             class="touch-btn w-full mt-4 bg-sage hover:bg-sage-dark active:bg-sage-dark text-white font-medium rounded-xl">
@@ -4128,7 +4132,7 @@
   <script src="auth-subscription.js?v=20260621b"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
-  <script src="hebrew-topic-match.js?v=20250621b"></script>
+  <script src="hebrew-topic-match.js?v=20250622a"></script>
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
@@ -4988,8 +4992,22 @@
     function gradeMismatchMessage(mismatch) {
       if (!mismatch) return '';
       if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+          typeof WaldorfHebrewTopicMatch.buildGradeSoftWarningMessage === 'function') {
+        return WaldorfHebrewTopicMatch.buildGradeSoftWarningMessage(mismatch);
+      }
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
           typeof WaldorfHebrewTopicMatch.buildGradeMismatchMessage === 'function') {
         return WaldorfHebrewTopicMatch.buildGradeMismatchMessage(mismatch);
+      }
+      var canonicalHint = '';
+      if (mismatch.canonicalGradeLabel || mismatch.canonicalGradeId) {
+        var canonicalShort = (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
+          typeof WaldorfHebrewTopicMatch.gradeShortLabelForMessage === 'function')
+          ? WaldorfHebrewTopicMatch.gradeShortLabelForMessage(mismatch.canonicalGradeId, mismatch.canonicalGradeLabel)
+          : (mismatch.canonicalGradeLabel || '');
+        if (canonicalShort) {
+          canonicalHint = t('grade_topic_mismatch_canonical_hint', { canonicalGrade: canonicalShort });
+        }
       }
       return t('grade_topic_mismatch', {
         topic: mismatch.requestedTopic || mismatch.requestedTopicRaw || '',
@@ -4997,16 +5015,20 @@
           typeof WaldorfHebrewTopicMatch.gradeShortLabelForMessage === 'function')
           ? WaldorfHebrewTopicMatch.gradeShortLabelForMessage(mismatch.currentGradeId, mismatch.currentGradeLabel)
           : (mismatch.currentGradeLabel || ''),
-        canonicalGrade: (typeof WaldorfHebrewTopicMatch !== 'undefined' &&
-          typeof WaldorfHebrewTopicMatch.gradeShortLabelForMessage === 'function')
-          ? WaldorfHebrewTopicMatch.gradeShortLabelForMessage(mismatch.canonicalGradeId, mismatch.canonicalGradeLabel)
-          : (mismatch.canonicalGradeLabel || ''),
+        canonicalHint: canonicalHint,
       });
     }
 
     function checkTopicGradeMismatch(topic, gradeId) {
-      if (typeof WaldorfHebrewTopicMatch === 'undefined' ||
-          typeof WaldorfHebrewTopicMatch.checkPedagogicalGradeMismatch !== 'function') {
+      if (typeof WaldorfHebrewTopicMatch === 'undefined') return null;
+      if (typeof WaldorfHebrewTopicMatch.validateTopicGradeScope === 'function') {
+        return WaldorfHebrewTopicMatch.validateTopicGradeScope(
+          gradeId,
+          topic,
+          appState.gradeLabel || null
+        );
+      }
+      if (typeof WaldorfHebrewTopicMatch.checkPedagogicalGradeMismatch !== 'function') {
         return null;
       }
       return WaldorfHebrewTopicMatch.checkPedagogicalGradeMismatch(
@@ -5018,7 +5040,10 @@
 
     function hideTopicGradeMismatchNotice() {
       const panel = document.getElementById('topic-grade-mismatch');
+      const actions = document.getElementById('topic-grade-mismatch-actions');
       if (panel) panel.classList.add('hidden');
+      if (actions) actions.classList.add('hidden');
+      appState.pendingGradeMismatch = null;
     }
 
     function showTopicGradeMismatchNotice(mismatch, options) {
@@ -5026,13 +5051,20 @@
       const message = gradeMismatchMessage(mismatch);
       if (!message) return;
       hideTopicArchiveSuggestionBanner();
+      appState.pendingGradeMismatch = mismatch;
       const panel = document.getElementById('topic-grade-mismatch');
       const textEl = document.getElementById('topic-grade-mismatch-text');
+      const actions = document.getElementById('topic-grade-mismatch-actions');
+      const proceedBtn = document.getElementById('topic-grade-mismatch-proceed');
+      const refineBtn = document.getElementById('topic-grade-mismatch-refine');
       const out = document.getElementById('web-research-result');
       if (panel && textEl) {
         textEl.textContent = message;
         panel.classList.remove('hidden');
       }
+      if (actions) actions.classList.remove('hidden');
+      if (proceedBtn) proceedBtn.textContent = t('btn_grade_mismatch_proceed');
+      if (refineBtn) refineBtn.textContent = t('btn_grade_mismatch_refine');
       if (out) {
         out.classList.remove('hidden');
         out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(message) + '</p>';
@@ -8265,6 +8297,7 @@
       return invokeWaldorfResearch({
         phase: 'topic',
         skipCache: opts.skipCache === true,
+        pedagogicalScopeOverride: opts.pedagogicalScopeOverride === true,
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
@@ -14234,7 +14267,18 @@
       }
     }
 
-    async function generateLesson() {
+    function proceedDespiteGradeMismatch() {
+      hideTopicGradeMismatchNotice();
+      generateLesson({ scopeOverride: true });
+    }
+
+    function refineTopicAfterGradeMismatch() {
+      hideTopicGradeMismatchNotice();
+      focusStepBTopicInput();
+    }
+
+    async function generateLesson(options) {
+      const genOpts = options || {};
       clearArchiveClarificationState();
 
       const topic = document.getElementById('topic-input').value.trim();
@@ -14247,6 +14291,18 @@
         return;
       }
 
+      if (!genOpts.scopeOverride) {
+        appState.pedagogicalScopeOverride = false;
+        const gradeMismatch = checkTopicGradeMismatch(topic, currentGrade);
+        if (gradeMismatch) {
+          presentGradeMismatchNotice(gradeMismatch);
+          return;
+        }
+      } else {
+        appState.pedagogicalScopeOverride = true;
+        hideTopicGradeMismatchNotice();
+      }
+
       document.getElementById('api-hint-step2').classList.add('hidden');
       if (topicResearchAbort) topicResearchAbort.abort();
       const runId = ++topicResearchRunId;
@@ -14257,13 +14313,7 @@
       appState.lessonFromArchive = false;
       abortPhaseCLoads();
 
-      const gradeMismatch = checkTopicGradeMismatch(topic, currentGrade);
-      if (gradeMismatch) {
-        presentGradeMismatchNotice(gradeMismatch);
-        return;
-      }
-
-      const bypassArchive = shouldBypassArchiveHybridMatch(topic, currentGrade);
+      const bypassArchive = shouldBypassArchiveHybridMatch(topic, currentGrade) || genOpts.scopeOverride === true;
 
       if (!bypassArchive) {
         let archiveMatch = null;
@@ -14272,7 +14322,7 @@
             try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
           }
           archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-          if (archiveMatch && archiveMatch.matchType === 'grade_mismatch') {
+          if (archiveMatch && archiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
             presentGradeMismatchNotice(archiveMatch.gradeMismatch);
             return;
           }
@@ -14360,6 +14410,7 @@
 
       await runTopicResearchGeneration(topic, runId, signal, {
         skipCache: bypassArchive,
+        pedagogicalScopeOverride: genOpts.scopeOverride === true,
       });
       if (bypassArchive) {
         appState.archiveFreshSearchPending = false;
@@ -16807,6 +16858,18 @@
       bindWizardNavClick(document.getElementById('btn-topic-research'), function () {
         generateLesson();
       });
+      var topicGradeMismatchProceed = document.getElementById('topic-grade-mismatch-proceed');
+      var topicGradeMismatchRefine = document.getElementById('topic-grade-mismatch-refine');
+      if (topicGradeMismatchProceed) {
+        topicGradeMismatchProceed.addEventListener('click', function () {
+          proceedDespiteGradeMismatch();
+        });
+      }
+      if (topicGradeMismatchRefine) {
+        topicGradeMismatchRefine.addEventListener('click', function () {
+          refineTopicAfterGradeMismatch();
+        });
+      }
       bindWizardNavClick(document.getElementById('btn-topic-research-cancel'), cancelTopicResearch);
       bindWizardNavClick(document.getElementById('btn-to-workspace'), function () { openProductsWorkspace(true); });
       bindWizardNavClick(document.getElementById('btn-new-research'), function () { startNewResearch(); });

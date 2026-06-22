@@ -1,9 +1,11 @@
 /**
  * Waldorf curriculum topic ↔ grade alignment validation.
- * Blocks cross-grade pedagogical hallucinations (e.g. Odysseus in Grade 2).
+ * Flexible overlapping topics pass silently; complete mismatches yield soft warnings.
+ * Teacher override (pedagogicalScopeOverride) allows generation with anti-hallucination prompts.
  */
 const catalogTopics = require('./catalog-topics');
 const hebrewTopicMatch = require('../hebrew-topic-match');
+const perplexityScopePrompts = require('./perplexity-scope-prompts');
 
 const GRADE_LABEL_BY_ID = {
   '1': 'כיתה א׳',
@@ -21,16 +23,17 @@ const GRADE_TOPIC_SUGGESTIONS = {
   '1': ['אגדות', 'סיפורי טבע'],
   '2': ['סיפורי צדיקים', 'משלי חיות'],
   '3': ['סיפורי תנ״ך', 'חקלאות'],
-  '4': ['מיתולוגיה נורדית', 'גיאוגרפיה מקומית'],
+  '4': ['מיתולוגיה נורדית', 'אדם וממלכת החי'],
   '5': ['יוון העתיקה', 'בוטניקה'],
   '6': ['רומא', 'גיאולוגיה'],
-  '7': ['תקופת מגלי עולם', 'רנסנס'],
-  '8': ['מהפכה צרפתית', 'כימיה אורגנית'],
+  '7': ['תקופת מגלי עולם', 'פיזיקה'],
+  '8': ['מהפכה צרפתית', 'כימיה'],
 };
 
 /**
  * Canonical Waldorf main-lesson blocks — primary grade ownership.
- * aliases: Hebrew / English forms teachers may type or ask about.
+ * Overlapping topics (צמחים/בוטניקה, אדם וחיות, פיזיקה/כימיה) are validated via
+ * hebrew-topic-match VALID_OVERLAPPING_TOPIC_CLUSTERS before these blocks are checked.
  */
 const CURRICULUM_BLOCKS = [
   {
@@ -63,6 +66,14 @@ const CURRICULUM_BLOCKS = [
     aliases: [
       'נורדית', 'נורד', 'נורדים', 'אסגארד', 'אודין', 'תור', 'thor', 'odin', 'norse', 'norse mythology',
       'גיאוגרפיה מקומית', 'local geography',
+    ],
+  },
+  {
+    gradeId: '4',
+    blockLabel: 'אדם וממלכת החי',
+    aliases: [
+      'אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי',
+      'ממלכת החי', 'human and animal', 'kingdom of nature',
     ],
   },
   {
@@ -102,7 +113,7 @@ const CURRICULUM_BLOCKS = [
     blockLabel: 'מהפכות והיסטוריה מודרנית',
     aliases: [
       'מהפכה', 'מהפכות', 'מהפכה צרפתית', 'מהפכה אמריקאית', 'revolution', 'revolutions',
-      'כימיה אורגנית', 'organic chemistry',
+      'כימיה אורגנית', 'organic chemistry', 'כימיה', 'chemistry',
       'היסטוריה מודרנית', 'modern history',
     ],
   },
@@ -117,7 +128,6 @@ const SCOPE_VALIDATION_PHASES = new Set([
 
 /**
  * Side-chat modes decoupled from the active UI grade (see resolveChatPromptMode in api/chat.js).
- * gemini_kb / community_match = free-form pedagogical Q&A; expansion = deeper side-chat follow-up.
  */
 const CHAT_SCOPE_EXEMPT_MODES = new Set(['gemini_kb', 'community_match', 'expansion']);
 
@@ -128,21 +138,16 @@ const CHAT_GRADE_DECOUPLED_INSTRUCTION =
   '(e.g. Odysseus / Greek mythology → Grade 5; saints / animal fables → Grade 2). ' +
   'Tailor all pedagogical guidance, materials, and recommendations to that topic\'s canonical grade — ' +
   'never refuse or redirect based on the UI screen grade.\n' +
-  'NEVER reply with a grade-mismatch refusal or redirect (e.g. «נושא זה (...) שייך באופן מובהק לתוכנית הלימודים של...»). ' +
-  'That template is ONLY for main lesson generation — NOT for side-chat. Always answer the question fully for the topic\'s canonical grade.\n' +
+  'NEVER reply with a grade-mismatch refusal or redirect. Always answer the question fully for the topic\'s canonical grade.\n' +
   '=== END SIDE CHAT — GRADE DECOUPLED ===\n';
 
 const PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION =
   '\n=== PEDAGOGICAL SCOPE — WALDORF CURRICULUM (CRITICAL — MANDATORY) ===\n' +
   'Before generating or expanding ANY pedagogical content, verify that the requested topic ' +
   'belongs to currentGrade according to established Waldorf / Steiner curriculum rhythms.\n' +
-  'If the teacher requests a topic that historically or developmentally belongs to a COMPLETELY DIFFERENT grade ' +
-  '(e.g. Greek Mythology / Odysseus / Ancient Greece → Grade 5 ONLY; fairy tales / nature stories → early grades ONLY, NOT Grade 7; ' +
-  'saints stories / animal fables → Grade 2; Age of Exploration → Grade 7), you MUST NOT hallucinate, invent, or force pedagogical justifications ' +
-  'to teach it in the wrong grade.\n' +
-  'NEVER stretch developmental theory to justify cross-grade topics.\n' +
-  'Instead, reply cleanly and professionally in Hebrew: state which grade owns the topic, ' +
-  'explain it does not fit the current grade\'s developmental picture, and offer to switch grade or suggest grade-appropriate alternatives.\n' +
+  'Valid overlapping topics (no warning): צמחים/בוטניקה in Grades 5–6; אדם וחיות/ממלכת החי in Grades 4–5; פיזיקה/כימיה in Grades 6–8.\n' +
+  'If the teacher explicitly overrides a scope warning (pedagogicalScopeOverride), adapt content realistically for the requested grade — never hallucinate placeholders.\n' +
+  'For clear mismatches without override, offer grade-appropriate alternatives professionally in Hebrew.\n' +
   '=== END PEDAGOGICAL SCOPE ===\n';
 
 function stableNormalize(value) {
@@ -166,6 +171,9 @@ function topicTextMatchesAlias(textNorm, alias) {
 }
 
 function findCurriculumBlockForTopic(topicText) {
+  if (hebrewTopicMatch && typeof hebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+    return hebrewTopicMatch.findCurriculumTopicBlock(topicText);
+  }
   const cleaned = stripGradePhrases(topicText);
   const norm = stableNormalize(cleaned);
   if (!norm || norm.length < 2) return null;
@@ -207,10 +215,22 @@ function suggestedAlternativesForGrade(gradeId) {
   return GRADE_TOPIC_SUGGESTIONS[String(gradeId || '').trim()] || [];
 }
 
+function isPedagogicalScopeOverridden(body) {
+  return perplexityScopePrompts.isScopeOverrideActive(body);
+}
+
 /**
- * @returns {null|object} mismatch details when topic does not belong to gradeId
+ * @returns {null|object} soft mismatch when topic does not belong to gradeId
  */
-function validatePedagogicalScope(gradeId, topicText) {
+function validatePedagogicalScope(gradeId, topicText, gradeLabelOpt) {
+  if (hebrewTopicMatch && typeof hebrewTopicMatch.validateTopicGradeScope === 'function') {
+    const mismatch = hebrewTopicMatch.validateTopicGradeScope(gradeId, topicText, gradeLabelOpt);
+    if (!mismatch) return null;
+    return Object.assign({}, mismatch, {
+      suggestedAlternatives: suggestedAlternativesForGrade(gradeId),
+    });
+  }
+
   const gid = String(gradeId || '').trim();
   const topic = String(topicText || '').trim();
   if (!gid || !topic) return null;
@@ -219,10 +239,11 @@ function validatePedagogicalScope(gradeId, topicText) {
   if (!block || block.gradeId === gid) return null;
 
   return {
+    severity: 'soft',
     requestedTopic: displayTopicLabel(topic, block),
     requestedTopicRaw: topic,
     currentGradeId: gid,
-    currentGradeLabel: gradeLabel(gid),
+    currentGradeLabel: gradeLabelOpt || gradeLabel(gid),
     canonicalGradeId: block.gradeId,
     canonicalGradeLabel: gradeLabel(block.gradeId),
     blockLabel: block.blockLabel,
@@ -238,10 +259,6 @@ function isAgeExpansionRequest(body) {
   );
 }
 
-/**
- * Side-chat (chat_followup) is always decoupled from the active UI grade.
- * promptMode (gemini_kb | community_match | expansion) is informational only.
- */
 function shouldBypassPedagogicalScopeForChat(body, promptMode) {
   if (!body || body.phase !== 'chat_followup') return false;
   const mode = String(promptMode || '').trim();
@@ -249,9 +266,6 @@ function shouldBypassPedagogicalScopeForChat(body, promptMode) {
   return true;
 }
 
-/**
- * Grade-lock applies only to main generation phases that write into the active grade view.
- */
 function shouldEnforcePedagogicalScope(body, promptMode) {
   if (!body || !body.phase) return false;
   if (shouldBypassPedagogicalScopeForChat(body, promptMode)) return false;
@@ -287,10 +301,13 @@ function checkPedagogicalScopeForBody(body, options) {
   const opts = options && typeof options === 'object' ? options : {};
   const promptMode = opts.promptMode;
   if (!shouldEnforcePedagogicalScope(body, promptMode)) return null;
+  if (isPedagogicalScopeOverridden(body)) return null;
+
   const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
+  const gradeLabelOpt = body.gradeLabel || null;
   const topics = extractTopicsFromBody(body);
   for (let i = 0; i < topics.length; i++) {
-    const mismatch = validatePedagogicalScope(gradeId, topics[i]);
+    const mismatch = validatePedagogicalScope(gradeId, topics[i], gradeLabelOpt);
     if (mismatch) return mismatch;
   }
   return null;
@@ -300,9 +317,6 @@ function inferTopicCurriculumBlock(topicText) {
   return findCurriculumBlockForTopic(topicText);
 }
 
-/**
- * When the teacher asks about a canonical Waldorf block topic, steer Gemini to that grade.
- */
 function buildChatInferredGradeBlock(userMessage) {
   const block = inferTopicCurriculumBlock(userMessage);
   if (!block) return '';
@@ -316,21 +330,26 @@ function buildChatInferredGradeBlock(userMessage) {
 }
 
 function buildScopeMismatchWarning(mismatch) {
+  if (hebrewTopicMatch && typeof hebrewTopicMatch.buildGradeSoftWarningMessage === 'function') {
+    return hebrewTopicMatch.buildGradeSoftWarningMessage(mismatch);
+  }
   if (hebrewTopicMatch && typeof hebrewTopicMatch.buildGradeMismatchMessage === 'function') {
     return hebrewTopicMatch.buildGradeMismatchMessage(mismatch);
   }
   const m = mismatch || {};
   const topic = m.requestedTopic || m.requestedTopicRaw || 'נושא זה';
   return (
-    'בחרת ' + topic + ' לכיתה ' + (m.currentGradeLabel || '') +
-    ' — זהו נושא המיועד לכיתה ' + (m.canonicalGradeLabel || '') +
-    '. אנא בחר שנית או דייק את השאלה.'
+    'הנושא «' + topic + '» אולי אינו שייך לתוכנית הלימודים הסטנדרטית של כיתה ' +
+    (m.currentGradeLabel || '') + '. מומלץ לדייק את הנושא — או להמשיך בכל זאת אם בחרת במודע.'
   );
 }
 
 function buildPedagogicalScopeUserBlock(body, options) {
   const opts = options && typeof options === 'object' ? options : {};
   if (!shouldEnforcePedagogicalScope(body, opts.promptMode)) return '';
+  if (isPedagogicalScopeOverridden(body)) {
+    return perplexityScopePrompts.buildOverrideSynthesisUserBlock(body);
+  }
   const mismatch = checkPedagogicalScopeForBody(body, opts);
   if (mismatch) {
     return (
@@ -343,12 +362,24 @@ function buildPedagogicalScopeUserBlock(body, options) {
   return '';
 }
 
+function buildScopeOverridePromptBlocks(body) {
+  if (!isPedagogicalScopeOverridden(body)) {
+    return { searchUser: '', synthesisSystem: '', synthesisUser: '' };
+  }
+  return {
+    searchUser: perplexityScopePrompts.buildOverrideSearchUserBlock(body),
+    synthesisSystem: perplexityScopePrompts.buildOverrideSynthesisSystemBlock(body),
+    synthesisUser: perplexityScopePrompts.buildOverrideSynthesisUserBlock(body),
+  };
+}
+
 function buildScopeMismatchChatPayload(mismatch) {
   const warning = buildScopeMismatchWarning(mismatch);
   return {
     chatReply: {
       answer: warning,
       pedagogicalScopeMismatch: true,
+      severity: 'soft',
     },
   };
 }
@@ -359,7 +390,12 @@ function buildScopeMismatchGenerateResult(body, mismatch, communityProbe) {
   const data = isChat
     ? buildScopeMismatchChatPayload(mismatch)
     : Object.assign(
-      { pedagogicalScopeMismatch: true, scopeWarning: warning },
+      {
+        pedagogicalScopeMismatch: true,
+        severity: 'soft',
+        scopeWarning: warning,
+        allowScopeOverride: true,
+      },
       body && body.phase === 'topic'
         ? {
           webResearch: {
@@ -375,6 +411,8 @@ function buildScopeMismatchGenerateResult(body, mismatch, communityProbe) {
   const meta = {
     fromCache: false,
     pedagogicalScopeMismatch: true,
+    severity: 'soft',
+    allowScopeOverride: true,
     scopeMismatch: mismatch,
     skipCommunityAlert: true,
   };
@@ -400,10 +438,12 @@ module.exports = {
   shouldEnforcePedagogicalScope,
   shouldValidatePedagogicalScope,
   shouldBypassPedagogicalScopeForChat,
+  isPedagogicalScopeOverridden,
   extractTopicsFromBody,
   buildScopeMismatchWarning,
   buildChatInferredGradeBlock,
   buildPedagogicalScopeUserBlock,
+  buildScopeOverridePromptBlocks,
   buildScopeMismatchChatPayload,
   buildScopeMismatchGenerateResult,
 };

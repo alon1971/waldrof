@@ -43,6 +43,49 @@
   };
 
   /**
+   * Valid overlapping Waldorf topics — allowed in multiple grades with NO warnings.
+   */
+  var VALID_OVERLAPPING_TOPIC_CLUSTERS = [
+    {
+      label: 'בוטניקה / צמחים',
+      aliases: ['צמחים', 'צמח', 'בוטניקה', 'botany', 'plants'],
+      gradeIds: ['5', '6'],
+    },
+    {
+      label: 'אדם וחיות / ממלכת החי',
+      aliases: [
+        'אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי',
+        'ממלכת החי', 'human and animal', 'kingdom of nature',
+      ],
+      gradeIds: ['4', '5'],
+    },
+    {
+      label: 'פיזיקה / כימיה',
+      aliases: [
+        'פיזיקה', 'physics', 'כימיה', 'chemistry',
+        'כימיה אורגנית', 'organic chemistry',
+      ],
+      gradeIds: ['6', '7', '8'],
+    },
+  ];
+
+  /**
+   * Canonical Waldorf main-lesson blocks — primary grade ownership for soft-warning routing.
+   */
+  var CURRICULUM_TOPIC_BLOCKS = [
+    { gradeId: '1', blockLabel: 'אגדות וסיפורי טבע', aliases: ['אגדות', 'אגדה', 'סיפורי פיות', 'פיות', 'סיפורי טבע', 'fairy tale', 'fairy tales', 'nature stories'] },
+    { gradeId: '2', blockLabel: 'משלי חיות וסיפורי צדיקים', aliases: ['משלי חיות', 'משל חיות', 'fables', 'animal fables', 'סיפורי צדיקים', 'צדיקים', 'saints', 'saint stories'] },
+    { gradeId: '3', blockLabel: 'תנ״ך וחקלאות', aliases: ['תנ״ך', 'תנך', 'מקרא', 'בראשית', 'נח', 'חקלאות', 'בית בנין', 'בניית בית', 'old testament', 'bible stories'] },
+    { gradeId: '4', blockLabel: 'מיתולוגיה נורדית', aliases: ['נורדית', 'נורד', 'נורדים', 'אסגארד', 'אודין', 'תור', 'thor', 'odin', 'norse', 'norse mythology', 'גיאוגרפיה מקומית', 'local geography'] },
+    { gradeId: '4', blockLabel: 'אדם וממלכת החי', aliases: ['אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי', 'ממלכת החי', 'human and animal', 'kingdom of nature'] },
+    { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'אודיסאוס', 'greek mythology', 'ancient greece'] },
+    { gradeId: '5', blockLabel: 'בוטניקה', aliases: ['בוטניקה', 'צמחים', 'צמח', 'botany', 'plants'] },
+    { gradeId: '6', blockLabel: 'רומא וימי ביניים', aliases: ['רומא', 'רומאית', 'rome', 'roman', 'roman history', 'ימי ביניים', 'medieval', 'middle ages', 'גיאולוגיה', 'geology', 'mineralogy'] },
+    { gradeId: '7', blockLabel: 'מגלי עולם ורנסנס', aliases: ['מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers', 'רנסנס', 'renaissance', 'גלילאו', 'galileo', 'פיזיקה', 'physics', 'אסטרונומיה', 'astronomy'] },
+    { gradeId: '8', blockLabel: 'מהפכות והיסטוריה מודרנית', aliases: ['מהפכה', 'מהפכות', 'מהפכה צרפתית', 'revolution', 'revolutions', 'כימיה אורגנית', 'organic chemistry', 'כימיה', 'chemistry', 'היסטוריה מודרנית', 'modern history'] },
+  ];
+
+  /**
    * Advanced historical / narrative epochs — strict Waldorf grade ownership.
    * Checked before any archive semantic similarity or disambiguation.
    */
@@ -356,37 +399,148 @@
     return best;
   }
 
+  function findOverlappingTopicCluster(topicText) {
+    var cleaned = removeGradePhrasesFromTopic(topicText);
+    var norm = stableNormalize(cleaned);
+    if (!norm || norm.length < 2) return null;
+
+    var best = null;
+    var bestAliasLen = 0;
+    for (var i = 0; i < VALID_OVERLAPPING_TOPIC_CLUSTERS.length; i++) {
+      var cluster = VALID_OVERLAPPING_TOPIC_CLUSTERS[i];
+      for (var j = 0; j < cluster.aliases.length; j++) {
+        var alias = cluster.aliases[j];
+        if (!topicTextMatchesEpochAlias(norm, alias)) continue;
+        var aliasLen = stableNormalize(alias).length;
+        if (!best || aliasLen > bestAliasLen) {
+          best = cluster;
+          bestAliasLen = aliasLen;
+        }
+      }
+    }
+    return best;
+  }
+
+  function isTopicAllowedInOverlappingGrades(gradeId, topicText) {
+    var cluster = findOverlappingTopicCluster(topicText);
+    if (!cluster) return false;
+    return cluster.gradeIds.indexOf(String(gradeId || '').trim()) >= 0;
+  }
+
+  function findCurriculumTopicBlock(topicText) {
+    var cleaned = removeGradePhrasesFromTopic(topicText);
+    var norm = stableNormalize(cleaned);
+    if (!norm || norm.length < 2) return null;
+
+    var best = null;
+    var bestAliasLen = 0;
+    for (var i = 0; i < CURRICULUM_TOPIC_BLOCKS.length; i++) {
+      var block = CURRICULUM_TOPIC_BLOCKS[i];
+      for (var j = 0; j < block.aliases.length; j++) {
+        var alias = block.aliases[j];
+        if (!topicTextMatchesEpochAlias(norm, alias)) continue;
+        var aliasLen = stableNormalize(alias).length;
+        if (!best || aliasLen > bestAliasLen) {
+          best = block;
+          bestAliasLen = aliasLen;
+        }
+      }
+    }
+    return best;
+  }
+
+  function displayCurriculumTopicLabel(topicText, block) {
+    var raw = String(topicText || '').trim();
+    if (!raw) return block ? block.blockLabel : '';
+    var norm = stableNormalize(removeGradePhrasesFromTopic(raw));
+    for (var i = 0; i < (block && block.aliases ? block.aliases.length : 0); i++) {
+      var alias = block.aliases[i];
+      if (topicTextMatchesEpochAlias(norm, alias)) return String(alias).trim();
+    }
+    return raw.length > 48 ? raw.slice(0, 48) + '…' : raw;
+  }
+
+  function buildScopeMismatchResult(currentGradeId, topicText, currentGradeLabel, canonicalGradeId, canonicalLabel, blockLabel, displayTopic) {
+    return {
+      severity: 'soft',
+      requestedTopic: displayTopic,
+      requestedTopicRaw: topicText,
+      currentGradeId: String(currentGradeId || '').trim(),
+      currentGradeLabel: String(currentGradeLabel || '').trim() || gradeLabelForId(currentGradeId),
+      canonicalGradeId: String(canonicalGradeId || '').trim(),
+      canonicalGradeLabel: canonicalLabel || gradeLabelForId(canonicalGradeId),
+      blockLabel: blockLabel || '',
+    };
+  }
+
   /**
-   * @returns {null|object} mismatch when topic belongs to a different grade than current context
+   * @returns {null|object} soft mismatch when topic is outside standard curriculum for grade
    */
-  function checkPedagogicalGradeMismatch(currentGradeId, topicText, currentGradeLabel) {
+  function validateTopicGradeScope(currentGradeId, topicText, currentGradeLabel) {
     var gid = String(currentGradeId || '').trim();
     var topic = String(topicText || '').trim();
     if (!gid || !topic) return null;
 
-    var epoch = findPedagogicalEpochGrade(topic);
-    if (!epoch || epoch.gradeId === gid) return null;
+    if (isTopicAllowedInOverlappingGrades(gid, topic)) return null;
 
-    return {
-      requestedTopic: displayEpochTopicLabel(topic, epoch),
-      requestedTopicRaw: topic,
-      currentGradeId: gid,
-      currentGradeLabel: String(currentGradeLabel || '').trim() || gradeLabelForId(gid),
-      canonicalGradeId: epoch.gradeId,
-      canonicalGradeLabel: gradeLabelForId(epoch.gradeId),
-      blockLabel: epoch.displayTopic,
-    };
+    var epoch = findPedagogicalEpochGrade(topic);
+    if (epoch) {
+      if (epoch.gradeId === gid) return null;
+      return buildScopeMismatchResult(
+        gid, topic, currentGradeLabel,
+        epoch.gradeId, gradeLabelForId(epoch.gradeId),
+        epoch.displayTopic,
+        displayEpochTopicLabel(topic, epoch)
+      );
+    }
+
+    var block = findCurriculumTopicBlock(topic);
+    if (block) {
+      if (block.gradeId === gid) return null;
+      return buildScopeMismatchResult(
+        gid, topic, currentGradeLabel,
+        block.gradeId, gradeLabelForId(block.gradeId),
+        block.blockLabel,
+        displayCurriculumTopicLabel(topic, block)
+      );
+    }
+
+    return null;
   }
 
-  function buildGradeMismatchMessage(mismatch) {
+  /**
+   * @returns {null|object} mismatch when topic belongs to a different grade than current context
+   */
+  function checkPedagogicalGradeMismatch(currentGradeId, topicText, currentGradeLabel) {
+    return validateTopicGradeScope(currentGradeId, topicText, currentGradeLabel);
+  }
+
+  function buildGradeSoftWarningMessage(mismatch) {
     var m = mismatch || {};
     var topic = m.requestedTopic || m.requestedTopicRaw || 'נושא זה';
     var currentShort = gradeShortLabelForMessage(m.currentGradeId, m.currentGradeLabel);
     var canonicalShort = gradeShortLabelForMessage(m.canonicalGradeId, m.canonicalGradeLabel);
+    var canonicalHint = canonicalShort
+      ? ' (בדרך כלל מיועד לכיתה ' + canonicalShort + ')'
+      : '';
     return (
-      'בחרת ' + topic + ' לכיתה ' + currentShort +
-      ' — זהו נושא המיועד לכיתה ' + canonicalShort +
-      '. אנא בחר שנית או דייק את השאלה.'
+      'הנושא «' + topic + '» אולי אינו שייך לתוכנית הלימודים הסטנדרטית של כיתה ' + currentShort +
+      canonicalHint + '. מומלץ לדייק את הנושא — או להמשיך בכל זאת אם בחרת במודע.'
+    );
+  }
+
+  function buildGradeMismatchMessage(mismatch) {
+    return buildGradeSoftWarningMessage(mismatch);
+  }
+
+  function buildCurriculumOverrideAntiHallucinationInstruction(topicText, gradeLabel) {
+    var topic = String(topicText || '').trim() || 'נושא זה';
+    var grade = String(gradeLabel || '').trim() || 'כיתה זו';
+    return (
+      'The user has explicitly requested ' + topic + ' for ' + grade +
+      ', which is outside the standard curriculum. Do not hallucinate or generate irrelevant/fake placeholders. ' +
+      'Provide factual, pedagogically sound content adapted as realistically as possible for this age group, ' +
+      'or professionally guide the user on how this topic can be introduced accurately to this developmental stage without making things up.'
     );
   }
 
@@ -655,8 +809,16 @@
     getGradeCanonicalArchiveTopic: getGradeCanonicalArchiveTopic,
     shouldProbeCanonicalArchiveTopic: shouldProbeCanonicalArchiveTopic,
     findPedagogicalEpochGrade: findPedagogicalEpochGrade,
+    findOverlappingTopicCluster: findOverlappingTopicCluster,
+    isTopicAllowedInOverlappingGrades: isTopicAllowedInOverlappingGrades,
+    findCurriculumTopicBlock: findCurriculumTopicBlock,
+    validateTopicGradeScope: validateTopicGradeScope,
     checkPedagogicalGradeMismatch: checkPedagogicalGradeMismatch,
+    buildGradeSoftWarningMessage: buildGradeSoftWarningMessage,
     buildGradeMismatchMessage: buildGradeMismatchMessage,
+    buildCurriculumOverrideAntiHallucinationInstruction: buildCurriculumOverrideAntiHallucinationInstruction,
+    VALID_OVERLAPPING_TOPIC_CLUSTERS: VALID_OVERLAPPING_TOPIC_CLUSTERS,
+    CURRICULUM_TOPIC_BLOCKS: CURRICULUM_TOPIC_BLOCKS,
     gradeShortLabelForMessage: gradeShortLabelForMessage,
     gradeLabelForId: gradeLabelForId,
     PEDAGOGICAL_EPOCH_GRADE_TOPICS: PEDAGOGICAL_EPOCH_GRADE_TOPICS,
