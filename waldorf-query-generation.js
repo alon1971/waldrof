@@ -319,8 +319,23 @@
     }
   }
 
+  var ENRICHMENT_LINKS_MAX = 5;
+  var PINTEREST_HOST_RE = /(^|\.)pinterest\.com$/i;
+
+  function isPinterestUrl(url) {
+    var u = String(url || '').trim();
+    if (!u) return false;
+    if (/^https:\/\/(www\.)?pinterest\.com\/search\/pins\/\?q=/.test(u)) return true;
+    try {
+      var host = new URL(u).hostname.replace(/^www\./i, '').toLowerCase();
+      return PINTEREST_HOST_RE.test(host) || host === 'pinterest.com';
+    } catch (e) {
+      return /pinterest\.com/i.test(u);
+    }
+  }
+
   function isValidPinterestSearchUrl(url) {
-    return /^https:\/\/www\.pinterest\.com\/search\/pins\/\?q=/.test(String(url || ''));
+    return /^https:\/\/(www\.)?pinterest\.com\/search\/pins\/\?q=/.test(String(url || ''));
   }
 
   function buildOpenArticleSearchQuery(topic, gradeLabel) {
@@ -584,6 +599,9 @@
     GOOGLE_SEARCH_BASE: GOOGLE_SEARCH_BASE,
     GRADE_TOPIC_BLOCKS: GRADE_TOPIC_BLOCKS,
     PINTEREST_MAX_GALLERY_ITEMS: 4,
+    ENRICHMENT_LINKS_MAX: ENRICHMENT_LINKS_MAX,
+    isPinterestUrl: isPinterestUrl,
+    isValidPinterestSearchUrl: isValidPinterestSearchUrl,
     generatePinterestQueries: generatePinterestQueries,
     generateArticleQueries: generateArticleQueries,
     buildOpenArticleSearchQuery: buildOpenArticleSearchQuery,

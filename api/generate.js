@@ -1,8 +1,8 @@
 /**
  * Waldorf research API — strict Perplexity / Gemini separation.
  * PERPLEXITY_API_KEY: ALL core generation (Phase A grade, Phase B topic, Phase C tabs, on-demand expansions).
- * GEMINI_API_KEY: pedagogical side-chat (chat_followup) ONLY.
- * enrichment_links (phase_c inspiration): real-time Pinterest + Perplexity citation URLs — no Gemini, no hardcoded site lists.
+ * GEMINI_API_KEY: pedagogical chat + enrichment_links (Gemini Google Search) ONLY.
+ * enrichment_links (phase_c inspiration): Gemini live search + dynamic Pinterest — no hardcoded domains.
  *
  * Core pipeline (decoupled — Perplexity only):
  *   1. SUPABASE ARCHIVE — return cached_results immediately on hit
@@ -29,7 +29,6 @@ const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
 const waldorfWebSeed = require('../waldorf-web-seed');
-const enrichmentLinksApi = require('./enrichment-links');
 const waldorfQueryGen = require('../waldorf-query-generation');
 const archiveCoerce = require('../archive-coerce');
 
@@ -319,7 +318,7 @@ const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
   'blockPlan.sources (books/articles/websites) remains name-only — NO url fields there.\n' +
   '=== END WALDORF PEDAGOGICAL WEB RESOURCES ===\n';
 
-const ENRICHMENT_LINKS_MAX = enrichmentLinksApi.ENRICHMENT_LINKS_MAX;
+const ENRICHMENT_LINKS_MAX = waldorfQueryGen.ENRICHMENT_LINKS_MAX;
 
 const ENRICHMENT_LINKS_REALTIME_INSTRUCTION =
   '\n=== ENRICHMENT LINKS — REAL-TIME OPEN WEB (MANDATORY) ===\n' +
@@ -366,37 +365,12 @@ function sanitizePinterestGallery(gallery, body) {
   return waldorfQueryGen.sanitizePinterestGallery(gallery, body, PINTEREST_MAX_GALLERY_ITEMS);
 }
 
-const WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
-  { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
-  { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
-  { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
-  { pattern: /iaswece/i, source: 'IASWECE', label: 'מקור וולדורף רשמי' },
-  { pattern: /waldorflibrary/i, source: 'ספריית מכון המחקר הוולדורפי', label: 'מאמר פדגוגי' },
-  { pattern: /rsarchive|steinerarchive/i, source: 'Steiner Archive', label: 'מאמר פדגוגי' },
-  { pattern: /anthroposophy|אנתרופוסופיה/i, source: 'מקור אנתרופוסופי', label: 'מאמר פדגוגי' },
-  { pattern: /waldorf/i, source: 'מקור וולדורף', label: 'מקור וולדורף רשמי' },
-];
-
 function inferPedagogicalResourceMeta(url) {
-  const u = String(url || '');
-  for (let i = 0; i < WALDORF_PEDAGOGICAL_DOMAIN_HINTS.length; i++) {
-    const hint = WALDORF_PEDAGOGICAL_DOMAIN_HINTS[i];
-    if (hint.pattern.test(u)) {
-      return { source: hint.source, label: hint.label };
-    }
-  }
-  return { source: 'מקור וולדורף', label: 'מאמר פדגוגי' };
+  return enrichmentLinksApi.inferResourceMetaFromUrl(url);
 }
 
 function isWaldorfPedagogicalResourceUrl(url) {
-  if (waldorfWebSeed.isAllowedPedagogicalUrl(url)) return true;
-  const u = String(url || '').trim();
-  if (!/^https?:\/\//i.test(u)) return false;
-  if (/pinterest\.|facebook\.com|instagram\.com|youtube\.com|tiktok\.com/i.test(u)) return false;
-  if (waldorfWebSeed.isBrokenOrGuessedPedagogicalUrl(u)) return false;
-  return WALDORF_PEDAGOGICAL_DOMAIN_HINTS.some(function (hint) {
-    return hint.pattern.test(u);
-  });
+  return enrichmentLinksApi.isVerifiedArticleUrl(url);
 }
 
 function normalizePedagogicalResourceItem(item, body) {
@@ -449,7 +423,7 @@ function normalizePedagogicalResources(raw, body) {
 }
 
 function isValidPinterestSearchUrl(url) {
-  return enrichmentLinksApi.isValidPinterestSearchUrl(url);
+  return waldorfQueryGen.isValidPinterestSearchUrl(url);
 }
 
 function buildDynamicPinterestEnrichmentLinks(body) {
@@ -472,7 +446,7 @@ function buildArticleLinksFromPerplexityCitations(citations, body) {
   (Array.isArray(citations) ? citations : []).forEach(function (rawUrl) {
     const u = String(rawUrl || '').trim();
     if (!/^https?:\/\//i.test(u)) return;
-    if (enrichmentLinksApi.isPinterestUrl(u)) return;
+    if (waldorfQueryGen.isPinterestUrl(u)) return;
     const meta = inferPedagogicalResourceMeta(u);
     const norm = normalizePedagogicalResourceItem({
       url: u,
