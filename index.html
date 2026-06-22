@@ -4081,6 +4081,14 @@
             <span data-i18n="catalog_title">מאגר קהילתי</span>
           </h2>
           <p class="text-sm text-walnut/70 mb-5" data-i18n="catalog_desc">בחרו כיתה ועיינו בחומרים מהקהילה — הוספת חומר חדש מתבצעת דרך כפתור «הוסף חומר חדש למאגר».</p>
+          <div id="catalog-search-bar" class="mb-5">
+            <label for="catalog-search-input" class="sr-only">חיפוש במאגר הקהילתי</label>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <input type="search" id="catalog-search-input" class="flex-1 rounded-xl border border-gold/35 bg-white px-4 py-2.5 text-sm text-walnut" placeholder="חיפוש לפי נושא, תיקייה או שם קובץ (למשל: יוון)" dir="rtl" autocomplete="off" />
+              <button type="button" id="catalog-search-btn" class="touch-btn bg-sage hover:bg-sage-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm">חיפוש במאגר</button>
+            </div>
+          </div>
+          <div id="catalog-search-results" class="hidden mb-5"></div>
           <div id="share-materials-mount" class="hidden" aria-hidden="true" hidden></div>
           <div id="community-catalog-section" class="community-catalog-container">
           <nav id="catalog-breadcrumb" class="flex flex-wrap items-center gap-2 text-sm text-walnut/70 mb-6" data-i18n-aria="catalog_title"></nav>
@@ -6687,10 +6695,23 @@
         row['תוכן וסיפור'] || row.tochen || row.mainLesson || '';
       var art = row.art || row.artActivity || row.craft || row.artAndCraft ||
         row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || '';
-      var split = splitCurriculumDayNarrativeFields(
-        curriculumFieldPlainText(content),
-        curriculumFieldPlainText(art)
-      );
+      var contentPlain = curriculumFieldPlainText(content);
+      var artPlain = curriculumFieldPlainText(art);
+      if (artPlain && artPlain.length >= 25 && contentPlain && contentPlain.indexOf(artPlain) < 0) {
+        var hintOnly = row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '';
+        if (!topic && !contentPlain && !artPlain && !hintOnly) return null;
+        return {
+          day: day,
+          topic: topic || ('יום ' + day),
+          content: contentPlain,
+          art: artPlain,
+          hint: hintOnly,
+          contentExpansion: row.contentExpansion,
+          artExpansion: row.artExpansion,
+          hintExpansion: row.hintExpansion,
+        };
+      }
+      var split = splitCurriculumDayNarrativeFields(contentPlain, artPlain);
       content = split.content;
       art = split.art;
       var hint = row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '';
@@ -12326,7 +12347,14 @@
     function scoreCommunityItemSimilarity(query, item) {
       const q = String(query || '').trim();
       if (!q || !item) return 0;
-      const candidates = [item.topic, item.title, item.fileName, item.notes].filter(Boolean);
+      const pathBits = [
+        item.filePath,
+        item.fileName,
+        item.notes,
+        item.topic,
+        item.title,
+      ].filter(Boolean).join(' ');
+      const candidates = [item.topic, item.title, item.fileName, item.notes, pathBits].filter(Boolean);
       let best = 0;
       candidates.forEach(function (candidate) {
         if (typeof WaldorfHebrewTopicMatch !== 'undefined' && WaldorfHebrewTopicMatch.scoreHebrewTopicSimilarity) {
@@ -12757,7 +12785,7 @@
 
     async function probeCommunityTopicMatch(query, gradeId) {
       const q = String(query || '').trim();
-      if (!q) return [];
+      if (!q) return { matches: [], folderBrief: null };
       const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
         ? location.origin + '/api/search-history'
         : '/api/search-history';
@@ -12775,13 +12803,18 @@
         try {
           json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
         } catch (parseErr) {
-          return [];
+          return { matches: [], folderBrief: null };
         }
-        if (!res.ok || json.error) return [];
-        return Array.isArray(json.matches) ? json.matches : [];
+        if (!res.ok || json.error) return { matches: [], folderBrief: null };
+        const payload = json.data || json;
+        return {
+          matches: Array.isArray(payload.matches) ? payload.matches : [],
+          folderBrief: payload.folderBrief || null,
+          matchMethod: payload.matchMethod || 'none',
+        };
       } catch (probeErr) {
         console.warn('[community-probe] failed:', probeErr);
-        return [];
+        return { matches: [], folderBrief: null };
       }
     }
 
@@ -12795,9 +12828,110 @@
       let merged = mergeCommunityMatches(localItems, serverMatches || []);
       if (!merged.length) {
         const probed = await probeCommunityTopicMatch(topicNorm, gradeId);
-        merged = mergeCommunityMatches(localItems, probed);
+        merged = mergeCommunityMatches(localItems, probed.matches || []);
       }
       return merged;
+    }
+
+    function buildCatalogFolderBriefHtml(folderBrief) {
+      if (!folderBrief || !folderBrief.data || !folderBrief.data.chatReply) return '';
+      const reply = folderBrief.data.chatReply;
+      const gradeId = reply.gradeId || (folderBrief.meta && folderBrief.meta.gradeId) || '';
+      const catalogTopic = reply.catalogTopic || (folderBrief.meta && folderBrief.meta.catalogTopic) || '';
+      const message = reply.answer || '';
+      const accessLabel = reply.accessGradeLabel || ('לגשת ל' + (reply.gradeLabel || 'כיתה'));
+      const downloadLabel = reply.downloadFolderLabel || 'הורדת התיקייה';
+      return '<div class="catalog-folder-brief rounded-2xl border border-sage/35 bg-sage/10 p-4 sm:p-5 mb-4" dir="rtl">' +
+        '<p class="text-sm text-walnut leading-relaxed mb-4">' + escapeHtml(message) + '</p>' +
+        '<div class="flex flex-wrap gap-2">' +
+        '<button type="button" class="touch-btn bg-sage hover:bg-sage-dark text-white text-sm font-semibold px-4 py-2 rounded-lg catalog-brief-access" data-grade="' + escapeHtml(String(gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic)) + '">' + escapeHtml(accessLabel) + '</button>' +
+        '<button type="button" class="touch-btn bg-white border border-gold/40 text-walnut text-sm font-semibold px-4 py-2 rounded-lg catalog-brief-download" data-grade="' + escapeHtml(String(gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic)) + '">' + escapeHtml(downloadLabel) + '</button>' +
+        '</div></div>';
+    }
+
+    function bindCatalogFolderBriefActions(container) {
+      if (!container) return;
+      container.querySelectorAll('.catalog-brief-access').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openGradePlanningWorkspace(btn.getAttribute('data-grade'), btn.getAttribute('data-topic'));
+        });
+      });
+      container.querySelectorAll('.catalog-brief-download').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          downloadCommunityTopicFolder(btn.getAttribute('data-grade'), btn.getAttribute('data-topic'));
+        });
+      });
+    }
+
+    async function runCatalogDeepSearch(query) {
+      const q = String(query || '').trim();
+      const resultsEl = document.getElementById('catalog-search-results');
+      if (!resultsEl || !q) {
+        if (resultsEl) {
+          resultsEl.classList.add('hidden');
+          resultsEl.innerHTML = '';
+        }
+        return;
+      }
+      if (isCloudConfigured()) {
+        try { await loadCommunity(); } catch (e) { /* ignore */ }
+      }
+      showCatalogStatus('מחפש במאגר הקהילתי…', 'info');
+      const probed = await probeCommunityTopicMatch(q, catalogState.gradeId || appState.grade || '');
+      const matches = probed.matches || [];
+      let html = '<h4 class="font-bold text-burgundy mb-3 text-sm">תוצאות חיפוש עבור «' + escapeHtml(q) + '»</h4>';
+      if (probed.folderBrief) {
+        html += buildCatalogFolderBriefHtml(probed.folderBrief);
+      }
+      if (matches.length) {
+        html += '<div class="space-y-3 mb-3">' + matches.slice(0, 8).map(function (match) {
+          return renderCommunityPreviewCard({
+            id: match.id || match.materialId,
+            title: match.title || match.displayTitle || match.fileName || match.topic,
+            topic: match.catalogTopic || match.topic,
+            fileName: match.fileName || '',
+            fileUrl: match.fileUrl || '',
+            gradeLevel: match.gradeId || match.grade_level,
+            notes: match.description || match.alertText || '',
+            createdAt: match.createdAt || null,
+          });
+        }).join('') + '</div>';
+        const primary = matches[0];
+        const navGrade = primary.gradeId || primary.grade_level || catalogState.gradeId;
+        const navTopic = primary.catalogTopic || primary.topic;
+        if (navGrade && navTopic) {
+          html += '<button type="button" class="touch-btn text-sm text-sage-dark hover:text-burgundy font-medium catalog-search-open-folder" data-grade="' + escapeHtml(String(navGrade)) + '" data-topic="' + escapeHtml(String(navTopic)) + '"><i class="fa-solid fa-folder-open"></i> פתיחת תיקיית «' + escapeHtml(String(navTopic)) + '»</button>';
+        }
+      } else if (!probed.folderBrief) {
+        html += '<p class="text-sm text-walnut/60 py-2">לא נמצאו חומרים תואמים במאגר הקהילתי.</p>';
+      }
+      mutateCatalogDom(function () {
+        resultsEl.innerHTML = html;
+        resultsEl.classList.remove('hidden');
+        bindCatalogFolderBriefActions(resultsEl);
+        const openBtn = resultsEl.querySelector('.catalog-search-open-folder');
+        if (openBtn) {
+          openBtn.addEventListener('click', function () {
+            renderCatalog('materials', openBtn.getAttribute('data-grade'), openBtn.getAttribute('data-topic'));
+          });
+        }
+      });
+      showCatalogStatus('', '');
+    }
+
+    function bindCatalogSearchBar() {
+      const input = document.getElementById('catalog-search-input');
+      const btn = document.getElementById('catalog-search-btn');
+      if (!input || !btn || input.dataset.bound) return;
+      input.dataset.bound = '1';
+      const submit = function () { runCatalogDeepSearch(input.value); };
+      btn.addEventListener('click', submit);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submit();
+        }
+      });
     }
 
     function getCommunityMaterialsForTopic(gradeId, topic) {
@@ -15944,6 +16078,18 @@
       return stripLeadingPedagogyTitle(raw, topicStr);
     }
 
+    function renderCurriculumArtPreview(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return '';
+      if (looksLikeAiHtml(raw)) return ensureAiHtml(raw);
+      var paragraphs = raw.split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
+      if (!paragraphs.length) paragraphs = [raw];
+      var html = paragraphs.map(function (p) {
+        return '<p>' + renderMarkdownInline(p) + '</p>';
+      }).join('\n');
+      return '<div class="prose-ai">' + html + '</div>';
+    }
+
     function renderCurriculumDayText(text, topic, fieldKind) {
       if (isCurriculumDayTextEmpty(text)) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
@@ -15953,7 +16099,7 @@
         return '<p class="text-walnut/50 italic text-sm">—</p>';
       }
       if (fieldKind === 'art') {
-        return '<div class="curriculum-day-cell">' + renderAiPreview(raw) + '</div>';
+        return '<div class="curriculum-day-cell">' + renderCurriculumArtPreview(raw) + '</div>';
       }
       if (looksLikeAiHtml(String(text || '')) || String(text || '').indexOf('prose-ai') >= 0) {
         return '<div class="curriculum-day-cell">' + ensureAiHtml(String(text)) + '</div>';
@@ -17375,6 +17521,7 @@
       catalogState.topic = nextTopic;
       renderCatalogBreadcrumb();
       showCatalogStatus('', '');
+      bindCatalogSearchBar();
       if (catalogState.view === 'grades') {
         if (isCloudConfigured()) {
           showCatalogStatus(t('catalog_loading'), 'info');

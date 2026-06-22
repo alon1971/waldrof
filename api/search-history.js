@@ -156,6 +156,12 @@ async function executeSearchHistory(req) {
       topic: topic || null,
       userMessage: userMessage || null,
       gradeId: gradeId || null,
+      globalScan: !gradeId,
+      globalSemantic: !gradeId,
+      semanticFallback: true,
+      recursiveDeepScan: true,
+      includeFolderBrief: true,
+      phase: 'topic',
       limit: 8,
     });
     return {
@@ -164,6 +170,8 @@ async function executeSearchHistory(req) {
       matches: probe.matches || [],
       count: probe.count || 0,
       query: probe.query || query,
+      matchMethod: probe.matchMethod || 'none',
+      folderBrief: probe.folderBrief || null,
     };
   }
 

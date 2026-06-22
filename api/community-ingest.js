@@ -145,7 +145,7 @@ async function fetchCommunityMaterialsByTopic(gradeId, topic) {
   return Array.isArray(rows) ? rows : [];
 }
 
-/** List objects in community-uploads under a storage prefix (nested bundle files). */
+/** List objects in community-uploads under a storage prefix (one level). */
 async function listStorageObjects(prefix, limit) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key || !prefix) return [];
@@ -168,28 +168,74 @@ async function listStorageObjects(prefix, limit) {
   if (!res.ok) return [];
   const rows = await res.json();
   if (!Array.isArray(rows)) return [];
-  return rows
-    .filter(function (row) { return row && row.name && !row.name.endsWith('/'); })
-    .map(function (row) {
-      const base = String(prefix).replace(/^\/+|\/+$/g, '');
-      return base ? base + '/' + row.name : row.name;
-    });
+  return rows.filter(function (row) { return row && row.name; });
+}
+
+const MAX_STORAGE_SCAN_DEPTH = 8;
+
+/** Recursively walk storage prefixes to discover nested bundle files (.docx, .pdf, etc.). */
+async function listStorageObjectsRecursive(prefix, stats) {
+  const state = stats || { count: 0, depth: 0 };
+  if (!prefix || state.depth > MAX_STORAGE_SCAN_DEPTH || state.count >= 500) return [];
+
+  const base = String(prefix).replace(/^\/+|\/+$/g, '');
+  const rows = await listStorageObjects(base ? base + '/' : '', 200);
+  const files = [];
+  const folderPromises = [];
+
+  rows.forEach(function (row) {
+    const name = String(row.name || '');
+    if (!name) return;
+    const fullPath = base ? base + '/' + name : name;
+    if (name.endsWith('/')) {
+      folderPromises.push(
+        listStorageObjectsRecursive(fullPath.replace(/\/$/, ''), {
+          count: state.count,
+          depth: state.depth + 1,
+        }).then(function (nested) {
+          nested.forEach(function (p) { files.push(p); });
+        })
+      );
+      return;
+    }
+    if (row.id === null && !isIndexableFileName(name)) {
+      folderPromises.push(
+        listStorageObjectsRecursive(fullPath, {
+          count: state.count,
+          depth: state.depth + 1,
+        }).then(function (nested) {
+          nested.forEach(function (p) { files.push(p); });
+        })
+      );
+      return;
+    }
+    state.count += 1;
+    files.push(fullPath);
+  });
+
+  await Promise.all(folderPromises);
+  return files;
 }
 
 async function discoverBundleStoragePaths(gradeId, topic, knownPaths) {
   const paths = new Set((knownPaths || []).filter(Boolean));
   const gradePrefix = 'community/' + String(gradeId) + '/';
-  const listed = await listStorageObjects(gradePrefix, 300);
+  const listed = await listStorageObjectsRecursive(gradePrefix.replace(/\/$/, ''));
   listed.forEach(function (path) { paths.add(path); });
 
   const topicKey = String(topic || '').trim().toLowerCase();
-  if (topicKey) {
+  const topicTerms = topicKey ? [topicKey] : [];
+  if (topicKey.length >= 3) topicTerms.push(topicKey.slice(0, Math.min(8, topicKey.length)));
+
+  if (topicTerms.length) {
     listed.forEach(function (path) {
+      const pathLower = String(path).toLowerCase();
       const segments = String(path).split('/');
-      const fileName = segments[segments.length - 1] || '';
-      if (fileName && fileName.toLowerCase().indexOf(topicKey.slice(0, Math.min(8, topicKey.length))) >= 0) {
-        paths.add(path);
-      }
+      const fileName = (segments[segments.length - 1] || '').toLowerCase();
+      const matched = topicTerms.some(function (term) {
+        return term && (pathLower.indexOf(term) >= 0 || fileName.indexOf(term) >= 0);
+      });
+      if (matched) paths.add(path);
     });
   }
 

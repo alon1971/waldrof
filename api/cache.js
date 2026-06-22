@@ -14,6 +14,7 @@ const jsonRepair = require('./json-repair');
 const archiveCoerce = require('../archive-coerce');
 const communitySemanticMatch = require('./community-semantic-match');
 const catalogTopics = require('./catalog-topics');
+const communityFolderBrief = require('./community-folder-brief');
 const driveCatalogSync = require('./drive-catalog-sync');
 const enrichmentLinks = require('./enrichment-links');
 
@@ -2383,6 +2384,35 @@ function resolveInheritedCatalogTopicFromRow(row) {
   return '';
 }
 
+function parseTaggedCommunityNote(notes, tag) {
+  const m = String(notes || '').match(new RegExp('\\[' + tag + ':([^\\]]+)\\]'));
+  return m ? m[1].trim() : '';
+}
+
+function extractNestedCommunityPathLabels(row) {
+  const parts = [];
+  const filePath = String((row && row.file_path) || '').trim();
+  if (filePath) {
+    filePath.split('/').forEach(function (seg) {
+      const cleaned = String(seg || '').trim();
+      if (cleaned && cleaned !== 'community') parts.push(cleaned);
+    });
+  }
+  const notes = (row && (row.notes || row.description)) || '';
+  const drivePath = parseTaggedCommunityNote(notes, 'drivePath');
+  if (drivePath) {
+    drivePath.split('/').forEach(function (seg) {
+      const cleaned = String(seg || '').trim();
+      if (cleaned) parts.push(cleaned);
+    });
+  }
+  const subfolder = parseTaggedCommunityNote(notes, 'subfolder');
+  if (subfolder) parts.push(subfolder);
+  const catalogTopic = parseTaggedCommunityNote(notes, 'catalogTopic');
+  if (catalogTopic) parts.push(catalogTopic);
+  return parts.filter(Boolean).join(' ');
+}
+
 function formatCommunityMaterialRow(row) {
   const notes = row.notes || row.description || '';
   const parsedTitle = parseCommunityTitleFromNotes(notes);
@@ -2391,10 +2421,12 @@ function formatCommunityMaterialRow(row) {
   const inheritedTopic = resolveInheritedCatalogTopicFromRow(row);
   const catalogTopic = inheritedTopic || rowTopic;
   const topic = catalogTopic || rowTopic;
+  const filePath = String(row.file_path || '').trim();
+  const pathLabels = extractNestedCommunityPathLabels(row);
   return {
     id: row.id || null,
     source: 'catalog',
-    title: parsedTitle || topic || 'חומר קהילתי',
+    title: parsedTitle || row.file_name || topic || 'חומר קהילתי',
     topic: topic,
     subject: topic,
     catalogTopic: catalogTopic,
@@ -2403,6 +2435,9 @@ function formatCommunityMaterialRow(row) {
     description: description,
     gradeId: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : null),
     fileName: row.file_name || '',
+    filePath: filePath,
+    pathLabels: pathLabels,
+    drivePath: parseTaggedCommunityNote(notes, 'drivePath'),
     fileUrl: resolveCommunityFileUrlFromRow(row),
     similarity: 0,
   };
@@ -2509,6 +2544,13 @@ function scoreCommunityHitSimilarity(query, hit) {
     hit.subject,
     hit.description,
     hit.contentPreview,
+    hit.fileName,
+    hit.filePath,
+    hit.pathLabels,
+    hit.drivePath,
+    hit.subfolderTopic,
+    hit.catalogTopic,
+    hit.bundleTopic,
   ].filter(Boolean);
   let best = 0;
   candidates.forEach(function (candidate) {
@@ -2516,6 +2558,32 @@ function scoreCommunityHitSimilarity(query, hit) {
     if (score > best) best = score;
   });
   return best;
+}
+
+async function recursiveDeepScanCommunityRows(gradeId) {
+  const broad = await Promise.all([
+    fetchCommunityMaterialRows(gradeId, '', false, { limit: 300 }),
+    fetchCommunityKnowledgeRows(gradeId, '', false, { limit: 300 }),
+  ]);
+  return {
+    materialRows: broad[0],
+    kbRows: broad[1],
+  };
+}
+
+function attachCommunityFolderBriefToResult(result, opts) {
+  if (!result || opts.includeFolderBrief === false) return result;
+  const query = String(opts.userMessage || opts.query || result.query || '').trim();
+  if (!query || !result.count) return result;
+  const brief = communityFolderBrief.tryBuildCommunityFolderBrief(
+    { userMessage: query, phase: opts.phase || '' },
+    result
+  );
+  if (brief) {
+    result.folderBrief = brief;
+    result.matchMethod = result.matchMethod || 'folder_brief';
+  }
+  return result;
 }
 
 function dedupeCommunityHits(hits) {
@@ -2533,13 +2601,21 @@ function dedupeCommunityHits(hits) {
   return out;
 }
 
-function buildCommunityHitHaystack(hit) {
+function buildCommunityHitHaystack(hit, row) {
   const aliasTerms = catalogTopics.expandCatalogTopicAliases([
     hit.catalogTopic,
     hit.bundleTopic,
     hit.topic,
     hit.subfolderTopic,
+    hit.fileName,
+    hit.pathLabels,
   ]);
+  const pathBits = [];
+  if (hit.filePath) pathBits.push(hit.filePath);
+  if (hit.drivePath) pathBits.push(hit.drivePath);
+  if (hit.pathLabels) pathBits.push(hit.pathLabels);
+  if (hit.internalFileName) pathBits.push(hit.internalFileName);
+  if (row && row.content) pathBits.push(String(row.content).slice(0, 4000));
   return [
     hit.displayTitle,
     hit.title,
@@ -2548,9 +2624,11 @@ function buildCommunityHitHaystack(hit) {
     hit.catalogTopic,
     hit.bundleTopic,
     hit.subfolderTopic,
+    hit.fileName,
     aliasTerms.join(' '),
     hit.description,
     hit.contentPreview,
+    pathBits.join(' '),
   ].filter(Boolean).join(' ');
 }
 
@@ -2564,7 +2642,7 @@ function keywordSubstringMatchCommunity(query, materialRows, kbRows, options) {
 
   (materialRows || []).forEach(function (row) {
     const hit = formatCommunityMaterialRow(row);
-    const haystack = stableNormalize(buildCommunityHitHaystack(hit));
+    const haystack = stableNormalize(buildCommunityHitHaystack(hit, row));
     if (!haystack) return;
     const matched = terms.some(function (term) {
       const normalizedTerm = stableNormalize(term);
@@ -2572,14 +2650,23 @@ function keywordSubstringMatchCommunity(query, materialRows, kbRows, options) {
     });
     if (matched) {
       hit.similarity = 0.88;
-      hit.matchType = 'keyword_substring';
+      const pathHit = terms.some(function (term) {
+        const normalizedTerm = stableNormalize(term);
+        return normalizedTerm.length >= 2
+          && stableNormalize(hit.pathLabels || '').indexOf(normalizedTerm) >= 0;
+      });
+      hit.matchType = pathHit ? 'nested_path_match' : 'keyword_substring';
+      if (pathHit && hit.catalogTopic) {
+        hit.matchedInBundle = true;
+        hit.alertText = 'נמצא חומר רלוונטי בתוך התיקייה «' + hit.catalogTopic + '» במאגר הקהילתי!';
+      }
       hits.push(hit);
     }
   });
 
   (kbRows || []).forEach(function (row) {
     const hit = scoreCommunityKnowledgeHit(query, row);
-    const haystack = stableNormalize(buildCommunityHitHaystack(hit));
+    const haystack = stableNormalize(buildCommunityHitHaystack(hit, row));
     if (!haystack) return;
     const matched = terms.some(function (term) {
       const normalizedTerm = stableNormalize(term);
@@ -2587,7 +2674,7 @@ function keywordSubstringMatchCommunity(query, materialRows, kbRows, options) {
     });
     if (matched) {
       hit.similarity = Math.max(hit.similarity || 0, 0.88);
-      hit.matchType = 'keyword_substring';
+      hit.matchType = hit.matchedInBundle ? 'nested_in_bundle' : 'keyword_substring';
       hits.push(hit);
     }
   });
@@ -2715,13 +2802,14 @@ function pickBestCommunityHits(materialRows, kbRows, query, options) {
     .slice(0, limit);
 }
 
-async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
+async function fetchCommunityMaterialRows(gradeId, query, withTermFilter, options) {
   if (!isSupabaseCacheEnabled()) return [];
+  const opts = options || {};
 
   const params = new URLSearchParams();
   params.set('select', 'id,grade_level,topic,file_path,file_name,notes,created_at');
   params.set('order', 'created_at.desc');
-  params.set('limit', '48');
+  params.set('limit', String(opts.limit || (withTermFilter ? 48 : 200)));
   if (gradeId) params.set('grade_level', 'eq.' + gradeId);
 
   if (withTermFilter) {
@@ -2732,6 +2820,7 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter) {
         orParts.push('topic.ilike.*' + term + '*');
         orParts.push('file_name.ilike.*' + term + '*');
         orParts.push('notes.ilike.*' + term + '*');
+        orParts.push('file_path.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');
     }
@@ -2782,8 +2871,9 @@ async function enrichKnowledgeRowsWithBundleMaterials(rows) {
   });
 }
 
-async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
+async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter, options) {
   if (!isSupabaseCacheEnabled()) return [];
+  const opts = options || {};
 
   const params = new URLSearchParams();
   params.set(
@@ -2791,7 +2881,7 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
     'id,title,topic,content,file_path,file_name,source_material_id,contributor_name,grade_id,metadata,created_at'
   );
   params.set('order', 'created_at.desc');
-  params.set('limit', '64');
+  params.set('limit', String(opts.limit || (withTermFilter ? 64 : 200)));
   if (gradeId) params.set('grade_id', 'eq.' + gradeId);
 
   if (withTermFilter) {
@@ -2802,6 +2892,8 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter) {
         orParts.push('title.ilike.*' + term + '*');
         orParts.push('topic.ilike.*' + term + '*');
         orParts.push('content.ilike.*' + term + '*');
+        orParts.push('file_path.ilike.*' + term + '*');
+        orParts.push('file_name.ilike.*' + term + '*');
       });
       params.set('or', '(' + orParts.join(',') + ')');
     }
@@ -3041,7 +3133,33 @@ async function findCommunityMaterials(options) {
     });
     if (substringHits.length) {
       matches = substringHits;
-      matchMethod = 'keyword_substring';
+      matchMethod = substringHits[0].matchType === 'nested_path_match'
+        ? 'recursive_deep_scan'
+        : 'keyword_substring';
+    }
+  }
+
+  if (!matches.length && opts.recursiveDeepScan !== false && isSupabaseCacheEnabled()) {
+    try {
+      const deepRows = await recursiveDeepScanCommunityRows(
+        opts.globalScan === true ? '' : gradeId
+      );
+      if (deepRows.materialRows.length || deepRows.kbRows.length) {
+        const deepHits = keywordSubstringMatchCommunity(
+          query,
+          deepRows.materialRows,
+          deepRows.kbRows,
+          { limit: opts.limit || 8 }
+        );
+        if (deepHits.length) {
+          matches = deepHits;
+          matchMethod = 'recursive_deep_scan';
+          materialRows = deepRows.materialRows;
+          kbRows = deepRows.kbRows;
+        }
+      }
+    } catch (deepErr) {
+      console.warn('[community] recursive deep scan failed:', deepErr.message || deepErr);
     }
   }
 
@@ -3060,12 +3178,13 @@ async function findCommunityMaterials(options) {
     }
   }
 
-  return {
+  const result = {
     matches: matches.map(withCatalogNavigationFields),
     count: matches.length,
     query: query,
     matchMethod: matches.length ? matchMethod : 'none',
   };
+  return attachCommunityFolderBriefToResult(result, opts);
 }
 
 module.exports = {

@@ -163,14 +163,6 @@ function clearCommunityArchiveContextForExpansion(body) {
 
 function resolveChatPromptMode(body) {
   if (shouldTreatChatAsPedagogicalExpansion(body)) return 'expansion';
-  if (
-    body &&
-    body.communityMaterialsProbe &&
-    body.communityMaterialsProbe.count > 0 &&
-    body.communityMaterialsProbe.matchMethod !== 'skipped_expansion'
-  ) {
-    return 'community_match';
-  }
   return 'gemini_kb';
 }
 
@@ -221,23 +213,11 @@ function pedagogicalChatSystemPrompt(extra, mode, options) {
     );
   }
 
-  if (mode === 'community_match') {
-    return (
-      baseRole +
-      'COMMUNITY ARCHIVE MATCH: A verified community file matched this question. ' +
-      'Mention the matched title and grade naturally in professional prose — do NOT use formulaic celebration greetings ' +
-      '(no «הרווחת!», no «מצאנו במאגר», no catalog redirect boilerplate). ' +
-      'Enrich from matched title/subject/description metadata — never paste raw URLs. ' +
-      STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
-      PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
-      sharedTail
-    );
-  }
-
   return (
     baseRole +
-    'No direct community archive match for this question. Answer from your native pedagogical knowledge base with practical insights and book/article recommendations. ' +
-    'Open with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '» and give practical Waldorf guidance — never fake bold citations or structured placeholders. ' +
+    'Answer from your native Waldorf pedagogical knowledge base with practical insights and book/article recommendations. ' +
+    'Give clear, professional guidance — never mention community archive, מאגר, folder counts, or catalog redirects. ' +
+    'Never fake bold citations or structured placeholders. ' +
     STEINER_ANTHROPOSOPHIC_FIDELITY_INSTRUCTION +
     PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION +
     sharedTail
@@ -506,7 +486,6 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
   const promptMode = resolveChatPromptMode(body);
   const effectivePromptMode = chatContinuation && promptMode !== 'expansion' ? 'continuation' : promptMode;
   const gradeDecoupled = isChatGradeDecoupled(body, promptMode);
-  const hasCommunityMatch = promptMode === 'community_match' && isFirstTurn;
   const userMessage = String((body && body.userMessage) || '').trim();
   const inferredGradeBlock = gradeDecoupled && userMessage
     ? pedagogicalScope.buildChatInferredGradeBlock(userMessage)
@@ -530,10 +509,8 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
     expansionRequest || chatContinuation
       ? ' PEDAGOGICAL CHAT — CONTINUATION: Jump directly into pedagogical content. ' +
         'Do NOT repeat archive greetings, community-match openings, catalog redirects, or database status.'
-      : hasCommunityMatch
-      ? ' PEDAGOGICAL CHAT — COMMUNITY ARCHIVE MATCH (FIRST REPLY ONLY): You may mention the matched community file once. Never paste raw URLs.'
-      : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE (FIRST REPLY ONLY): No community archive match. ' +
-        'You may use the no-match opening once, then expert Waldorf guidance. No live web search.'
+      : ' PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE: Answer from your Waldorf pedagogical expertise. ' +
+        'Do NOT mention community archive, מאגר, folder counts, or catalog redirects. No live web search.'
   );
   let lastRaw = '';
 
@@ -555,7 +532,7 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
         '[chat] Gemini-only pipeline',
         expansionRequest ? '(expansion — fresh pedagogical generation)' :
         chatContinuation ? '(continuation — no archive notices)' :
-        hasCommunityMatch ? '(community archive + Gemini)' : '(Gemini knowledge base fallback)'
+        '(Gemini pedagogical knowledge base)'
       );
       raw = await callGeminiV1(systemContent, userPrompt, {
         model: GEMINI_GENERATION_MODEL,
@@ -578,12 +555,6 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
       return sanitizeChatReplyPayload(data, sanitizeOpts);
     }
     if (cacheDb.extractChatAnswerText(data)) {
-      if (hasCommunityMatch) {
-        data.chatReply = data.chatReply || {};
-        data.chatReply.routedToCommunity = true;
-        data.chatReply.communityMatchCount = body.communityMaterialsProbe.count;
-        data.chatReply.matchMethod = body.communityMaterialsProbe.matchMethod || 'none';
-      }
       return sanitizeChatReplyPayload(data, sanitizeOpts);
     }
     if (attempt >= MODEL_PARSE_MAX_ATTEMPTS) {

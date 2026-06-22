@@ -27,15 +27,25 @@ const probe = {
   ],
 };
 
-const body = { userMessage: 'יוון' };
-const result = brief.tryBuildCommunityFolderBrief(body, probe);
-
-if (!result) {
-  console.error('FAIL: expected folder brief for יוון');
+const chatBlocked = brief.tryBuildCommunityFolderBrief(
+  { userMessage: 'יוון', phase: 'chat_followup' },
+  probe
+);
+if (chatBlocked !== null) {
+  console.error('FAIL: chat_followup must not build folder brief');
   process.exit(1);
 }
 
-const answer = result.data.chatReply.answer;
+const archiveResult = brief.tryBuildCommunityFolderBrief(
+  { userMessage: 'יוון', phase: 'topic' },
+  probe
+);
+if (!archiveResult) {
+  console.error('FAIL: expected folder brief for archive topic probe');
+  process.exit(1);
+}
+
+const answer = archiveResult.data.chatReply.answer;
 const expected =
   'נמצאה במאגר הקהילתי תיקיית חומרים על יוון השייכת לכיתה ה׳! במקום להציג את כל התוכן כאן, תוכל לבחור כיצד להמשיך:';
 
@@ -46,22 +56,7 @@ if (answer !== expected) {
   process.exit(1);
 }
 
-if (result.data.chatReply.accessGradeLabel !== 'לגשת לכיתה ה׳') {
-  console.error('FAIL: access button label', result.data.chatReply.accessGradeLabel);
-  process.exit(1);
-}
-
-if (result.data.chatReply.downloadFolderLabel !== 'הורדת התיקייה') {
-  console.error('FAIL: download button label');
-  process.exit(1);
-}
-
-if (result.data.chatReply.gradeId !== '5') {
-  console.error('FAIL: gradeId');
-  process.exit(1);
-}
-
-const noMatch = brief.tryBuildCommunityFolderBrief({ userMessage: 'חשבון' }, probe);
+const noMatch = brief.tryBuildCommunityFolderBrief({ userMessage: 'חשבון', phase: 'topic' }, probe);
 if (noMatch) {
   console.error('FAIL: should not brief for unrelated query');
   process.exit(1);

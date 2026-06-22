@@ -1,5 +1,6 @@
 /**
- * Community folder brief — short chat notification + action buttons (no long Gemini prose).
+ * Community folder brief — deterministic archive notification + action buttons.
+ * Built by the community search pipeline (findCommunityMaterials), not chat short-circuit.
  */
 const catalogTopics = require('./catalog-topics');
 const cacheDb = require('./cache');
@@ -44,6 +45,8 @@ function topicFolderMatchesQuery(query, match) {
     match.bundleTopic,
     match.topic,
     match.title,
+    match.pathLabels,
+    match.fileName,
   ]);
   const qNorm = stableNormalize(query);
   if (!qNorm) return false;
@@ -70,15 +73,17 @@ function filterMatchesForInferredGrade(probe, query, gradeId) {
 }
 
 /**
- * Build a deterministic folder-brief chat payload when a community topic folder matches
- * the teacher's query and Waldorf grade inference.
+ * Build a folder-brief payload when a community topic folder matches
+ * the query and Waldorf grade inference (Community Archive search pipeline).
  */
 function tryBuildCommunityFolderBrief(body, probe) {
-  if (!body || !probe || !probe.count || !Array.isArray(probe.matches) || !probe.matches.length) {
+  if (body && body.phase === 'chat_followup') return null;
+
+  if (!probe || !probe.count || !Array.isArray(probe.matches) || !probe.matches.length) {
     return null;
   }
 
-  const query = String(body.userMessage || probe.query || '').trim();
+  const query = String((body && body.userMessage) || probe.query || '').trim();
   if (!query || query.length < 2) return null;
 
   const block = pedagogicalScope.inferTopicCurriculumBlock(query);
