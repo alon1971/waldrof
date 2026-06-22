@@ -8197,7 +8197,6 @@
         type: 'grade',
         subtype: prefix,
         title: title,
-        heading: title,
         preview: detail,
         context: 'grade-insights · ' + prefix,
       });
@@ -9347,17 +9346,75 @@
         '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel hidden" aria-live="polite"></div></div>';
     }
 
+    function normalizePedagogyDisplayText(text) {
+      return stripHtmlText(String(text || '')).replace(/\s+/g, ' ').trim();
+    }
+
+    function pedagogyDisplayTextsEqual(a, b) {
+      var left = normalizePedagogyDisplayText(a);
+      var right = normalizePedagogyDisplayText(b);
+      return !!(left && right && left === right);
+    }
+
+    function stripLeadingPedagogyTitle(preview, title) {
+      var raw = String(preview || '').trim();
+      var titleStr = String(title || '').trim();
+      if (!raw || !titleStr) return raw;
+      if (pedagogyDisplayTextsEqual(raw, titleStr)) return '';
+      if (raw.indexOf(titleStr) === 0) {
+        var rest = raw.slice(titleStr.length).replace(/^[\s:–—\-•]+/, '').trim();
+        return rest || '';
+      }
+      var boldMatch = raw.match(/^\*\*(.+?)\*\*(?:\s*[\n\r]+|\s+)([\s\S]*)$/);
+      if (boldMatch && pedagogyDisplayTextsEqual(boldMatch[1], titleStr)) {
+        return String(boldMatch[2] || '').trim();
+      }
+      return raw;
+    }
+
+    function resolvePedagogyCardDisplay(item) {
+      var suppressCardTitle = item.suppressTitle ||
+        item.subtype === 'global' ||
+        item.subtype === 'narrative' ||
+        item.subtype === 'drive';
+      var titleSource = '';
+      if (!suppressCardTitle) {
+        titleSource = String(item.heading || '').trim();
+        if (!titleSource && item.title) {
+          titleSource = String(item.title).trim();
+        }
+      }
+      var previewText = String(item.preview || '').trim();
+      if (titleSource) {
+        if (pedagogyDisplayTextsEqual(titleSource, previewText)) {
+          titleSource = '';
+        } else {
+          previewText = stripLeadingPedagogyTitle(previewText, titleSource);
+        }
+      }
+      if (!previewText && titleSource) {
+        previewText = titleSource;
+        titleSource = '';
+      }
+      return {
+        titleSource: titleSource,
+        previewText: previewText,
+      };
+    }
+
     function renderPedagogySuggestionCard(item) {
       registerPedagogyItem(item);
-      const titleHtml = item.heading
-        ? '<strong>' + escapeHtml(item.heading) + '</strong>'
-        : (item.title && item.subtype !== 'podcast' ? '<strong>' + escapeHtml(item.title) + '</strong>' : '');
+      var display = resolvePedagogyCardDisplay(item);
+      var titleHtml = display.titleSource
+        ? '<strong>' + escapeHtml(display.titleSource) + '</strong>'
+        : '';
+      var previewHtml = display.previewText ? renderAiPreview(display.previewText) : '';
       const btnLabel = expansionBtnLabel();
       return '<div class="pedagogy-suggestion-card" data-pedagogy-card="' + escapeHtml(item.id) + '">' +
         '<div class="pedagogy-suggestion-text">' +
         '<i class="fa-solid fa-lightbulb pedagogy-suggestion-icon" aria-hidden="true"></i>' +
         '<span class="pedagogy-suggestion-label">' + titleHtml +
-        (titleHtml ? '<br>' : '') + renderAiPreview(item.preview) + '</span>' +
+        (titleHtml && previewHtml ? '<br>' : '') + previewHtml + '</span>' +
         '</div>' +
         '<button type="button" class="pedagogy-deep-btn expansion-practical-btn" data-pedagogy-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(btnLabel) + '">' +
         escapeHtml(btnLabel) +
@@ -15513,7 +15570,6 @@
             type: 'inspiration',
             subtype: 'global',
             title: blockTitle,
-            heading: blockTitle,
             preview: text,
             context: d.title + ' · ' + blockTitle,
             expansion: normalizeExpansion(typeof it === 'object' ? it.expansion : null),
@@ -15544,7 +15600,7 @@
             id: buildPedagogyItemId('insp', 'narrative', ni, text),
             type: 'inspiration',
             subtype: 'narrative',
-            title: text,
+            title: text.slice(0, 120),
             preview: text,
             context: d.title,
             expansion: normalizeExpansion(typeof n === 'object' ? n.expansion : null),
@@ -15614,11 +15670,20 @@
       return s.replace(/\n{3,}/g, '\n\n').trim();
     }
 
-    function renderCurriculumDayText(text) {
+    function stripDuplicateTopicFromDayNarrative(text, topic) {
+      var raw = String(text || '').trim();
+      var topicStr = String(topic || '').trim();
+      if (!raw || !topicStr) return raw;
+      if (pedagogyDisplayTextsEqual(raw, topicStr)) return '';
+      return stripLeadingPedagogyTitle(raw, topicStr);
+    }
+
+    function renderCurriculumDayText(text, topic) {
       if (!text || !String(text).trim()) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
       }
       var cleaned = sanitizeCurriculumDayNarrative(text);
+      if (topic) cleaned = stripDuplicateTopicFromDayNarrative(cleaned, topic);
       if (!cleaned) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
       }
@@ -15857,7 +15922,7 @@
           '</span>' +
           '</div>' +
           '<div class="curriculum-card-detail px-4 py-4 space-y-3 min-w-0">' +
-          '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_content')) + '</p>' + renderCurriculumDayText(row.content) + '</div>' +
+          '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_content')) + '</p>' + renderCurriculumDayText(row.content, row.topic) + '</div>' +
           '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_art')) + '</p>' + renderCurriculumDayText(row.art) + '</div>' +
           '<div class="text-xs text-walnut/65 pt-2 border-t border-gold/20 min-w-0">' + curriculumHintHtml(row) + '</div>' +
           renderCurriculumDayEnrichment(row, 'card') +
@@ -15873,7 +15938,7 @@
         return '<tr class="day-row border-b border-gold/15" data-i="' + i + '">' +
           '<td class="curriculum-col-day px-3 py-3 text-dir-start font-bold text-burgundy align-top">' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</td>' +
           '<td class="curriculum-col-topic px-3 py-3 text-dir-start font-medium align-top leading-snug">' + escapeHtml(row.topic) + '</td>' +
-          '<td class="curriculum-col-content px-3 py-3 text-dir-start align-top">' + renderCurriculumDayText(row.content) + '</td>' +
+          '<td class="curriculum-col-content px-3 py-3 text-dir-start align-top">' + renderCurriculumDayText(row.content, row.topic) + '</td>' +
           '<td class="curriculum-col-art px-3 py-3 text-dir-start align-top">' + renderCurriculumDayText(row.art) + '</td></tr>' +
           '<tr class="day-detail bg-sage/5" data-d="' + i + '"><td colspan="4" class="px-4 py-3 text-dir-start curriculum-day-enrich-cell">' +
           '<div class="curriculum-day-footer">' +
