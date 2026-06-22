@@ -254,6 +254,17 @@
     };
   }
 
+  function isPedagogicalScopeOverridden(body) {
+    body = body || {};
+    return body.pedagogicalScopeOverride === true || body.pedagogicalScopeOverride === 'true';
+  }
+
+  /** Block Pinterest/article queries only on soft mismatch — teacher override bypasses. */
+  function shouldBlockGradeTopicScope(gradeId, topicText, body) {
+    if (isPedagogicalScopeOverridden(body)) return false;
+    return !!validateGradeTopicScope(gradeId, topicText);
+  }
+
   function hasMismatchedGradeInText(text, body) {
     var active = activeGradeNumber(body);
     if (!active) return false;
@@ -350,11 +361,11 @@
   /**
    * Three physically distinct Pinterest phrases — topic position differs per variant.
    */
-  function generatePinterestQueries(grade, topic) {
+  function generatePinterestQueries(grade, topic, body) {
     var gradeId = String(grade || '').trim();
     var topicStr = normalizeTopicKey(topic);
     if (!topicStr || !gradeId) return [];
-    if (validateGradeTopicScope(gradeId, topicStr)) return [];
+    if (shouldBlockGradeTopicScope(gradeId, topicStr, body)) return [];
 
     var englishTopic = resolveEnglishTopic(topicStr);
     var phrases = [
@@ -409,9 +420,9 @@
     var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
     var topicStr = String(topic || rawPin || '').trim();
     if (!topicStr || !gradeId) return '';
-    if (validateGradeTopicScope(gradeId, topicStr)) return '';
+    if (shouldBlockGradeTopicScope(gradeId, topicStr, body)) return '';
 
-    var urls = generatePinterestQueries(gradeId, topicStr);
+    var urls = generatePinterestQueries(gradeId, topicStr, body);
     if (!urls.length) return '';
     try {
       return decodeURIComponent(urls[0].split('q=')[1] || '');
@@ -436,11 +447,11 @@
     var topicStr = String(topic || body.topic || '').trim();
     var gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
     if (!topicStr || !gradeId) return [];
-    if (validateGradeTopicScope(gradeId, topicStr)) return [];
+    if (shouldBlockGradeTopicScope(gradeId, topicStr, body)) return [];
 
     var display = extractTopicProfile(topicStr).displayHe || topicStr;
     var boardTitles = ['נושא התקופה', 'מחברת תקופה', 'ציור גיר על לוח'];
-    return generatePinterestQueries(gradeId, topicStr).map(function (url, i) {
+    return generatePinterestQueries(gradeId, topicStr, body).map(function (url, i) {
       var pin = '';
       try { pin = decodeURIComponent(url.split('q=')[1] || ''); } catch (e) { pin = ''; }
       return {
@@ -492,7 +503,7 @@
     if (!item || typeof item !== 'object') return null;
     var topicStr = String(topic || (body && body.topic) || '').trim();
     var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
-    if (gradeId && validateGradeTopicScope(gradeId, topicStr)) return null;
+    if (gradeId && shouldBlockGradeTopicScope(gradeId, topicStr, body)) return null;
 
     var pin = '';
     var url = String(item.url || '').trim();
@@ -501,7 +512,7 @@
     } else {
       pin = String(item.pin || item.title || '').trim();
       if (!pin && gradeId) {
-        var variants = generatePinterestQueries(gradeId, topicStr);
+        var variants = generatePinterestQueries(gradeId, topicStr, body);
         var pick = variants[Math.abs(stableNormalize(item.board + item.title).length) % Math.max(variants.length, 1)];
         if (pick) {
           url = pick;
@@ -513,7 +524,7 @@
 
     if (!pin || !pinContainsTopicFocus(pin, topicStr)) {
       if (!gradeId) return null;
-      var fallbackUrls = generatePinterestQueries(gradeId, topicStr);
+      var fallbackUrls = generatePinterestQueries(gradeId, topicStr, body);
       var idx = Math.abs(stableNormalize(pinterestItemText(item)).length) % Math.max(fallbackUrls.length, 1);
       if (fallbackUrls[idx]) {
         url = fallbackUrls[idx];
@@ -538,7 +549,7 @@
     maxItems = maxItems != null ? maxItems : 4;
     var topic = String((body && body.topic) || '').trim();
     var gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
-    if (gradeId && validateGradeTopicScope(gradeId, topic)) return [];
+    if (gradeId && shouldBlockGradeTopicScope(gradeId, topic, body)) return [];
 
     var seen = Object.create(null);
     var out = [];
@@ -606,6 +617,8 @@
     generateArticleQueries: generateArticleQueries,
     buildOpenArticleSearchQuery: buildOpenArticleSearchQuery,
     validateGradeTopicScope: validateGradeTopicScope,
+    isPedagogicalScopeOverridden: isPedagogicalScopeOverridden,
+    shouldBlockGradeTopicScope: shouldBlockGradeTopicScope,
     findCurriculumBlockForTopic: findCurriculumBlockForTopic,
     extractTopicProfile: extractTopicProfile,
     translateTopicToEnglish: translateTopicToEnglish,

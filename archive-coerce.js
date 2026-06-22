@@ -63,6 +63,76 @@
   var DAY_HEADER_RE = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:(?:יום|יום\s*מס['\u2019]?|Day|DAY)\s*[#:.\-–—]?\s*)(\d{1,2})\b/gi;
   var NUMBERED_DAY_RE = /(?:^|\n)\s*(\d{1,2})\s*[.):\-–—]\s+/g;
 
+  function isPinterestUrl(url) {
+    return /pinterest\.com/i.test(String(url || ''));
+  }
+
+  function filterPinterestGalleryItem(item) {
+    if (!item || typeof item !== 'object') return null;
+    var copy = Object.assign({}, item);
+    var url = String(copy.url || '').trim();
+    var src = String(copy.src || '').trim();
+    var pin = String(copy.pin || '').trim();
+    if (src && !isPinterestUrl(src)) copy.src = '';
+    if (url && !isPinterestUrl(url)) {
+      delete copy.url;
+    }
+    if (copy.url && isPinterestUrl(copy.url)) return copy;
+    if (pin) return copy;
+    return null;
+  }
+
+  function filterPinterestLinkItem(item) {
+    if (!item || typeof item !== 'object') return null;
+    var url = String(item.url || item.link || item.href || '').trim();
+    if (!isPinterestUrl(url)) return null;
+    return Object.assign({}, item, { url: url });
+  }
+
+  /** Strip legacy non-Pinterest links from archived payloads; keep valid pinterest.com URLs. */
+  function stripNonPinterestLinksFromArchiveData(data) {
+    if (!data || typeof data !== 'object') return data;
+
+    function wipeArray(obj, key) {
+      if (Array.isArray(obj[key]) && obj[key].length) obj[key] = [];
+    }
+
+    wipeArray(data, 'pedagogicalResources');
+    wipeArray(data, 'waldorfWebResources');
+
+    if (data.blockPlan && typeof data.blockPlan === 'object') {
+      wipeArray(data.blockPlan, 'pedagogicalResources');
+      if (data.blockPlan.inspiration && typeof data.blockPlan.inspiration === 'object') {
+        wipeArray(data.blockPlan.inspiration, 'pedagogicalResources');
+      }
+    }
+
+    if (data.enrichment_links && typeof data.enrichment_links === 'object') {
+      wipeArray(data.enrichment_links, 'article_links');
+      if (Array.isArray(data.enrichment_links.pinterest_links)) {
+        data.enrichment_links.pinterest_links = data.enrichment_links.pinterest_links
+          .map(filterPinterestLinkItem)
+          .filter(Boolean);
+      }
+    } else if (data.enrichment_links != null) {
+      data.enrichment_links = { pinterest_links: [], article_links: [] };
+    }
+
+    ['gallery', 'visualGallery'].forEach(function (key) {
+      if (!Array.isArray(data[key])) return;
+      data[key] = data[key].map(filterPinterestGalleryItem).filter(Boolean);
+    });
+
+    if (data.webResearch && typeof data.webResearch === 'object' && Array.isArray(data.webResearch.citations)) {
+      data.webResearch.citations = data.webResearch.citations.filter(isPinterestUrl);
+    }
+    if (data.blockPlan && Array.isArray(data.blockPlan.citations)) {
+      data.blockPlan.citations = data.blockPlan.citations.filter(isPinterestUrl);
+    }
+
+    return data;
+  }
+
   function tryParseCachedJsonText(text) {
     var trimmed = String(text || '').trim();
     if (!trimmed) return null;
@@ -461,7 +531,7 @@
       data.pedagogicalResources = data.waldorfWebResources;
     }
 
-    return data;
+    return stripNonPinterestLinksFromArchiveData(data);
   }
 
   return {
@@ -476,5 +546,6 @@
     looksLikeCurriculumText: looksLikeCurriculumText,
     parseCurriculumFromText: parseCurriculumFromText,
     tryParseArchiveJsonObject: tryParseArchiveJsonObject,
+    stripNonPinterestLinksFromArchiveData: stripNonPinterestLinksFromArchiveData,
   };
 }));

@@ -29,6 +29,8 @@ const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
 const waldorfWebSeed = require('../waldorf-web-seed');
+const enrichmentLinksApi = require('./enrichment-links');
+const geminiEnrichment = require('./gemini-enrichment');
 const waldorfQueryGen = require('../waldorf-query-generation');
 const archiveCoerce = require('../archive-coerce');
 
@@ -318,30 +320,23 @@ const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
   'blockPlan.sources (books/articles/websites) remains name-only — NO url fields there.\n' +
   '=== END WALDORF PEDAGOGICAL WEB RESOURCES ===\n';
 
-const ENRICHMENT_LINKS_MAX = waldorfQueryGen.ENRICHMENT_LINKS_MAX;
+const ENRICHMENT_LINKS_MAX = enrichmentLinksApi.ENRICHMENT_LINKS_MAX;
 
-const ENRICHMENT_LINKS_REALTIME_INSTRUCTION =
-  '\n=== ENRICHMENT LINKS — REAL-TIME OPEN WEB (MANDATORY) ===\n' +
-  'Pinterest links are built dynamically from currentGrade + block topic (Waldorf Class N {englishTopic}).\n' +
-  'Article links come ONLY from live Perplexity Sonar search citations — never from hardcoded domains, site: operators, or model memory.\n' +
-  'If live search returns no verified non-Pinterest URLs, article_links and pedagogicalResources stay empty.\n' +
-  'FORBIDDEN: זומר, אלישיב, אדם עולם, פורום וולדורף, site-restricted Google searches, fabricated paths, filler links.\n' +
-  '=== END ENRICHMENT LINKS — REAL-TIME OPEN WEB ===\n';
+const ENRICHMENT_LINKS_GEMINI_SEARCH_INSTRUCTION =
+  '\n=== ENRICHMENT LINKS — GEMINI LIVE SEARCH (MANDATORY) ===\n' +
+  'enrichment_links are assembled server-side via Gemini Google Search from dynamic topic + grade queries.\n' +
+  'Article URLs must come from verified live search only — no hardcoded domains, site: operators, or model memory.\n' +
+  'If search finds no verified URLs, article_links stays empty. Pinterest links are built dynamically from topic + grade.\n' +
+  '=== END ENRICHMENT LINKS — GEMINI LIVE SEARCH ===\n';
 
 const PERPLEXITY_PHASE_C_INSPIRATION_NO_LINKS_INSTRUCTION =
   '\n=== PHASE C INSPIRATION — PERPLEXITY TEXT SYNTHESIS ONLY (NO LINK GENERATION) ===\n' +
-  'enrichment_links and pedagogicalResources are assembled server-side from live Pinterest queries + Perplexity citations — do NOT include them in this response.\n' +
+  'enrichment_links and pedagogicalResources are assembled server-side by Gemini live search — do NOT include them in this response.\n' +
   'Do NOT copy, transform, or merge Perplexity citation URLs into any link array.\n' +
   'FORBIDDEN: enrichment_links, pedagogicalResources, any https:// URLs (gallery.src must stay empty; pin = English phrase only).\n' +
   '=== END PHASE C INSPIRATION — PERPLEXITY TEXT SYNTHESIS ===\n';
 
-const PEDAGOGICAL_RESOURCE_LABELS = [
-  'מאמר פדגוגי',
-  'מערך שיעור מאתר בית ספר',
-  'מקור וולדורף רשמי',
-  'כתב עת פדגוגי',
-  'מדריך תקופה וולדורפית',
-];
+const PEDAGOGICAL_RESOURCE_LABELS = enrichmentLinksApi.PEDAGOGICAL_RESOURCE_LABELS;
 
 const PINTEREST_MAX_GALLERY_ITEMS = waldorfQueryGen.PINTEREST_MAX_GALLERY_ITEMS;
 
@@ -390,16 +385,7 @@ function normalizePedagogicalResourceItem(item, body) {
   let label = String(item.label || item.type || item.category || '').trim();
   if (!PEDAGOGICAL_RESOURCE_LABELS.includes(label)) label = meta.label;
   const title = sanitizePedagogicalText(String(item.title || item.name || meta.source || '').trim());
-  let snippet = sanitizePedagogicalText(String(item.snippet || item.description || item.summary || '').trim());
-  if (topic && snippet && !waldorfWebSeed.looksLikeVerifiedDeepLink(url)) {
-    const topicLc = topic.toLowerCase();
-    const blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
-    if (blob.indexOf('waldorf') === -1 && blob.indexOf('וולדורף') === -1 &&
-        blob.indexOf('ולדורף') === -1 && blob.indexOf('אנתרופוסופ') === -1 &&
-        blob.indexOf(topicLc) === -1 && topicLc.length > 3) {
-      return null;
-    }
-  }
+  const snippet = sanitizePedagogicalText(String(item.snippet || item.description || item.summary || '').trim());
   return {
     title: title || meta.source,
     url: url,
@@ -426,57 +412,7 @@ function isValidPinterestSearchUrl(url) {
   return waldorfQueryGen.isValidPinterestSearchUrl(url);
 }
 
-function buildDynamicPinterestEnrichmentLinks(body) {
-  const topic = String((body && body.topic) || '').trim();
-  const stubs = waldorfQueryGen.buildPinterestGalleryForTopic(topic, body || {});
-  return stubs.slice(0, ENRICHMENT_LINKS_MAX).map(function (item) {
-    return {
-      title: item.title,
-      url: item.url,
-      query: item.pin,
-      pin: item.pin,
-      board: item.board,
-    };
-  });
-}
-
-function buildArticleLinksFromPerplexityCitations(citations, body) {
-  const seen = Object.create(null);
-  const out = [];
-  (Array.isArray(citations) ? citations : []).forEach(function (rawUrl) {
-    const u = String(rawUrl || '').trim();
-    if (!/^https?:\/\//i.test(u)) return;
-    if (waldorfQueryGen.isPinterestUrl(u)) return;
-    const meta = inferPedagogicalResourceMeta(u);
-    const norm = normalizePedagogicalResourceItem({
-      url: u,
-      title: meta.source,
-      _fromCitation: true,
-    }, body);
-    if (!norm || seen[norm.url]) return;
-    seen[norm.url] = true;
-    out.push({
-      title: norm.title,
-      url: norm.url,
-      source: norm.source,
-      label: norm.label,
-      snippet: norm.snippet,
-    });
-  });
-  return out.slice(0, ENRICHMENT_LINKS_MAX);
-}
-
-function fetchRealtimeEnrichmentLinks(body, rawPayload) {
-  const pinterest_links = buildDynamicPinterestEnrichmentLinks(body);
-  const citations = rawPayload && Array.isArray(rawPayload.citations) ? rawPayload.citations : [];
-  const article_links = buildArticleLinksFromPerplexityCitations(citations, body);
-  return normalizeEnrichmentLinks({
-    pinterest_links: pinterest_links,
-    article_links: article_links,
-  }, body, { geminiOnly: false });
-}
-
-async function attachRealtimeEnrichmentLinks(data, body, rawPayload) {
+async function attachGeminiEnrichmentLinks(data, body) {
   if (!data || typeof data !== 'object') return data;
   if (resolvePhaseCTab(body) !== 'inspiration') return data;
 
@@ -484,14 +420,15 @@ async function attachRealtimeEnrichmentLinks(data, body, rawPayload) {
   delete data.pedagogicalResources;
 
   try {
-    console.log('[enrichment] real-time pipeline: dynamic Pinterest + Perplexity citations');
-    data.enrichment_links = fetchRealtimeEnrichmentLinks(body, rawPayload);
+    console.log('[enrichment] Gemini Google Search pipeline for topic+grade');
+    const links = await geminiEnrichment.fetchGeminiEnrichmentLinks(body);
+    data.enrichment_links = normalizeEnrichmentLinks(links, body, { geminiSearch: true });
     if (Array.isArray(data.enrichment_links.article_links) && data.enrichment_links.article_links.length) {
       data.pedagogicalResources = data.enrichment_links.article_links.slice();
     } else {
       data.pedagogicalResources = [];
     }
-    const dynamicGallery = buildDynamicPinterestEnrichmentLinks(body).map(function (item) {
+    const dynamicGallery = (data.enrichment_links.pinterest_links || []).map(function (item) {
       return {
         board: item.board || item.title,
         title: item.title,
@@ -504,22 +441,21 @@ async function attachRealtimeEnrichmentLinks(data, body, rawPayload) {
     data.gallery = sanitizePinterestGallery(data.gallery.concat(dynamicGallery), body);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn('[enrichment] real-time pipeline failed:', msg);
-    data.enrichment_links = { pinterest_links: [], article_links: [] };
+    console.warn('[enrichment] Gemini search pipeline failed:', msg);
+    data.enrichment_links = { pinterest_links: geminiEnrichment.buildDynamicPinterestLinks(body), article_links: [] };
     data.pedagogicalResources = [];
   }
 
   return data;
 }
 
-/** @deprecated Use attachRealtimeEnrichmentLinks */
-async function attachGeminiEnrichmentLinks(data, body, rawPayload) {
-  return attachRealtimeEnrichmentLinks(data, body, rawPayload);
+/** @deprecated Use attachGeminiEnrichmentLinks */
+async function attachRealtimeEnrichmentLinks(data, body) {
+  return attachGeminiEnrichmentLinks(data, body);
 }
 
-/** @deprecated Use fetchRealtimeEnrichmentLinks */
-async function fetchGeminiEnrichmentLinks(body, rawPayload) {
-  return fetchRealtimeEnrichmentLinks(body, rawPayload);
+async function fetchGeminiEnrichmentLinks(body) {
+  return geminiEnrichment.fetchGeminiEnrichmentLinks(body);
 }
 
 function normalizeEnrichmentPinterestLink(item, body, geminiOnly) {
@@ -598,7 +534,7 @@ function normalizeEnrichmentArticleLink(item, body, geminiOnly) {
 }
 
 function normalizeEnrichmentLinks(raw, body, options) {
-  const geminiOnly = Boolean(options && options.geminiOnly);
+  const geminiSearch = Boolean(options && (options.geminiSearch || options.geminiOnly));
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const seenPin = Object.create(null);
   const seenArt = Object.create(null);
@@ -606,14 +542,14 @@ function normalizeEnrichmentLinks(raw, body, options) {
   const articles = [];
 
   (Array.isArray(src.pinterest_links) ? src.pinterest_links : []).forEach(function (item) {
-    const norm = normalizeEnrichmentPinterestLink(item, body, geminiOnly);
+    const norm = normalizeEnrichmentPinterestLink(item, body, geminiSearch);
     if (!norm || seenPin[norm.url]) return;
     seenPin[norm.url] = true;
     pinterest.push(norm);
   });
 
   (Array.isArray(src.article_links) ? src.article_links : []).forEach(function (item) {
-    const norm = normalizeEnrichmentArticleLink(item, body, geminiOnly);
+    const norm = normalizeEnrichmentArticleLink(item, body, geminiSearch);
     if (!norm || seenArt[norm.url]) return;
     seenArt[norm.url] = true;
     articles.push(norm);
@@ -2446,9 +2382,7 @@ function buildPerplexitySearchSystemPrompt() {
   return (
     'You are a factual Waldorf / Steiner-Waldorf pedagogy research assistant. ' +
     'Perform live web search and return accurate, well-sourced pedagogical research in Hebrew. ' +
-    'Include HTTPS reference links for major claims. ' +
-    'Prioritize: Steiner Archive, Waldorf Library (waldorflibrary.org), AWSNA, IASWECE, rsarchive.org, Goetheanum, ' +
-    'and verified anthroposophic pedagogical sources from open web search. ' +
+    'Include HTTPS reference links for major claims from open web search results only. ' +
     'Be comprehensive — cover child development, main-lesson structure, classroom practice, and curriculum context.'
   );
 }
@@ -2891,7 +2825,7 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
     if (phase === 'phase_c' && data && !data._parseFallback) {
       data = sanitizePhaseCOutput(data, body);
       if (resolvePhaseCTab(body) === 'inspiration') {
-        data = await attachRealtimeEnrichmentLinks(data, body, rawPayload);
+        data = await attachGeminiEnrichmentLinks(data, body);
       }
     }
 
@@ -3580,7 +3514,8 @@ async function executeGenerate(body, apiKey, requestContext) {
           gradeId: body.currentGrade ?? body.gradeId,
           gradeLabel: body.gradeLabel || null,
         });
-        if (suggestion && suggestion.matchType === 'grade_mismatch' && suggestion.gradeMismatch) {
+        if (suggestion && suggestion.matchType === 'grade_mismatch' && suggestion.gradeMismatch &&
+            !pedagogicalScope.isPedagogicalScopeOverridden(body)) {
           console.log(
             '[cached_results] GRADE GUARDRAIL blocked topic search:',
             suggestion.requestedTopic || body.topic
@@ -3605,8 +3540,11 @@ async function executeGenerate(body, apiKey, requestContext) {
             if (!body.skipKnowledgeIngest) {
               knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
             }
+            const archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
+              JSON.parse(JSON.stringify(suggestion.resultData))
+            ).data;
             return {
-              data: suggestion.resultData,
+              data: archivePayload,
               meta: attachCommunityMeta({
                 fromCache: true,
                 cacheKey: suggestion.cacheKey,
@@ -3663,7 +3601,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     liveDriveRefresh: false,
   };
 
-  // Main generation: grade/topic/phase_c → Perplexity Sonar + synthesis; phase_c inspiration enrichment_links → real-time Pinterest + citations; chat → Gemini.
+  // Main generation: grade/topic/phase_c → Perplexity Sonar + synthesis; phase_c inspiration enrichment_links → Gemini Google Search; chat → Gemini.
   if (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body)) {
     body.skipRag = true;
   }
@@ -3760,7 +3698,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     (body.phase === 'phase_c'
       ? ' PHASE C — INDEPENDENT TAB («' + body.cTab + '»): Do NOT duplicate or paraphrase Phase B theory essence. Generate unique, deep tab-specific content from Perplexity research only.' +
         (resolvePhaseCTab(body) === 'inspiration'
-          ? ' enrichment_links are server-assembled from live Pinterest queries + Perplexity citations — synthesis must NOT output link arrays.'
+          ? ' enrichment_links are Gemini live-search assembled — synthesis must NOT output link arrays.'
           : '')
       : '') +
     (isOnDemandExpansion
@@ -3768,7 +3706,7 @@ async function executeGenerate(body, apiKey, requestContext) {
         ? ' ON-DEMAND AGE EXTENSION: Perplexity Sonar raw research — grade developmental framework ONLY, zero topic coupling. Independent cache route.'
         : ' ON-DEMAND TOPIC EXTENSION: Perplexity Sonar raw research — deep-dive for the single requested idea within the active block topic. Independent cache route.')
       : isDecoupledGen
-      ? ' DECOUPLED MAIN GENERATION: Perplexity Sonar research → Perplexity text synthesis. enrichment_links (phase_c inspiration) → real-time Pinterest + citation assembly. No Drive/community RAG injection.'
+      ? ' DECOUPLED MAIN GENERATION: Perplexity Sonar research → Perplexity text synthesis. enrichment_links → Gemini Google Search. No Drive/community RAG injection.'
       : isChatFollowup
       ? (isChatExpansion || chatContinuation
         ? ' PEDAGOGICAL CHAT — CONTINUATION: Jump directly into pedagogical content. ' +
@@ -4032,6 +3970,7 @@ module.exports.fetchRealtimeEnrichmentLinks = fetchRealtimeEnrichmentLinks;
 module.exports.attachRealtimeEnrichmentLinks = attachRealtimeEnrichmentLinks;
 module.exports.attachGeminiEnrichmentLinks = attachGeminiEnrichmentLinks;
 module.exports.fetchGeminiEnrichmentLinks = fetchGeminiEnrichmentLinks;
+module.exports.geminiEnrichment = geminiEnrichment;
 module.exports.isAgeExpansionRequest = isAgeExpansionRequest;
 module.exports.normalizeExpansionRequest = normalizeExpansionRequest;
 module.exports.GENERATE_ROUTE_TIMEOUT_MS = GENERATE_ROUTE_TIMEOUT_MS;

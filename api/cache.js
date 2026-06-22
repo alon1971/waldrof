@@ -15,6 +15,7 @@ const archiveCoerce = require('../archive-coerce');
 const communitySemanticMatch = require('./community-semantic-match');
 const catalogTopics = require('./catalog-topics');
 const driveCatalogSync = require('./drive-catalog-sync');
+const enrichmentLinks = require('./enrichment-links');
 
 const TABLE_NAME = 'cached_results';
 /** Phase stored in cached_results for raw Perplexity web-search payloads (hybrid pipeline). */
@@ -298,8 +299,15 @@ function setFallbackCached(cacheKey, body, resultData) {
 
 /* ── Public API ───────────────────────────────────────────────────────── */
 
+function applyArchiveLinkCleanupPolicy(data, phase) {
+  if (!data || typeof data !== 'object') return data;
+  if (phase !== 'topic' && phase !== 'phase_c') return data;
+  const cloned = cloneJsonSafe(data);
+  if (!cloned) return data;
+  return enrichmentLinks.stripNonPinterestLinksFromArchiveData(cloned).data;
+}
+
 /**
- * Parse cached result_data from Supabase without markdown/JSON repair heuristics.
  * Handles jsonb stored as a JSON string or accidental { data, meta } wrappers.
  */
 function coerceCachedResultData(raw) {
@@ -1862,6 +1870,9 @@ async function getCachedResult(body, options) {
     : cloneJsonSafe(data);
   if (body.phase === 'topic' && payload) {
     payload = coerceArchiveLessonResultData(payload) || payload;
+  }
+  if (payload && (body.phase === 'topic' || body.phase === 'phase_c')) {
+    payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
   }
   if (!payload) return null;
   return {

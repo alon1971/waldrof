@@ -7763,24 +7763,13 @@
       'מדריך תקופה וולדורפית',
     ];
 
-    var WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
-      { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
-      { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
-      { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
-      { pattern: /iaswece/i, source: 'IASWECE', label: 'מקור וולדורף רשמי' },
-      { pattern: /waldorflibrary/i, source: 'ספריית מכון המחקר הוולדורפי', label: 'מאמר פדגוגי' },
-      { pattern: /rsarchive|steinerarchive/i, source: 'Steiner Archive', label: 'מאמר פדגוגי' },
-      { pattern: /anthroposophy|אנתרופוסופיה/i, source: 'מקור אנתרופוסופי', label: 'מאמר פדגוגי' },
-      { pattern: /waldorf/i, source: 'מקור וולדורף', label: 'מקור וולדורף רשמי' },
-    ];
-
     function inferPedagogicalResourceMeta(url) {
-      var u = String(url || '');
-      for (var i = 0; i < WALDORF_PEDAGOGICAL_DOMAIN_HINTS.length; i++) {
-        var hint = WALDORF_PEDAGOGICAL_DOMAIN_HINTS[i];
-        if (hint.pattern.test(u)) return { source: hint.source, label: hint.label };
+      try {
+        var host = new URL(String(url || '')).hostname.replace(/^www\./i, '');
+        return { source: host || 'מקור רשת', label: 'מאמר פדגוגי' };
+      } catch (e) {
+        return { source: 'מקור רשת', label: 'מאמר פדגוגי' };
       }
-      return { source: 'מקור וולדורף', label: 'מאמר פדגוגי' };
     }
 
     function isWaldorfPedagogicalResourceUrl(url) {
@@ -7788,9 +7777,7 @@
         return WaldorfWebSeed.isAllowedPedagogicalUrl(url);
       }
       var u = String(url || '').trim();
-      if (!/^https?:\/\//i.test(u)) return false;
-      if (/pinterest\.|facebook\.com|instagram\.com|youtube\.com|tiktok\.com/i.test(u)) return false;
-      return WALDORF_PEDAGOGICAL_DOMAIN_HINTS.some(function (hint) { return hint.pattern.test(u); });
+      return /^https?:\/\//i.test(u) && !/pinterest\.|facebook\.com|instagram\.com|youtube\.com|tiktok\.com/i.test(u);
     }
 
     function sanitizePedagogicalResourceUrl(url, topic, context) {
@@ -7819,16 +7806,6 @@
       if (PEDAGOGICAL_RESOURCE_LABELS.indexOf(label) === -1) label = meta.label;
       var title = String(item.title || item.name || meta.source || '').trim();
       var snippet = String(item.snippet || item.description || item.summary || '').trim();
-      if (topicStr && snippet && !(typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.looksLikeVerifiedDeepLink &&
-          WaldorfWebSeed.looksLikeVerifiedDeepLink(url))) {
-        var topicLc = topicStr.toLowerCase();
-        var blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
-        if (blob.indexOf('waldorf') === -1 && blob.indexOf('וולדורף') === -1 &&
-            blob.indexOf('ולדורף') === -1 && blob.indexOf('אנתרופוסופ') === -1 &&
-            blob.indexOf(topicLc) === -1 && topicLc.length > 3) {
-          return null;
-        }
-      }
       return {
         title: title || meta.source,
         url: url,

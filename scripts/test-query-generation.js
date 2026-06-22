@@ -52,6 +52,19 @@ assert('Revolutions blocked for grade 3', qg.validateGradeTopicScope('3', 'מה�
 assert('Construction blocked for grade 8', qg.validateGradeTopicScope('8', 'בניית בית'));
 assert('Grade 3 agriculture allowed', !qg.validateGradeTopicScope('3', 'חקלאות'));
 
+// Overlapping Waldorf tracks — no scope block
+assert('Botany allowed grade 5', !qg.validateGradeTopicScope('5', 'בוטניקה'));
+assert('Botany allowed grade 6', !qg.validateGradeTopicScope('6', 'צמחים'));
+assert('Human/animal allowed grade 4', !qg.validateGradeTopicScope('4', 'אדם וחיות'));
+assert('Human/animal allowed grade 5', !qg.validateGradeTopicScope('5', 'האדם וממלכת החי'));
+assert('Physics allowed grade 6', !qg.validateGradeTopicScope('6', 'פיזיקה'));
+assert('Chemistry allowed grade 8', !qg.validateGradeTopicScope('8', 'כימיה'));
+
+// Teacher override bypasses Pinterest block
+assert('Override allows physics pinterest for grade 1', qg.buildPinterestGalleryForTopic('פיזיקה', {
+  currentGrade: '1', gradeId: '1', pedagogicalScopeOverride: true,
+}).length > 0);
+
 // Article: open web queries — no site: restrictions
 const articleUrl = qg.buildPerDomainArticleSearchUrl('example.org', 'מהפכות', 'כיתה ח');
 assert('Article URL is Google search', /^https:\/\/www\.google\.com\/search\?q=/.test(articleUrl));
