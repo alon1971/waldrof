@@ -2258,14 +2258,16 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
   ).trim());
   const content = sanitizePedagogicalText(String(
     row.content || row.story || row.lesson || row.lessonContent ||
-    row.text || row.body || row.description || row.narrative || ''
+    row.text || row.body || row.description || row.narrative ||
+    row['תוכן וסיפור'] || row.tochen || row.mainLesson || ''
   ).trim());
   const art = sanitizePedagogicalText(String(
     row.art || row.artActivity || row.craft || row.artAndCraft ||
-    row.handwork || row.artCraft || ''
+    row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || ''
   ).trim());
+  const split = archiveCoerce.splitCurriculumDayNarrativeFields(content, art);
   const hint = sanitizePedagogicalText(String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim());
-  if (!topic && !content && !art && !hint) {
+  if (!topic && !split.content && !split.art && !hint) {
     if (rawFallback) {
       return { day: day, topic: 'יום ' + day, content: rawFallback, art: '', hint: '' };
     }
@@ -2274,8 +2276,8 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
   return {
     day: day,
     topic: topic || ('יום ' + day),
-    content: content || rawFallback || '',
-    art: art,
+    content: split.content || content || rawFallback || '',
+    art: split.art || art,
     hint: hint,
     contentExpansion: row.contentExpansion && typeof row.contentExpansion === 'object' ? row.contentExpansion : undefined,
     artExpansion: row.artExpansion && typeof row.artExpansion === 'object' ? row.artExpansion : undefined,

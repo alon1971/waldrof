@@ -4317,7 +4317,7 @@
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
-  <script src="archive-coerce.js?v=20250621b"></script>
+  <script src="archive-coerce.js?v=20250622a"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -6644,18 +6644,15 @@
     }
 
     function splitCurriculumDayNarrativeFields(content, art) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields) {
+        return WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields(content, art);
+      }
       var contentStr = String(content || '').trim();
       var artStr = String(art || '').trim();
-      if (artStr || !contentStr || /<(?:div|p|ul|ol|h[1-6]|br)\b/i.test(contentStr)) {
+      if (artStr || !contentStr) {
         return { content: contentStr, art: artStr };
       }
-      var artRe = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:אמנות\s*ומעשה|אמנות(?:\s*ו?(?:מעשה|יוצרה))?|Art(?:\s*(?:&|and)\s*Craft)?|Handwork)\s*(?:\*{0,2})?\s*:?\s*\n?/i;
-      var match = artRe.exec(contentStr);
-      if (!match) return { content: contentStr, art: '' };
-      var before = contentStr.slice(0, match.index).trim();
-      var after = contentStr.slice(match.index + match[0].length).trim();
-      before = before.replace(/(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:תוכן\s*וסיפור|תוכן(?:\s*וסיפור)?|Content(?:\s*&\s*Story)?)\s*(?:\*{0,2})?\s*:?\s*\n?/i, '').trim();
-      return { content: before || contentStr, art: after };
+      return { content: contentStr, art: '' };
     }
 
     function normalizeCurriculumRow(row, index) {
@@ -7045,8 +7042,8 @@
         out.push({
           day: norm.day,
           topic: norm.topic || t('curriculum_day_short', { day: norm.day }),
-          content: ensureAiHtml(norm.content || ''),
-          art: ensureAiHtml(norm.art || ''),
+          content: norm.content || '',
+          art: norm.art || '',
           hint: norm.hint || '',
           contentExpansion: rows[i] && rows[i].contentExpansion,
           artExpansion: rows[i] && rows[i].artExpansion,
@@ -7066,8 +7063,8 @@
           return {
             day: norm.day,
             topic: norm.topic || t('curriculum_day_short', { day: norm.day }),
-            content: ensureAiHtml(norm.content || ''),
-            art: ensureAiHtml(norm.art || ''),
+            content: norm.content || '',
+            art: norm.art || '',
             hint: norm.hint || '',
             contentExpansion: norm.contentExpansion,
             artExpansion: norm.artExpansion,
@@ -7084,8 +7081,8 @@
             existing = {
               day: day,
               topic: raw.topic || t('curriculum_day_short', { day: day }),
-              content: ensureAiHtml(raw.content || ''),
-              art: ensureAiHtml(raw.art || ''),
+              content: raw.content || '',
+              art: raw.art || '',
               hint: raw.hint || '',
               contentExpansion: raw.contentExpansion,
               artExpansion: raw.artExpansion,
@@ -16032,6 +16029,12 @@
       hydrateCurriculumFromUnifiedSynthesis();
       captureCurriculumUiStateFromDom();
       readCurriculumDayFromUrl();
+      var rawFallback = String(
+        (appState.activePlan && appState.activePlan.rawContent) ||
+        (appState.webResearch && (appState.webResearch.summary || appState.webResearch.rawContent)) ||
+        extractPhaseCRawFallback({ blockPlan: appState.activePlan || appState.aiGeneratedPlan || {} }) ||
+        ''
+      ).trim();
       var plan = (appState.activePlan && appState.activePlan.curriculum) ||
         (appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum) || [];
 
@@ -16042,6 +16045,17 @@
           appState.aiGeneratedPlan.curriculum = plan;
           appState.aiGeneratedPlan.days = plan.slice();
           syncActivePlanFromGenerated();
+        }
+      }
+      if (!plan.length && rawFallback) {
+        var parsedFromRaw = parseCurriculumFromText(rawFallback);
+        if (hasMeaningfulCurriculumRows(parsedFromRaw)) {
+          plan = padCurriculumRowsToFifteen(parsedFromRaw);
+          if (appState.aiGeneratedPlan) {
+            appState.aiGeneratedPlan.curriculum = plan;
+            appState.aiGeneratedPlan.days = plan.slice();
+            syncActivePlanFromGenerated();
+          }
         }
       } else if (plan.length < 15) {
         plan = padCurriculumRowsToFifteen(plan);
@@ -16054,12 +16068,6 @@
 
       const cardsEl = document.getElementById('curriculum-cards');
       const tbody = document.getElementById('curriculum-body');
-      const rawFallback = String(
-        (appState.activePlan && appState.activePlan.rawContent) ||
-        (appState.webResearch && (appState.webResearch.summary || appState.webResearch.rawContent)) ||
-        extractPhaseCRawFallback({ blockPlan: appState.activePlan || appState.aiGeneratedPlan || {} }) ||
-        ''
-      ).trim();
 
       if (!plan.length) {
         var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
@@ -16067,16 +16075,29 @@
             ? 'Daily lesson breakdown is generated on demand. Ask the pedagogical chat assistant for a 15-day arc, or open this tab after topic research completes.'
             : 'פירוט יומי נוצר לפי דרישה. בקשו מעוזר הצ׳אט הפדגוגי קשת של 15 ימים, או פתחו לשונית זו לאחר השלמת מחקר הנושא.') +
           '</p>';
-        if (rawFallback && cardsEl) {
-          renderStructuredTextFallback(cardsEl, t('curriculum_title'), rawFallback);
-        } else {
+        if (rawFallback && (cardsEl || tbody)) {
+          var fallbackParsed = parseCurriculumFromText(rawFallback);
+          if (hasMeaningfulCurriculumRows(fallbackParsed)) {
+            plan = padCurriculumRowsToFifteen(fallbackParsed);
+          } else if (cardsEl) {
+            renderStructuredTextFallback(cardsEl, t('curriculum_title'), rawFallback);
+            if (tbody) {
+              holdPageScroll(function () {
+                tbody.innerHTML = '<tr><td colspan="4">' + formatPerplexityRawText(rawFallback) + '</td></tr>';
+              });
+            }
+            setupThemeActionButtons();
+            return;
+          }
+        }
+        if (!plan.length) {
           holdPageScroll(function () {
             if (cardsEl) cardsEl.innerHTML = emptyMsg;
             if (tbody) tbody.innerHTML = '<tr><td colspan="4">' + emptyMsg + '</td></tr>';
           });
+          setupThemeActionButtons();
+          return;
         }
-        setupThemeActionButtons();
-        return;
       }
 
       const safePlan = plan.map(function (row, i) {

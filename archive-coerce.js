@@ -178,6 +178,54 @@
     return false;
   }
 
+  function curriculumPlainForSplit(text) {
+    var s = String(text || '').trim();
+    if (!s) return '';
+    s = s.replace(/^<div[^>]*class="[^"]*prose-ai[^"]*"[^>]*>/i, '').replace(/<\/div>\s*$/i, '');
+    s = s.replace(/<br\s*\/?>/gi, '\n');
+    s = s.replace(/<\/p>\s*<p[^>]*>/gi, '\n\n');
+    s = s.replace(/<[^>]+>/g, '');
+    return s
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\u200f|\u200e/g, '')
+      .trim();
+  }
+
+  var CURRICULUM_ART_HEADER_RE = /(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:אמנות\s*ומעשה|אמנות(?:\s*ו?(?:מעשה|יוצרה))?|Art(?:\s*(?:&|and)\s*Craft)?|Handwork)\s*(?:\*{0,2})?\s*:?\s*/i;
+  var CURRICULUM_CONTENT_HEADER_RE = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:תוכן\s*וסיפור|תוכן(?:\s*וסיפור)?|Content(?:\s*&\s*Story)?)\s*(?:\*{0,2})?\s*:?\s*\n?/i;
+
+  function splitCurriculumDayNarrativeFields(content, art) {
+    var artStr = String(art || '').trim();
+    if (artStr) {
+      return { content: String(content || '').trim(), art: artStr };
+    }
+    var contentStr = String(content || '').trim();
+    if (!contentStr) return { content: '', art: '' };
+
+    var plain = curriculumPlainForSplit(contentStr);
+    if (!plain) return { content: contentStr, art: '' };
+
+    var artReLine = new RegExp('(?:^|\\n)\\s*' + CURRICULUM_ART_HEADER_RE.source, 'i');
+    var match = artReLine.exec(plain);
+    if (!match) {
+      var artReInline = new RegExp('\\s+' + CURRICULUM_ART_HEADER_RE.source, 'i');
+      match = artReInline.exec(plain);
+    }
+    if (!match) return { content: contentStr, art: '' };
+
+    var before = plain.slice(0, match.index).trim();
+    var after = plain.slice(match.index + match[0].length).trim();
+    before = before.replace(CURRICULUM_CONTENT_HEADER_RE, '').trim();
+
+    return {
+      content: before || plain,
+      art: after,
+    };
+  }
+
   function splitCurriculumChunks(raw, markers) {
     var rows = [];
     for (var i = 0; i < markers.length; i++) {
@@ -193,11 +241,13 @@
         if (lines.length > 1) content = lines.slice(1).join('\n').trim();
         else content = '';
       }
+      var body = content || chunk;
+      var split = splitCurriculumDayNarrativeFields(body, '');
       rows.push({
         day: markers[i].day,
         topic: topic || ('יום ' + markers[i].day),
-        content: content || chunk,
-        art: '',
+        content: split.content || body,
+        art: split.art || '',
         hint: '',
       });
     }
@@ -545,6 +595,8 @@
     liftArchivePhaseCFields: liftArchivePhaseCFields,
     looksLikeCurriculumText: looksLikeCurriculumText,
     parseCurriculumFromText: parseCurriculumFromText,
+    splitCurriculumDayNarrativeFields: splitCurriculumDayNarrativeFields,
+    curriculumPlainForSplit: curriculumPlainForSplit,
     tryParseArchiveJsonObject: tryParseArchiveJsonObject,
     stripNonPinterestLinksFromArchiveData: stripNonPinterestLinksFromArchiveData,
   };
