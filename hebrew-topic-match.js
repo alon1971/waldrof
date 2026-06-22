@@ -537,10 +537,10 @@
     var topic = String(topicText || '').trim() || 'נושא זה';
     var grade = String(gradeLabel || '').trim() || 'כיתה זו';
     return (
-      'The user has explicitly requested ' + topic + ' for ' + grade +
-      ', which is outside the standard curriculum. Do not hallucinate or generate irrelevant/fake placeholders. ' +
-      'Provide factual, pedagogically sound content adapted as realistically as possible for this age group, ' +
-      'or professionally guide the user on how this topic can be introduced accurately to this developmental stage without making things up.'
+      'The user has bypassed standard alignment and explicitly requested «' + topic + '» for «' + grade + '». ' +
+      'Generate the contents based strictly on this combination. ' +
+      'Do not hallucinate or generate irrelevant/fake placeholders — provide factual, pedagogically sound content ' +
+      'adapted as realistically as possible for this age group.'
     );
   }
 

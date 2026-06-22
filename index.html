@@ -5247,6 +5247,9 @@
         p.communityAutoSync = true;
         p.skipKnowledgeIngest = false;
       }
+      if (p.pedagogicalScopeOverride !== true && appState.pedagogicalScopeOverride === true) {
+        p.pedagogicalScopeOverride = true;
+      }
       return p;
     }
 
@@ -8302,7 +8305,7 @@
       return invokeWaldorfResearch({
         phase: 'topic',
         skipCache: opts.skipCache === true,
-        pedagogicalScopeOverride: opts.pedagogicalScopeOverride === true,
+        pedagogicalScopeOverride: opts.pedagogicalScopeOverride === true || appState.pedagogicalScopeOverride === true,
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
@@ -14189,12 +14192,16 @@
       try {
         const data = await fetchTopicResearchAI(topic, signal, {
           skipCache: opts.skipCache === true,
+          pedagogicalScopeOverride: opts.pedagogicalScopeOverride === true || appState.pedagogicalScopeOverride === true,
         });
         if (runId !== topicResearchRunId || signal.aborted) return;
 
         if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
           if (opts.skipCache === true || isArchiveSuggestionRejected(data._archiveSuggestion)) {
-            data = await fetchTopicResearchAI(topic, signal, { skipCache: true });
+            data = await fetchTopicResearchAI(topic, signal, {
+              skipCache: true,
+              pedagogicalScopeOverride: opts.pedagogicalScopeOverride === true || appState.pedagogicalScopeOverride === true,
+            });
             if (runId !== topicResearchRunId || signal.aborted) return;
             if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
               console.warn('[waldrof] archive suggestion persisted after skipCache — ignoring');

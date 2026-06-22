@@ -66,7 +66,43 @@
     { pattern: /גיאומטריה|geometry/i, pinterest: ['geometry'], articleHe: ['גיאומטריה'], displayHe: 'גיאומטריה' },
     { pattern: /אנטומיה|anatomy/i, pinterest: ['anatomy'], articleHe: ['אנטומיה'], displayHe: 'אנטומיה' },
     { pattern: /חשבון|מתמטיקה|math|arithmetic/i, pinterest: ['math lesson'], articleHe: ['חשבון'], displayHe: 'חשבון' },
+    { pattern: /אסטרונומיה|astronomy/i, pinterest: ['astronomy'], articleHe: ['אסטרונומיה'], displayHe: 'אסטרונומיה' },
+    { pattern: /פיזיקה|physics/i, pinterest: ['physics'], articleHe: ['פיזיקה'], displayHe: 'פיזיקה' },
+    { pattern: /אדם וחיות|ממלכת החי|human and animal|kingdom of nature/i, pinterest: ['human and animal'], articleHe: ['אדם וממלכת החי'], displayHe: 'אדם וממלכת החי' },
+    { pattern: /ימי ביניים|medieval|middle ages/i, pinterest: ['medieval history'], articleHe: ['ימי ביניים'], displayHe: 'ימי ביניים' },
+    { pattern: /גלילאו|galileo/i, pinterest: ['Galileo astronomy'], articleHe: ['גלילאו'], displayHe: 'גלילאו' },
   ];
+
+  /** Whole-word Hebrew topic → English Pinterest/search cores (fallback when lexicon pattern misses). */
+  var HEBREW_TOPIC_ENGLISH = {
+    'אסטרונומיה': 'astronomy',
+    'פיזיקה': 'physics',
+    'כימיה': 'chemistry',
+    'גיאולוגיה': 'geology',
+    'בוטניקה': 'botany',
+    'גיאומטריה': 'geometry',
+    'אנטומיה': 'anatomy',
+    'חקלאות': 'farming agriculture',
+    'אגדות': 'fairy tales',
+    'משלי חיות': 'animal fables',
+    'צדיקים': 'saint stories',
+    'נורדית': 'Norse mythology',
+    'יוון': 'Ancient Greece mythology',
+    'יוון העתיקה': 'Ancient Greece mythology',
+    'רומא': 'Roman history',
+    'רנסנס': 'Renaissance',
+    'מגלי עולם': 'Age of Exploration',
+    'מהפכות': 'revolutions',
+    'מהפכה': 'revolutions',
+    'מהפכה צרפתית': 'French Revolution',
+    'המהפכה הצרפתית': 'French Revolution',
+    'רישום צורה': 'form drawing',
+    'ציור גיר': 'blackboard drawing',
+    'מחברת תקופה': 'main lesson book',
+    'בניית בית': 'house building',
+    'תנ״ך': 'Old Testament stories',
+    'תנך': 'Old Testament stories',
+  };
 
   var GENERIC_PINTEREST_CLUTTER = [
     /main\s*lesson\s*book/i, /form\s*drawing/i, /chalkboard/i, /blackboard/i,
@@ -93,6 +129,14 @@
     'המהפכה הצרפתית': 'revolutions',
     'יוון': 'Ancient Greece',
     'יוון העתיקה': 'Ancient Greece',
+    'אסטרונומיה': 'astronomy',
+    'פיזיקה': 'physics',
+    'כימיה': 'chemistry',
+    'גיאולוגיה': 'geology',
+    'בוטניקה': 'botany',
+    'חקלאות': 'farming',
+    'רנסנס': 'Renaissance',
+    'מגלי עולם': 'exploration',
   };
 
   function stableNormalize(value) {
@@ -195,6 +239,14 @@
   /**
    * Core searchable terms — short, realistic, no definite-article lock-in.
    */
+  function lookupHebrewTopicEnglish(raw) {
+    var key = stableNormalize(raw);
+    if (HEBREW_TOPIC_ENGLISH[key]) return HEBREW_TOPIC_ENGLISH[key];
+    var stripped = stableNormalize(raw.replace(/^ה/, '').trim());
+    if (HEBREW_TOPIC_ENGLISH[stripped]) return HEBREW_TOPIC_ENGLISH[stripped];
+    return '';
+  }
+
   function extractTopicProfile(topicText) {
     var raw = stripQuotes(stripGradePhrases(topicText));
     var lex = resolveTopicLexicon(raw);
@@ -214,16 +266,27 @@
       });
       if (!heWords.length) heWords.push(raw.replace(/^ה/, '').trim());
     }
+    var mappedEn = lookupHebrewTopicEnglish(raw);
     var enWords = raw
       .replace(/[^\u0590-\u05FFa-zA-Z0-9\s]/g, ' ')
       .replace(/\b(?:וולדורף|ולדורף|waldorf|steiner)\b/gi, '')
       .split(/\s+/)
       .filter(Boolean)
       .slice(0, 3);
+    var pinterestEn = [];
+    if (mappedEn) {
+      pinterestEn = mappedEn.split(/\s+/).filter(Boolean);
+    } else if (enWords.length) {
+      pinterestEn = enWords;
+    } else if (heWords.length) {
+      pinterestEn = [heWords[0]];
+    } else {
+      pinterestEn = ['Waldorf lesson'];
+    }
     return {
       displayHe: heWords[0] || raw.slice(0, 24),
       articleHe: heWords.length ? heWords.slice(0, 2) : [raw.slice(0, 20)],
-      pinterestEn: enWords.length ? enWords : ['Waldorf lesson'],
+      pinterestEn: pinterestEn,
       raw: raw,
     };
   }
@@ -254,9 +317,17 @@
     };
   }
 
+  function isTruthyOverrideFlag(value) {
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
   function isPedagogicalScopeOverridden(body) {
     body = body || {};
-    return body.pedagogicalScopeOverride === true || body.pedagogicalScopeOverride === 'true';
+    return (
+      isTruthyOverrideFlag(body.pedagogicalScopeOverride) ||
+      isTruthyOverrideFlag(body.override) ||
+      isTruthyOverrideFlag(body.bypassValidation)
+    );
   }
 
   /** Block Pinterest/article queries only on soft mismatch — teacher override bypasses. */
@@ -301,6 +372,8 @@
   function resolveEnglishTopic(topic) {
     var key = normalizeTopicKey(topic);
     if (ENGLISH_TOPIC_MAP[key]) return ENGLISH_TOPIC_MAP[key];
+    var mapped = lookupHebrewTopicEnglish(key);
+    if (mapped) return mapped;
     var lex = resolveTopicLexicon(key);
     if (lex && lex.pinterest.length) return lex.pinterest.join(' ');
     if (!containsHebrewText(key)) return key;
@@ -368,10 +441,12 @@
     if (shouldBlockGradeTopicScope(gradeId, topicStr, body)) return [];
 
     var englishTopic = resolveEnglishTopic(topicStr);
+    var englishShort = resolveEnglishTopicShort(topicStr);
+    var gradeTag = 'Grade ' + gradeId;
     var phrases = [
-      'Waldorf Class ' + gradeId + ' ' + englishTopic,
-      'Waldorf ' + englishTopic + ' main lesson book',
-      'Waldorf ' + englishTopic + ' chalkboard drawing',
+      'Waldorf Class ' + gradeId + ' ' + englishShort,
+      englishShort + ' Waldorf ' + gradeTag + ' main lesson book',
+      'Waldorf blackboard drawing ' + englishShort + ' Class ' + gradeId,
     ];
 
     var urls = phrases.map(function (q) {
@@ -622,6 +697,9 @@
     findCurriculumBlockForTopic: findCurriculumBlockForTopic,
     extractTopicProfile: extractTopicProfile,
     translateTopicToEnglish: translateTopicToEnglish,
+    resolveEnglishTopic: resolveEnglishTopic,
+    resolveEnglishTopicShort: resolveEnglishTopicShort,
+    lookupHebrewTopicEnglish: lookupHebrewTopicEnglish,
     buildPinterestSearchQuery: buildPinterestSearchQuery,
     buildStrictPinterestQuery: buildPinterestSearchQuery,
     buildPinterestSearchUrl: buildPinterestSearchUrl,

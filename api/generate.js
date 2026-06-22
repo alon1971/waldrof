@@ -3425,6 +3425,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     throw err;
   }
   normalizeRequestPhase(body);
+  pedagogicalScope.normalizePedagogicalScopeOverride(body);
   if (body.phase === 'phase_c' && !resolvePhaseCTab(body)) {
     const err = new Error('phase_c requires cTab: inspiration or curriculum');
     err.statusCode = 400;
@@ -3445,7 +3446,9 @@ async function executeGenerate(body, apiKey, requestContext) {
     }
   }
 
-  const scopeMismatch = pedagogicalScope.checkPedagogicalScopeForBody(body);
+  const scopeMismatch = pedagogicalScope.isPedagogicalScopeOverridden(body)
+    ? null
+    : pedagogicalScope.checkPedagogicalScopeForBody(body);
   if (scopeMismatch) {
     console.log(
       '[pedagogical-scope] SOFT WARNING',

@@ -17,15 +17,19 @@ function resolveGradeLabel(body) {
   return gid ? ('כיתה ' + gid) : 'כיתה זו';
 }
 
+function isTruthyOverrideFlag(value) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
 function coreOverrideInstruction(topic, gradeLabel) {
   if (hebrewTopicMatch && typeof hebrewTopicMatch.buildCurriculumOverrideAntiHallucinationInstruction === 'function') {
     return hebrewTopicMatch.buildCurriculumOverrideAntiHallucinationInstruction(topic, gradeLabel);
   }
   return (
-    'The user has explicitly requested ' + topic + ' for ' + gradeLabel +
-    ', which is outside the standard curriculum. Do not hallucinate or generate irrelevant/fake placeholders. ' +
-    'Provide factual, pedagogically sound content adapted as realistically as possible for this age group, ' +
-    'or professionally guide the user on how this topic can be introduced accurately to this developmental stage without making things up.'
+    'The user has bypassed standard alignment and explicitly requested «' + topic + '» for «' + gradeLabel + '». ' +
+    'Generate the contents based strictly on this combination. ' +
+    'Do not hallucinate or generate irrelevant/fake placeholders — provide factual, pedagogically sound content ' +
+    'adapted as realistically as possible for this age group.'
   );
 }
 
@@ -65,7 +69,18 @@ function buildOverrideSynthesisUserBlock(body) {
 }
 
 function isScopeOverrideActive(body) {
-  return Boolean(body && (body.pedagogicalScopeOverride === true || body.pedagogicalScopeOverride === 'true'));
+  if (!body) return false;
+  return (
+    isTruthyOverrideFlag(body.pedagogicalScopeOverride) ||
+    isTruthyOverrideFlag(body.override) ||
+    isTruthyOverrideFlag(body.bypassValidation)
+  );
+}
+
+/** Normalize alternate override flags onto pedagogicalScopeOverride for downstream checks. */
+function normalizeScopeOverrideFlags(body) {
+  if (!body || !isScopeOverrideActive(body)) return;
+  body.pedagogicalScopeOverride = true;
 }
 
 module.exports = {
@@ -73,5 +88,7 @@ module.exports = {
   buildOverrideSynthesisSystemBlock,
   buildOverrideSynthesisUserBlock,
   isScopeOverrideActive,
+  normalizeScopeOverrideFlags,
+  isTruthyOverrideFlag,
   coreOverrideInstruction,
 };

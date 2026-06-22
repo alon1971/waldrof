@@ -219,6 +219,10 @@ function isPedagogicalScopeOverridden(body) {
   return perplexityScopePrompts.isScopeOverrideActive(body);
 }
 
+function normalizePedagogicalScopeOverride(body) {
+  perplexityScopePrompts.normalizeScopeOverrideFlags(body);
+}
+
 /**
  * @returns {null|object} soft mismatch when topic does not belong to gradeId
  */
@@ -439,6 +443,7 @@ module.exports = {
   shouldValidatePedagogicalScope,
   shouldBypassPedagogicalScopeForChat,
   isPedagogicalScopeOverridden,
+  normalizePedagogicalScopeOverride,
   extractTopicsFromBody,
   buildScopeMismatchWarning,
   buildChatInferredGradeBlock,
