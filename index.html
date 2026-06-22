@@ -5732,9 +5732,11 @@
 
       function attachArchiveCurriculumToPlan(plan) {
         if (!plan || !curriculumRows.length) return plan;
-        plan.curriculum = curriculumRows.slice(0, 15).map(function (row, i) {
-          return normalizeCurriculumRow(row, i);
-        }).filter(Boolean);
+        var finalized = normalizeCurriculumPlanRows(curriculumRows);
+        if (!finalized.length) finalized = padCurriculumRowsToFifteen(curriculumRows);
+        else if (finalized.length < 15) finalized = padCurriculumRowsToFifteen(finalized);
+        plan.curriculum = finalized;
+        plan.days = finalized.slice();
         return plan;
       }
 
@@ -6940,17 +6942,63 @@
           String(norm.topic || '').trim().length > 3;
         if (!hasBody) continue;
         norm.day = out.length + 1;
-        var cleanContent = sanitizeCurriculumDayNarrative(norm.content || '');
-        var cleanArt = sanitizeCurriculumDayNarrative(norm.art || '');
         out.push({
           day: norm.day,
           topic: norm.topic || t('curriculum_day_short', { day: norm.day }),
-          content: cleanContent ? ensureAiHtml(cleanContent) : '',
-          art: cleanArt ? ensureAiHtml(cleanArt) : '',
+          content: ensureAiHtml(norm.content || ''),
+          art: ensureAiHtml(norm.art || ''),
           hint: norm.hint || '',
           contentExpansion: rows[i] && rows[i].contentExpansion,
           artExpansion: rows[i] && rows[i].artExpansion,
           hintExpansion: rows[i] && rows[i].hintExpansion,
+        });
+      }
+      return out;
+    }
+
+    function padCurriculumRowsToFifteen(rows) {
+      var src = Array.isArray(rows) ? rows : [];
+      var base = normalizeCurriculumPlanRows(src);
+      if (!base.length) {
+        base = src.map(function (row, i) {
+          var norm = normalizeCurriculumRow(row, i);
+          if (!norm) return null;
+          return {
+            day: norm.day,
+            topic: norm.topic || t('curriculum_day_short', { day: norm.day }),
+            content: ensureAiHtml(norm.content || ''),
+            art: ensureAiHtml(norm.art || ''),
+            hint: norm.hint || '',
+            contentExpansion: norm.contentExpansion,
+            artExpansion: norm.artExpansion,
+            hintExpansion: norm.hintExpansion,
+          };
+        }).filter(Boolean);
+      }
+      var out = [];
+      for (var day = 1; day <= 15; day++) {
+        var existing = base[day - 1] || null;
+        if (!existing) {
+          var raw = normalizeCurriculumRow(src[day - 1], day - 1);
+          if (raw) {
+            existing = {
+              day: day,
+              topic: raw.topic || t('curriculum_day_short', { day: day }),
+              content: ensureAiHtml(raw.content || ''),
+              art: ensureAiHtml(raw.art || ''),
+              hint: raw.hint || '',
+              contentExpansion: raw.contentExpansion,
+              artExpansion: raw.artExpansion,
+              hintExpansion: raw.hintExpansion,
+            };
+          }
+        }
+        out.push(existing || {
+          day: day,
+          topic: t('curriculum_day_short', { day: day }),
+          content: '',
+          art: '',
+          hint: '',
         });
       }
       return out;
@@ -7056,9 +7104,25 @@
       if (!appState.aiGeneratedPlan) return false;
       var existing = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
       if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.curriculum);
-      if (!hasMeaningfulCurriculumRows(existing)) return false;
-      var normalized = normalizeCurriculumPlanRows(existing);
+      if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.days);
+
+      var normalized = [];
+      if (hasMeaningfulCurriculumRows(existing)) {
+        normalized = normalizeCurriculumPlanRows(existing);
+      }
+      if (!normalized.length || normalized.length < 15) {
+        var synthesized = buildUnifiedCurriculumSynthesis(options);
+        if (hasMeaningfulCurriculumRows(synthesized)) {
+          normalized = synthesized;
+        } else if (!normalized.length && existing.length) {
+          normalized = padCurriculumRowsToFifteen(existing);
+        }
+      }
+      if (normalized.length && normalized.length < 15) {
+        normalized = padCurriculumRowsToFifteen(normalized);
+      }
       if (!normalized.length) return false;
+
       appState.aiGeneratedPlan.curriculum = normalized;
       appState.aiGeneratedPlan.days = normalized.slice();
       syncActivePlanFromGenerated();
@@ -7133,17 +7197,10 @@
             hint: '',
           };
         }).filter(Boolean).slice(0, 15);
-        while (rows.length < 15) {
-          var day = rows.length + 1;
-          rows.push({
-            day: day,
-            topic: t('curriculum_day_short', { day: day }),
-            content: rawFallback || '',
-            art: '',
-            hint: '',
-          });
-        }
-        data.blockPlan.curriculum = rows;
+        var finalized = normalizeCurriculumPlanRows(rows);
+        if (!finalized.length) finalized = padCurriculumRowsToFifteen(rows);
+        else if (finalized.length < 15) finalized = padCurriculumRowsToFifteen(finalized);
+        data.blockPlan.curriculum = finalized;
       }
       return data;
     }
@@ -8504,7 +8561,7 @@
     }
 
     function hasPhaseCCurriculumContent() {
-      hydrateCurriculumFromUnifiedSynthesis();
+      if (hydrateCurriculumFromUnifiedSynthesis()) return true;
       var plan = appState.aiGeneratedPlan;
       if (!plan) return false;
       var rows = extractCurriculumFromPlan(plan, { blockPlan: plan });
@@ -8520,6 +8577,10 @@
       if (!rows.length) {
         var dump = extractPhaseCRawFallback({ blockPlan: plan });
         if (dump) rows = parseCurriculumFromText(dump);
+      }
+      if (!rows.length) {
+        var synthesized = buildUnifiedCurriculumSynthesis();
+        return hasMeaningfulCurriculumRows(synthesized);
       }
       return hasMeaningfulCurriculumRows(rows);
     }
@@ -8549,8 +8610,11 @@
           mergeBlockPlanBibliography({ curriculum: bp.curriculum, theory: appState.aiGeneratedPlan.theory }, data),
           data
         );
-        appState.aiGeneratedPlan.curriculum = mergedPlan.curriculum;
-        appState.aiGeneratedPlan.days = mergedPlan.curriculum.slice();
+        var finalized = normalizeCurriculumPlanRows(mergedPlan.curriculum || []);
+        if (!finalized.length) finalized = padCurriculumRowsToFifteen(mergedPlan.curriculum || []);
+        else if (finalized.length < 15) finalized = padCurriculumRowsToFifteen(finalized);
+        appState.aiGeneratedPlan.curriculum = finalized;
+        appState.aiGeneratedPlan.days = finalized.slice();
       }
       appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       return cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
@@ -14991,7 +15055,10 @@
                   parsedArchiveRows = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
                 }
                 if (hasMeaningfulCurriculumRows(parsedArchiveRows)) {
-                  appState.aiGeneratedPlan.curriculum = normalizeCurriculumPlanRows(parsedArchiveRows);
+                  var archiveCurr = normalizeCurriculumPlanRows(parsedArchiveRows);
+                  appState.aiGeneratedPlan.curriculum = archiveCurr.length < 15
+                    ? padCurriculumRowsToFifteen(archiveCurr.length ? archiveCurr : parsedArchiveRows)
+                    : archiveCurr;
                   appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
                   syncActivePlanFromGenerated();
                 }
@@ -15478,8 +15545,26 @@
 
     function renderCurriculum() {
       hydrateCurriculumFromUnifiedSynthesis();
-      const plan = (appState.activePlan && appState.activePlan.curriculum) ||
+      var plan = (appState.activePlan && appState.activePlan.curriculum) ||
         (appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum) || [];
+
+      if (!plan.length) {
+        var synthesized = buildUnifiedCurriculumSynthesis();
+        if (synthesized.length && appState.aiGeneratedPlan) {
+          plan = padCurriculumRowsToFifteen(synthesized);
+          appState.aiGeneratedPlan.curriculum = plan;
+          appState.aiGeneratedPlan.days = plan.slice();
+          syncActivePlanFromGenerated();
+        }
+      } else if (plan.length < 15) {
+        plan = padCurriculumRowsToFifteen(plan);
+        if (appState.aiGeneratedPlan) {
+          appState.aiGeneratedPlan.curriculum = plan;
+          appState.aiGeneratedPlan.days = plan.slice();
+          syncActivePlanFromGenerated();
+        }
+      }
+
       Object.keys(appState.pedagogyRegistry).forEach(function (k) {
         if (k.indexOf('ped-curr-') === 0) delete appState.pedagogyRegistry[k];
       });
@@ -15488,7 +15573,8 @@
       const tbody = document.getElementById('curriculum-body');
       const rawFallback = String(
         (appState.activePlan && appState.activePlan.rawContent) ||
-        (appState.webResearch && appState.webResearch.rawContent) ||
+        (appState.webResearch && (appState.webResearch.summary || appState.webResearch.rawContent)) ||
+        extractPhaseCRawFallback({ blockPlan: appState.activePlan || appState.aiGeneratedPlan || {} }) ||
         ''
       ).trim();
 
@@ -15535,16 +15621,14 @@
 
       const cardsHtml = cardsEl ? safePlan.map(function (row, i) {
         return (
-          '<article class="curriculum-card bg-white/90 rounded-2xl border border-gold/30 shadow-sm overflow-hidden" data-i="' + i + '">' +
-          '<button type="button" class="curriculum-card-toggle touch-target w-full text-dir-start px-4 py-4 flex gap-3 items-start">' +
+          '<article class="curriculum-card bg-white/90 rounded-2xl border border-gold/30 shadow-sm overflow-hidden min-w-0" data-i="' + i + '">' +
+          '<div class="px-4 py-3 flex gap-3 items-start border-b border-gold/15 bg-sage/5">' +
           '<span class="flex-shrink-0 w-12 h-12 rounded-xl bg-burgundy/10 text-burgundy font-bold flex items-center justify-center text-lg">' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</span>' +
           '<span class="flex-1 min-w-0">' +
           '<span class="font-semibold text-walnut block leading-snug">' + escapeHtml(row.topic) + '</span>' +
-          '<span class="text-xs text-walnut/55 mt-1 block">' + escapeHtml(t('curriculum_tap_full')) + '</span>' +
           '</span>' +
-          '<i class="card-chevron fa-solid fa-chevron-down text-gold mt-2 flex-shrink-0" aria-hidden="true"></i>' +
-          '</button>' +
-          '<div class="curriculum-card-detail hidden px-4 pb-4 space-y-3 bg-sage/5 min-w-0">' +
+          '</div>' +
+          '<div class="curriculum-card-detail px-4 py-4 space-y-3 min-w-0">' +
           '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_content')) + '</p>' + renderCurriculumDayText(row.content) + '</div>' +
           '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_art')) + '</p>' + renderCurriculumDayText(row.art) + '</div>' +
           '<div class="text-xs text-walnut/65 pt-2 border-t border-gold/20 min-w-0">' + curriculumHintHtml(row) + '</div>' +
