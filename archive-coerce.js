@@ -201,8 +201,20 @@
   var CURRICULUM_PLACEHOLDER_ART_RE = /^[-–—_.\s]+$/;
 
   function isCurriculumArtPlaceholder(text) {
-    var s = String(text || '').trim();
-    return !s || CURRICULUM_PLACEHOLDER_ART_RE.test(s);
+    var s = curriculumPlainForSplit(text);
+    if (!s) return true;
+    if (CURRICULUM_PLACEHOLDER_ART_RE.test(s)) return true;
+    if (/^<div[^>]*class="[^"]*prose-ai[^"]*"[^>]*>\s*<\/div>$/i.test(String(text || '').trim())) return true;
+    return false;
+  }
+
+  function shouldIgnorePresetCurriculumArt(artPlain, contentPlain) {
+    if (!artPlain) return true;
+    if (!contentPlain || contentPlain.length < 80) return false;
+    if (artPlain.length >= 40) return false;
+    if (CURRICULUM_ART_HEADER_RE.test(artPlain) || CURRICULUM_ART_KEYWORD_RE.test(artPlain)) return false;
+    if (artPlain.length < 35 && contentPlain.length > artPlain.length * 3) return true;
+    return false;
   }
 
   function findCurriculumArtSplitPoint(plain) {
@@ -280,12 +292,20 @@
   function splitCurriculumDayNarrativeFields(content, art) {
     var contentStr = String(content || '').trim();
     var artStr = String(art || '').trim();
-    if (isCurriculumArtPlaceholder(artStr)) artStr = '';
+    var contentPlain = curriculumPlainForSplit(contentStr);
+    var artPlain = curriculumPlainForSplit(artStr);
+    if (isCurriculumArtPlaceholder(artPlain)) {
+      artStr = '';
+      artPlain = '';
+    } else if (shouldIgnorePresetCurriculumArt(artPlain, contentPlain)) {
+      artStr = '';
+      artPlain = '';
+    }
 
-    console.log('RAW TEXT TO SPLIT:', contentStr);
+    console.log('RAW TEXT TO SPLIT:', contentPlain || contentStr);
 
     if (artStr) {
-      var preset = { content: contentStr, art: artStr };
+      var preset = { content: contentPlain || contentStr, art: artPlain || artStr };
       console.log('SPLIT RESULT - Content:', preset.content, 'Art:', preset.art);
       return preset;
     }
@@ -295,7 +315,7 @@
       return empty;
     }
 
-    var plain = curriculumPlainForSplit(contentStr);
+    var plain = contentPlain || curriculumPlainForSplit(contentStr);
     if (!plain) {
       var rawOnly = { content: contentStr, art: '' };
       console.log('SPLIT RESULT - Content:', rawOnly.content, 'Art:', rawOnly.art);
@@ -325,7 +345,7 @@
     }
 
     var finalResult = {
-      content: resultContent || contentStr,
+      content: resultContent || plain || contentPlain || contentStr,
       art: resultArt,
     };
     console.log('SPLIT RESULT - Content:', finalResult.content, 'Art:', finalResult.art);

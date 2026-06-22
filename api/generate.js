@@ -2266,7 +2266,10 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
     row.art || row.artActivity || row.craft || row.artAndCraft ||
     row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || ''
   ).trim());
-  const split = archiveCoerce.splitCurriculumDayNarrativeFields(content, art);
+  const split = archiveCoerce.splitCurriculumDayNarrativeFields(
+    archiveCoerce.curriculumPlainForSplit(content),
+    archiveCoerce.curriculumPlainForSplit(art)
+  );
   const hint = sanitizePedagogicalText(String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim());
   if (!topic && !split.content && !split.art && !hint) {
     if (rawFallback) {
@@ -2278,7 +2281,7 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
     day: day,
     topic: topic || ('יום ' + day),
     content: split.content || content || rawFallback || '',
-    art: split.art || art,
+    art: split.art || '',
     hint: hint,
     contentExpansion: row.contentExpansion && typeof row.contentExpansion === 'object' ? row.contentExpansion : undefined,
     artExpansion: row.artExpansion && typeof row.artExpansion === 'object' ? row.artExpansion : undefined,

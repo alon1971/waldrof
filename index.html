@@ -6643,6 +6643,13 @@
       return [];
     }
 
+    function curriculumFieldPlainText(text) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.curriculumPlainForSplit) {
+        return WaldorfArchiveCoerce.curriculumPlainForSplit(text);
+      }
+      return String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
     function splitCurriculumDayNarrativeFields(content, art) {
       console.log('RAW TEXT TO SPLIT:', content);
       if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields) {
@@ -6680,7 +6687,10 @@
         row['תוכן וסיפור'] || row.tochen || row.mainLesson || '';
       var art = row.art || row.artActivity || row.craft || row.artAndCraft ||
         row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || '';
-      var split = splitCurriculumDayNarrativeFields(content, art);
+      var split = splitCurriculumDayNarrativeFields(
+        curriculumFieldPlainText(content),
+        curriculumFieldPlainText(art)
+      );
       content = split.content;
       art = split.art;
       var hint = row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '';
@@ -6708,8 +6718,8 @@
       return {
         day: norm.day || (index + 1),
         topic: norm.topic || t('curriculum_day_short', { day: norm.day || (index + 1) }),
-        content: ensureAiHtml(norm.content || ''),
-        art: ensureAiHtml(norm.art || ''),
+        content: norm.content || '',
+        art: norm.art || '',
         hint: norm.hint || '',
         contentExpansion: (row && row.contentExpansion) || norm.contentExpansion,
         artExpansion: (row && row.artExpansion) || norm.artExpansion,
@@ -7446,9 +7456,13 @@
       });
       var rawCurriculum = extractCurriculumFromPlan(plan);
       if (!rawCurriculum.length && Array.isArray(plan.curriculum)) rawCurriculum = plan.curriculum;
-      plan.curriculum = rawCurriculum.slice(0, 15).map(function (row, i) {
-        return mapCurriculumRowForDisplay(row, i);
-      });
+      var normalizedCurriculum = normalizeCurriculumPlanRows(rawCurriculum);
+      if (!normalizedCurriculum.length) {
+        normalizedCurriculum = padCurriculumRowsToFifteen(rawCurriculum);
+      } else if (normalizedCurriculum.length < 15) {
+        normalizedCurriculum = padCurriculumRowsToFifteen(normalizedCurriculum);
+      }
+      plan.curriculum = normalizedCurriculum;
       return plan;
     }
 
@@ -15930,13 +15944,19 @@
       return stripLeadingPedagogyTitle(raw, topicStr);
     }
 
-    function renderCurriculumDayText(text, topic) {
+    function renderCurriculumDayText(text, topic, fieldKind) {
       if (isCurriculumDayTextEmpty(text)) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
       }
-      var raw = String(text).trim();
-      if (looksLikeAiHtml(raw) || raw.indexOf('prose-ai') >= 0) {
-        return '<div class="curriculum-day-cell">' + ensureAiHtml(raw) + '</div>';
+      var raw = curriculumFieldPlainText(text) || String(text || '').trim();
+      if (!raw) {
+        return '<p class="text-walnut/50 italic text-sm">—</p>';
+      }
+      if (fieldKind === 'art') {
+        return '<div class="curriculum-day-cell">' + renderAiPreview(raw) + '</div>';
+      }
+      if (looksLikeAiHtml(String(text || '')) || String(text || '').indexOf('prose-ai') >= 0) {
+        return '<div class="curriculum-day-cell">' + ensureAiHtml(String(text)) + '</div>';
       }
       var cleaned = sanitizeCurriculumDayNarrative(raw);
       if (topic) cleaned = stripDuplicateTopicFromDayNarrative(cleaned, topic);
@@ -16183,6 +16203,23 @@
         return mapCurriculumRowForDisplay(row, i);
       });
 
+      if (safePlan.length && appState.aiGeneratedPlan) {
+        appState.aiGeneratedPlan.curriculum = safePlan.map(function (row) {
+          return {
+            day: row.day,
+            topic: row.topic,
+            content: row.content || '',
+            art: row.art || '',
+            hint: row.hint || '',
+            contentExpansion: row.contentExpansion,
+            artExpansion: row.artExpansion,
+            hintExpansion: row.hintExpansion,
+          };
+        });
+        appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
+        syncActivePlanFromGenerated();
+      }
+
       const cardsHtml = cardsEl ? safePlan.map(function (row, i) {
         return (
           '<article class="curriculum-card bg-white/90 rounded-2xl border border-gold/30 shadow-sm overflow-hidden min-w-0" data-i="' + i + '">' +
@@ -16194,7 +16231,7 @@
           '</div>' +
           '<div class="curriculum-card-detail px-4 py-4 space-y-3 min-w-0">' +
           '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_content')) + '</p>' + renderCurriculumDayText(row.content, row.topic) + '</div>' +
-          '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_art')) + '</p>' + renderCurriculumDayText(row.art) + '</div>' +
+          '<div class="min-w-0"><p class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('col_art')) + '</p>' + renderCurriculumDayText(row.art, null, 'art') + '</div>' +
           '<div class="text-xs text-walnut/65 pt-2 border-t border-gold/20 min-w-0">' + curriculumHintHtml(row) + '</div>' +
           renderCurriculumDayEnrichment(row, 'card') +
           '</div></article>'
@@ -16210,7 +16247,7 @@
           '<td class="px-3 py-3 text-dir-start font-bold text-burgundy align-top w-14">' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</td>' +
           '<td class="px-3 py-3 text-dir-start font-medium align-top min-w-0 leading-snug">' + escapeHtml(row.topic) + '</td>' +
           '<td class="px-3 py-3 text-dir-start align-top min-w-0">' + renderCurriculumDayText(row.content, row.topic) + '</td>' +
-          '<td class="px-3 py-3 text-dir-start align-top min-w-0">' + renderCurriculumDayText(row.art) + '</td></tr>' +
+          '<td class="px-3 py-3 text-dir-start align-top min-w-0">' + renderCurriculumDayText(row.art, null, 'art') + '</td></tr>' +
           '<tr class="day-detail bg-sage/5" data-d="' + i + '"><td colspan="4" class="px-4 py-3 text-dir-start curriculum-day-enrich-cell">' +
           '<div class="curriculum-day-footer">' +
           '<div class="curriculum-day-hint">' + curriculumHintHtml(row) + '</div>' +
