@@ -412,17 +412,45 @@ function isValidPinterestSearchUrl(url) {
   return waldorfQueryGen.isValidPinterestSearchUrl(url);
 }
 
+/** Ensure enrichment pipelines always receive explicit topic + grade (including teacher override). */
+function normalizeEnrichmentRequestBody(body) {
+  if (!body || typeof body !== 'object') return {};
+  const normalized = Object.assign({}, body);
+  normalized.topic = String(
+    normalized.topic || normalized.activityTitle || normalized.archiveQuery || ''
+  ).trim();
+  const gradeId = String(normalized.currentGrade ?? normalized.gradeId ?? '').trim();
+  normalized.currentGrade = gradeId;
+  normalized.gradeId = gradeId;
+  if (!normalized.gradeLabel && gradeId && waldorfQueryGen.hebrewGradeLabelForId) {
+    const derived = waldorfQueryGen.hebrewGradeLabelForId(gradeId);
+    if (derived) normalized.gradeLabel = derived;
+  }
+  pedagogicalScope.normalizePedagogicalScopeOverride(normalized);
+  return normalized;
+}
+
 async function attachGeminiEnrichmentLinks(data, body) {
   if (!data || typeof data !== 'object') return data;
   if (resolvePhaseCTab(body) !== 'inspiration') return data;
+
+  const enrichmentBody = normalizeEnrichmentRequestBody(body);
+  if (!enrichmentBody.topic || !enrichmentBody.currentGrade) {
+    console.warn('[enrichment] attachGeminiEnrichmentLinks skipped — missing topic or grade',
+      'topic:', enrichmentBody.topic || '(empty)',
+      'grade:', enrichmentBody.currentGrade || '(empty)');
+    return data;
+  }
 
   delete data.enrichment_links;
   delete data.pedagogicalResources;
 
   try {
-    console.log('[enrichment] Gemini Google Search pipeline for topic+grade');
-    const links = await geminiEnrichment.fetchGeminiEnrichmentLinks(body);
-    data.enrichment_links = normalizeEnrichmentLinks(links, body, { geminiSearch: true });
+    console.log('[enrichment] Gemini Google Search pipeline for topic+grade',
+      '«' + enrichmentBody.topic + '» @ grade', enrichmentBody.currentGrade,
+      enrichmentBody.pedagogicalScopeOverride ? '(override)' : '');
+    const links = await geminiEnrichment.fetchGeminiEnrichmentLinks(enrichmentBody);
+    data.enrichment_links = normalizeEnrichmentLinks(links, enrichmentBody, { geminiSearch: true });
     if (Array.isArray(data.enrichment_links.article_links) && data.enrichment_links.article_links.length) {
       data.pedagogicalResources = data.enrichment_links.article_links.slice();
     } else {
@@ -438,11 +466,11 @@ async function attachGeminiEnrichmentLinks(data, body) {
       };
     });
     if (!Array.isArray(data.gallery)) data.gallery = [];
-    data.gallery = sanitizePinterestGallery(data.gallery.concat(dynamicGallery), body);
+    data.gallery = sanitizePinterestGallery(data.gallery.concat(dynamicGallery), enrichmentBody);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[enrichment] Gemini search pipeline failed:', msg);
-    data.enrichment_links = { pinterest_links: geminiEnrichment.buildDynamicPinterestLinks(body), article_links: [] };
+    data.enrichment_links = { pinterest_links: geminiEnrichment.buildDynamicPinterestLinks(enrichmentBody), article_links: [] };
     data.pedagogicalResources = [];
   }
 
@@ -455,12 +483,19 @@ async function attachRealtimeEnrichmentLinks(data, body) {
 }
 
 async function fetchGeminiEnrichmentLinks(body) {
-  return geminiEnrichment.fetchGeminiEnrichmentLinks(body);
+  return geminiEnrichment.fetchGeminiEnrichmentLinks(normalizeEnrichmentRequestBody(body));
 }
 
 /** @deprecated Use fetchGeminiEnrichmentLinks */
 async function fetchRealtimeEnrichmentLinks(body) {
-  return fetchGeminiEnrichmentLinks(body);
+  const enrichmentBody = normalizeEnrichmentRequestBody(body);
+  const links = await fetchGeminiEnrichmentLinks(enrichmentBody);
+  if (!links || (!links.pinterest_links || !links.pinterest_links.length) &&
+      (!links.article_links || !links.article_links.length)) {
+    console.warn('[enrichment] fetchRealtimeEnrichmentLinks returned empty — topic:',
+      enrichmentBody.topic || '(empty)', 'grade:', enrichmentBody.currentGrade || '(empty)');
+  }
+  return links;
 }
 
 function normalizeEnrichmentPinterestLink(item, body, geminiOnly) {
@@ -472,6 +507,18 @@ function normalizeEnrichmentPinterestLink(item, body, geminiOnly) {
     const queryRaw = String(item.query || item.pin || '').trim();
     if (!isValidPinterestSearchUrl(url) && queryRaw && waldorfQueryGen.buildPinterestSearchUrl) {
       url = waldorfQueryGen.buildPinterestSearchUrl(queryRaw);
+    }
+    if (!isValidPinterestSearchUrl(url)) {
+      const galleryStub = sanitizePinterestGalleryItem({
+        title: item.title,
+        pin: queryRaw,
+        url: item.url,
+        board: item.title,
+        src: '',
+      }, body, topic);
+      if (galleryStub) {
+        url = String(galleryStub.url || '').trim();
+      }
     }
     if (!isValidPinterestSearchUrl(url)) return null;
     let query = queryRaw;
@@ -3974,6 +4021,7 @@ module.exports.hasMismatchedGradeInText = hasMismatchedGradeInText;
 module.exports.PINTEREST_MAX_GALLERY_ITEMS = PINTEREST_MAX_GALLERY_ITEMS;
 module.exports.ENRICHMENT_LINKS_MAX = ENRICHMENT_LINKS_MAX;
 module.exports.normalizeEnrichmentLinks = normalizeEnrichmentLinks;
+module.exports.normalizeEnrichmentRequestBody = normalizeEnrichmentRequestBody;
 module.exports.fetchRealtimeEnrichmentLinks = fetchRealtimeEnrichmentLinks;
 module.exports.attachRealtimeEnrichmentLinks = attachRealtimeEnrichmentLinks;
 module.exports.attachGeminiEnrichmentLinks = attachGeminiEnrichmentLinks;

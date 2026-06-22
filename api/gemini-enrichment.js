@@ -25,15 +25,23 @@ const ENRICHMENT_GEMINI_SYSTEM =
   'Pinterest entries must be full https://www.pinterest.com/search/pins/?q=… URLs with grade-locked English queries (Waldorf Class N {topic}).';
 
 function buildDynamicSearchContext(body) {
-  const topic = String((body && body.topic) || '').trim();
+  const topic = String((body && body.topic) || (body && body.activityTitle) || '').trim();
   const gradeLabel = String((body && body.gradeLabel) || '').trim();
   const gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
+  const englishTopic = waldorfQueryGen.resolveEnglishTopic
+    ? waldorfQueryGen.resolveEnglishTopic(topic)
+    : waldorfQueryGen.translateTopicToEnglish(topic);
+  const isOverride = waldorfQueryGen.isPedagogicalScopeOverridden
+    ? waldorfQueryGen.isPedagogicalScopeOverridden(body)
+    : false;
   return {
     topic: topic,
+    englishTopic: englishTopic,
     gradeLabel: gradeLabel,
     gradeId: gradeId,
+    isOverride: isOverride,
     searchQueryHe: topic + ' חינוך וולדורף' + (gradeLabel ? ' ' + gradeLabel : ''),
-    searchQueryEn: 'Waldorf pedagogy ' + topic + (gradeId ? ' class ' + gradeId : ''),
+    searchQueryEn: 'Waldorf ' + englishTopic + (gradeId ? ' Grade ' + gradeId : '') + ' pedagogy main lesson',
   };
 }
 
@@ -143,14 +151,15 @@ function uriMatchesGrounding(candidateUrl, groundingUris) {
 }
 
 function filterArticleLinksToGrounded(articleLinks, groundingUris) {
-  if (!groundingUris.size) return [];
   const seen = Object.create(null);
   const out = [];
+  const useStrictGrounding = groundingUris && groundingUris.size > 0;
+
   (Array.isArray(articleLinks) ? articleLinks : []).forEach(function (item) {
     if (!item || typeof item !== 'object') return;
     const url = String(item.url || item.link || '').trim();
     if (!enrichmentLinks.isVerifiedArticleUrl(url)) return;
-    if (!uriMatchesGrounding(url, groundingUris)) return;
+    if (useStrictGrounding && !uriMatchesGrounding(url, groundingUris)) return;
     if (seen[url]) return;
     seen[url] = true;
     const meta = enrichmentLinks.inferResourceMetaFromUrl(url);
@@ -166,20 +175,54 @@ function filterArticleLinksToGrounded(articleLinks, groundingUris) {
   return out.slice(0, enrichmentLinks.ENRICHMENT_LINKS_MAX);
 }
 
+function mergePinterestLinkLists(primary, secondary) {
+  const seen = Object.create(null);
+  const out = [];
+  function pushItem(item) {
+    if (!item || typeof item !== 'object') return;
+    const url = String(item.url || '').trim();
+    const query = String(item.query || item.pin || '').trim();
+    const key = url || query;
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push(item);
+  }
+  (Array.isArray(primary) ? primary : []).forEach(pushItem);
+  (Array.isArray(secondary) ? secondary : []).forEach(pushItem);
+  return out.slice(0, enrichmentLinks.ENRICHMENT_LINKS_MAX);
+}
+
 function buildGeminiEnrichmentUserPrompt(body) {
   const ctx = buildDynamicSearchContext(body);
+  if (!ctx.topic || !ctx.gradeId) {
+    console.warn('[gemini-enrichment] incomplete enrichment context — topic:', ctx.topic || '(missing)',
+      'gradeId:', ctx.gradeId || '(missing)');
+  }
+  const overrideBlock = ctx.isOverride
+    ? (
+      '\nTEACHER CURRICULUM OVERRIDE (MANDATORY): The teacher explicitly bypassed grade-topic validation. ' +
+      'Search and return resources for Subject «' + ctx.topic + '» at Grade «' + ctx.gradeLabel + '» (id ' + ctx.gradeId + ') — ' +
+      'English subject keywords: «' + ctx.englishTopic + '». Do NOT return empty arrays solely because of curriculum mismatch.\n'
+    )
+    : '';
   return (
     '=== LIVE SEARCH — ENRICHMENT LINKS (TOPIC + GRADE) ===\n' +
-    'Topic: «' + ctx.topic + '»\n' +
-    'Grade: ' + ctx.gradeLabel + (ctx.gradeId ? ' (id ' + ctx.gradeId + ')' : '') + '\n' +
+    'Subject (Hebrew): «' + ctx.topic + '»\n' +
+    'Subject (English keywords): «' + ctx.englishTopic + '»\n' +
+    'Grade: ' + (ctx.gradeLabel || ('Grade ' + ctx.gradeId)) + ' (id ' + ctx.gradeId + ')\n' +
+    overrideBlock +
     'Search queries to use:\n' +
     '- Hebrew: «' + ctx.searchQueryHe + '»\n' +
     '- English: «' + ctx.searchQueryEn + '»\n\n' +
     'Tasks:\n' +
     '1. pinterest_links: up to ' + enrichmentLinks.ENRICHMENT_LINKS_MAX + ' DISTINCT Pinterest SEARCH URLs ' +
-    '(https://www.pinterest.com/search/pins/?q=…) — Waldorf Class ' + (ctx.gradeId || 'N') + ' {englishTopic}\n' +
-    '2. article_links: up to ' + enrichmentLinks.ENRICHMENT_LINKS_MAX + ' article URLs found ONLY via live search — ' +
-    'each must be a real HTTPS page you actually retrieved. If none found, return [].\n\n' +
+    '(https://www.pinterest.com/search/pins/?q=…) — use grade-locked English phrases such as:\n' +
+    '   • Waldorf Class ' + (ctx.gradeId || 'N') + ' ' + ctx.englishTopic + '\n' +
+    '   • ' + ctx.englishTopic + ' Waldorf Grade ' + (ctx.gradeId || 'N') + ' main lesson book\n' +
+    '   • Waldorf blackboard drawing ' + ctx.englishTopic + ' Class ' + (ctx.gradeId || 'N') + '\n' +
+    '2. article_links: up to ' + enrichmentLinks.ENRICHMENT_LINKS_MAX + ' Waldorf/anthroposophic article URLs found ONLY via live search — ' +
+    'each must be a real HTTPS page you actually retrieved for «' + ctx.topic + '» at grade ' + ctx.gradeId + '. ' +
+    'If none found, return [].\n\n' +
     'Return JSON: { "enrichment_links": { "pinterest_links": [...], "article_links": [...] } }\n' +
     '=== END LIVE SEARCH ===\n'
   );
@@ -233,36 +276,51 @@ async function callGeminiWithGoogleSearch(systemPrompt, userPrompt) {
  * @returns {Promise<{ pinterest_links: object[], article_links: object[] }>}
  */
 async function fetchGeminiEnrichmentLinks(body) {
-  const pinterestFromQuery = buildDynamicPinterestLinks(body);
+  const enrichmentBody = body && typeof body === 'object' ? body : {};
+  const topic = String(enrichmentBody.topic || enrichmentBody.activityTitle || '').trim();
+  const gradeId = String(enrichmentBody.currentGrade ?? enrichmentBody.gradeId ?? '').trim();
+  if (!topic || !gradeId) {
+    console.warn('[gemini-enrichment] fetchGeminiEnrichmentLinks missing topic or grade —',
+      'topic:', topic || '(empty)', 'gradeId:', gradeId || '(empty)');
+  }
+
+  const pinterestFromQuery = buildDynamicPinterestLinks(enrichmentBody);
   let lastErr = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const payload = await callGeminiWithGoogleSearch(
         ENRICHMENT_GEMINI_SYSTEM,
-        buildGeminiEnrichmentUserPrompt(body)
+        buildGeminiEnrichmentUserPrompt(enrichmentBody)
       );
       const text = extractGeminiText(payload);
       if (!text) throw new Error('Gemini returned empty enrichment response');
 
       const parsed = cleanAndParseJSON(text, {
         phase: 'enrichment_links',
-        context: body,
+        context: enrichmentBody,
         fallbackOnError: false,
         unwrap: true,
       });
       const links = parsed && parsed.enrichment_links ? parsed.enrichment_links : parsed;
       const groundingUris = extractGroundingUris(payload);
+      if (!groundingUris.size) {
+        console.warn('[gemini-enrichment] no grounding URIs in response — using URL verification fallback for articles');
+      }
 
       const geminiPinterest = Array.isArray(links.pinterest_links) ? links.pinterest_links : [];
-      const mergedPinterest = geminiPinterest.length ? geminiPinterest : pinterestFromQuery;
+      const mergedPinterest = mergePinterestLinkLists(pinterestFromQuery, geminiPinterest);
       const article_links = filterArticleLinksToGrounded(
         Array.isArray(links.article_links) ? links.article_links : [],
         groundingUris
       );
 
+      if (!mergedPinterest.length && !article_links.length) {
+        console.warn('[gemini-enrichment] empty enrichment result for topic:', topic, 'grade:', gradeId);
+      }
+
       return {
-        pinterest_links: mergedPinterest.slice(0, enrichmentLinks.ENRICHMENT_LINKS_MAX),
+        pinterest_links: mergedPinterest.length ? mergedPinterest : pinterestFromQuery,
         article_links: article_links,
       };
     } catch (err) {
@@ -282,6 +340,7 @@ module.exports = {
   fetchGeminiEnrichmentLinks,
   buildDynamicPinterestLinks,
   buildDynamicSearchContext,
+  mergePinterestLinkLists,
   extractGroundingUris,
   filterArticleLinksToGrounded,
 };

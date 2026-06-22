@@ -29,8 +29,8 @@ assert('Pinterest URLs are encoded Pinterest search links', pinUrls.every(functi
 
 const pinQueries = pinUrls.map(function (u) { return decodeURIComponent(u.split('q=')[1]); });
 assert('Pinterest variant 1 is Waldorf Class', /^Waldorf Class 8 revolutions/i.test(pinQueries[0]));
-assert('Pinterest variant 2 is topic-first main lesson book', /^Waldorf revolutions.*main lesson book/i.test(pinQueries[1]));
-assert('Pinterest variant 3 is topic-first chalkboard drawing', /^Waldorf revolutions.*chalkboard drawing/i.test(pinQueries[2]));
+assert('Pinterest variant 2 is topic-first main lesson book', /^revolutions Waldorf Grade 8 main lesson book/i.test(pinQueries[1]));
+assert('Pinterest variant 3 is Waldorf blackboard drawing', /^Waldorf blackboard drawing revolutions Class 8/i.test(pinQueries[2]));
 assert('Pinterest phrases are all different', pinQueries[0] !== pinQueries[1] && pinQueries[1] !== pinQueries[2]);
 assert('Pinterest has no Hebrew', pinQueries.every(function (q) { return !/[\u0590-\u05FF]/.test(q); }));
 
@@ -64,6 +64,19 @@ assert('Chemistry allowed grade 8', !qg.validateGradeTopicScope('8', 'כימיה
 assert('Override allows physics pinterest for grade 1', qg.buildPinterestGalleryForTopic('פיזיקה', {
   currentGrade: '1', gradeId: '1', pedagogicalScopeOverride: true,
 }).length > 0);
+
+// Hebrew astronomy → English Waldorf Pinterest queries (canonical grade 7)
+const astroBody = { currentGrade: '7', gradeId: '7', gradeLabel: 'כיתה ז׳', topic: 'אסטרונומיה' };
+const astroPins = qg.generatePinterestQueries('7', 'אסטרונומיה', astroBody);
+assert('Hebrew astronomy translates for Pinterest', astroPins.length === 3);
+const astroQueries = astroPins.map(function (u) { return decodeURIComponent(u.split('q=')[1]); });
+assert('Astronomy Pinterest has no Hebrew', astroQueries.every(function (q) { return !/[\u0590-\u05FF]/.test(q); }));
+assert('Astronomy Pinterest mentions astronomy', astroQueries.every(function (q) { return /astronomy/i.test(q); }));
+assert('Astronomy Pinterest variant 1 is grade-locked', /^Waldorf Class 7 astronomy/i.test(astroQueries[0]));
+assert('Astronomy resolveEnglishTopic', qg.resolveEnglishTopic('אסטרונומיה') === 'astronomy');
+assert('Override allows astronomy pinterest for grade 8', qg.generatePinterestQueries('8', 'אסטרונומיה', {
+  currentGrade: '8', gradeId: '8', pedagogicalScopeOverride: true,
+}).length === 3);
 
 // Article: open web queries — no site: restrictions
 const articleUrl = qg.buildPerDomainArticleSearchUrl('example.org', 'מהפכות', 'כיתה ח');

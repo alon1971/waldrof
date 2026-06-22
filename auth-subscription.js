@@ -1715,7 +1715,7 @@
     }
   }
 
-  var CONTACT_EMAIL = 'waldrofplanner@gmail.com';
+  var CONTACT_EMAIL = 'waldorfplanner@gmail.com';
 
   function splitDisplayName(displayName) {
     var parts = String(displayName || '').trim().split(/\s+/).filter(Boolean);
@@ -1761,15 +1761,14 @@
   function bindContactOwnerLinks() {
     var emailLink = document.getElementById('contact-owner-email-link');
     if (emailLink) {
-      emailLink.href = 'mailto:' + CONTACT_EMAIL;
-      emailLink.textContent = CONTACT_EMAIL;
+      emailLink.setAttribute('href', 'mailto:' + CONTACT_EMAIL);
       emailLink.addEventListener('click', function (e) {
         e.stopPropagation();
       });
     }
     var phoneLink = document.getElementById('contact-owner-phone-link');
     if (phoneLink) {
-      phoneLink.href = 'tel:0544548078';
+      phoneLink.setAttribute('href', 'tel:0544548078');
       phoneLink.addEventListener('click', function (e) {
         e.stopPropagation();
       });

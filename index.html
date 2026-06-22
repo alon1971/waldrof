@@ -1773,6 +1773,8 @@
     }
     html[dir="ltr"] .app-modal-close { left: auto; right: 1rem; }
     #contact-modal .app-modal-panel {
+      position: relative;
+      z-index: 1;
       width: 100%;
       max-width: 440px;
       max-height: none;
@@ -3617,10 +3619,10 @@
         <p class="contact-owner-details__heading"><strong data-i18n="contact_owner_heading">פרטי מנהל המערכת:</strong></p>
         <p class="contact-owner-details__name">אלון ירושלמי (Alon Yerushalmy)</p>
         <p class="contact-owner-details__line">
-          מייל: <a class="contact-owner-details__link" id="contact-owner-email-link" href="mailto:waldrofplanner@gmail.com">waldrofplanner@gmail.com</a>
+          מייל: <a class="contact-owner-details__link" id="contact-owner-email-link" href="mailto:waldorfplanner@gmail.com" style="color: #4a6b53; text-decoration: underline;">waldorfplanner@gmail.com</a>
         </p>
         <p class="contact-owner-details__line">
-          טלפון: <a class="contact-owner-details__link" id="contact-owner-phone-link" href="tel:0544548078">054-4548078</a>
+          טלפון: <a class="contact-owner-details__link" id="contact-owner-phone-link" href="tel:0544548078" style="color: inherit; text-decoration: none;">054-4548078</a>
         </p>
       </div>
     </div>
