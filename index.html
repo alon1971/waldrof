@@ -162,6 +162,20 @@
       padding: 0;
     }
     body.app-typography .prose-ai li { margin-bottom: 0.35rem; }
+    body.app-typography .prose-ai a.prose-source-link,
+    body.app-typography .prose-ai a.prose-source-link:visited {
+      color: #4a6b53;
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-color: rgba(74, 107, 83, 0.45);
+    }
+    body.app-typography .prose-ai a.prose-source-link:hover,
+    body.app-typography .prose-ai a.prose-source-link:focus-visible {
+      color: #3d5848;
+      text-decoration-thickness: 2px;
+      text-decoration-color: #4a6b53;
+    }
     /* Workspace tabs — larger readable pedagogical body text (not site header/chrome) */
     #workspace .product-tab-panel,
     #product-panels-shell .product-tab-panel {
@@ -9479,8 +9493,11 @@
     function formatPerplexityRawText(text) {
       if (!text) return '<div class="prose-ai"></div>';
       const s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(String(text))));
-      if (looksLikeAiHtml(s)) return ensureAiHtml(s);
-      return '<div class="prose-ai leading-relaxed whitespace-pre-wrap">' + formatAiMarkdown(s) + '</div>';
+      const hasMarkdownLinks = /\[[^\]]+\]\(\s*https?:\/\//i.test(s);
+      if (hasMarkdownLinks || !looksLikeAiHtml(s)) {
+        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s) + '</div>';
+      }
+      return ensureAiHtml(s);
     }
 
     function stripPhaseBReferenceBrackets(text) {
@@ -9503,7 +9520,7 @@
       if (citations.length) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h4><ul class="list-disc mr-5 space-y-1 i18n-list">';
         citations.forEach(function (url) {
-          html += '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="text-sage-dark underline">' + escapeHtml(url) + '</a></li>';
+          html += '<li>' + buildProseSourceLinkHtml(url, '') + '</li>';
         });
         html += '</ul>';
       }
@@ -13029,9 +13046,141 @@
       return normalizeAiHtml(html);
     }
 
+    function decodeUriComponentSafe(value) {
+      var s = String(value || '');
+      if (!/%[0-9A-Fa-f]{2}/.test(s)) return s;
+      try { return decodeURIComponent(s.replace(/\+/g, ' ')); } catch (e) { return s; }
+    }
+
+    function sanitizeMarkdownLinkUrl(url) {
+      var u = String(url || '').trim();
+      return /^https?:\/\//i.test(u) ? u : '';
+    }
+
+    function humanizeSourceLinkLabel(label, url) {
+      var text = decodeUriComponentSafe(String(label || '').trim());
+      if (!text) text = decodeUriComponentSafe(String(url || '').trim());
+      if (!/^https?:\/\//i.test(text)) return text;
+      try {
+        var parsed = new URL(text);
+        var pathBits = decodeUriComponentSafe(parsed.pathname.replace(/\/$/, '')).split('/').filter(Boolean);
+        var last = pathBits.length ? pathBits[pathBits.length - 1] : '';
+        if (last && last.length > 2 && !/^[a-f0-9-]{20,}$/i.test(last)) {
+          return last.replace(/[-_]+/g, ' ').trim();
+        }
+        return parsed.hostname.replace(/^www\./i, '');
+      } catch (e) {
+        return text;
+      }
+    }
+
+    function buildProseSourceLinkHtml(url, label) {
+      var href = sanitizeMarkdownLinkUrl(url);
+      if (!href) return escapeHtml(humanizeSourceLinkLabel(label, url));
+      var display = humanizeSourceLinkLabel(label, href);
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+        escapeHtml(display) + '</a>';
+    }
+
+    function collectMarkdownLinkUrls(text) {
+      var urls = {};
+      var re = /\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
+      var match;
+      while ((match = re.exec(String(text || ''))) !== null) {
+        var href = sanitizeMarkdownLinkUrl(match[2]);
+        if (href) urls[href] = true;
+      }
+      return urls;
+    }
+
+    function isStandaloneUrlLine(line) {
+      return /^https?:\/\/\S+$/i.test(String(line || '').trim());
+    }
+
+    function renderMarkdownInline(text) {
+      if (!text) return '';
+      var placeholders = [];
+      var work = String(text);
+      work = work.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
+        var href = sanitizeMarkdownLinkUrl(url);
+        var idx = placeholders.length;
+        placeholders.push(buildProseSourceLinkHtml(href || url, label));
+        return '\x00MDLINK' + idx + '\x00';
+      });
+      work = work.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, '');
+      work = escapeHtml(work);
+      work = work.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      placeholders.forEach(function (html, i) {
+        work = work.split('\x00MDLINK' + i + '\x00').join(html);
+      });
+      return work;
+    }
+
     function formatAiMarkdown(text) {
       if (!text) return '';
-      return escapeHtml(cleanLaTeX(sanitizePedagogicalText(String(text)))).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      var lines = String(text).split(/\r?\n/);
+      var html = [];
+      var inOl = false;
+      var inUl = false;
+      var linkedUrls = collectMarkdownLinkUrls(text);
+
+      function closeLists() {
+        if (inOl) { html.push('</ol>'); inOl = false; }
+        if (inUl) { html.push('</ul>'); inUl = false; }
+      }
+
+      lines.forEach(function (rawLine) {
+        var trimmed = String(rawLine || '').trim();
+        if (!trimmed) {
+          closeLists();
+          return;
+        }
+        if (isStandaloneUrlLine(trimmed)) {
+          if (Object.keys(linkedUrls).length > 0) return;
+          closeLists();
+          html.push('<p>' + buildProseSourceLinkHtml(trimmed, '') + '</p>');
+          return;
+        }
+        var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+        if (titleUrlMatch) {
+          closeLists();
+          html.push('<p>' + buildProseSourceLinkHtml(titleUrlMatch[2], titleUrlMatch[1]) + '</p>');
+          return;
+        }
+        var headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch) {
+          closeLists();
+          var level = Math.min(headingMatch[1].length + 2, 6);
+          var headingClass = level <= 4 ? ' class="app-subhead"' : '';
+          html.push('<h' + level + headingClass + '>' + renderMarkdownInline(headingMatch[2]) + '</h' + level + '>');
+          return;
+        }
+        var olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+        if (olMatch) {
+          if (!inOl) {
+            closeLists();
+            html.push('<ol class="list-decimal mr-5 space-y-1 i18n-list">');
+            inOl = true;
+          }
+          html.push('<li>' + renderMarkdownInline(olMatch[1]) + '</li>');
+          return;
+        }
+        var ulMatch = trimmed.match(/^[-*•]\s+(.+)$/);
+        if (ulMatch) {
+          if (!inUl) {
+            closeLists();
+            html.push('<ul class="list-disc mr-5 space-y-1 i18n-list">');
+            inUl = true;
+          }
+          html.push('<li>' + renderMarkdownInline(ulMatch[1]) + '</li>');
+          return;
+        }
+        closeLists();
+        html.push('<p>' + renderMarkdownInline(trimmed) + '</p>');
+      });
+
+      closeLists();
+      return html.join('\n');
     }
     function formatDate(iso) {
       try { return new Date(iso).toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
