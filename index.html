@@ -12832,6 +12832,68 @@
       renderCatalog('grade', gradeId);
     }
 
+    async function openGradePlanningWorkspace(gradeId, topic) {
+      const gid = String(gradeId || '').trim();
+      if (!gid) return;
+      const gradeSelect = document.getElementById('grade-select');
+      if (gradeSelect && gradeSelect.value !== gid) {
+        gradeSelect.value = gid;
+      }
+      if (appState.grade !== gid) {
+        await onGradeSubmit();
+      } else {
+        appState.navSection = 'wizard';
+        document.getElementById('workspace').classList.add('hidden');
+        document.getElementById('wizard').classList.remove('hidden');
+        goToStep(1, false);
+        renderGradeCommunityList();
+        updateWorkspaceChrome();
+        updateNewResearchBarVisibility();
+        persistActiveStep();
+      }
+      const topicTrim = String(topic || '').trim();
+      if (topicTrim) {
+        appState.topic = topicTrim;
+        const topicInput = document.getElementById('topic-input');
+        if (topicInput) topicInput.value = topicTrim;
+      }
+      if (typeof LessonChatSidebar !== 'undefined' && typeof LessonChatSidebar.setDisplayMode === 'function') {
+        LessonChatSidebar.setDisplayMode('bubble');
+      }
+    }
+
+    async function downloadCommunityTopicFolder(gradeId, topicId) {
+      const gid = String(gradeId || '').trim();
+      const topic = String(topicId || '').trim();
+      if (!gid || !topic) return;
+      if (isCloudConfigured()) {
+        try { await loadCommunity(); } catch (e) { console.warn('[community] folder download load failed:', e); }
+      }
+      const items = getCommunityMaterialsForTopic(gid, topic);
+      if (!items.length) {
+        alert('לא נמצאו קבצים להורדה בתיקייה זו.');
+        return;
+      }
+      let delay = 0;
+      items.forEach(function (item) {
+        const url = item.fileUrl || resolveCommunityFileUrl(item);
+        if (!url) return;
+        setTimeout(function () {
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = item.fileName || item.title || '';
+          if (isExternalCommunityLink(url)) {
+            anchor.target = '_blank';
+            anchor.rel = 'noopener';
+          }
+          document.body.appendChild(anchor);
+          anchor.click();
+          document.body.removeChild(anchor);
+        }, delay);
+        delay += 400;
+      });
+    }
+
     async function indexCommunityUpload(gradeId, topic, filePath, fileName, extras, materialId, options) {
       options = options || {};
       const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
@@ -17990,6 +18052,12 @@
               topic: catalogTopic || undefined,
               preferGradeGrid: !catalogTopic || isLikelyUserChatQuestion(catalogTopic),
             });
+          },
+          openGradePlanningWorkspace: function (gradeId, topic) {
+            openGradePlanningWorkspace(gradeId, topic);
+          },
+          downloadCommunityTopicFolder: function (gradeId, topic) {
+            downloadCommunityTopicFolder(gradeId, topic);
           },
           renderCommunityAlert: function (matches) {
             var targets = [

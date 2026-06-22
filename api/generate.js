@@ -27,6 +27,7 @@ const jsonRepair = require('./json-repair');
 const env = require('./env');
 const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
+const communityFolderBrief = require('./community-folder-brief');
 const pedagogicalScope = require('./pedagogical-scope');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const enrichmentLinksApi = require('./enrichment-links');
@@ -3535,6 +3536,36 @@ async function executeGenerate(body, apiKey, requestContext) {
     console.log('[community] matched', communityProbe.count, 'material(s) for', body.phase);
   }
   body.communityMaterialsProbe = communityProbe;
+
+  if (
+    body.phase === 'chat_followup' &&
+    !chatApi.shouldTreatChatAsPedagogicalExpansion(body) &&
+    chatApi.isFirstChatTurnInSession(body)
+  ) {
+    const folderBrief = communityFolderBrief.tryBuildCommunityFolderBrief(body, communityProbe);
+    if (folderBrief) {
+      console.log('[chat] community folder brief — skipping Gemini prose for', body.userMessage);
+      return {
+        data: folderBrief.data,
+        meta: attachCommunityMeta({
+          fromCache: false,
+          source: 'community_folder_brief',
+          chatPipeline: 'community_folder_brief',
+          chatPromptMode: 'community_match',
+          isFirstChatTurn: true,
+          chatContinuation: false,
+          communityFolderBrief: true,
+          skipCommunityAlert: true,
+          gradeId: folderBrief.meta.gradeId,
+          catalogTopic: folderBrief.meta.catalogTopic,
+        }, communityProbe, {
+          chatPromptMode: 'community_match',
+          isFirstChatTurn: true,
+          chatContinuation: false,
+        }),
+      };
+    }
+  }
 
   if (body.phase === 'chat_followup') {
     body.chatStrictIsolation = true;

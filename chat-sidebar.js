@@ -16,6 +16,7 @@
     ragContext: '',
     ragChunkIds: [],
     pendingArchiveSuggestion: null,
+    pendingCommunityFolderBrief: null,
   };
 
   var CHAT_GREETING_FALLBACK_HE = 'שלום! ברוכים הבאים למתכנן הפדגוגי.';
@@ -60,6 +61,8 @@
     resetTopicResearchLoading: null,
     openCommunityCatalog: null,
     renderCommunityAlert: null,
+    openGradePlanningWorkspace: null,
+    downloadCommunityTopicFolder: null,
     escapeHtml: function (s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
@@ -100,13 +103,29 @@
 
   function normalizeMessages(messages) {
     return (messages || []).map(function (m) {
-      return {
+      var out = {
         role: m.role === 'assistant' ? 'assistant' : 'user',
         text: m.text || m.content || '',
         html: m.html || null,
         fromCache: Boolean(m.fromCache),
         isGreeting: Boolean(m.isGreeting),
       };
+      if (m.communityFolderBrief) {
+        out.communityFolderBrief = true;
+        out.communityFolderBriefId = m.communityFolderBriefId || '';
+        out.communityFolderBriefResolved = Boolean(m.communityFolderBriefResolved);
+        out.gradeId = m.gradeId || '';
+        out.catalogTopic = m.catalogTopic || '';
+        out.gradeLabel = m.gradeLabel || '';
+        out.accessGradeLabel = m.accessGradeLabel || '';
+        out.downloadFolderLabel = m.downloadFolderLabel || 'הורדת התיקייה';
+      }
+      if (m.archiveSuggest) {
+        out.archiveSuggest = true;
+        out.archiveSuggestId = m.archiveSuggestId || '';
+        out.archiveSuggestResolved = Boolean(m.archiveSuggestResolved);
+      }
+      return out;
     });
   }
 
@@ -242,7 +261,19 @@
   function renderMessageBubble(msg) {
     var roleClass = msg.role === 'user' ? 'lesson-chat-bubble--user' : 'lesson-chat-bubble--assistant';
     var body;
-    if (msg.archiveSuggest && !msg.archiveSuggestResolved) {
+    if (msg.communityFolderBrief && !msg.communityFolderBriefResolved) {
+      body = '<div class="lesson-chat-bubble-body">' +
+        deps.escapeHtml(msg.text) +
+        '<div class="lesson-chat-suggest-actions">' +
+          '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--yes" data-community-brief="access">' +
+            deps.escapeHtml(msg.accessGradeLabel || msg.gradeLabel || '') +
+          '</button>' +
+          '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--no" data-community-brief="download">' +
+            deps.escapeHtml(msg.downloadFolderLabel || 'הורדת התיקייה') +
+          '</button>' +
+        '</div>' +
+      '</div>';
+    } else if (msg.archiveSuggest && !msg.archiveSuggestResolved) {
       body = '<div class="lesson-chat-bubble-body">' +
         deps.escapeHtml(msg.text) +
         '<div class="lesson-chat-suggest-actions">' +
@@ -262,7 +293,35 @@
     }
     return '<div class="lesson-chat-bubble ' + roleClass + '"' +
       (msg.archiveSuggestId ? ' data-archive-suggest-id="' + deps.escapeHtml(msg.archiveSuggestId) + '"' : '') +
+      (msg.communityFolderBriefId ? ' data-community-brief-id="' + deps.escapeHtml(msg.communityFolderBriefId) + '"' : '') +
       '>' + body + '</div>';
+  }
+
+  function bindCommunityFolderBriefClicks(list) {
+    if (!list || list.dataset.communityBriefBound) return;
+    list.dataset.communityBriefBound = '1';
+    list.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-community-brief]') : null;
+      if (!btn || btn.disabled) return;
+      var action = btn.getAttribute('data-community-brief');
+      var bubble = btn.closest('[data-community-brief-id]');
+      if (!bubble) return;
+      var briefId = bubble.getAttribute('data-community-brief-id');
+      var pending = state.pendingCommunityFolderBrief;
+      if (!pending || pending.id !== briefId || pending.resolved) return;
+      pending.resolved = true;
+      state.messages.forEach(function (m) {
+        if (m.communityFolderBriefId === briefId) m.communityFolderBriefResolved = true;
+      });
+      renderMessages();
+      if (action === 'access' && typeof deps.openGradePlanningWorkspace === 'function') {
+        deps.openGradePlanningWorkspace(pending.gradeId, pending.catalogTopic);
+      } else if (action === 'download' && typeof deps.downloadCommunityTopicFolder === 'function') {
+        deps.downloadCommunityTopicFolder(pending.gradeId, pending.catalogTopic);
+      }
+      state.pendingCommunityFolderBrief = null;
+      setDisplayMode('bubble');
+    });
   }
 
   function bindArchiveSuggestClicks(list) {
@@ -486,6 +545,8 @@
     if (!list) return;
 
     list.innerHTML = state.messages.map(renderMessageBubble).join('');
+    bindArchiveSuggestClicks(list);
+    bindCommunityFolderBriefClicks(list);
     applyChatScrollBehavior(scrollSnapshot, options);
     syncExportBarVisibility();
     if (state.displayMode === 'fullscreen') {
@@ -507,6 +568,9 @@
     body.innerHTML = '<div class="lesson-chat-fullscreen-thread">' +
       state.messages.map(renderMessageBubble).join('') +
       '</div>';
+    var fsThread = body.querySelector('.lesson-chat-fullscreen-thread');
+    bindArchiveSuggestClicks(fsThread || body);
+    bindCommunityFolderBriefClicks(fsThread || body);
     applyChatScrollBehavior(scrollSnapshot, options);
   }
 
@@ -883,13 +947,38 @@
       if (meta.ragContext) state.ragContext = meta.ragContext;
       if (Array.isArray(meta.ragChunkIds)) state.ragChunkIds = meta.ragChunkIds;
       if (!answer) throw new Error(deps.t('chat_error_empty'));
-      state.messages.push({
-        role: 'assistant',
-        text: stripHtml(answer) || answer,
-        html: reply.answerHtml || null,
-        fromCache: fromCache && !enriched,
-        enriched: enriched,
-      });
+
+      var isFolderBrief = Boolean(reply.communityFolderBrief || meta.communityFolderBrief);
+      if (isFolderBrief) {
+        var briefId = 'cfb-' + Date.now();
+        state.pendingCommunityFolderBrief = {
+          id: briefId,
+          gradeId: reply.gradeId || meta.gradeId || '',
+          catalogTopic: reply.catalogTopic || meta.catalogTopic || '',
+          resolved: false,
+        };
+        state.messages.push({
+          role: 'assistant',
+          text: stripHtml(answer) || answer,
+          communityFolderBrief: true,
+          communityFolderBriefId: briefId,
+          communityFolderBriefResolved: false,
+          gradeId: state.pendingCommunityFolderBrief.gradeId,
+          catalogTopic: state.pendingCommunityFolderBrief.catalogTopic,
+          gradeLabel: reply.gradeLabel || '',
+          accessGradeLabel: reply.accessGradeLabel || '',
+          downloadFolderLabel: reply.downloadFolderLabel || 'הורדת התיקייה',
+        });
+      } else {
+        state.messages.push({
+          role: 'assistant',
+          text: stripHtml(answer) || answer,
+          html: reply.answerHtml || null,
+          fromCache: fromCache && !enriched,
+          enriched: enriched,
+        });
+      }
+
       var communityMatches = (meta && Array.isArray(meta.communityMatches) && meta.communityMatches.length)
         ? meta.communityMatches
         : (result && Array.isArray(result._communityMatches) ? result._communityMatches : []);
@@ -906,7 +995,7 @@
           cacheKey: meta.gradeCacheKey || '',
         });
       }
-      if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert && !isExpansionReply && !isContinuationReply) {
+      if (typeof deps.renderCommunityAlert === 'function' && !meta.skipCommunityAlert && !isExpansionReply && !isContinuationReply && !isFolderBrief) {
         deps.renderCommunityAlert(communityMatches);
       }
       persistSession();
@@ -1094,8 +1183,12 @@
     }
 
     bindArchiveSuggestClicks(document.getElementById('lesson-chat-messages'));
+    bindCommunityFolderBriefClicks(document.getElementById('lesson-chat-messages'));
     var fsBodyInit = document.getElementById('lesson-chat-fullscreen-body');
-    if (fsBodyInit) bindArchiveSuggestClicks(fsBodyInit);
+    if (fsBodyInit) {
+      bindArchiveSuggestClicks(fsBodyInit);
+      bindCommunityFolderBriefClicks(fsBodyInit);
+    }
 
     setDisplayMode('bubble');
 
@@ -1121,6 +1214,19 @@
     state.sessionKey = options.sessionKey || '';
     state.ragContext = options.ragContext || '';
     state.ragChunkIds = Array.isArray(options.ragChunkIds) ? options.ragChunkIds.slice() : [];
+    state.pendingCommunityFolderBrief = null;
+    for (var i = state.messages.length - 1; i >= 0; i--) {
+      var msg = state.messages[i];
+      if (msg && msg.communityFolderBrief && !msg.communityFolderBriefResolved && msg.communityFolderBriefId) {
+        state.pendingCommunityFolderBrief = {
+          id: msg.communityFolderBriefId,
+          gradeId: msg.gradeId || '',
+          catalogTopic: msg.catalogTopic || '',
+          resolved: false,
+        };
+        break;
+      }
+    }
     renderMessages();
     if (options.openChat === true) {
       setDisplayMode(openChatModeForViewport());
@@ -1155,6 +1261,8 @@
     if (typeof options.focusMainTopicInput === 'function') deps.focusMainTopicInput = options.focusMainTopicInput;
     if (typeof options.resetTopicResearchLoading === 'function') deps.resetTopicResearchLoading = options.resetTopicResearchLoading;
     if (typeof options.openCommunityCatalog === 'function') deps.openCommunityCatalog = options.openCommunityCatalog;
+    if (typeof options.openGradePlanningWorkspace === 'function') deps.openGradePlanningWorkspace = options.openGradePlanningWorkspace;
+    if (typeof options.downloadCommunityTopicFolder === 'function') deps.downloadCommunityTopicFolder = options.downloadCommunityTopicFolder;
     if (typeof options.renderCommunityAlert === 'function') deps.renderCommunityAlert = options.renderCommunityAlert;
     if (typeof options.escapeHtml === 'function') deps.escapeHtml = options.escapeHtml;
     try {
