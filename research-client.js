@@ -62,8 +62,7 @@
     'If there is no meaningful match (e.g. Chemistry, Physics, or other topics not covered by his materials), OMIT his name and platforms entirely.\n' +
     'Also actively search for diverse Waldorf/anthroposophic authors, global curriculum boards, international researchers, ' +
     'and prominent Israeli Waldorf educators beyond the priority sources — to build a broad, credible source landscape.\n' +
-    'FOR INSPIRATION: run MANDATORY site-restricted searches FIRST: site:waldorf.org.il, site:adamolam.co.il, site:shakedwaldorf.org.il, site:harduf-waldorf.org.il, ' +
-    'plus «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» with the block topic — then AWSNA, Goetheanum, «אדם עולם».\n' +
+    'FOR INSPIRATION: run broad open-web searches combining the block topic, current grade, and Waldorf/anthroposophic pedagogy.\n' +
     'NEVER invent URLs or append ?s= / index.asp paths — include url ONLY when copied verbatim from live search citations.\n' +
     '=== END WEB SEARCH STRATEGY ===\n';
 
@@ -146,24 +145,18 @@
     '- "מחברת תקופה" → Waldorf Class N main lesson book\n' +
     'Each "pin" MUST be a SHORT search of at most 2–4 high-impact keywords — never one long concatenated string.\n' +
     'Hebrew board titles may be descriptive; "pin" phrases must stay short, grade-locked, and Waldorf-anchored in English.\n' +
-    'WALDORF PEDAGOGICAL WEB RESOURCES (Phase C inspiration): use Google site-restricted search redirects for Israeli Waldorf articles — NEVER invent direct school URLs.\n' +
+    'WALDORF PEDAGOGICAL WEB RESOURCES (Phase C inspiration): open web search for verified Waldorf articles — return empty array if none found.\n' +
     '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
   const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
     '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY — INSPIRATION / PHASE C) ===\n' +
     (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.ANTI_URL_HALLUCINATION_INSTRUCTION
       ? WaldorfWebSeed.ANTI_URL_HALLUCINATION_INSTRUCTION
-      : 'NEVER invent static URLs for Waldorf schools — include url ONLY from live search citations.\n') +
-    'Discover verified HTTPS links to Waldorf school sites, federations, and pedagogical journals — NOT generic education pages.\n' +
-    'MANDATORY site: searches FIRST:\n' +
-    '• site:waldorf.org.il (הפורום לחינוך וולדורף בישראל)\n' +
-    '• site:adamolam.co.il (מגזין אדם עולם)\n' +
-    '• site:shakedwaldorf.org.il OR site:shakedtivon.edupage.org (בית ספר שקד) — NEVER shaked.org.il\n' +
-    '• site:harduf-waldorf.org.il (בית ספר ולדורף הרדוף) — NEVER harduf.org.il/?s= or KehilaNet paths\n' +
-    '• «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» + block topic\n' +
-    'Then prioritize: AWSNA, Waldorf World, Goetheanum, «אדם עולם».\n' +
+      : 'NEVER invent static URLs for Waldorf resources — include url ONLY from live search citations.\n') +
+    'Discover verified HTTPS links via open web search — NOT generic education pages.\n' +
+    'Use dynamic queries from block topic + grade + Waldorf pedagogy. Do NOT restrict to specific websites or site: operators.\n' +
     'STRICT FILTER: link must match BOTH active subject AND Waldorf/anthroposophic pedagogical context.\n' +
-    'If live search returns zero verified deep links, OMIT url fields — safe Google site: fallbacks are added automatically.\n' +
+    'If live search returns zero verified deep links, return an empty pedagogicalResources array.\n' +
     'Output pedagogicalResources: [{ title, url, label, source, snippet }] — URLs allowed ONLY in this array, ONLY when verbatim from citations.\n' +
     'Labels: מאמר פדגוגי | מערך שיעור מאתר בית ספר | מקור וולדורף רשמי | כתב עת פדגוגי | מדריך תקופה וולדורפית.\n' +
     '=== END WALDORF PEDAGOGICAL WEB RESOURCES ===\n';
@@ -182,14 +175,13 @@
     const seed = getWaldorfWebSeed();
     if (!seed) {
       return (
-        'MANDATORY WALDORF DOMAIN WHITELIST — site:waldorf.org.il, site:adamolam.co.il, site:shaked.org.il, ' +
-        '«הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» + «' + topic + '»\n'
+        'OPEN WEB SEARCH — combine block topic «' + topic + '», grade, and Waldorf pedagogy. No site: restrictions.\n'
       );
     }
     const queries = seed.buildWaldorfSiteSearchQueries(topic, gradeLabel);
     return (
       seed.buildWaldorfWebSeedInstruction(topic, gradeLabel) + '\n\n' +
-      'EXACT SITE-SEARCH QUERIES TO RUN FIRST:\n' +
+      'SUGGESTED OPEN-WEB SEARCH QUERIES:\n' +
       queries.map(function (q, i) { return (i + 1) + '. ' + q; }).join('\n') + '\n'
     );
   }
@@ -242,7 +234,6 @@
       ? seed.sanitizePedagogicalResourceList(resources || [], topic, gradeLabel)
       : (resources || []);
     return seed.ensureWebInspirationFallback(sanitized, topic, gradeLabel, {
-      minCount: 2,
       maxCount: 12,
     });
   }
@@ -653,7 +644,7 @@
           '  "blockPlan": { "inspiration": { "title": "Hebrew", "global": [], "podcast": { "title": "Hebrew", "episodes": [] }, "narrative": [] }, "sources": { "books": [], "articles": [], "websites": [] } },\n' +
           '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Waldorf \\"Class N\\" topic — grade-locked, max 2-4 entries" }],\n' +
           'gallery: 2–4 DISTINCT grade-locked Waldorf Pinterest searches ONLY — quality over quantity; never pad with generic pins.\n' +
-          '  "pedagogicalResources": [{ "title": "Hebrew", "url": "https://www.waldorf.org.il/...", "label": "מקור וולדורף רשמי", "source": "פורום וולדורף", "snippet": "Hebrew" }]\n' +
+          '  "pedagogicalResources": [{ "title": "Hebrew", "url": "https://…verified-from-live-search…", "label": "מאמר פדגוגי", "source": "source name", "snippet": "Hebrew" }]\n' +
           '}';
       }
       return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +

@@ -52,46 +52,29 @@ assert('Revolutions blocked for grade 3', qg.validateGradeTopicScope('3', 'מה�
 assert('Construction blocked for grade 8', qg.validateGradeTopicScope('8', 'בניית בית'));
 assert('Grade 3 agriculture allowed', !qg.validateGradeTopicScope('3', 'חקלאות'));
 
-// Article: simple site: queries — no quotes choke, no open Google
-const articleUrl = qg.buildPerDomainArticleSearchUrl('elyashev.co.il', 'מהפכות', 'כיתה ח');
+// Article: open web queries — no site: restrictions
+const articleUrl = qg.buildPerDomainArticleSearchUrl('example.org', 'מהפכות', 'כיתה ח');
 assert('Article URL is Google search', /^https:\/\/www\.google\.com\/search\?q=/.test(articleUrl));
 const decoded = decodeURIComponent(articleUrl.split('q=')[1]);
-assert('Article query is simple site:elyashev', decoded === 'site:elyashev.co.il מהפכות');
-
-const zomerUrl = qg.buildPerDomainArticleSearchUrl('zomer.org.il', 'מהפכות', 'כיתה ח');
-const zomerQ = decodeURIComponent(zomerUrl.split('q=')[1]);
-assert('Zomer query uses quoted וולדורף anchor', zomerQ === 'site:zomer.org.il "וולדורף" מהפכות');
+assert('Article query is open web with topic', decoded.indexOf('מהפכות') >= 0);
+assert('Article query has no site: operator', !/(^|\s)site:/i.test(decoded));
 
 const articleRows = qg.generateArticleQueries('8', 'מהפכות', 'כיתה ח');
-assert('Article generator has trusted domains plus global repo', articleRows.length === qg.TRUSTED_DOMAINS.length + 1);
-assert('No generic open Hebrew search', !articleRows.some(function (r) { return r.source === 'google_he_open'; }));
-assert('No generic open English search', !articleRows.some(function (r) { return r.source === 'google_en_global'; }));
-assert('Waldorf Library global repo exists', articleRows.some(function (r) {
-  return r.source === 'waldorflibrary' && /site:waldorflibrary\.org/.test(decodeURIComponent(r.url));
-}));
+assert('Article generator returns single open-web row', articleRows.length === 1);
+assert('Article row is open_web source', articleRows[0].source === 'open_web');
+assert('Article row has no site: in URL', !/site%3A|site:/i.test(articleRows[0].url));
 
-// Fallback resources
+// Fallback resources — no hardcoded site stubs
 const fallbacks = qg.buildWebInspirationFallbackResources('מהפכות', 'כיתה ח');
-assert('Fallback generates trusted + library', fallbacks.length === qg.TRUSTED_DOMAINS.length + 1);
-assert('Fallback URLs are all Google site searches', fallbacks.every(function (f) { return /google\.com\/search/.test(f.url); }));
-assert('Fallback URLs are unique', new Set(fallbacks.map(function (f) { return f.url; })).size === fallbacks.length);
-assert('Fallback has no OR-chain open search', fallbacks.every(function (f) {
-  return decodeURIComponent(f.url.split('q=')[1] || '').indexOf(' OR ') === -1;
-}));
+assert('Fallback returns empty array', fallbacks.length === 0);
 
-// Web seed sanitizer — legacy paths become simple site: on same host
-const sanitized = webSeed.sanitizePedagogicalResourceUrl(
-  'https://www.harduf-waldorf.org.il/some/guessed/path',
-  'מהפכות',
-  { gradeLabel: 'כיתה ח' }
-);
-assert('Israeli path becomes Google search', /google\.com\/search/.test(sanitized));
-const sanitizedQ = decodeURIComponent(sanitized.split('q=')[1]);
-assert('Sanitized query targets harduf hostname simply', sanitizedQ === 'site:harduf-waldorf.org.il מהפכות');
+assert('Web seed domains list is empty', webSeed.WALDORF_WEB_SEED_DOMAINS.length === 0);
+assert('Web seed fallback is empty', webSeed.buildWebInspirationFallbackResources('מהפכות', 'כיתה ח').length === 0);
 
-// Trusted domains exclude removed schools
-assert('Shaked not in trusted domains', qg.TRUSTED_DOMAINS.indexOf('shakedwaldorf.org.il') === -1);
-assert('Harduf not in trusted domains', qg.TRUSTED_DOMAINS.indexOf('harduf-waldorf.org.il') === -1);
+const brokenSiteSearch = 'https://www.google.com/search?q=' + encodeURIComponent('site:adamolam.co.il מהפכות');
+assert('Site-restricted Google URL is rejected', !webSeed.isAllowedPedagogicalUrl(brokenSiteSearch));
+
+assert('shouldForceArticleSearchRedirect is disabled', !qg.shouldForceArticleSearchRedirect('https://www.example-waldorf.org/article'));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed > 0 ? 1 : 0);

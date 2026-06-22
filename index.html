@@ -4129,8 +4129,8 @@
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250621b"></script>
-  <script src="waldorf-query-generation.js?v=20250621d"></script>
-  <script src="waldorf-web-seed.js?v=20250621h"></script>
+  <script src="waldorf-query-generation.js?v=20250621i"></script>
+  <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
   <script src="archive-coerce.js?v=20250621b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
@@ -4482,7 +4482,7 @@
       'מקורות באנגלית (lang=en): רשימה רחבה ומקיפה של עד 10 מקורות איכותיים בסך הכל בכל שלוש הקטגורות — ' +
       'ספרים, מאמרים אקדמיים, מחקרי עומק ואתרי תוכן מובילים (GA, AWSNA, IASWECE, Charles Kovacs, Torin Finser, Betty Staley, מכוני מחקר ולדורפיים בינלאומיים). ' +
       'הגבלה קשיחה למקורות בעברית (lang=he): אך ורק אנתרופוסופיה ופדגוגיית ולדורף. ' +
-      'אסור: משרד החינוך, מופ"ת, מקורות חינוך כלליים. מותר: שטיינר (GA), הומני/אלדו/תלתן, «אדם עולם», anthroposophia.org.il, סאלד, מכונים ולדורפיים. ' +
+      'אסור: משרד החינוך, מופ"ת, מקורות חינוך כלליים. מותר: שטיינר (GA), הומני/אלדו/תלתן, כתבי עת וולדורפיים ואנתרופוסופיים, סאלד, מכונים ולדורפיים. ' +
       'מקורות עבריים: ללא הגבלה; אנגלית: עד 10. מיין: עברית תחילה.'
       );
     }
@@ -6907,11 +6907,7 @@
         }
         if (!Array.isArray(data.gallery)) data.gallery = [];
         var topicForPed = appState.topic || '';
-        var pedCollected = ensureWebInspirationFallback(
-          normalizePedagogicalResources(data.pedagogicalResources, topicForPed),
-          topicForPed,
-          appState.gradeLabel || ''
-        );
+        var pedCollected = normalizePedagogicalResources(data.pedagogicalResources, topicForPed);
         data.pedagogicalResources = normalizePedagogicalResources(pedCollected, topicForPed);
       } else if (cTab === 'curriculum') {
         var rows = coerceCurriculumRows(data.blockPlan.curriculum);
@@ -7736,18 +7732,12 @@
     ];
 
     var WALDORF_PEDAGOGICAL_DOMAIN_HINTS = [
-      { pattern: /waldorf\.org\.il/i, source: 'פורום וולדורף ישראל', label: 'מקור וולדורף רשמי' },
-      { pattern: /adamolam\.co\.il|adam-?olam/i, source: 'מגזין אדם עולם', label: 'כתב עת פדגוגי' },
-      { pattern: /shakedwaldorf\.org\.il|shakedtivon\.edupage\.org/i, source: 'בית ספר שקד', label: 'מערך שיעור מאתר בית ספר' },
-      { pattern: /harduf-waldorf\.org\.il/i, source: 'בית ספר ולדורף הרדוף', label: 'מערך שיעור מאתר בית ספר' },
-      { pattern: /google\.com\/search\?.*site/i, source: 'חיפוש מוגבל לאתר', label: 'מקור וולדורף רשמי' },
       { pattern: /goetheanum/i, source: 'גויתאנום', label: 'מקור וולדורף רשמי' },
       { pattern: /waldorfeducation\.org|awsna/i, source: 'AWSNA', label: 'מקור וולדורף רשמי' },
       { pattern: /waldorf-world|waldorfworld/i, source: 'Waldorf World', label: 'מקור וולדורף רשמי' },
       { pattern: /iaswece/i, source: 'IASWECE', label: 'מקור וולדורף רשמי' },
       { pattern: /waldorflibrary/i, source: 'ספריית מכון המחקר הוולדורפי', label: 'מאמר פדגוגי' },
       { pattern: /rsarchive|steinerarchive/i, source: 'Steiner Archive', label: 'מאמר פדגוגי' },
-      { pattern: /adam-?olam|אדם.?עולם/i, source: 'כתב עת אדם עולם', label: 'כתב עת פדגוגי' },
       { pattern: /anthroposophy|אנתרופוסופיה/i, source: 'מקור אנתרופוסופי', label: 'מאמר פדגוגי' },
       { pattern: /waldorf/i, source: 'מקור וולדורף', label: 'מקור וולדורף רשמי' },
     ];
@@ -7783,27 +7773,9 @@
       var topicStr = String(topic || appState.topic || '').trim();
       var gradeLabel = String(appState.gradeLabel || '').trim();
       var rawUrl = String(item.url || item.link || item.href || '').trim();
-      if (!/^https?:\/\//i.test(rawUrl)) {
-        if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.buildArticleGoogleSearchUrl) {
-          rawUrl = WaldorfQueryGeneration.buildArticleGoogleSearchUrl(topicStr, gradeLabel);
-        }
-        if (!rawUrl) return null;
-      }
-      if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.shouldForceArticleSearchRedirect &&
-          WaldorfQueryGeneration.shouldForceArticleSearchRedirect(rawUrl)) {
-        var redirectDomain = (WaldorfQueryGeneration.TRUSTED_DOMAINS && WaldorfQueryGeneration.TRUSTED_DOMAINS[0]) || 'adamolam.co.il';
-        if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.findSeedForUrl) {
-          var seedMatch = WaldorfWebSeed.findSeedForUrl(rawUrl);
-          if (seedMatch) {
-            redirectDomain = (seedMatch.searchDomains || [seedMatch.domain])[0];
-          } else {
-            try {
-              redirectDomain = new URL(rawUrl).hostname.replace(/^www\./i, '') || redirectDomain;
-            } catch (e) { /* keep default */ }
-          }
-        }
-        rawUrl = WaldorfQueryGeneration.buildPerDomainArticleSearchUrl(redirectDomain, topicStr, gradeLabel);
-      }
+      if (!/^https?:\/\//i.test(rawUrl)) return null;
+      if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration.isSiteRestrictedGoogleSearchUrl &&
+          WaldorfQueryGeneration.isSiteRestrictedGoogleSearchUrl(rawUrl)) return null;
       var url = sanitizePedagogicalResourceUrl(rawUrl, topicStr, {
         topic: topicStr,
         gradeLabel: gradeLabel,
@@ -7815,15 +7787,7 @@
       if (PEDAGOGICAL_RESOURCE_LABELS.indexOf(label) === -1) label = meta.label;
       var title = String(item.title || item.name || meta.source || '').trim();
       var snippet = String(item.snippet || item.description || item.summary || '').trim();
-      if (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.isSafeGoogleSiteSearchUrl &&
-          WaldorfWebSeed.isSafeGoogleSiteSearchUrl(url) && !snippet) {
-        snippet = gradeLabel
-          ? ('חיפוש Google מוגבל לאתר — נושא «' + topicStr + '» ב' + gradeLabel)
-          : ('חיפוש Google מוגבל לאתר — נושא «' + topicStr + '»');
-      }
-      if (topicStr && snippet && !(typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.isSafeGoogleSiteSearchUrl &&
-          WaldorfWebSeed.isSafeGoogleSiteSearchUrl(url)) &&
-          !(typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.looksLikeVerifiedDeepLink &&
+      if (topicStr && snippet && !(typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.looksLikeVerifiedDeepLink &&
           WaldorfWebSeed.looksLikeVerifiedDeepLink(url))) {
         var topicLc = topicStr.toLowerCase();
         var blob = (title + ' ' + snippet + ' ' + url).toLowerCase();
@@ -7914,7 +7878,6 @@
           ? WaldorfWebSeed.sanitizePedagogicalResourceList(resources || [], topic, gradeLabel || '')
           : (resources || []);
         return WaldorfWebSeed.ensureWebInspirationFallback(prepped, topic, gradeLabel, {
-          minCount: 2,
           maxCount: 12,
         });
       }
@@ -7940,8 +7903,10 @@
       if (!section || !listEl) return;
       var resources = appState.pedagogicalResources || [];
       if (!resources.length) {
-        section.classList.add('hidden');
-        listEl.innerHTML = '';
+        section.classList.remove('hidden');
+        listEl.innerHTML = '<p class="text-sm text-walnut/60 text-center py-8">' +
+          escapeHtml(t('pedagogical_resources_empty') || 'לא נמצאו מקורות פדגוגיים לנושא זה — הריצו מחדש את מחקר ההשראה.') +
+          '</p>';
         return;
       }
       section.classList.remove('hidden');
@@ -8104,17 +8069,15 @@
     function getWaldorfPedagogicalResourcesSearchInstruction() {
       if (isEnglish()) {
         return (
-          'MANDATORY site-restricted Waldorf searches FIRST: site:waldorf.org.il, site:adamolam.co.il, site:shakedwaldorf.org.il, site:harduf-waldorf.org.il, ' +
-          'plus Harduf / David Yellin / Shiluv seminary terms with the block topic. ' +
+          'Open web search: combine block topic, grade, and Waldorf pedagogy — no site: restrictions or forced domains. ' +
           'Include url ONLY when copied verbatim from live search citations (deep article/PDF pages). ' +
-          'NEVER invent ?s= paths, index.asp, or shaked.org.il — safe Google site: fallbacks are added automatically when needed.'
+          'If no verified links exist, return an empty pedagogicalResources array.'
         );
       }
       return (
-        'חיפוש site: חובה תחילה: site:waldorf.org.il, site:adamolam.co.il, site:shakedwaldorf.org.il, site:harduf-waldorf.org.il, ' +
-        'וגם «הרדוף חינוך וולדורף», «סמינר שילוב», «סמינר דוד ילין וולדורף» עם נושא התקופה. ' +
+        'חיפוש רשת פתוח: שלבו נושא התקופה, כיתה ופדגוגיית וולדורף — ללא site: או אתרים כפויים. ' +
         'כלול url רק כשהועתק verbatim מציטוט חיפוש חי (עמוד/PDF אמיתי). ' +
-        'אסור להמציא נתיבי ?s=, index.asp או shaked.org.il — קישורי Google site: בטוחים מתווספים אוטומטית.'
+        'אם אין קישורים מאומתים — החזירו מערך pedagogicalResources ריק.'
       );
     }
 
@@ -8251,7 +8214,7 @@
           'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items ({text} only — no expansion). ' +
           'podcast: 3–5 episodes {theme, insight} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
           'narrative: 3–5 story paragraphs ({text} only). ' +
-          'pedagogicalResources: 4–10 verified HTTPS links from Waldorf schools, federations, and journals (שקד, חרדוף, waldorf.org.il, AWSNA, Goetheanum, Adam Olam) — subject + Waldorf context only. 16px UI.'
+          'pedagogicalResources: verified HTTPS links from open web search — subject + Waldorf context only; empty array if none verified. 16px UI.'
         );
       }
       return (
@@ -8260,7 +8223,7 @@
         'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים ({text} בלבד — ללא expansion). ' +
         'podcast: 3–5 פרקים {theme, insight} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
         'narrative: 3–5 פסקאות ({text} בלבד). ' +
-        'pedagogicalResources: 4–10 קישורי HTTPS מאומתים מבתי ספר, פדרציות וכתבי עת וולדורפיים (שקד, חרדוף, waldorf.org.il, AWSNA, גויתאנום, אדם עולם) — רק כשהעמוד תואם נושא + הקשר וולדורפי. גופן 16px.'
+        'pedagogicalResources: קישורי HTTPS מאומתים מחיפוש רשת פתוח — רק כשהעמוד תואם נושא + הקשר וולדורפי; מערך ריק אם אין תוצאות. גופן 16px.'
       );
     }
 

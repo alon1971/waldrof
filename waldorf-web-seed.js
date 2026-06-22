@@ -1,6 +1,6 @@
 /**
- * Waldorf web research seed — domain whitelist, safe search fallbacks, URL sanitizer.
- * Shared by api/generate.js (Node) and index.html / research-client.js (browser).
+ * Waldorf web research helpers — URL sanitizer and anti-hallucination prompts.
+ * No hardcoded domain whitelists or site-restricted search fallbacks.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -20,68 +20,6 @@
   if (!queryGen && typeof WaldorfQueryGeneration !== 'undefined') {
     queryGen = WaldorfQueryGeneration;
   }
-
-  var GOOGLE_SEARCH_BASE = 'https://www.google.com/search?q=';
-
-  var WALDORF_WEB_SEED_DOMAINS = [
-    {
-      id: 'adam_olam',
-      domain: 'adamolam.co.il',
-      searchDomains: ['adamolam.co.il'],
-      source: 'מגזין אדם עולם',
-      label: 'כתב עת פדגוגי',
-      baseUrl: 'https://www.adamolam.co.il',
-      fallbackMode: 'google_site',
-      searchExtra: 'וולדורף',
-    },
-    {
-      id: 'zomer',
-      domain: 'zomer.org.il',
-      searchDomains: ['zomer.org.il'],
-      source: 'זומר',
-      label: 'מקור וולדורף רשמי',
-      baseUrl: 'https://www.zomer.org.il',
-      fallbackMode: 'google_site',
-      searchExtra: 'וולדורף',
-    },
-    {
-      id: 'elyashev',
-      domain: 'elyashev.co.il',
-      searchDomains: ['elyashev.co.il'],
-      source: 'אלישב',
-      label: 'מקור וולדורף רשמי',
-      baseUrl: 'https://www.elyashev.co.il',
-      fallbackMode: 'google_site',
-      searchExtra: 'וולדורף',
-    },
-    {
-      id: 'waldorf_forum',
-      domain: 'waldorf-forum.org.il',
-      searchDomains: ['waldorf-forum.org.il'],
-      source: 'פורום וולדורף',
-      label: 'מקור וולדורף רשמי',
-      baseUrl: 'https://www.waldorf-forum.org.il',
-      fallbackMode: 'google_site',
-      searchExtra: 'וולדורף',
-    },
-    {
-      id: 'anatta',
-      domain: 'anatta.co.il',
-      searchDomains: ['anatta.co.il'],
-      source: 'ענתה',
-      label: 'מקור וולדורף רשמי',
-      baseUrl: 'https://www.anatta.co.il',
-      fallbackMode: 'google_site',
-      searchExtra: 'וולדורף',
-    },
-  ];
-
-  var WALDORF_SEMINAR_SEARCH_TERMS = [
-    'הרדוף חינוך וולדורף',
-    'סמינר שילוב',
-    'סמינר דוד ילין וולדורף',
-    'בית ספר שקד קרית טבעון וולדורף',
-  ];
 
   var BROKEN_URL_PATTERNS = [
     /shaked\.org\.il/i,
@@ -103,110 +41,26 @@
     /\/\?q=/i,
   ];
 
-  function encodeGoogleQuery(parts) {
-    return parts.filter(Boolean).map(function (p) {
-      return String(p).trim();
-    }).filter(Boolean).join(' ');
-  }
-
-  function buildGoogleSiteSearchUrl(searchDomains, topic, extraTerms) {
-    var domains = Array.isArray(searchDomains) ? searchDomains : [searchDomains];
-    if (!domains.length || !domains[0]) return '';
-    var gradeLabel = '';
-    if (extraTerms && /כיתה\s*[א-ת]/i.test(String(extraTerms))) {
-      var m = String(extraTerms).match(/כיתה\s*[א-ת]['׳]?/i);
-      gradeLabel = m ? m[0] : '';
+  function isSiteRestrictedGoogleSearchUrl(url) {
+    if (queryGen && queryGen.isSiteRestrictedGoogleSearchUrl) {
+      return queryGen.isSiteRestrictedGoogleSearchUrl(url);
     }
-    if (queryGen && queryGen.buildArticleGoogleSearchUrl) {
-      return queryGen.buildArticleGoogleSearchUrl(topic, gradeLabel, { domains: [domains[0]] });
-    }
-    var t = String(topic || '').trim();
-    return GOOGLE_SEARCH_BASE + encodeURIComponent('site:' + domains[0] + ' ' + t + ' וולדורף');
-  }
-
-  function hostnameFromUrl(url) {
-    try {
-      return new URL(String(url || '')).hostname.replace(/^www\./i, '').toLowerCase();
-    } catch (e) {
-      return '';
-    }
-  }
-
-  function findSeedForUrl(url) {
-    var host = hostnameFromUrl(url);
-    var u = String(url || '').toLowerCase();
-    if (!u) return null;
-
-    var best = null;
-    var bestLen = 0;
-    for (var i = 0; i < WALDORF_WEB_SEED_DOMAINS.length; i++) {
-      var seed = WALDORF_WEB_SEED_DOMAINS[i];
-      var domains = [seed.domain].concat(seed.searchDomains || [], seed.brokenDomains || []);
-      for (var j = 0; j < domains.length; j++) {
-        var d = String(domains[j]).toLowerCase();
-        if (host === d || (host && host.endsWith('.' + d))) {
-          if (d.length > bestLen) {
-            best = seed;
-            bestLen = d.length;
-          }
-        }
-      }
-    }
-    if (best) return best;
-
-    if (/google\.com\/search/i.test(u) && /site%3A|site:/i.test(u)) {
-      for (var k = 0; k < WALDORF_WEB_SEED_DOMAINS.length; k++) {
-        var s = WALDORF_WEB_SEED_DOMAINS[k];
-        var searchList = [s.domain].concat(s.searchDomains || []);
-        for (var m = 0; m < searchList.length; m++) {
-          if (u.indexOf(encodeURIComponent('site:' + searchList[m]).toLowerCase()) >= 0 ||
-              u.indexOf('site:' + searchList[m].toLowerCase()) >= 0) {
-            return s;
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  function findSeedById(id) {
-    for (var i = 0; i < WALDORF_WEB_SEED_DOMAINS.length; i++) {
-      if (WALDORF_WEB_SEED_DOMAINS[i].id === id) return WALDORF_WEB_SEED_DOMAINS[i];
-    }
-    return null;
+    var u = String(url || '');
+    if (!/google\.com\/search/i.test(u)) return false;
+    return /site%3A|site:/i.test(u);
   }
 
   function isSafeGoogleSiteSearchUrl(url) {
-    var u = String(url || '').trim();
-    if (!/^https?:\/\/(www\.)?google\.com\/search\?/i.test(u)) return false;
-    return /site%3A|site:/i.test(u);
+    return isSiteRestrictedGoogleSearchUrl(url);
   }
 
   function isBrokenOrGuessedPedagogicalUrl(url) {
     var u = String(url || '').trim();
     if (!u) return true;
-    if (isSafeGoogleSiteSearchUrl(u)) return false;
+    if (isSiteRestrictedGoogleSearchUrl(u)) return true;
 
     for (var i = 0; i < BROKEN_URL_PATTERNS.length; i++) {
       if (BROKEN_URL_PATTERNS[i].test(u)) return true;
-    }
-
-    var seed = findSeedForUrl(u);
-    if (!seed) return false;
-
-    if (queryGen && queryGen.isIsraeliWaldorfDomain(u)) {
-      try {
-        var israelPath = new URL(u).pathname.replace(/\/+$/, '') || '/';
-        if (israelPath !== '/' && israelPath !== '/index.html') return true;
-      } catch (e) {
-        return true;
-      }
-    }
-
-    if (seed.brokenDomains && seed.brokenDomains.some(function (d) {
-      return u.toLowerCase().indexOf(d.toLowerCase()) >= 0;
-    })) {
-      return true;
     }
 
     try {
@@ -216,12 +70,7 @@
       if (isRootish && !parsed.search) return true;
 
       for (var j = 0; j < INVENTED_SEARCH_PATTERNS.length; j++) {
-        if (INVENTED_SEARCH_PATTERNS[j].test(u)) {
-          if (seed.id === 'shaked' || seed.id === 'harduf') return true;
-          if (seed.id === 'waldorf_forum' || seed.id === 'adam_olam') {
-            if (itemLooksInvented(u)) return true;
-          }
-        }
+        if (INVENTED_SEARCH_PATTERNS[j].test(u)) return true;
       }
     } catch (e) {
       return true;
@@ -230,26 +79,11 @@
     return false;
   }
 
-  function itemLooksInvented(url) {
-    var u = String(url || '');
-    if (/\?s=/.test(u)) {
-      try {
-        var parsed = new URL(u);
-        var q = parsed.searchParams.get('s') || '';
-        if (q && q.length > 0) return true;
-      } catch (e) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   function looksLikeVerifiedDeepLink(url, context) {
     context = context || {};
     var u = String(url || '').trim();
     if (!u || isBrokenOrGuessedPedagogicalUrl(u)) return false;
-    if (isSafeGoogleSiteSearchUrl(u)) return true;
-    if (queryGen && queryGen.isIsraeliWaldorfDomain(u) && context.verified !== true) return false;
+    if (isSiteRestrictedGoogleSearchUrl(u)) return false;
 
     try {
       var parsed = new URL(u);
@@ -264,148 +98,56 @@
     }
   }
 
-  function buildFallbackSearchUrl(seed, topic, gradeLabel) {
-    if (!seed) return '';
-    var t = String(topic || '').trim() || 'וולדורף';
-    var grade = String(gradeLabel || '').trim();
-    var extra = [seed.searchExtra || 'וולדורף', grade].filter(Boolean).join(' ');
-    return buildGoogleSiteSearchUrl(seed.searchDomains || [seed.domain], t, extra);
-  }
-
-  function buildDomainSearchUrl(seed, topic, gradeLabel) {
-    return buildFallbackSearchUrl(seed, topic, gradeLabel);
-  }
-
   function sanitizePedagogicalResourceUrl(url, topic, context) {
     context = context || {};
     var u = String(url || '').trim();
     if (!u) return '';
-
-    if (isSafeGoogleSiteSearchUrl(u) && !isBrokenOrGuessedPedagogicalUrl(u)) return u;
-
-    var seed = findSeedForUrl(u) ||
-      (context.seedId ? findSeedById(context.seedId) : null);
-    var t = String(topic || context.topic || '').trim() || 'וולדורף';
-    var grade = String(context.gradeLabel || '').trim();
-
-    var forceIsraeliRedirect = queryGen && queryGen.shouldForceArticleSearchRedirect &&
-      queryGen.shouldForceArticleSearchRedirect(u);
-
-    if (seed || forceIsraeliRedirect || isBrokenOrGuessedPedagogicalUrl(u)) {
-      if (seed) return buildFallbackSearchUrl(seed, t, grade);
-      if (queryGen && queryGen.buildPerDomainArticleSearchUrl) {
-        var resolved = findSeedForUrl(u);
-        var domain = resolved
-          ? (resolved.searchDomains || [resolved.domain])[0]
-          : hostnameFromUrl(u);
-        if (domain) return queryGen.buildPerDomainArticleSearchUrl(domain, t, grade);
-      }
-      return buildGoogleSiteSearchUrl('adamolam.co.il', t, grade);
-    }
-
+    if (isBrokenOrGuessedPedagogicalUrl(u)) return '';
     if (context.verified === true && looksLikeVerifiedDeepLink(u, context)) return u;
     if (looksLikeVerifiedDeepLink(u, context) && !isBrokenOrGuessedPedagogicalUrl(u)) return u;
-
-    return u;
+    if (/^https?:\/\//i.test(u) && !isSiteRestrictedGoogleSearchUrl(u)) return u;
+    return '';
   }
 
   function buildWaldorfSiteSearchQueries(topic, gradeLabel) {
     var t = String(topic || '').trim();
     if (!t) return [];
-    if (queryGen && queryGen.buildWebInspirationFallbackResources) {
-      return queryGen.buildWebInspirationFallbackResources(t, gradeLabel)
-        .map(function (item) {
-          try {
-            return decodeURIComponent(String(item.url || '').split('q=')[1] || '');
-          } catch (e) {
-            return '';
-          }
-        })
-        .filter(Boolean);
+    if (queryGen && queryGen.buildOpenArticleSearchQuery) {
+      var q = queryGen.buildOpenArticleSearchQuery(t, gradeLabel);
+      return q ? [q] : [];
     }
     var grade = String(gradeLabel || '').trim();
-    var queries = [];
-    WALDORF_WEB_SEED_DOMAINS.forEach(function (seed) {
-      (seed.searchDomains || [seed.domain]).forEach(function (domain) {
-        queries.push('site:' + domain + ' ' + t + ' וולדורף');
-      });
-    });
-    return queries;
+    return [t + ' וולדורף' + (grade ? ' ' + grade : '')];
   }
 
   var ANTI_URL_HALLUCINATION_INSTRUCTION =
     '=== ANTI URL HALLUCINATION (ABSOLUTE — PEDAGOGICAL RESOURCES) ===\n' +
-    'STRICTLY FORBIDDEN to invent, guess, or format static URLs for Israeli Waldorf institutions.\n' +
+    'STRICTLY FORBIDDEN to invent, guess, or format URLs that were not returned by live web search.\n' +
     'NEVER append paths or query strings (e.g. /?s=, /http_new/, index.asp) unless that EXACT URL appeared in your live search citations.\n' +
-    'BROKEN / FORBIDDEN domains for direct links: shaked.org.il (use shakedwaldorf.org.il), harduf.org.il search/login pages (use harduf-waldorf.org.il).\n' +
-    'If you lack a verified deep link from live search, OMIT the url field — the system will inject safe Google site: search redirects.\n' +
+    'NEVER emit site-restricted Google search URLs (site:domain …) — use only verified deep links from live search.\n' +
+    'If you lack a verified deep link from live search, OMIT the url field entirely.\n' +
     'ONLY include url when copied verbatim from a citation returned by web search (full HTTPS path to an article/PDF/page).\n' +
     '=== END ANTI URL HALLUCINATION ===\n';
 
   function buildWaldorfWebSeedInstruction(topic, gradeLabel) {
     var t = String(topic || '').trim() || 'וולדורף';
     var grade = String(gradeLabel || '').trim();
-    var lines = [
+    return [
       ANTI_URL_HALLUCINATION_INSTRUCTION,
-      'MANDATORY WALDORF DOMAIN WHITELIST — run these site-restricted Google searches FIRST (before generic web search):',
-    ];
-    WALDORF_WEB_SEED_DOMAINS.forEach(function (seed) {
-      (seed.searchDomains || [seed.domain]).forEach(function (domain) {
-        lines.push('- site:' + domain + ' «' + t + '»' + (grade ? ' «' + grade + '»' : '') + ' (' + seed.source + ')');
-      });
-    });
-    WALDORF_SEMINAR_SEARCH_TERMS.forEach(function (term) {
-      lines.push('- «' + term + '» + «' + t + '»');
-    });
-    lines.push(
+      'OPEN WEB SEARCH — discover Waldorf/anthroposophic pedagogical articles using dynamic queries from the block topic and grade.',
+      'Query pattern: «' + t + '» + Waldorf pedagogy' + (grade ? ' + «' + grade + '»' : '') + ' — no site: restrictions, no forced domains.',
       'Populate pedagogicalResources ONLY with URLs copied verbatim from live search citations (deep article/PDF pages).',
-      'NEVER fabricate search-index URLs. If no verified deep link exists for a source, omit that item — safe fallback links are added server-side.',
-      'Verified school domains: shakedwaldorf.org.il, shakedtivon.edupage.org, harduf-waldorf.org.il — NOT shaked.org.il or harduf.org.il/?s=…'
-    );
-    return lines.join('\n');
+      'If no verified deep links exist, return an empty pedagogicalResources array — never pad with fabricated or site-restricted search URLs.',
+    ].join('\n');
   }
 
   function buildWebInspirationFallbackResources(topic, gradeLabel) {
-    if (queryGen && queryGen.buildWebInspirationFallbackResources) {
-      return queryGen.buildWebInspirationFallbackResources(topic, gradeLabel);
-    }
-    var t = String(topic || '').trim() || 'וולדורף';
-    var grade = String(gradeLabel || '').trim();
-    var out = [];
-    var seen = Object.create(null);
-    WALDORF_WEB_SEED_DOMAINS.forEach(function (seed) {
-      var url = buildFallbackSearchUrl(seed, t, grade);
-      if (!url || seen[url]) return;
-      seen[url] = true;
-      out.push({
-        title: seed.source + ' — חיפוש: «' + t + '»',
-        url: url,
-        label: seed.label,
-        source: seed.source,
-        snippet: grade
-          ? ('חיפוש Google מוגבל לאתר — נושא «' + t + '» ב' + grade)
-          : ('חיפוש Google מוגבל לאתר — נושא «' + t + '»'),
-        _fallback: true,
-        _safeSearch: true,
-      });
-    });
-    return out;
+    return [];
   }
 
   function ensureWebInspirationFallback(resources, topic, gradeLabel, options) {
     options = options || {};
-    var minCount = options.minCount != null ? options.minCount : 2;
     var list = Array.isArray(resources) ? resources.slice() : [];
-    var seen = Object.create(null);
-    list.forEach(function (item) {
-      if (item && item.url) seen[String(item.url).trim()] = true;
-    });
-    if (list.length >= minCount && !options.force) return sanitizePedagogicalResourceList(list, topic, gradeLabel);
-    buildWebInspirationFallbackResources(topic, gradeLabel).forEach(function (stub) {
-      if (!stub.url || seen[stub.url]) return;
-      seen[stub.url] = true;
-      list.push(stub);
-    });
     return sanitizePedagogicalResourceList(list, topic, gradeLabel)
       .slice(0, options.maxCount != null ? options.maxCount : 12);
   }
@@ -435,46 +177,30 @@
     return out;
   }
 
-  function isWhitelistedWaldorfDomain(url) {
-    return Boolean(findSeedForUrl(url));
-  }
-
   function isAllowedPedagogicalUrl(url) {
     var u = String(url || '').trim();
     if (!/^https?:\/\//i.test(u)) return false;
     if (/pinterest\.|facebook\.com|instagram\.com|youtube\.com|tiktok\.com/i.test(u)) return false;
-    if (isSafeGoogleSiteSearchUrl(u)) return true;
+    if (isSiteRestrictedGoogleSearchUrl(u)) return false;
     if (isBrokenOrGuessedPedagogicalUrl(u)) return false;
-    if (queryGen && queryGen.isIsraeliWaldorfDomain(u)) return false;
-
-    var international = [
-      /waldorf\.org\.il/i, /adamolam\.co\.il/i, /shakedwaldorf\.org\.il/i,
-      /shakedtivon\.edupage\.org/i, /harduf-waldorf\.org\.il/i,
-      /goetheanum/i, /waldorfeducation\.org|awsna/i, /waldorf-world|waldorfworld/i,
-      /iaswece/i, /waldorflibrary/i, /rsarchive|steinerarchive/i,
-      /anthroposophy/i, /waldorf/i,
-    ];
-    return international.some(function (p) { return p.test(u); });
+    return true;
   }
 
   return {
-    WALDORF_WEB_SEED_DOMAINS: WALDORF_WEB_SEED_DOMAINS,
-    WALDORF_SEMINAR_SEARCH_TERMS: WALDORF_SEMINAR_SEARCH_TERMS,
+    WALDORF_WEB_SEED_DOMAINS: [],
+    WALDORF_SEMINAR_SEARCH_TERMS: [],
     ANTI_URL_HALLUCINATION_INSTRUCTION: ANTI_URL_HALLUCINATION_INSTRUCTION,
     buildWaldorfSiteSearchQueries: buildWaldorfSiteSearchQueries,
     buildWaldorfWebSeedInstruction: buildWaldorfWebSeedInstruction,
     buildWebInspirationFallbackResources: buildWebInspirationFallbackResources,
-    buildDomainSearchUrl: buildDomainSearchUrl,
-    buildGoogleSiteSearchUrl: buildGoogleSiteSearchUrl,
-    buildFallbackSearchUrl: buildFallbackSearchUrl,
     ensureWebInspirationFallback: ensureWebInspirationFallback,
     sanitizePedagogicalResourceUrl: sanitizePedagogicalResourceUrl,
     sanitizePedagogicalResourceList: sanitizePedagogicalResourceList,
-    isWhitelistedWaldorfDomain: isWhitelistedWaldorfDomain,
     isAllowedPedagogicalUrl: isAllowedPedagogicalUrl,
     isBrokenOrGuessedPedagogicalUrl: isBrokenOrGuessedPedagogicalUrl,
     isSafeGoogleSiteSearchUrl: isSafeGoogleSiteSearchUrl,
+    isSiteRestrictedGoogleSearchUrl: isSiteRestrictedGoogleSearchUrl,
     looksLikeVerifiedDeepLink: looksLikeVerifiedDeepLink,
-    findSeedForUrl: findSeedForUrl,
+    findSeedForUrl: function () { return null; },
   };
 }));

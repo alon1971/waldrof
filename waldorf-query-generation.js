@@ -1,7 +1,7 @@
 /**
  * Centralized query generation for Inspiration (Pinterest) and Resources (articles).
  * Pinterest: three physically distinct English search phrases, Set-deduped URLs.
- * Articles: simple site: queries on trusted domains + waldorflibrary.org — no open Google searches.
+ * Articles: open web queries from topic + grade context — no hardcoded site lists.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -71,40 +71,6 @@
     /main\s*lesson\s*book/i, /form\s*drawing/i, /chalkboard/i, /blackboard/i,
     /מחברת\s*תקופה/i, /מחברות\s*תקופה/i, /רישום\s*צורה/i, /ציור\s*גיר/i,
     /epoch\s*book/i, /block\s*book/i,
-  ];
-
-  var TRUSTED_DOMAINS = [
-    'adamolam.co.il',
-    'zomer.org.il',
-    'elyashev.co.il',
-    'waldorf-forum.org.il',
-    'anatta.co.il',
-  ];
-
-  /** Legacy domains — redirect only, never emit as new search targets. */
-  var LEGACY_ISRAELI_WALDORF_DOMAINS = [
-    'waldorf.org.il',
-    'harduf-waldorf.org.il',
-    'shakedwaldorf.org.il',
-  ];
-
-  var ISRAELI_WALDORF_ARTICLE_DOMAINS = TRUSTED_DOMAINS;
-
-  var TRUSTED_SOURCE_LABELS = {
-    'adamolam.co.il': { source: 'מגזין אדם עולם', label: 'כתב עת פדגוגי' },
-    'zomer.org.il': { source: 'זומר', label: 'מקור וולדורף רשמי' },
-    'elyashev.co.il': { source: 'אלישב', label: 'מקור וולדורף רשמי' },
-    'waldorf-forum.org.il': { source: 'פורום וולדורף', label: 'מקור וולדורף רשמי' },
-    'anatta.co.il': { source: 'ענתה', label: 'מקור וולדורף רשמי' },
-  };
-
-  var GLOBAL_WALDORF_REPOSITORIES = [
-    {
-      domain: 'waldorflibrary.org',
-      source: 'waldorflibrary',
-      label: 'ספריית וולדורף',
-      lang: 'en',
-    },
   ];
 
   var ENGLISH_TOPIC_MAP = {
@@ -346,14 +312,13 @@
     return /^https:\/\/www\.pinterest\.com\/search\/pins\/\?q=/.test(String(url || ''));
   }
 
-  function buildSimpleSiteQuery(domain, topic) {
+  function buildOpenArticleSearchQuery(topic, gradeLabel) {
     var topicStr = normalizeTopicKey(topic);
-    var host = String(domain || '').trim();
-    if (!host || !topicStr) return '';
-    if (host === 'zomer.org.il') {
-      return 'site:' + host + ' "וולדורף" ' + topicStr;
-    }
-    return 'site:' + host + ' ' + topicStr;
+    if (!topicStr) return '';
+    var parts = appendArticlePedagogyAnchors([topicStr]);
+    var grade = String(gradeLabel || '').trim();
+    if (grade) parts.push(grade);
+    return joinQueryTokens(parts, 6);
   }
 
   /**
@@ -380,34 +345,18 @@
   }
 
   /**
-   * Simple site: searches on trusted Hebrew domains + Waldorf Library — no generic open Google.
+   * Open web article searches from topic + grade — no site-restricted queries.
    */
   function generateArticleQueries(grade, topic, gradeLabel) {
     var topicStr = normalizeTopicKey(topic);
     if (!topicStr) return [];
-
-    var results = [];
-
-    TRUSTED_DOMAINS.forEach(function (domain) {
-      var query = buildSimpleSiteQuery(domain, topicStr);
-      results.push({
-        source: domain.split('.')[0],
-        lang: 'he',
-        url: GOOGLE_SEARCH_BASE + encodeURIComponent(query),
-      });
-    });
-
-    var englishTopic = resolveEnglishTopic(topicStr);
-    GLOBAL_WALDORF_REPOSITORIES.forEach(function (repo) {
-      var globalQuery = 'site:' + repo.domain + ' "' + englishTopic + '"';
-      results.push({
-        source: repo.source,
-        lang: repo.lang || 'en',
-        url: GOOGLE_SEARCH_BASE + encodeURIComponent(globalQuery),
-      });
-    });
-
-    return results;
+    var openQuery = buildOpenArticleSearchQuery(topicStr, gradeLabel);
+    if (!openQuery) return [];
+    return [{
+      source: 'open_web',
+      lang: containsHebrewText(topicStr) ? 'he' : 'en',
+      url: GOOGLE_SEARCH_BASE + encodeURIComponent(openQuery),
+    }];
   }
 
   function joinQueryTokens(tokens, max) {
@@ -478,12 +427,8 @@
     });
   }
 
-  function buildArticleGoogleSearchQuery(topic, gradeLabel, options) {
-    options = options || {};
-    var domains = options.domains || TRUSTED_DOMAINS;
-    var domain = String((domains && domains[0]) || '').trim();
-    if (!domain) return '';
-    return buildSimpleSiteQuery(domain, topic);
+  function buildArticleGoogleSearchQuery(topic, gradeLabel) {
+    return buildOpenArticleSearchQuery(topic, gradeLabel);
   }
 
   function buildArticleGoogleSearchUrl(topic, gradeLabel, options) {
@@ -493,41 +438,11 @@
   }
 
   function buildPerDomainArticleSearchUrl(domain, topic, gradeLabel) {
-    return buildArticleGoogleSearchUrl(topic, gradeLabel, { domains: [domain] });
+    return buildArticleGoogleSearchUrl(topic, gradeLabel);
   }
 
   function buildWebInspirationFallbackResources(topic, gradeLabel) {
-    var topicStr = normalizeTopicKey(topic);
-    var display = extractTopicProfile(topicStr).displayHe || topicStr || 'וולדורף';
-    var gradeMatch = String(gradeLabel || '').match(/כיתה\s*([א-ת])/);
-    var gradeId = gradeMatch ? String(HEBREW_GRADE_LETTER_TO_NUM[gradeMatch[1]] || '') : '';
-    var out = [];
-    var seen = Object.create(null);
-
-    generateArticleQueries(gradeId, topicStr, gradeLabel).forEach(function (row) {
-      if (!row.url || seen[row.url]) return;
-      seen[row.url] = true;
-      var meta = { source: row.source, label: 'מאמר פדגוגי' };
-      TRUSTED_DOMAINS.forEach(function (d) {
-        if (d.indexOf(row.source) === 0 && TRUSTED_SOURCE_LABELS[d]) {
-          meta = TRUSTED_SOURCE_LABELS[d];
-        }
-      });
-      if (row.source === 'waldorflibrary') {
-        meta = { source: 'ספריית וולדורף', label: 'מקור וולדורף רשמי' };
-      }
-      out.push({
-        title: meta.source + ' — ' + display,
-        url: row.url,
-        label: meta.label,
-        source: meta.source,
-        snippet: gradeLabel ? ('חיפוש: ' + display + ' · ' + gradeLabel) : ('חיפוש: ' + display),
-        _fallback: true,
-        _safeSearch: true,
-        _lang: row.lang,
-      });
-    });
-    return out;
+    return [];
   }
 
   function pinterestItemText(item) {
@@ -623,16 +538,22 @@
   }
 
   function isIsraeliWaldorfDomain(url) {
-    var u = String(url || '').toLowerCase();
-    return TRUSTED_DOMAINS.concat(LEGACY_ISRAELI_WALDORF_DOMAINS).some(function (d) {
-      return u.indexOf(d) >= 0;
-    });
+    return false;
   }
 
   function shouldForceArticleSearchRedirect(url) {
-    if (!url) return false;
-    if (/google\.com\/search/i.test(url)) return false;
-    return isIsraeliWaldorfDomain(url);
+    return false;
+  }
+
+  function isSiteRestrictedGoogleSearchUrl(url) {
+    var u = String(url || '');
+    if (!/google\.com\/search/i.test(u)) return false;
+    try {
+      var q = decodeURIComponent(u.split('q=')[1] || '').replace(/\+/g, ' ');
+      return /(^|\s)site:/i.test(q);
+    } catch (e) {
+      return /site%3A|site:/i.test(u);
+    }
   }
 
   function translateTopicToEnglish(topicText) {
@@ -650,14 +571,11 @@
   return {
     PINTEREST_SEARCH_BASE: PINTEREST_SEARCH_BASE,
     GOOGLE_SEARCH_BASE: GOOGLE_SEARCH_BASE,
-    TRUSTED_DOMAINS: TRUSTED_DOMAINS,
-    GLOBAL_WALDORF_REPOSITORIES: GLOBAL_WALDORF_REPOSITORIES,
     GRADE_TOPIC_BLOCKS: GRADE_TOPIC_BLOCKS,
-    ISRAELI_WALDORF_ARTICLE_DOMAINS: ISRAELI_WALDORF_ARTICLE_DOMAINS,
     PINTEREST_MAX_GALLERY_ITEMS: 4,
     generatePinterestQueries: generatePinterestQueries,
     generateArticleQueries: generateArticleQueries,
-    buildSimpleSiteQuery: buildSimpleSiteQuery,
+    buildOpenArticleSearchQuery: buildOpenArticleSearchQuery,
     validateGradeTopicScope: validateGradeTopicScope,
     findCurriculumBlockForTopic: findCurriculumBlockForTopic,
     extractTopicProfile: extractTopicProfile,
@@ -682,6 +600,7 @@
     hebrewGradeLabelForId: hebrewGradeLabelForId,
     shouldForceArticleSearchRedirect: shouldForceArticleSearchRedirect,
     isIsraeliWaldorfDomain: isIsraeliWaldorfDomain,
+    isSiteRestrictedGoogleSearchUrl: isSiteRestrictedGoogleSearchUrl,
     pinterestItemText: pinterestItemText,
   };
 }));
