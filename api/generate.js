@@ -330,11 +330,17 @@ const ENRICHMENT_LINKS_GEMINI_SEARCH_INSTRUCTION =
   '=== END ENRICHMENT LINKS — GEMINI LIVE SEARCH ===\n';
 
 const PERPLEXITY_PHASE_C_INSPIRATION_NO_LINKS_INSTRUCTION =
-  '\n=== PHASE C INSPIRATION — PERPLEXITY TEXT SYNTHESIS ONLY (NO LINK GENERATION) ===\n' +
-  'enrichment_links and pedagogicalResources are assembled server-side by Gemini live search — do NOT include them in this response.\n' +
-  'Do NOT copy, transform, or merge Perplexity citation URLs into any link array.\n' +
-  'FORBIDDEN: enrichment_links, pedagogicalResources, any https:// URLs (gallery.src must stay empty; pin = English phrase only).\n' +
-  '=== END PHASE C INSPIRATION — PERPLEXITY TEXT SYNTHESIS ===\n';
+  '\n=== PHASE C INSPIRATION — NO SOURCES MODE (TEXT ONLY) ===\n' +
+  'Do NOT generate books, articles, websites, bibliography, blockPlan.sources, enrichment_links, or pedagogicalResources.\n' +
+  'Do NOT copy, transform, or merge Perplexity citation URLs into any output field.\n' +
+  'FORBIDDEN: sources lists, HTTPS URLs, enrichment_links, pedagogicalResources (gallery.src must stay empty; pin = English phrase only).\n' +
+  '=== END PHASE C INSPIRATION — NO SOURCES MODE ===\n';
+
+const NO_SOURCES_MODE_INSTRUCTION =
+  '\n=== NO SOURCES MODE (MANDATORY) ===\n' +
+  'Do NOT generate books, websites, external links, bibliography, blockPlan.sources, or any "מקורות (Sources)" section.\n' +
+  'Focus 100% on rich pedagogical narrative content only — zero sources is better than unreliable citations.\n' +
+  '=== END NO SOURCES MODE ===\n';
 
 const PEDAGOGICAL_RESOURCE_LABELS = enrichmentLinksApi.PEDAGOGICAL_RESOURCE_LABELS;
 
@@ -433,47 +439,11 @@ function normalizeEnrichmentRequestBody(body) {
 async function attachGeminiEnrichmentLinks(data, body) {
   if (!data || typeof data !== 'object') return data;
   if (resolvePhaseCTab(body) !== 'inspiration') return data;
-
-  const enrichmentBody = normalizeEnrichmentRequestBody(body);
-  if (!enrichmentBody.topic || !enrichmentBody.currentGrade) {
-    console.warn('[enrichment] attachGeminiEnrichmentLinks skipped — missing topic or grade',
-      'topic:', enrichmentBody.topic || '(empty)',
-      'grade:', enrichmentBody.currentGrade || '(empty)');
-    return data;
-  }
-
   delete data.enrichment_links;
   delete data.pedagogicalResources;
-
-  try {
-    console.log('[enrichment] Gemini Google Search pipeline for topic+grade',
-      '«' + enrichmentBody.topic + '» @ grade', enrichmentBody.currentGrade,
-      enrichmentBody.pedagogicalScopeOverride ? '(override)' : '');
-    const links = await geminiEnrichment.fetchGeminiEnrichmentLinks(enrichmentBody);
-    data.enrichment_links = normalizeEnrichmentLinks(links, enrichmentBody, { geminiSearch: true });
-    if (Array.isArray(data.enrichment_links.article_links) && data.enrichment_links.article_links.length) {
-      data.pedagogicalResources = data.enrichment_links.article_links.slice();
-    } else {
-      data.pedagogicalResources = [];
-    }
-    const dynamicGallery = (data.enrichment_links.pinterest_links || []).map(function (item) {
-      return {
-        board: item.board || item.title,
-        title: item.title,
-        pin: item.pin || item.query,
-        url: item.url,
-        src: '',
-      };
-    });
-    if (!Array.isArray(data.gallery)) data.gallery = [];
-    data.gallery = sanitizePinterestGallery(data.gallery.concat(dynamicGallery), enrichmentBody);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn('[enrichment] Gemini search pipeline failed:', msg);
-    data.enrichment_links = { pinterest_links: geminiEnrichment.buildDynamicPinterestLinks(enrichmentBody), article_links: [] };
-    data.pedagogicalResources = [];
+  if (data.blockPlan && typeof data.blockPlan === 'object') {
+    delete data.blockPlan.sources;
   }
-
   return data;
 }
 
@@ -1544,25 +1514,23 @@ function buildPhaseCUserPrompt(body) {
     return (
       sharedHeader +
       inspirationExtra +
-      bibExtra +
       pedagogyHint +
+      NO_SOURCES_MODE_INSTRUCTION +
       PERPLEXITY_PHASE_C_INSPIRATION_NO_LINKS_INSTRUCTION +
       'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries.\n' +
       'PINTEREST (WALDORF ONLY — QUALITY OVER QUANTITY): populate gallery with 2–4 DISTINCT grade-locked visual inspiration pin PHRASES ONLY (English, no URLs).\n' +
       'Each "pin" MUST be clean unquoted English: Waldorf Class N {englishTopic} — e.g. Waldorf Class 8 revolutions.\n' +
       'NEVER include pins from other grades. If only 2–3 perfect matches exist, return only those — do NOT pad with generic clutter.\n' +
       LAZY_LOAD_NOTE +
-      'CRITICAL — blockPlan MUST include inspiration and sources objects.\n' +
+      'CRITICAL — blockPlan MUST include inspiration object only (NO sources, NO bibliography, NO links).\n' +
       'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
-      'blockPlan.sources MUST be an object with books, articles, and websites arrays — populate richly (title + author/publisher only, NEVER url fields).\n' +
-      'FORBIDDEN in this response: blockPlan.theory, blockPlan.curriculum, theory.sections, daily lesson breakdown, enrichment_links, pedagogicalResources.\n' +
+      'FORBIDDEN in this response: blockPlan.sources, blockPlan.theory, blockPlan.curriculum, theory.sections, daily lesson breakdown, enrichment_links, pedagogicalResources, URLs.\n' +
       JSON_ONLY_INSTRUCTION +
       JSON_RESPONSE_ENFORCEMENT +
       '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
       '{\n' +
       '  "blockPlan": {\n' +
-      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item" }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph" }] }, "narrative": [{ "text": "rich story/metaphor paragraph" }] },\n' +
-      '    "sources": { "books": [{ "title": "Hebrew", "author": "Hebrew", "publisher": "Hebrew", "year": "YYYY", "lang": "he" }], "articles": [{ "title": "Hebrew", "author": "Hebrew", "lang": "he" }], "websites": [{ "title": "Hebrew org name", "publisher": "Hebrew", "lang": "he" }] }\n' +
+      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item" }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph" }] }, "narrative": [{ "text": "rich story/metaphor paragraph" }] }\n' +
       '  },\n' +
       '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Waldorf Class 8 revolutions", "src": "" }]\n' +
       '}\n' +
@@ -1575,6 +1543,7 @@ function buildPhaseCUserPrompt(body) {
     sharedHeader +
     curriculumExtra +
     pedagogyHint +
+    NO_SOURCES_MODE_INSTRUCTION +
     CURRICULUM_INLINE_EXPANSION_INSTRUCTION +
     'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
     'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 rich Hebrew sentences on story/main-lesson flow — shown immediately in UI), "art" (2–4 Hebrew sentences on art/craft/handwork — shown immediately), "hint" (optional Hebrew string), "contentExpansion" (mandatory expansion object).\n' +
@@ -2033,23 +2002,8 @@ function getPhaseCResponseSchema(cTab) {
         type: 'object',
         properties: {
           inspiration: { type: 'object' },
-          sources: { type: 'object' },
         },
-        required: ['inspiration', 'sources'],
-      },
-      pedagogicalResources: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            url: { type: 'string' },
-            label: { type: 'string' },
-            source: { type: 'string' },
-            snippet: { type: 'string' },
-          },
-          required: ['title', 'url', 'label'],
-        },
+        required: ['inspiration'],
       },
       gallery: { type: 'array', items: { type: 'object' } },
     },
@@ -2207,7 +2161,7 @@ function normalizePhaseCInspirationItem(it) {
 function normalizePhaseCInspiration(insp, rawFallback) {
   if (typeof insp === 'string' && insp.trim()) {
     return {
-      title: 'השראה ומקורות',
+      title: 'השראה',
       global: [{ title: 'סיכום', items: [normalizePhaseCInspirationItem(insp)] }],
       podcast: { title: 'תובנות', episodes: [] },
       narrative: [],
@@ -2216,7 +2170,7 @@ function normalizePhaseCInspiration(insp, rawFallback) {
   if (!insp || typeof insp !== 'object') {
     if (rawFallback) {
       return normalizePhaseCInspiration({
-        title: 'השראה ומקורות',
+        title: 'השראה',
         global: [{ title: 'סיכום', items: [{ text: rawFallback }] }],
       });
     }
@@ -2278,7 +2232,7 @@ function normalizePhaseCInspiration(insp, rawFallback) {
   }).filter(Boolean);
 
   return {
-    title: sanitizePedagogicalText(String(insp.title || 'השראה ומקורות').trim()),
+    title: sanitizePedagogicalText(String(insp.title || 'השראה').trim()),
     global: global,
     podcast: {
       title: sanitizePedagogicalText(String(podcastSrc.title || 'תובנות').trim()),
@@ -2384,8 +2338,8 @@ function sanitizePhaseCOutput(data, body) {
   if (cTab === 'inspiration') {
     delete bp.theory;
     delete bp.curriculum;
+    delete bp.sources;
     bp.inspiration = normalizePhaseCInspiration(bp.inspiration, rawFallback);
-    bp.sources = normalizePhaseCSources(bp.sources);
     if (!Array.isArray(data.gallery)) data.gallery = [];
     data.gallery = sanitizePinterestGallery(data.gallery, body);
     delete data.enrichment_links;
@@ -2555,13 +2509,10 @@ function buildPerplexitySearchUserPrompt(body) {
         siteQueries.map(function (q, i) { return (i + 1) + '. ' + q; }).join('\n') + '\n\n' +
         'Return a detailed Hebrew research report with:\n' +
         '1. Rich inspiration themes: stories, metaphors, global Waldorf perspectives, podcast-worthy insights\n' +
-        '2. Named books, articles, anthroposophic authors, and international Waldorf projects\n' +
-        '3. Narrative/metaphor material suited to currentGrade main-lesson consciousness\n' +
-        '4. Pinterest/visual inspiration search phrases — clean unquoted English only: Waldorf Class N {topic}; max 2–4 vetted entries (e.g. Waldorf Class 8 revolutions)\n' +
-        '5. Verified HTTPS links from live web search — ONLY pages matching BOTH block topic «' + topic + '» AND Waldorf pedagogical context (main-lesson guides, grade essays, subject outlines — NOT generic education). Return none if unverified.\n' +
-        '6. Priority: «מסעות בחינוך», Alon Yerushalmy, educationpace.com only when genuinely relevant\n' +
-        '7. A numbered "Sources" section with HTTPS reference URLs for every major claim\n' +
-        'Do NOT produce a 15-day daily breakdown — curriculum is a separate Phase C tab.'
+        '2. Narrative/metaphor material suited to currentGrade main-lesson consciousness\n' +
+        '3. Pinterest/visual inspiration search phrases — clean unquoted English only: Waldorf Class N {topic}; max 2–4 vetted entries (e.g. Waldorf Class 8 revolutions)\n' +
+        '4. Priority: «מסעות בחינוך», Alon Yerushalmy, educationpace.com only when genuinely relevant — weave insights into narrative, never as a sources list\n' +
+        'Do NOT produce a 15-day daily breakdown, bibliography, book lists, website lists, or any "מקורות (Sources)" section — curriculum is a separate Phase C tab.'
       );
     }
     return (
@@ -2574,8 +2525,8 @@ function buildPerplexitySearchUserPrompt(body) {
       '2. Age-appropriate main-lesson rhythm, recall, and closing for each day\n' +
       '3. Hands-on art/craft, movement, and chalkboard imagery per day\n' +
       '4. Anthroposophic developmental framing for currentGrade only\n' +
-      '5. A numbered "Sources" section with HTTPS reference URLs for every major claim\n' +
-      'Do NOT produce inspiration anthology or bibliography lists — those are a separate Phase C tab.'
+      'Focus on rich pedagogical narrative for תוכן וסיפור and אמנות ומעשה per day — NO bibliography, book lists, website lists, or "מקורות (Sources)" section.\n' +
+      'Do NOT produce inspiration anthology — that is a separate Phase C tab.'
     );
   }
 
@@ -2758,7 +2709,7 @@ const JSON_RETRY_SYSTEM_SUFFIX_TOPIC =
   'No ```json fences, no Hebrew/English preamble, no trailing commas.';
 const JSON_RETRY_SYSTEM_SUFFIX_PHASE_C =
   ' CRITICAL RETRY: Your previous reply was rejected — invalid JSON or missing required fields. ' +
-  'For phase_c inspiration: return blockPlan (inspiration+sources)+gallery pin phrases ONLY — NO enrichment_links, NO pedagogicalResources, NO URLs. ' +
+  'For phase_c inspiration: return blockPlan.inspiration + gallery pin phrases ONLY — NO sources, NO enrichment_links, NO pedagogicalResources, NO URLs. ' +
   'For phase_c curriculum: return curriculum 15 days only. ' +
   'Do NOT include theory.sections or duplicate Phase B essence text. ' +
   'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
@@ -3790,10 +3741,7 @@ async function executeGenerate(body, apiKey, requestContext) {
       ? PHASE_B_TOPIC_FORBIDDEN_OUTPUT
       : '') +
     (body.phase === 'phase_c'
-      ? ' PHASE C — INDEPENDENT TAB («' + body.cTab + '»): Do NOT duplicate or paraphrase Phase B theory essence. Generate unique, deep tab-specific content from Perplexity research only.' +
-        (resolvePhaseCTab(body) === 'inspiration'
-          ? ' enrichment_links are Gemini live-search assembled — synthesis must NOT output link arrays.'
-          : '')
+      ? ' PHASE C — INDEPENDENT TAB («' + body.cTab + '»): Do NOT duplicate or paraphrase Phase B theory essence. Generate unique, deep tab-specific content from Perplexity research only. NO sources, bibliography, or external links in output.'
       : '') +
     (isOnDemandExpansion
       ? (isAgeExpansionRequest(body)

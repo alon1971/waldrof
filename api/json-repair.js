@@ -363,14 +363,12 @@ function buildModelParseFallback(phase, rawText, context) {
     return {
       blockPlan: {
         inspiration: {
-          title: 'השראה ומקורות',
+          title: 'השראה',
           global: [{ title: 'סיכום', items: [{ text: plain.slice(0, 1200) }] }],
           podcast: { title: 'תובנות', episodes: [] },
           narrative: [],
         },
-        sources: { books: [], articles: [], websites: [] },
       },
-      pedagogicalResources: [],
       gallery: [],
       _parseFallback: true,
     };

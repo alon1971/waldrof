@@ -707,24 +707,46 @@
     }
     .lesson-chat-bubble-body--pre { white-space: pre-line; }
     .day-row:hover { background: rgba(122,155,118,.08); }
+    .day-row.day-row--expandable { cursor: pointer; }
     #daily-planning-content {
       width: 100%;
       max-width: 100%;
     }
-    #daily-planning-content {
-      width: 100%;
-      max-width: 100%;
-      min-width: 0;
-      overflow-x: hidden;
+    .curriculum-table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
-    #daily-planning-content table {
+    #daily-planning-content table.curriculum-period-table {
       table-layout: fixed;
       width: 100%;
+      border-collapse: collapse;
     }
-    #daily-planning-content .day-row td,
-    #daily-planning-content .day-detail td {
+    #daily-planning-content col.curriculum-col-day { width: 6%; }
+    #daily-planning-content col.curriculum-col-topic { width: 16%; }
+    #daily-planning-content col.curriculum-col-content { width: 39%; }
+    #daily-planning-content col.curriculum-col-art { width: 39%; }
+    #daily-planning-content .day-row td.curriculum-col-day,
+    #daily-planning-content thead th.curriculum-col-day {
+      white-space: nowrap;
+      overflow-wrap: normal;
+      word-break: normal;
+      vertical-align: top;
+    }
+    #daily-planning-content .day-row td.curriculum-col-topic,
+    #daily-planning-content thead th.curriculum-col-topic {
+      overflow-wrap: normal;
+      word-break: normal;
+      vertical-align: top;
+      line-height: 1.45;
+      min-width: 7.5rem;
+    }
+    #daily-planning-content .day-row td.curriculum-col-content,
+    #daily-planning-content .day-row td.curriculum-col-art,
+    #daily-planning-content thead th.curriculum-col-content,
+    #daily-planning-content thead th.curriculum-col-art {
       overflow-wrap: break-word;
       word-break: break-word;
+      vertical-align: top;
     }
     .curriculum-day-cell {
       width: 100%;
@@ -739,6 +761,20 @@
       word-break: break-word;
       max-width: 100%;
     }
+    .curriculum-day-footer {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+      border-top: 1px solid rgba(201, 169, 98, 0.2);
+      padding-top: 0.5rem;
+    }
+    .curriculum-day-hint {
+      width: 100%;
+      font-size: 0.8125rem;
+      line-height: 1.45;
+      color: rgba(92, 74, 58, 0.65);
+    }
     .curriculum-day-enrich-block,
     .curriculum-day-enrich-panel {
       width: 100%;
@@ -748,8 +784,6 @@
     .curriculum-day-enrich-cell {
       max-width: 100%;
       min-width: 0;
-      overflow-wrap: break-word;
-      word-break: break-word;
     }
     .curriculum-day-enrich-panel .inline-expand-inner {
       width: 100%;
@@ -3994,7 +4028,7 @@
         <button type="button" role="tab" id="product-tab-inspiration" data-tab="inspiration" aria-selected="false" aria-controls="panel-inspiration"
           class="product-tab-btn touch-target">
           <i class="fa-solid fa-lightbulb" aria-hidden="true"></i>
-          <span><span data-i18n="tab_inspiration">השראה</span><span data-i18n="tab_inspiration_suffix"> ומקורות</span></span>
+          <span><span data-i18n="tab_inspiration">השראה</span><span data-i18n="tab_inspiration_suffix"></span></span>
           <span id="community-badge" class="app-micro hidden bg-terracotta text-white px-1.5 py-0.5 rounded-full shrink-0">0</span>
         </button>
         <button type="button" role="tab" id="product-tab-curriculum" data-tab="curriculum" aria-selected="false" aria-controls="panel-curriculum"
@@ -4038,18 +4072,11 @@
             <i class="fa-brands fa-pinterest text-terracotta icon-inline"></i>
             <span data-i18n="pinterest_title">השראה חזותית ומחברות תקופה</span>
           </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה (למאמרים ומקורות טקסט — ראו למטה)</p>
+          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה</p>
           <div id="pinterest-gallery" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3"></div>
         </div>
 
-        <div id="pedagogical-resources-section" class="hidden mt-8 bg-white/85 rounded-2xl border border-sage/25 p-4 sm:p-6 shadow-sm w-full box-border">
-          <h3 class="app-subhead font-display font-bold text-sage-dark mb-2">
-            <i class="fa-solid fa-book-open text-sage icon-inline"></i>
-            <span data-i18n="pedagogical_resources_title">מאמרים ומקורות פדגוגיים</span>
-          </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="pedagogical_resources_desc">מאמרים, מערכי שיעור ומדריכים מאתרי בתי ספר וולדורפיים, פדרציות וכתבי עת — מסוננים לפי הנושא והכיתה</p>
-          <div id="pedagogical-resources-list" class="space-y-3"></div>
-        </div>
+        <div id="pedagogical-resources-section" class="hidden" hidden aria-hidden="true"></div>
 
         <div id="community-materials" class="mt-6"></div>
       </section>
@@ -4064,14 +4091,20 @@
         <div id="teacher-drive-curriculum-slot" class="hidden mb-6"></div>
         <div id="daily-planning-content">
           <div id="curriculum-cards" class="md:hidden space-y-3 pb-4" data-i18n-aria="curriculum_cards_aria"></div>
-          <div class="hidden md:block overflow-x-hidden rounded-2xl border border-gold/30 bg-white/80 shadow-sm max-w-full">
-            <table class="w-full text-sm">
+          <div class="hidden md:block curriculum-table-wrap rounded-2xl border border-gold/30 bg-white/80 shadow-sm">
+            <table class="w-full text-sm curriculum-period-table">
+              <colgroup>
+                <col class="curriculum-col-day">
+                <col class="curriculum-col-topic">
+                <col class="curriculum-col-content">
+                <col class="curriculum-col-art">
+              </colgroup>
               <thead>
                 <tr class="bg-sage/15 border-b border-gold/30">
-                  <th class="px-3 py-3 text-dir-start font-semibold w-14" data-i18n="col_day">יום</th>
-                  <th class="px-3 py-3 text-dir-start font-semibold w-[16%]" data-i18n="col_topic">נושא</th>
-                  <th class="px-3 py-3 text-dir-start font-semibold w-[42%]" data-i18n="col_content">תוכן וסיפור</th>
-                  <th class="px-3 py-3 text-dir-start font-semibold w-[42%]" data-i18n="col_art">אמנות ומעשה</th>
+                  <th class="curriculum-col-day px-3 py-3 text-dir-start font-semibold" data-i18n="col_day">יום</th>
+                  <th class="curriculum-col-topic px-3 py-3 text-dir-start font-semibold" data-i18n="col_topic">נושא</th>
+                  <th class="curriculum-col-content px-3 py-3 text-dir-start font-semibold" data-i18n="col_content">תוכן וסיפור</th>
+                  <th class="curriculum-col-art px-3 py-3 text-dir-start font-semibold" data-i18n="col_art">אמנות ומעשה</th>
                 </tr>
               </thead>
               <tbody id="curriculum-body"></tbody>
@@ -4830,6 +4863,7 @@
       archiveActiveExportId: null,
       activeProductTab: null,
       productTabsRendered: { theory: false, inspiration: false, curriculum: false },
+      curriculumUiState: { expandedDays: [] },
       bibliographyRegistry: {},
       bibliographySummaries: {},
       pedagogyRegistry: {},
@@ -4907,6 +4941,7 @@
         pedagogyRegistry: {},
         activeProductTab: null,
         productTabsRendered: freshProductTabsRendered(),
+        curriculumUiState: { expandedDays: [] },
         lessonCacheKey: '',
         lessonFromArchive: false,
         communityAutoSync: true,
@@ -6837,33 +6872,12 @@
 
       var sources = plan.sources;
       if (sources && typeof sources === 'object') {
-        var refItems = [];
-        ['books', 'articles', 'websites'].forEach(function (cat) {
-          (sources[cat] || []).forEach(function (src) {
-            var label = typeof src === 'string' ? src : buildBibliographyLabel(src);
-            if (label) refItems.push(label);
-          });
-        });
-        if (refItems.length) {
-          globalBlocks.push({
-            title: (t('tab_inspiration') + t('tab_inspiration_suffix')).trim(),
-            items: refItems,
-          });
-        }
+        /* no-sources mode: skip bibliography injection into inspiration synthesis */
       }
 
       var bib = plan.theory && plan.theory.bibliography;
       if (bib && typeof bib === 'object') {
-        var bibItems = [];
-        ['books', 'articles', 'websites'].forEach(function (cat) {
-          (bib[cat] || []).forEach(function (src) {
-            var label = typeof src === 'string' ? src : buildBibliographyLabel(src);
-            if (label) bibItems.push(label);
-          });
-        });
-        if (bibItems.length) {
-          globalBlocks.push({ title: t('tab_theory_suffix') || 'מקורות', items: bibItems });
-        }
+        /* no-sources mode: skip theory bibliography in inspiration synthesis */
       }
 
       if (!globalBlocks.length && plan.theory && Array.isArray(plan.theory.sections)) {
@@ -7166,7 +7180,6 @@
         appState.visualGallery = generateVisualGallery(appState.topic || '');
       }
       renderInspirationBase();
-      renderPedagogicalResourcesSection();
       renderPinterestGallery();
       renderPersonalInWorkspace();
       renderTeacherDriveMergeSlots();
@@ -7188,13 +7201,8 @@
 
       if (cTab === 'inspiration') {
         data.blockPlan.inspiration = coerceInspirationStructure(data.blockPlan.inspiration, rawFallback);
-        if (!data.blockPlan.sources || typeof data.blockPlan.sources !== 'object') {
-          data.blockPlan.sources = { books: [], articles: [], websites: [] };
-        }
+        if (data.blockPlan.sources) delete data.blockPlan.sources;
         if (!Array.isArray(data.gallery)) data.gallery = [];
-        var topicForPed = appState.topic || '';
-        var pedCollected = normalizePedagogicalResources(data.pedagogicalResources, topicForPed);
-        data.pedagogicalResources = normalizePedagogicalResources(pedCollected, topicForPed);
       } else if (cTab === 'curriculum') {
         var rows = coerceCurriculumRows(data.blockPlan.curriculum);
         if (!rows.length && typeof data.blockPlan.curriculum === 'string') {
@@ -8153,34 +8161,7 @@
     }
 
     function renderPedagogicalResourcesSection() {
-      hydratePedagogicalResourcesFromSources({ plan: appState.activePlan || appState.aiGeneratedPlan });
-      var section = document.getElementById('pedagogical-resources-section');
-      var listEl = document.getElementById('pedagogical-resources-list');
-      if (!section || !listEl) return;
-      var resources = appState.pedagogicalResources || [];
-      if (!resources.length) {
-        section.classList.remove('hidden');
-        listEl.innerHTML = '<p class="text-sm text-walnut/60 text-center py-8">' +
-          escapeHtml(t('pedagogical_resources_empty') || 'לא נמצאו מקורות פדגוגיים לנושא זה — הריצו מחדש את מחקר ההשראה.') +
-          '</p>';
-        return;
-      }
-      section.classList.remove('hidden');
-      var html = resources.map(function (res) {
-        var labelClass = pedagogicalResourceLabelClass(res.label);
-        return '<article class="rounded-xl border border-sage/20 bg-white/90 p-4 shadow-sm hover:shadow-md transition-shadow">' +
-          '<div class="flex flex-wrap items-center gap-2 mb-2">' +
-          '<span class="inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ' + labelClass + '">' +
-          escapeHtml(res.label) + '</span>' +
-          (res.source ? '<span class="text-[11px] text-walnut/55">' + escapeHtml(res.source) + '</span>' : '') +
-          '</div>' +
-          '<a href="' + escapeHtml(res.url) + '" target="_blank" rel="noopener noreferrer" ' +
-          'class="font-semibold text-sage-dark hover:text-burgundy leading-snug block mb-1">' +
-          escapeHtml(res.title) + ' <i class="fa-solid fa-arrow-up-left-from-square text-[10px] opacity-60" aria-hidden="true"></i></a>' +
-          (res.snippet ? '<p class="text-sm text-walnut/70 leading-relaxed">' + escapeHtml(res.snippet) + '</p>' : '') +
-          '</article>';
-      }).join('');
-      holdPageScroll(function () { listEl.innerHTML = html; });
+      /* no-sources mode: pedagogical resource links removed from UI */
     }
 
     function normalizeGallery(items, topic, options) {
@@ -8469,8 +8450,7 @@
           gradeLock + ' ' + urlPolicy + ' ' + lazy + ' ' + prioritySearch + ' ' +
           'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items ({text} only — no expansion). ' +
           'podcast: 3–5 episodes {theme, insight} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
-          'narrative: 3–5 story paragraphs ({text} only). ' +
-          'pedagogicalResources: verified HTTPS links from open web search — subject + Waldorf context only; empty array if none verified. 16px UI.'
+          'narrative: 3–5 story paragraphs ({text} only). NO sources, bibliography, or external links. 16px UI.'
         );
       }
       return (
@@ -8478,8 +8458,7 @@
         gradeLock + ' ' + urlPolicy + ' ' + lazy + ' ' + prioritySearch + ' ' +
         'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים ({text} בלבד — ללא expansion). ' +
         'podcast: 3–5 פרקים {theme, insight} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
-        'narrative: 3–5 פסקאות ({text} בלבד). ' +
-        'pedagogicalResources: קישורי HTTPS מאומתים מחיפוש רשת פתוח — רק כשהעמוד תואם נושא + הקשר וולדורפי; מערך ריק אם אין תוצאות. גופן 16px.'
+        'narrative: 3–5 פסקאות ({text} בלבד). ללא מקורות, ביבליוגרפיה או קישורים חיצוניים. גופן 16px.'
       );
     }
 
@@ -8606,13 +8585,9 @@
       var bp = data.blockPlan;
       if (cTab === 'inspiration') {
         if (bp.inspiration) appState.aiGeneratedPlan.inspiration = bp.inspiration;
-        if (bp.sources) appState.aiGeneratedPlan.sources = bp.sources;
-        if (data.pedagogicalResources && data.pedagogicalResources.length) {
-          appState.aiGeneratedPlan.pedagogicalResources = normalizePedagogicalResources(data.pedagogicalResources, appState.topic || '');
-          appState.pedagogicalResources = appState.aiGeneratedPlan.pedagogicalResources.slice();
-        } else {
-          hydratePedagogicalResourcesFromSources({ data: data, plan: appState.aiGeneratedPlan });
-        }
+        if (appState.aiGeneratedPlan.sources) delete appState.aiGeneratedPlan.sources;
+        appState.pedagogicalResources = [];
+        if (appState.aiGeneratedPlan.pedagogicalResources) delete appState.aiGeneratedPlan.pedagogicalResources;
         if (data.gallery && data.gallery.length) {
           hydrateVisualGalleryFromSources({ data: data, plan: appState.aiGeneratedPlan });
           if (!appState.visualGallery.length) {
@@ -8655,11 +8630,11 @@
         theoryEssence: summarizeTheoryEssenceForPhaseC(),
         inspirationPrompt: cTab === 'inspiration' ? buildInspirationTabPrompt(topicStr, appState.gradeLabel) : undefined,
         curriculumPrompt: cTab === 'curriculum' ? buildCurriculumTabPrompt(topicStr, appState.gradeLabel) : undefined,
-        bibliographyRequirements: cTab === 'inspiration' ? getTheoryBibliographyPrompt() : undefined,
+        bibliographyRequirements: undefined,
         pedagogyExpandHint: cTab === 'curriculum' ? getInlineExpansionInstruction() : getLazyLoadExpansionInstruction(),
         currentGrade: appState.grade,
         gradeLockInstruction: getGradeLockInstruction(),
-        noUrlsInstruction: cTab === 'inspiration' ? getPedagogicalResourcesUrlInstruction() : getNoUrlsInstruction(),
+        noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
       }, { signal: signal });
     }
@@ -9331,16 +9306,12 @@
           return;
         }
         const cardToggle = e.target.closest('.curriculum-card-toggle');
-        if (!cardToggle || !cardToggle.closest('#panel-curriculum')) return;
-        const card = cardToggle.closest('.curriculum-card');
-        const detail = card && card.querySelector('.curriculum-card-detail');
-        const icon = cardToggle.querySelector('.card-chevron');
-        if (!detail) return;
-        e.preventDefault();
-        const isCollapsed = detail.classList.toggle('hidden');
-        if (icon) {
-          icon.classList.toggle('fa-chevron-down', isCollapsed);
-          icon.classList.toggle('fa-chevron-up', !isCollapsed);
+        if (cardToggle && cardToggle.closest('#panel-curriculum')) {
+          e.preventDefault();
+          const card = cardToggle.closest('.curriculum-card');
+          const dayIndex = card ? parseInt(card.getAttribute('data-i'), 10) : NaN;
+          if (!isNaN(dayIndex)) toggleCurriculumDayExpanded(dayIndex);
+          return;
         }
       };
       container.addEventListener('click', phase3CurriculumClickHandler);
@@ -15192,9 +15163,7 @@
         } else if (tabId === 'curriculum') {
           hydrateUnifiedLessonSynthesis();
           var currPanelEl = document.getElementById('curriculum-cards');
-          var currDomEmpty = !currPanelEl || !currPanelEl.innerHTML.trim();
-          var tbodyEl = document.getElementById('curriculum-body');
-          if (currDomEmpty && tbodyEl && !tbodyEl.innerHTML.trim()) currDomEmpty = true;
+          var currDomEmpty = !isCurriculumPanelMounted();
           if (!hasPhaseCCurriculumContent()) {
             if (shouldBlockLivePhaseCApi()) {
               if (!hydrateCurriculumFromUnifiedSynthesis()) {
@@ -15245,6 +15214,8 @@
             r.curriculum = true;
           } else {
             setupThemeActionButtons();
+            restoreCurriculumExpandedDays();
+            restorePedagogySummaryPanels();
           }
         }
       } catch (renderErr) {
@@ -15659,7 +15630,7 @@
       const topic = String(row.topic || '').trim();
       const expansion = mergeCurriculumDayExpansion(row);
       return {
-        id: buildPedagogyItemId('curr-enrich', layout || 'view', row.day, topic),
+        id: buildPedagogyItemId('curr-enrich', 'day', row.day, topic),
         type: 'curriculum',
         subtype: 'enrich',
         title: dayLabel + ' — ' + topic,
@@ -15675,7 +15646,8 @@
       const item = buildCurriculumDayEnrichmentItem(row, layout);
       registerPedagogyItem(item);
       const btnLabel = curriculumDayEnrichBtnLabel();
-      return '<div class="curriculum-day-enrich-block mt-2">' +
+      const blockMt = layout === 'table' ? '' : ' mt-2';
+      return '<div class="curriculum-day-enrich-block' + blockMt + '">' +
         '<button type="button" class="pedagogy-deep-btn curriculum-day-enrich-btn" data-pedagogy-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(btnLabel) + '">' +
         escapeHtml(btnLabel) + '</button>' +
         '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel curriculum-day-enrich-panel hidden" aria-live="polite"></div></div>';
@@ -15688,12 +15660,123 @@
       return escapeHtml(sanitizePedagogicalText(row.hint));
     }
 
+    function isCurriculumPanelMounted() {
+      var cards = document.getElementById('curriculum-cards');
+      var tbody = document.getElementById('curriculum-body');
+      if (cards && cards.innerHTML.trim()) return true;
+      if (tbody && tbody.innerHTML.trim()) return true;
+      return false;
+    }
+
+    function ensureCurriculumUiState() {
+      if (!appState.curriculumUiState || !Array.isArray(appState.curriculumUiState.expandedDays)) {
+        appState.curriculumUiState = { expandedDays: [] };
+      }
+    }
+
+    function isCurriculumDayExpanded(dayIndex) {
+      ensureCurriculumUiState();
+      return appState.curriculumUiState.expandedDays.indexOf(dayIndex) >= 0;
+    }
+
+    function setCurriculumDayExpanded(dayIndex, expanded) {
+      ensureCurriculumUiState();
+      var list = appState.curriculumUiState.expandedDays;
+      var pos = list.indexOf(dayIndex);
+      if (expanded && pos < 0) list.push(dayIndex);
+      else if (!expanded && pos >= 0) list.splice(pos, 1);
+      syncCurriculumDayUrlParam(dayIndex, expanded);
+    }
+
+    function readCurriculumDayFromUrl() {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var dayParam = parseInt(params.get('day'), 10);
+        if (!dayParam || isNaN(dayParam) || dayParam < 1 || dayParam > 15) return;
+        ensureCurriculumUiState();
+        var idx = dayParam - 1;
+        if (appState.curriculumUiState.expandedDays.indexOf(idx) < 0) {
+          appState.curriculumUiState.expandedDays.push(idx);
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    function syncCurriculumDayUrlParam(dayIndex, expanded) {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var dayNum = dayIndex + 1;
+        if (expanded) params.set('day', String(dayNum));
+        else if (parseInt(params.get('day'), 10) === dayNum) params.delete('day');
+        var qs = params.toString();
+        var next = window.location.pathname + (qs ? '?' + qs : '') + (window.location.hash || '');
+        window.history.replaceState(null, '', next);
+      } catch (e) { /* ignore */ }
+    }
+
+    function captureCurriculumUiStateFromDom() {
+      ensureCurriculumUiState();
+      var expanded = [];
+      document.querySelectorAll('#panel-curriculum .curriculum-card').forEach(function (card) {
+        var detail = card.querySelector('.curriculum-card-detail');
+        if (!detail || detail.classList.contains('hidden')) return;
+        var i = card.getAttribute('data-i');
+        if (i != null) expanded.push(parseInt(i, 10));
+      });
+      appState.curriculumUiState.expandedDays = Array.from(new Set(expanded.filter(function (n) {
+        return !isNaN(n) && n >= 0;
+      })));
+    }
+
+    function restoreCurriculumExpandedDays() {
+      ensureCurriculumUiState();
+      readCurriculumDayFromUrl();
+      (appState.curriculumUiState.expandedDays || []).forEach(function (i) {
+        var card = document.querySelector('#panel-curriculum .curriculum-card[data-i="' + i + '"]');
+        if (card) {
+          var cardDetail = card.querySelector('.curriculum-card-detail');
+          if (cardDetail) cardDetail.classList.remove('hidden');
+          var icon = card.querySelector('.card-chevron');
+          if (icon) {
+            icon.classList.remove('fa-chevron-down');
+            icon.classList.add('fa-chevron-up');
+          }
+        }
+      });
+      var focusDay = parseInt(new URLSearchParams(window.location.search).get('day'), 10);
+      if (focusDay >= 1 && focusDay <= 15) {
+        var anchor = document.querySelector('#panel-curriculum .curriculum-card[data-i="' + (focusDay - 1) + '"]') ||
+          document.querySelector('#panel-curriculum .day-row[data-i="' + (focusDay - 1) + '"]');
+        if (anchor && typeof anchor.scrollIntoView === 'function') {
+          requestAnimationFrame(function () {
+            anchor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          });
+        }
+      }
+    }
+
+    function toggleCurriculumDayExpanded(dayIndex) {
+      var next = !isCurriculumDayExpanded(dayIndex);
+      setCurriculumDayExpanded(dayIndex, next);
+      var card = document.querySelector('#panel-curriculum .curriculum-card[data-i="' + dayIndex + '"]');
+      if (card) {
+        var cardDetail = card.querySelector('.curriculum-card-detail');
+        if (cardDetail) cardDetail.classList.toggle('hidden', !next);
+        var icon = card.querySelector('.card-chevron');
+        if (icon) {
+          icon.classList.toggle('fa-chevron-down', !next);
+          icon.classList.toggle('fa-chevron-up', next);
+        }
+      }
+    }
+
     function bindCurriculumCardToggles() {
       ensureCurriculumExpansionEvents();
     }
 
     function renderCurriculum() {
       hydrateCurriculumFromUnifiedSynthesis();
+      captureCurriculumUiStateFromDom();
+      readCurriculumDayFromUrl();
       var plan = (appState.activePlan && appState.activePlan.curriculum) ||
         (appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum) || [];
 
@@ -15713,10 +15796,6 @@
           syncActivePlanFromGenerated();
         }
       }
-
-      Object.keys(appState.pedagogyRegistry).forEach(function (k) {
-        if (k.indexOf('ped-curr-') === 0) delete appState.pedagogyRegistry[k];
-      });
 
       const cardsEl = document.getElementById('curriculum-cards');
       const tbody = document.getElementById('curriculum-body');
@@ -15792,14 +15871,15 @@
       }
       const tableHtml = tbody ? safePlan.map(function (row, i) {
         return '<tr class="day-row border-b border-gold/15" data-i="' + i + '">' +
-          '<td class="px-3 py-3 font-bold text-burgundy align-top w-14">' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</td>' +
-          '<td class="px-3 py-3 font-medium align-top min-w-0">' + escapeHtml(row.topic) + '</td>' +
-          '<td class="px-3 py-3 align-top min-w-0">' + renderCurriculumDayText(row.content) + '</td>' +
-          '<td class="px-3 py-3 align-top min-w-0">' + renderCurriculumDayText(row.art) + '</td></tr>' +
-          '<tr class="day-detail bg-sage/5" data-d="' + i + '"><td colspan="4" class="px-4 py-3 curriculum-day-enrich-cell">' +
-          '<div class="text-walnut/65 pt-1 border-t border-gold/20 mb-2">' + curriculumHintHtml(row) + '</div>' +
+          '<td class="curriculum-col-day px-3 py-3 text-dir-start font-bold text-burgundy align-top">' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</td>' +
+          '<td class="curriculum-col-topic px-3 py-3 text-dir-start font-medium align-top leading-snug">' + escapeHtml(row.topic) + '</td>' +
+          '<td class="curriculum-col-content px-3 py-3 text-dir-start align-top">' + renderCurriculumDayText(row.content) + '</td>' +
+          '<td class="curriculum-col-art px-3 py-3 text-dir-start align-top">' + renderCurriculumDayText(row.art) + '</td></tr>' +
+          '<tr class="day-detail bg-sage/5" data-d="' + i + '"><td colspan="4" class="px-4 py-3 text-dir-start curriculum-day-enrich-cell">' +
+          '<div class="curriculum-day-footer">' +
+          '<div class="curriculum-day-hint">' + curriculumHintHtml(row) + '</div>' +
           renderCurriculumDayEnrichment(row, 'table') +
-          '</td></tr>';
+          '</div></td></tr>';
       }).join('') : '';
 
       holdPageScroll(function () {
@@ -15809,6 +15889,7 @@
       });
       setupThemeActionButtons();
       bindCurriculumCardToggles();
+      restoreCurriculumExpandedDays();
       restorePedagogySummaryPanels();
       setupThemeActionButtons();
     }
@@ -17021,7 +17102,12 @@
         });
         ensureProductTabsHydrated();
         revealProductTabPanel(id);
-        if (id === 'curriculum') setupPhase3ActionButtons();
+        if (id === 'curriculum') {
+          readCurriculumDayFromUrl();
+          setupPhase3ActionButtons();
+          restoreCurriculumExpandedDays();
+          restorePedagogySummaryPanels();
+        }
         if (tabViewChanged) resetMainViewScroll();
         updateWorkspaceChrome();
         updatePedagogyExportButtonsVisibility();
@@ -17063,6 +17149,7 @@
         pedagogyRegistry: {},
         activeProductTab: null,
         productTabsRendered: freshProductTabsRendered(),
+        curriculumUiState: { expandedDays: [] },
         lessonCacheKey: '',
         lessonFromArchive: false,
         communityAutoSync: true,
@@ -17384,8 +17471,16 @@
       });
       document.getElementById('btn-archive-search').addEventListener('click', runAnthroArchiveSearch);
       document.getElementById('expand-all').addEventListener('click', function () {
-        document.querySelectorAll('.day-detail').forEach(function (r) { r.classList.remove('hidden'); });
-        document.querySelectorAll('.curriculum-card-detail').forEach(function (el) { el.classList.remove('hidden'); });
+        ensureCurriculumUiState();
+        appState.curriculumUiState.expandedDays = [];
+        document.querySelectorAll('.curriculum-card').forEach(function (card) {
+          var detail = card.querySelector('.curriculum-card-detail');
+          if (detail) detail.classList.remove('hidden');
+          var idx = parseInt(card.getAttribute('data-i'), 10);
+          if (!isNaN(idx) && appState.curriculumUiState.expandedDays.indexOf(idx) < 0) {
+            appState.curriculumUiState.expandedDays.push(idx);
+          }
+        });
         document.querySelectorAll('.card-chevron').forEach(function (icon) {
           icon.classList.remove('fa-chevron-down');
           icon.classList.add('fa-chevron-up');
