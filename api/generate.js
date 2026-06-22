@@ -909,6 +909,10 @@ function isPedagogicalChatPhase(body) {
   return Boolean(body && body.phase === 'chat_followup');
 }
 
+function isGeminiEnrichmentPhase(body) {
+  return Boolean(body && body.phase === 'enrichment_links');
+}
+
 function resolvedGradeId(body) {
   return String(body.currentGrade ?? body.gradeId ?? '').trim();
 }
@@ -1575,8 +1579,8 @@ function buildPhaseCUserPrompt(body) {
     pedagogyHint +
     LAZY_LOAD_NOTE +
     'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
-    'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 Hebrew sentences), "art" (2–4 Hebrew sentences on art/craft), "hint" (optional Hebrew string).\n' +
-    'Do NOT include contentExpansion, artExpansion, or hintExpansion — those load on-demand via pedagogy_deep_dive.\n' +
+    'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 rich Hebrew sentences on story/main-lesson flow — shown immediately in UI), "art" (2–4 Hebrew sentences on art/craft/handwork — shown immediately), "hint" (optional Hebrew string).\n' +
+    'content and art MUST be complete narrative text in this payload — never empty placeholders. Do NOT include contentExpansion, artExpansion, or hintExpansion (optional links load on-demand per day).\n' +
     'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
     'FORBIDDEN in this response: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, bibliography.\n' +
     JSON_ONLY_INSTRUCTION +
@@ -3308,7 +3312,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
   }
   const archiveOnlyLookup = isArchiveOnlyLookup(parsedBody);
   const apiKey = resolveApiKey(parsedBody);
-  if (!apiKey && !archiveOnlyLookup) {
+  if (!apiKey && !archiveOnlyLookup && !isGeminiEnrichmentPhase(parsedBody)) {
     const err = new Error(missingKeyError(parsedBody));
     err.statusCode = 500;
     throw err;
@@ -3534,11 +3538,45 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipCache = true;
   }
 
+  if (body.phase === 'enrichment_links') {
+    body.skipCache = true;
+    body.skipRag = true;
+  }
+
   if (body.phase === 'chat_followup') {
     chatApi.clearCommunityArchiveContextForExpansion(body);
   }
 
   const communityProbe = await probeCommunityMaterialsForBody(body);
+
+  if (body.phase === 'enrichment_links') {
+    const enrichmentBody = normalizeEnrichmentRequestBody(body);
+    if (!enrichmentBody.topic || !enrichmentBody.currentGrade) {
+      const err = new Error('enrichment_links requires topic and currentGrade');
+      err.statusCode = 400;
+      throw err;
+    }
+    let links;
+    try {
+      links = await fetchGeminiEnrichmentLinks(enrichmentBody);
+    } catch (enrichErr) {
+      const msg = enrichErr instanceof Error ? enrichErr.message : String(enrichErr);
+      console.warn('[enrichment_links] Gemini search failed, Pinterest fallback:', msg);
+      links = {
+        pinterest_links: geminiEnrichment.buildDynamicPinterestLinks(enrichmentBody),
+        article_links: [],
+      };
+    }
+    const normalized = normalizeEnrichmentLinks(links, enrichmentBody, { geminiSearch: true });
+    return {
+      data: { enrichment_links: normalized },
+      meta: attachCommunityMeta({
+        fromCache: false,
+        source: 'gemini_enrichment',
+        contentHierarchy: 'gemini-google-search',
+      }, communityProbe),
+    };
+  }
   if (communityProbe.count > 0) {
     console.log('[community] matched', communityProbe.count, 'material(s) for', body.phase);
   }
@@ -3932,7 +3970,7 @@ async function legacyHandler(req, res) {
   }
 
   const apiKey = resolveApiKey(body);
-  if (!apiKey && !isArchiveOnlyLookup(body)) {
+  if (!apiKey && !isArchiveOnlyLookup(body) && !isGeminiEnrichmentPhase(body)) {
     return sendJson(res, 500, { error: missingKeyError(body) });
   }
 
@@ -3976,7 +4014,7 @@ async function fetchHandler(request) {
   }
 
   const apiKey = resolveApiKey(body);
-  if (!apiKey && !isArchiveOnlyLookup(body)) {
+  if (!apiKey && !isArchiveOnlyLookup(body) && !isGeminiEnrichmentPhase(body)) {
     return Response.json({ error: missingKeyError(body) }, { status: 500, headers });
   }
 
