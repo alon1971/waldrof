@@ -1764,6 +1764,9 @@
       emailLink.setAttribute('href', 'mailto:' + CONTACT_EMAIL);
       emailLink.addEventListener('click', function (e) {
         e.stopPropagation();
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        window.location.href = 'mailto:' + CONTACT_EMAIL;
       });
     }
     var phoneLink = document.getElementById('contact-owner-phone-link');

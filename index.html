@@ -176,6 +176,24 @@
       text-decoration-thickness: 2px;
       text-decoration-color: #4a6b53;
     }
+    #grade-insights-body a.prose-source-link,
+    #grade-insights-body a.prose-source-link:visited,
+    .grade-insights-sources a.prose-source-link,
+    .grade-insights-sources a.prose-source-link:visited {
+      color: #4a6b53;
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-color: rgba(74, 107, 83, 0.45);
+    }
+    #grade-insights-body a.prose-source-link:hover,
+    #grade-insights-body a.prose-source-link:focus-visible,
+    .grade-insights-sources a.prose-source-link:hover,
+    .grade-insights-sources a.prose-source-link:focus-visible {
+      color: #3d5848;
+      text-decoration-thickness: 2px;
+      text-decoration-color: #4a6b53;
+    }
     /* Workspace tabs — larger readable pedagogical body text (not site header/chrome) */
     #workspace .product-tab-panel,
     #product-panels-shell .product-tab-panel {
@@ -1907,6 +1925,7 @@
       color: #5C4A3A; cursor: pointer; display: flex; align-items: center; justify-content: center;
     }
     html[dir="ltr"] .app-modal-close { left: auto; right: 1rem; }
+    #contact-modal .app-modal-backdrop { z-index: 0; }
     #contact-modal .app-modal-panel {
       position: relative;
       z-index: 1;
@@ -2006,6 +2025,8 @@
       box-shadow: none;
     }
     .contact-owner-details {
+      position: relative;
+      z-index: 3;
       margin-top: 16px;
       padding: 14px 12px;
       border-top: 1px dashed #ddd;
@@ -2013,6 +2034,7 @@
       background: #f8faf8;
       border-radius: 8px;
       line-height: 1.55;
+      pointer-events: auto;
     }
     .contact-owner-details__heading {
       margin: 0 0 10px;
@@ -2029,10 +2051,11 @@
     }
     .contact-owner-details__line:last-child { margin-bottom: 0; }
     .contact-owner-details__link {
-      color: #607d64;
+      color: #4a6b53;
       font-weight: 600;
       text-decoration: underline;
       text-underline-offset: 2px;
+      cursor: pointer;
       pointer-events: auto;
       position: relative;
       z-index: 2;
@@ -3754,7 +3777,7 @@
         <p class="contact-owner-details__heading"><strong data-i18n="contact_owner_heading">פרטי מנהל המערכת:</strong></p>
         <p class="contact-owner-details__name">אלון ירושלמי (Alon Yerushalmy)</p>
         <p class="contact-owner-details__line">
-          מייל: <a class="contact-owner-details__link" id="contact-owner-email-link" href="mailto:waldorfplanner@gmail.com" style="color: #4a6b53; text-decoration: underline;">waldorfplanner@gmail.com</a>
+          מייל: <a class="contact-owner-details__link" id="contact-owner-email-link" href="mailto:waldorfplanner@gmail.com">waldorfplanner@gmail.com</a>
         </p>
         <p class="contact-owner-details__line">
           טלפון: <a class="contact-owner-details__link" id="contact-owner-phone-link" href="tel:0544548078" style="color: inherit; text-decoration: none;">054-4548078</a>
@@ -6620,6 +6643,21 @@
       return [];
     }
 
+    function splitCurriculumDayNarrativeFields(content, art) {
+      var contentStr = String(content || '').trim();
+      var artStr = String(art || '').trim();
+      if (artStr || !contentStr || /<(?:div|p|ul|ol|h[1-6]|br)\b/i.test(contentStr)) {
+        return { content: contentStr, art: artStr };
+      }
+      var artRe = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:אמנות\s*ומעשה|אמנות(?:\s*ו?(?:מעשה|יוצרה))?|Art(?:\s*(?:&|and)\s*Craft)?|Handwork)\s*(?:\*{0,2})?\s*:?\s*\n?/i;
+      var match = artRe.exec(contentStr);
+      if (!match) return { content: contentStr, art: '' };
+      var before = contentStr.slice(0, match.index).trim();
+      var after = contentStr.slice(match.index + match[0].length).trim();
+      before = before.replace(/(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:תוכן\s*וסיפור|תוכן(?:\s*וסיפור)?|Content(?:\s*&\s*Story)?)\s*(?:\*{0,2})?\s*:?\s*\n?/i, '').trim();
+      return { content: before || contentStr, art: after };
+    }
+
     function normalizeCurriculumRow(row, index) {
       if (row == null) return null;
       if (typeof row === 'string') {
@@ -6634,9 +6672,13 @@
         row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
       ).trim();
       var content = row.content || row.story || row.lesson || row.lessonContent ||
-        row.text || row.body || row.description || row.narrative || '';
+        row.text || row.body || row.description || row.narrative ||
+        row['תוכן וסיפור'] || row.tochen || row.mainLesson || '';
       var art = row.art || row.artActivity || row.craft || row.artAndCraft ||
-        row.handwork || row.artCraft || '';
+        row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || '';
+      var split = splitCurriculumDayNarrativeFields(content, art);
+      content = split.content;
+      art = split.art;
       var hint = row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '';
       if (!topic && !content && !art && !hint) return null;
       return {
@@ -6649,6 +6691,33 @@
         artExpansion: row.artExpansion,
         hintExpansion: row.hintExpansion,
       };
+    }
+
+    function mapCurriculumRowForDisplay(row, index) {
+      var norm = normalizeCurriculumRow(row, index) || {
+        day: index + 1,
+        topic: 'יום ' + (index + 1),
+        content: '',
+        art: '',
+        hint: '',
+      };
+      return {
+        day: norm.day || (index + 1),
+        topic: norm.topic || t('curriculum_day_short', { day: norm.day || (index + 1) }),
+        content: ensureAiHtml(norm.content || ''),
+        art: ensureAiHtml(norm.art || ''),
+        hint: norm.hint || '',
+        contentExpansion: (row && row.contentExpansion) || norm.contentExpansion,
+        artExpansion: (row && row.artExpansion) || norm.artExpansion,
+        hintExpansion: (row && row.hintExpansion) || norm.hintExpansion,
+      };
+    }
+
+    function isCurriculumDayTextEmpty(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return true;
+      if (raw === '<div class="prose-ai"></div>') return true;
+      return /^<div class="prose-ai">\s*<\/div>$/i.test(raw);
     }
 
     function mergeBlockPlanCurriculum(blockPlan, dataRoot) {
@@ -7374,16 +7443,7 @@
       var rawCurriculum = extractCurriculumFromPlan(plan);
       if (!rawCurriculum.length && Array.isArray(plan.curriculum)) rawCurriculum = plan.curriculum;
       plan.curriculum = rawCurriculum.slice(0, 15).map(function (row, i) {
-        var norm = normalizeCurriculumRow(row, i) || {
-          day: i + 1, topic: 'יום ' + (i + 1), content: '', art: '', hint: '',
-        };
-        return {
-          day: norm.day || (i + 1),
-          topic: norm.topic || ('יום ' + (i + 1)),
-          content: ensureAiHtml(norm.content || ''),
-          art: ensureAiHtml(norm.art || ''),
-          hint: norm.hint || '',
-        };
+        return mapCurriculumRowForDisplay(row, i);
       });
       return plan;
     }
@@ -8288,9 +8348,9 @@
       if (blocks.length) {
         html += '<p class="mt-2"><strong>' + escapeHtml(t('typical_blocks')) + ':</strong> ' + blocks.map(escapeHtml).join(' · ') + '</p>';
       }
-      const sources = (gi.sources || []).map(stripUrlsFromText).filter(Boolean);
+      const sources = (gi.sources || []).filter(Boolean);
       if (sources.length) {
-        html += '<p class="mt-3 text-walnut/60"><strong>' + escapeHtml(t('sources_label')) + ':</strong> ' + sources.map(escapeHtml).join(' · ') + '</p>';
+        html += renderGradeInsightsSourcesSection(sources);
       }
       html += renderGradeInsightsChatEnrichments([]);
       if (!html.trim()) {
@@ -13088,9 +13148,100 @@
       return /^https?:\/\//i.test(u) ? u : '';
     }
 
+    function isDeadSourceLinkLabel(text) {
+      var cleaned = String(text || '').trim();
+      return !cleaned || /^https?$/i.test(cleaned) || /^www\.?$/i.test(cleaned);
+    }
+
+    function cleanSourceLabelText(text) {
+      return String(text || '')
+        .replace(/\[?\s*HTTPS\s*\]?\s*\([^)]*\)/gi, '')
+        .replace(/\(\s*\)/g, '')
+        .replace(/\bhttps?:\/\/\S+/gi, '')
+        .replace(/\bwww\.\S+/gi, '')
+        .replace(/\bHTTPS\b/gi, '')
+        .replace(/\s*[—–\-:|]\s*$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    var KNOWN_OFFICIAL_SOURCE_URLS = [
+      { test: /משרד\s*החינוך|משרד\s*חינוך|education\.gov\.il/i, url: 'https://www.education.gov.il/' },
+      { test: /\bmatific\b/i, url: 'https://www.matific.com/il/' },
+      { test: /waldorf\s*library|waldorflibrary|ספריית\s*הוולדורף|מכון\s*המחקר\s*הוולדורפי/i, url: 'https://www.waldorflibrary.org/' },
+      { test: /\bawsna\b|waldorf\s*education\.org/i, url: 'https://waldorfeducation.org/' },
+      { test: /steiner\s*archive|rsarchive|רודולף\s*שטיינר/i, url: 'https://rsarchive.org/' },
+      { test: /educationpace|אלון\s*ירושלמי|מסעות\s*בחינוך/i, url: 'https://educationpace.com/' },
+      { test: /מופ"ת|מופ״ת|\bmofet\b/i, url: 'https://www.mofet.macam.ac.il/' },
+      { test: /\biaswece\b/i, url: 'https://www.iaswece.org/' },
+      { test: /khan\s*academy|קהאן/i, url: 'https://he.khanacademy.org/' },
+    ];
+
+    function resolveOfficialSourceUrl(label) {
+      var text = cleanSourceLabelText(label);
+      if (!text) return '';
+      for (var i = 0; i < KNOWN_OFFICIAL_SOURCE_URLS.length; i++) {
+        if (KNOWN_OFFICIAL_SOURCE_URLS[i].test.test(text)) return KNOWN_OFFICIAL_SOURCE_URLS[i].url;
+      }
+      return '';
+    }
+
+    function buildSourceSearchUrl(label) {
+      var q = cleanSourceLabelText(label);
+      if (!q) return '';
+      return 'https://www.google.com/search?q=' + encodeURIComponent(q);
+    }
+
+    function parseSourceEntry(source) {
+      if (!source) return null;
+      if (typeof source === 'object') {
+        var objUrl = sanitizeMarkdownLinkUrl(source.url || source.link || source.href || source.readUrl || '');
+        var objLabel = cleanSourceLabelText(
+          source.title || source.name || source.label || buildBibliographyLabel(source) || ''
+        );
+        return { label: objLabel, url: objUrl };
+      }
+      var text = String(source).trim();
+      if (!text) return null;
+      var md = text.match(/\[([^\]]*)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/i);
+      if (md) {
+        var mdUrl = sanitizeMarkdownLinkUrl(md[2]);
+        var mdLabel = cleanSourceLabelText(text.replace(md[0], '').trim() || md[1]);
+        return { label: mdLabel, url: mdUrl };
+      }
+      var titleUrl = text.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+      if (titleUrl) {
+        return { label: cleanSourceLabelText(titleUrl[1]), url: sanitizeMarkdownLinkUrl(titleUrl[2]) };
+      }
+      if (/^https?:\/\/\S+$/i.test(text)) {
+        return { label: '', url: sanitizeMarkdownLinkUrl(text) };
+      }
+      var embedded = text.match(/(https?:\/\/\S+)/i);
+      if (embedded) {
+        return {
+          label: cleanSourceLabelText(text.replace(embedded[1], '')),
+          url: sanitizeMarkdownLinkUrl(embedded[1]),
+        };
+      }
+      return { label: cleanSourceLabelText(text), url: '' };
+    }
+
+    function getSourceLinkDisplayLabel(label, url) {
+      var clean = cleanSourceLabelText(label);
+      if (clean && !isDeadSourceLinkLabel(clean)) return clean;
+      if (url) {
+        try {
+          var host = new URL(url).hostname.replace(/^www\./i, '');
+          if (host && !/google\.com$/i.test(host)) return host;
+        } catch (e) { /* ignore */ }
+      }
+      return t('source_link_label');
+    }
+
     function humanizeSourceLinkLabel(label, url) {
       var text = decodeUriComponentSafe(String(label || '').trim());
       if (!text) text = decodeUriComponentSafe(String(url || '').trim());
+      if (isDeadSourceLinkLabel(text)) return getSourceLinkDisplayLabel('', url);
       if (!/^https?:\/\//i.test(text)) return text;
       try {
         var parsed = new URL(text);
@@ -13101,7 +13252,7 @@
         }
         return parsed.hostname.replace(/^www\./i, '');
       } catch (e) {
-        return text;
+        return getSourceLinkDisplayLabel('', url);
       }
     }
 
@@ -13109,8 +13260,28 @@
       var href = sanitizeMarkdownLinkUrl(url);
       if (!href) return escapeHtml(humanizeSourceLinkLabel(label, url));
       var display = humanizeSourceLinkLabel(label, href);
+      if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
         escapeHtml(display) + '</a>';
+    }
+
+    function renderGradeInsightsSourceItem(source) {
+      var parsed = parseSourceEntry(source);
+      if (!parsed || (!parsed.label && !parsed.url)) return '';
+      var url = parsed.url || resolveOfficialSourceUrl(parsed.label);
+      if (!url && parsed.label) url = buildSourceSearchUrl(parsed.label);
+      if (!url) return escapeHtml(parsed.label);
+      return buildProseSourceLinkHtml(url, getSourceLinkDisplayLabel(parsed.label, url));
+    }
+
+    function renderGradeInsightsSourcesSection(sources) {
+      var items = (sources || []).map(renderGradeInsightsSourceItem).filter(Boolean);
+      if (!items.length) return '';
+      return '<div class="grade-insights-sources mt-3 text-walnut/80">' +
+        '<p class="mb-1"><strong>' + escapeHtml(t('sources_label')) + ':</strong></p>' +
+        '<ul class="list-disc mr-5 space-y-1 i18n-list">' +
+        items.map(function (item) { return '<li>' + item + '</li>'; }).join('') +
+        '</ul></div>';
     }
 
     function collectMarkdownLinkUrls(text) {
@@ -13193,7 +13364,13 @@
             html.push('<ol class="list-decimal mr-5 space-y-1 i18n-list">');
             inOl = true;
           }
-          html.push('<li>' + renderMarkdownInline(olMatch[1]) + '</li>');
+          var olBody = olMatch[1];
+          var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+          if (olTitleUrl) {
+            html.push('<li>' + buildProseSourceLinkHtml(olTitleUrl[2], olTitleUrl[1]) + '</li>');
+          } else {
+            html.push('<li>' + renderMarkdownInline(olBody) + '</li>');
+          }
           return;
         }
         var ulMatch = trimmed.match(/^[-*•]\s+(.+)$/);
@@ -13203,7 +13380,13 @@
             html.push('<ul class="list-disc mr-5 space-y-1 i18n-list">');
             inUl = true;
           }
-          html.push('<li>' + renderMarkdownInline(ulMatch[1]) + '</li>');
+          var ulBody = ulMatch[1];
+          var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+          if (ulTitleUrl) {
+            html.push('<li>' + buildProseSourceLinkHtml(ulTitleUrl[2], ulTitleUrl[1]) + '</li>');
+          } else {
+            html.push('<li>' + renderMarkdownInline(ulBody) + '</li>');
+          }
           return;
         }
         closeLists();
@@ -15682,10 +15865,14 @@
     }
 
     function renderCurriculumDayText(text, topic) {
-      if (!text || !String(text).trim()) {
+      if (isCurriculumDayTextEmpty(text)) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
       }
-      var cleaned = sanitizeCurriculumDayNarrative(text);
+      var raw = String(text).trim();
+      if (looksLikeAiHtml(raw) || raw.indexOf('prose-ai') >= 0) {
+        return '<div class="curriculum-day-cell">' + ensureAiHtml(raw) + '</div>';
+      }
+      var cleaned = sanitizeCurriculumDayNarrative(raw);
       if (topic) cleaned = stripDuplicateTopicFromDayNarrative(cleaned, topic);
       if (!cleaned) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
@@ -15895,24 +16082,15 @@
       const safePlan = plan.map(function (row, i) {
         if (!row || typeof row !== 'object') {
           var asText = String(row || rawFallback || '').trim();
-          return {
+          return mapCurriculumRowForDisplay({
             day: i + 1,
             topic: t('curriculum_day_short', { day: i + 1 }),
             content: asText,
             art: '',
             hint: '',
-          };
+          }, i);
         }
-        return {
-          day: row.day || (i + 1),
-          topic: String(row.topic || row.title || t('curriculum_day_short', { day: row.day || (i + 1) })).trim(),
-          content: String(row.content || row.text || row.body || '').trim(),
-          art: String(row.art || row.artActivity || '').trim(),
-          hint: String(row.hint || row.journey || '').trim(),
-          contentExpansion: row.contentExpansion,
-          artExpansion: row.artExpansion,
-          hintExpansion: row.hintExpansion,
-        };
+        return mapCurriculumRowForDisplay(row, i);
       });
 
       const cardsHtml = cardsEl ? safePlan.map(function (row, i) {

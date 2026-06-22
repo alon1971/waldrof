@@ -148,6 +148,7 @@ const LANGUAGES = {
     dev_focus:                   'מוקד התפתחותי',
     global_curricula:            'תוכניות לימודים עולמיות',
     sources_label:               'מקורות',
+    source_link_label:           'קישור למקור',
     typical_blocks:              'אפוקות טיפוסיות',
 
     no_teacher_folders:          'לא נמצאו תיקיות מורה',
@@ -778,6 +779,7 @@ const LANGUAGES = {
     dev_focus:                   'Developmental Focus',
     global_curricula:            'Global Curricula',
     sources_label:               'Sources',
+    source_link_label:           'Source link',
     typical_blocks:              'Typical Main Lesson Blocks',
 
     no_teacher_folders:          'No teacher folders found',
