@@ -4317,7 +4317,7 @@
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
-  <script src="archive-coerce.js?v=20250622a"></script>
+  <script src="archive-coerce.js?v=20250622b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -6644,15 +6644,22 @@
     }
 
     function splitCurriculumDayNarrativeFields(content, art) {
+      console.log('RAW TEXT TO SPLIT:', content);
       if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields) {
-        return WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields(content, art);
+        var delegated = WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields(content, art);
+        console.log('SPLIT RESULT - Content:', delegated.content, 'Art:', delegated.art);
+        return delegated;
       }
       var contentStr = String(content || '').trim();
       var artStr = String(art || '').trim();
       if (artStr || !contentStr) {
-        return { content: contentStr, art: artStr };
+        var passthrough = { content: contentStr, art: artStr };
+        console.log('SPLIT RESULT - Content:', passthrough.content, 'Art:', passthrough.art);
+        return passthrough;
       }
-      return { content: contentStr, art: '' };
+      var fallback = { content: contentStr, art: '' };
+      console.log('SPLIT RESULT - Content:', fallback.content, 'Art:', fallback.art);
+      return fallback;
     }
 
     function normalizeCurriculumRow(row, index) {

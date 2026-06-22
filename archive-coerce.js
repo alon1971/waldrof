@@ -196,34 +196,140 @@
 
   var CURRICULUM_ART_HEADER_RE = /(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:אמנות\s*ומעשה|אמנות(?:\s*ו?(?:מעשה|יוצרה))?|Art(?:\s*(?:&|and)\s*Craft)?|Handwork)\s*(?:\*{0,2})?\s*:?\s*/i;
   var CURRICULUM_CONTENT_HEADER_RE = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:תוכן\s*וסיפור|תוכן(?:\s*וסיפור)?|Content(?:\s*&\s*Story)?)\s*(?:\*{0,2})?\s*:?\s*\n?/i;
+  var CURRICULUM_ART_KEYWORD_RE = /(?:אמנות\s*(?:ו\s*מעשה|ומעשה|ו?\s*יוצרה)?|יצירה|ציור|פעילות(?:\s*יוצרת)?|מלאכת\s*יד|handwork|art\s*(?:&|and)\s*craft)/i;
+  var CURRICULUM_ART_KEYWORD_LINE_RE = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{0,2}\s*)?(?:אמנות\s*(?:ו\s*מעשה|ומעשה|ו?\s*יוצרה)?|יצירה|ציור|פעילות(?:\s*יוצרת)?|מלאכת\s*יד)\s*(?:\*{0,2})?\s*:?\s*/i;
+  var CURRICULUM_PLACEHOLDER_ART_RE = /^[-–—_.\s]+$/;
 
-  function splitCurriculumDayNarrativeFields(content, art) {
-    var artStr = String(art || '').trim();
-    if (artStr) {
-      return { content: String(content || '').trim(), art: artStr };
-    }
-    var contentStr = String(content || '').trim();
-    if (!contentStr) return { content: '', art: '' };
+  function isCurriculumArtPlaceholder(text) {
+    var s = String(text || '').trim();
+    return !s || CURRICULUM_PLACEHOLDER_ART_RE.test(s);
+  }
 
-    var plain = curriculumPlainForSplit(contentStr);
-    if (!plain) return { content: contentStr, art: '' };
+  function findCurriculumArtSplitPoint(plain) {
+    if (!plain) return null;
 
     var artReLine = new RegExp('(?:^|\\n)\\s*' + CURRICULUM_ART_HEADER_RE.source, 'i');
     var match = artReLine.exec(plain);
-    if (!match) {
-      var artReInline = new RegExp('\\s+' + CURRICULUM_ART_HEADER_RE.source, 'i');
-      match = artReInline.exec(plain);
+    if (match) return { index: match.index, length: match[0].length, kind: 'art-header-line' };
+
+    var artReInline = new RegExp('(?:\\n\\n+|\\s{2,}|[.!?׃]\\s+)' + CURRICULUM_ART_HEADER_RE.source, 'i');
+    match = artReInline.exec(plain);
+    if (match) return { index: match.index, length: match[0].length, kind: 'art-header-inline' };
+
+    match = CURRICULUM_ART_KEYWORD_LINE_RE.exec(plain);
+    if (match && match.index > 15) {
+      return { index: match.index, length: match[0].length, kind: 'keyword-line' };
     }
-    if (!match) return { content: contentStr, art: '' };
 
-    var before = plain.slice(0, match.index).trim();
-    var after = plain.slice(match.index + match[0].length).trim();
-    before = before.replace(CURRICULUM_CONTENT_HEADER_RE, '').trim();
+    var dblNl = /\n\n+/g;
+    var dm;
+    while ((dm = dblNl.exec(plain)) !== null) {
+      var afterIdx = dm.index + dm[0].length;
+      var afterText = plain.slice(afterIdx).trim();
+      if (afterText.length >= 30 && (CURRICULUM_ART_KEYWORD_RE.test(afterText) || afterIdx > plain.length * 0.35)) {
+        return { index: dm.index, length: dm[0].length, kind: 'double-newline' };
+      }
+    }
 
+    var kwAnyRe = /(?:אמנות\s*(?:ומעשה|ו\s*מעשה)?|יצירה|ציור|פעילות)/gi;
+    var lastKw = null;
+    while ((dm = kwAnyRe.exec(plain)) !== null) {
+      if (dm.index >= Math.max(30, Math.floor(plain.length * 0.25))) lastKw = dm;
+    }
+    if (lastKw) {
+      return { index: lastKw.index, length: 0, kind: 'keyword-inline' };
+    }
+
+    return null;
+  }
+
+  function backupSplitCurriculumNarrative(plain) {
+    if (!plain || plain.length < 60) {
+      return { content: plain || '', art: '' };
+    }
+
+    var parts = plain.split(/\n\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (parts.length >= 2) {
+      var artPart = parts[parts.length - 1];
+      var contentPart = parts.slice(0, -1).join('\n\n');
+      if (artPart.length >= 25 && contentPart.length >= 25) {
+        return { content: contentPart, art: artPart };
+      }
+    }
+
+    var sentences = plain.match(/[^.!?׃]+[.!?׃]+|[^.!?׃]+$/g) || [plain];
+    if (sentences.length >= 3) {
+      var artCount = Math.max(1, Math.ceil(sentences.length * 0.4));
+      if (artCount >= sentences.length) artCount = Math.max(1, Math.floor(sentences.length / 2));
+      return {
+        content: sentences.slice(0, sentences.length - artCount).join('').trim(),
+        art: sentences.slice(sentences.length - artCount).join('').trim(),
+      };
+    }
+
+    var mid = Math.floor(plain.length / 2);
+    var splitAt = plain.lastIndexOf(' ', mid + 40);
+    if (splitAt < mid - 40 || splitAt <= 0) splitAt = plain.indexOf(' ', mid);
+    if (splitAt <= 0) splitAt = mid;
     return {
-      content: before || plain,
-      art: after,
+      content: plain.slice(0, splitAt).trim(),
+      art: plain.slice(splitAt).trim(),
     };
+  }
+
+  function splitCurriculumDayNarrativeFields(content, art) {
+    var contentStr = String(content || '').trim();
+    var artStr = String(art || '').trim();
+    if (isCurriculumArtPlaceholder(artStr)) artStr = '';
+
+    console.log('RAW TEXT TO SPLIT:', contentStr);
+
+    if (artStr) {
+      var preset = { content: contentStr, art: artStr };
+      console.log('SPLIT RESULT - Content:', preset.content, 'Art:', preset.art);
+      return preset;
+    }
+    if (!contentStr) {
+      var empty = { content: '', art: '' };
+      console.log('SPLIT RESULT - Content:', empty.content, 'Art:', empty.art);
+      return empty;
+    }
+
+    var plain = curriculumPlainForSplit(contentStr);
+    if (!plain) {
+      var rawOnly = { content: contentStr, art: '' };
+      console.log('SPLIT RESULT - Content:', rawOnly.content, 'Art:', rawOnly.art);
+      return rawOnly;
+    }
+
+    var splitPoint = findCurriculumArtSplitPoint(plain);
+    var resultContent = plain;
+    var resultArt = '';
+
+    if (splitPoint) {
+      var before = plain.slice(0, splitPoint.index).trim();
+      var after = plain.slice(splitPoint.index + splitPoint.length).trim();
+      before = before.replace(CURRICULUM_CONTENT_HEADER_RE, '').trim();
+      if (after) {
+        resultContent = before || plain;
+        resultArt = after;
+      }
+    }
+
+    if (!resultArt && plain.length >= 60) {
+      var backup = backupSplitCurriculumNarrative(plain);
+      if (backup.art) {
+        resultContent = backup.content;
+        resultArt = backup.art;
+      }
+    }
+
+    var finalResult = {
+      content: resultContent || contentStr,
+      art: resultArt,
+    };
+    console.log('SPLIT RESULT - Content:', finalResult.content, 'Art:', finalResult.art);
+    return finalResult;
   }
 
   function splitCurriculumChunks(raw, markers) {
