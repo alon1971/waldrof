@@ -458,6 +458,11 @@ async function fetchGeminiEnrichmentLinks(body) {
   return geminiEnrichment.fetchGeminiEnrichmentLinks(body);
 }
 
+/** @deprecated Use fetchGeminiEnrichmentLinks */
+async function fetchRealtimeEnrichmentLinks(body) {
+  return fetchGeminiEnrichmentLinks(body);
+}
+
 function normalizeEnrichmentPinterestLink(item, body, geminiOnly) {
   if (!item || typeof item !== 'object') return null;
   const topic = String((body && body.topic) || '').trim();
