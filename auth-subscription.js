@@ -1761,7 +1761,8 @@
   function bindContactOwnerLinks() {
     var emailLink = document.getElementById('contact-owner-email-link');
     if (emailLink) {
-      emailLink.href = 'mailto:waldrofplanner@gmail.com';
+      emailLink.href = 'mailto:' + CONTACT_EMAIL;
+      emailLink.textContent = CONTACT_EMAIL;
       emailLink.addEventListener('click', function (e) {
         e.stopPropagation();
       });

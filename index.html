@@ -1869,23 +1869,47 @@
       box-shadow: none;
     }
     .contact-owner-details {
-      margin-top: 12px;
-      padding: 8px;
+      margin-top: 16px;
+      padding: 14px 12px;
       border-top: 1px dashed #ddd;
-      font-size: 12px;
-      color: #444;
-      background: #fdfdfd;
-      border-radius: 6px;
-      line-height: 1.4;
+      text-align: center;
+      background: #f8faf8;
+      border-radius: 8px;
+      line-height: 1.55;
     }
-    .contact-owner-details a {
-      color: #4b6651;
+    .contact-owner-details__heading {
+      margin: 0 0 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #333;
+    }
+    .contact-owner-details__name,
+    .contact-owner-details__line {
+      margin: 0 0 8px;
+      font-size: 1.125rem;
+      font-weight: 500;
+      color: #333;
+    }
+    .contact-owner-details__line:last-child { margin-bottom: 0; }
+    .contact-owner-details__link {
+      color: #607d64;
+      font-weight: 600;
       text-decoration: underline;
+      text-underline-offset: 2px;
       pointer-events: auto;
       position: relative;
       z-index: 2;
+      transition: color 0.15s ease;
     }
-    .contact-owner-details a:hover { color: #3d5341; }
+    .contact-owner-details__link:hover {
+      color: #4f6a53;
+      text-decoration-thickness: 2px;
+    }
+    .contact-owner-details__link:focus-visible {
+      outline: 2px solid rgba(96, 125, 100, 0.45);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
     .pricing-header { text-align: center; margin-bottom: 1.5rem; }
     .pricing-header h2 { font-family: 'Frank Ruhl Libre', serif; font-size: 1.5rem; color: #8B3A3A; margin: 0; }
     .pricing-header p { color: rgba(92, 74, 58, 0.7); margin-top: 0.35rem; font-size: 0.9rem; }
@@ -3590,10 +3614,14 @@
         <button type="submit" id="contact-form-submit" class="contact-form-submit" data-i18n="contact_submit">שלחה</button>
       </form>
       <div class="contact-owner-details" aria-label="פרטי מנהל המערכת">
-        <strong data-i18n="contact_owner_heading">פרטי מנהל המערכת:</strong><br>
-        אלון ירושלמי (Alon Yerushalmy)<br>
-        מייל: <a id="contact-owner-email-link" href="mailto:waldrofplanner@gmail.com">waldrofplanner@gmail.com</a><br>
-        טלפון: <a id="contact-owner-phone-link" href="tel:0544548078">054-4548078</a>
+        <p class="contact-owner-details__heading"><strong data-i18n="contact_owner_heading">פרטי מנהל המערכת:</strong></p>
+        <p class="contact-owner-details__name">אלון ירושלמי (Alon Yerushalmy)</p>
+        <p class="contact-owner-details__line">
+          מייל: <a class="contact-owner-details__link" id="contact-owner-email-link" href="mailto:waldrofplanner@gmail.com">waldrofplanner@gmail.com</a>
+        </p>
+        <p class="contact-owner-details__line">
+          טלפון: <a class="contact-owner-details__link" id="contact-owner-phone-link" href="tel:0544548078">054-4548078</a>
+        </p>
       </div>
     </div>
   </div>
