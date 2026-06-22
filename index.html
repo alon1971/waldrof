@@ -707,7 +707,6 @@
     }
     .lesson-chat-bubble-body--pre { white-space: pre-line; }
     .day-row:hover { background: rgba(122,155,118,.08); }
-    .day-row.day-row--expandable { cursor: pointer; }
     #daily-planning-content {
       width: 100%;
       max-width: 100%;
@@ -717,36 +716,46 @@
       -webkit-overflow-scrolling: touch;
     }
     #daily-planning-content table.curriculum-period-table {
+      display: table;
       table-layout: fixed;
       width: 100%;
+      min-width: 48rem;
       border-collapse: collapse;
     }
-    #daily-planning-content col.curriculum-col-day { width: 6%; }
-    #daily-planning-content col.curriculum-col-topic { width: 16%; }
-    #daily-planning-content col.curriculum-col-content { width: 39%; }
-    #daily-planning-content col.curriculum-col-art { width: 39%; }
-    #daily-planning-content .day-row td.curriculum-col-day,
-    #daily-planning-content thead th.curriculum-col-day {
+    #daily-planning-content table.curriculum-period-table thead {
+      display: table-header-group;
+    }
+    #daily-planning-content table.curriculum-period-table tbody {
+      display: table-row-group;
+    }
+    #daily-planning-content table.curriculum-period-table tr.day-row,
+    #daily-planning-content table.curriculum-period-table tr.day-detail {
+      display: table-row;
+    }
+    #daily-planning-content table.curriculum-period-table th,
+    #daily-planning-content table.curriculum-period-table td {
+      display: table-cell;
+      vertical-align: top;
+    }
+    #daily-planning-content table.curriculum-period-table th:first-child,
+    #daily-planning-content table.curriculum-period-table tr.day-row td:first-child {
       white-space: nowrap;
       overflow-wrap: normal;
       word-break: normal;
-      vertical-align: top;
     }
-    #daily-planning-content .day-row td.curriculum-col-topic,
-    #daily-planning-content thead th.curriculum-col-topic {
+    #daily-planning-content table.curriculum-period-table th:nth-child(2),
+    #daily-planning-content table.curriculum-period-table tr.day-row td:nth-child(2) {
       overflow-wrap: normal;
       word-break: normal;
-      vertical-align: top;
       line-height: 1.45;
       min-width: 7.5rem;
     }
-    #daily-planning-content .day-row td.curriculum-col-content,
-    #daily-planning-content .day-row td.curriculum-col-art,
-    #daily-planning-content thead th.curriculum-col-content,
-    #daily-planning-content thead th.curriculum-col-art {
+    #daily-planning-content table.curriculum-period-table th:nth-child(3),
+    #daily-planning-content table.curriculum-period-table th:nth-child(4),
+    #daily-planning-content table.curriculum-period-table tr.day-row td:nth-child(3),
+    #daily-planning-content table.curriculum-period-table tr.day-row td:nth-child(4) {
       overflow-wrap: break-word;
       word-break: break-word;
-      vertical-align: top;
     }
     .curriculum-day-cell {
       width: 100%;
@@ -4093,18 +4102,12 @@
           <div id="curriculum-cards" class="md:hidden space-y-3 pb-4" data-i18n-aria="curriculum_cards_aria"></div>
           <div class="hidden md:block curriculum-table-wrap rounded-2xl border border-gold/30 bg-white/80 shadow-sm">
             <table class="w-full text-sm curriculum-period-table">
-              <colgroup>
-                <col class="curriculum-col-day">
-                <col class="curriculum-col-topic">
-                <col class="curriculum-col-content">
-                <col class="curriculum-col-art">
-              </colgroup>
               <thead>
                 <tr class="bg-sage/15 border-b border-gold/30">
-                  <th class="curriculum-col-day px-3 py-3 text-dir-start font-semibold" data-i18n="col_day">יום</th>
-                  <th class="curriculum-col-topic px-3 py-3 text-dir-start font-semibold" data-i18n="col_topic">נושא</th>
-                  <th class="curriculum-col-content px-3 py-3 text-dir-start font-semibold" data-i18n="col_content">תוכן וסיפור</th>
-                  <th class="curriculum-col-art px-3 py-3 text-dir-start font-semibold" data-i18n="col_art">אמנות ומעשה</th>
+                  <th class="px-3 py-3 text-dir-start font-semibold w-14" data-i18n="col_day">יום</th>
+                  <th class="px-3 py-3 text-dir-start font-semibold w-[16%]" data-i18n="col_topic">נושא</th>
+                  <th class="px-3 py-3 text-dir-start font-semibold w-[42%]" data-i18n="col_content">תוכן וסיפור</th>
+                  <th class="px-3 py-3 text-dir-start font-semibold w-[42%]" data-i18n="col_art">אמנות ומעשה</th>
                 </tr>
               </thead>
               <tbody id="curriculum-body"></tbody>
@@ -15936,10 +15939,10 @@
       }
       const tableHtml = tbody ? safePlan.map(function (row, i) {
         return '<tr class="day-row border-b border-gold/15" data-i="' + i + '">' +
-          '<td class="curriculum-col-day px-3 py-3 text-dir-start font-bold text-burgundy align-top">' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</td>' +
-          '<td class="curriculum-col-topic px-3 py-3 text-dir-start font-medium align-top leading-snug">' + escapeHtml(row.topic) + '</td>' +
-          '<td class="curriculum-col-content px-3 py-3 text-dir-start align-top">' + renderCurriculumDayText(row.content, row.topic) + '</td>' +
-          '<td class="curriculum-col-art px-3 py-3 text-dir-start align-top">' + renderCurriculumDayText(row.art) + '</td></tr>' +
+          '<td class="px-3 py-3 text-dir-start font-bold text-burgundy align-top w-14">' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</td>' +
+          '<td class="px-3 py-3 text-dir-start font-medium align-top min-w-0 leading-snug">' + escapeHtml(row.topic) + '</td>' +
+          '<td class="px-3 py-3 text-dir-start align-top min-w-0">' + renderCurriculumDayText(row.content, row.topic) + '</td>' +
+          '<td class="px-3 py-3 text-dir-start align-top min-w-0">' + renderCurriculumDayText(row.art) + '</td></tr>' +
           '<tr class="day-detail bg-sage/5" data-d="' + i + '"><td colspan="4" class="px-4 py-3 text-dir-start curriculum-day-enrich-cell">' +
           '<div class="curriculum-day-footer">' +
           '<div class="curriculum-day-hint">' + curriculumHintHtml(row) + '</div>' +
