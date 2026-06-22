@@ -4325,7 +4325,7 @@
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
-  <script src="archive-coerce.js?v=20250622b"></script>
+  <script src="archive-coerce.js?v=20250622c"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -5815,11 +5815,16 @@
 
       function attachArchiveCurriculumToPlan(plan) {
         if (!plan || !curriculumRows.length) return plan;
-        var finalized = normalizeCurriculumPlanRows(curriculumRows);
-        if (!finalized.length) finalized = padCurriculumRowsToFifteen(curriculumRows);
-        else if (finalized.length < 15) finalized = padCurriculumRowsToFifteen(finalized);
-        plan.curriculum = finalized;
-        plan.days = finalized.slice();
+        plan.curriculum = curriculumRows.slice(0, 15).map(function (row, i) {
+          return normalizeCurriculumRow(row, i) || {
+            day: i + 1,
+            topic: t('curriculum_day_short', { day: i + 1 }),
+            content: '',
+            art: '',
+            hint: '',
+          };
+        });
+        plan.days = plan.curriculum.slice();
         return plan;
       }
 
@@ -6659,22 +6664,10 @@
     }
 
     function splitCurriculumDayNarrativeFields(content, art) {
-      console.log('RAW TEXT TO SPLIT:', content);
-      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields) {
-        var delegated = WaldorfArchiveCoerce.splitCurriculumDayNarrativeFields(content, art);
-        console.log('SPLIT RESULT - Content:', delegated.content, 'Art:', delegated.art);
-        return delegated;
-      }
-      var contentStr = String(content || '').trim();
-      var artStr = String(art || '').trim();
-      if (artStr || !contentStr) {
-        var passthrough = { content: contentStr, art: artStr };
-        console.log('SPLIT RESULT - Content:', passthrough.content, 'Art:', passthrough.art);
-        return passthrough;
-      }
-      var fallback = { content: contentStr, art: '' };
-      console.log('SPLIT RESULT - Content:', fallback.content, 'Art:', fallback.art);
-      return fallback;
+      return {
+        content: String(content || '').trim(),
+        art: String(art || '').trim(),
+      };
     }
 
     function normalizeCurriculumRow(row, index) {
@@ -6695,25 +6688,6 @@
         row['תוכן וסיפור'] || row.tochen || row.mainLesson || '';
       var art = row.art || row.artActivity || row.craft || row.artAndCraft ||
         row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || '';
-      var contentPlain = curriculumFieldPlainText(content);
-      var artPlain = curriculumFieldPlainText(art);
-      if (artPlain && artPlain.length >= 25 && contentPlain && contentPlain.indexOf(artPlain) < 0) {
-        var hintOnly = row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '';
-        if (!topic && !contentPlain && !artPlain && !hintOnly) return null;
-        return {
-          day: day,
-          topic: topic || ('יום ' + day),
-          content: contentPlain,
-          art: artPlain,
-          hint: hintOnly,
-          contentExpansion: row.contentExpansion,
-          artExpansion: row.artExpansion,
-          hintExpansion: row.hintExpansion,
-        };
-      }
-      var split = splitCurriculumDayNarrativeFields(contentPlain, artPlain);
-      content = split.content;
-      art = split.art;
       var hint = row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '';
       if (!topic && !content && !art && !hint) return null;
       return {
@@ -7072,10 +7046,6 @@
       for (var i = 0; i < rows.length && out.length < 15; i++) {
         var norm = normalizeCurriculumRow(rows[i], out.length);
         if (!norm) continue;
-        var hasBody = String(norm.content || '').trim().length > 10 ||
-          String(norm.art || '').trim().length > 5 ||
-          String(norm.topic || '').trim().length > 3;
-        if (!hasBody) continue;
         norm.day = out.length + 1;
         out.push({
           day: norm.day,
@@ -7236,32 +7206,7 @@
     }
 
     function hydrateCurriculumFromUnifiedSynthesis(options) {
-      if (!appState.aiGeneratedPlan) return false;
-      var existing = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
-      if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.curriculum);
-      if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.days);
-
-      var normalized = [];
-      if (hasMeaningfulCurriculumRows(existing)) {
-        normalized = normalizeCurriculumPlanRows(existing);
-      }
-      if (!normalized.length || normalized.length < 15) {
-        var synthesized = buildUnifiedCurriculumSynthesis(options);
-        if (hasMeaningfulCurriculumRows(synthesized)) {
-          normalized = synthesized;
-        } else if (!normalized.length && existing.length) {
-          normalized = padCurriculumRowsToFifteen(existing);
-        }
-      }
-      if (normalized.length && normalized.length < 15) {
-        normalized = padCurriculumRowsToFifteen(normalized);
-      }
-      if (!normalized.length) return false;
-
-      appState.aiGeneratedPlan.curriculum = normalized;
-      appState.aiGeneratedPlan.days = normalized.slice();
-      syncActivePlanFromGenerated();
-      return true;
+      return false;
     }
 
     function syncActivePlanFromGenerated() {
@@ -7295,7 +7240,6 @@
     }
 
     function renderCurriculumTabPanels() {
-      hydrateUnifiedLessonSynthesis();
       renderTeacherDriveMergeSlots();
       renderCurriculum();
       setupThemeActionButtons();
@@ -7317,7 +7261,7 @@
         }
         if (!rows.length) rows = extractCurriculumFromPlan(data.blockPlan, data);
         if (!rows.length && rawFallback) rows = parseCurriculumFromText(rawFallback);
-        rows = rows.map(function (row, i) {
+        data.blockPlan.curriculum = rows.map(function (row, i) {
           return normalizeCurriculumRow(row, i) || {
             day: i + 1,
             topic: t('curriculum_day_short', { day: i + 1 }),
@@ -7326,10 +7270,6 @@
             hint: '',
           };
         }).filter(Boolean).slice(0, 15);
-        var finalized = normalizeCurriculumPlanRows(rows);
-        if (!finalized.length) finalized = padCurriculumRowsToFifteen(rows);
-        else if (finalized.length < 15) finalized = padCurriculumRowsToFifteen(finalized);
-        data.blockPlan.curriculum = finalized;
       }
       return data;
     }
@@ -7477,13 +7417,21 @@
       });
       var rawCurriculum = extractCurriculumFromPlan(plan);
       if (!rawCurriculum.length && Array.isArray(plan.curriculum)) rawCurriculum = plan.curriculum;
-      var normalizedCurriculum = normalizeCurriculumPlanRows(rawCurriculum);
-      if (!normalizedCurriculum.length) {
-        normalizedCurriculum = padCurriculumRowsToFifteen(rawCurriculum);
-      } else if (normalizedCurriculum.length < 15) {
-        normalizedCurriculum = padCurriculumRowsToFifteen(normalizedCurriculum);
-      }
-      plan.curriculum = normalizedCurriculum;
+      plan.curriculum = rawCurriculum.slice(0, 15).map(function (row, i) {
+        var norm = normalizeCurriculumRow(row, i) || {
+          day: i + 1, topic: t('curriculum_day_short', { day: i + 1 }), content: '', art: '', hint: '',
+        };
+        return {
+          day: norm.day || (i + 1),
+          topic: norm.topic || t('curriculum_day_short', { day: norm.day || (i + 1) }),
+          content: norm.content || '',
+          art: norm.art || '',
+          hint: norm.hint || '',
+          contentExpansion: norm.contentExpansion,
+          artExpansion: norm.artExpansion,
+          hintExpansion: norm.hintExpansion,
+        };
+      });
       return plan;
     }
 
@@ -8700,11 +8648,16 @@
           mergeBlockPlanBibliography({ curriculum: bp.curriculum, theory: appState.aiGeneratedPlan.theory }, data),
           data
         );
-        var finalized = normalizeCurriculumPlanRows(mergedPlan.curriculum || []);
-        if (!finalized.length) finalized = padCurriculumRowsToFifteen(mergedPlan.curriculum || []);
-        else if (finalized.length < 15) finalized = padCurriculumRowsToFifteen(finalized);
-        appState.aiGeneratedPlan.curriculum = finalized;
-        appState.aiGeneratedPlan.days = finalized.slice();
+        appState.aiGeneratedPlan.curriculum = (mergedPlan.curriculum || []).slice(0, 15).map(function (row, i) {
+          return normalizeCurriculumRow(row, i) || {
+            day: i + 1,
+            topic: t('curriculum_day_short', { day: i + 1 }),
+            content: '',
+            art: '',
+            hint: '',
+          };
+        });
+        appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
       }
       appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       return cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
@@ -15630,10 +15583,15 @@
                   parsedArchiveRows = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
                 }
                 if (hasMeaningfulCurriculumRows(parsedArchiveRows)) {
-                  var archiveCurr = normalizeCurriculumPlanRows(parsedArchiveRows);
-                  appState.aiGeneratedPlan.curriculum = archiveCurr.length < 15
-                    ? padCurriculumRowsToFifteen(archiveCurr.length ? archiveCurr : parsedArchiveRows)
-                    : archiveCurr;
+                  appState.aiGeneratedPlan.curriculum = parsedArchiveRows.slice(0, 15).map(function (row, i) {
+                    return normalizeCurriculumRow(row, i) || {
+                      day: i + 1,
+                      topic: t('curriculum_day_short', { day: i + 1 }),
+                      content: '',
+                      art: '',
+                      hint: '',
+                    };
+                  });
                   appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
                   syncActivePlanFromGenerated();
                 }
@@ -16091,25 +16049,17 @@
     }
 
     function renderCurriculumDayText(text, topic, fieldKind) {
-      if (isCurriculumDayTextEmpty(text)) {
-        return '<p class="text-walnut/50 italic text-sm">—</p>';
-      }
-      var raw = curriculumFieldPlainText(text) || String(text || '').trim();
-      if (!raw) {
+      var raw = String(text || '').trim();
+      if (!raw || isCurriculumDayTextEmpty(raw)) {
         return '<p class="text-walnut/50 italic text-sm">—</p>';
       }
       if (fieldKind === 'art') {
         return '<div class="curriculum-day-cell">' + renderCurriculumArtPreview(raw) + '</div>';
       }
-      if (looksLikeAiHtml(String(text || '')) || String(text || '').indexOf('prose-ai') >= 0) {
-        return '<div class="curriculum-day-cell">' + ensureAiHtml(String(text)) + '</div>';
+      if (looksLikeAiHtml(raw) || raw.indexOf('prose-ai') >= 0) {
+        return '<div class="curriculum-day-cell">' + ensureAiHtml(raw) + '</div>';
       }
-      var cleaned = sanitizeCurriculumDayNarrative(raw);
-      if (topic) cleaned = stripDuplicateTopicFromDayNarrative(cleaned, topic);
-      if (!cleaned) {
-        return '<p class="text-walnut/50 italic text-sm">—</p>';
-      }
-      return '<div class="curriculum-day-cell">' + renderAiPreview(cleaned) + '</div>';
+      return '<div class="curriculum-day-cell">' + renderAiPreview(raw) + '</div>';
     }
 
     function buildCurriculumDayEnrichmentItem(row, layout) {
@@ -16261,45 +16211,10 @@
     }
 
     function renderCurriculum() {
-      hydrateCurriculumFromUnifiedSynthesis();
       captureCurriculumUiStateFromDom();
       readCurriculumDayFromUrl();
-      var rawFallback = String(
-        (appState.activePlan && appState.activePlan.rawContent) ||
-        (appState.webResearch && (appState.webResearch.summary || appState.webResearch.rawContent)) ||
-        extractPhaseCRawFallback({ blockPlan: appState.activePlan || appState.aiGeneratedPlan || {} }) ||
-        ''
-      ).trim();
       var plan = (appState.activePlan && appState.activePlan.curriculum) ||
         (appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum) || [];
-
-      if (!plan.length) {
-        var synthesized = buildUnifiedCurriculumSynthesis();
-        if (synthesized.length && appState.aiGeneratedPlan) {
-          plan = padCurriculumRowsToFifteen(synthesized);
-          appState.aiGeneratedPlan.curriculum = plan;
-          appState.aiGeneratedPlan.days = plan.slice();
-          syncActivePlanFromGenerated();
-        }
-      }
-      if (!plan.length && rawFallback) {
-        var parsedFromRaw = parseCurriculumFromText(rawFallback);
-        if (hasMeaningfulCurriculumRows(parsedFromRaw)) {
-          plan = padCurriculumRowsToFifteen(parsedFromRaw);
-          if (appState.aiGeneratedPlan) {
-            appState.aiGeneratedPlan.curriculum = plan;
-            appState.aiGeneratedPlan.days = plan.slice();
-            syncActivePlanFromGenerated();
-          }
-        }
-      } else if (plan.length < 15) {
-        plan = padCurriculumRowsToFifteen(plan);
-        if (appState.aiGeneratedPlan) {
-          appState.aiGeneratedPlan.curriculum = plan;
-          appState.aiGeneratedPlan.days = plan.slice();
-          syncActivePlanFromGenerated();
-        }
-      }
 
       const cardsEl = document.getElementById('curriculum-cards');
       const tbody = document.getElementById('curriculum-body');
@@ -16307,37 +16222,20 @@
       if (!plan.length) {
         var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
           escapeHtml(isEnglish()
-            ? 'Daily lesson breakdown is generated on demand. Ask the pedagogical chat assistant for a 15-day arc, or open this tab after topic research completes.'
-            : 'פירוט יומי נוצר לפי דרישה. בקשו מעוזר הצ׳אט הפדגוגי קשת של 15 ימים, או פתחו לשונית זו לאחר השלמת מחקר הנושא.') +
+            ? 'No daily plan rows were found. Run topic research again — the AI must return blockPlan.curriculum as an array of 15 objects: { day, topic, content, art, hint }.'
+            : 'לא נמצאו שורות בתכנון התקופה. הריצו מחקר נושא מחדש — ה-AI חייב להחזיר blockPlan.curriculum כמערך של 15 אובייקטים: { day, topic, content, art, hint }.') +
           '</p>';
-        if (rawFallback && (cardsEl || tbody)) {
-          var fallbackParsed = parseCurriculumFromText(rawFallback);
-          if (hasMeaningfulCurriculumRows(fallbackParsed)) {
-            plan = padCurriculumRowsToFifteen(fallbackParsed);
-          } else if (cardsEl) {
-            renderStructuredTextFallback(cardsEl, t('curriculum_title'), rawFallback);
-            if (tbody) {
-              holdPageScroll(function () {
-                tbody.innerHTML = '<tr><td colspan="4">' + formatPerplexityRawText(rawFallback) + '</td></tr>';
-              });
-            }
-            setupThemeActionButtons();
-            return;
-          }
-        }
-        if (!plan.length) {
-          holdPageScroll(function () {
-            if (cardsEl) cardsEl.innerHTML = emptyMsg;
-            if (tbody) tbody.innerHTML = '<tr><td colspan="4">' + emptyMsg + '</td></tr>';
-          });
-          setupThemeActionButtons();
-          return;
-        }
+        holdPageScroll(function () {
+          if (cardsEl) cardsEl.innerHTML = emptyMsg;
+          if (tbody) tbody.innerHTML = '<tr><td colspan="4">' + emptyMsg + '</td></tr>';
+        });
+        setupThemeActionButtons();
+        return;
       }
 
       const safePlan = plan.map(function (row, i) {
         if (!row || typeof row !== 'object') {
-          var asText = String(row || rawFallback || '').trim();
+          var asText = String(row || '').trim();
           return mapCurriculumRowForDisplay({
             day: i + 1,
             topic: t('curriculum_day_short', { day: i + 1 }),

@@ -255,101 +255,11 @@
     return null;
   }
 
-  function backupSplitCurriculumNarrative(plain) {
-    if (!plain || plain.length < 60) {
-      return { content: plain || '', art: '' };
-    }
-
-    var parts = plain.split(/\n\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
-    if (parts.length >= 2) {
-      var artPart = parts[parts.length - 1];
-      var contentPart = parts.slice(0, -1).join('\n\n');
-      if (artPart.length >= 25 && contentPart.length >= 25) {
-        return { content: contentPart, art: artPart };
-      }
-    }
-
-    var sentences = plain.match(/[^.!?׃]+[.!?׃]+|[^.!?׃]+$/g) || [plain];
-    if (sentences.length >= 3) {
-      var artCount = Math.max(1, Math.ceil(sentences.length * 0.4));
-      if (artCount >= sentences.length) artCount = Math.max(1, Math.floor(sentences.length / 2));
-      return {
-        content: sentences.slice(0, sentences.length - artCount).join('').trim(),
-        art: sentences.slice(sentences.length - artCount).join('').trim(),
-      };
-    }
-
-    var mid = Math.floor(plain.length / 2);
-    var splitAt = plain.lastIndexOf(' ', mid + 40);
-    if (splitAt < mid - 40 || splitAt <= 0) splitAt = plain.indexOf(' ', mid);
-    if (splitAt <= 0) splitAt = mid;
-    return {
-      content: plain.slice(0, splitAt).trim(),
-      art: plain.slice(splitAt).trim(),
-    };
-  }
-
   function splitCurriculumDayNarrativeFields(content, art) {
-    var contentStr = String(content || '').trim();
-    var artStr = String(art || '').trim();
-    var contentPlain = curriculumPlainForSplit(contentStr);
-    var artPlain = curriculumPlainForSplit(artStr);
-    if (isCurriculumArtPlaceholder(artPlain)) {
-      artStr = '';
-      artPlain = '';
-    } else if (shouldIgnorePresetCurriculumArt(artPlain, contentPlain)) {
-      artStr = '';
-      artPlain = '';
-    }
-
-    console.log('RAW TEXT TO SPLIT:', contentPlain || contentStr);
-
-    if (artStr) {
-      var preset = { content: contentPlain || contentStr, art: artPlain || artStr };
-      console.log('SPLIT RESULT - Content:', preset.content, 'Art:', preset.art);
-      return preset;
-    }
-    if (!contentStr) {
-      var empty = { content: '', art: '' };
-      console.log('SPLIT RESULT - Content:', empty.content, 'Art:', empty.art);
-      return empty;
-    }
-
-    var plain = contentPlain || curriculumPlainForSplit(contentStr);
-    if (!plain) {
-      var rawOnly = { content: contentStr, art: '' };
-      console.log('SPLIT RESULT - Content:', rawOnly.content, 'Art:', rawOnly.art);
-      return rawOnly;
-    }
-
-    var splitPoint = findCurriculumArtSplitPoint(plain);
-    var resultContent = plain;
-    var resultArt = '';
-
-    if (splitPoint) {
-      var before = plain.slice(0, splitPoint.index).trim();
-      var after = plain.slice(splitPoint.index + splitPoint.length).trim();
-      before = before.replace(CURRICULUM_CONTENT_HEADER_RE, '').trim();
-      if (after) {
-        resultContent = before || plain;
-        resultArt = after;
-      }
-    }
-
-    if (!resultArt && plain.length >= 60) {
-      var backup = backupSplitCurriculumNarrative(plain);
-      if (backup.art) {
-        resultContent = backup.content;
-        resultArt = backup.art;
-      }
-    }
-
-    var finalResult = {
-      content: resultContent || plain || contentPlain || contentStr,
-      art: resultArt,
+    return {
+      content: String(content || '').trim(),
+      art: String(art || '').trim(),
     };
-    console.log('SPLIT RESULT - Content:', finalResult.content, 'Art:', finalResult.art);
-    return finalResult;
   }
 
   function splitCurriculumChunks(raw, markers) {
@@ -368,12 +278,11 @@
         else content = '';
       }
       var body = content || chunk;
-      var split = splitCurriculumDayNarrativeFields(body, '');
       rows.push({
         day: markers[i].day,
         topic: topic || ('יום ' + markers[i].day),
-        content: split.content || body,
-        art: split.art || '',
+        content: body,
+        art: '',
         hint: '',
       });
     }
