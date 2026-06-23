@@ -4322,7 +4322,7 @@
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
-  <script src="archive-coerce.js?v=20250623a"></script>
+  <script src="archive-coerce.js?v=20250623b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -6683,6 +6683,9 @@
     }
 
     function normalizeCurriculumRow(row, index) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.preserveCurriculumRowForStorage) {
+        return WaldorfArchiveCoerce.preserveCurriculumRowForStorage(row, index);
+      }
       if (row == null) return null;
       if (typeof row === 'string') {
         var text = String(row).trim();
@@ -6815,7 +6818,15 @@
     function mergeBlockPlanCurriculum(blockPlan, dataRoot) {
       if (!blockPlan) return blockPlan;
       var rows = extractCurriculumFromPlan(blockPlan, dataRoot);
-      if (rows.length) blockPlan.curriculum = rows;
+      if (!rows.length) return blockPlan;
+      if (typeof WaldorfArchiveCoerce !== 'undefined' &&
+          WaldorfArchiveCoerce.hasMeaningfulCurriculumRows &&
+          !WaldorfArchiveCoerce.hasMeaningfulCurriculumRows(rows) &&
+          Array.isArray(blockPlan.curriculum) &&
+          WaldorfArchiveCoerce.hasMeaningfulCurriculumRows(blockPlan.curriculum)) {
+        return blockPlan;
+      }
+      blockPlan.curriculum = rows;
       return blockPlan;
     }
 

@@ -255,11 +255,105 @@
     return null;
   }
 
+  function liftCurriculumFieldText(val) {
+    if (val == null || val === '') return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    if (Array.isArray(val)) {
+      return val.map(liftCurriculumFieldText).filter(Boolean).join('\n\n');
+    }
+    if (typeof val === 'object') {
+      return liftCurriculumFieldText(
+        val.content || val.text || val.body || val.html || val.story || val.detail ||
+        val.preview || val.value || val.narrative || val.lesson || val.lessonContent ||
+        val.classroomImplementation || val.mainLesson || val['תוכן וסיפור'] ||
+        val['אמנות ומעשה'] || ''
+      );
+    }
+    return String(val);
+  }
+
   function splitCurriculumDayNarrativeFields(content, art) {
     return {
-      content: String(content || '').trim(),
-      art: String(art || '').trim(),
+      content: liftCurriculumFieldText(content).trim(),
+      art: liftCurriculumFieldText(art).trim(),
     };
+  }
+
+  function hasMeaningfulCurriculumRows(rows) {
+    if (!Array.isArray(rows) || !rows.length) return false;
+    return rows.some(function (row) {
+      if (!row || typeof row !== 'object') return false;
+      var content = liftCurriculumFieldText(row.content || row['תוכן וסיפור'] || '');
+      var art = liftCurriculumFieldText(row.art || row['אמנות ומעשה'] || '');
+      return !isCurriculumArtPlaceholder(content) || !isCurriculumArtPlaceholder(art);
+    });
+  }
+
+  /** Preserve curriculum row text verbatim for DB cache — no pedagogical stripping or re-splitting. */
+  function preserveCurriculumRowForStorage(row, index) {
+    if (row == null) return null;
+    if (typeof row === 'string') {
+      var text = String(row).trim();
+      if (!text) return null;
+      return { day: index + 1, topic: text, content: text, art: '', hint: '' };
+    }
+    if (typeof row !== 'object') return null;
+    var day = parseInt(row.day || row.dayNumber || row.n || row.number || row.index, 10);
+    if (!day || isNaN(day)) day = index + 1;
+    var topic = liftCurriculumFieldText(
+      row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
+    ).trim();
+    var content = liftCurriculumFieldText(
+      row.content || row.story || row.lesson || row.lessonContent ||
+      row.text || row.body || row.description || row.narrative ||
+      row['תוכן וסיפור'] || row.tochen || row.mainLesson || row.contentHtml || ''
+    ).trim();
+    var art = liftCurriculumFieldText(
+      row.art || row.artActivity || row.craft || row.artAndCraft ||
+      row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || row.artHtml || ''
+    ).trim();
+    var hint = liftCurriculumFieldText(
+      row.hint || row.journey || row.note || row.notes || row.pedagogyHint || ''
+    ).trim();
+    if (isCurriculumArtPlaceholder(content) && row.contentExpansion) {
+      var liftedContent = liftCurriculumFieldText(row.contentExpansion).trim();
+      if (liftedContent && !isCurriculumArtPlaceholder(liftedContent)) content = liftedContent;
+    }
+    if (isCurriculumArtPlaceholder(art) && row.artExpansion) {
+      var liftedArt = liftCurriculumFieldText(row.artExpansion).trim();
+      if (liftedArt && !isCurriculumArtPlaceholder(liftedArt)) art = liftedArt;
+    }
+    if (!topic && !content && !art && !hint) return null;
+    var out = {
+      day: day,
+      topic: topic || ('יום ' + day),
+      content: content,
+      art: art,
+      hint: hint,
+    };
+    if (row.contentExpansion && typeof row.contentExpansion === 'object') {
+      out.contentExpansion = row.contentExpansion;
+    }
+    if (row.artExpansion && typeof row.artExpansion === 'object') {
+      out.artExpansion = row.artExpansion;
+    }
+    if (row.hintExpansion && typeof row.hintExpansion === 'object') {
+      out.hintExpansion = row.hintExpansion;
+    }
+    return out;
+  }
+
+  function preparePhaseCCurriculumForStorage(data) {
+    if (!data || typeof data !== 'object') return data;
+    var bp = data.blockPlan;
+    if (!bp || typeof bp !== 'object') return data;
+    var rows = coerceCurriculumRows(bp.curriculum);
+    if (!rows.length) rows = extractCurriculumFromArchivePlan(bp, data);
+    if (rows.length) {
+      bp.curriculum = rows.map(preserveCurriculumRowForStorage).filter(Boolean);
+    }
+    return data;
   }
 
   function splitCurriculumChunks(raw, markers) {
@@ -496,7 +590,13 @@
     }
 
     var curriculumRows = extractCurriculumFromArchivePlan(blockPlan, data);
-    if (curriculumRows.length) {
+    var preservedMeaningful = preservedCurriculum && hasMeaningfulCurriculumRows(preservedCurriculum);
+    var extractedMeaningful = curriculumRows.length && hasMeaningfulCurriculumRows(curriculumRows);
+    if (extractedMeaningful) {
+      blockPlan.curriculum = curriculumRows;
+    } else if (preservedMeaningful) {
+      blockPlan.curriculum = preservedCurriculum;
+    } else if (curriculumRows.length) {
       blockPlan.curriculum = curriculumRows;
     } else if (preservedCurriculum) {
       blockPlan.curriculum = preservedCurriculum;
@@ -636,6 +736,10 @@
     extractCurriculumFromArchivePlan: extractCurriculumFromArchivePlan,
     isCurriculumFieldPlaceholder: isCurriculumArtPlaceholder,
     isMeaningfulInspiration: isMeaningfulInspiration,
+    hasMeaningfulCurriculumRows: hasMeaningfulCurriculumRows,
+    liftCurriculumFieldText: liftCurriculumFieldText,
+    preserveCurriculumRowForStorage: preserveCurriculumRowForStorage,
+    preparePhaseCCurriculumForStorage: preparePhaseCCurriculumForStorage,
     liftArchivePhaseCFields: liftArchivePhaseCFields,
     looksLikeCurriculumText: looksLikeCurriculumText,
     parseCurriculumFromText: parseCurriculumFromText,

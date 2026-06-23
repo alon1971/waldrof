@@ -360,6 +360,7 @@ const coerceCurriculumRows = archiveCoerce.coerceCurriculumRows;
 const extractCurriculumFromArchivePlan = archiveCoerce.extractCurriculumFromArchivePlan;
 const liftArchivePhaseCFields = archiveCoerce.liftArchivePhaseCFields;
 const coerceArchiveLessonResultData = archiveCoerce.coerceArchiveLessonResultData;
+const preparePhaseCCurriculumForStorage = archiveCoerce.preparePhaseCCurriculumForStorage;
 
 /** Cache metadata keys that mark hybrid/archive-upgraded rows (required for grade/topic cache hits). */
 const CACHE_ENHANCEMENT_META_KEYS = ['_hybridGenerated', '_archiveUpgrade', '_perplexityOnly'];
@@ -1910,6 +1911,15 @@ async function setRawPerplexityCache(body, rawPayload) {
   return setCachedResult(rawBody, safe);
 }
 
+function preparePhaseCResultForCache(body, resultData) {
+  if (!body || body.phase !== 'phase_c' || !resultData) return resultData;
+  const cTab = stableNormalize(body.cTab || body.productTab || body.phaseCTab || '');
+  if (cTab !== 'curriculum') return resultData;
+  const cloned = cloneJsonSafe(coerceCachedResultData(resultData));
+  if (!cloned) return resultData;
+  return preparePhaseCCurriculumForStorage(cloned);
+}
+
 /**
  * Persist a fresh Perplexity result (awaitable).
  */
@@ -1918,6 +1928,10 @@ async function setCachedResult(body, resultData) {
     normalizeGradeCacheRequest(body);
     resultData = normalizeGradeResultForCache(resultData);
     if (!resultData) return null;
+  }
+
+  if (body && body.phase === 'phase_c') {
+    resultData = preparePhaseCResultForCache(body, resultData);
   }
 
   const cacheKey = buildCacheKey(body);
@@ -3264,6 +3278,8 @@ module.exports = {
   normalizeTopicQuery,
   normalizeGradeResultForCache,
   coerceCachedResultData,
+  preparePhaseCResultForCache,
+  preparePhaseCCurriculumForStorage,
   coerceArchiveLessonResultData,
   sanitizeForJsonStorage,
   safeJsonStringify,

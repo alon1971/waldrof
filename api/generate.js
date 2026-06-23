@@ -2212,44 +2212,17 @@ function normalizePhaseCInspiration(insp, rawFallback) {
 }
 
 function normalizePhaseCCurriculumRow(row, index, rawFallback) {
-  if (row == null) return null;
-  if (typeof row === 'string') {
-    const text = row.trim();
-    if (!text) return null;
-    return { day: index + 1, topic: text, content: text, art: '', hint: '' };
-  }
-  if (typeof row !== 'object') return null;
-  let day = parseInt(row.day || row.dayNumber || row.n || row.number || row.index, 10);
-  if (!day || isNaN(day)) day = index + 1;
-  const topic = String(
-    row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
-  ).trim();
-  const content = coerceServerCurriculumFieldValue(
-    row.content || row.story || row.lesson || row.lessonContent ||
-    row.text || row.body || row.description || row.narrative ||
-    row['תוכן וסיפור'] || row.tochen || row.mainLesson || ''
-  ).trim();
-  const art = coerceServerCurriculumFieldValue(
-    row.art || row.artActivity || row.craft || row.artAndCraft ||
-    row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || ''
-  ).trim();
-  const hint = String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim();
-  if (!topic && !content && !art && !hint) {
+  const preserved = archiveCoerce.preserveCurriculumRowForStorage(row, index);
+  if (!preserved) {
     if (rawFallback) {
-      return { day: day, topic: 'יום ' + day, content: rawFallback, art: '', hint: '' };
+      return { day: index + 1, topic: 'יום ' + (index + 1), content: rawFallback, art: '', hint: '' };
     }
     return null;
   }
-  return {
-    day: day,
-    topic: topic || ('יום ' + day),
-    content: content || rawFallback || '',
-    art: art,
-    hint: hint,
-    contentExpansion: row.contentExpansion && typeof row.contentExpansion === 'object' ? row.contentExpansion : undefined,
-    artExpansion: row.artExpansion && typeof row.artExpansion === 'object' ? row.artExpansion : undefined,
-    hintExpansion: row.hintExpansion && typeof row.hintExpansion === 'object' ? row.hintExpansion : undefined,
-  };
+  if (!preserved.content && rawFallback && !archiveCoerce.isCurriculumFieldPlaceholder(rawFallback)) {
+    preserved.content = rawFallback;
+  }
+  return preserved;
 }
 
 function normalizePhaseCCurriculum(raw, rawFallback) {
@@ -2264,6 +2237,10 @@ function normalizePhaseCCurriculum(raw, rawFallback) {
   rows = rows.map(function (row, i) {
     return normalizePhaseCCurriculumRow(row, i, rawFallback);
   }).filter(Boolean).slice(0, 15);
+
+  if (archiveCoerce.hasMeaningfulCurriculumRows(rows)) {
+    return rows;
+  }
 
   while (rows.length < 15) {
     const day = rows.length + 1;
