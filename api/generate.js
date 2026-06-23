@@ -2217,12 +2217,8 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
     row.art || row.artActivity || row.craft || row.artAndCraft ||
     row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || ''
   ).trim());
-  const split = archiveCoerce.splitCurriculumDayNarrativeFields(
-    archiveCoerce.curriculumPlainForSplit(content),
-    archiveCoerce.curriculumPlainForSplit(art)
-  );
   const hint = sanitizePedagogicalText(String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim());
-  if (!topic && !split.content && !split.art && !hint) {
+  if (!topic && !content && !art && !hint) {
     if (rawFallback) {
       return { day: day, topic: 'יום ' + day, content: rawFallback, art: '', hint: '' };
     }
@@ -2231,8 +2227,8 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
   return {
     day: day,
     topic: topic || ('יום ' + day),
-    content: split.content || content || rawFallback || '',
-    art: split.art || '',
+    content: content || rawFallback || '',
+    art: art,
     hint: hint,
     contentExpansion: row.contentExpansion && typeof row.contentExpansion === 'object' ? row.contentExpansion : undefined,
     artExpansion: row.artExpansion && typeof row.artExpansion === 'object' ? row.artExpansion : undefined,
@@ -2337,13 +2333,14 @@ function validatePhaseCBlockPlan(blockPlan, cTab) {
       return block && Array.isArray(block.items) && block.items.length;
     });
   }
-  if (!Array.isArray(blockPlan.curriculum) || blockPlan.curriculum.length !== 15) return false;
-  for (let i = 0; i < blockPlan.curriculum.length; i++) {
-    const day = blockPlan.curriculum[i];
-    if (!day || typeof day !== 'object') return false;
-    if (!day.topic && !day.content && !day.art) return false;
-  }
-  return true;
+  if (!Array.isArray(blockPlan.curriculum) || !blockPlan.curriculum.length) return false;
+  return blockPlan.curriculum.some(function (day) {
+    return day && typeof day === 'object' && (
+      String(day.topic || '').trim() ||
+      String(day.content || '').trim() ||
+      String(day.art || '').trim()
+    );
+  });
 }
 
 function buildPerplexitySearchSystemPrompt() {

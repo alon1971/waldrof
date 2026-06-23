@@ -5815,15 +5815,7 @@
 
       function attachArchiveCurriculumToPlan(plan) {
         if (!plan || !curriculumRows.length) return plan;
-        plan.curriculum = curriculumRows.slice(0, 15).map(function (row, i) {
-          return normalizeCurriculumRow(row, i) || {
-            day: i + 1,
-            topic: t('curriculum_day_short', { day: i + 1 }),
-            content: '',
-            art: '',
-            hint: '',
-          };
-        });
+        plan.curriculum = padCurriculumRowsToFifteen(curriculumRows);
         plan.days = plan.curriculum.slice();
         return plan;
       }
@@ -7261,7 +7253,7 @@
         }
         if (!rows.length) rows = extractCurriculumFromPlan(data.blockPlan, data);
         if (!rows.length && rawFallback) rows = parseCurriculumFromText(rawFallback);
-        data.blockPlan.curriculum = rows.map(function (row, i) {
+        data.blockPlan.curriculum = padCurriculumRowsToFifteen(rows.map(function (row, i) {
           return normalizeCurriculumRow(row, i) || {
             day: i + 1,
             topic: t('curriculum_day_short', { day: i + 1 }),
@@ -7269,7 +7261,7 @@
             art: '',
             hint: '',
           };
-        }).filter(Boolean).slice(0, 15);
+        }));
       }
       return data;
     }
@@ -7416,22 +7408,10 @@
         return typeof n === 'string' ? n : (n.text || n.preview || '');
       });
       var rawCurriculum = extractCurriculumFromPlan(plan);
-      if (!rawCurriculum.length && Array.isArray(plan.curriculum)) rawCurriculum = plan.curriculum;
-      plan.curriculum = rawCurriculum.slice(0, 15).map(function (row, i) {
-        var norm = normalizeCurriculumRow(row, i) || {
-          day: i + 1, topic: t('curriculum_day_short', { day: i + 1 }), content: '', art: '', hint: '',
-        };
-        return {
-          day: norm.day || (i + 1),
-          topic: norm.topic || t('curriculum_day_short', { day: norm.day || (i + 1) }),
-          content: norm.content || '',
-          art: norm.art || '',
-          hint: norm.hint || '',
-          contentExpansion: norm.contentExpansion,
-          artExpansion: norm.artExpansion,
-          hintExpansion: norm.hintExpansion,
-        };
-      });
+      if (!rawCurriculum.length && Array.isArray(plan.curriculum) && plan.curriculum.length) {
+        rawCurriculum = plan.curriculum;
+      }
+      plan.curriculum = padCurriculumRowsToFifteen(rawCurriculum);
       return plan;
     }
 
@@ -8648,15 +8628,7 @@
           mergeBlockPlanBibliography({ curriculum: bp.curriculum, theory: appState.aiGeneratedPlan.theory }, data),
           data
         );
-        appState.aiGeneratedPlan.curriculum = (mergedPlan.curriculum || []).slice(0, 15).map(function (row, i) {
-          return normalizeCurriculumRow(row, i) || {
-            day: i + 1,
-            topic: t('curriculum_day_short', { day: i + 1 }),
-            content: '',
-            art: '',
-            hint: '',
-          };
-        });
+        appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(mergedPlan.curriculum || bp.curriculum || []);
         appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
       }
       appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
@@ -12748,7 +12720,7 @@
         try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
       }
       if (token) headers.Authorization = 'Bearer ' + token;
-      const body = { action: 'probe_community', topic: q, userMessage: q, globalScan: true };
+      const body = { action: 'probe_community', topic: q, userMessage: q, globalScan: true, repositorySearch: true };
       try {
         const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
         const bodyText = await res.text();
@@ -15587,15 +15559,7 @@
                   parsedArchiveRows = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
                 }
                 if (hasMeaningfulCurriculumRows(parsedArchiveRows)) {
-                  appState.aiGeneratedPlan.curriculum = parsedArchiveRows.slice(0, 15).map(function (row, i) {
-                    return normalizeCurriculumRow(row, i) || {
-                      day: i + 1,
-                      topic: t('curriculum_day_short', { day: i + 1 }),
-                      content: '',
-                      art: '',
-                      hint: '',
-                    };
-                  });
+                  appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(parsedArchiveRows);
                   appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
                   syncActivePlanFromGenerated();
                 }

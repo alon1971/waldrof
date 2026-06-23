@@ -3216,7 +3216,31 @@ async function probeCommunityGlobalSearch(query, options) {
     includeFolderBrief: opts.includeFolderBrief !== false,
     phase: opts.phase || 'topic',
     limit: opts.limit || 8,
+    semanticFirst: opts.semanticFirst === true,
   };
+
+  if (baseOpts.semanticFirst && isSupabaseCacheEnabled()) {
+    try {
+      const deepRows = await recursiveDeepScanCommunityRows('');
+      const catalog = buildSemanticCatalogEntries(deepRows.materialRows, deepRows.kbRows);
+      if (catalog.length) {
+        const semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(userMessage, catalog, {
+          geminiOnly: false,
+        });
+        if (semanticHits.length) {
+          const semanticResult = {
+            matches: semanticHits.slice(0, baseOpts.limit || 8).map(withCatalogNavigationFields),
+            count: Math.min(semanticHits.length, baseOpts.limit || 8),
+            query: userMessage,
+            matchMethod: semanticHits[0].matchType || 'semantic_gemini',
+          };
+          return attachCommunityFolderBriefToResult(semanticResult, baseOpts);
+        }
+      }
+    } catch (semanticFirstErr) {
+      console.warn('[community] semantic-first repository search failed:', semanticFirstErr.message || semanticFirstErr);
+    }
+  }
 
   let result = await findCommunityMaterials(baseOpts);
 

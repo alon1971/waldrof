@@ -486,13 +486,21 @@
       blockPlan.inspiration = { rawContent: blockPlan.inspiration.trim() };
     }
 
-    if (typeof blockPlan.curriculum === 'string' && blockPlan.curriculum.trim()) {
+    var preservedCurriculum = Array.isArray(blockPlan.curriculum) && blockPlan.curriculum.length
+      ? blockPlan.curriculum.slice()
+      : null;
+
+    if (!preservedCurriculum && typeof blockPlan.curriculum === 'string' && blockPlan.curriculum.trim()) {
       var fromStr = coerceCurriculumRows(blockPlan.curriculum);
       blockPlan.curriculum = fromStr.length ? fromStr : parseCurriculumFromText(blockPlan.curriculum);
     }
 
     var curriculumRows = extractCurriculumFromArchivePlan(blockPlan, data);
-    if (curriculumRows.length) blockPlan.curriculum = curriculumRows;
+    if (curriculumRows.length) {
+      blockPlan.curriculum = curriculumRows;
+    } else if (preservedCurriculum) {
+      blockPlan.curriculum = preservedCurriculum;
+    }
 
     if (!curriculumRows.length) {
       var textDump = firstNonEmptyString(

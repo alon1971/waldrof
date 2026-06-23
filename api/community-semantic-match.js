@@ -1,7 +1,8 @@
 /**
- * Hybrid semantic matcher for community materials chat probe.
- * 1. OpenAI lightweight classifier (gpt-4o-mini) when OPENAI_API_KEY is set.
- * 2. Embedding cosine similarity fallback (text-embedding-3-small).
+ * Hybrid semantic matcher for community materials — repository search and chat probe.
+ * 1. Gemini classifier (gemini-2.5-flash) when GEMINI_API_KEY is set — primary for repository view.
+ * 2. OpenAI lightweight classifier (gpt-4o-mini) when OPENAI_API_KEY is set.
+ * 3. Embedding cosine similarity fallback (text-embedding-3-small).
  */
 const archiveDisambiguation = require('./archive-disambiguation');
 const hebrewTopicMatch = require('../hebrew-topic-match');
@@ -10,6 +11,8 @@ const embeddings = require('./embeddings');
 const jsonRepair = require('./json-repair');
 
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_SEMANTIC_MODEL = 'gemini-2.5-flash';
 const SEMANTIC_CHAT_MODEL = 'gpt-4o-mini';
 const EMBEDDING_MATCH_THRESHOLD = 0.55;
 const LLM_MIN_CONFIDENCE = 0.78;
@@ -63,22 +66,89 @@ function mapSemanticResults(entries, matches, matchType) {
   return hits.sort(function (a, b) { return (b.similarity || 0) - (a.similarity || 0); });
 }
 
+function buildSemanticClassifierPrompts(userQuery, entries) {
+  const catalogText = buildCatalogText(entries);
+  const systemPrompt =
+    'You are a Hebrew pedagogical librarian. Given a teacher search query and a numbered catalog of community-uploaded files, ' +
+    'identify which files are SEMANTICALLY relevant to the teacher intent — including synonyms, partial phrases, and indirect links ' +
+    '(e.g. «אודיסאוס», «הומרוס», or «מיתולוגיה יוונית» → «מסעות אודיסאוס»). ' +
+    archiveDisambiguation.ARCHIVE_DISAMBIGUATION_LLM_INSTRUCTION + ' ' +
+    'Return ONLY valid JSON: {"matches":[{"key":"catalog:uuid-or-kb:uuid","confidence":0.0-1.0,"reason":"brief Hebrew"}]}. ' +
+    'Include ONLY keys from the catalog. Use confidence >= ' + LLM_MIN_CONFIDENCE + ' only for genuine semantic relevance. Return {"matches":[]} when none apply.';
+  const userPrompt =
+    'שאילתת חיפוש: «' + String(userQuery || '').trim() + '»\n\n' +
+    'קטלוג חומרי קהילה:\n' + catalogText;
+  return { systemPrompt: systemPrompt, userPrompt: userPrompt };
+}
+
+async function callGeminiSemanticClassifier(userQuery, entries) {
+  const apiKey = env.getGeminiApiKey();
+  if (!apiKey || !entries.length) return [];
+
+  const prompts = buildSemanticClassifierPrompts(userQuery, entries);
+  const url = GEMINI_API_BASE + '/models/' + encodeURIComponent(GEMINI_SEMANTIC_MODEL) + ':generateContent';
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: prompts.systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: prompts.userPrompt }] }],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: 'application/json',
+        },
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (fetchErr) {
+    console.warn('[community-semantic] Gemini classifier failed:', fetchErr.message || fetchErr);
+    return [];
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(function () { return ''; });
+    console.warn('[community-semantic] Gemini classifier HTTP', res.status, errText.slice(0, 200));
+    return [];
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch (parseErr) {
+    console.warn('[community-semantic] Gemini classifier non-JSON response');
+    return [];
+  }
+
+  const candidates = data && data.candidates;
+  const parts = candidates && candidates[0] && candidates[0].content && candidates[0].content.parts;
+  const content = Array.isArray(parts)
+    ? parts.map(function (part) { return part && part.text ? part.text : ''; }).join('').trim()
+    : '';
+  if (!content) return [];
+
+  let parsed;
+  try {
+    parsed = jsonRepair.cleanAndParseJSON(content, { fallbackOnError: false, unwrap: true });
+  } catch (jsonErr) {
+    parsed = jsonRepair.safeParseJson(content);
+  }
+  if (!parsed || typeof parsed !== 'object') return [];
+
+  const rows = Array.isArray(parsed.matches) ? parsed.matches : [];
+  return mapSemanticResults(entries, rows, 'semantic_gemini');
+}
+
 async function callOpenAiSemanticClassifier(userQuery, entries) {
   const apiKey = env.getOpenAiApiKey();
   if (!apiKey || !entries.length) return [];
 
-  const catalogText = buildCatalogText(entries);
-  const systemPrompt =
-    'You are a Hebrew pedagogical librarian. Given a teacher question and a numbered catalog of community-uploaded files, ' +
-    'identify which files are SEMANTICALLY relevant to the teacher intent — including indirect links ' +
-    '(e.g. «הומרוס» or «מיתולוגיה יוונית» → «מסעות אודיסאוס»). ' +
-    archiveDisambiguation.ARCHIVE_DISAMBIGUATION_LLM_INSTRUCTION + ' ' +
-    'Return ONLY valid JSON: {"matches":[{"key":"catalog:uuid-or-kb:uuid","confidence":0.0-1.0,"reason":"brief Hebrew"}]}. ' +
-    'Include ONLY keys from the catalog. Use confidence >= ' + LLM_MIN_CONFIDENCE + ' only for genuine semantic relevance. Return {"matches":[]} when none apply.';
-
-  const userPrompt =
-    'שאלת המורה: «' + String(userQuery || '').trim() + '»\n\n' +
-    'קטלוג חומרי קהילה:\n' + catalogText;
+  const prompts = buildSemanticClassifierPrompts(userQuery, entries);
 
   let res;
   try {
@@ -93,8 +163,8 @@ async function callOpenAiSemanticClassifier(userQuery, entries) {
         temperature: 0,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
+          { role: 'system', content: prompts.systemPrompt },
+          { role: 'user', content: prompts.userPrompt },
         ],
       }),
       signal: AbortSignal.timeout(12000),
@@ -195,24 +265,33 @@ function filterCrossDomainSemanticHits(userQuery, hits) {
 }
 
 /**
- * Run semantic matching when keyword passes found nothing.
- * Tries LLM classifier first, then embedding similarity.
+ * Run semantic matching when keyword passes found nothing (or semanticFirst for repository view).
+ * Tries Gemini classifier first, then OpenAI, then embedding similarity.
  */
-async function findSemanticCommunityMatches(userQuery, entries) {
+async function findSemanticCommunityMatches(userQuery, entries, options) {
+  const opts = options && typeof options === 'object' ? options : {};
   const query = String(userQuery || '').trim();
   if (!query || !Array.isArray(entries) || !entries.length) return [];
   if (hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(query)) return [];
 
-  const llmHits = filterCrossDomainSemanticHits(query, await callOpenAiSemanticClassifier(query, entries));
-  if (llmHits.length) {
-    console.log('[community-semantic] LLM matched', llmHits.length, 'material(s)');
-    return llmHits;
+  const geminiHits = filterCrossDomainSemanticHits(query, await callGeminiSemanticClassifier(query, entries));
+  if (geminiHits.length) {
+    console.log('[community-semantic] Gemini matched', geminiHits.length, 'material(s)');
+    return geminiHits;
   }
 
-  const embedHits = filterCrossDomainSemanticHits(query, await embeddingSemanticMatch(query, entries));
-  if (embedHits.length) {
-    console.log('[community-semantic] embedding matched', embedHits.length, 'material(s)');
-    return embedHits;
+  if (!opts.geminiOnly) {
+    const llmHits = filterCrossDomainSemanticHits(query, await callOpenAiSemanticClassifier(query, entries));
+    if (llmHits.length) {
+      console.log('[community-semantic] OpenAI LLM matched', llmHits.length, 'material(s)');
+      return llmHits;
+    }
+
+    const embedHits = filterCrossDomainSemanticHits(query, await embeddingSemanticMatch(query, entries));
+    if (embedHits.length) {
+      console.log('[community-semantic] embedding matched', embedHits.length, 'material(s)');
+      return embedHits;
+    }
   }
 
   return [];

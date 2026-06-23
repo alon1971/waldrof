@@ -156,6 +156,7 @@ async function executeSearchHistory(req) {
       includeFolderBrief: true,
       phase: 'topic',
       limit: 8,
+      semanticFirst: Boolean(body && body.repositorySearch),
     });
     return {
       ok: true,
