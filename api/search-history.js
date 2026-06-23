@@ -157,7 +157,6 @@ async function executeSearchHistory(req) {
       repositorySearch: true,
       phase: 'topic',
       limit: 8,
-      semanticFirst: true,
     });
     return {
       ok: true,

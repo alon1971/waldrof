@@ -2650,7 +2650,13 @@ function keywordSubstringMatchCommunity(query, materialRows, kbRows, options) {
 
   (materialRows || []).forEach(function (row) {
     const hit = formatCommunityMaterialRow(row);
-    const haystack = stableNormalize(buildCommunityHitHaystack(hit, row));
+    const haystack = stableNormalize([
+      buildCommunityHitHaystack(hit, row),
+      row.file_name,
+      row.file_path,
+      row.topic,
+      row.notes,
+    ].filter(Boolean).join(' '));
     if (!haystack) return;
     const matched = terms.some(function (term) {
       const normalizedTerm = stableNormalize(term);
@@ -2674,7 +2680,14 @@ function keywordSubstringMatchCommunity(query, materialRows, kbRows, options) {
 
   (kbRows || []).forEach(function (row) {
     const hit = scoreCommunityKnowledgeHit(query, row);
-    const haystack = stableNormalize(buildCommunityHitHaystack(hit, row));
+    const haystack = stableNormalize([
+      buildCommunityHitHaystack(hit, row),
+      row.file_name,
+      row.file_path,
+      row.topic,
+      row.title,
+      row.content,
+    ].filter(Boolean).join(' '));
     if (!haystack) return;
     const matched = terms.some(function (term) {
       const normalizedTerm = stableNormalize(term);
@@ -2809,13 +2822,19 @@ function resolveCommunityCatalogTopic(hit) {
 
 function withCatalogNavigationFields(hit, query) {
   if (!hit || typeof hit !== 'object') return hit;
-  const fileTopic = resolveCommunityCatalogTopic(hit);
-  const parentTopic = resolveParentCommunityFolderTopic(hit, query) || fileTopic;
-  const gradeLabel = hit.gradeLabel || resolveGradeLabelFromId(hit.gradeId, null) || null;
+  const folderTopic = String(
+    hit.catalogTopic || hit.bundleTopic || hit.subfolderTopic || hit.topic || ''
+  ).trim();
+  const safeTopic = folderTopic && !looksLikeUserChatQuestion(folderTopic)
+    ? folderTopic
+    : String(hit.topic || '').trim();
+  const gradeId = hit.gradeId != null ? String(hit.gradeId) : '';
+  const gradeLabel = hit.gradeLabel || resolveGradeLabelFromId(gradeId, null) || null;
   return Object.assign({}, hit, {
-    catalogTopic: parentTopic || hit.catalogTopic || '',
-    parentCatalogTopic: parentTopic || '',
-    fileTopic: fileTopic || hit.fileTopic || '',
+    catalogTopic: safeTopic,
+    parentCatalogTopic: safeTopic,
+    fileTopic: safeTopic,
+    gradeId: gradeId,
     gradeLabel: gradeLabel,
     materialId: hit.sourceMaterialId || hit.id || hit.materialId || null,
   });
@@ -2993,7 +3012,20 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter, optio
   }
   const rows = await res.json();
   if (!Array.isArray(rows)) return [];
+  if (opts.skipBundleEnrichment) return rows;
   return enrichKnowledgeRowsWithBundleMaterials(rows);
+}
+
+async function fetchCommunityCatalogRows(gradeId, options) {
+  const opts = options || {};
+  const limit = opts.limit || 300;
+  const scopedGrade = gradeId || '';
+  const materialRows = await fetchCommunityMaterialRows(scopedGrade, '', false, { limit: limit });
+  const kbRows = await fetchCommunityKnowledgeRows(scopedGrade, '', false, {
+    limit: limit,
+    skipBundleEnrichment: true,
+  });
+  return { materialRows: materialRows, kbRows: kbRows };
 }
 
 /**
@@ -3108,60 +3140,25 @@ async function findCommunityMaterials(options) {
 
   let materialRows = [];
   let kbRows = [];
-  let matchMethod = 'keyword_fuzzy';
+  let matchMethod = 'keyword_substring';
 
   if (isSupabaseCacheEnabled()) {
     try {
-      if (opts.globalScan === true) {
-        const globalFiltered = await Promise.all([
-          fetchCommunityMaterialRows('', query, true),
-          fetchCommunityKnowledgeRows('', query, true),
-        ]);
-        materialRows = globalFiltered[0];
-        kbRows = globalFiltered[1];
-
-        if (!materialRows.length && !kbRows.length) {
-          const globalBroad = await Promise.all([
-            fetchCommunityMaterialRows('', query, false),
-            fetchCommunityKnowledgeRows('', query, false),
-          ]);
-          materialRows = globalBroad[0];
-          kbRows = globalBroad[1];
-        }
-      } else {
-        const scoped = await Promise.all([
-          fetchCommunityMaterialRows(gradeId, query, true),
-          fetchCommunityKnowledgeRows(gradeId, query, true),
-        ]);
-        materialRows = scoped[0];
-        kbRows = scoped[1];
-
-        if (!materialRows.length && !kbRows.length && gradeId) {
-          const broad = await Promise.all([
-            fetchCommunityMaterialRows('', query, true),
-            fetchCommunityKnowledgeRows('', query, true),
-          ]);
-          materialRows = broad[0];
-          kbRows = broad[1];
-        }
-
-        if (!materialRows.length && !kbRows.length) {
-          const fallback = await Promise.all([
-            fetchCommunityMaterialRows(gradeId, query, false),
-            fetchCommunityKnowledgeRows(gradeId, query, false),
-          ]);
-          materialRows = fallback[0];
-          kbRows = fallback[1];
-        }
+      const catalogRows = await fetchCommunityCatalogRows(gradeId, { limit: 300 });
+      materialRows = catalogRows.materialRows;
+      kbRows = catalogRows.kbRows;
+      if (!materialRows.length && !kbRows.length && gradeId && !opts.globalScan) {
+        const globalRows = await fetchCommunityCatalogRows('', { limit: 300 });
+        materialRows = globalRows.materialRows;
+        kbRows = globalRows.kbRows;
       }
     } catch (err) {
-      console.warn('[community] materials probe failed:', err.message || err);
+      console.warn('[community] catalog fetch failed:', err.message || err);
     }
   }
 
-  let matches = pickBestCommunityHits(materialRows, kbRows, query, {
+  let matches = keywordSubstringMatchCommunity(query, materialRows, kbRows, {
     limit: opts.limit || 8,
-    minScore: 0.45,
   });
 
   if (!matches.length && (materialRows.length || kbRows.length)) {
@@ -3169,6 +3166,7 @@ async function findCommunityMaterials(options) {
       limit: opts.limit || 8,
       minScore: 0.35,
     });
+    if (matches.length) matchMethod = 'keyword_fuzzy';
   }
 
   if (!matches.length && (materialRows.length || kbRows.length)) {
@@ -3176,9 +3174,8 @@ async function findCommunityMaterials(options) {
     for (let i = 0; i < terms.length; i++) {
       const term = terms[i];
       if (!term || term.length < 2) continue;
-      const termHits = pickBestCommunityHits(materialRows, kbRows, term, {
+      const termHits = keywordSubstringMatchCommunity(term, materialRows, kbRows, {
         limit: opts.limit || 8,
-        minScore: 0.45,
       });
       if (termHits.length) {
         matches = termHits;
@@ -3188,75 +3185,10 @@ async function findCommunityMaterials(options) {
     }
   }
 
-  if (!matches.length) {
-    if (!materialRows.length && !kbRows.length && gradeId && !opts.globalScan && isSupabaseCacheEnabled()) {
-      try {
-        const gradeRows = await fetchGradeCommunityRows(gradeId);
-        materialRows = gradeRows.materialRows;
-        kbRows = gradeRows.kbRows;
-      } catch (gradeErr) {
-        console.warn('[community] grade catalog fetch failed:', gradeErr.message || gradeErr);
-      }
-    }
-
-    if (!materialRows.length && !kbRows.length && opts.globalScan && isSupabaseCacheEnabled()) {
-      try {
-        const globalCatalog = await Promise.all([
-          fetchCommunityMaterialRows('', query, false),
-          fetchCommunityKnowledgeRows('', query, false),
-        ]);
-        materialRows = globalCatalog[0];
-        kbRows = globalCatalog[1];
-      } catch (globalErr) {
-        console.warn('[community] global catalog fetch failed:', globalErr.message || globalErr);
-      }
-    }
-
-    const substringHits = keywordSubstringMatchCommunity(query, materialRows, kbRows, {
-      limit: opts.limit || 8,
-    });
-    if (substringHits.length) {
-      matches = substringHits;
-      matchMethod = substringHits[0].matchType === 'nested_path_match'
-        ? 'recursive_deep_scan'
-        : 'keyword_substring';
-    }
-  }
-
-  if (!matches.length && opts.recursiveDeepScan !== false && isSupabaseCacheEnabled()) {
+  if (!matches.length && opts.semanticFallback !== false && semanticQuery) {
     try {
-      const deepRows = await recursiveDeepScanCommunityRows(
-        opts.globalScan === true ? '' : gradeId
-      );
-      if (deepRows.materialRows.length || deepRows.kbRows.length) {
-        const deepHits = keywordSubstringMatchCommunity(
-          query,
-          deepRows.materialRows,
-          deepRows.kbRows,
-          { limit: opts.limit || 8 }
-        );
-        if (deepHits.length) {
-          matches = deepHits;
-          matchMethod = 'recursive_deep_scan';
-          materialRows = deepRows.materialRows;
-          kbRows = deepRows.kbRows;
-        }
-      }
-    } catch (deepErr) {
-      console.warn('[community] recursive deep scan failed:', deepErr.message || deepErr);
-    }
-  }
-
-  if (!matches.length && opts.semanticFallback !== false && semanticQuery && (gradeId || opts.globalSemantic)) {
-    try {
-      let semanticMaterialRows = materialRows;
-      let semanticKbRows = kbRows;
-      if (opts.globalSemantic || !semanticMaterialRows.length) {
-        const globalRows = await recursiveDeepScanCommunityRows('');
-        semanticMaterialRows = globalRows.materialRows;
-        semanticKbRows = globalRows.kbRows;
-      }
-      const catalog = buildSemanticCatalogEntries(semanticMaterialRows, semanticKbRows);
+      const enrichedKb = await enrichKnowledgeRowsWithBundleMaterials(kbRows);
+      const catalog = buildSemanticCatalogEntries(materialRows, enrichedKb);
       if (catalog.length) {
         const semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(semanticQuery, catalog);
         if (semanticHits.length) {
@@ -3296,39 +3228,11 @@ async function probeCommunityGlobalSearch(query, options) {
     topic: opts.topic || null,
     globalScan: true,
     semanticFallback: true,
-    globalSemantic: true,
-    recursiveDeepScan: true,
     includeFolderBrief: opts.includeFolderBrief !== false,
     repositorySearch: opts.repositorySearch === true,
     phase: opts.phase || 'topic',
     limit: opts.limit || 8,
-    semanticFirst: opts.semanticFirst === true,
   };
-
-  if (baseOpts.semanticFirst && isSupabaseCacheEnabled()) {
-    try {
-      const deepRows = await recursiveDeepScanCommunityRows('');
-      const catalog = buildSemanticCatalogEntries(deepRows.materialRows, deepRows.kbRows);
-      if (catalog.length) {
-        const semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(userMessage, catalog, {
-          geminiOnly: true,
-        });
-        if (semanticHits.length) {
-          const semanticResult = {
-            matches: semanticHits.slice(0, baseOpts.limit || 8).map(function (hit) {
-              return withCatalogNavigationFields(hit, userMessage);
-            }),
-            count: Math.min(semanticHits.length, baseOpts.limit || 8),
-            query: userMessage,
-            matchMethod: semanticHits[0].matchType || 'semantic_gemini',
-          };
-          return attachCommunityFolderBriefToResult(semanticResult, baseOpts);
-        }
-      }
-    } catch (semanticFirstErr) {
-      console.warn('[community] semantic-first repository search failed:', semanticFirstErr.message || semanticFirstErr);
-    }
-  }
 
   let result = await findCommunityMaterials(baseOpts);
 
@@ -3337,7 +3241,10 @@ async function probeCommunityGlobalSearch(query, options) {
     for (let i = 0; i < terms.length; i++) {
       const term = terms[i];
       if (!term || term.length < 2) continue;
-      const termProbe = await findCommunityMaterials(Object.assign({}, baseOpts, { query: term }));
+      const termProbe = await findCommunityMaterials(Object.assign({}, baseOpts, {
+        query: term,
+        userMessage: term,
+      }));
       if (termProbe.count > 0) {
         result = termProbe;
         break;

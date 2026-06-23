@@ -12768,72 +12768,28 @@
 
     function resolveParentFolderFromMatch(match, query) {
       if (!match || typeof match !== 'object') {
-        return { gradeId: '', catalogTopic: '', fileTitle: '' };
+        return { gradeId: '', catalogTopic: '', fileTitle: '', gradeLabel: '' };
       }
       const gradeId = String(match.gradeId || match.grade_level || '').trim();
+      const gradeLabel = String(match.gradeLabel || getGradeLabelById(gradeId) || '').trim();
       const fileTitle = String(match.title || match.displayTitle || match.fileName || match.internalFileName || '').trim();
-      const norm = function (value) { return String(value || '').trim().toLowerCase().replace(/\s+/g, ' '); };
-      const fileNorm = norm(fileTitle);
-      const segments = [];
-      function pushSeg(value) {
-        const cleaned = String(value || '').trim();
-        if (cleaned) segments.push(cleaned);
-      }
-      pushSeg(match.parentCatalogTopic);
-      pushSeg(match.bundleTopic);
-      pushSeg(match.subfolderTopic);
-      if (match.pathLabels) String(match.pathLabels).split(/\s+/).forEach(pushSeg);
-      if (match.drivePath) String(match.drivePath).split('/').forEach(pushSeg);
-      pushSeg(match.catalogTopic);
-      pushSeg(match.topic);
-      const seen = {};
-      const candidates = segments.filter(function (candidate) {
-        const key = norm(candidate);
-        if (!key || seen[key]) return false;
-        seen[key] = true;
-        return true;
-      });
-      const q = String(query || '').trim();
-      let parentTopic = '';
-      if (q) {
-        const qNorm = norm(q);
-        candidates.forEach(function (candidate) {
-          if (parentTopic) return;
-          const candidateNorm = norm(candidate);
-          if (!candidateNorm || (fileNorm && candidateNorm === fileNorm)) return;
-          if (candidateNorm === qNorm
-            || (qNorm.length >= 2 && candidateNorm.indexOf(qNorm) >= 0)
-            || (candidateNorm.length >= 2 && qNorm.indexOf(candidateNorm) >= 0)) {
-            parentTopic = candidate;
-          }
-        });
-      }
-      if (!parentTopic) {
-        candidates.forEach(function (candidate) {
-          if (parentTopic) return;
-          const candidateNorm = norm(candidate);
-          if (!candidateNorm) return;
-          if (fileNorm && candidateNorm === fileNorm) return;
-          parentTopic = candidate;
-        });
-      }
-      if (!parentTopic) {
-        parentTopic = String(match.parentCatalogTopic || match.catalogTopic || match.bundleTopic || match.subfolderTopic || match.topic || '').trim();
-      }
-      return { gradeId: gradeId, catalogTopic: parentTopic, fileTitle: fileTitle };
+      const catalogTopic = String(
+        match.parentCatalogTopic || match.catalogTopic || match.topic || match.bundleTopic || ''
+      ).trim();
+      return { gradeId: gradeId, catalogTopic: catalogTopic, fileTitle: fileTitle, gradeLabel: gradeLabel };
     }
 
     function buildCatalogParentFolderCardHtml(gradeId, catalogTopic, options) {
       options = options || {};
       if (!gradeId || !catalogTopic) return '';
-      const gradeLabel = getGradeLabelById(gradeId) || ('כיתה ' + gradeId);
+      const gradeLabel = String(options.gradeLabel || getGradeLabelById(gradeId) || ('כיתה ' + gradeId)).trim();
       const fileTitle = String(options.fileTitle || '').trim();
       const parentNorm = String(catalogTopic || '').trim().toLowerCase();
       const fileNorm = fileTitle.toLowerCase();
       const message = fileTitle && fileNorm && parentNorm && fileNorm !== parentNorm
         ? ('נמצא במאגר הקהילתי קובץ «' + fileTitle + '» בתוך תיקיית «' + catalogTopic + '» (' + gradeLabel + '). תוכלו לגשת לתיקייה המלאה או להוריד את כל החומרים:')
         : ('נמצאה במאגר הקהילתי תיקיית «' + catalogTopic + '» (' + gradeLabel + '). תוכלו לגשת לתיקייה או להוריד את כל החומרים:');
-      const accessLabel = 'לגשת ל' + gradeLabel + ' — ' + catalogTopic;
+      const accessLabel = 'לגשת ל' + gradeLabel;
       const downloadLabel = 'הורדת התיקייה';
       return '<div class="catalog-folder-brief rounded-2xl border border-sage/35 bg-sage/10 p-4 sm:p-5 mb-4" dir="rtl">' +
         '<p class="text-sm text-walnut leading-relaxed mb-4">' + escapeHtml(message) + '</p>' +
@@ -12899,6 +12855,7 @@
       } else if (folderCtx.gradeId && folderCtx.catalogTopic) {
         html += buildCatalogParentFolderCardHtml(folderCtx.gradeId, folderCtx.catalogTopic, {
           fileTitle: folderCtx.fileTitle,
+          gradeLabel: folderCtx.gradeLabel,
         });
       }
       if (matches.length) {
