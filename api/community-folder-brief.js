@@ -72,6 +72,68 @@ function filterMatchesForInferredGrade(probe, query, gradeId) {
   });
 }
 
+function resolveParentCatalogTopicFromMatch(match, query) {
+  return cacheDb.resolveParentCommunityFolderTopic(match, query);
+}
+
+/**
+ * Build folder-brief for repository search when a nested file matched but the query
+ * did not exactly name the parent topic folder (e.g. יוון → מסעות אודיסאוס).
+ */
+function tryBuildRepositorySearchFolderBrief(body, probe) {
+  if (body && body.phase === 'chat_followup') return null;
+  if (!probe || !probe.count || !Array.isArray(probe.matches) || !probe.matches.length) {
+    return null;
+  }
+
+  const query = String((body && body.userMessage) || probe.query || '').trim();
+  const primary = probe.matches[0];
+  const gradeId = resolveMatchGradeId(primary);
+  const parentTopic = resolveParentCatalogTopicFromMatch(primary, query);
+  if (!gradeId || !parentTopic) return null;
+
+  const gradeLabel = gradeLabelForId(gradeId);
+  const fileTitle = String(primary.displayTitle || primary.title || primary.fileName || '').trim();
+  const parentNorm = stableNormalize(parentTopic);
+  const fileNorm = stableNormalize(fileTitle);
+  const message = fileTitle && fileNorm && parentNorm && fileNorm !== parentNorm
+    ? (
+      'נמצא במאגר הקהילתי קובץ «' + fileTitle + '» בתוך תיקיית «' + parentTopic +
+      '» (' + gradeLabel + '). תוכלו לגשת לתיקייה המלאה או להוריד את כל החומרים:'
+    )
+    : buildBriefMessage(parentTopic, gradeLabel);
+
+  const matched = probe.matches.filter(function (match) {
+    return resolveMatchGradeId(match) === gradeId
+      && stableNormalize(resolveParentCatalogTopicFromMatch(match, query)) === parentNorm;
+  });
+
+  return {
+    data: {
+      chatReply: {
+        answer: message,
+        communityFolderBrief: true,
+        gradeId: gradeId,
+        gradeLabel: gradeLabel,
+        catalogTopic: parentTopic,
+        topicDisplay: parentTopic,
+        accessGradeLabel: accessGradeButtonLabel(gradeId) + ' — ' + parentTopic,
+        downloadFolderLabel: FOLDER_DOWNLOAD_LABEL,
+        communityMatches: (matched.length ? matched : [primary]).slice(0, 8).map(function (m) {
+          return cacheDb.withCatalogNavigationFields(m);
+        }),
+      },
+    },
+    meta: {
+      communityFolderBrief: true,
+      skipCommunityAlert: true,
+      gradeId: gradeId,
+      catalogTopic: parentTopic,
+      repositorySearch: true,
+    },
+  };
+}
+
 /**
  * Build a folder-brief payload when a community topic folder matches
  * the query and Waldorf grade inference (Community Archive search pipeline).
@@ -86,12 +148,21 @@ function tryBuildCommunityFolderBrief(body, probe) {
   const query = String((body && body.userMessage) || probe.query || '').trim();
   if (!query || query.length < 2) return null;
 
+  if (body && body.repositorySearch) {
+    const repoBrief = tryBuildRepositorySearchFolderBrief(body, probe);
+    if (repoBrief) return repoBrief;
+  }
+
   const block = pedagogicalScope.inferTopicCurriculumBlock(query);
-  if (!block || !block.gradeId) return null;
+  if (!block || !block.gradeId) {
+    return null;
+  }
 
   const gradeId = String(block.gradeId).trim();
   const matched = filterMatchesForInferredGrade(probe, query, gradeId);
-  if (!matched.length) return null;
+  if (!matched.length) {
+    return null;
+  }
 
   const primary = matched[0];
   const catalogTopic = cacheDb.resolveCommunityCatalogTopic(primary) || block.blockLabel || query;
@@ -128,5 +199,7 @@ module.exports = {
   FOLDER_DOWNLOAD_LABEL,
   accessGradeButtonLabel,
   buildBriefMessage,
+  resolveParentCatalogTopicFromMatch,
   tryBuildCommunityFolderBrief,
+  tryBuildRepositorySearchFolderBrief,
 };

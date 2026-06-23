@@ -2488,6 +2488,10 @@ function formatCommunityKnowledgeRow(row) {
     fileUrl: resolveCommunityFileUrlFromRow(row),
     contributorName: row.contributor_name || null,
     contentPreview: String(row.content || '').slice(0, 240),
+    pathLabels: bundleMaterial ? extractNestedCommunityPathLabels(bundleMaterial) : '',
+    drivePath: bundleMaterial
+      ? parseTaggedCommunityNote(bundleMaterial.notes || bundleMaterial.description || '', 'drivePath')
+      : '',
     similarity: 0,
     matchedInBundle: false,
     matchType: 'direct',
@@ -2576,7 +2580,11 @@ function attachCommunityFolderBriefToResult(result, opts) {
   const query = String(opts.userMessage || opts.query || result.query || '').trim();
   if (!query || !result.count) return result;
   const brief = communityFolderBrief.tryBuildCommunityFolderBrief(
-    { userMessage: query, phase: opts.phase || '' },
+    {
+      userMessage: query,
+      phase: opts.phase || '',
+      repositorySearch: opts.repositorySearch === true,
+    },
     result
   );
   if (brief) {
@@ -2702,6 +2710,79 @@ function looksLikeUserChatQuestion(text) {
   return false;
 }
 
+function stableNormalizeCommunityText(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Parent topic folder for a nested community file (e.g. יוון for מסעות אודיסאוס).
+ */
+function resolveParentCommunityFolderTopic(hit, query) {
+  if (!hit || typeof hit !== 'object') return '';
+
+  const title = String(hit.displayTitle || hit.title || hit.fileName || hit.internalFileName || '').trim();
+  const titleNorm = stableNormalizeCommunityText(title);
+  const segments = [];
+
+  function pushSegment(value) {
+    const cleaned = String(value || '').trim();
+    if (!cleaned) return;
+    segments.push(cleaned);
+  }
+
+  pushSegment(hit.bundleTopic);
+  pushSegment(hit.subfolderTopic);
+  if (hit.pathLabels) {
+    String(hit.pathLabels).split(/\s+/).forEach(pushSegment);
+  }
+  if (hit.drivePath) {
+    String(hit.drivePath).split('/').forEach(pushSegment);
+  }
+
+  const catalogTopic = String(resolveCommunityCatalogTopic(hit) || '').trim();
+  const rowTopic = String(hit.topic || '').trim();
+  [catalogTopic, rowTopic].forEach(pushSegment);
+
+  const seen = new Set();
+  const candidates = segments.filter(function (candidate) {
+    const key = stableNormalizeCommunityText(candidate);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const queryText = String(query || '').trim();
+  if (queryText) {
+    const queryNorms = catalogTopics.expandCatalogTopicAliases([queryText])
+      .map(stableNormalizeCommunityText)
+      .filter(Boolean);
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      const candidateNorm = stableNormalizeCommunityText(candidate);
+      if (!candidateNorm) continue;
+      if (titleNorm && candidateNorm === titleNorm) continue;
+      const matchesQuery = queryNorms.some(function (qNorm) {
+        return qNorm === candidateNorm
+          || (qNorm.length >= 2 && candidateNorm.indexOf(qNorm) >= 0)
+          || (candidateNorm.length >= 2 && qNorm.indexOf(candidateNorm) >= 0);
+      });
+      if (matchesQuery) {
+        return catalogTopics.resolveCatalogTopicFromFolderName(candidate);
+      }
+    }
+  }
+
+  for (let j = 0; j < candidates.length; j++) {
+    const candidate = candidates[j];
+    const candidateNorm = stableNormalizeCommunityText(candidate);
+    if (!candidateNorm) continue;
+    if (titleNorm && candidateNorm === titleNorm) continue;
+    return catalogTopics.resolveCatalogTopicFromFolderName(candidate);
+  }
+
+  return catalogTopic || String(hit.bundleTopic || '').trim() || rowTopic || '';
+}
+
 /**
  * Canonical community_materials.topic folder name for catalog navigation.
  * Never returns the user's raw chat question.
@@ -2726,12 +2807,15 @@ function resolveCommunityCatalogTopic(hit) {
   return '';
 }
 
-function withCatalogNavigationFields(hit) {
+function withCatalogNavigationFields(hit, query) {
   if (!hit || typeof hit !== 'object') return hit;
-  const catalogTopic = resolveCommunityCatalogTopic(hit);
+  const fileTopic = resolveCommunityCatalogTopic(hit);
+  const parentTopic = resolveParentCommunityFolderTopic(hit, query) || fileTopic;
   const gradeLabel = hit.gradeLabel || resolveGradeLabelFromId(hit.gradeId, null) || null;
   return Object.assign({}, hit, {
-    catalogTopic: catalogTopic || hit.catalogTopic || '',
+    catalogTopic: parentTopic || hit.catalogTopic || '',
+    parentCatalogTopic: parentTopic || '',
+    fileTopic: fileTopic || hit.fileTopic || '',
     gradeLabel: gradeLabel,
     materialId: hit.sourceMaterialId || hit.id || hit.materialId || null,
   });
@@ -3185,8 +3269,9 @@ async function findCommunityMaterials(options) {
     }
   }
 
+  const navQuery = String(opts.userMessage || opts.query || query || '').trim();
   const result = {
-    matches: matches.map(withCatalogNavigationFields),
+    matches: matches.map(function (hit) { return withCatalogNavigationFields(hit, navQuery); }),
     count: matches.length,
     query: query,
     matchMethod: matches.length ? matchMethod : 'none',
@@ -3214,6 +3299,7 @@ async function probeCommunityGlobalSearch(query, options) {
     globalSemantic: true,
     recursiveDeepScan: true,
     includeFolderBrief: opts.includeFolderBrief !== false,
+    repositorySearch: opts.repositorySearch === true,
     phase: opts.phase || 'topic',
     limit: opts.limit || 8,
     semanticFirst: opts.semanticFirst === true,
@@ -3229,7 +3315,9 @@ async function probeCommunityGlobalSearch(query, options) {
         });
         if (semanticHits.length) {
           const semanticResult = {
-            matches: semanticHits.slice(0, baseOpts.limit || 8).map(withCatalogNavigationFields),
+            matches: semanticHits.slice(0, baseOpts.limit || 8).map(function (hit) {
+              return withCatalogNavigationFields(hit, userMessage);
+            }),
             count: Math.min(semanticHits.length, baseOpts.limit || 8),
             query: userMessage,
             matchMethod: semanticHits[0].matchType || 'semantic_gemini',
@@ -3305,6 +3393,7 @@ module.exports = {
   buildCommunitySearchTerms,
   looksLikeUserChatQuestion,
   resolveCommunityCatalogTopic,
+  resolveParentCommunityFolderTopic,
   withCatalogNavigationFields,
   resolveInheritedCatalogTopicFromRow,
   backgroundFetchDriveCatalog: driveCatalogSync.backgroundFetchDriveCatalogAsync,

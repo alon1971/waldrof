@@ -12766,6 +12766,83 @@
       return merged;
     }
 
+    function resolveParentFolderFromMatch(match, query) {
+      if (!match || typeof match !== 'object') {
+        return { gradeId: '', catalogTopic: '', fileTitle: '' };
+      }
+      const gradeId = String(match.gradeId || match.grade_level || '').trim();
+      const fileTitle = String(match.title || match.displayTitle || match.fileName || match.internalFileName || '').trim();
+      const norm = function (value) { return String(value || '').trim().toLowerCase().replace(/\s+/g, ' '); };
+      const fileNorm = norm(fileTitle);
+      const segments = [];
+      function pushSeg(value) {
+        const cleaned = String(value || '').trim();
+        if (cleaned) segments.push(cleaned);
+      }
+      pushSeg(match.parentCatalogTopic);
+      pushSeg(match.bundleTopic);
+      pushSeg(match.subfolderTopic);
+      if (match.pathLabels) String(match.pathLabels).split(/\s+/).forEach(pushSeg);
+      if (match.drivePath) String(match.drivePath).split('/').forEach(pushSeg);
+      pushSeg(match.catalogTopic);
+      pushSeg(match.topic);
+      const seen = {};
+      const candidates = segments.filter(function (candidate) {
+        const key = norm(candidate);
+        if (!key || seen[key]) return false;
+        seen[key] = true;
+        return true;
+      });
+      const q = String(query || '').trim();
+      let parentTopic = '';
+      if (q) {
+        const qNorm = norm(q);
+        candidates.forEach(function (candidate) {
+          if (parentTopic) return;
+          const candidateNorm = norm(candidate);
+          if (!candidateNorm || (fileNorm && candidateNorm === fileNorm)) return;
+          if (candidateNorm === qNorm
+            || (qNorm.length >= 2 && candidateNorm.indexOf(qNorm) >= 0)
+            || (candidateNorm.length >= 2 && qNorm.indexOf(candidateNorm) >= 0)) {
+            parentTopic = candidate;
+          }
+        });
+      }
+      if (!parentTopic) {
+        candidates.forEach(function (candidate) {
+          if (parentTopic) return;
+          const candidateNorm = norm(candidate);
+          if (!candidateNorm) return;
+          if (fileNorm && candidateNorm === fileNorm) return;
+          parentTopic = candidate;
+        });
+      }
+      if (!parentTopic) {
+        parentTopic = String(match.parentCatalogTopic || match.catalogTopic || match.bundleTopic || match.subfolderTopic || match.topic || '').trim();
+      }
+      return { gradeId: gradeId, catalogTopic: parentTopic, fileTitle: fileTitle };
+    }
+
+    function buildCatalogParentFolderCardHtml(gradeId, catalogTopic, options) {
+      options = options || {};
+      if (!gradeId || !catalogTopic) return '';
+      const gradeLabel = getGradeLabelById(gradeId) || ('כיתה ' + gradeId);
+      const fileTitle = String(options.fileTitle || '').trim();
+      const parentNorm = String(catalogTopic || '').trim().toLowerCase();
+      const fileNorm = fileTitle.toLowerCase();
+      const message = fileTitle && fileNorm && parentNorm && fileNorm !== parentNorm
+        ? ('נמצא במאגר הקהילתי קובץ «' + fileTitle + '» בתוך תיקיית «' + catalogTopic + '» (' + gradeLabel + '). תוכלו לגשת לתיקייה המלאה או להוריד את כל החומרים:')
+        : ('נמצאה במאגר הקהילתי תיקיית «' + catalogTopic + '» (' + gradeLabel + '). תוכלו לגשת לתיקייה או להוריד את כל החומרים:');
+      const accessLabel = 'לגשת ל' + gradeLabel + ' — ' + catalogTopic;
+      const downloadLabel = 'הורדת התיקייה';
+      return '<div class="catalog-folder-brief rounded-2xl border border-sage/35 bg-sage/10 p-4 sm:p-5 mb-4" dir="rtl">' +
+        '<p class="text-sm text-walnut leading-relaxed mb-4">' + escapeHtml(message) + '</p>' +
+        '<div class="flex flex-wrap gap-2">' +
+        '<button type="button" class="touch-btn bg-sage hover:bg-sage-dark text-white text-sm font-semibold px-4 py-2 rounded-lg catalog-brief-access" data-grade="' + escapeHtml(String(gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic)) + '">' + escapeHtml(accessLabel) + '</button>' +
+        '<button type="button" class="touch-btn bg-white border border-gold/40 text-walnut text-sm font-semibold px-4 py-2 rounded-lg catalog-brief-download" data-grade="' + escapeHtml(String(gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic)) + '">' + escapeHtml(downloadLabel) + '</button>' +
+        '</div></div>';
+    }
+
     function buildCatalogFolderBriefHtml(folderBrief) {
       if (!folderBrief || !folderBrief.data || !folderBrief.data.chatReply) return '';
       const reply = folderBrief.data.chatReply;
@@ -12796,7 +12873,7 @@
       });
     }
 
-    async function runCatalogDeepSearch(query) {
+    async function runCatalogDeepSearch(query, searchInput) {
       const q = String(query || '').trim();
       const resultsEl = document.getElementById('catalog-search-results');
       if (!resultsEl || !q) {
@@ -12804,7 +12881,7 @@
           resultsEl.classList.add('hidden');
           resultsEl.innerHTML = '';
         }
-        return;
+        return false;
       }
       if (isCloudConfigured()) {
         try { await loadCommunity(); } catch (e) { /* ignore */ }
@@ -12813,8 +12890,16 @@
       const probed = await probeCommunityTopicMatch(q, catalogState.gradeId || appState.grade || '');
       const matches = probed.matches || [];
       let html = '<h4 class="font-bold text-burgundy mb-3 text-sm">תוצאות חיפוש עבור «' + escapeHtml(q) + '»</h4>';
+      const primary = matches.length ? matches[0] : null;
+      const folderCtx = primary ? resolveParentFolderFromMatch(primary, q) : { gradeId: '', catalogTopic: '', fileTitle: '' };
+      const hasParentFolderCard = Boolean(probed.folderBrief) || Boolean(folderCtx.gradeId && folderCtx.catalogTopic);
+      const hasResults = matches.length > 0 || hasParentFolderCard;
       if (probed.folderBrief) {
         html += buildCatalogFolderBriefHtml(probed.folderBrief);
+      } else if (folderCtx.gradeId && folderCtx.catalogTopic) {
+        html += buildCatalogParentFolderCardHtml(folderCtx.gradeId, folderCtx.catalogTopic, {
+          fileTitle: folderCtx.fileTitle,
+        });
       }
       if (matches.length) {
         html += '<div class="space-y-3 mb-3">' + matches.slice(0, 8).map(function (match) {
@@ -12829,10 +12914,9 @@
             createdAt: match.createdAt || null,
           });
         }).join('') + '</div>';
-        const primary = matches[0];
-        const navGrade = primary.gradeId || primary.grade_level || catalogState.gradeId;
-        const navTopic = primary.catalogTopic || primary.topic;
-        if (navGrade && navTopic) {
+        const navGrade = folderCtx.gradeId || catalogState.gradeId;
+        const navTopic = folderCtx.catalogTopic;
+        if (navGrade && navTopic && !hasParentFolderCard) {
           html += '<button type="button" class="touch-btn text-sm text-sage-dark hover:text-burgundy font-medium catalog-search-open-folder" data-grade="' + escapeHtml(String(navGrade)) + '" data-topic="' + escapeHtml(String(navTopic)) + '"><i class="fa-solid fa-folder-open"></i> פתיחת תיקיית «' + escapeHtml(String(navTopic)) + '»</button>';
         }
       } else if (!probed.folderBrief) {
@@ -12850,6 +12934,16 @@
         }
       });
       showCatalogStatus('', '');
+      if (hasResults && searchInput) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            searchInput.value = '';
+            searchInput.removeAttribute('placeholder');
+            searchInput.setAttribute('placeholder', '');
+          });
+        });
+      }
+      return hasResults;
     }
 
     function bindCatalogSearchBar() {
@@ -12861,10 +12955,11 @@
       input.setAttribute('placeholder', '');
       const submit = function () {
         const q = String(input.value || '').trim();
-        input.value = '';
-        input.removeAttribute('placeholder');
-        input.setAttribute('placeholder', '');
-        if (q) runCatalogDeepSearch(q);
+        if (!q) return;
+        btn.disabled = true;
+        runCatalogDeepSearch(q, input).finally(function () {
+          btn.disabled = false;
+        });
       };
       btn.addEventListener('click', submit);
       input.addEventListener('keydown', function (e) {
