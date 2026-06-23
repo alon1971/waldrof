@@ -4122,11 +4122,8 @@
       </section>
 
       <section id="panel-curriculum" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-curriculum" hidden>
-        <div class="mb-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+        <div class="mb-4">
           <h2 class="app-page-title font-display font-bold text-burgundy" data-i18n="curriculum_title">תכנון תקופה — 15 ימים</h2>
-          <button type="button" id="expand-all" class="touch-btn w-full sm:w-auto text-sm text-sage-dark hover:text-burgundy bg-white/80 border border-gold/30 rounded-xl sm:border-0 sm:bg-transparent font-medium">
-            <i class="fa-solid fa-expand icon-inline"></i> <span data-i18n="expand_all">הרחב את כל הימים</span>
-          </button>
         </div>
         <div id="teacher-drive-curriculum-slot" class="hidden mb-6"></div>
         <div id="daily-planning-content">
@@ -4325,7 +4322,7 @@
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
-  <script src="archive-coerce.js?v=20250622c"></script>
+  <script src="archive-coerce.js?v=20250623a"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -4416,6 +4413,8 @@
     const summaryJobsByKey = {};
     const summaryFailedByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
+    const EXPANSION_REQUEST_TIMEOUT_MS = 130000;
+    var archiveCurriculumHealInFlight = null;
 
     function parseApiCooldownSeconds(message) {
       const match = String(message || '').match(/retry in ([0-9.]+)s/i);
@@ -5994,6 +5993,11 @@
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error(t('search_history_error'));
         }
+        if (isArchiveCurriculumCorrupted(data) && isResearchAvailable()) {
+          healCorruptedArchiveCurriculum().catch(function (healErr) {
+            console.error('[waldrof] archive curriculum auto-heal failed:', healErr);
+          });
+        }
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
         if (isCloudConfigured()) {
@@ -6743,6 +6747,71 @@
       return /^<div class="prose-ai">\s*<\/div>$/i.test(raw);
     }
 
+    function isCorruptedCurriculumField(text) {
+      if (typeof WaldorfArchiveCoerce !== 'undefined' && WaldorfArchiveCoerce.isCurriculumFieldPlaceholder) {
+        return WaldorfArchiveCoerce.isCurriculumFieldPlaceholder(text);
+      }
+      var plain = curriculumFieldPlainText(text);
+      if (!plain) return true;
+      return /^[-–—_.\s]+$/.test(plain);
+    }
+
+    function isCorruptedCurriculumRow(row) {
+      if (!row || typeof row !== 'object') return true;
+      return isCorruptedCurriculumField(row.content) && isCorruptedCurriculumField(row.art);
+    }
+
+    function extractCurriculumRowsFromLessonData(data) {
+      if (!data) return [];
+      var plan = data.blockPlan || data;
+      return extractCurriculumFromPlan(plan, data.blockPlan ? data : { blockPlan: plan });
+    }
+
+    function isArchiveCurriculumCorrupted(data) {
+      var rows = extractCurriculumRowsFromLessonData(data);
+      if (!rows.length) return false;
+      var corrupted = rows.filter(isCorruptedCurriculumRow).length;
+      if (!corrupted) return false;
+      return corrupted >= Math.max(3, Math.ceil(rows.length * 0.5));
+    }
+
+    function hasExpansionResponseContent(data) {
+      var dive = (data && data.pedagogyDeepDive) || (data && data.archiveSummary) || data;
+      if (!dive || typeof dive !== 'object') return false;
+      return Boolean(
+        String(dive.rawContent || '').trim() ||
+        String(dive.summaryHtml || '').trim() ||
+        String(dive.contentHtml || '').trim() ||
+        String(dive.classroomImplementation || '').trim() ||
+        String(dive.essence || '').trim() ||
+        (Array.isArray(dive.practicalSteps) && dive.practicalSteps.length) ||
+        (dive.expansion && typeof dive.expansion === 'object')
+      );
+    }
+
+    function mergeAbortSignals(userSignal, timeoutMs) {
+      var controller = new AbortController();
+      var timedOut = false;
+      var timer = setTimeout(function () {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+      function onAbort() {
+        controller.abort();
+      }
+      if (userSignal) {
+        if (userSignal.aborted) {
+          clearTimeout(timer);
+          controller.abort();
+        } else if (typeof userSignal.addEventListener === 'function') {
+          userSignal.addEventListener('abort', onAbort, { once: true });
+        }
+      }
+      controller.signal._expansionTimedOut = function () { return timedOut; };
+      controller.signal._clearExpansionTimer = function () { clearTimeout(timer); };
+      return controller;
+    }
+
     function mergeBlockPlanCurriculum(blockPlan, dataRoot) {
       if (!blockPlan) return blockPlan;
       var rows = extractCurriculumFromPlan(blockPlan, dataRoot);
@@ -7016,11 +7085,7 @@
       if (!rows || !rows.length) return false;
       return rows.some(function (d) {
         if (!d) return false;
-        return Boolean(
-          coerceCurriculumFieldValue(d.content) ||
-          coerceCurriculumFieldValue(d.art) ||
-          coerceCurriculumFieldValue(d.topic)
-        );
+        return !isCorruptedCurriculumField(d.content) || !isCorruptedCurriculumField(d.art);
       });
     }
 
@@ -8612,6 +8677,7 @@
         var synthesized = buildUnifiedCurriculumSynthesis();
         return hasMeaningfulCurriculumRows(synthesized);
       }
+      if (isArchiveCurriculumCorrupted({ blockPlan: plan })) return false;
       return hasMeaningfulCurriculumRows(rows);
     }
 
@@ -8643,11 +8709,12 @@
       return cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
     }
 
-    async function fetchPhaseCTab(cTab, signal) {
+    async function fetchPhaseCTab(cTab, signal, options) {
       var topicStr = resolveLessonTopic();
       if (!topicStr || !appState.grade) {
         throw new Error(isEnglish() ? 'Grade and topic are required.' : 'נדרשים כיתה ונושא.');
       }
+      var opts = options || {};
       var g = GRADES.find(function (x) { return x.id === appState.grade; });
       var gradeCtx = appState.gradeResearch
         ? JSON.stringify(appState.gradeResearch.gradeInsights || appState.gradeResearch).slice(0, 2000)
@@ -8656,6 +8723,7 @@
         phase: 'phase_c',
         cTab: cTab,
         userInitiated: true,
+        skipCache: opts.skipCache === true,
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
@@ -8671,6 +8739,44 @@
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
       }, { signal: signal });
+    }
+
+    async function healCorruptedArchiveCurriculum() {
+      if (!appState.topic || !appState.grade || !isResearchAvailable()) return false;
+      if (archiveCurriculumHealInFlight) return archiveCurriculumHealInFlight;
+      if (phaseCLoadAbort.curriculum) phaseCLoadAbort.curriculum.abort();
+      var controller = new AbortController();
+      phaseCLoadAbort.curriculum = controller;
+      var healPromise = (async function () {
+        setPhaseCTabLoadingUi('curriculum', true);
+        try {
+          var data = await fetchPhaseCTab('curriculum', controller.signal, { skipCache: true });
+          if (phaseCLoadAbort.curriculum !== controller) return false;
+          var merged = mergePhaseCIntoPlan(data, 'curriculum');
+          if (!merged && !hasMeaningfulCurriculumRows(extractCurriculumRowsFromLessonData({ blockPlan: appState.aiGeneratedPlan }))) {
+            throw new Error(isEnglish()
+              ? 'Curriculum regeneration returned empty rows. Please try topic research again.'
+              : 'יצירת תכנון התקופה מחדש החזירה שורות ריקות. נסו להריץ מחקר נושא שוב.');
+          }
+          appState.lessonFromArchive = false;
+          appState.productTabsRendered.curriculum = false;
+          if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
+            renderProductTabContent('curriculum');
+          }
+          if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+          return true;
+        } finally {
+          if (phaseCLoadAbort.curriculum === controller) phaseCLoadAbort.curriculum = null;
+          setPhaseCTabLoadingUi('curriculum', false);
+          ensurePageScrollUnlocked();
+        }
+      })();
+      archiveCurriculumHealInFlight = healPromise;
+      try {
+        return await healPromise;
+      } finally {
+        if (archiveCurriculumHealInFlight === healPromise) archiveCurriculumHealInFlight = null;
+      }
     }
 
     async function ensurePhaseCTabLoaded(cTab) {
@@ -8766,7 +8872,11 @@
       setPhaseCTabLoadingUi(cTab, true);
 
       try {
-        var data = await fetchPhaseCTab(cTab, controller.signal);
+        var fetchOpts = {};
+        if (cTab === 'curriculum' && isArchiveCurriculumCorrupted({ blockPlan: appState.aiGeneratedPlan })) {
+          fetchOpts.skipCache = true;
+        }
+        var data = await fetchPhaseCTab(cTab, controller.signal, fetchOpts);
         if (phaseCLoadAbort[cTab] !== controller) return;
         var merged = mergePhaseCIntoPlan(data, cTab);
         appState.productTabsRendered[cTab] = false;
@@ -8871,25 +8981,49 @@
       });
     }
 
-    async function fetchBibliographyDeepSummary(source, signal) {
+    async function fetchBibliographyDeepSummary(source, signal, options) {
+      const opts = options || {};
       const raw = source.raw || {};
       const typeMap = { books: 'book', articles: 'article', websites: 'website' };
-      return invokeWaldorfResearch({
-        phase: 'archive_summary',
-        sourceTitle: raw.title || source.label,
-        sourceAuthor: raw.author || raw.publisher || '',
-        sourceType: typeMap[source.category] || 'article',
-        sourceYear: raw.year || '',
-        sourceDescription: raw.detail || raw.description || source.label,
-        gradeLabel: appState.gradeLabel,
-        topic: appState.topic,
-        bibliographyContext: true,
-        noUrlsInstruction: getNoUrlsInstruction(),
-        noLatexInstruction: getNoLatexInstruction(),
-        summaryDepthInstruction: isEnglish()
-          ? 'Produce an exceptionally broad, deep pedagogical summary. Text only — no URLs or links.'
-          : 'הפק תקציר פדגוגי רחב ומעמיק במיוחד. טקסט בלבד — ללא קישורים או URLs.',
-      }, { signal: signal });
+      const timeoutWrap = mergeAbortSignals(signal, EXPANSION_REQUEST_TIMEOUT_MS);
+      const activeSignal = timeoutWrap.signal;
+      try {
+        const data = await invokeWaldorfResearch({
+          phase: 'archive_summary',
+          sourceTitle: raw.title || source.label,
+          sourceAuthor: raw.author || raw.publisher || '',
+          sourceType: typeMap[source.category] || 'article',
+          sourceYear: raw.year || '',
+          sourceDescription: raw.detail || raw.description || source.label,
+          gradeLabel: appState.gradeLabel,
+          topic: appState.topic,
+          bibliographyContext: true,
+          skipCache: opts.skipCache === true,
+          noUrlsInstruction: getNoUrlsInstruction(),
+          noLatexInstruction: getNoLatexInstruction(),
+          summaryDepthInstruction: isEnglish()
+            ? 'Produce an exceptionally broad, deep pedagogical summary. Text only — no URLs or links.'
+            : 'הפק תקציר פדגוגי רחב ומעמיק במיוחד. טקסט בלבד — ללא קישורים או URLs.',
+        }, { signal: activeSignal });
+        if (!hasExpansionResponseContent(data)) {
+          if (!opts.skipCache) {
+            return fetchBibliographyDeepSummary(source, signal, { skipCache: true });
+          }
+          throw new Error(isEnglish()
+            ? 'Expansion research returned no content. Please try again.'
+            : 'מחקר ההרחבה לא החזיר תוכן. נסו שוב.');
+        }
+        return data;
+      } catch (err) {
+        if (activeSignal.aborted && typeof activeSignal._expansionTimedOut === 'function' && activeSignal._expansionTimedOut()) {
+          throw new Error(isEnglish()
+            ? 'Expansion research timed out. Please try again.'
+            : 'מחקר ההרחבה ארך זמן רב מדי. נסו שוב.');
+        }
+        throw err;
+      } finally {
+        if (typeof activeSignal._clearExpansionTimer === 'function') activeSignal._clearExpansionTimer();
+      }
     }
 
     function getBibExpandPanel(sourceId) {
@@ -9115,6 +9249,11 @@
       }
 
       const promise = fetchBibliographyDeepSummary(source, controller.signal).then(function (data) {
+        if (!hasExpansionResponseContent(data)) {
+          throw new Error(isEnglish()
+            ? 'Expansion research returned no content. Please try again.'
+            : 'מחקר ההרחבה לא החזיר תוכן. נסו שוב.');
+        }
         const summary = (data && data.archiveSummary) || data;
         Object.keys(appState.bibliographyRegistry).forEach(function (sid) {
           const src = appState.bibliographyRegistry[sid];
@@ -9125,7 +9264,16 @@
         refreshBibliographyPanelsForCacheKey(cacheKey, summary);
         return summary;
       }).catch(function (e) {
-        if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) throw e;
+        if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) {
+          if (summaryPanelOpenState.bib[cacheKey]) {
+            const errMsg = formatExpansionErrorMessage(isEnglish()
+              ? 'Expansion loading was interrupted. Click the button again to retry.'
+              : 'טעינת ההרחבה הופסקה. לחצו שוב על הכפתור לניסיון חוזר.');
+            summaryFailedByKey[cacheKey] = errMsg;
+            refreshBibliographyPanelsForCacheKey(cacheKey, null, errMsg);
+          }
+          throw e;
+        }
         const errMsg = formatExpansionErrorMessage(e.message || String(e));
         summaryFailedByKey[cacheKey] = errMsg;
         refreshBibliographyPanelsForCacheKey(cacheKey, null, errMsg);
@@ -9159,12 +9307,26 @@
       }
 
       const promise = fetchPedagogyDeepDive(source, controller.signal).then(function (data) {
+        if (!hasExpansionResponseContent(data)) {
+          throw new Error(isEnglish()
+            ? 'Expansion research returned no content. Please try again.'
+            : 'מחקר ההרחבה לא החזיר תוכן. נסו שוב.');
+        }
         const summary = (data && data.pedagogyDeepDive) ? data : ((data && data.archiveSummary) ? data : data);
         appState.pedagogySummaries[sourceId] = summary;
         refreshPedagogyPanelsForCacheKey(cacheKey, summary);
         return summary;
       }).catch(function (e) {
-        if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) throw e;
+        if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) {
+          if (summaryPanelOpenState.ped[cacheKey]) {
+            const errMsg = formatExpansionErrorMessage(isEnglish()
+              ? 'Expansion loading was interrupted. Click the button again to retry.'
+              : 'טעינת ההרחבה הופסקה. לחצו שוב על הכפתור לניסיון חוזר.');
+            summaryFailedByKey[cacheKey] = errMsg;
+            refreshPedagogyPanelsForCacheKey(cacheKey, null, errMsg);
+          }
+          throw e;
+        }
         const errMsg = formatExpansionErrorMessage(e.message || String(e));
         summaryFailedByKey[cacheKey] = errMsg;
         refreshPedagogyPanelsForCacheKey(cacheKey, null, errMsg);
@@ -9483,36 +9645,62 @@
       }, { signal: signal });
     }
 
-    async function fetchPedagogyDeepDive(source, signal) {
-      if (source && source.subtype === 'enrich') {
-        return fetchCurriculumDayEnrichment(source, signal);
+    async function fetchPedagogyDeepDive(source, signal, options) {
+      const opts = options || {};
+      const timeoutWrap = mergeAbortSignals(signal, EXPANSION_REQUEST_TIMEOUT_MS);
+      const activeSignal = timeoutWrap.signal;
+      try {
+        let data;
+        if (source && source.subtype === 'enrich') {
+          data = await fetchCurriculumDayEnrichment(source, activeSignal);
+        } else {
+          const g = GRADES.find(function (x) { return x.id === appState.grade; });
+          const isAgeScope = source && source.type === 'grade';
+          const expansionScope = isAgeScope ? 'age' : 'topic';
+          const payload = {
+            phase: 'pedagogy_deep_dive',
+            expansionScope: expansionScope,
+            expansionItemId: source.id || '',
+            activityTitle: source.title || source.heading || '',
+            activityPreview: source.preview || '',
+            activityType: source.type || 'inspiration',
+            activitySubtype: source.subtype || '',
+            activityContext: source.context || '',
+            dayNumber: source.day || '',
+            gradeId: appState.grade,
+            gradeLabel: appState.gradeLabel,
+            age: g ? g.age : '',
+            currentGrade: appState.grade,
+            gradeLockInstruction: getGradeLockInstruction(),
+            noUrlsInstruction: getNoUrlsInstruction(),
+            noLatexInstruction: getNoLatexInstruction(),
+            expandInstruction: getOnDemandExpansionInstruction(expansionScope),
+            skipCache: opts.skipCache === true,
+          };
+          if (!isAgeScope) {
+            payload.topic = appState.topic;
+          }
+          data = await invokeWaldorfResearch(payload, { signal: activeSignal });
+        }
+        if (!hasExpansionResponseContent(data)) {
+          if (!opts.skipCache) {
+            return fetchPedagogyDeepDive(source, signal, { skipCache: true });
+          }
+          throw new Error(isEnglish()
+            ? 'Expansion research returned no content. Please try again.'
+            : 'מחקר ההרחבה לא החזיר תוכן. נסו שוב.');
+        }
+        return data;
+      } catch (err) {
+        if (activeSignal.aborted && typeof activeSignal._expansionTimedOut === 'function' && activeSignal._expansionTimedOut()) {
+          throw new Error(isEnglish()
+            ? 'Expansion research timed out. Please try again.'
+            : 'מחקר ההרחבה ארך זמן רב מדי. נסו שוב.');
+        }
+        throw err;
+      } finally {
+        if (typeof activeSignal._clearExpansionTimer === 'function') activeSignal._clearExpansionTimer();
       }
-      const g = GRADES.find(function (x) { return x.id === appState.grade; });
-      const isAgeScope = source && source.type === 'grade';
-      const expansionScope = isAgeScope ? 'age' : 'topic';
-      const payload = {
-        phase: 'pedagogy_deep_dive',
-        expansionScope: expansionScope,
-        expansionItemId: source.id || '',
-        activityTitle: source.title || source.heading || '',
-        activityPreview: source.preview || '',
-        activityType: source.type || 'inspiration',
-        activitySubtype: source.subtype || '',
-        activityContext: source.context || '',
-        dayNumber: source.day || '',
-        gradeId: appState.grade,
-        gradeLabel: appState.gradeLabel,
-        age: g ? g.age : '',
-        currentGrade: appState.grade,
-        gradeLockInstruction: getGradeLockInstruction(),
-        noUrlsInstruction: getNoUrlsInstruction(),
-        noLatexInstruction: getNoLatexInstruction(),
-        expandInstruction: getOnDemandExpansionInstruction(expansionScope),
-      };
-      if (!isAgeScope) {
-        payload.topic = appState.topic;
-      }
-      return invokeWaldorfResearch(payload, { signal: signal });
     }
 
     function stripSourcePrefixLine(line) {
@@ -15106,6 +15294,11 @@
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         }
+        if (isArchiveCurriculumCorrupted(data) && isResearchAvailable()) {
+          healCorruptedArchiveCurriculum().catch(function (healErr) {
+            console.error('[waldrof] archive curriculum auto-heal failed:', healErr);
+          });
+        }
 
         const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);
         appState.topicCommunityMatches = resolvedCommunity;
@@ -16082,7 +16275,7 @@
 
     function renderCurriculumDayText(text, topic, fieldKind) {
       var raw = coerceCurriculumFieldValue(text).trim();
-      if (!raw || isCurriculumDayTextEmpty(raw)) {
+      if (!raw || isCurriculumDayTextEmpty(raw) || isCorruptedCurriculumField(raw)) {
         return '<div class="curriculum-day-cell"></div>';
       }
       if (looksLikeAiHtml(raw) || raw.indexOf('prose-ai') >= 0 || raw.indexOf('<') >= 0) {
@@ -17920,22 +18113,6 @@
         b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
       });
       document.getElementById('btn-archive-search').addEventListener('click', runAnthroArchiveSearch);
-      document.getElementById('expand-all').addEventListener('click', function () {
-        ensureCurriculumUiState();
-        appState.curriculumUiState.expandedDays = [];
-        document.querySelectorAll('.curriculum-card').forEach(function (card) {
-          var detail = card.querySelector('.curriculum-card-detail');
-          if (detail) detail.classList.remove('hidden');
-          var idx = parseInt(card.getAttribute('data-i'), 10);
-          if (!isNaN(idx) && appState.curriculumUiState.expandedDays.indexOf(idx) < 0) {
-            appState.curriculumUiState.expandedDays.push(idx);
-          }
-        });
-        document.querySelectorAll('.card-chevron').forEach(function (icon) {
-          icon.classList.remove('fa-chevron-down');
-          icon.classList.add('fa-chevron-up');
-        });
-      });
       bindWizardNavClick(document.getElementById('btn-restart'), function () { startNewResearch(); });
 
       initGlobalEnterNavigation();

@@ -634,6 +634,7 @@
     coerceCurriculumRows: coerceCurriculumRows,
     coerceArchiveLessonResultData: coerceArchiveLessonResultData,
     extractCurriculumFromArchivePlan: extractCurriculumFromArchivePlan,
+    isCurriculumFieldPlaceholder: isCurriculumArtPlaceholder,
     isMeaningfulInspiration: isMeaningfulInspiration,
     liftArchivePhaseCFields: liftArchivePhaseCFields,
     looksLikeCurriculumText: looksLikeCurriculumText,
