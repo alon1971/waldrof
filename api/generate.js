@@ -2097,6 +2097,22 @@ function sanitizeGradePhaseOutput(data) {
   return data;
 }
 
+function coerceServerCurriculumFieldValue(val) {
+  if (val == null || val === '') return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (Array.isArray(val)) {
+    return val.map(coerceServerCurriculumFieldValue).filter(Boolean).join('\n\n');
+  }
+  if (typeof val === 'object') {
+    return coerceServerCurriculumFieldValue(
+      val.content || val.text || val.body || val.html || val.story || val.detail ||
+      val.preview || val.value || val.narrative || val.lesson || val.lessonContent || ''
+    );
+  }
+  return String(val);
+}
+
 function coerceServerCurriculumRows(raw) {
   return archiveCoerce.coerceCurriculumRows(raw);
 }
@@ -2205,19 +2221,19 @@ function normalizePhaseCCurriculumRow(row, index, rawFallback) {
   if (typeof row !== 'object') return null;
   let day = parseInt(row.day || row.dayNumber || row.n || row.number || row.index, 10);
   if (!day || isNaN(day)) day = index + 1;
-  const topic = sanitizePedagogicalText(String(
+  const topic = String(
     row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
-  ).trim());
-  const content = sanitizePedagogicalText(String(
+  ).trim();
+  const content = coerceServerCurriculumFieldValue(
     row.content || row.story || row.lesson || row.lessonContent ||
     row.text || row.body || row.description || row.narrative ||
     row['תוכן וסיפור'] || row.tochen || row.mainLesson || ''
-  ).trim());
-  const art = sanitizePedagogicalText(String(
+  ).trim();
+  const art = coerceServerCurriculumFieldValue(
     row.art || row.artActivity || row.craft || row.artAndCraft ||
     row.handwork || row.artCraft || row['אמנות ומעשה'] || row.amanut || ''
-  ).trim());
-  const hint = sanitizePedagogicalText(String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim());
+  ).trim();
+  const hint = String(row.hint || row.journey || row.note || row.notes || row.pedagogyHint || '').trim();
   if (!topic && !content && !art && !hint) {
     if (rawFallback) {
       return { day: day, topic: 'יום ' + day, content: rawFallback, art: '', hint: '' };
