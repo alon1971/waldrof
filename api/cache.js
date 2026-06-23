@@ -3225,7 +3225,7 @@ async function probeCommunityGlobalSearch(query, options) {
       const catalog = buildSemanticCatalogEntries(deepRows.materialRows, deepRows.kbRows);
       if (catalog.length) {
         const semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(userMessage, catalog, {
-          geminiOnly: false,
+          geminiOnly: true,
         });
         if (semanticHits.length) {
           const semanticResult = {

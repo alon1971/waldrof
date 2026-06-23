@@ -153,10 +153,10 @@ async function executeSearchHistory(req) {
     const probe = await cacheDb.probeCommunityGlobalSearch(query, {
       topic: topic || null,
       userMessage: userMessage || null,
-      includeFolderBrief: true,
+      includeFolderBrief: false,
       phase: 'topic',
       limit: 8,
-      semanticFirst: Boolean(body && body.repositorySearch),
+      semanticFirst: true,
     });
     return {
       ok: true,
