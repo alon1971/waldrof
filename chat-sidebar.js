@@ -98,7 +98,25 @@
       /^לא מצאתי תוכן תואם במאגר הקהילתי, אך הנה הצעה פדגוגית כללית עבורך:\s*/u,
       ''
     );
+    result = result.replace(
+      /^לא\s+מצאתי\s+תוכן\s+תואם\s+במאגר[^.!\n]*[.!]\s*/iu,
+      ''
+    );
+    result = result.replace(
+      /^לא\s+נמצאו?\s+חומרים?\s+תואמים?\s+במאגר[^.!\n]*[.!]\s*/iu,
+      ''
+    );
     return result.replace(/^\s+/, '').trim();
+  }
+
+  var CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE =
+    'ממליץ לנסות ולחפש במאגר הקהילתי, יתכן ויש שם חומר רלוונטי לנושא.';
+
+  function appendCommunitySearchRecommendation(text) {
+    var raw = String(text || '').trim();
+    if (!raw) return CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE;
+    if (raw.indexOf(CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE) >= 0) return raw;
+    return raw + '\n\n' + CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE;
   }
 
   function normalizeMessages(messages) {
@@ -930,19 +948,15 @@
       var reply = data.chatReply || {};
       var answer = reply.answer || stripHtml(reply.answerHtml) || reply.answerHtml || '';
       answer = stripRawUrlsFromChatText(answer);
+      answer = stripCommunityGreetingFromChatText(answer);
+      answer = appendCommunitySearchRecommendation(answer);
       var fromCache = Boolean(result && result._fromCache);
       var meta = (result && result._meta) || {};
       var enriched = Boolean(meta.priorCacheEnriched || (reply && reply.enrichedFromPrior));
-      var isExpansionReply = meta.chatPromptMode === 'expansion' || Boolean(meta.skipCommunityAlert);
-      var isContinuationReply = meta.chatContinuation === true || meta.isFirstChatTurn === false;
-      if (isContinuationReply) {
-        answer = stripCommunityGreetingFromChatText(answer);
-      }
       if (reply.answerHtml) {
         reply.answerHtml = stripRawUrlsFromChatText(reply.answerHtml);
-        if (isExpansionReply || isContinuationReply) {
-          reply.answerHtml = stripCommunityGreetingFromChatText(reply.answerHtml);
-        }
+        reply.answerHtml = stripCommunityGreetingFromChatText(reply.answerHtml);
+        reply.answerHtml = appendCommunitySearchRecommendation(reply.answerHtml);
       }
       if (meta.ragContext) state.ragContext = meta.ragContext;
       if (Array.isArray(meta.ragChunkIds)) state.ragChunkIds = meta.ragChunkIds;

@@ -12748,7 +12748,7 @@
         try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
       }
       if (token) headers.Authorization = 'Bearer ' + token;
-      const body = { action: 'probe_community', topic: q, userMessage: q, gradeId: gradeId || appState.grade || '' };
+      const body = { action: 'probe_community', topic: q, userMessage: q, globalScan: true };
       try {
         const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
         const bodyText = await res.text();
@@ -12877,7 +12877,11 @@
       const btn = document.getElementById('catalog-search-btn');
       if (!input || !btn || input.dataset.bound) return;
       input.dataset.bound = '1';
-      const submit = function () { runCatalogDeepSearch(input.value); };
+      const submit = function () {
+        const q = String(input.value || '').trim();
+        input.value = '';
+        if (q) runCatalogDeepSearch(q);
+      };
       btn.addEventListener('click', submit);
       input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {

@@ -21,6 +21,9 @@ const {
 const CHAT_NO_COMMUNITY_MATCH_OPENING_HE =
   'לא מצאתי תוכן תואם במאגר הקהילתי, אך הנה הצעה פדגוגית כללית עבורך:';
 
+const CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE =
+  'ממליץ לנסות ולחפש במאגר הקהילתי, יתכן ויש שם חומר רלוונטי לנושא.';
+
 const JSON_ONLY_INSTRUCTION =
   'Return ONLY the raw, valid JSON object matching the requested schema. ' +
   'Do not include any markdown formatting, do not wrap the response in ```json ... ``` blocks, ' +
@@ -53,11 +56,13 @@ const CHAT_NO_RAW_URLS_INSTRUCTION =
   '=== END CHAT — NO RAW URLS ===\n';
 
 const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
-  '\n=== PEDAGOGICAL CHAT — COMMUNITY ARCHIVE FIRST → GEMINI KNOWLEDGE BASE (MANDATORY) ===\n' +
+  '\n=== PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE (MANDATORY) ===\n' +
   'This chat pipeline is DECOUPLED from live web search. Do NOT perform or simulate Perplexity, Sonar, or any internet search.\n' +
-  '0. COMMUNITY ARCHIVE FIRST: Review COMMUNITY MATERIALS DATABASE in the user message.\n' +
-  '1. GEMINI PEDAGOGICAL KNOWLEDGE BASE (fallback): Expert Waldorf educational consultant.\n' +
-  'NO COMMUNITY MATCH: Open with «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»\n' +
+  'Answer as an expert Waldorf educational consultant using your native pedagogical knowledge base.\n' +
+  'NEVER open with database absence apologies («לא מצאתי תוכן תואם במאגר…») or archive status commentary.\n' +
+  'Jump directly into warm, practical Hebrew pedagogical guidance.\n' +
+  'End every reply with this exact closing sentence on its own line:\n' +
+  '«' + CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE + '»\n' +
   '=== END PEDAGOGICAL CHAT ===\n';
 
 const CHAT_EXPANSION_MODE_INSTRUCTION =
@@ -73,8 +78,8 @@ const CHAT_EXPANSION_MODE_INSTRUCTION =
 const CHAT_ONCE_PER_CONVERSATION_RULE =
   '\n=== CHAT — ONCE-PER-CONVERSATION ARCHIVE NOTICE (FIRST REPLY ONLY) ===\n' +
   'This is the FIRST assistant reply in this chat session.\n' +
-  'You MAY mention once that content was retrieved from the community archive, use a brief community/catalog greeting, ' +
-  'or open with the no-match sentence when applicable — ONLY in this first reply.\n' +
+  'You MAY mention once that content was retrieved from the community archive or use a brief community/catalog greeting — ONLY in this first reply.\n' +
+  'NEVER open with database absence apologies or «לא מצאתי תוכן תואם במאגר…» phrasing.\n' +
   '=== END CHAT — ONCE-PER-CONVERSATION ARCHIVE NOTICE ===\n';
 
 const CHAT_CONTINUATION_NO_ARCHIVE_INSTRUCTION =
@@ -82,8 +87,8 @@ const CHAT_CONTINUATION_NO_ARCHIVE_INSTRUCTION =
   'This is NOT the first reply in this chat session. The teacher already received any archive or community greetings.\n' +
   'STRICTLY FORBIDDEN in this reply:\n' +
   '- Repeating that the topic is in the archive, community database, מאגר, or cache\n' +
-  '- Programmatic celebration openings («הרווחת!», «מצאנו במאגר», catalog redirects, «' +
-  CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»)\n' +
+  '- Programmatic celebration openings («הרווחת!», «מצאנו במאגר», catalog redirects)\n' +
+  '- Database absence apologies («לא מצאתי תוכן תואם במאגר הקהילתי…»)\n' +
   '- Referencing database states, match counts, vector search, Supabase, or retrieval pipeline status\n' +
   '- Administrative intros or meta-commentary about where data came from\n' +
   'Jump DIRECTLY into the requested pedagogical content. Maintain clean, professional, practical Hebrew prose.\n' +
@@ -443,8 +448,23 @@ function stripCommunityGreetingFromChatText(text) {
     new RegExp('^\\s*' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'u'),
     ''
   );
+  result = result.replace(
+    /^לא\s+מצאתי\s+תוכן\s+תואם\s+במאגר[^.!\n]*[.!]\s*/iu,
+    ''
+  );
+  result = result.replace(
+    /^לא\s+נמצאו?\s+חומרים?\s+תואמים?\s+במאגר[^.!\n]*[.!]\s*/iu,
+    ''
+  );
 
   return result.replace(/^\s+/, '').trim();
+}
+
+function appendCommunitySearchRecommendation(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE;
+  if (raw.indexOf(CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE) >= 0) return raw;
+  return raw + '\n\n' + CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE;
 }
 
 function sanitizeChatReplyPayload(data, options) {
@@ -452,18 +472,18 @@ function sanitizeChatReplyPayload(data, options) {
   if (!data || !data.chatReply || typeof data.chatReply !== 'object') return data;
 
   const stripGreeting = Boolean(
-    opts.expansionRequest || opts.stripCommunityGreeting || opts.chatContinuation
+    opts.expansionRequest || opts.stripCommunityGreeting || opts.chatContinuation || opts.stripArchiveIntro !== false
   );
 
   if (typeof data.chatReply.answer === 'string') {
     let answer = stripRawUrlsFromChatText(data.chatReply.answer);
     if (stripGreeting) answer = stripCommunityGreetingFromChatText(answer);
-    data.chatReply.answer = answer;
+    data.chatReply.answer = appendCommunitySearchRecommendation(answer);
   }
   if (typeof data.chatReply.answerHtml === 'string') {
     let answerHtml = stripRawUrlsFromChatText(data.chatReply.answerHtml);
     if (stripGreeting) answerHtml = stripCommunityGreetingFromChatText(answerHtml);
-    data.chatReply.answerHtml = answerHtml;
+    data.chatReply.answerHtml = appendCommunitySearchRecommendation(answerHtml);
   }
 
   if (opts.expansionRequest || opts.chatContinuation) {
@@ -493,6 +513,7 @@ async function fetchPedagogicalChat(body, userPrompt, extraSystem) {
   const sanitizeOpts = {
     expansionRequest: expansionRequest,
     chatContinuation: chatContinuation,
+    stripArchiveIntro: true,
   };
 
   if (gradeDecoupled) {
@@ -574,6 +595,7 @@ function missingChatApiKeyError() {
 }
 
 module.exports = {
+  CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE,
   CHAT_STRICT_PROMPT_ISOLATION_INSTRUCTION,
   callGeminiV1,
   clearCommunityArchiveContextForExpansion,
@@ -588,6 +610,7 @@ module.exports = {
   resolveChatApiKey,
   resolveChatPromptMode,
   shouldTreatChatAsPedagogicalExpansion,
+  appendCommunitySearchRecommendation,
   stripCommunityGreetingFromChatText,
   stripRawUrlsFromChatText,
 };

@@ -216,24 +216,15 @@ const CHAT_NO_COMMUNITY_MATCH_OPENING_HE =
   'לא מצאתי תוכן תואם במאגר הקהילתי, אך הנה הצעה פדגוגית כללית עבורך:';
 
 const PEDAGOGICAL_CHAT_GROUNDING_INSTRUCTION =
-  '\n=== PEDAGOGICAL CHAT — COMMUNITY ARCHIVE FIRST → GEMINI KNOWLEDGE BASE (MANDATORY) ===\n' +
+  '\n=== PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE (MANDATORY) ===\n' +
   'You are the Pedagogical Chat Assistant for Waldorf / Steiner-Waldorf teachers — a supportive, highly accurate pedagogical peer.\n' +
   'This chat pipeline is DECOUPLED from live web search. Do NOT perform or simulate Perplexity, Sonar, or any internet search.\n' +
-  'RESEARCH STRATEGY (every question — strict order):\n' +
-  '0. COMMUNITY ARCHIVE FIRST: Review the COMMUNITY MATERIALS DATABASE and SUPABASE COMMUNITY VECTOR SEARCH blocks in the user message. ' +
-  'They list titles, subjects (topics), and descriptions from community_materials / community_knowledge_base (Supabase). ' +
-  'When matches exist, open with the mandatory celebration line, guide the teacher to the exact archive location (grade → subject folder in the community catalog). ' +
-  'Do NOT paste raw URLs — the UI handles file navigation separately.\n' +
-  '1. GEMINI PEDAGOGICAL KNOWLEDGE BASE (fallback when no community archive match): Act as an expert educational consultant. ' +
-  'Draw on your native large-scale knowledge of Waldorf/Steiner pedagogy to give practical answers, deep insights, and recommendations for relevant books, essays, and articles.\n' +
-  '2. Supplement with optional lesson context from the user message when relevant.\n' +
-  'ANTI-HALLUCINATION:\n' +
-  'NEVER fabricate community file names, archive excerpts, Steiner quotes, or GA citations when no match exists in the provided Supabase context.\n' +
-  'NO COMMUNITY MATCH:\n' +
-  'Open verbatim with: «' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '» — then offer rich, practical Waldorf pedagogical guidance from your knowledge base.\n' +
+  'Answer from your native Waldorf pedagogical knowledge base with practical insights and book/article recommendations.\n' +
+  'NEVER open with database absence apologies or archive status commentary.\n' +
+  'End every reply with: «' + chatApi.CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE + '»\n' +
   'NEVER fabricate **bold** topic headers, fake archive sections, or [1][2] citations to simulate missing database content.\n' +
   'TONE: Warm, professional, grounded in Waldorf pedagogy. Practical for classroom teachers.\n' +
-  '=== END PEDAGOGICAL CHAT — COMMUNITY ARCHIVE FIRST → GEMINI KNOWLEDGE BASE ===\n';
+  '=== END PEDAGOGICAL CHAT — GEMINI KNOWLEDGE BASE ===\n';
 
 const COMMUNITY_FIRST_CHAT_INSTRUCTION =
   '\n=== COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING (MANDATORY WHEN MATCHES EXIST) ===\n' +
@@ -243,7 +234,7 @@ const COMMUNITY_FIRST_CHAT_INSTRUCTION =
   '«[שם פרטי], הרווחת! מישהו מהקהילה העלה למאגר הקהילתי ל[כיתה] «[שם הקובץ]». אתה יכול להיכנס למאגר הקהילתי באתר, תחת [כיתה] כדי לצפות בקובץ הנוכחי.»\n' +
   'Do NOT paste raw URLs — refer to grade and subject folder in the community catalog only.\n' +
   'When NO community matches are listed, do NOT invent a celebration opening. ' +
-  'Start with the mandatory no-match Hebrew sentence from CHAT — STRICT GROUNDING, then continue with general Waldorf guidance.\n' +
+  'Jump directly into practical Waldorf guidance — no database absence apologies.\n' +
   '=== END COMMUNITY FIRST — PEDAGOGICAL CHAT OPENING ===\n';
 
 const CHAT_JSON_OUTPUT_INSTRUCTION =
@@ -264,13 +255,10 @@ const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
   '(such as **נושא**, **מקור**, **המלצה**, numbered [1][2] markers, footnotes, or bibliography-style headings) ' +
   'as placeholders for missing data when Supabase vector search and COMMUNITY MATERIALS DATABASE return no direct matches for the user\'s question.\n' +
   'FORBIDDEN: pretending a structured list or bold topic line came from the community archive when it did not.\n' +
-  'When the community database context is empty OR lacks specific matches for the user\'s query ' +
-  '(COMMUNITY MATERIALS DATABASE, community_vector_search, SHARED COMMUNITY ARCHIVE, HYBRID SEARCH CONTEXT), ' +
-  'you MUST open your Hebrew reply with this exact sentence verbatim:\n' +
-  '«' + CHAT_NO_COMMUNITY_MATCH_OPENING_HE + '»\n' +
-  'Then continue with a warm, practical, general Waldorf/Steiner pedagogical suggestion from your pedagogical knowledge base.\n' +
-  'Do NOT invent community file names, teacher uploads, or archive excerpts. You may use lesson context and your knowledge base — but never fabricate citation numbers or fake bold source blocks.\n' +
-  'When verified community matches DO exist in the provided blocks, use the mandatory community celebration opening instead — never the no-match sentence above.\n' +
+  'FORBIDDEN: opening with database absence apologies («לא מצאתי תוכן תואם במאגר הקהילתי…» or similar).\n' +
+  'When the community database context is empty OR lacks specific matches, jump directly into warm, practical Waldorf/Steiner pedagogical guidance from your knowledge base.\n' +
+  'End every reply with: «' + chatApi.CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE + '»\n' +
+  'When verified community matches DO exist in the provided blocks, use the mandatory community celebration opening instead.\n' +
   '=== END CHAT — STRICT GROUNDING ===\n';
 
 const SOURCES_CITATION_INSTRUCTION =
@@ -1111,7 +1099,8 @@ function buildIsolatedChatUserPrompt(body) {
     '1. NEVER use Perplexity, Sonar, live web search, or community archive lookups in this chat pipeline.\n' +
     '2. Stay 100% loyal to the teacher question — no context bleeding from other grades or lesson screens.\n' +
     '3. NEVER fabricate Steiner quotes, GA citations, doctrines, **bold** archive headings, or [1][2] markers.\n' +
-    '4. Give a full, warm, practical Hebrew answer (2–6 paragraphs).\n' +
+    '4. Give a full, warm, practical Hebrew answer (2–6 paragraphs) — no database absence apologies at the start.\n' +
+    '5. End with: «' + chatApi.CHAT_COMMUNITY_SEARCH_RECOMMENDATION_HE + '»\n' +
     CHAT_JSON_OUTPUT_INSTRUCTION +
     'Return ONLY: { "text": "<your full Hebrew answer here>" } — no ```json fences, no preamble.'
   );
@@ -3049,41 +3038,12 @@ async function probeGlobalCommunityForChat(body) {
     return { matches: [], count: 0, query: '', matchMethod: 'none', scope: 'global' };
   }
 
-  const baseOpts = {
-    query: userMsg,
-    userMessage: userMsg,
-    globalScan: true,
-    semanticFallback: true,
-    globalSemantic: true,
-    recursiveDeepScan: true,
-    includeFolderBrief: false,
-    limit: 8,
-  };
-
   try {
-    let result = await cacheDb.findCommunityMaterials(baseOpts);
-
-    if (!result.count) {
-      const terms = cacheDb.buildCommunitySearchTerms(userMsg);
-      for (let i = 0; i < terms.length; i++) {
-        const term = terms[i];
-        if (!term || term.length < 2) continue;
-        const termProbe = await cacheDb.findCommunityMaterials({
-          query: term,
-          userMessage: userMsg,
-          globalScan: true,
-          semanticFallback: true,
-          globalSemantic: true,
-          recursiveDeepScan: true,
-          includeFolderBrief: false,
-          limit: 8,
-        });
-        if (termProbe.count > 0) {
-          result = termProbe;
-          break;
-        }
-      }
-    }
+    const result = await cacheDb.probeCommunityGlobalSearch(userMsg, {
+      userMessage: userMsg,
+      includeFolderBrief: false,
+      limit: 8,
+    });
 
     if (result.count > 0 && result.matchMethod) {
       console.log('[chat] global community match via', result.matchMethod, '—', result.count, 'hit(s)');
@@ -3727,20 +3687,15 @@ async function executeGenerate(body, apiKey, requestContext) {
 
   if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {
     data.chatReply = cacheDb.sanitizeForJsonStorage(data.chatReply);
-    const isChatExpansion = chatApi.shouldTreatChatAsPedagogicalExpansion(body);
-    const chatContinuation = chatApi.isChatContinuationTurn(body);
-    const stripArchiveIntro = isChatExpansion || chatContinuation;
     if (typeof data.chatReply.answer === 'string') {
       data.chatReply.answer = chatApi.stripRawUrlsFromChatText(data.chatReply.answer);
-      if (stripArchiveIntro) {
-        data.chatReply.answer = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answer);
-      }
+      data.chatReply.answer = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answer);
+      data.chatReply.answer = chatApi.appendCommunitySearchRecommendation(data.chatReply.answer);
     }
     if (typeof data.chatReply.answerHtml === 'string') {
       data.chatReply.answerHtml = chatApi.stripRawUrlsFromChatText(data.chatReply.answerHtml);
-      if (stripArchiveIntro) {
-        data.chatReply.answerHtml = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answerHtml);
-      }
+      data.chatReply.answerHtml = chatApi.stripCommunityGreetingFromChatText(data.chatReply.answerHtml);
+      data.chatReply.answerHtml = chatApi.appendCommunitySearchRecommendation(data.chatReply.answerHtml);
     }
   }
 

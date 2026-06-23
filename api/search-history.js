@@ -144,22 +144,15 @@ async function executeSearchHistory(req) {
   if (action === 'probe_community') {
     const topic = String((body && body.topic) || '').trim();
     const userMessage = String((body && body.userMessage) || '').trim();
-    const gradeId = String((body && (body.gradeId || body.currentGrade)) || '').trim();
     const query = userMessage || topic;
     if (!query) {
       const err = new Error('חסר נושא או שאלה לבדיקת מאגר קהילתי');
       err.statusCode = 400;
       throw err;
     }
-    const probe = await cacheDb.findCommunityMaterials({
-      query: query,
+    const probe = await cacheDb.probeCommunityGlobalSearch(query, {
       topic: topic || null,
       userMessage: userMessage || null,
-      gradeId: gradeId || null,
-      globalScan: !gradeId,
-      globalSemantic: !gradeId,
-      semanticFallback: true,
-      recursiveDeepScan: true,
       includeFolderBrief: true,
       phase: 'topic',
       limit: 8,

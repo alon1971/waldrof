@@ -3165,7 +3165,14 @@ async function findCommunityMaterials(options) {
 
   if (!matches.length && opts.semanticFallback !== false && semanticQuery && (gradeId || opts.globalSemantic)) {
     try {
-      const catalog = buildSemanticCatalogEntries(materialRows, kbRows);
+      let semanticMaterialRows = materialRows;
+      let semanticKbRows = kbRows;
+      if (opts.globalSemantic || !semanticMaterialRows.length) {
+        const globalRows = await recursiveDeepScanCommunityRows('');
+        semanticMaterialRows = globalRows.materialRows;
+        semanticKbRows = globalRows.kbRows;
+      }
+      const catalog = buildSemanticCatalogEntries(semanticMaterialRows, semanticKbRows);
       if (catalog.length) {
         const semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(semanticQuery, catalog);
         if (semanticHits.length) {
@@ -3185,6 +3192,48 @@ async function findCommunityMaterials(options) {
     matchMethod: matches.length ? matchMethod : 'none',
   };
   return attachCommunityFolderBriefToResult(result, opts);
+}
+
+/**
+ * Global community probe — same hybrid keyword + semantic path as pedagogical chat.
+ * Ignores UI grade/topic scope so partial terms and synonyms (e.g. אודיסאוס → מסעות אודיסאוס) resolve.
+ */
+async function probeCommunityGlobalSearch(query, options) {
+  const opts = options || {};
+  const userMessage = String(opts.userMessage || query || '').trim();
+  if (!userMessage) {
+    return { matches: [], count: 0, query: '', matchMethod: 'none' };
+  }
+
+  const baseOpts = {
+    query: userMessage,
+    userMessage: userMessage,
+    topic: opts.topic || null,
+    globalScan: true,
+    semanticFallback: true,
+    globalSemantic: true,
+    recursiveDeepScan: true,
+    includeFolderBrief: opts.includeFolderBrief !== false,
+    phase: opts.phase || 'topic',
+    limit: opts.limit || 8,
+  };
+
+  let result = await findCommunityMaterials(baseOpts);
+
+  if (!result.count) {
+    const terms = buildCommunitySearchTerms(userMessage);
+    for (let i = 0; i < terms.length; i++) {
+      const term = terms[i];
+      if (!term || term.length < 2) continue;
+      const termProbe = await findCommunityMaterials(Object.assign({}, baseOpts, { query: term }));
+      if (termProbe.count > 0) {
+        result = termProbe;
+        break;
+      }
+    }
+  }
+
+  return result;
 }
 
 module.exports = {
@@ -3224,6 +3273,7 @@ module.exports = {
   scoreTopicSimilarity,
   findArchiveTopicSuggestion,
   findCommunityMaterials,
+  probeCommunityGlobalSearch,
   findCachedResultsGlobalMatch,
   resolveGradeLabelFromId,
   buildSemanticCatalogEntries,
