@@ -1,33 +1,30 @@
 #!/usr/bin/env node
 'use strict';
 
-const archiveCoerce = require('../archive-coerce');
 const cache = require('../api/cache');
 
-const fullSample = {
+const goodSample = {
   blockPlan: {
     curriculum: [
-      { day: 1, topic: 'האות א', content: 'תוכן עשיר על האות א עם סיפור ומסע.', art: 'ציור האות בגיר על הלוח.', hint: 'רמז' },
-      { day: 2, topic: 'האות ב', content: 'יום שני בתוכן מלא.', art: 'יצירה בנייר.', hint: '' },
+      { day: 1, topic: 'א', content: 'תוכן עשיר יום 1', art: 'אמנות 1' },
+      { day: 2, topic: 'ב', content: 'תוכן עשיר יום 2', art: 'אמנות 2' },
+      { day: 3, topic: 'ג', content: 'תוכן עשיר יום 3', art: 'אמנות 3' },
+      { day: 4, topic: 'ד', content: 'תוכן עשיר יום 4', art: 'אמנות 4' },
+      { day: 5, topic: 'ה', content: 'תוכן עשיר יום 5', art: 'אמנות 5' },
     ],
-    rawContent: 'יום 1: האות א\nתוכן ארוך\nאמנות ומעשה: ציור',
   },
 };
 
-const dashSample = {
+const corruptSample = {
   blockPlan: {
     curriculum: [
-      { day: 1, topic: 'יום 1', content: '—', art: '—', contentExpansion: { classroomImplementation: 'תוכן מלא מההרחבה' } },
+      { day: 1, topic: 'יום 1', content: '—', art: '—' },
+      { day: 2, topic: 'יום 2', content: '', art: '' },
     ],
-    rawContent: 'יום 1\nתוכן מלא שאמור להישמר',
   },
 };
 
-function summarize(rows) {
-  return (rows || []).map(function (r) {
-    return { day: r.day, content: r.content, art: r.art };
-  });
-}
+const body = { phase: 'phase_c', cTab: 'curriculum' };
 
 let failed = 0;
 function assert(name, cond) {
@@ -39,34 +36,13 @@ function assert(name, cond) {
   }
 }
 
-const coerced = archiveCoerce.coerceArchiveLessonResultData(JSON.parse(JSON.stringify(fullSample)));
-assert('coerce keeps full content', coerced.blockPlan.curriculum[0].content.indexOf('תוכן עשיר') === 0);
-assert('coerce keeps full art', coerced.blockPlan.curriculum[0].art.indexOf('ציור') === 0);
-
-const prepared = cache.preparePhaseCResultForCache(
-  { phase: 'phase_c', cTab: 'curriculum' },
-  fullSample
-);
-assert('cache prepare keeps content', prepared.blockPlan.curriculum[0].content === fullSample.blockPlan.curriculum[0].content);
-assert('cache prepare keeps art', prepared.blockPlan.curriculum[0].art === fullSample.blockPlan.curriculum[0].art);
-
-const dashPrepared = cache.preparePhaseCResultForCache(
-  { phase: 'phase_c', cTab: 'curriculum' },
-  dashSample
-);
-assert(
-  'cache prepare lifts expansion when content is dash',
-  dashPrepared.blockPlan.curriculum[0].content.indexOf('תוכן מלא') >= 0
-);
-
-const lifted = archiveCoerce.liftArchivePhaseCFields(
-  { curriculum: fullSample.blockPlan.curriculum.slice() },
-  fullSample
-);
-assert('lift keeps preserved rows', lifted.curriculum[0].content.indexOf('תוכן עשיר') === 0);
+assert('good cache passes corrupt check', !cache.isPhaseCCurriculumCacheCorrupt(body, goodSample));
+assert('good cache has 5 valid days', cache.countValidPhaseCCurriculumDays(goodSample) === 5);
+assert('dash cache is corrupt', cache.isPhaseCCurriculumCacheCorrupt(body, corruptSample));
+assert('dash cache has <5 valid days', cache.countValidPhaseCCurriculumDays(corruptSample) < 5);
 
 if (failed) {
   console.error(failed + ' test(s) failed');
   process.exit(1);
 }
-console.log('All phase_c cache tests passed');
+console.log('All phase_c fail-safe tests passed');

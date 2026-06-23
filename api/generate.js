@@ -2266,6 +2266,19 @@ function normalizePhaseCSources(sources) {
   };
 }
 
+function stripPhaseCCurriculumCrossTabFields(data) {
+  if (!data || typeof data !== 'object') return data;
+  if (!data.blockPlan || typeof data.blockPlan !== 'object') data.blockPlan = {};
+  const bp = data.blockPlan;
+  delete bp.theory;
+  delete bp.inspiration;
+  delete bp.sources;
+  delete data.gallery;
+  delete data.pedagogicalResources;
+  delete data.enrichment_links;
+  return data;
+}
+
 function sanitizePhaseCOutput(data, body) {
   if (!data || typeof data !== 'object') return data;
   const cTab = resolvePhaseCTab(body || {});
@@ -2290,14 +2303,6 @@ function sanitizePhaseCOutput(data, body) {
     data.gallery = sanitizePinterestGallery(data.gallery, body);
     delete data.enrichment_links;
     delete data.pedagogicalResources;
-  } else if (cTab === 'curriculum') {
-    delete bp.theory;
-    delete bp.inspiration;
-    delete bp.sources;
-    delete data.gallery;
-    delete data.pedagogicalResources;
-    delete data.enrichment_links;
-    bp.curriculum = normalizePhaseCCurriculum(bp.curriculum, rawFallback);
   }
 
   return data;
@@ -2778,9 +2783,12 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
       data = sanitizeGradePhaseOutput(data);
     }
     if (phase === 'phase_c' && data && !data._parseFallback) {
-      data = sanitizePhaseCOutput(data, body);
-      if (resolvePhaseCTab(body) === 'inspiration') {
+      const cTab = resolvePhaseCTab(body);
+      if (cTab === 'inspiration') {
+        data = sanitizePhaseCOutput(data, body);
         data = await attachGeminiEnrichmentLinks(data, body);
+      } else if (cTab === 'curriculum') {
+        data = stripPhaseCCurriculumCrossTabFields(data);
       }
     }
 
@@ -2896,7 +2904,12 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
       data = sanitizeGradePhaseOutput(data);
     }
     if (phase === 'phase_c' && data && !data._parseFallback) {
-      data = sanitizePhaseCOutput(data, body);
+      const cTab = resolvePhaseCTab(body);
+      if (cTab === 'inspiration') {
+        data = sanitizePhaseCOutput(data, body);
+      } else if (cTab === 'curriculum') {
+        data = stripPhaseCCurriculumCrossTabFields(data);
+      }
     }
 
     if (!validatePhaseResult(phase, data, body)) {
@@ -3694,6 +3707,7 @@ async function executeGenerate(body, apiKey, requestContext) {
   if (!body.skipCache && !body._onDemandCacheSaved && body.phase !== 'chat_followup') {
     try {
       const cachePayload = cacheDb.stampPerplexityOnlyMetadata(data);
+      // phase_c curriculum: setCachedResult stores blockPlan.curriculum verbatim (no normalizePhaseCCurriculum).
       const savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
       if (savedKey) {
         const merged = ragMeta.chunkCount > 0;

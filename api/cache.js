@@ -360,7 +360,69 @@ const coerceCurriculumRows = archiveCoerce.coerceCurriculumRows;
 const extractCurriculumFromArchivePlan = archiveCoerce.extractCurriculumFromArchivePlan;
 const liftArchivePhaseCFields = archiveCoerce.liftArchivePhaseCFields;
 const coerceArchiveLessonResultData = archiveCoerce.coerceArchiveLessonResultData;
-const preparePhaseCCurriculumForStorage = archiveCoerce.preparePhaseCCurriculumForStorage;
+
+/** phase_c curriculum cache fail-safe — fewer valid days ⇒ corrupt row, delete + live regen. */
+const PHASE_C_CURRICULUM_MIN_VALID_DAYS = 5;
+const PHASE_C_CURRICULUM_DASH_FIELD_RE = /^[-–—_.\s]+$/;
+
+function resolvePhaseCTabFromBody(body) {
+  if (!body) return '';
+  return stableNormalize(body.cTab || body.productTab || body.phaseCTab || '');
+}
+
+function isPhaseCCurriculumContentCorrupt(text) {
+  const s = String(text || '').trim();
+  if (!s) return true;
+  if (PHASE_C_CURRICULUM_DASH_FIELD_RE.test(s)) return true;
+  if (s === '<div class="prose-ai"></div>') return true;
+  return false;
+}
+
+function countValidPhaseCCurriculumDays(data) {
+  const bp = data && data.blockPlan;
+  const rows = bp && Array.isArray(bp.curriculum) ? bp.curriculum : [];
+  let count = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || typeof row !== 'object') continue;
+    const content = row.content != null ? row.content : row['תוכן וסיפור'];
+    if (!isPhaseCCurriculumContentCorrupt(content)) count++;
+  }
+  return count;
+}
+
+function isPhaseCCurriculumCacheCorrupt(body, data) {
+  if (!body || body.phase !== 'phase_c') return false;
+  if (resolvePhaseCTabFromBody(body) !== 'curriculum') return false;
+  return countValidPhaseCCurriculumDays(data) < PHASE_C_CURRICULUM_MIN_VALID_DAYS;
+}
+
+async function deleteCachedRowByKey(cacheKey) {
+  if (!cacheKey) return false;
+  let deleted = false;
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const res = await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?cache_key=eq.' + encodeURIComponent(cacheKey),
+        { method: 'DELETE', headers: { Prefer: 'return=minimal' } }
+      );
+      if (res.ok) deleted = true;
+      else {
+        const errText = await res.text();
+        console.warn('[cached_results] delete error', res.status, errText.slice(0, 200));
+      }
+    } catch (err) {
+      console.warn('[cached_results] delete failed:', err.message || err);
+    }
+  }
+  loadFallbackStore();
+  if (fallbackStore.rows.has(cacheKey)) {
+    fallbackStore.rows.delete(cacheKey);
+    persistFallbackStore();
+    deleted = true;
+  }
+  return deleted;
+}
 
 /** Cache metadata keys that mark hybrid/archive-upgraded rows (required for grade/topic cache hits). */
 const CACHE_ENHANCEMENT_META_KEYS = ['_hybridGenerated', '_archiveUpgrade', '_perplexityOnly'];
@@ -1851,6 +1913,15 @@ async function getCachedResult(body, options) {
       ? normalizeGradeResultForCache(data)
       : cloneJsonSafe(data);
     if (!payload) return null;
+    if (isPhaseCCurriculumCacheCorrupt(body, payload)) {
+      console.warn(
+        '[cached_results] phase_c curriculum CORRUPT (fallback) — deleting',
+        cacheKey.slice(0, 12),
+        'validDays=' + countValidPhaseCCurriculumDays(payload)
+      );
+      await deleteCachedRowByKey(cacheKey);
+      return null;
+    }
     return {
       data: payload,
       meta: {
@@ -1873,10 +1944,21 @@ async function getCachedResult(body, options) {
   if (body.phase === 'topic' && payload) {
     payload = coerceArchiveLessonResultData(payload) || payload;
   }
-  if (payload && (body.phase === 'topic' || body.phase === 'phase_c')) {
+  if (payload && body.phase === 'topic') {
+    payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
+  } else if (payload && body.phase === 'phase_c' && resolvePhaseCTabFromBody(body) === 'inspiration') {
     payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
   }
   if (!payload) return null;
+  if (isPhaseCCurriculumCacheCorrupt(body, payload)) {
+    console.warn(
+      '[cached_results] phase_c curriculum CORRUPT — deleting cache, forcing live regen',
+      cacheKey.slice(0, 12),
+      'validDays=' + countValidPhaseCCurriculumDays(payload)
+    );
+    await deleteCachedRowByKey(cacheKey);
+    return null;
+  }
   return {
     data: payload,
     meta: {
@@ -1911,15 +1993,6 @@ async function setRawPerplexityCache(body, rawPayload) {
   return setCachedResult(rawBody, safe);
 }
 
-function preparePhaseCResultForCache(body, resultData) {
-  if (!body || body.phase !== 'phase_c' || !resultData) return resultData;
-  const cTab = stableNormalize(body.cTab || body.productTab || body.phaseCTab || '');
-  if (cTab !== 'curriculum') return resultData;
-  const cloned = cloneJsonSafe(coerceCachedResultData(resultData));
-  if (!cloned) return resultData;
-  return preparePhaseCCurriculumForStorage(cloned);
-}
-
 /**
  * Persist a fresh Perplexity result (awaitable).
  */
@@ -1930,17 +2003,21 @@ async function setCachedResult(body, resultData) {
     if (!resultData) return null;
   }
 
-  if (body && body.phase === 'phase_c') {
-    resultData = preparePhaseCResultForCache(body, resultData);
-  }
-
   const cacheKey = buildCacheKey(body);
   if (!cacheKey || !resultData) return null;
 
-  const safeResultData = sanitizeForJsonStorage(resultData);
+  // phase_c: verbatim JSON from the live generator — no regex, row mapping, or curriculum coercion.
+  const safeResultData = (body && body.phase === 'phase_c')
+    ? cloneJsonSafe(resultData)
+    : sanitizeForJsonStorage(resultData);
   if (!safeResultData) return null;
 
   const row = buildRow(cacheKey, body, safeResultData);
+  const rowBodyJson = (body && body.phase === 'phase_c')
+    ? (function () {
+      try { return JSON.stringify(row); } catch (e) { return safeJsonStringify(row); }
+    })()
+    : safeJsonStringify(row);
   const existing = await fetchCachedRowByKey(cacheKey);
   if (existing && existing.hit_count != null) {
     row.hit_count = Number(existing.hit_count) || 0;
@@ -1954,7 +2031,7 @@ async function setCachedResult(body, resultData) {
         headers: {
           Prefer: 'resolution=merge-duplicates,return=minimal',
         },
-        body: safeJsonStringify(row),
+        body: rowBodyJson,
       });
 
       if (res.ok) {
@@ -1970,7 +2047,7 @@ async function setCachedResult(body, resultData) {
         {
           method: 'PATCH',
           headers: { Prefer: 'return=minimal' },
-          body: safeJsonStringify({
+          body: (body && body.phase === 'phase_c' ? JSON.stringify({
             phase: row.phase,
             grade_id: row.grade_id,
             grade_label: row.grade_label,
@@ -1979,7 +2056,16 @@ async function setCachedResult(body, resultData) {
             result_data: row.result_data,
             user_id: row.user_id,
             user_email: row.user_email,
-          }),
+          }) : safeJsonStringify({
+            phase: row.phase,
+            grade_id: row.grade_id,
+            grade_label: row.grade_label,
+            topic: row.topic,
+            query_text: row.query_text,
+            result_data: row.result_data,
+            user_id: row.user_id,
+            user_email: row.user_email,
+          })),
         }
       );
       if (patchRes.ok) {
@@ -3278,8 +3364,10 @@ module.exports = {
   normalizeTopicQuery,
   normalizeGradeResultForCache,
   coerceCachedResultData,
-  preparePhaseCResultForCache,
-  preparePhaseCCurriculumForStorage,
+  isPhaseCCurriculumCacheCorrupt,
+  countValidPhaseCCurriculumDays,
+  deleteCachedRowByKey,
+  PHASE_C_CURRICULUM_MIN_VALID_DAYS,
   coerceArchiveLessonResultData,
   sanitizeForJsonStorage,
   safeJsonStringify,
