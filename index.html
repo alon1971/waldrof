@@ -9123,7 +9123,7 @@
         : '';
       var activeSignal = signal;
       if (cTab === 'curriculum') {
-        startCurriculumPollFallback();
+        ensureCurriculumPipelineActive();
         var timeoutWrap = mergeAbortSignals(signal, CURRICULUM_REQUEST_TIMEOUT_MS);
         activeSignal = timeoutWrap.signal;
       }
@@ -9160,7 +9160,7 @@
           } catch (probeErr) {
             console.warn('[waldrof] curriculum post-timeout probe failed:', probeErr);
           }
-          startCurriculumPollFallback();
+          ensureCurriculumPipelineActive();
           if (fetchErr && fetchErr.name === 'AbortError') {
             return new Promise(function () { /* poll will resolve UI */ });
           }
@@ -9373,7 +9373,7 @@
           return applyBackgroundCurriculumMigrationResult(envelope);
         } catch (err) {
           console.warn('[waldrof] archive curriculum regeneration failed:', err);
-          if (shouldKeepCurriculumLoading()) startCurriculumPollFallback();
+          ensureCurriculumPipelineActive();
           return false;
         } finally {
           if (!shouldKeepCurriculumLoading()) {
@@ -16603,15 +16603,7 @@
               (appState.lessonCacheMeta || null)
             )) {
               setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-              void ensureArchiveCurriculumRegeneratedBlocking(
-                { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-                appState.lessonCacheMeta || null
-              ).then(function (migrated) {
-                if (migrated) {
-                  appState.productTabsRendered.curriculum = false;
-                  renderProductTabContent('curriculum');
-                }
-              });
+              ensureCurriculumPipelineActive();
               r.curriculum = true;
               ensurePageScrollUnlocked();
               return;
@@ -17248,10 +17240,7 @@
           appState.lessonCacheMeta || null
         )) {
           setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-          void ensureArchiveCurriculumRegeneratedBlocking(
-            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-            appState.lessonCacheMeta || null
-          );
+          ensureCurriculumPipelineActive();
           return;
         }
         var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
