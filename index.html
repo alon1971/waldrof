@@ -4417,6 +4417,7 @@
     const summaryFailedByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
     const EXPANSION_REQUEST_TIMEOUT_MS = 130000;
+    const CURRICULUM_REQUEST_TIMEOUT_MS = 130000;
     var archiveCurriculumHealInFlight = null;
 
     function parseApiCooldownSeconds(message) {
@@ -5468,7 +5469,12 @@
     function prepareResearchPayload(payload) {
       const p = withAiLanguage(Object.assign({}, payload || {}));
       p.userInitiated = true;
-      if (p.skipCache !== true) delete p.skipCache;
+      if (p.phase === 'phase_c' && String(p.cTab || '').trim().toLowerCase() === 'curriculum') {
+        p.skipCache = true;
+        p.forceFresh = true;
+      } else if (p.skipCache !== true) {
+        delete p.skipCache;
+      }
       delete p.confirmArchiveBypass;
       delete p.skipArchiveProbe;
       if (!p.noUrlsInstruction) p.noUrlsInstruction = getNoUrlsInstruction();
@@ -9043,11 +9049,17 @@
       var gradeCtx = appState.gradeResearch
         ? JSON.stringify(appState.gradeResearch.gradeInsights || appState.gradeResearch).slice(0, 2000)
         : '';
+      var activeSignal = signal;
+      if (cTab === 'curriculum') {
+        var timeoutWrap = mergeAbortSignals(signal, CURRICULUM_REQUEST_TIMEOUT_MS);
+        activeSignal = timeoutWrap.signal;
+      }
       return invokeWaldorfResearch({
         phase: 'phase_c',
         cTab: cTab,
         userInitiated: true,
         skipCache: cTab === 'curriculum' ? true : (opts.skipCache === true),
+        forceFresh: cTab === 'curriculum' ? true : undefined,
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
@@ -9062,7 +9074,7 @@
         gradeLockInstruction: getGradeLockInstruction(),
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
-      }, { signal: signal });
+      }, { signal: activeSignal });
     }
 
     var backgroundCurriculumMigrationInFlight = null;

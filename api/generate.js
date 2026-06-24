@@ -775,8 +775,80 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
       curriculumLegacy: false,
       upgradedDays: upgradedDays,
       chunkPipeline: true,
+      curriculumRegenerated: true,
     }, communityProbe),
   };
+}
+
+/**
+ * phase_c curriculum — strictly blocking. Returns only serve-ready 15-day tables.
+ * Corrupt/partial/missing cache always awaits the full 3-chunk live pipeline.
+ */
+async function resolvePhaseCCurriculumBlockingGenerate(body, communityProbe) {
+  const gradeId = String(resolvedGradeId(body) || body.currentGrade || body.gradeId || '').trim();
+  const topic = String(body.topic || '').trim();
+  const topicBody = {
+    phase: 'topic',
+    topic: topic,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: body.gradeLabel || null,
+  };
+
+  try {
+    const cacheProbeBody = Object.assign({}, body, { skipCache: false });
+    const cached = await cacheDb.getCachedResult(cacheProbeBody, { requireEnhanced: false });
+    if (cached && cached.data && cacheDb.isPhaseCCurriculumServeReady(cached.data)) {
+      const upgradedDays = cacheDb.countValidPhaseCCurriculumDays(cached.data);
+      console.log(
+        '[generate] phase_c curriculum CACHE HIT — serve-ready',
+        topic,
+        'upgradedDays=' + upgradedDays
+      );
+      return {
+        data: cached.data,
+        meta: attachCommunityMeta(Object.assign({}, cached.meta || {}, {
+          fromCache: true,
+          curriculumMigrated: true,
+          curriculumLegacy: false,
+          upgradedDays: upgradedDays,
+          source: (cached.meta && cached.meta.source) || 'supabase',
+        }), communityProbe),
+      };
+    }
+  } catch (cacheReadErr) {
+    console.warn('[generate] phase_c curriculum cache read failed:', cacheReadErr.message || cacheReadErr);
+  }
+
+  body.skipCache = true;
+  body.forceFresh = true;
+
+  if (topic && gradeId) {
+    console.log('[generate] phase_c curriculum CACHE MISS/CORRUPT — blocking live pipeline for', topic);
+    await cacheDb.purgeRegenerationCaches(topicBody);
+  }
+
+  const result = await executePhaseCCurriculumChunkedGeneration(body, communityProbe);
+  const rows = result && result.data && result.data.blockPlan && result.data.blockPlan.curriculum;
+  const upgradedDays = rows
+    ? cacheDb.countValidPhaseCCurriculumDays({ blockPlan: { curriculum: rows } })
+    : 0;
+  if (!rows || !rows.length || upgradedDays < cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS) {
+    const err = new Error('לא ניתן היה ליצור תכנון תקופה מלא — נסו שוב בעוד רגע');
+    err.statusCode = 502;
+    throw err;
+  }
+
+  try {
+    const savedKey = await cacheDb.setCachedResult(body, result.data);
+    if (savedKey) {
+      console.log('[generate] phase_c curriculum persisted before response', savedKey.slice(0, 12));
+    }
+  } catch (saveErr) {
+    console.warn('[generate] phase_c curriculum pre-response save failed:', saveErr.message || saveErr);
+  }
+
+  return result;
 }
 
 function isPhaseCGeneration(body) {
@@ -3571,6 +3643,12 @@ async function executeGenerate(body, apiKey, requestContext) {
       }, communityProbe),
     };
   }
+
+  // phase_c curriculum: always blocking — never return until 15 upgraded days are ready.
+  if (isPhaseCCurriculumGeneration(body)) {
+    return await resolvePhaseCCurriculumBlockingGenerate(body, communityProbe);
+  }
+
   if (communityProbe.count > 0) {
     console.log('[community] matched', communityProbe.count, 'material(s) for', body.phase);
   }
@@ -3825,10 +3903,6 @@ async function executeGenerate(body, apiKey, requestContext) {
 
   const perplexityOptions = {};
 
-  if (isPhaseCCurriculumGeneration(body)) {
-    return await executePhaseCCurriculumChunkedGeneration(body, communityProbe);
-  }
-
   const userPrompt = buildUserPrompt(body);
   const data = await fetchParsedModelWithRetry(
     body,
@@ -3945,6 +4019,7 @@ async function executeGenerate(body, apiKey, requestContext) {
 function sendJson(res, statusCode, payload) {
   setCors(res);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Connection', 'keep-alive');
   return res.status(statusCode).send(cacheDb.safeJsonStringify(payload));
 }
 
@@ -4030,7 +4105,10 @@ async function fetchHandler(request) {
     const payload = buildGenerateHttpPayload(result);
     return new Response(cacheDb.safeJsonStringify(payload), {
       status: 200,
-      headers: Object.assign({}, corsHeaders, { 'Content-Type': 'application/json; charset=utf-8' }),
+      headers: Object.assign({}, corsHeaders, {
+        'Content-Type': 'application/json; charset=utf-8',
+        Connection: 'keep-alive',
+      }),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

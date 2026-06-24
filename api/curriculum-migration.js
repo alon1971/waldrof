@@ -18,6 +18,16 @@ const CURRICULUM_INLINE_EXPANSION_INSTRUCTION = waldorfCurriculumPrompts.CURRICU
 const WALDORF_CURRICULUM_DEPTH_INSTRUCTION = waldorfCurriculumPrompts.WALDORF_CURRICULUM_DEPTH_INSTRUCTION;
 
 const migrationInflight = new Map();
+const regenInflight = new Map();
+
+function buildTopicRegenInflightKey(topicBody) {
+  return cacheDb.buildCacheKey({
+    phase: 'topic',
+    topic: topicBody.topic,
+    currentGrade: topicBody.currentGrade ?? topicBody.gradeId,
+    gradeId: topicBody.gradeId || topicBody.currentGrade,
+  });
+}
 
 function stripHtml(text) {
   return String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -330,6 +340,22 @@ async function persistMigratedCurriculum(topicBody, topicData, curriculumRows) {
 }
 
 async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
+  const inflightKey = buildTopicRegenInflightKey(topicBody);
+  if (inflightKey && regenInflight.has(inflightKey)) {
+    console.log('[curriculum-migration] regen join — awaiting in-flight pipeline for', topicBody.topic);
+    return regenInflight.get(inflightKey);
+  }
+
+  const runPromise = regenerateTopicCurriculumChunkedInner(topicBody, topicData, options);
+  if (inflightKey) regenInflight.set(inflightKey, runPromise);
+  try {
+    return await runPromise;
+  } finally {
+    if (inflightKey) regenInflight.delete(inflightKey);
+  }
+}
+
+async function regenerateTopicCurriculumChunkedInner(topicBody, topicData, options) {
   const apiKey = perplexityClient.resolveApiKey();
   if (!apiKey) {
     console.warn('[curriculum-migration] skip — PERPLEXITY_API_KEY not configured');
@@ -406,16 +432,11 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
 }
 
 async function healTopicCurriculumIfNeeded(topicBody, topicData, options) {
-  if (!topicPayloadNeedsCurriculumMigration(topicData)) {
+  if (!topicNeedsCurriculumRegeneration(topicData)) {
     return topicData;
   }
 
-  const cacheKey = cacheDb.buildCacheKey({
-    phase: 'topic',
-    topic: topicBody.topic,
-    currentGrade: topicBody.currentGrade ?? topicBody.gradeId,
-    gradeId: topicBody.gradeId || topicBody.currentGrade,
-  });
+  const cacheKey = buildTopicRegenInflightKey(topicBody);
   if (!cacheKey) return topicData;
 
   if (migrationInflight.has(cacheKey)) {
