@@ -114,10 +114,16 @@ function buildResearchBlock(rawPayload) {
   );
 }
 
-async function ensureTopicResearchBlock(topicBody) {
-  const cachedRaw = await cacheDb.getRawPerplexityCache(topicBody);
-  if (cachedRaw && String(cachedRaw.content || '').trim()) {
-    return cachedRaw;
+async function ensureTopicResearchBlock(topicBody, options) {
+  const forceFresh = !!(options && (options.forceFresh || options.skipCache));
+  if (forceFresh) {
+    await cacheDb.deleteRawPerplexityCache(topicBody);
+    console.log('[curriculum-migration] perplexity_raw bypass — live web search for', topicBody.topic);
+  } else {
+    const cachedRaw = await cacheDb.getRawPerplexityCache(topicBody);
+    if (cachedRaw && String(cachedRaw.content || '').trim()) {
+      return cachedRaw;
+    }
   }
 
   const gradeLabel = topicBody.gradeLabel || '';
@@ -218,6 +224,47 @@ function countUpgradedRows(rows) {
 }
 
 async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researchBlock, theoryEssence, options) {
+  const forceFresh = !!(options && (options.forceFresh || options.skipCache));
+  const topic = String(topicBody.topic || '').trim();
+  const phaseBody = Object.assign({}, topicBody, {
+    phase: 'phase_c',
+    cTab: 'curriculum',
+    currentGrade: topicBody.currentGrade ?? topicBody.gradeId,
+    gradeId: topicBody.gradeId || topicBody.currentGrade,
+  });
+
+  if (forceFresh) {
+    const phaseKey = cacheDb.buildCacheKey(phaseBody);
+    if (phaseKey) await cacheDb.deleteCachedRowByKey(phaseKey);
+    await cacheDb.deleteCurriculumChunkCaches(topicBody, dayStart, dayEnd);
+    console.log(
+      '[curriculum-migration] chunk cache bypass — LIVE Perplexity',
+      dayStart + '-' + dayEnd,
+      'for',
+      topic
+    );
+  } else {
+    const chunkBody = cacheDb.buildCurriculumChunkCacheBody(topicBody, dayStart, dayEnd);
+    if (chunkBody) {
+      const cached = await cacheDb.getCachedResult(chunkBody, { requireEnhanced: false });
+      const cachedRows = cached && cached.data && cached.data.blockPlan
+        ? archiveCoerce.coerceCurriculumRows(cached.data.blockPlan.curriculum)
+        : [];
+      const filtered = [];
+      for (let i = 0; i < cachedRows.length; i++) {
+        const row = cachedRows[i];
+        if (!row || typeof row !== 'object') continue;
+        const dayNum = Number(row.day);
+        if (dayNum >= dayStart && dayNum <= dayEnd) filtered.push(row);
+      }
+      const expected = dayEnd - dayStart + 1;
+      if (countUpgradedRows(filtered) >= expected) {
+        console.log('[curriculum-migration] chunk cache HIT', dayStart + '-' + dayEnd, 'for', topic);
+        return filtered;
+      }
+    }
+  }
+
   const prompt = buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock, options);
   const system =
     'You are an expert Waldorf curriculum designer. Write pedagogical content in Hebrew. ' +
@@ -235,6 +282,12 @@ async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researc
           { role: 'user', content: prompt },
         ],
       });
+      console.log(
+        '[curriculum-migration] LIVE Perplexity response chunk',
+        dayStart + '-' + dayEnd,
+        'bytes=',
+        String(raw || '').length
+      );
       const rows = parseChunkCurriculumRows(raw, dayStart, dayEnd);
       const expected = dayEnd - dayStart + 1;
       if (countUpgradedRows(rows) >= expected) {
@@ -265,18 +318,11 @@ function mergeCurriculumIntoTopicPayload(topicData, curriculumRows) {
   return cacheDb.coerceArchiveLessonResultData(merged) || merged;
 }
 
-async function purgeLegacyCurriculumCaches(topicBody) {
-  const phaseBody = {
-    phase: 'phase_c',
-    cTab: 'curriculum',
-    topic: topicBody.topic,
-    currentGrade: topicBody.currentGrade ?? topicBody.gradeId,
-    gradeId: topicBody.gradeId || topicBody.currentGrade,
-    gradeLabel: topicBody.gradeLabel || null,
-  };
-  const phaseKey = cacheDb.buildCacheKey(phaseBody);
-  if (phaseKey) await cacheDb.deleteCachedRowByKey(phaseKey);
-  await cacheDb.stripLegacyCurriculumFromTopicRow(phaseBody);
+async function purgeLegacyCurriculumCaches(topicBody, options) {
+  await cacheDb.purgeRegenerationCaches(topicBody);
+  if (options && options.forceFresh && isGrade7NutritionTopicBody(topicBody)) {
+    console.log('[curriculum-migration] grade7-nutrition full cache purge for', topicBody.topic);
+  }
 }
 
 async function persistMigratedCurriculum(topicBody, topicData, curriculumRows) {
@@ -312,10 +358,11 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
 
   console.log('[curriculum-migration] silent regen start:', topic, '@', gradeId);
 
-  await purgeLegacyCurriculumCaches(topicBody);
+  const regenOptions = Object.assign({ forceFresh: true, skipCache: true }, options || {});
+  await purgeLegacyCurriculumCaches(topicBody, regenOptions);
 
   const theoryEssence = extractTheoryEssenceFromTopicData(topicData);
-  const researchRaw = await ensureTopicResearchBlock(topicBody);
+  const researchRaw = await ensureTopicResearchBlock(topicBody, regenOptions);
   const researchBlock = buildResearchBlock(researchRaw);
 
   const phaseBody = Object.assign({}, topicBody, {
@@ -326,7 +373,7 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
   });
 
   const allRows = [];
-  const chunkOptions = options || {};
+  const chunkOptions = regenOptions;
   for (let c = 0; c < CURRICULUM_CHUNKS.length; c++) {
     const chunk = CURRICULUM_CHUNKS[c];
     console.log('[curriculum-migration] chunk', chunk.start + '-' + chunk.end, 'for', topic);
@@ -374,7 +421,11 @@ async function healTopicCurriculumIfNeeded(topicBody, topicData, options) {
     return migrationInflight.get(cacheKey);
   }
 
-  const healPromise = regenerateTopicCurriculumChunked(topicBody, topicData, options || {})
+  const healPromise = regenerateTopicCurriculumChunked(
+    topicBody,
+    topicData,
+    Object.assign({ forceFresh: true, skipCache: true }, options || {})
+  )
     .then(function (healed) {
       return healed || topicData;
     })

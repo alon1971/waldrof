@@ -835,6 +835,78 @@ async function patchTopicCacheWithPhaseC(phaseCBody, phaseCData) {
   return true;
 }
 
+/** phase_c curriculum chunk cache body (days 1–5 / 6–10 / 11–15) — bypassed during live regen. */
+function buildCurriculumChunkCacheBody(topicBody, dayStart, dayEnd) {
+  const gradeId = topicBody && (topicBody.currentGrade ?? topicBody.gradeId);
+  const topic = topicBody && topicBody.topic;
+  if (!gradeId || !topic) return null;
+  return {
+    phase: 'phase_c',
+    cTab: 'curriculum_days_' + dayStart + '_' + dayEnd,
+    topic: topic,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: topicBody.gradeLabel || null,
+  };
+}
+
+async function deleteRawPerplexityCache(body) {
+  const rawBody = buildRawPerplexityCacheBody(body);
+  if (!rawBody) return false;
+  const cacheKey = buildCacheKey(rawBody);
+  if (!cacheKey) return false;
+  const deleted = await deleteCachedRowByKey(cacheKey);
+  if (deleted) {
+    console.log('[cached_results] deleted perplexity_raw', cacheKey.slice(0, 12));
+  }
+  return deleted;
+}
+
+async function deleteCurriculumChunkCaches(topicBody, dayStart, dayEnd) {
+  const ranges = dayStart != null && dayEnd != null
+    ? [{ start: dayStart, end: dayEnd }]
+    : [
+      { start: 1, end: 5 },
+      { start: 6, end: 10 },
+      { start: 11, end: 15 },
+    ];
+  let deleted = 0;
+  for (let i = 0; i < ranges.length; i++) {
+    const range = ranges[i];
+    const chunkBody = buildCurriculumChunkCacheBody(topicBody, range.start, range.end);
+    if (!chunkBody) continue;
+    const cacheKey = buildCacheKey(chunkBody);
+    if (cacheKey && await deleteCachedRowByKey(cacheKey)) {
+      deleted++;
+      console.log(
+        '[cached_results] deleted curriculum chunk cache',
+        range.start + '-' + range.end,
+        cacheKey.slice(0, 12)
+      );
+    }
+  }
+  return deleted;
+}
+
+/** Wipe all caches that can block a full curriculum regeneration (phase_c, chunks, perplexity_raw). */
+async function purgeRegenerationCaches(topicBody) {
+  if (!topicBody || !topicBody.topic) return false;
+  const phaseBody = {
+    phase: 'phase_c',
+    cTab: 'curriculum',
+    topic: topicBody.topic,
+    currentGrade: topicBody.currentGrade ?? topicBody.gradeId,
+    gradeId: topicBody.gradeId || topicBody.currentGrade,
+    gradeLabel: topicBody.gradeLabel || null,
+  };
+  const phaseKey = buildCacheKey(phaseBody);
+  if (phaseKey) await deleteCachedRowByKey(phaseKey);
+  await deleteRawPerplexityCache(topicBody);
+  await deleteCurriculumChunkCaches(topicBody);
+  await stripLegacyCurriculumFromTopicRow(phaseBody);
+  return true;
+}
+
 async function deleteCachedRowByKey(cacheKey) {
   if (!cacheKey) return false;
   let deleted = false;
@@ -2364,6 +2436,10 @@ async function getCachedResult(body, options) {
     && body
     && (body.phase === 'topic' || body.phase === 'grade');
 
+  if (opts.skipCache || (body && body.skipCache)) {
+    return null;
+  }
+
   if (body && body.phase === 'grade') {
     normalizeGradeCacheRequest(body);
   }
@@ -3880,6 +3956,10 @@ module.exports = {
   stripLegacyCurriculumFromTopicRow,
   countValidPhaseCCurriculumDays,
   deleteCachedRowByKey,
+  buildCurriculumChunkCacheBody,
+  deleteRawPerplexityCache,
+  deleteCurriculumChunkCaches,
+  purgeRegenerationCaches,
   PHASE_C_CURRICULUM_MIN_VALID_DAYS,
   coerceArchiveLessonResultData,
   enrichArchiveLessonWithPhaseCCaches,

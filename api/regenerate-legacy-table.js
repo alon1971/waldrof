@@ -121,6 +121,27 @@ async function loadTopicPayload(body, teacher) {
   };
 }
 
+function stripCurriculumFromTopicPayload(data) {
+  if (!data || typeof data !== 'object') return data;
+  let cloned;
+  try {
+    cloned = JSON.parse(JSON.stringify(data));
+  } catch (cloneErr) {
+    return data;
+  }
+  const bp = cloned.blockPlan;
+  if (bp && typeof bp === 'object') {
+    delete bp.curriculum;
+    delete bp.days;
+    delete bp.rawCurriculum;
+    delete bp.curriculumRaw;
+    delete bp.table_data;
+  }
+  delete cloned.curriculum;
+  delete cloned.table_data;
+  return cloned;
+}
+
 async function executeRegenerateLegacyTable(req) {
   if (req.method !== 'POST') {
     const err = new Error('Method not allowed');
@@ -132,7 +153,7 @@ async function executeRegenerateLegacyTable(req) {
   const teacher = await resolveTeacher(req, body);
   const loaded = await loadTopicPayload(body, teacher);
   const topicBody = loaded.topicBody;
-  const topicData = loaded.topicData;
+  const topicData = stripCurriculumFromTopicPayload(loaded.topicData);
 
   const needsMigration = curriculumMigration.topicPayloadNeedsCurriculumMigration(topicData);
   if (!needsMigration) {
@@ -144,7 +165,11 @@ async function executeRegenerateLegacyTable(req) {
     };
   }
 
-  const healed = await curriculumMigration.healTopicCurriculumIfNeeded(topicBody, topicData, { silent: true });
+  const healed = await curriculumMigration.healTopicCurriculumIfNeeded(topicBody, topicData, {
+    silent: true,
+    forceFresh: true,
+    skipCache: true,
+  });
   const upgradedDays = cacheDb.countValidPhaseCCurriculumDays(healed || topicData);
 
   return {

@@ -3763,7 +3763,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     const healed = await curriculumMigration.regenerateTopicCurriculumChunked(
       topicBody,
       topicData,
-      { silent: false, forceGrade7NutritionDepth: true }
+      { silent: false, forceGrade7NutritionDepth: true, forceFresh: true, skipCache: true }
     );
     if (healed && healed.blockPlan && Array.isArray(healed.blockPlan.curriculum) && healed.blockPlan.curriculum.length) {
       const phaseData = cacheDb.stampPerplexityOnlyMetadata({
