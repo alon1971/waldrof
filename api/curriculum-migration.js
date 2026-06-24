@@ -6,6 +6,7 @@ const cacheDb = require('./cache');
 const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
 const archiveCoerce = require('../archive-coerce');
+const waldorfCurriculumPrompts = require('./waldorf-curriculum-prompts');
 
 const CURRICULUM_CHUNKS = [
   { start: 1, end: 5 },
@@ -13,31 +14,8 @@ const CURRICULUM_CHUNKS = [
   { start: 11, end: 15 },
 ];
 
-const EXPANSION_OBJECT_SCHEMA =
-  '{ "classroomImplementation": "1-2 Hebrew paragraphs: practical in-class implementation", ' +
-  '"parentCommunityAspects": "Hebrew paragraph on parents/community when relevant", ' +
-  '"practicalSteps": ["4-8 concrete classroom steps for the teacher"], ' +
-  '"inspirationReferences": ["3-6 named books/articles/Waldorf projects — NO URLs"], ' +
-  '"expansionHtml": "<p>Optional rich Hebrew HTML</p>" }';
-
-const CURRICULUM_INLINE_EXPANSION_INSTRUCTION =
-  '\n=== CURRICULUM DAY INLINE EXPANSION — «הרחבה ואספקטים פרקטיים» (MANDATORY) ===\n' +
-  'Each curriculum day MUST include a complete contentExpansion object (and optionally artExpansion, hintExpansion).\n' +
-  'Shape: ' + EXPANSION_OBJECT_SCHEMA + '\n' +
-  'FORBIDDEN: URLs, Pinterest phrases, gallery pins, enrichment_links, or code blocks.\n' +
-  '=== END CURRICULUM INLINE EXPANSION ===\n';
-
-const WALDORF_CURRICULUM_DEPTH_INSTRUCTION =
-  '\n=== WALDORF CURRICULUM — MANDATORY DEPTH (LIVE GENERATION) ===\n' +
-  'Never output thin one-line rows, placeholder text, or lazy expansion buttons.\n' +
-  'Each day MUST describe a complete Waldorf main-lesson arc: opening/recall, story or phenomenological introduction, ' +
-  'guided practice, artistic activity with named materials, and closure/reflection.\n' +
-  'content: 4–6 rich Hebrew sentences on narrative flow and classroom staging.\n' +
-  'art: 2–4 Hebrew sentences on drawing/painting/clay/cooking/handwork tied to the day.\n' +
-  'contentExpansion.classroomImplementation: 1–2 Hebrew paragraphs; practicalSteps: 4–8 concrete teacher actions.\n' +
-  '=== END WALDORF CURRICULUM DEPTH ===\n';
-
-const GRADE7_NUTRITION_DEPTH_INSTRUCTION = WALDORF_CURRICULUM_DEPTH_INSTRUCTION;
+const CURRICULUM_INLINE_EXPANSION_INSTRUCTION = waldorfCurriculumPrompts.CURRICULUM_INLINE_EXPANSION_INSTRUCTION;
+const WALDORF_CURRICULUM_DEPTH_INSTRUCTION = waldorfCurriculumPrompts.WALDORF_CURRICULUM_DEPTH_INSTRUCTION;
 
 function isGrade7NutritionTopicBody(topicBody) {
   const gradeId = String(topicBody && (topicBody.currentGrade ?? topicBody.gradeId) || '').trim();
@@ -165,26 +143,22 @@ async function ensureTopicResearchBlock(topicBody, options) {
   return rawPayload;
 }
 
-function buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock, options) {
+function buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock) {
   const topic = String(topicBody.topic || '').replace(/"/g, '');
   const dayCount = dayEnd - dayStart + 1;
   const theoryBlock = theoryEssence
     ? '\nPHASE B ESSENCE + ARCHIVE CONTEXT (preserve alignment — do NOT duplicate verbatim):\n' + theoryEssence + '\n'
     : '';
-  const forceDepth = options && options.forceDepth === false
-    ? false
-    : true;
 
   return (
     researchBlock +
     theoryBlock +
-    '\n=== PHASE C CURRICULUM CHUNK (LIVE GENERATION) ===\n' +
+    '\n=== PHASE C CURRICULUM CHUNK (LIVE GENERATION — ALL GRADES 1–8) ===\n' +
     'Synthesize ONLY the «curriculum» tab for Waldorf block «' + topic + '» at grade «' + (topicBody.gradeLabel || '') + '».\n' +
     'currentGrade: ' + (topicBody.currentGrade || topicBody.gradeId || '') + '\n' +
     'Generate EXACTLY ' + dayCount + ' day objects for days ' + dayStart + ' through ' + dayEnd + ' ONLY.\n' +
     'Day numbers MUST be ' + dayStart + ', ' + (dayStart + 1) + ', … ' + dayEnd + ' — no other days.\n' +
-    CURRICULUM_INLINE_EXPANSION_INSTRUCTION +
-    (forceDepth ? WALDORF_CURRICULUM_DEPTH_INSTRUCTION : '') +
+    waldorfCurriculumPrompts.buildGlobalCurriculumUserPromptBlocks() +
     'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY of exactly ' + dayCount + ' objects.\n' +
     'Each day object MUST use: "day", "topic", "content" (4-6 rich Hebrew sentences), "art" (2-4 Hebrew sentences), "hint" (optional), "contentExpansion" (mandatory).\n' +
     'FORBIDDEN: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, URLs.\n' +
@@ -268,10 +242,8 @@ async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researc
     }
   }
 
-  const prompt = buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock, options);
-  const system =
-    'You are an expert Waldorf curriculum designer. Write pedagogical content in Hebrew. ' +
-    'Ground claims in the provided web research. Return raw JSON only — no markdown fences.';
+  const prompt = buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock);
+  const system = waldorfCurriculumPrompts.buildCurriculumChunkSystemPrompt();
 
   let lastErr = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -373,7 +345,7 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
 
   console.log('[curriculum-migration] regen start:', topic, '@', gradeId);
 
-  const regenOptions = Object.assign({ forceFresh: true, skipCache: true, forceDepth: true }, options || {});
+  const regenOptions = Object.assign({ forceFresh: true, skipCache: true }, options || {});
   await purgeLegacyCurriculumCaches(topicBody, regenOptions);
 
   console.log('[curriculum-migration] stage 1/4 — web research');

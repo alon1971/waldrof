@@ -8801,17 +8801,33 @@
       );
     }
 
+    function getWaldorfCurriculumDepthInstruction() {
+      if (isEnglish()) {
+        return (
+          'WALDORF CURRICULUM DEPTH (MANDATORY — ALL GRADES 1–8): Never shorten for older grades. ' +
+          'Each day: complete main-lesson arc (opening, story, practice, art with materials, closure). ' +
+          'content: 4–6 rich Hebrew sentences; art: 2–4 sentences; contentExpansion with classroomImplementation paragraphs and 4–8 practicalSteps.'
+        );
+      }
+      return (
+        'עומק תכנון ולדורף (חובה — כיתות א–ח): אל תקצר לכיתות גבוהות. ' +
+        'כל יום: מבנה שיעור מלא (פתיחה, סיפור, תרגול, אמנות עם חומרים, סיום). ' +
+        'content: 4–6 משפטים עשירים; art: 2–4 משפטים; contentExpansion עם פסקאות יישום כיתתי ו-4–8 practicalSteps.'
+      );
+    }
+
     function buildCurriculumTabPrompt(topic, gradeLabel) {
       const gradeLock = getGradeLockInstruction();
       const noUrls = getNoUrlsInstruction();
       const inlineExpand = getInlineExpansionInstruction();
+      const depthBlock = getWaldorfCurriculumDepthInstruction();
       const richNarrative = isEnglish()
         ? 'Each day MUST include complete narrative text in content (4–6 rich Hebrew sentences on story/main-lesson flow) and art (2–4 sentences on art/craft/handwork) — shown immediately in the UI without any button. Never leave content or art empty or as placeholders.'
         : 'כל יום חייב לכלול טקסט נרטיבי מלא ב-content (4–6 משפטים עשירים על תוכן וסיפור) וב-art (2–4 משפטים על אמנות ומעשה) — מוצגים מיד בממשק ללא כפתור. אל תשאיר content או art ריקים או כמצייני מקום.';
       if (isEnglish()) {
         return (
           'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' + richNarrative + ' ' + inlineExpand + ' ' +
+          gradeLock + ' ' + noUrls + ' ' + depthBlock + ' ' + richNarrative + ' ' + inlineExpand + ' ' +
           'Create blockPlan.curriculum: exactly 15 days. Each day: topic, content, art, optional hint, ' +
           'AND contentExpansion (mandatory pedagogical expansion object — same shape as expansion). ' +
           'Optional artExpansion and hintExpansion. NO URLs, Pinterest phrases, gallery, or enrichment_links in any day field. ' +
@@ -8821,7 +8837,7 @@
       }
       return (
         'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' + richNarrative + ' ' + inlineExpand + ' ' +
+        gradeLock + ' ' + noUrls + ' ' + depthBlock + ' ' + richNarrative + ' ' + inlineExpand + ' ' +
         'צור blockPlan.curriculum: 15 ימים. כל יום: כותרת, content, art, hint אופציונלי, ' +
         'ו-contentExpansion חובה (אובייקט הרחבה פדגוגי — אותו מבנה כ-expansion). ' +
         'artExpansion ו-hintExpansion אופציונליים. ללא URLs, ביטויי Pinterest, gallery או enrichment_links בשדות היום. ' +

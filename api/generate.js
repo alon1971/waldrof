@@ -30,6 +30,7 @@ const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
 const curriculumMigration = require('./curriculum-migration');
 const forceLiveTopics = require('./force-live-topics');
+const waldorfCurriculumPrompts = require('./waldorf-curriculum-prompts');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const enrichmentLinksApi = require('./enrichment-links');
 const geminiEnrichment = require('./gemini-enrichment');
@@ -734,7 +735,6 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
     silent: false,
     forceFresh: true,
     skipCache: true,
-    forceDepth: true,
   };
 
   let healed;
@@ -1477,22 +1477,6 @@ function buildCommunityMaterialsContextBlock(probe, body, options) {
 const LAZY_LOAD_NOTE =
   'Do NOT include expansion, contentExpansion, artExpansion, or nested practical-expansion objects — expansions load on-demand via pedagogy_deep_dive.\n';
 
-const EXPANSION_OBJECT_SCHEMA =
-  '{ "classroomImplementation": "1-2 Hebrew paragraphs: practical in-class implementation", ' +
-  '"parentCommunityAspects": "Hebrew paragraph on parents/community when relevant", ' +
-  '"practicalSteps": ["4-8 concrete classroom steps for the teacher"], ' +
-  '"inspirationReferences": ["3-6 named books/articles/Waldorf projects — NO URLs"], ' +
-  '"expansionHtml": "<p>Optional rich Hebrew HTML</p>" }';
-
-const CURRICULUM_INLINE_EXPANSION_INSTRUCTION =
-  '\n=== CURRICULUM DAY INLINE EXPANSION — «הרחבה ואספקטים פרקטיים» (MANDATORY) ===\n' +
-  'Each of the 15 curriculum days MUST include a complete contentExpansion object (and optionally artExpansion, hintExpansion).\n' +
-  'Shape: ' + EXPANSION_OBJECT_SCHEMA + '\n' +
-  'The UI button toggles this pre-generated pedagogical text — NO second API call.\n' +
-  'FORBIDDEN inside content/art/hint/expansion fields: URLs, Pinterest phrases, gallery pins, enrichment_links, raw search queries, or code blocks.\n' +
-  'content and art MUST remain clean Waldorf narrative text; expansions hold theoretical + practical teaching depth only.\n' +
-  '=== END CURRICULUM INLINE EXPANSION ===\n';
-
 /**
  * chat_followup: expect { "text": "..." } from Gemini JSON mode.
  * Falls back to fence-stripped raw text wrapped as chatReply.answer when parsing fails.
@@ -1637,11 +1621,7 @@ function buildPhaseCUserPrompt(body) {
     curriculumExtra +
     pedagogyHint +
     NO_SOURCES_MODE_INSTRUCTION +
-    CURRICULUM_INLINE_EXPANSION_INSTRUCTION +
-    'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY (not an object) of exactly 15 day objects.\n' +
-    'Each day object MUST use these exact keys: "day" (number 1–15), "topic" (Hebrew string), "content" (4–6 rich Hebrew sentences on story/main-lesson flow — shown immediately in UI), "art" (2–4 Hebrew sentences on art/craft/handwork — shown immediately), "hint" (optional Hebrew string), "contentExpansion" (mandatory expansion object).\n' +
-    'content and art MUST be complete narrative text in this payload — never empty placeholders. contentExpansion is mandatory per day; artExpansion and hintExpansion optional.\n' +
-    'Do NOT nest curriculum under days/items/lessons — use blockPlan.curriculum as a flat array.\n' +
+    waldorfCurriculumPrompts.buildGlobalCurriculumUserPromptBlocks() +
     'FORBIDDEN in this response: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, bibliography, enrichment_links, pedagogicalResources, URLs.\n' +
     JSON_ONLY_INSTRUCTION +
     JSON_RESPONSE_ENFORCEMENT +
