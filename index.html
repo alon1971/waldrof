@@ -4418,10 +4418,7 @@
     const summaryPanelOpenState = { bib: {}, ped: {} };
     const EXPANSION_REQUEST_TIMEOUT_MS = 130000;
     const CURRICULUM_REQUEST_TIMEOUT_MS = 60000;
-    const CURRICULUM_POLL_INTERVAL_MS = 4000;
-    const CURRICULUM_POLL_MAX_ATTEMPTS = 120;
     var archiveCurriculumHealInFlight = null;
-    var curriculumPollCancel = null;
 
     function parseApiCooldownSeconds(message) {
       const match = String(message || '').match(/retry in ([0-9.]+)s/i);
@@ -6024,9 +6021,11 @@
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error(t('search_history_error'));
         }
-        setTimeout(function () {
-          queueBackgroundCurriculumMigration(data, item);
-        }, 0);
+        if (item.curriculumLegacy || item.curriculumStripped || item.curriculumRegenerationRequired) {
+          setTimeout(function () {
+            queueBackgroundCurriculumMigration(data, item);
+          }, 0);
+        }
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
         if (isCloudConfigured()) {
@@ -7058,10 +7057,6 @@
       if (!isResearchAvailable()) return false;
       if (!appState.topic || !String(appState.topic).trim()) return false;
       if (hasPhaseCCurriculumContent()) return false;
-      if (topicHasMigratableEssenceClient({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
-        return true;
-      }
-      if (sourceData && topicHasMigratableEssenceClient(sourceData)) return true;
       if (itemMeta && itemMeta.curriculumLegacy === true) return true;
       if (itemMeta && itemMeta.curriculumStripped === true) return true;
       if (itemMeta && itemMeta.curriculumRegenerationRequired === true) return true;
@@ -7724,9 +7719,6 @@
 
     function setPhaseCTabLoadingUi(cTab, loading, options) {
       options = options || {};
-      if (cTab === 'curriculum' && !loading && shouldKeepCurriculumLoading()) {
-        loading = true;
-      }
       if (loading && shouldBlockLivePhaseCApi() && !options.allowArchiveLoading) {
         phaseCTabLoading[cTab] = false;
         ensurePageScrollUnlocked();
@@ -7741,9 +7733,6 @@
       if (loading) {
         if (cTab === 'curriculum') {
           paintCurriculumLoadingPanels(true);
-          if (!shouldBlockLivePhaseCApi() || options.allowArchiveLoading) {
-            ensureCurriculumPipelineActive();
-          }
         } else {
           loadingEl.innerHTML = '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
             '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
@@ -7760,7 +7749,6 @@
       }
       var hasContent = cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
       if (hasContent) {
-        if (cTab === 'curriculum') stopCurriculumPollFallback();
         ensurePageScrollUnlocked();
         return;
       }
@@ -9045,36 +9033,6 @@
       return resolveCurriculumPlanForRender().some(curriculumRowHasRenderableText);
     }
 
-    function isCurriculumPollActive() {
-      return typeof curriculumPollCancel === 'function';
-    }
-
-    function shouldKeepCurriculumLoading() {
-      if (hasPhaseCCurriculumContent()) return false;
-      if (backgroundCurriculumMigrationInFlight) return true;
-      if (phaseCTabLoading.curriculum) return true;
-      if (isCurriculumPollActive()) return true;
-      return topicPayloadNeedsBackgroundCurriculumMigration(
-        { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-        appState.lessonCacheMeta || null
-      );
-    }
-
-    function ensureCurriculumPipelineActive() {
-      if (!isResearchAvailable()) return;
-      if (hasPhaseCCurriculumContent()) return;
-      startCurriculumPollFallback();
-      if (topicPayloadNeedsBackgroundCurriculumMigration(
-        { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-        appState.lessonCacheMeta || null
-      ) && !backgroundCurriculumMigrationInFlight) {
-        void ensureArchiveCurriculumRegeneratedBlocking(
-          { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-          appState.lessonCacheMeta || null
-        );
-      }
-    }
-
     function curriculumLoadingSpinnerHtml() {
       return '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
         '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
@@ -9138,7 +9096,6 @@
         : '';
       var activeSignal = signal;
       if (cTab === 'curriculum') {
-        ensureCurriculumPipelineActive();
         var timeoutWrap = mergeAbortSignals(signal, CURRICULUM_REQUEST_TIMEOUT_MS);
         activeSignal = timeoutWrap.signal;
       }
@@ -9165,12 +9122,22 @@
           noLatexInstruction: getNoLatexInstruction(),
         }, { signal: activeSignal });
         if (cTab === 'curriculum' && data && data._asyncAccepted) {
-          ensureCurriculumPipelineActive();
-          return await waitForCurriculumGenerationComplete();
+          try {
+            var asyncJson = await fetchCurriculumCacheStatus();
+            var asyncStatus = (asyncJson && asyncJson.data) ? asyncJson.data : asyncJson;
+            if (applyCurriculumPollResult(asyncStatus)) {
+              return { blockPlan: { curriculum: appState.aiGeneratedPlan.curriculum } };
+            }
+          } catch (asyncProbeErr) {
+            console.warn('[waldrof] curriculum async status probe failed:', asyncProbeErr);
+          }
+          throw new Error(isEnglish()
+            ? 'Period planning is still being generated — open this tab again in a moment.'
+            : 'תכנון התקופה עדיין בהכנה — פתחו שוב את הלשונית בעוד רגע.');
         }
         return data;
       } catch (fetchErr) {
-        if (cTab === 'curriculum' && shouldKeepCurriculumLoading()) {
+        if (cTab === 'curriculum') {
           try {
             var probeJson = await fetchCurriculumCacheStatus();
             var probeStatus = (probeJson && probeJson.data) ? probeJson.data : probeJson;
@@ -9178,18 +9145,10 @@
               return { blockPlan: { curriculum: appState.aiGeneratedPlan.curriculum } };
             }
           } catch (probeErr) {
-            console.warn('[waldrof] curriculum post-timeout probe failed:', probeErr);
-          }
-          ensureCurriculumPipelineActive();
-          if (fetchErr && fetchErr.name === 'AbortError') {
-            return new Promise(function () { /* poll will resolve UI */ });
+            console.warn('[waldrof] curriculum post-error probe failed:', probeErr);
           }
         }
         throw fetchErr;
-      } finally {
-        if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) {
-          stopCurriculumPollFallback();
-        }
       }
     }
 
@@ -9197,13 +9156,6 @@
       return (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
         ? location.origin + '/api/curriculum-status'
         : '/api/curriculum-status';
-    }
-
-    function stopCurriculumPollFallback() {
-      if (curriculumPollCancel) {
-        curriculumPollCancel();
-        curriculumPollCancel = null;
-      }
     }
 
     async function fetchCurriculumCacheStatus() {
@@ -9236,8 +9188,7 @@
       return res.json();
     }
 
-    function applyCurriculumPollResult(status, options) {
-      var opts = options || {};
+    function applyCurriculumPollResult(status) {
       if (!status) return false;
       if (status.ready === true && status.data) {
         var lessonData = status.data;
@@ -9250,17 +9201,9 @@
           return false;
         }
         appState.lessonFromArchive = false;
-        appState.productTabsRendered.curriculum = false;
-        if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
-          renderProductTabContent('curriculum');
-        } else if (typeof renderCurriculumTabPanels === 'function') {
-          renderCurriculumTabPanels();
-        }
         if (typeof WaldorfSearchHistory !== 'undefined' && WaldorfSearchHistory.invalidate) {
           WaldorfSearchHistory.invalidate();
         }
-        stopCurriculumPollFallback();
-        setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
         return true;
       }
       if (status.partial === true && status.data) {
@@ -9270,96 +9213,9 @@
         }
         if (partialData.blockPlan || partialData.curriculum) {
           mergePhaseCIntoPlan(partialData, 'curriculum');
-          appState.productTabsRendered.curriculum = false;
-          if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
-            renderProductTabContent('curriculum');
-          } else if (typeof renderCurriculumTabPanels === 'function') {
-            renderCurriculumTabPanels();
-          }
-        }
-        if (!opts.partialOnly) {
-          setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
         }
       }
       return false;
-    }
-
-    function waitForCurriculumGenerationComplete() {
-      return new Promise(function (resolve, reject) {
-        var attempts = 0;
-        var stopped = false;
-
-        async function pollTick() {
-          if (stopped) return;
-          if (!shouldKeepCurriculumLoading() && hasPhaseCCurriculumContent()) {
-            resolve({ blockPlan: { curriculum: appState.aiGeneratedPlan.curriculum } });
-            return;
-          }
-          try {
-            var json = await fetchCurriculumCacheStatus();
-            var status = (json && json.data) ? json.data : json;
-            if (status && status.partial) {
-              applyCurriculumPollResult(status, { partialOnly: true });
-            }
-            if (applyCurriculumPollResult(status)) {
-              resolve({ blockPlan: { curriculum: appState.aiGeneratedPlan.curriculum } });
-              return;
-            }
-          } catch (pollErr) {
-            console.warn('[waldrof] curriculum generation poll failed:', pollErr);
-          }
-          attempts++;
-          if (attempts >= CURRICULUM_POLL_MAX_ATTEMPTS) {
-            reject(new Error(isEnglish()
-              ? 'Period planning is still being generated — please wait and refresh.'
-              : 'תכנון התקופה עדיין בהכנה — המתינו ורעננו את הדף.'));
-            return;
-          }
-          setTimeout(pollTick, CURRICULUM_POLL_INTERVAL_MS);
-        }
-
-        startCurriculumPollFallback();
-        void pollTick();
-      });
-    }
-
-    function startCurriculumPollFallback() {
-      if (!isResearchAvailable()) return;
-      if (curriculumPollCancel) return;
-      var stopped = false;
-      var pollInFlight = false;
-
-      async function runPollTick() {
-        if (stopped || pollInFlight) return;
-        if (!shouldKeepCurriculumLoading()) {
-          stopCurriculumPollFallback();
-          return;
-        }
-        pollInFlight = true;
-        try {
-          var json = await fetchCurriculumCacheStatus();
-          var status = (json && json.data) ? json.data : json;
-          if (status && status.partial) {
-            applyCurriculumPollResult(status, { partialOnly: true });
-          }
-          if (applyCurriculumPollResult(status)) return;
-        } catch (pollErr) {
-          console.warn('[waldrof] curriculum status poll failed:', pollErr);
-        } finally {
-          pollInFlight = false;
-        }
-      }
-
-      void runPollTick();
-      var pollInterval = setInterval(function () {
-        void runPollTick();
-      }, CURRICULUM_POLL_INTERVAL_MS);
-
-      curriculumPollCancel = function () {
-        stopped = true;
-        clearInterval(pollInterval);
-        curriculumPollCancel = null;
-      };
     }
 
     function regenerateLegacyTableUrl() {
@@ -9457,12 +9313,9 @@
           return applyBackgroundCurriculumMigrationResult(envelope);
         } catch (err) {
           console.warn('[waldrof] archive curriculum regeneration failed:', err);
-          ensureCurriculumPipelineActive();
           return false;
         } finally {
-          if (!shouldKeepCurriculumLoading()) {
-            setPhaseCTabLoadingUi('curriculum', false, loadingOpts);
-          }
+          setPhaseCTabLoadingUi('curriculum', false, loadingOpts);
           backgroundCurriculumMigrationInFlight = null;
         }
       })();
@@ -9499,9 +9352,7 @@
           return true;
         } finally {
           if (phaseCLoadAbort.curriculum === controller) phaseCLoadAbort.curriculum = null;
-          if (!shouldKeepCurriculumLoading()) {
-            setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
-          }
+          setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
           ensurePageScrollUnlocked();
         }
       })();
@@ -9686,15 +9537,7 @@
         }
       } finally {
         if (phaseCLoadAbort[cTab] === controller) phaseCLoadAbort[cTab] = null;
-        if (cTab === 'curriculum' && shouldKeepCurriculumLoading()) {
-          setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-          void ensureArchiveCurriculumRegeneratedBlocking(
-            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-            appState.lessonCacheMeta || null
-          );
-        } else {
-          setPhaseCTabLoadingUi(cTab, false);
-        }
+        setPhaseCTabLoadingUi(cTab, false);
         ensurePageScrollUnlocked();
       }
     }
@@ -16163,9 +16006,6 @@
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         }
-        setTimeout(function () {
-          queueBackgroundCurriculumMigration(data, (data && data._meta) ? data._meta : null);
-        }, 0);
 
         const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);
         appState.topicCommunityMatches = resolvedCommunity;
@@ -16674,9 +16514,8 @@
           hydrateUnifiedLessonSynthesis();
           var currPanelEl = document.getElementById('curriculum-cards');
           var currDomEmpty = !isCurriculumPanelMounted();
-          if (phaseCTabLoading.curriculum || shouldKeepCurriculumLoading()) {
+          if (phaseCTabLoading.curriculum) {
             setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-            ensureCurriculumPipelineActive();
             r.curriculum = true;
             ensurePageScrollUnlocked();
             return;
@@ -16687,7 +16526,17 @@
               (appState.lessonCacheMeta || null)
             )) {
               setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-              ensureCurriculumPipelineActive();
+              void ensureArchiveCurriculumRegeneratedBlocking(
+                { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+                appState.lessonCacheMeta || null
+              ).then(function (migrated) {
+                if (migrated) {
+                  appState.productTabsRendered.curriculum = false;
+                  renderProductTabContent('curriculum');
+                } else {
+                  setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
+                }
+              });
               r.curriculum = true;
               ensurePageScrollUnlocked();
               return;
@@ -16722,10 +16571,6 @@
             setupThemeActionButtons();
             restoreCurriculumExpandedDays();
             restorePedagogySummaryPanels();
-          } else if (shouldKeepCurriculumLoading()) {
-            setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-            ensureCurriculumPipelineActive();
-            r.curriculum = true;
           }
         }
       } catch (renderErr) {
@@ -17306,9 +17151,8 @@
     }
 
     function renderCurriculum() {
-      if (phaseCTabLoading.curriculum || shouldKeepCurriculumLoading()) {
+      if (phaseCTabLoading.curriculum) {
         setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-        ensureCurriculumPipelineActive();
         return;
       }
       captureCurriculumUiStateFromDom();
@@ -17324,7 +17168,17 @@
           appState.lessonCacheMeta || null
         )) {
           setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-          ensureCurriculumPipelineActive();
+          void ensureArchiveCurriculumRegeneratedBlocking(
+            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+            appState.lessonCacheMeta || null
+          ).then(function (migrated) {
+            if (migrated) {
+              appState.productTabsRendered.curriculum = false;
+              renderCurriculumTabPanels();
+            } else {
+              setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
+            }
+          });
           return;
         }
         var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
