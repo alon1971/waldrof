@@ -38,6 +38,7 @@ const FILES_TO_UPLOAD = [
   'upload-to-github.js',
   'api/cache.js',
   'api/config.js',
+  'api/curriculum-migration.js',
   'api/embeddings.js',
   'api/env.js',
   'api/generate.js',

@@ -28,6 +28,7 @@ const env = require('./env');
 const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
+const curriculumMigration = require('./curriculum-migration');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const enrichmentLinksApi = require('./enrichment-links');
 const geminiEnrichment = require('./gemini-enrichment');
@@ -3473,6 +3474,9 @@ async function executeGenerate(body, apiKey, requestContext) {
       const cached = await cacheDb.getCachedResult(body, cacheOpts);
       if (cached) {
         console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
+        if (body.phase === 'topic' && cached.data) {
+          cached.meta.curriculumMigrated = !cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data);
+        }
         if (!body.skipKnowledgeIngest) {
           knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
         }
@@ -3524,6 +3528,7 @@ async function executeGenerate(body, apiKey, requestContext) {
                 similarity: suggestion.similarity,
                 requestedTopic: body.topic || suggestion.requestedTopic || null,
                 enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
+                curriculumMigrated: !cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
               }, communityProbe),
             };
           }

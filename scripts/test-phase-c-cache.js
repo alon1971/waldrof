@@ -44,6 +44,14 @@ const legacyBasicSample = {
   },
 };
 
+const emptyCurriculumSample = {
+  blockPlan: {
+    theory: { title: '', sections: [{ heading: 'רקע', content: 'תיאוריה עשירה על החשבון בכיתה א' }] },
+    curriculum: [],
+  },
+  webResearch: { topic: 'חשבון', summary: 'תיאוריה עשירה' },
+};
+
 const corruptSample = {
   blockPlan: {
     curriculum: [
@@ -69,6 +77,7 @@ assert('upgraded cache passes corrupt check', !cache.isPhaseCCurriculumCacheCorr
 assert('upgraded cache has 15 valid days', cache.countValidPhaseCCurriculumDays(upgradedSample) === 15);
 assert('legacy basic cache is corrupt', cache.isPhaseCCurriculumCacheCorrupt(body, legacyBasicSample));
 assert('legacy basic cache has <15 upgraded days', cache.countValidPhaseCCurriculumDays(legacyBasicSample) < 15);
+assert('empty curriculum payload is legacy', cache.isPhaseCCurriculumPayloadLegacy(emptyCurriculumSample));
 assert('dash cache is corrupt', cache.isPhaseCCurriculumCacheCorrupt(body, corruptSample));
 assert('dash cache has 0 upgraded days', cache.countValidPhaseCCurriculumDays(corruptSample) === 0);
 

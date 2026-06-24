@@ -461,7 +461,7 @@ function countValidPhaseCCurriculumDays(data) {
 
 function isPhaseCCurriculumPayloadLegacy(data) {
   const rows = extractPhaseCCurriculumRows(data);
-  if (!rows.length) return false;
+  if (!rows.length) return true;
   return countValidPhaseCCurriculumDays(data) < PHASE_C_CURRICULUM_REQUIRED_DAYS;
 }
 
@@ -475,6 +475,31 @@ function isPhaseCCurriculumCacheCorrupt(body, data) {
     'upgradedDays=' + countValidPhaseCCurriculumDays(data) + '/' + PHASE_C_CURRICULUM_REQUIRED_DAYS
   );
   return corrupt;
+}
+
+async function maybeAutoHealTopicCurriculum(body, payload, context) {
+  if (!body || body.phase !== 'topic' || !payload) return payload;
+  let migration;
+  try {
+    migration = require('./curriculum-migration');
+  } catch (reqErr) {
+    console.warn('[cached_results] curriculum-migration unavailable:', reqErr.message || reqErr);
+    return payload;
+  }
+  if (!migration.topicPayloadNeedsCurriculumMigration(payload)) return payload;
+
+  const ctx = context && typeof context === 'object' ? context : {};
+  const topicBody = Object.assign({}, body, {
+    phase: 'topic',
+    topic: body.topic || ctx.topic || ctx.query_text || '',
+    currentGrade: body.currentGrade ?? body.gradeId ?? ctx.grade_id ?? null,
+    gradeId: body.gradeId ?? body.currentGrade ?? ctx.grade_id ?? null,
+    gradeLabel: body.gradeLabel ?? ctx.grade_label ?? null,
+    userEmail: body.userEmail || ctx.user_email || null,
+    userId: body.userId || ctx.user_id || null,
+  });
+
+  return migration.healTopicCurriculumIfNeeded(topicBody, payload, { silent: true });
 }
 
 async function stripLegacyCurriculumFromTopicRow(phaseCBody) {
@@ -1321,7 +1346,7 @@ async function findArchiveTopicByNormalizedText(topic, gradeId) {
   const wanted = normalizeTopicQuery(topic);
   if (!wanted || !gradeId) return null;
 
-  function scanRows(rows) {
+  async function scanRows(rows) {
     if (!Array.isArray(rows)) return null;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -1329,12 +1354,12 @@ async function findArchiveTopicByNormalizedText(topic, gradeId) {
       const data = coerceCachedResultData(row.result_data);
       if (!data || !isValidCachedPayload('topic', data)) continue;
       if (!topicCacheTextsMatch(topicBody, row, data)) continue;
-      return formatExactArchiveTopicMatch({
+      return finalizeArchiveTopicMatch(formatExactArchiveTopicMatch({
         row: row,
         data: data,
         topic: archiveTopicDisplayName(row, data, topic),
         score: 1,
-      }, gradeId);
+      }, gradeId));
     }
     return null;
   }
@@ -1364,7 +1389,8 @@ async function findArchiveTopicByNormalizedText(topic, gradeId) {
       score: 1,
     }, gradeId);
   });
-  return fallbackMatch;
+  if (fallbackMatch) return finalizeArchiveTopicMatch(fallbackMatch);
+  return null;
 }
 
 function collectArchiveTopicRowsForGrade(gradeId, topic) {
@@ -1469,7 +1495,40 @@ function formatExactArchiveTopicMatch(best, gradeId, options) {
     gradeId: gradeId,
     gradeLabel: best.row.grade_label || null,
     resultData: payload,
+    _archiveRow: best.row,
+    _topicBody: {
+      phase: 'topic',
+      topic: options.requestedTopic || best.topic || best.row.topic || '',
+      currentGrade: gradeId,
+      gradeId: gradeId,
+      gradeLabel: best.row.grade_label || null,
+    },
   };
+}
+
+async function finalizeArchiveTopicMatch(match) {
+  if (!match || !match.resultData) return match;
+  let data = coerceArchiveLessonResultData(match.resultData) || match.resultData;
+  const row = match._archiveRow || {
+    grade_id: match.gradeId,
+    grade_label: match.gradeLabel,
+    topic: match.topic,
+    user_email: null,
+    user_id: null,
+  };
+  const topicBody = match._topicBody || {
+    phase: 'topic',
+    topic: match.requestedTopic || match.topic || '',
+    currentGrade: match.gradeId,
+    gradeId: match.gradeId,
+    gradeLabel: match.gradeLabel || null,
+  };
+  data = await enrichArchiveLessonWithPhaseCCaches(data, row);
+  data = await maybeAutoHealTopicCurriculum(topicBody, data, row);
+  const out = Object.assign({}, match, { resultData: data });
+  delete out._archiveRow;
+  delete out._topicBody;
+  return out;
 }
 
 async function fetchArchiveTopicRowsForGrade(gradeId, topic, withTermFilter) {
@@ -1625,7 +1684,7 @@ async function findArchiveTopicSuggestion(options) {
   const topicBody = { phase: 'topic', topic: topic, currentGrade: gradeId, gradeId: gradeId };
   const cached = await getCachedResult(topicBody);
   if (cached && cached.data && isValidCachedPayload('topic', cached.data)) {
-    return {
+    return finalizeArchiveTopicMatch({
       matchType: 'exact',
       similarity: 1,
       cacheKey: cached.meta.cacheKey,
@@ -1633,7 +1692,8 @@ async function findArchiveTopicSuggestion(options) {
       requestedTopic: topic,
       gradeId: gradeId,
       resultData: cached.data,
-    };
+      _topicBody: topicBody,
+    });
   }
 
   const normalizedMatch = await findArchiveTopicByNormalizedText(topic, gradeId);
@@ -1654,7 +1714,9 @@ async function findArchiveTopicSuggestion(options) {
     if (isMisleadingArchiveAutoLoad(topic, strongBest.topic)) {
       console.log('[cached_results] skipped misleading strong archive match:', strongBest.topic);
     } else {
-      return formatExactArchiveTopicMatch(strongBest, gradeId, { requestedTopic: topic });
+      return finalizeArchiveTopicMatch(
+        formatExactArchiveTopicMatch(strongBest, gradeId, { requestedTopic: topic })
+      );
     }
   }
 
@@ -2262,6 +2324,7 @@ async function getCachedResult(body, options) {
         delete payload.blockPlan.days;
       }
     }
+    payload = await maybeAutoHealTopicCurriculum(body, payload, row || body);
   } else if (payload && body.phase === 'phase_c' && resolvePhaseCTabFromBody(body) === 'inspiration') {
     payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
   }
@@ -2665,6 +2728,19 @@ async function getCommunityLessonByCacheKey(cacheKey) {
   let data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
   if (!data || !data.blockPlan) return null;
   data = await enrichArchiveLessonWithPhaseCCaches(data, row);
+  data = await maybeAutoHealTopicCurriculum(
+    {
+      phase: 'topic',
+      topic: row.topic || data.webResearch && data.webResearch.topic || '',
+      currentGrade: row.grade_id,
+      gradeId: row.grade_id,
+      gradeLabel: row.grade_label,
+      userEmail: row.user_email,
+      userId: row.user_id,
+    },
+    data,
+    row
+  );
   bumpHitCountAsync(cacheKey, row.hit_count);
   return formatHistoryItem(Object.assign({}, row, { result_data: data }));
 }
@@ -2679,6 +2755,20 @@ async function getTeacherLessonByCacheKey(teacher, cacheKey) {
   let data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
   if (!data || !data.blockPlan) return null;
   data = await enrichArchiveLessonWithPhaseCCaches(data, row);
+  data = await maybeAutoHealTopicCurriculum(
+    {
+      phase: 'topic',
+      topic: row.topic || data.webResearch && data.webResearch.topic || '',
+      currentGrade: row.grade_id,
+      gradeId: row.grade_id,
+      gradeLabel: row.grade_label,
+      userEmail: row.user_email || (teacher && teacher.email) || null,
+      userId: row.user_id || (teacher && teacher.id) || null,
+      teacherUser: teacher || null,
+    },
+    data,
+    row
+  );
   bumpHitCountAsync(cacheKey, row.hit_count);
   return formatHistoryItem(Object.assign({}, row, { result_data: data }));
 }
@@ -3703,6 +3793,16 @@ module.exports = {
   coerceCachedResultData,
   isPhaseCCurriculumCacheCorrupt,
   isPhaseCCurriculumPayloadLegacy,
+  isPhaseCCurriculumDayUpgraded,
+  topicPayloadNeedsCurriculumMigration: function (data) {
+    try {
+      return require('./curriculum-migration').topicPayloadNeedsCurriculumMigration(data);
+    } catch (e) {
+      return isPhaseCCurriculumPayloadLegacy(data);
+    }
+  },
+  maybeAutoHealTopicCurriculum,
+  stripLegacyCurriculumFromTopicRow,
   countValidPhaseCCurriculumDays,
   deleteCachedRowByKey,
   PHASE_C_CURRICULUM_MIN_VALID_DAYS,
