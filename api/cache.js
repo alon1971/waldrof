@@ -368,14 +368,17 @@ const preparePhaseCCurriculumForStorage = archiveCoerce.preparePhaseCCurriculumF
 /** phase_c curriculum cache fail-safe — legacy/basic rows without upgraded expansion ⇒ corrupt, delete + live regen. */
 const PHASE_C_CURRICULUM_REQUIRED_DAYS = 15;
 const PHASE_C_CURRICULUM_MIN_VALID_DAYS = PHASE_C_CURRICULUM_REQUIRED_DAYS;
-const PHASE_C_CURRICULUM_MIN_CONTENT_CHARS = 80;
-const PHASE_C_CURRICULUM_MIN_ART_CHARS = 35;
-const PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS = 50;
-const PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS = 2;
-const PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS = 1;
+const PHASE_C_CURRICULUM_MIN_CONTENT_CHARS = 100;
+const PHASE_C_CURRICULUM_MIN_ART_CHARS = 40;
+const PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS = 80;
+const PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS = 30;
+const PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS = 4;
+const PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS = 2;
+const PHASE_C_CURRICULUM_MIN_STEP_CHARS = 12;
 const PHASE_C_CURRICULUM_DASH_FIELD_RE = /^[-–—_.\s]+$/;
 const PHASE_C_CURRICULUM_EXPANSION_KEYS = [
   'classroomImplementation',
+  'parentCommunityAspects',
   'practicalSteps',
   'inspirationReferences',
 ];
@@ -401,16 +404,37 @@ function curriculumFieldPlainText(val) {
     .trim();
 }
 
+function resolveCurriculumRowContentExpansion(row) {
+  if (!row || typeof row !== 'object') return null;
+  const exp = row.contentExpansion;
+  if (!exp || typeof exp !== 'object' || Array.isArray(exp)) return null;
+  return exp;
+}
+
+function isLegacyShortCurriculumNarrative(text) {
+  const plain = curriculumFieldPlainText(text);
+  if (!plain) return true;
+  if (plain.length < PHASE_C_CURRICULUM_MIN_CONTENT_CHARS) return true;
+  if (plain.length < 220) {
+    const sentenceEnds = plain.match(/[.!?׃…]/g) || [];
+    if (sentenceEnds.length <= 1) return true;
+  }
+  return false;
+}
+
 function isPhaseCCurriculumExpansionUpgraded(exp) {
   if (!exp || typeof exp !== 'object' || Array.isArray(exp)) return false;
 
   const classroom = curriculumFieldPlainText(exp.classroomImplementation);
   if (classroom.length < PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS) return false;
 
+  const parentCommunity = curriculumFieldPlainText(exp.parentCommunityAspects);
+  if (parentCommunity.length < PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS) return false;
+
   const steps = Array.isArray(exp.practicalSteps)
     ? exp.practicalSteps
       .map(function (step) { return curriculumFieldPlainText(step); })
-      .filter(function (step) { return step.length >= 10; })
+      .filter(function (step) { return step.length >= PHASE_C_CURRICULUM_MIN_STEP_CHARS; })
     : [];
   if (steps.length < PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS) return false;
 
@@ -422,7 +446,9 @@ function isPhaseCCurriculumExpansionUpgraded(exp) {
   if (refs.length < PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS) return false;
 
   return PHASE_C_CURRICULUM_EXPANSION_KEYS.every(function (key) {
-    return exp[key] != null && exp[key] !== '';
+    if (key === 'practicalSteps') return Array.isArray(exp.practicalSteps) && exp.practicalSteps.length > 0;
+    if (key === 'inspirationReferences') return Array.isArray(exp.inspirationReferences) && exp.inspirationReferences.length > 0;
+    return exp[key] != null && String(exp[key]).trim() !== '';
   });
 }
 
@@ -433,13 +459,13 @@ function isPhaseCCurriculumDayUpgraded(row) {
   const content = curriculumFieldPlainText(row.content != null ? row.content : row['תוכן וסיפור']);
   const art = curriculumFieldPlainText(row.art != null ? row.art : row['אמנות ומעשה']);
   if (isPhaseCCurriculumContentCorrupt(content)) return false;
-  if (content.length < PHASE_C_CURRICULUM_MIN_CONTENT_CHARS) return false;
+  if (isLegacyShortCurriculumNarrative(content)) return false;
   if (isPhaseCCurriculumContentCorrupt(art) || art.length < PHASE_C_CURRICULUM_MIN_ART_CHARS) return false;
-  if (!row.contentExpansion || typeof row.contentExpansion !== 'object' || Array.isArray(row.contentExpansion)) {
-    return false;
-  }
 
-  return isPhaseCCurriculumExpansionUpgraded(row.contentExpansion);
+  const contentExpansion = resolveCurriculumRowContentExpansion(row);
+  if (!contentExpansion) return false;
+
+  return isPhaseCCurriculumExpansionUpgraded(contentExpansion);
 }
 
 function extractPhaseCCurriculumRows(data) {
@@ -462,13 +488,23 @@ function countValidPhaseCCurriculumDays(data) {
 function isPhaseCCurriculumPayloadLegacy(data) {
   const rows = extractPhaseCCurriculumRows(data);
   if (!rows.length) return true;
-  return countValidPhaseCCurriculumDays(data) < PHASE_C_CURRICULUM_REQUIRED_DAYS;
+  if (rows.length < PHASE_C_CURRICULUM_REQUIRED_DAYS) return true;
+  for (let i = 0; i < PHASE_C_CURRICULUM_REQUIRED_DAYS; i++) {
+    if (!isPhaseCCurriculumDayUpgraded(rows[i])) return true;
+  }
+  return false;
+}
+
+/** Data-only corrupt/legacy check (topic archive or phase_c payload). */
+function isPhaseCCurriculumDataCorrupt(data) {
+  return isPhaseCCurriculumPayloadLegacy(data);
 }
 
 function isPhaseCCurriculumCacheCorrupt(body, data) {
-  if (!body || body.phase !== 'phase_c') return false;
+  if (!data) return true;
+  const corrupt = isPhaseCCurriculumDataCorrupt(data);
+  if (!body || body.phase !== 'phase_c') return corrupt;
   if (resolvePhaseCTabFromBody(body) !== 'curriculum') return false;
-  const corrupt = isPhaseCCurriculumPayloadLegacy(data);
   console.log(
     '[CACHE_DEBUG] isPhaseCCurriculumCacheCorrupt checked. Result:',
     corrupt,
@@ -2335,6 +2371,7 @@ async function getCachedResult(body, options) {
       source: isSupabaseCacheEnabled() ? 'supabase' : 'fallback',
       legacyMigrated: row.cache_key !== cacheKey,
       enhanced: isEnhancedCachedPayload(body.phase, payload),
+      curriculumLegacy: isPhaseCCurriculumPayloadLegacy(payload),
     },
   };
 }
@@ -2557,6 +2594,7 @@ function formatHistoryItem(row, options) {
     lastHitAt: row.last_hit_at || null,
     hitCount: row.hit_count || 0,
     hasLessonPlan: hasPlan,
+    curriculumLegacy: hasPlan ? isPhaseCCurriculumPayloadLegacy(data) : false,
     resultData: includeResult && hasPlan ? data : null,
   };
 }
@@ -3752,6 +3790,7 @@ module.exports = {
   normalizeGradeResultForCache,
   coerceCachedResultData,
   isPhaseCCurriculumCacheCorrupt,
+  isPhaseCCurriculumDataCorrupt,
   isPhaseCCurriculumPayloadLegacy,
   isPhaseCCurriculumDayUpgraded,
   topicPayloadNeedsCurriculumMigration: function (data) {

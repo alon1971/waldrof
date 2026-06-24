@@ -5994,7 +5994,7 @@
           throw new Error(t('search_history_error'));
         }
         setTimeout(function () {
-          queueBackgroundCurriculumMigration(data);
+          queueBackgroundCurriculumMigration(data, item);
         }, 0);
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
@@ -6796,24 +6796,57 @@
       return isArchiveCurriculumCorrupted(data) || isArchiveCurriculumMissing(data);
     }
 
+    var PHASE_C_CURRICULUM_REQUIRED_DAYS_CLIENT = 15;
+    var PHASE_C_CURRICULUM_MIN_CONTENT_CHARS_CLIENT = 100;
+    var PHASE_C_CURRICULUM_MIN_ART_CHARS_CLIENT = 40;
+    var PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS_CLIENT = 80;
+    var PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS_CLIENT = 30;
+    var PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS_CLIENT = 4;
+    var PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS_CLIENT = 2;
+    var PHASE_C_CURRICULUM_MIN_STEP_CHARS_CLIENT = 12;
+
+    function resolveCurriculumRowContentExpansionClient(row) {
+      if (!row || typeof row !== 'object') return null;
+      var exp = row.contentExpansion;
+      if (!exp || typeof exp !== 'object' || Array.isArray(exp)) return null;
+      return exp;
+    }
+
+    function isLegacyShortCurriculumNarrativeClient(text) {
+      var plain = curriculumFieldPlainText(text);
+      if (!plain) return true;
+      if (plain.length < PHASE_C_CURRICULUM_MIN_CONTENT_CHARS_CLIENT) return true;
+      if (plain.length < 220) {
+        var sentenceEnds = plain.match(/[.!?׃…]/g) || [];
+        if (sentenceEnds.length <= 1) return true;
+      }
+      return false;
+    }
+
+    function isPhaseCCurriculumExpansionUpgradedClient(exp) {
+      if (!exp || typeof exp !== 'object') return false;
+      if (String(exp.classroomImplementation || '').trim().length < PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS_CLIENT) return false;
+      if (String(exp.parentCommunityAspects || '').trim().length < PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS_CLIENT) return false;
+      var steps = (exp.practicalSteps || []).filter(function (step) {
+        return String(step || '').trim().length >= PHASE_C_CURRICULUM_MIN_STEP_CHARS_CLIENT;
+      });
+      if (steps.length < PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS_CLIENT) return false;
+      var refs = (exp.inspirationReferences || []).filter(function (ref) {
+        return String(ref || '').trim().length > 0;
+      });
+      if (refs.length < PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS_CLIENT) return false;
+      return true;
+    }
+
     function isPhaseCCurriculumDayUpgradedClient(row) {
       if (!row || typeof row !== 'object') return false;
       var content = curriculumFieldPlainText(row.content != null ? row.content : row['תוכן וסיפור']);
       var art = curriculumFieldPlainText(row.art != null ? row.art : row['אמנות ומעשה']);
-      if (isCorruptedCurriculumField(content) || content.length < 80) return false;
-      if (isCorruptedCurriculumField(art) || art.length < 35) return false;
-      var exp = normalizeExpansion(row.contentExpansion);
-      if (!exp) return false;
-      if (String(exp.classroomImplementation || '').trim().length < 50) return false;
-      var steps = (exp.practicalSteps || []).filter(function (step) {
-        return String(step || '').trim().length >= 10;
-      });
-      if (steps.length < 2) return false;
-      var refs = (exp.inspirationReferences || []).filter(function (ref) {
-        return String(ref || '').trim().length > 0;
-      });
-      if (refs.length < 1) return false;
-      return true;
+      if (isCorruptedCurriculumField(content) || isLegacyShortCurriculumNarrativeClient(content)) return false;
+      if (isCorruptedCurriculumField(art) || art.length < PHASE_C_CURRICULUM_MIN_ART_CHARS_CLIENT) return false;
+      var contentExpansion = resolveCurriculumRowContentExpansionClient(row);
+      if (!contentExpansion) return false;
+      return isPhaseCCurriculumExpansionUpgradedClient(contentExpansion);
     }
 
     function countValidPhaseCCurriculumDaysClient(data) {
@@ -6825,22 +6858,46 @@
       return count;
     }
 
-    function isPhaseCCurriculumCacheCorrupt(data) {
+    function isPhaseCCurriculumPayloadLegacyClient(data) {
       var rows = extractCurriculumRowsFromLessonData(data);
       if (!rows.length) return true;
-      return countValidPhaseCCurriculumDaysClient(data) < 15;
+      if (rows.length < PHASE_C_CURRICULUM_REQUIRED_DAYS_CLIENT) return true;
+      for (var j = 0; j < PHASE_C_CURRICULUM_REQUIRED_DAYS_CLIENT; j++) {
+        if (!isPhaseCCurriculumDayUpgradedClient(rows[j])) return true;
+      }
+      return false;
     }
 
-    function topicPayloadNeedsBackgroundCurriculumMigration(data) {
+    function isPhaseCCurriculumCacheCorrupt(data) {
+      return isPhaseCCurriculumPayloadLegacyClient(data);
+    }
+
+    function topicHasMigratableEssenceClient(data) {
+      if (!data || typeof data !== 'object') return false;
+      if (hasTopicResearchContent(data)) return true;
+      var bp = data.blockPlan;
+      if (!bp || typeof bp !== 'object') return false;
+      if (String(bp.rawContent || '').trim()) return true;
+      if (hasStructuredArchiveTheory(bp)) return true;
+      if (isMeaningfulArchiveInspiration(bp.inspiration)) return true;
+      if (data.webResearch && String(data.webResearch.summary || data.webResearch.rawContent || '').trim()) return true;
+      return false;
+    }
+
+    function topicPayloadNeedsBackgroundCurriculumMigration(sourceData, itemMeta) {
       if (!isResearchAvailable()) return false;
-      data = data || {};
-      var hasEssence = hasTopicResearchContent(data);
-      if (!hasEssence && data.blockPlan) {
-        hasEssence = hasStructuredArchiveTheory(data.blockPlan) ||
-          isMeaningfulArchiveInspiration(data.blockPlan.inspiration);
+      if (itemMeta && itemMeta.curriculumLegacy === true) return topicHasMigratableEssenceClient(sourceData || {});
+      var candidates = [];
+      if (sourceData) candidates.push(sourceData);
+      if (appState.aiGeneratedPlan) {
+        candidates.push({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
       }
-      if (!hasEssence) return false;
-      return isPhaseCCurriculumCacheCorrupt(data) || isArchiveCurriculumMissing(data);
+      for (var i = 0; i < candidates.length; i++) {
+        var data = candidates[i];
+        if (!topicHasMigratableEssenceClient(data)) continue;
+        if (isPhaseCCurriculumCacheCorrupt(data)) return true;
+      }
+      return false;
     }
 
     function hasExpansionResponseContent(data) {
@@ -8895,8 +8952,11 @@
       return true;
     }
 
-    function queueBackgroundCurriculumMigration(sourceData) {
-      if (!topicPayloadNeedsBackgroundCurriculumMigration(sourceData)) return;
+    function queueBackgroundCurriculumMigration(sourceData, historyItem) {
+      var meta = historyItem && (historyItem.curriculumLegacy != null
+        ? { curriculumLegacy: historyItem.curriculumLegacy }
+        : null);
+      if (!topicPayloadNeedsBackgroundCurriculumMigration(sourceData, meta)) return;
       if (backgroundCurriculumMigrationInFlight) return;
 
       backgroundCurriculumMigrationInFlight = fetchRegenerateLegacyTable()
@@ -15486,7 +15546,7 @@
           throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         }
         setTimeout(function () {
-          queueBackgroundCurriculumMigration(data);
+          queueBackgroundCurriculumMigration(data, (data && data._meta) ? data._meta : null);
         }, 0);
 
         const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);

@@ -3476,6 +3476,7 @@ async function executeGenerate(body, apiKey, requestContext) {
         console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
         if (body.phase === 'topic' && cached.data) {
           cached.meta.curriculumMigrated = !cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data);
+          cached.meta.curriculumLegacy = cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data);
         }
         if (!body.skipKnowledgeIngest) {
           knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
@@ -3529,6 +3530,7 @@ async function executeGenerate(body, apiKey, requestContext) {
                 requestedTopic: body.topic || suggestion.requestedTopic || null,
                 enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
                 curriculumMigrated: !cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
+                curriculumLegacy: cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
               }, communityProbe),
             };
           }
