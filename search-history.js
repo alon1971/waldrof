@@ -137,18 +137,6 @@
       return Promise.resolve();
     }
 
-    var cached = findItemByKey(cacheKey);
-    if (cached && cached.resultData && cached.resultData.blockPlan) {
-      try {
-        deps.onReload(cached);
-        closeView();
-      } catch (err) {
-        console.error('[search-history] reload failed:', err);
-        alert((err && err.message) || deps.t('search_history_error'));
-      }
-      return Promise.resolve();
-    }
-
     state.openingKey = cacheKey;
     renderTable();
 

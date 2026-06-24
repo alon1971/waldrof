@@ -5997,6 +5997,10 @@
           healCorruptedArchiveCurriculum().catch(function (healErr) {
             console.error('[waldrof] archive curriculum auto-heal failed:', healErr);
           });
+        } else if (needsArchiveCurriculumHeal(data) && isResearchAvailable()) {
+          healCorruptedArchiveCurriculum().catch(function (healErr) {
+            console.error('[waldrof] archive curriculum regen failed:', healErr);
+          });
         }
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
@@ -6778,6 +6782,26 @@
       return corrupted >= Math.max(3, Math.ceil(rows.length * 0.5));
     }
 
+    function isArchiveCurriculumMissing(data) {
+      var rows = extractCurriculumRowsFromLessonData(data);
+      if (hasMeaningfulCurriculumRows(rows)) return false;
+      data = coerceArchiveLessonResultData(data);
+      if (!data) return false;
+      var bp = data.blockPlan;
+      if (bp) {
+        if (hasStructuredArchiveTheory(bp)) return true;
+        if (isMeaningfulArchiveInspiration(bp.inspiration)) return true;
+        if (hasArchivePhaseCInBlockPlan(bp) && !hasMeaningfulCurriculumRows(rows)) {
+          return isMeaningfulArchiveInspiration(bp.inspiration) || hasStructuredArchiveTheory(bp);
+        }
+      }
+      return hasTopicResearchContent(data);
+    }
+
+    function needsArchiveCurriculumHeal(data) {
+      return isArchiveCurriculumCorrupted(data) || isArchiveCurriculumMissing(data);
+    }
+
     function hasExpansionResponseContent(data) {
       var dive = (data && data.pedagogyDeepDive) || (data && data.archiveSummary) || data;
       if (!dive || typeof dive !== 'object') return false;
@@ -7282,7 +7306,24 @@
     }
 
     function hydrateCurriculumFromUnifiedSynthesis(options) {
-      return false;
+      if (!appState.aiGeneratedPlan) return false;
+      var existing = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
+      if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.curriculum);
+      if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.days);
+      if (hasMeaningfulCurriculumRows(existing)) {
+        if (!hasMeaningfulCurriculumRows(coerceCurriculumRows(appState.aiGeneratedPlan.curriculum))) {
+          appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(existing);
+          appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
+          syncActivePlanFromGenerated();
+        }
+        return true;
+      }
+      var synthesized = buildUnifiedCurriculumSynthesis(options);
+      if (!hasMeaningfulCurriculumRows(synthesized)) return false;
+      appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(synthesized);
+      appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
+      syncActivePlanFromGenerated();
+      return true;
     }
 
     function syncActivePlanFromGenerated() {
@@ -8841,6 +8882,12 @@
         }
         if (loadingEl) {
           var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
+          if (cTab === 'curriculum' && isResearchAvailable() && needsArchiveCurriculumHeal({ blockPlan: appState.aiGeneratedPlan })) {
+            healCorruptedArchiveCurriculum().catch(function (healErr) {
+              console.error('[waldrof] archive curriculum regen failed:', healErr);
+            });
+            return;
+          }
           if (!cachedRaw && cTab === 'inspiration') {
             var archiveInsp = extractArchiveInspirationFromData(
               { blockPlan: appState.aiGeneratedPlan },
@@ -8885,6 +8932,8 @@
       try {
         var fetchOpts = {};
         if (cTab === 'curriculum' && isArchiveCurriculumCorrupted({ blockPlan: appState.aiGeneratedPlan })) {
+          fetchOpts.skipCache = true;
+        } else if (cTab === 'curriculum' && needsArchiveCurriculumHeal({ blockPlan: appState.aiGeneratedPlan })) {
           fetchOpts.skipCache = true;
         }
         var data = await fetchPhaseCTab(cTab, controller.signal, fetchOpts);
@@ -15309,6 +15358,10 @@
           healCorruptedArchiveCurriculum().catch(function (healErr) {
             console.error('[waldrof] archive curriculum auto-heal failed:', healErr);
           });
+        } else if (needsArchiveCurriculumHeal(data) && isResearchAvailable()) {
+          healCorruptedArchiveCurriculum().catch(function (healErr) {
+            console.error('[waldrof] archive curriculum regen failed:', healErr);
+          });
         }
 
         const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);
@@ -15838,16 +15891,26 @@
                 ensurePageScrollUnlocked();
                 return;
               }
-              renderStructuredTextFallback(
-                currPanelEl,
-                t('curriculum_title'),
-                extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
-                  ? 'Archived lesson — 15-day period plan was not stored in this record.'
-                  : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
-              );
-              r.curriculum = true;
-              ensurePageScrollUnlocked();
-              return;
+              if (!hasPhaseCCurriculumContent()) {
+                if (isResearchAvailable() && needsArchiveCurriculumHeal({ blockPlan: appState.aiGeneratedPlan })) {
+                  healCorruptedArchiveCurriculum().catch(function (healErr) {
+                    console.error('[waldrof] archive curriculum regen failed:', healErr);
+                  });
+                  r.curriculum = true;
+                  ensurePageScrollUnlocked();
+                  return;
+                }
+                renderStructuredTextFallback(
+                  currPanelEl,
+                  t('curriculum_title'),
+                  extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
+                    ? 'Archived lesson — 15-day period plan was not stored in this record.'
+                    : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
+                );
+                r.curriculum = true;
+                ensurePageScrollUnlocked();
+                return;
+              }
             }
             if (isResearchAvailable()) {
               ensurePhaseCTabLoaded('curriculum');
