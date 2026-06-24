@@ -5993,15 +5993,9 @@
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error(t('search_history_error'));
         }
-        if (isArchiveCurriculumCorrupted(data) && isResearchAvailable()) {
-          healCorruptedArchiveCurriculum().catch(function (healErr) {
-            console.error('[waldrof] archive curriculum auto-heal failed:', healErr);
-          });
-        } else if (needsArchiveCurriculumHeal(data) && isResearchAvailable()) {
-          healCorruptedArchiveCurriculum().catch(function (healErr) {
-            console.error('[waldrof] archive curriculum regen failed:', healErr);
-          });
-        }
+        setTimeout(function () {
+          queueBackgroundCurriculumMigration(data);
+        }, 0);
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
         if (isCloudConfigured()) {
@@ -6800,6 +6794,53 @@
 
     function needsArchiveCurriculumHeal(data) {
       return isArchiveCurriculumCorrupted(data) || isArchiveCurriculumMissing(data);
+    }
+
+    function isPhaseCCurriculumDayUpgradedClient(row) {
+      if (!row || typeof row !== 'object') return false;
+      var content = curriculumFieldPlainText(row.content != null ? row.content : row['תוכן וסיפור']);
+      var art = curriculumFieldPlainText(row.art != null ? row.art : row['אמנות ומעשה']);
+      if (isCorruptedCurriculumField(content) || content.length < 80) return false;
+      if (isCorruptedCurriculumField(art) || art.length < 35) return false;
+      var exp = normalizeExpansion(row.contentExpansion);
+      if (!exp) return false;
+      if (String(exp.classroomImplementation || '').trim().length < 50) return false;
+      var steps = (exp.practicalSteps || []).filter(function (step) {
+        return String(step || '').trim().length >= 10;
+      });
+      if (steps.length < 2) return false;
+      var refs = (exp.inspirationReferences || []).filter(function (ref) {
+        return String(ref || '').trim().length > 0;
+      });
+      if (refs.length < 1) return false;
+      return true;
+    }
+
+    function countValidPhaseCCurriculumDaysClient(data) {
+      var rows = extractCurriculumRowsFromLessonData(data);
+      var count = 0;
+      for (var i = 0; i < rows.length; i++) {
+        if (isPhaseCCurriculumDayUpgradedClient(rows[i])) count++;
+      }
+      return count;
+    }
+
+    function isPhaseCCurriculumCacheCorrupt(data) {
+      var rows = extractCurriculumRowsFromLessonData(data);
+      if (!rows.length) return true;
+      return countValidPhaseCCurriculumDaysClient(data) < 15;
+    }
+
+    function topicPayloadNeedsBackgroundCurriculumMigration(data) {
+      if (!isResearchAvailable()) return false;
+      data = data || {};
+      var hasEssence = hasTopicResearchContent(data);
+      if (!hasEssence && data.blockPlan) {
+        hasEssence = hasStructuredArchiveTheory(data.blockPlan) ||
+          isMeaningfulArchiveInspiration(data.blockPlan.inspiration);
+      }
+      if (!hasEssence) return false;
+      return isPhaseCCurriculumCacheCorrupt(data) || isArchiveCurriculumMissing(data);
     }
 
     function hasExpansionResponseContent(data) {
@@ -8793,6 +8834,84 @@
       }, { signal: signal });
     }
 
+    var backgroundCurriculumMigrationInFlight = null;
+
+    function regenerateLegacyTableUrl() {
+      return (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/regenerate-legacy-table'
+        : '/api/regenerate-legacy-table';
+    }
+
+    async function fetchRegenerateLegacyTable() {
+      var topicStr = String(appState.topic || resolveLessonTopic() || '').trim();
+      var gradeId = String(appState.grade || '').trim();
+      if (!topicStr || !gradeId) return null;
+
+      var headers = { 'Content-Type': 'application/json' };
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try {
+          var token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (authErr) { /* ignore */ }
+      }
+      var contributor = typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getContributorProfile() : null;
+      var res = await fetch(regenerateLegacyTableUrl(), {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          topic: topicStr,
+          gradeId: gradeId,
+          gradeLabel: appState.gradeLabel || '',
+          cacheKey: appState.lessonCacheKey || '',
+          teacherUser: contributor,
+        }),
+      });
+      if (!res.ok) {
+        var errText = await res.text();
+        throw new Error(errText || ('HTTP ' + res.status));
+      }
+      return res.json();
+    }
+
+    function applyBackgroundCurriculumMigrationResult(envelope) {
+      if (!envelope || !envelope.data) return false;
+      if (!envelope.migrated) return false;
+      var lessonData = envelope.data;
+      if (!lessonData.blockPlan && !lessonData.curriculum) return false;
+      var merged = mergePhaseCIntoPlan(lessonData, 'curriculum');
+      if (!merged && !hasMeaningfulCurriculumRows(extractCurriculumRowsFromLessonData(lessonData))) {
+        return false;
+      }
+      appState.lessonFromArchive = false;
+      appState.productTabsRendered.curriculum = false;
+      if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
+        renderProductTabContent('curriculum');
+      } else if (typeof renderCurriculumTabPanels === 'function') {
+        renderCurriculumTabPanels();
+      }
+      if (typeof WaldorfSearchHistory !== 'undefined' && WaldorfSearchHistory.invalidate) {
+        WaldorfSearchHistory.invalidate();
+      }
+      return true;
+    }
+
+    function queueBackgroundCurriculumMigration(sourceData) {
+      if (!topicPayloadNeedsBackgroundCurriculumMigration(sourceData)) return;
+      if (backgroundCurriculumMigrationInFlight) return;
+
+      backgroundCurriculumMigrationInFlight = fetchRegenerateLegacyTable()
+        .then(function (json) {
+          var envelope = (json && json.data) ? json.data : json;
+          applyBackgroundCurriculumMigrationResult(envelope);
+        })
+        .catch(function (err) {
+          console.warn('[waldrof] background curriculum migration failed:', err);
+        })
+        .finally(function () {
+          backgroundCurriculumMigrationInFlight = null;
+        });
+    }
+
     async function healCorruptedArchiveCurriculum() {
       if (!appState.topic || !appState.grade || !isResearchAvailable()) return false;
       if (archiveCurriculumHealInFlight) return archiveCurriculumHealInFlight;
@@ -8882,10 +9001,22 @@
         }
         if (loadingEl) {
           var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
-          if (cTab === 'curriculum' && isResearchAvailable() && needsArchiveCurriculumHeal({ blockPlan: appState.aiGeneratedPlan })) {
-            healCorruptedArchiveCurriculum().catch(function (healErr) {
-              console.error('[waldrof] archive curriculum regen failed:', healErr);
-            });
+          if (cTab === 'curriculum' && isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan })) {
+            var archiveRows = extractCurriculumRowsFromLessonData({ blockPlan: appState.aiGeneratedPlan });
+            if (hasMeaningfulCurriculumRows(archiveRows)) {
+              appState.productTabsRendered[cTab] = false;
+              renderProductTabContent(cTab);
+            } else if (cachedRaw) {
+              renderStructuredTextFallback(
+                loadingEl,
+                t('curriculum_title'),
+                cachedRaw
+              );
+            }
+            queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan });
+            setPhaseCTabLoadingUi(cTab, false);
+            appState.productTabsRendered[cTab] = true;
+            ensurePageScrollUnlocked();
             return;
           }
           if (!cachedRaw && cTab === 'inspiration') {
@@ -15354,15 +15485,9 @@
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
         }
-        if (isArchiveCurriculumCorrupted(data) && isResearchAvailable()) {
-          healCorruptedArchiveCurriculum().catch(function (healErr) {
-            console.error('[waldrof] archive curriculum auto-heal failed:', healErr);
-          });
-        } else if (needsArchiveCurriculumHeal(data) && isResearchAvailable()) {
-          healCorruptedArchiveCurriculum().catch(function (healErr) {
-            console.error('[waldrof] archive curriculum regen failed:', healErr);
-          });
-        }
+        setTimeout(function () {
+          queueBackgroundCurriculumMigration(data);
+        }, 0);
 
         const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);
         appState.topicCommunityMatches = resolvedCommunity;
@@ -15892,10 +16017,20 @@
                 return;
               }
               if (!hasPhaseCCurriculumContent()) {
-                if (isResearchAvailable() && needsArchiveCurriculumHeal({ blockPlan: appState.aiGeneratedPlan })) {
-                  healCorruptedArchiveCurriculum().catch(function (healErr) {
-                    console.error('[waldrof] archive curriculum regen failed:', healErr);
-                  });
+                if (isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan })) {
+                  queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan });
+                  var legacyRows = extractCurriculumRowsFromLessonData({ blockPlan: appState.aiGeneratedPlan });
+                  if (hasMeaningfulCurriculumRows(legacyRows)) {
+                    renderCurriculumTabPanels();
+                  } else {
+                    renderStructuredTextFallback(
+                      currPanelEl,
+                      t('curriculum_title'),
+                      extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
+                        ? 'Archived lesson — 15-day period plan was not stored in this record.'
+                        : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
+                    );
+                  }
                   r.curriculum = true;
                   ensurePageScrollUnlocked();
                   return;

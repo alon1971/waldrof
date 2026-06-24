@@ -606,8 +606,8 @@ async function enrichArchiveLessonWithPhaseCCaches(data, context) {
     blockPlan.curriculum = existingCurr.map(preserveCurriculumRowForStorage).filter(Boolean);
     blockPlan.days = blockPlan.curriculum.slice();
   } else if (existingCurr.length) {
-    delete blockPlan.curriculum;
-    delete blockPlan.days;
+    blockPlan.curriculum = existingCurr.map(preserveCurriculumRowForStorage).filter(Boolean);
+    blockPlan.days = blockPlan.curriculum.slice();
   }
 
   if (upgradedEmbedded < PHASE_C_CURRICULUM_REQUIRED_DAYS) {
@@ -1524,7 +1524,6 @@ async function finalizeArchiveTopicMatch(match) {
     gradeLabel: match.gradeLabel || null,
   };
   data = await enrichArchiveLessonWithPhaseCCaches(data, row);
-  data = await maybeAutoHealTopicCurriculum(topicBody, data, row);
   const out = Object.assign({}, match, { resultData: data });
   delete out._archiveRow;
   delete out._topicBody;
@@ -2313,18 +2312,6 @@ async function getCachedResult(body, options) {
   if (payload && body.phase === 'topic') {
     payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
     payload = await enrichArchiveLessonWithPhaseCCaches(payload, body);
-    if (isPhaseCCurriculumPayloadLegacy(payload)) {
-      const phaseBody = buildPhaseCCacheBody('curriculum', body);
-      if (phaseBody) {
-        const phaseKey = buildCacheKey(phaseBody);
-        if (phaseKey) await deleteCachedRowByKey(phaseKey);
-      }
-      if (payload.blockPlan) {
-        delete payload.blockPlan.curriculum;
-        delete payload.blockPlan.days;
-      }
-    }
-    payload = await maybeAutoHealTopicCurriculum(body, payload, row || body);
   } else if (payload && body.phase === 'phase_c' && resolvePhaseCTabFromBody(body) === 'inspiration') {
     payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
   }
@@ -2728,19 +2715,6 @@ async function getCommunityLessonByCacheKey(cacheKey) {
   let data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
   if (!data || !data.blockPlan) return null;
   data = await enrichArchiveLessonWithPhaseCCaches(data, row);
-  data = await maybeAutoHealTopicCurriculum(
-    {
-      phase: 'topic',
-      topic: row.topic || data.webResearch && data.webResearch.topic || '',
-      currentGrade: row.grade_id,
-      gradeId: row.grade_id,
-      gradeLabel: row.grade_label,
-      userEmail: row.user_email,
-      userId: row.user_id,
-    },
-    data,
-    row
-  );
   bumpHitCountAsync(cacheKey, row.hit_count);
   return formatHistoryItem(Object.assign({}, row, { result_data: data }));
 }
@@ -2755,20 +2729,6 @@ async function getTeacherLessonByCacheKey(teacher, cacheKey) {
   let data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
   if (!data || !data.blockPlan) return null;
   data = await enrichArchiveLessonWithPhaseCCaches(data, row);
-  data = await maybeAutoHealTopicCurriculum(
-    {
-      phase: 'topic',
-      topic: row.topic || data.webResearch && data.webResearch.topic || '',
-      currentGrade: row.grade_id,
-      gradeId: row.grade_id,
-      gradeLabel: row.grade_label,
-      userEmail: row.user_email || (teacher && teacher.email) || null,
-      userId: row.user_id || (teacher && teacher.id) || null,
-      teacherUser: teacher || null,
-    },
-    data,
-    row
-  );
   bumpHitCountAsync(cacheKey, row.hit_count);
   return formatHistoryItem(Object.assign({}, row, { result_data: data }));
 }

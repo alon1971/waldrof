@@ -4,6 +4,10 @@
     "api/generate.js": {
       "maxDuration": 120,
       "memory": 1024
+    },
+    "api/regenerate-legacy-table.js": {
+      "maxDuration": 120,
+      "memory": 1024
     }
   },
   "headers": [
