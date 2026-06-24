@@ -6858,7 +6858,19 @@
       return count;
     }
 
+    function isLessonCurriculumCarrierClient(data) {
+      if (!data || typeof data !== 'object') return false;
+      var bp = data.blockPlan;
+      if (!bp || typeof bp !== 'object') return false;
+      if (data.webResearch != null) return true;
+      if (bp.theory != null || bp.inspiration != null) return true;
+      if (Array.isArray(bp.curriculum) || Array.isArray(bp.days)) return true;
+      if (String(bp.rawContent || '').trim()) return true;
+      return false;
+    }
+
     function isPhaseCCurriculumPayloadLegacyClient(data) {
+      if (!isLessonCurriculumCarrierClient(data)) return false;
       var rows = extractCurriculumRowsFromLessonData(data);
       if (!rows.length) return true;
       if (rows.length < PHASE_C_CURRICULUM_REQUIRED_DAYS_CLIENT) return true;
@@ -6886,10 +6898,13 @@
 
     function topicPayloadNeedsBackgroundCurriculumMigration(sourceData, itemMeta) {
       if (!isResearchAvailable()) return false;
-      if (itemMeta && itemMeta.curriculumLegacy === true) return topicHasMigratableEssenceClient(sourceData || {});
+      if (!appState.topic || !String(appState.topic).trim()) return false;
+      if (itemMeta && itemMeta.curriculumLegacy === true) {
+        return topicHasMigratableEssenceClient(sourceData || {});
+      }
       var candidates = [];
-      if (sourceData) candidates.push(sourceData);
-      if (appState.aiGeneratedPlan) {
+      if (sourceData && isLessonCurriculumCarrierClient(sourceData)) candidates.push(sourceData);
+      if (appState.aiGeneratedPlan && isLessonCurriculumCarrierClient({ blockPlan: appState.aiGeneratedPlan })) {
         candidates.push({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
       }
       for (var i = 0; i < candidates.length; i++) {

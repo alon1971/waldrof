@@ -485,7 +485,19 @@ function countValidPhaseCCurriculumDays(data) {
   return count;
 }
 
+function isLessonCurriculumCarrier(data) {
+  if (!data || typeof data !== 'object') return false;
+  const bp = data.blockPlan;
+  if (!bp || typeof bp !== 'object') return false;
+  if (data.webResearch != null) return true;
+  if (bp.theory != null || bp.inspiration != null) return true;
+  if (Array.isArray(bp.curriculum) || Array.isArray(bp.days)) return true;
+  if (String(bp.rawContent || '').trim()) return true;
+  return false;
+}
+
 function isPhaseCCurriculumPayloadLegacy(data) {
+  if (!isLessonCurriculumCarrier(data)) return false;
   const rows = extractPhaseCCurriculumRows(data);
   if (!rows.length) return true;
   if (rows.length < PHASE_C_CURRICULUM_REQUIRED_DAYS) return true;
@@ -495,16 +507,15 @@ function isPhaseCCurriculumPayloadLegacy(data) {
   return false;
 }
 
-/** Data-only corrupt/legacy check (topic archive or phase_c payload). */
+/** Data-only corrupt/legacy check (topic archive or phase_c lesson payload only). */
 function isPhaseCCurriculumDataCorrupt(data) {
   return isPhaseCCurriculumPayloadLegacy(data);
 }
 
 function isPhaseCCurriculumCacheCorrupt(body, data) {
-  if (!data) return true;
-  const corrupt = isPhaseCCurriculumDataCorrupt(data);
-  if (!body || body.phase !== 'phase_c') return corrupt;
+  if (!body || body.phase !== 'phase_c') return false;
   if (resolvePhaseCTabFromBody(body) !== 'curriculum') return false;
+  const corrupt = isPhaseCCurriculumPayloadLegacy(data);
   console.log(
     '[CACHE_DEBUG] isPhaseCCurriculumCacheCorrupt checked. Result:',
     corrupt,
@@ -2371,7 +2382,7 @@ async function getCachedResult(body, options) {
       source: isSupabaseCacheEnabled() ? 'supabase' : 'fallback',
       legacyMigrated: row.cache_key !== cacheKey,
       enhanced: isEnhancedCachedPayload(body.phase, payload),
-      curriculumLegacy: isPhaseCCurriculumPayloadLegacy(payload),
+      curriculumLegacy: body.phase === 'topic' ? isPhaseCCurriculumPayloadLegacy(payload) : false,
     },
   };
 }
@@ -3791,6 +3802,7 @@ module.exports = {
   coerceCachedResultData,
   isPhaseCCurriculumCacheCorrupt,
   isPhaseCCurriculumDataCorrupt,
+  isLessonCurriculumCarrier,
   isPhaseCCurriculumPayloadLegacy,
   isPhaseCCurriculumDayUpgraded,
   topicPayloadNeedsCurriculumMigration: function (data) {

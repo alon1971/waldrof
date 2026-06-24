@@ -103,7 +103,16 @@ const corruptSample = {
   },
 };
 
+const gradeInsightsSample = {
+  gradeInsights: {
+    rawContent: 'תמונת גיל עשירה לכיתה ד עם התפתחות ורעיונות כיתתיים.',
+    part1AgePictureHtml: '<p>תמונת גיל מפורטת לכיתה ד.</p>',
+    part2ClassroomIdeas: [{ title: 'רעיון', detail: 'פרט כיתתי' }],
+  },
+};
+
 const body = { phase: 'phase_c', cTab: 'curriculum' };
+const gradeBody = { phase: 'grade', gradeId: '4' };
 
 let failed = 0;
 function assert(name, cond) {
@@ -125,6 +134,9 @@ assert('shallow expansion table is legacy', cache.isPhaseCCurriculumPayloadLegac
 assert('empty curriculum payload is legacy', cache.isPhaseCCurriculumPayloadLegacy(emptyCurriculumSample));
 assert('dash cache is corrupt', cache.isPhaseCCurriculumCacheCorrupt(body, corruptSample));
 assert('dash cache has 0 upgraded days', cache.countValidPhaseCCurriculumDays(corruptSample) === 0);
+assert('grade insights are not curriculum legacy', !cache.isPhaseCCurriculumPayloadLegacy(gradeInsightsSample));
+assert('grade cache read is not curriculum corrupt', !cache.isPhaseCCurriculumCacheCorrupt(gradeBody, gradeInsightsSample));
+assert('grade insights are not lesson curriculum carrier', !cache.isLessonCurriculumCarrier(gradeInsightsSample));
 
 if (failed) {
   console.error(failed + ' test(s) failed');
