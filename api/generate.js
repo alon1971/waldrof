@@ -3596,6 +3596,9 @@ async function executeGenerate(body, apiKey, requestContext) {
             cached.meta.curriculumStripped = true;
             cached.meta.curriculumMigrated = false;
             cached.meta.curriculumLegacy = false;
+            cacheDb.purgeRegenerationCaches(body).catch(function (purgeErr) {
+              console.warn('[generate] legacy curriculum purge failed:', purgeErr.message || purgeErr);
+            });
           } else {
             cached.meta.curriculumMigrated = true;
             cached.meta.curriculumLegacy = false;
@@ -3644,6 +3647,9 @@ async function executeGenerate(body, apiKey, requestContext) {
             ).data;
             if (cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload)) {
               archivePayload = stripCurriculumFromTopicPayload(archivePayload);
+              cacheDb.purgeRegenerationCaches(body).catch(function (purgeErr) {
+                console.warn('[generate] archive legacy curriculum purge failed:', purgeErr.message || purgeErr);
+              });
             }
             return {
               data: archivePayload,

@@ -5833,6 +5833,7 @@
 
       function attachArchiveCurriculumToPlan(plan) {
         if (!plan || !curriculumRows.length) return plan;
+        if (isPhaseCCurriculumPayloadLegacyClient({ blockPlan: { curriculum: curriculumRows } })) return plan;
         plan.curriculum = padCurriculumRowsToFifteen(curriculumRows);
         plan.days = plan.curriculum.slice();
         return plan;
@@ -8985,8 +8986,11 @@
     }
 
     function hasPhaseCCurriculumContent() {
-      if (hydrateCurriculumFromUnifiedSynthesis()) return true;
-      return hasPhaseCCurriculumUpgradedContent();
+      if (hydrateCurriculumFromUnifiedSynthesis()) {
+        return resolveCurriculumPlanForRender().some(curriculumRowHasRenderableText);
+      }
+      if (!hasPhaseCCurriculumUpgradedContent()) return false;
+      return resolveCurriculumPlanForRender().some(curriculumRowHasRenderableText);
     }
 
     function mergePhaseCIntoPlan(data, cTab) {

@@ -682,6 +682,14 @@ function buildPhaseCCacheBody(cTab, context) {
   };
 }
 
+/** True when a payload has 15 fully upgraded deep-pipeline curriculum days. */
+function isPhaseCCurriculumServeReady(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (!isLessonCurriculumCarrier(data)) return false;
+  return countValidPhaseCCurriculumDays(data) >= PHASE_C_CURRICULUM_REQUIRED_DAYS
+    && !isPhaseCCurriculumPayloadLegacy(data);
+}
+
 /** Load phase_c inspiration/curriculum row directly (no topic enrichment recursion). */
 async function fetchPhaseCCachePayload(cTab, context) {
   const body = buildPhaseCCacheBody(cTab, context);
@@ -696,7 +704,16 @@ async function fetchPhaseCCachePayload(cTab, context) {
     data = fallbackRaw ? coerceCachedResultData(fallbackRaw) : null;
   }
   if (!data) return null;
-  if (cTab === 'curriculum' && isPhaseCCurriculumCacheCorrupt(body, data)) return null;
+  if (cTab === 'curriculum' && isPhaseCCurriculumCacheCorrupt(body, data)) {
+    console.warn(
+      '[cached_results] evicting corrupt phase_c curriculum sibling cache',
+      cacheKey.slice(0, 12),
+      'validDays=' + countValidPhaseCCurriculumDays(data) + '/' + PHASE_C_CURRICULUM_REQUIRED_DAYS
+    );
+    await deleteCachedRowByKey(cacheKey);
+    await stripLegacyCurriculumFromTopicRow(body);
+    return null;
+  }
   return data;
 }
 
@@ -711,8 +728,9 @@ async function enrichArchiveLessonWithPhaseCCaches(data, context) {
 
   let blockPlan = data.blockPlan;
   const existingCurr = extractCurriculumFromArchivePlan(blockPlan, data);
-  const upgradedEmbedded = countValidPhaseCCurriculumDays({ blockPlan: { curriculum: existingCurr } });
-  if (upgradedEmbedded >= PHASE_C_CURRICULUM_REQUIRED_DAYS) {
+  const embeddedCarrier = { blockPlan: { curriculum: existingCurr }, webResearch: data.webResearch };
+  const embeddedServeReady = isPhaseCCurriculumServeReady(embeddedCarrier);
+  if (embeddedServeReady) {
     blockPlan.curriculum = existingCurr.map(preserveCurriculumRowForStorage).filter(Boolean);
     blockPlan.days = blockPlan.curriculum.slice();
   } else if (existingCurr.length) {
@@ -721,18 +739,18 @@ async function enrichArchiveLessonWithPhaseCCaches(data, context) {
     delete blockPlan.rawCurriculum;
     delete blockPlan.curriculumRaw;
     delete blockPlan.table_data;
+    delete data.curriculum;
+    delete data.table_data;
   }
 
-  if (upgradedEmbedded < PHASE_C_CURRICULUM_REQUIRED_DAYS) {
+  if (!embeddedServeReady) {
     const phaseCCurr = await fetchPhaseCCachePayload('curriculum', context);
-    if (phaseCCurr && phaseCCurr.blockPlan) {
+    if (phaseCCurr && phaseCCurr.blockPlan && isPhaseCCurriculumServeReady(phaseCCurr)) {
       const currRows = extractCurriculumFromArchivePlan(phaseCCurr.blockPlan, phaseCCurr);
-      if (hasMeaningfulCurriculumRows(currRows) && countValidPhaseCCurriculumDays(phaseCCurr) >= PHASE_C_CURRICULUM_REQUIRED_DAYS) {
-        blockPlan.curriculum = currRows.map(preserveCurriculumRowForStorage).filter(Boolean);
-        blockPlan.days = blockPlan.curriculum.slice();
-        blockPlan = liftArchivePhaseCFields(blockPlan, Object.assign({}, data, phaseCCurr));
-        data.blockPlan = blockPlan;
-      }
+      blockPlan.curriculum = currRows.map(preserveCurriculumRowForStorage).filter(Boolean);
+      blockPlan.days = blockPlan.curriculum.slice();
+      blockPlan = liftArchivePhaseCFields(blockPlan, Object.assign({}, data, phaseCCurr));
+      data.blockPlan = blockPlan;
     }
   }
 
@@ -1092,10 +1110,12 @@ function isValidCachedPayload(phase, data) {
   if (phase === 'phase_c') {
     const bp = data.blockPlan;
     if (!bp || typeof bp !== 'object') return false;
-    if (bp.inspiration && typeof bp.inspiration === 'object') return true;
     const rows = extractCurriculumFromArchivePlan(bp, data);
-    if (rows.length >= 1) return true;
-    if (Array.isArray(bp.curriculum) && bp.curriculum.length >= 1) return true;
+    const hasCurriculum = rows.length > 0
+      || (Array.isArray(bp.curriculum) && bp.curriculum.length > 0)
+      || (Array.isArray(bp.days) && bp.days.length > 0);
+    if (hasCurriculum) return isPhaseCCurriculumServeReady(data);
+    if (bp.inspiration && typeof bp.inspiration === 'object') return true;
     if (String(bp.rawContent || '').trim()) return true;
     return false;
   }
@@ -2502,6 +2522,20 @@ async function getCachedResult(body, options) {
   if (payload && body.phase === 'topic') {
     payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
     payload = await enrichArchiveLessonWithPhaseCCaches(payload, body);
+    if (isPhaseCCurriculumPayloadLegacy(payload)) {
+      if (payload.blockPlan && typeof payload.blockPlan === 'object') {
+        delete payload.blockPlan.curriculum;
+        delete payload.blockPlan.days;
+        delete payload.blockPlan.rawCurriculum;
+        delete payload.blockPlan.curriculumRaw;
+        delete payload.blockPlan.table_data;
+      }
+      delete payload.curriculum;
+      delete payload.table_data;
+      purgeRegenerationCaches(body).catch(function (purgeErr) {
+        console.warn('[cached_results] topic legacy curriculum purge failed:', purgeErr.message || purgeErr);
+      });
+    }
   } else if (payload && body.phase === 'phase_c' && resolvePhaseCTabFromBody(body) === 'inspiration') {
     payload = applyArchiveLinkCleanupPolicy(payload, body.phase);
   }
@@ -3993,6 +4027,8 @@ module.exports = {
   deleteRawPerplexityCache,
   deleteCurriculumChunkCaches,
   purgeRegenerationCaches,
+  isPhaseCCurriculumServeReady,
+  PHASE_C_CURRICULUM_REQUIRED_DAYS,
   PHASE_C_CURRICULUM_MIN_VALID_DAYS,
   coerceArchiveLessonResultData,
   enrichArchiveLessonWithPhaseCCaches,
