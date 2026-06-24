@@ -153,6 +153,9 @@ async function executeSearchHistory(req) {
     const probe = await cacheDb.probeCommunityGlobalSearch(query, {
       topic: topic || null,
       userMessage: userMessage || null,
+      gradeId: body && body.gradeId,
+      currentGrade: body && body.currentGrade,
+      globalScan: body && body.globalScan,
       includeFolderBrief: true,
       repositorySearch: true,
       phase: 'topic',

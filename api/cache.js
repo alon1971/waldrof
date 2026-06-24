@@ -1957,6 +1957,7 @@ const GRADE_LABEL_BY_ID = {
   '6': 'כיתה ו׳',
   '7': 'כיתה ז׳',
   '8': 'כיתה ח׳',
+  general: 'כללי',
 };
 
 const LEGACY_ROW_SELECT =
@@ -3583,6 +3584,58 @@ function pickBestCommunityHits(materialRows, kbRows, query, options) {
     .slice(0, limit);
 }
 
+function buildCommunitySearchOrClause(terms, fieldNames) {
+  const orParts = [];
+  (terms || []).forEach(function (term) {
+    (fieldNames || []).forEach(function (field) {
+      orParts.push(field + '.ilike.*' + term + '*');
+    });
+  });
+  return orParts.length ? 'or(' + orParts.join(',') + ')' : '';
+}
+
+function applyCommunityMaterialQueryFilters(params, gradeId, query, withTermFilter) {
+  const gid = String(gradeId || '').trim();
+  const terms = withTermFilter ? buildCommunitySearchTerms(query) : [];
+  const termClause = terms.length
+    ? buildCommunitySearchOrClause(terms, ['topic', 'file_name', 'notes', 'file_path'])
+    : '';
+
+  if (gid === 'general') {
+    const gradeClause = 'or(grade_level.eq.general,grade_level.is.null)';
+    if (termClause) {
+      params.set('and', '(' + gradeClause + ',' + termClause + ')');
+    } else {
+      params.set('or', '(grade_level.eq.general,grade_level.is.null)');
+    }
+    return;
+  }
+
+  if (gid) params.set('grade_level', 'eq.' + gid);
+  if (termClause) params.set('or', '(' + termClause.slice(3, -1) + ')');
+}
+
+function applyCommunityKnowledgeQueryFilters(params, gradeId, query, withTermFilter) {
+  const gid = String(gradeId || '').trim();
+  const terms = withTermFilter ? buildCommunitySearchTerms(query) : [];
+  const termClause = terms.length
+    ? buildCommunitySearchOrClause(terms, ['title', 'topic', 'content', 'file_path', 'file_name'])
+    : '';
+
+  if (gid === 'general') {
+    const gradeClause = 'or(grade_id.eq.general,grade_id.is.null)';
+    if (termClause) {
+      params.set('and', '(' + gradeClause + ',' + termClause + ')');
+    } else {
+      params.set('or', '(grade_id.eq.general,grade_id.is.null)');
+    }
+    return;
+  }
+
+  if (gid) params.set('grade_id', 'eq.' + gid);
+  if (termClause) params.set('or', '(' + termClause.slice(3, -1) + ')');
+}
+
 async function fetchCommunityMaterialRows(gradeId, query, withTermFilter, options) {
   if (!isSupabaseCacheEnabled()) return [];
   const opts = options || {};
@@ -3591,21 +3644,7 @@ async function fetchCommunityMaterialRows(gradeId, query, withTermFilter, option
   params.set('select', 'id,grade_level,topic,file_path,file_name,notes,created_at');
   params.set('order', 'created_at.desc');
   params.set('limit', String(opts.limit || (withTermFilter ? 48 : 200)));
-  if (gradeId) params.set('grade_level', 'eq.' + gradeId);
-
-  if (withTermFilter) {
-    const terms = buildCommunitySearchTerms(query);
-    if (terms.length) {
-      const orParts = [];
-      terms.forEach(function (term) {
-        orParts.push('topic.ilike.*' + term + '*');
-        orParts.push('file_name.ilike.*' + term + '*');
-        orParts.push('notes.ilike.*' + term + '*');
-        orParts.push('file_path.ilike.*' + term + '*');
-      });
-      params.set('or', '(' + orParts.join(',') + ')');
-    }
-  }
+  applyCommunityMaterialQueryFilters(params, gradeId, query, withTermFilter);
 
   const res = await supabaseRequest('/rest/v1/' + COMMUNITY_MATERIALS_TABLE + '?' + params.toString(), {
     method: 'GET',
@@ -3663,22 +3702,7 @@ async function fetchCommunityKnowledgeRows(gradeId, query, withTermFilter, optio
   );
   params.set('order', 'created_at.desc');
   params.set('limit', String(opts.limit || (withTermFilter ? 64 : 200)));
-  if (gradeId) params.set('grade_id', 'eq.' + gradeId);
-
-  if (withTermFilter) {
-    const terms = buildCommunitySearchTerms(query);
-    if (terms.length) {
-      const orParts = [];
-      terms.forEach(function (term) {
-        orParts.push('title.ilike.*' + term + '*');
-        orParts.push('topic.ilike.*' + term + '*');
-        orParts.push('content.ilike.*' + term + '*');
-        orParts.push('file_path.ilike.*' + term + '*');
-        orParts.push('file_name.ilike.*' + term + '*');
-      });
-      params.set('or', '(' + orParts.join(',') + ')');
-    }
-  }
+  applyCommunityKnowledgeQueryFilters(params, gradeId, query, withTermFilter);
 
   const res = await supabaseRequest('/rest/v1/' + COMMUNITY_KB_TABLE + '?' + params.toString(), {
     method: 'GET',
@@ -3714,6 +3738,7 @@ function resolveGradeLabelFromId(gradeId, gradeLabel) {
   if (label) return label;
   const id = String(gradeId || '').trim();
   if (id && GRADE_LABEL_BY_ID[id]) return GRADE_LABEL_BY_ID[id];
+  if (id === 'general') return GRADE_LABEL_BY_ID.general;
   if (id) return 'כיתה ' + id;
   return '';
 }
@@ -3900,11 +3925,16 @@ async function probeCommunityGlobalSearch(query, options) {
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
 
+  const scopedGrade = String(opts.gradeId || opts.currentGrade || '').trim();
+  const useGlobalScan = opts.globalScan === true || (!scopedGrade && opts.globalScan !== false);
+
   const baseOpts = {
     query: userMessage,
     userMessage: userMessage,
     topic: opts.topic || null,
-    globalScan: true,
+    gradeId: useGlobalScan ? '' : scopedGrade,
+    currentGrade: useGlobalScan ? '' : scopedGrade,
+    globalScan: useGlobalScan,
     semanticFallback: true,
     includeFolderBrief: opts.includeFolderBrief !== false,
     repositorySearch: opts.repositorySearch === true,

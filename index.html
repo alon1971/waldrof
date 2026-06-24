@@ -12869,6 +12869,81 @@
       return String(topic || '').trim().toLowerCase();
     }
 
+    function communityItemSearchHaystack(item) {
+      if (!item) return '';
+      return [
+        item.title,
+        item.topic,
+        item.notes,
+        item.fileName,
+        item.filePath,
+        item.authorName,
+      ].filter(Boolean).join(' ');
+    }
+
+    function buildCommunityQuerySearchTerms(query) {
+      const q = String(query || '').trim();
+      if (!q) return [];
+      const terms = [];
+      const seen = new Set();
+      function addTerm(raw) {
+        const term = normalizeTopicKey(raw);
+        if (!term || term.length < 2 || seen.has(term)) return;
+        seen.add(term);
+        terms.push(term);
+        if (term.charAt(0) === 'ה' && term.length > 2) {
+          const stem = term.slice(1);
+          if (stem.length >= 2 && !seen.has(stem)) {
+            seen.add(stem);
+            terms.push(stem);
+          }
+        }
+      }
+      addTerm(q);
+      q.replace(/[״"'`׳\-–—_,.;:!?()[\]{}]/g, ' ')
+        .split(/\s+/)
+        .filter(function (word) { return word.length >= 2; })
+        .forEach(addTerm);
+      return terms;
+    }
+
+    function queryMatchesCommunityHaystack(query, haystack) {
+      const normalizedHaystack = normalizeTopicKey(haystack);
+      if (!normalizedHaystack) return false;
+      const terms = buildCommunityQuerySearchTerms(query);
+      if (!terms.length) return false;
+      return terms.some(function (term) {
+        return normalizedHaystack.indexOf(term) >= 0;
+      });
+    }
+
+    function searchCommunityCacheByQuery(query, gradeId) {
+      const q = String(query || '').trim();
+      if (!q || !Array.isArray(appState.communityCache)) return [];
+      const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '');
+      const pool = scopedGrade
+        ? filterByGrade(appState.communityCache, scopedGrade).filter(function (i) { return !i.isDemo; })
+        : appState.communityCache.filter(function (i) { return !i.isDemo; });
+      return pool.filter(function (item) {
+        return queryMatchesCommunityHaystack(q, communityItemSearchHaystack(item));
+      }).map(function (item) {
+        return {
+          id: item.id || item.dbId,
+          source: 'catalog',
+          title: item.title || item.fileName || item.topic || 'חומר קהילתי',
+          topic: item.topic || '',
+          catalogTopic: item.topic || '',
+          gradeId: item.gradeLevel || scopedGrade || null,
+          grade_level: item.gradeLevel || scopedGrade || null,
+          fileName: item.fileName || '',
+          fileUrl: item.fileUrl || resolveCommunityFileUrl(item),
+          description: item.notes || '',
+          createdAt: item.createdAt || null,
+          similarity: scoreCommunityItemSimilarity(q, item),
+        };
+      }).sort(function (a, b) { return (b.similarity || 0) - (a.similarity || 0); });
+    }
+
     function scoreCommunityItemSimilarity(query, item) {
       const q = String(query || '').trim();
       if (!q || !item) return 0;
@@ -13324,7 +13399,18 @@
         try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
       }
       if (token) headers.Authorization = 'Bearer ' + token;
-      const body = { action: 'probe_community', topic: q, userMessage: q, globalScan: true, repositorySearch: true };
+      const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '');
+      const body = {
+        action: 'probe_community',
+        topic: q,
+        userMessage: q,
+        globalScan: !scopedGrade,
+        repositorySearch: true,
+      };
+      if (scopedGrade) {
+        body.gradeId = scopedGrade;
+        body.currentGrade = scopedGrade;
+      }
       try {
         const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
         const bodyText = await res.text();
@@ -13439,8 +13525,17 @@
         try { await loadCommunity(); } catch (e) { /* ignore */ }
       }
       showCatalogStatus('מחפש במאגר הקהילתי…', 'info');
-      const probed = await probeCommunityTopicMatch(q, catalogState.gradeId || appState.grade || '');
-      const matches = probed.matches || [];
+      const scopeGradeId = resolveCommunityGradeIdFromAny(catalogState.gradeId || '') || '';
+      const localItems = searchCommunityCacheByQuery(q, scopeGradeId);
+      const probed = await probeCommunityTopicMatch(q, scopeGradeId);
+      let serverMatches = probed.matches || [];
+      if (scopeGradeId) {
+        serverMatches = serverMatches.filter(function (match) {
+          const matchGrade = resolveCommunityGradeIdFromAny(match.gradeId || match.grade_level || '');
+          return !matchGrade || matchGrade === scopeGradeId;
+        });
+      }
+      const matches = mergeCommunityMatches(localItems, serverMatches);
       let html = '<h4 class="font-bold text-burgundy mb-3 text-sm">תוצאות חיפוש עבור «' + escapeHtml(q) + '»</h4>';
       const primary = matches.length ? matches[0] : null;
       const folderCtx = primary ? resolveParentFolderFromMatch(primary, q) : { gradeId: '', catalogTopic: '', fileTitle: '' };
@@ -13818,8 +13913,16 @@
     }
 
     function filterByGrade(items, gradeId) {
+      const gid = String(gradeId || '').trim();
+      if (!gid) return items.slice();
+      if (gid === GENERAL_GRADE_ID) {
+        return items.filter(function (i) {
+          const level = String(i.gradeLevel || '').trim().toLowerCase();
+          return !level || level === GENERAL_GRADE_ID;
+        });
+      }
       return items.filter(function (i) {
-        return !i.gradeLevel || i.gradeLevel === gradeId || i.gradeLevel === String(gradeId);
+        return !i.gradeLevel || i.gradeLevel === gid || i.gradeLevel === String(gid);
       });
     }
 
