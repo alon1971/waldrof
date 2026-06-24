@@ -1071,7 +1071,10 @@
       gap: 0.5rem;
     }
     @media (min-width: 640px) {
-      .catalog-grade-switcher { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+      .catalog-grade-switcher { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    }
+    @media (min-width: 1024px) {
+      .catalog-grade-switcher { grid-template-columns: repeat(9, minmax(0, 1fr)); }
     }
     .catalog-grade-chip {
       display: inline-flex;
@@ -4859,6 +4862,7 @@
       pickerLoading: null,
     };
 
+    const GENERAL_GRADE_ID = 'general';
     const GRADES = [
       { id: '1', label: "כיתה א׳", age: '6–7' },
       { id: '2', label: "כיתה ב׳", age: '7–8' },
@@ -4869,6 +4873,20 @@
       { id: '7', label: "כיתה ז׳", age: '12–13' },
       { id: '8', label: "כיתה ח׳", age: '13–14' },
     ];
+    const CATALOG_GRADES = GRADES.concat([
+      { id: GENERAL_GRADE_ID, label: 'כללי', isGeneral: true },
+    ]);
+
+    function findCatalogGrade(gradeId) {
+      return CATALOG_GRADES.find(function (x) { return String(x.id) === String(gradeId); }) || null;
+    }
+
+    function getCatalogGradeLabel(gradeId) {
+      const g = findCatalogGrade(gradeId);
+      if (!g) return getGradeLabelById(gradeId) || String(gradeId || '');
+      if (g.isGeneral) return t('catalog_general');
+      return getGradeLabelById(g.id);
+    }
 
     const appState = {
       step: 1,
@@ -12970,9 +12988,9 @@
         const resolvedCache = resolveCommunityGradeIdFromAny(fromCache);
         if (resolvedCache) return resolvedCache;
       }
-      for (let g = 0; g < GRADES.length; g++) {
-        if (findCatalogTopicInCommunityCacheForGrade(match, GRADES[g].id)) {
-          return GRADES[g].id;
+      for (let g = 0; g < CATALOG_GRADES.length; g++) {
+        if (findCatalogTopicInCommunityCacheForGrade(match, CATALOG_GRADES[g].id)) {
+          return CATALOG_GRADES[g].id;
         }
       }
       return String(appState.grade || '').trim();
@@ -12991,10 +13009,14 @@
     function resolveCommunityGradeIdFromAny(raw) {
       const value = String(raw || '').trim();
       if (!value) return '';
-      const byId = GRADES.find(function (g) { return String(g.id) === value; });
+      const lower = value.toLowerCase();
+      if (lower === 'general' || lower === 'all' || value === 'כללי') {
+        return GENERAL_GRADE_ID;
+      }
+      const byId = CATALOG_GRADES.find(function (g) { return String(g.id) === value; });
       if (byId) return byId.id;
-      const byLabel = GRADES.find(function (g) {
-        return g.label === value || getGradeLabelById(g.id) === value;
+      const byLabel = CATALOG_GRADES.find(function (g) {
+        return g.label === value || getCatalogGradeLabel(g.id) === value;
       });
       if (byLabel) return byLabel.id;
       const digitMatch = value.match(/(\d+)/);
@@ -17208,9 +17230,11 @@
     }
 
     function catalogGradeNavHtml(activeGradeId) {
-      const chips = GRADES.map(function (g) {
+      const chips = CATALOG_GRADES.map(function (g) {
         const isActive = String(g.id) === String(activeGradeId);
-        const shortLabel = String(g.label || '').replace(/^כיתה\s*/, '') || getGradeLabelById(g.id);
+        const shortLabel = g.isGeneral
+          ? t('catalog_general')
+          : (String(g.label || '').replace(/^כיתה\s*/, '') || getCatalogGradeLabel(g.id));
         return '<button type="button" class="catalog-grade-chip' + (isActive ? ' is-active' : '') + '" data-catalog-grade="' + g.id + '"' +
           (isActive ? ' aria-current="true"' : '') + '>' + escapeHtml(shortLabel) + '</button>';
       }).join('');
@@ -17290,9 +17314,11 @@
     function renderCatalogGradeSelectOptions(selectedId) {
       const selected = String(selectedId || '');
       return '<option value="">' + escapeHtml(t('catalog_grade_ph')) + '</option>' +
-        GRADES.map(function (g) {
+        CATALOG_GRADES.map(function (g) {
           const isSelected = String(g.id) === selected ? ' selected' : '';
-          const shortLabel = String(g.label || '').replace(/^כיתה\s*/, '') || g.label;
+          const shortLabel = g.isGeneral
+            ? t('catalog_general')
+            : (String(g.label || '').replace(/^כיתה\s*/, '') || getCatalogGradeLabel(g.id));
           return '<option value="' + escapeHtml(String(g.id)) + '"' + isSelected + '>' + escapeHtml(shortLabel) + '</option>';
         }).join('');
     }
@@ -17551,10 +17577,10 @@
       if (!bc) return;
       let html = '<button type="button" class="catalog-bc text-sage-dark hover:underline font-medium" data-bc="grades">' + escapeHtml(t('catalog_bc_grades')) + '</button>';
       if (catalogState.gradeId) {
-        const g = GRADES.find(function (x) { return String(x.id) === String(catalogState.gradeId); });
+        const g = findCatalogGrade(catalogState.gradeId);
         html += ' <span aria-hidden="true">›</span> ' +
           '<button type="button" class="catalog-bc text-sage-dark hover:underline font-medium" data-bc="grade">' +
-          escapeHtml(g ? getGradeLabelById(g.id) : String(catalogState.gradeId)) + '</button>';
+          escapeHtml(g ? getCatalogGradeLabel(g.id) : String(catalogState.gradeId)) + '</button>';
       }
       if (catalogState.topic) {
         const label = catalogState.topic === '__general__' ? t('catalog_general') : catalogState.topic;
@@ -17582,14 +17608,19 @@
       if (materialsEl) materialsEl.classList.add('hidden');
       mutateCatalogDom(function () {
         el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
-          GRADES.map(function (g) {
+          CATALOG_GRADES.map(function (g) {
             const topics = getDynamicTopicsForGrade(g.id);
             const n = filterByGrade(appState.communityCache, g.id).length;
-            return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50" data-grade="' + g.id + '">' +
+            const isGeneral = Boolean(g.isGeneral);
+            const icon = isGeneral ? 'fa-globe' : 'fa-folder';
+            const subtitle = isGeneral
+              ? escapeHtml(t('catalog_general_hint'))
+              : escapeHtml(t('grade_age_prefix') + ' ' + g.age);
+            return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50' + (isGeneral ? ' catalog-grade-card--general' : '') + '" data-grade="' + g.id + '">' +
               '<div class="flex items-start gap-3">' +
-              '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid fa-folder"></i></span>' +
-              '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getGradeLabelById(g.id)) + '</div>' +
-              '<div class="text-xs text-walnut/60 mt-0.5">' + escapeHtml(t('grade_age_prefix') + ' ' + g.age) + '</div>' +
+              '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
+              '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
+              '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
               '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
           }).join('');
         el.querySelectorAll('[data-grade]').forEach(function (btn) {
@@ -17612,10 +17643,10 @@
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const allFiles = await attachCatalogManageFlags(collectCatalogFilesForGrade(gradeId));
-      const g = GRADES.find(function (x) { return String(x.id) === String(gradeId); });
+      const g = findCatalogGrade(gradeId);
       let html = catalogGradeNavHtml(gradeId);
       html += '<div id="catalog-grade-header" class="catalog-dashboard-header">' +
-        '<h3 class="app-page-title font-display font-bold text-burgundy mb-0">' + escapeHtml(g ? getGradeLabelById(g.id) : '') + '</h3>' +
+        '<h3 class="app-page-title font-display font-bold text-burgundy mb-0">' + escapeHtml(g ? getCatalogGradeLabel(g.id) : '') + '</h3>' +
         catalogUploadButtonHtml(gradeId, '', false, t('catalog_share_open')) +
         '</div>';
       html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
@@ -17908,7 +17939,7 @@
       if (gradesEl) gradesEl.classList.add('hidden');
       if (gradePanel) gradePanel.classList.add('hidden');
       el.classList.remove('hidden');
-      const g = GRADES.find(function (x) { return String(x.id) === String(gradeId); });
+      const g = findCatalogGrade(gradeId);
       const topicLabel = topicId || '';
       if (isCloudConfigured() && !(opts && opts.skipCommunityReload)) {
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
@@ -17918,7 +17949,7 @@
         '<div id="catalog-materials-header" class="catalog-dashboard-header">' +
         '<h3 class="app-page-title font-display font-bold text-burgundy mb-0 flex items-center gap-2">' +
         '<i class="fa-solid fa-folder-open text-gold"></i> ' +
-        escapeHtml(g ? getGradeLabelById(g.id) : '') + ' · ' + escapeHtml(topicLabel) + '</h3>' +
+        escapeHtml(g ? getCatalogGradeLabel(g.id) : '') + ' · ' + escapeHtml(topicLabel) + '</h3>' +
         catalogUploadButtonHtml(gradeId, topicLabel, true, t('catalog_add_material')) +
         '</div>' +
         '<h4 class="font-bold text-walnut mb-3">' + escapeHtml(t('catalog_community_files', { count: files.length })) + '</h4>' +
@@ -18710,7 +18741,7 @@
         WaldorfShareMaterials.init({
           t: t,
           getAppState: function () { return appState; },
-          getGrades: function () { return GRADES; },
+          getGrades: function () { return CATALOG_GRADES; },
           getContributor: function () {
             return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getContributorProfile() : null;
           },

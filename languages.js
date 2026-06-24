@@ -259,6 +259,7 @@ const LANGUAGES = {
 
     grade_1: 'כיתה א׳', grade_2: 'כיתה ב׳', grade_3: 'כיתה ג׳', grade_4: 'כיתה ד׳',
     grade_5: 'כיתה ה׳', grade_6: 'כיתה ו׳', grade_7: 'כיתה ז׳', grade_8: 'כיתה ח׳',
+    grade_general: 'כללי',
 
     catalog_title:               'מאגר קהילתי',
     catalog_desc:                'בחרו כיתה, העלו חומרים לנושא חדש — או היכנסו לרובריקות שנוצרו על ידי מורים בקהילה.',
@@ -275,6 +276,7 @@ const LANGUAGES = {
     catalog_no_files:            'אין עדיין קבצים — לחצו על «הוסף חומר חדש למאגר +» כדי להעלות את הראשון.',
     catalog_loading:             'טוען...',
     catalog_general:             'כללי',
+    catalog_general_hint:        'משאבים שאינם שייכים לכיתה ספציפית',
     catalog_grade_label:         'כיתה',
     catalog_grade_ph:            'בחרו כיתה',
     catalog_upload_title:        'העלאה למאגר הקהילתי',
@@ -895,6 +897,7 @@ const LANGUAGES = {
 
     grade_1: 'Grade 1', grade_2: 'Grade 2', grade_3: 'Grade 3', grade_4: 'Grade 4',
     grade_5: 'Grade 5', grade_6: 'Grade 6', grade_7: 'Grade 7', grade_8: 'Grade 8',
+    grade_general: 'General',
 
     catalog_title:               'Community Database',
     catalog_desc:                'Choose a grade, upload materials for a new topic — or browse folders created by teachers in the community.',
@@ -911,6 +914,7 @@ const LANGUAGES = {
     catalog_no_files:            'No files yet — click «Add new material to the database +» to upload the first one.',
     catalog_loading:             'Loading…',
     catalog_general:             'General',
+    catalog_general_hint:        'Resources not tied to a specific grade',
     catalog_grade_label:         'Grade',
     catalog_grade_ph:            'Select grade',
     catalog_upload_title:        'Upload to community archive',

@@ -10,7 +10,7 @@ const STORAGE_BUCKET = 'community-uploads';
 const MATERIALS_TABLE = 'community_materials';
 const COMMUNITY_META_FIELD = 'notes';
 const MATERIAL_PK_COLUMN = 'id';
-const VALID_GRADE_LEVELS = new Set(['1', '2', '3', '4', '5', '6', '7', '8']);
+const VALID_GRADE_LEVELS = new Set(['1', '2', '3', '4', '5', '6', '7', '8', 'general']);
 
 function normalizeGradeLevel(body) {
   if (!body || typeof body !== 'object') return '';
