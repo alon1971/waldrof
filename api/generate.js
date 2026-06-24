@@ -899,13 +899,6 @@ async function resolvePhaseCCurriculumAsyncGenerate(body, communityProbe) {
   }
 
   const generationId = buildPhaseCCurriculumGenerationId(body);
-  const topicBody = {
-    phase: 'topic',
-    topic: topic,
-    currentGrade: gradeId,
-    gradeId: gradeId,
-    gradeLabel: body.gradeLabel || null,
-  };
   const progress = await curriculumMigration.measureCurriculumChunkProgress(topicBody);
   const resumePartial = progress.upgradedDays > 0
     && progress.upgradedDays < cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS;
