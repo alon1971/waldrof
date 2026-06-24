@@ -6481,6 +6481,16 @@
           console.warn('[usage] syncUsageAfterLiveSearch failed:', usageErr && usageErr.message ? usageErr.message : usageErr);
         }
       }
+      if (researchPayload.phase === 'phase_c' && String(researchPayload.cTab || '').trim().toLowerCase() === 'curriculum') {
+        var curriculumCarrier = (result && result.blockPlan) ? { blockPlan: result.blockPlan } : { blockPlan: result || {} };
+        var curriculumRows = extractCurriculumRowsFromLessonData(curriculumCarrier);
+        var hasRenderable = curriculumRows.length && curriculumRows.some(curriculumRowHasRenderableText);
+        if (!hasRenderable) {
+          throw new Error(isEnglish()
+            ? 'Period planning is still being generated — please wait and try again.'
+            : 'תכנון התקופה עדיין בהכנה — המתינו ונסו שוב.');
+        }
+      }
       return result;
     }
 
@@ -7653,15 +7663,16 @@
           data.blockPlan.curriculum = [];
           return data;
         }
-        data.blockPlan.curriculum = padCurriculumRowsToFifteen(rows.map(function (row, i) {
-          return normalizeCurriculumRow(row, i) || {
-            day: i + 1,
-            topic: t('curriculum_day_short', { day: i + 1 }),
-            content: '',
-            art: '',
-            hint: '',
-          };
-        }));
+        var normalizedRows = rows.map(function (row, i) {
+          return normalizeCurriculumRow(row, i);
+        }).filter(function (row) {
+          return row && curriculumRowHasRenderableText(row);
+        });
+        if (!normalizedRows.length) {
+          data.blockPlan.curriculum = [];
+          return data;
+        }
+        data.blockPlan.curriculum = padCurriculumRowsToFifteen(normalizedRows);
       }
       return data;
     }
@@ -7696,6 +7707,9 @@
 
     function setPhaseCTabLoadingUi(cTab, loading, options) {
       options = options || {};
+      if (cTab === 'curriculum' && !loading && shouldKeepCurriculumLoading()) {
+        loading = true;
+      }
       if (loading && shouldBlockLivePhaseCApi() && !options.allowArchiveLoading) {
         phaseCTabLoading[cTab] = false;
         ensurePageScrollUnlocked();
@@ -7708,10 +7722,14 @@
         return;
       }
       if (loading) {
-        loadingEl.innerHTML = '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
-          '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
-          escapeHtml(cTab === 'inspiration' ? t('tab_inspiration') + t('tab_inspiration_suffix') : t('curriculum_title')) +
-          '</p>';
+        if (cTab === 'curriculum') {
+          paintCurriculumLoadingPanels(true);
+        } else {
+          loadingEl.innerHTML = '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
+            '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
+            escapeHtml(t('tab_inspiration') + t('tab_inspiration_suffix')) +
+            '</p>';
+        }
         return;
       }
       loadingEl.removeAttribute('aria-busy');
@@ -9006,6 +9024,34 @@
       return resolveCurriculumPlanForRender().some(curriculumRowHasRenderableText);
     }
 
+    function shouldKeepCurriculumLoading() {
+      if (hasPhaseCCurriculumContent()) return false;
+      if (backgroundCurriculumMigrationInFlight) return true;
+      if (phaseCTabLoading.curriculum) return true;
+      return topicPayloadNeedsBackgroundCurriculumMigration(
+        { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+        appState.lessonCacheMeta || null
+      );
+    }
+
+    function curriculumLoadingSpinnerHtml() {
+      return '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
+        '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
+        escapeHtml(t('curriculum_title')) + '</p>';
+    }
+
+    function paintCurriculumLoadingPanels(showSpinner) {
+      var cardsEl = document.getElementById('curriculum-cards');
+      var tbody = document.getElementById('curriculum-body');
+      var html = showSpinner ? curriculumLoadingSpinnerHtml() : '';
+      if (cardsEl) cardsEl.innerHTML = html;
+      if (tbody) {
+        tbody.innerHTML = showSpinner
+          ? '<tr><td colspan="4" class="p-4">' + html + '</td></tr>'
+          : '';
+      }
+    }
+
     function mergePhaseCIntoPlan(data, cTab) {
       if (!data || !appState.aiGeneratedPlan) return false;
       data = coercePhaseCResponse(data, cTab);
@@ -9174,7 +9220,7 @@
           console.warn('[waldrof] archive curriculum regeneration failed:', err);
           return false;
         } finally {
-          if (!hasPhaseCCurriculumContent()) {
+          if (!shouldKeepCurriculumLoading()) {
             setPhaseCTabLoadingUi('curriculum', false, loadingOpts);
           }
           backgroundCurriculumMigrationInFlight = null;
@@ -9213,7 +9259,9 @@
           return true;
         } finally {
           if (phaseCLoadAbort.curriculum === controller) phaseCLoadAbort.curriculum = null;
-          setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
+          if (!shouldKeepCurriculumLoading()) {
+            setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
+          }
           ensurePageScrollUnlocked();
         }
       })();
@@ -9398,7 +9446,15 @@
         }
       } finally {
         if (phaseCLoadAbort[cTab] === controller) phaseCLoadAbort[cTab] = null;
-        setPhaseCTabLoadingUi(cTab, false);
+        if (cTab === 'curriculum' && shouldKeepCurriculumLoading()) {
+          setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+          void ensureArchiveCurriculumRegeneratedBlocking(
+            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+            appState.lessonCacheMeta || null
+          );
+        } else {
+          setPhaseCTabLoadingUi(cTab, false);
+        }
         ensurePageScrollUnlocked();
       }
     }
@@ -16378,7 +16434,8 @@
           hydrateUnifiedLessonSynthesis();
           var currPanelEl = document.getElementById('curriculum-cards');
           var currDomEmpty = !isCurriculumPanelMounted();
-          if (phaseCTabLoading.curriculum) {
+          if (phaseCTabLoading.curriculum || shouldKeepCurriculumLoading()) {
+            setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
             r.curriculum = true;
             ensurePageScrollUnlocked();
             return;
@@ -16425,13 +16482,16 @@
               return;
             }
           }
-          if (!r.curriculum || currDomEmpty) {
+          if (hasPhaseCCurriculumContent() && (!r.curriculum || currDomEmpty)) {
             renderCurriculumTabPanels();
             r.curriculum = true;
-          } else {
+          } else if (hasPhaseCCurriculumContent()) {
             setupThemeActionButtons();
             restoreCurriculumExpandedDays();
             restorePedagogySummaryPanels();
+          } else if (shouldKeepCurriculumLoading()) {
+            setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+            r.curriculum = true;
           }
         }
       } catch (renderErr) {
@@ -17012,7 +17072,10 @@
     }
 
     function renderCurriculum() {
-      if (phaseCTabLoading.curriculum) return;
+      if (phaseCTabLoading.curriculum || shouldKeepCurriculumLoading()) {
+        setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+        return;
+      }
       captureCurriculumUiStateFromDom();
       readCurriculumDayFromUrl();
       var plan = resolveCurriculumPlanForRender();
@@ -17021,6 +17084,17 @@
       const tbody = document.getElementById('curriculum-body');
 
       if (!plan.length || !plan.some(curriculumRowHasRenderableText)) {
+        if (topicPayloadNeedsBackgroundCurriculumMigration(
+          { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+          appState.lessonCacheMeta || null
+        )) {
+          setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+          void ensureArchiveCurriculumRegeneratedBlocking(
+            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+            appState.lessonCacheMeta || null
+          );
+          return;
+        }
         var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
           escapeHtml(isEnglish()
             ? 'No daily plan rows were found. Run topic research again — the AI must return blockPlan.curriculum as an array of 15 objects: { day, topic, content, art, hint }.'

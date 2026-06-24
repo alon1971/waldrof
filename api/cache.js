@@ -2532,9 +2532,11 @@ async function getCachedResult(body, options) {
       }
       delete payload.curriculum;
       delete payload.table_data;
-      purgeRegenerationCaches(body).catch(function (purgeErr) {
+      try {
+        await purgeRegenerationCaches(body);
+      } catch (purgeErr) {
         console.warn('[cached_results] topic legacy curriculum purge failed:', purgeErr.message || purgeErr);
-      });
+      }
     }
   } else if (payload && body.phase === 'phase_c' && resolvePhaseCTabFromBody(body) === 'inspiration') {
     payload = applyArchiveLinkCleanupPolicy(payload, body.phase);

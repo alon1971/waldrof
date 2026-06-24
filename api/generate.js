@@ -770,6 +770,8 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
     data: phaseData,
     meta: attachCommunityMeta({
       fromCache: false,
+      phase: 'phase_c',
+      cTab: 'curriculum',
       source: 'phase_c_curriculum_chunked',
       curriculumMigrated: true,
       curriculumLegacy: false,
@@ -809,6 +811,8 @@ async function resolvePhaseCCurriculumBlockingGenerate(body, communityProbe) {
         data: cached.data,
         meta: attachCommunityMeta(Object.assign({}, cached.meta || {}, {
           fromCache: true,
+          phase: 'phase_c',
+          cTab: 'curriculum',
           curriculumMigrated: true,
           curriculumLegacy: false,
           upgradedDays: upgradedDays,
@@ -3173,6 +3177,8 @@ function buildGenerateHttpPayload(result) {
 
   data = cacheDb.sanitizeForJsonStorage(data);
 
+  assertServeReadyPhaseCCurriculumResponse(data, meta);
+
   if (meta.fromCache) {
     if (!data || typeof data !== 'object') {
       const err = new Error('מבנה נתוני cache לא תקין');
@@ -3183,6 +3189,25 @@ function buildGenerateHttpPayload(result) {
   }
 
   return { data: data, meta: meta };
+}
+
+/** Never return HTTP 200 for phase_c curriculum unless 15 upgraded days are serve-ready. */
+function assertServeReadyPhaseCCurriculumResponse(data, meta) {
+  if (!meta || typeof meta !== 'object') return;
+  if (meta.curriculumRegenerationRequired) return;
+
+  const isCurriculumResponse = (
+    (meta.phase === 'phase_c' && meta.cTab === 'curriculum')
+    || meta.chunkPipeline === true
+    || meta.source === 'phase_c_curriculum_chunked'
+  );
+  if (!isCurriculumResponse) return;
+
+  if (!data || !cacheDb.isPhaseCCurriculumServeReady(data)) {
+    const err = new Error('תכנון התקופה עדיין בהכנה — נסו שוב בעוד רגע');
+    err.statusCode = 503;
+    throw err;
+  }
 }
 
 function shouldProbeCommunityMaterials(phase) {
@@ -3675,9 +3700,11 @@ async function executeGenerate(body, apiKey, requestContext) {
             cached.meta.curriculumMigrated = false;
             cached.meta.curriculumLegacy = false;
             cached.meta.curriculumRegenerationRequired = true;
-            cacheDb.purgeRegenerationCaches(body).catch(function (purgeErr) {
+            try {
+              await cacheDb.purgeRegenerationCaches(body);
+            } catch (purgeErr) {
               console.warn('[generate] legacy curriculum purge failed:', purgeErr.message || purgeErr);
-            });
+            }
           } else if (!cacheDb.isPhaseCCurriculumServeReady(cached.data)
               && curriculumMigration.topicHasMigratableEssence(cached.data)) {
             cached.meta.curriculumMigrated = false;
@@ -3730,9 +3757,11 @@ async function executeGenerate(body, apiKey, requestContext) {
             ).data;
             if (cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload)) {
               archivePayload = stripCurriculumFromTopicPayload(archivePayload);
-              cacheDb.purgeRegenerationCaches(body).catch(function (purgeErr) {
+              try {
+                await cacheDb.purgeRegenerationCaches(body);
+              } catch (purgeErr) {
                 console.warn('[generate] archive legacy curriculum purge failed:', purgeErr.message || purgeErr);
-              });
+              }
             }
             const archiveMeta = {
               fromCache: true,
