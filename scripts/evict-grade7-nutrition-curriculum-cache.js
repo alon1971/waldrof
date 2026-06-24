@@ -64,9 +64,18 @@ function rowLooksLikeCurriculumPhaseC(row) {
   const bp = data.blockPlan || {};
   if (Array.isArray(bp.curriculum) && bp.curriculum.length) return true;
   if (Array.isArray(bp.days) && bp.days.length) return true;
+  if (String(bp.rawContent || data.rawContent || data.rawText || '').trim()) return true;
+  if (data.table_data || data.curriculum) return true;
   const key = String(row.cache_key || '');
   const curriculumKey = buildPhaseCKey(row.topic || '', 'curriculum');
   return !!(curriculumKey && key === curriculumKey);
+}
+
+function rowIsGrade7NutritionPhaseC(row) {
+  if (!row || row.phase !== 'phase_c') return false;
+  if (!isNutritionTopic(row.topic || row.query_text)) return false;
+  const gradeId = String(row.grade_id || '').trim();
+  return !gradeId || gradeId === GRADE_ID;
 }
 
 function buildTopicKey(topic, gradeLabel) {
@@ -179,10 +188,32 @@ function removeFromLocalFallback(keysToDelete, topicRowsToPatch) {
 
 function stripCurriculumFromTopicData(data) {
   data = cacheDb.coerceArchiveLessonResultData(cacheDb.coerceCachedResultData(data)) || data;
-  if (!data || !data.blockPlan || typeof data.blockPlan !== 'object') return null;
-  if (!data.blockPlan.curriculum && !data.blockPlan.days) return null;
-  delete data.blockPlan.curriculum;
-  delete data.blockPlan.days;
+  if (!data || !data.blockPlan || typeof data.blockPlan !== 'object') {
+    if (data && (data.curriculum || data.table_data)) {
+      delete data.curriculum;
+      delete data.table_data;
+      return data;
+    }
+    return null;
+  }
+  const bp = data.blockPlan;
+  const hadCurriculum = !!(
+    bp.curriculum ||
+    bp.days ||
+    bp.rawCurriculum ||
+    bp.curriculumRaw ||
+    bp.table_data ||
+    data.curriculum ||
+    data.table_data
+  );
+  if (!hadCurriculum) return null;
+  delete bp.curriculum;
+  delete bp.days;
+  delete bp.rawCurriculum;
+  delete bp.curriculumRaw;
+  delete bp.table_data;
+  delete data.curriculum;
+  delete data.table_data;
   return data;
 }
 
@@ -242,9 +273,13 @@ async function main() {
   dbRows.forEach(function (row) {
     if (!row || !row.cache_key) return;
     if (row.phase === 'phase_c') {
-      if (rowLooksLikeCurriculumPhaseC(row)) {
+      if (rowLooksLikeCurriculumPhaseC(row) || rowIsGrade7NutritionPhaseC(row)) {
         keysToDelete.add(row.cache_key);
       }
+      return;
+    }
+    if (row.phase === 'perplexity_raw' && isNutritionTopic(row.topic || row.query_text)) {
+      keysToDelete.add(row.cache_key);
       return;
     }
     if (row.phase === 'topic' && isNutritionTopic(row.topic || row.query_text)) {
@@ -320,8 +355,17 @@ async function main() {
   });
   const remainingTopicWithCurr = remaining.filter(function (row) {
     if (row.phase !== 'topic') return false;
-    const bp = (row.result_data && row.result_data.blockPlan) || {};
-    return Array.isArray(bp.curriculum) && bp.curriculum.length;
+    const data = row.result_data || {};
+    const bp = data.blockPlan || {};
+    return !!(
+      (Array.isArray(bp.curriculum) && bp.curriculum.length) ||
+      (Array.isArray(bp.days) && bp.days.length) ||
+      bp.rawCurriculum ||
+      bp.curriculumRaw ||
+      bp.table_data ||
+      data.curriculum ||
+      data.table_data
+    );
   });
 
   console.log('\nAfter eviction:');

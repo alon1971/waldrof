@@ -645,6 +645,42 @@ function resolvePhaseCTab(body) {
   return null;
 }
 
+/** Temporary hard bypass: Grade 7 (כיתה ז׳) Nutrition (תזונה) — never serve legacy curriculum from cache. */
+function isGrade7NutritionTopic(body) {
+  if (!body) return false;
+  const gradeId = String(resolvedGradeId(body) || body.currentGrade || body.gradeId || '').trim();
+  if (gradeId !== '7') return false;
+  const topic = String(body.topic || '').trim();
+  return topic.length > 0 && topic.indexOf('תזונה') >= 0;
+}
+
+function shouldForceGrade7NutritionCurriculumLiveRegen(body) {
+  return isGrade7NutritionTopic(body) &&
+    body.phase === 'phase_c' &&
+    resolvePhaseCTab(body) === 'curriculum';
+}
+
+function stripCurriculumFromTopicPayload(data) {
+  if (!data || typeof data !== 'object') return data;
+  let cloned;
+  try {
+    cloned = JSON.parse(JSON.stringify(data));
+  } catch (cloneErr) {
+    return data;
+  }
+  const bp = cloned.blockPlan;
+  if (bp && typeof bp === 'object') {
+    delete bp.curriculum;
+    delete bp.days;
+    delete bp.rawCurriculum;
+    delete bp.curriculumRaw;
+    delete bp.table_data;
+  }
+  delete cloned.curriculum;
+  delete cloned.table_data;
+  return cloned;
+}
+
 function isPhaseCGeneration(body) {
   return Boolean(body && body.phase === 'phase_c');
 }
@@ -3421,6 +3457,12 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipRag = true;
   }
 
+  if (shouldForceGrade7NutritionCurriculumLiveRegen(body)) {
+    body.skipCache = true;
+    body._forceGrade7NutritionChunked = true;
+    console.log('[generate] FORCE_REGEN grade7-nutrition — total cache bypass for phase_c curriculum');
+  }
+
   if (body.phase === 'chat_followup') {
     chatApi.clearCommunityArchiveContextForExpansion(body);
   }
@@ -3474,7 +3516,12 @@ async function executeGenerate(body, apiKey, requestContext) {
       const cached = await cacheDb.getCachedResult(body, cacheOpts);
       if (cached) {
         console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
-        if (body.phase === 'topic' && cached.data) {
+        if (body.phase === 'topic' && isGrade7NutritionTopic(body) && cached.data) {
+          cached.data = stripCurriculumFromTopicPayload(cached.data);
+          cached.meta.curriculumStripped = true;
+          cached.meta.curriculumMigrated = false;
+          cached.meta.curriculumLegacy = false;
+        } else if (body.phase === 'topic' && cached.data) {
           cached.meta.curriculumMigrated = !cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data);
           cached.meta.curriculumLegacy = cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data);
         }
@@ -3516,9 +3563,13 @@ async function executeGenerate(body, apiKey, requestContext) {
             if (!body.skipKnowledgeIngest) {
               knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
             }
-            const archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
+            let archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
               JSON.parse(JSON.stringify(suggestion.resultData))
             ).data;
+            const grade7NutritionArchive = isGrade7NutritionTopic(body);
+            if (grade7NutritionArchive) {
+              archivePayload = stripCurriculumFromTopicPayload(archivePayload);
+            }
             return {
               data: archivePayload,
               meta: attachCommunityMeta({
@@ -3529,8 +3580,13 @@ async function executeGenerate(body, apiKey, requestContext) {
                 similarity: suggestion.similarity,
                 requestedTopic: body.topic || suggestion.requestedTopic || null,
                 enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
-                curriculumMigrated: !cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
-                curriculumLegacy: cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
+                curriculumMigrated: grade7NutritionArchive
+                  ? false
+                  : !cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
+                curriculumLegacy: grade7NutritionArchive
+                  ? false
+                  : cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
+                curriculumStripped: grade7NutritionArchive || undefined,
               }, communityProbe),
             };
           }
@@ -3683,6 +3739,49 @@ async function executeGenerate(body, apiKey, requestContext) {
       : '');
 
   const perplexityOptions = {};
+
+  if (body._forceGrade7NutritionChunked) {
+    const topicBody = {
+      phase: 'topic',
+      topic: body.topic,
+      currentGrade: resolvedGradeId(body) || '7',
+      gradeId: resolvedGradeId(body) || '7',
+      gradeLabel: body.gradeLabel || null,
+    };
+    let topicData = null;
+    try {
+      const topicCached = await cacheDb.getCachedResult(topicBody, { requireEnhanced: false });
+      if (topicCached && topicCached.data) {
+        topicData = stripCurriculumFromTopicPayload(topicCached.data);
+      }
+    } catch (topicCacheErr) {
+      console.warn('[generate] grade7-nutrition topic cache read failed:', topicCacheErr.message || topicCacheErr);
+    }
+    if (!topicData || !curriculumMigration.topicHasMigratableEssence(topicData)) {
+      topicData = topicData || { blockPlan: {} };
+    }
+    const healed = await curriculumMigration.regenerateTopicCurriculumChunked(
+      topicBody,
+      topicData,
+      { silent: false, forceGrade7NutritionDepth: true }
+    );
+    if (healed && healed.blockPlan && Array.isArray(healed.blockPlan.curriculum) && healed.blockPlan.curriculum.length) {
+      const phaseData = cacheDb.stampPerplexityOnlyMetadata({
+        blockPlan: { curriculum: healed.blockPlan.curriculum },
+      });
+      return {
+        data: phaseData,
+        meta: attachCommunityMeta({
+          fromCache: false,
+          source: 'grade7_nutrition_chunked',
+          forceRegen: true,
+          curriculumMigrated: true,
+          curriculumLegacy: false,
+        }, communityProbe),
+      };
+    }
+    console.warn('[generate] grade7-nutrition chunked regen failed — falling back to single-call phase_c');
+  }
 
   const userPrompt = buildUserPrompt(body);
   const data = await fetchParsedModelWithRetry(

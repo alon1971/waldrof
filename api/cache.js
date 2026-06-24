@@ -633,6 +633,9 @@ async function stripLegacyCurriculumFromTopicRow(phaseCBody) {
 
   delete data.blockPlan.curriculum;
   delete data.blockPlan.days;
+  delete data.blockPlan.rawCurriculum;
+  delete data.blockPlan.curriculumRaw;
+  delete data.blockPlan.table_data;
   data = coerceArchiveLessonResultData(data) || data;
 
   if (isSupabaseCacheEnabled()) {

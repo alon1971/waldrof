@@ -27,6 +27,22 @@ const CURRICULUM_INLINE_EXPANSION_INSTRUCTION =
   'FORBIDDEN: URLs, Pinterest phrases, gallery pins, enrichment_links, or code blocks.\n' +
   '=== END CURRICULUM INLINE EXPANSION ===\n';
 
+const GRADE7_NUTRITION_DEPTH_INSTRUCTION =
+  '\n=== GRADE 7 NUTRITION — MANDATORY WALDORF DEPTH (FORCED REGENERATION) ===\n' +
+  'This is a full live rebuild — never output thin one-line rows or lazy expansion placeholders.\n' +
+  'Each day MUST describe a complete Waldorf main-lesson arc: opening/recall, story or phenomenological introduction, ' +
+  'guided practice, artistic activity with named materials, and closure/reflection.\n' +
+  'content: 4–6 rich Hebrew sentences on narrative flow and classroom staging.\n' +
+  'art: 2–4 Hebrew sentences on drawing/painting/clay/cooking/handwork tied to the day.\n' +
+  'contentExpansion.classroomImplementation: 1–2 Hebrew paragraphs; practicalSteps: 4–8 concrete teacher actions.\n' +
+  '=== END GRADE 7 NUTRITION DEPTH ===\n';
+
+function isGrade7NutritionTopicBody(topicBody) {
+  const gradeId = String(topicBody && (topicBody.currentGrade ?? topicBody.gradeId) || '').trim();
+  if (gradeId !== '7') return false;
+  return String(topicBody && topicBody.topic || '').indexOf('תזונה') >= 0;
+}
+
 const migrationInflight = new Map();
 
 function stripHtml(text) {
@@ -141,12 +157,14 @@ async function ensureTopicResearchBlock(topicBody) {
   return rawPayload;
 }
 
-function buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock) {
+function buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock, options) {
   const topic = String(topicBody.topic || '').replace(/"/g, '');
   const dayCount = dayEnd - dayStart + 1;
   const theoryBlock = theoryEssence
     ? '\nPHASE B ESSENCE + ARCHIVE CONTEXT (preserve alignment — do NOT duplicate verbatim):\n' + theoryEssence + '\n'
     : '';
+  const forceDepth = (options && options.forceGrade7NutritionDepth) ||
+    isGrade7NutritionTopicBody(topicBody);
 
   return (
     researchBlock +
@@ -157,6 +175,7 @@ function buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, 
     'Generate EXACTLY ' + dayCount + ' day objects for days ' + dayStart + ' through ' + dayEnd + ' ONLY.\n' +
     'Day numbers MUST be ' + dayStart + ', ' + (dayStart + 1) + ', … ' + dayEnd + ' — no other days.\n' +
     CURRICULUM_INLINE_EXPANSION_INSTRUCTION +
+    (forceDepth ? GRADE7_NUTRITION_DEPTH_INSTRUCTION : '') +
     'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY of exactly ' + dayCount + ' objects.\n' +
     'Each day object MUST use: "day", "topic", "content" (4-6 rich Hebrew sentences), "art" (2-4 Hebrew sentences), "hint" (optional), "contentExpansion" (mandatory).\n' +
     'FORBIDDEN: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, URLs.\n' +
@@ -198,8 +217,8 @@ function countUpgradedRows(rows) {
   return count;
 }
 
-async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researchBlock, theoryEssence) {
-  const prompt = buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock);
+async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researchBlock, theoryEssence, options) {
+  const prompt = buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, researchBlock, options);
   const system =
     'You are an expert Waldorf curriculum designer. Write pedagogical content in Hebrew. ' +
     'Ground claims in the provided web research. Return raw JSON only — no markdown fences.';
@@ -307,6 +326,7 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
   });
 
   const allRows = [];
+  const chunkOptions = options || {};
   for (let c = 0; c < CURRICULUM_CHUNKS.length; c++) {
     const chunk = CURRICULUM_CHUNKS[c];
     console.log('[curriculum-migration] chunk', chunk.start + '-' + chunk.end, 'for', topic);
@@ -316,7 +336,8 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
       chunk.start,
       chunk.end,
       researchBlock,
-      theoryEssence
+      theoryEssence,
+      chunkOptions
     );
     rows.forEach(function (row) { allRows.push(row); });
   }
