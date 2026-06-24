@@ -368,13 +368,16 @@ const preparePhaseCCurriculumForStorage = archiveCoerce.preparePhaseCCurriculumF
 /** phase_c curriculum cache fail-safe — legacy/basic rows without upgraded expansion ⇒ corrupt, delete + live regen. */
 const PHASE_C_CURRICULUM_REQUIRED_DAYS = 15;
 const PHASE_C_CURRICULUM_MIN_VALID_DAYS = PHASE_C_CURRICULUM_REQUIRED_DAYS;
-const PHASE_C_CURRICULUM_MIN_CONTENT_CHARS = 100;
-const PHASE_C_CURRICULUM_MIN_ART_CHARS = 40;
-const PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS = 80;
-const PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS = 30;
+const PHASE_C_CURRICULUM_MIN_CONTENT_CHARS = 120;
+const PHASE_C_CURRICULUM_MIN_ART_CHARS = 55;
+const PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS = 120;
+const PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS = 40;
 const PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS = 4;
 const PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS = 2;
-const PHASE_C_CURRICULUM_MIN_STEP_CHARS = 12;
+const PHASE_C_CURRICULUM_MIN_STEP_CHARS = 15;
+const PHASE_C_CURRICULUM_MIN_PARAGRAPHS = 2;
+const PHASE_C_CURRICULUM_MIN_SENTENCES = 3;
+const PHASE_C_CURRICULUM_DEEP_NARRATIVE_CHARS = 320;
 const PHASE_C_CURRICULUM_DASH_FIELD_RE = /^[-–—_.\s]+$/;
 const PHASE_C_CURRICULUM_EXPANSION_KEYS = [
   'classroomImplementation',
@@ -411,15 +414,69 @@ function resolveCurriculumRowContentExpansion(row) {
   return exp;
 }
 
+function countCurriculumNarrativeParagraphs(val) {
+  const raw = String(val || '');
+  if (/<p[\s>]/i.test(raw)) {
+    const matches = raw.match(/<p[\s>][\s\S]*?<\/p>/gi) || [];
+    let count = 0;
+    matches.forEach(function (paragraph) {
+      if (curriculumFieldPlainText(paragraph).length >= 40) count++;
+    });
+    return count;
+  }
+  return curriculumFieldPlainText(val)
+    .split(/\n\s*\n+/)
+    .filter(function (paragraph) { return paragraph.trim().length >= 40; })
+    .length;
+}
+
 function isLegacyShortCurriculumNarrative(text) {
   const plain = curriculumFieldPlainText(text);
   if (!plain) return true;
   if (plain.length < PHASE_C_CURRICULUM_MIN_CONTENT_CHARS) return true;
-  if (plain.length < 220) {
-    const sentenceEnds = plain.match(/[.!?׃…]/g) || [];
-    if (sentenceEnds.length <= 1) return true;
+  const paragraphs = countCurriculumNarrativeParagraphs(text);
+  const sentenceEnds = plain.match(/[.!?׃…]/g) || [];
+  if (paragraphs < PHASE_C_CURRICULUM_MIN_PARAGRAPHS && plain.length < PHASE_C_CURRICULUM_DEEP_NARRATIVE_CHARS) {
+    return true;
+  }
+  if (sentenceEnds.length < PHASE_C_CURRICULUM_MIN_SENTENCES && plain.length < PHASE_C_CURRICULUM_DEEP_NARRATIVE_CHARS) {
+    return true;
   }
   return false;
+}
+
+function isLegacyThinArtNarrative(art, content) {
+  const artPlain = curriculumFieldPlainText(art);
+  if (!artPlain || artPlain.length < PHASE_C_CURRICULUM_MIN_ART_CHARS) return true;
+  const contentPlain = curriculumFieldPlainText(content);
+  if (contentPlain && artPlain.length < 90 && contentPlain.indexOf(artPlain) >= 0) return true;
+  const artParagraphs = countCurriculumNarrativeParagraphs(art);
+  const artSentences = artPlain.match(/[.!?׃…]/g) || [];
+  if (artParagraphs < 1 && artSentences.length < 2 && artPlain.length < 90) return true;
+  return false;
+}
+
+function isLegacyLazyExpansionRow(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (resolveCurriculumRowContentExpansion(row)) return false;
+  if (row.expansion && typeof row.expansion === 'object') return true;
+  if (row.artExpansion && typeof row.artExpansion === 'object') return true;
+  if (row.hintExpansion && typeof row.hintExpansion === 'object') return true;
+  return false;
+}
+
+function rowHasThinCurriculumSurface(row) {
+  if (!row || typeof row !== 'object') return false;
+  const content = curriculumFieldPlainText(row.content != null ? row.content : row['תוכן וסיפור']);
+  const art = curriculumFieldPlainText(row.art != null ? row.art : row['אמנות ומעשה']);
+  return !isPhaseCCurriculumContentCorrupt(content) || !isPhaseCCurriculumContentCorrupt(art);
+}
+
+function isLegacyThinCurriculumRow(row) {
+  if (!row || typeof row !== 'object') return true;
+  if (isLegacyLazyExpansionRow(row)) return true;
+  if (!resolveCurriculumRowContentExpansion(row) && rowHasThinCurriculumSurface(row)) return true;
+  return !isPhaseCCurriculumDayUpgraded(row);
 }
 
 function isPhaseCCurriculumExpansionUpgraded(exp) {
@@ -456,11 +513,14 @@ function isPhaseCCurriculumExpansionUpgraded(exp) {
 function isPhaseCCurriculumDayUpgraded(row) {
   if (!row || typeof row !== 'object') return false;
 
-  const content = curriculumFieldPlainText(row.content != null ? row.content : row['תוכן וסיפור']);
-  const art = curriculumFieldPlainText(row.art != null ? row.art : row['אמנות ומעשה']);
+  const rawContent = row.content != null ? row.content : row['תוכן וסיפור'];
+  const rawArt = row.art != null ? row.art : row['אמנות ומעשה'];
+  const content = curriculumFieldPlainText(rawContent);
+  const art = curriculumFieldPlainText(rawArt);
   if (isPhaseCCurriculumContentCorrupt(content)) return false;
-  if (isLegacyShortCurriculumNarrative(content)) return false;
-  if (isPhaseCCurriculumContentCorrupt(art) || art.length < PHASE_C_CURRICULUM_MIN_ART_CHARS) return false;
+  if (isLegacyShortCurriculumNarrative(rawContent)) return false;
+  if (isPhaseCCurriculumContentCorrupt(art) || isLegacyThinArtNarrative(rawArt, rawContent)) return false;
+  if (isLegacyLazyExpansionRow(row)) return false;
 
   const contentExpansion = resolveCurriculumRowContentExpansion(row);
   if (!contentExpansion) return false;
@@ -502,7 +562,7 @@ function isPhaseCCurriculumPayloadLegacy(data) {
   if (!rows.length) return true;
   if (rows.length < PHASE_C_CURRICULUM_REQUIRED_DAYS) return true;
   for (let i = 0; i < PHASE_C_CURRICULUM_REQUIRED_DAYS; i++) {
-    if (!isPhaseCCurriculumDayUpgraded(rows[i])) return true;
+    if (isLegacyThinCurriculumRow(rows[i])) return true;
   }
   return false;
 }
@@ -3803,6 +3863,7 @@ module.exports = {
   isPhaseCCurriculumCacheCorrupt,
   isPhaseCCurriculumDataCorrupt,
   isLessonCurriculumCarrier,
+  isLegacyThinCurriculumRow,
   isPhaseCCurriculumPayloadLegacy,
   isPhaseCCurriculumDayUpgraded,
   topicPayloadNeedsCurriculumMigration: function (data) {

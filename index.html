@@ -6797,13 +6797,16 @@
     }
 
     var PHASE_C_CURRICULUM_REQUIRED_DAYS_CLIENT = 15;
-    var PHASE_C_CURRICULUM_MIN_CONTENT_CHARS_CLIENT = 100;
-    var PHASE_C_CURRICULUM_MIN_ART_CHARS_CLIENT = 40;
-    var PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS_CLIENT = 80;
-    var PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS_CLIENT = 30;
+    var PHASE_C_CURRICULUM_MIN_CONTENT_CHARS_CLIENT = 120;
+    var PHASE_C_CURRICULUM_MIN_ART_CHARS_CLIENT = 55;
+    var PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS_CLIENT = 120;
+    var PHASE_C_CURRICULUM_MIN_PARENT_COMMUNITY_CHARS_CLIENT = 40;
     var PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS_CLIENT = 4;
     var PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS_CLIENT = 2;
-    var PHASE_C_CURRICULUM_MIN_STEP_CHARS_CLIENT = 12;
+    var PHASE_C_CURRICULUM_MIN_STEP_CHARS_CLIENT = 15;
+    var PHASE_C_CURRICULUM_MIN_PARAGRAPHS_CLIENT = 2;
+    var PHASE_C_CURRICULUM_MIN_SENTENCES_CLIENT = 3;
+    var PHASE_C_CURRICULUM_DEEP_NARRATIVE_CHARS_CLIENT = 320;
 
     function resolveCurriculumRowContentExpansionClient(row) {
       if (!row || typeof row !== 'object') return null;
@@ -6812,15 +6815,73 @@
       return exp;
     }
 
+    function countCurriculumNarrativeParagraphsClient(val) {
+      var raw = String(val || '');
+      if (/<p[\s>]/i.test(raw)) {
+        var matches = raw.match(/<p[\s>][\s\S]*?<\/p>/gi) || [];
+        var count = 0;
+        matches.forEach(function (paragraph) {
+          if (curriculumFieldPlainText(paragraph).length >= 40) count++;
+        });
+        return count;
+      }
+      return curriculumFieldPlainText(val)
+        .split(/\n\s*\n+/)
+        .filter(function (paragraph) { return paragraph.trim().length >= 40; })
+        .length;
+    }
+
     function isLegacyShortCurriculumNarrativeClient(text) {
       var plain = curriculumFieldPlainText(text);
       if (!plain) return true;
       if (plain.length < PHASE_C_CURRICULUM_MIN_CONTENT_CHARS_CLIENT) return true;
-      if (plain.length < 220) {
-        var sentenceEnds = plain.match(/[.!?׃…]/g) || [];
-        if (sentenceEnds.length <= 1) return true;
+      var paragraphs = countCurriculumNarrativeParagraphsClient(text);
+      var sentenceEnds = plain.match(/[.!?׃…]/g) || [];
+      if (paragraphs < PHASE_C_CURRICULUM_MIN_PARAGRAPHS_CLIENT &&
+          plain.length < PHASE_C_CURRICULUM_DEEP_NARRATIVE_CHARS_CLIENT) {
+        return true;
+      }
+      if (sentenceEnds.length < PHASE_C_CURRICULUM_MIN_SENTENCES_CLIENT &&
+          plain.length < PHASE_C_CURRICULUM_DEEP_NARRATIVE_CHARS_CLIENT) {
+        return true;
       }
       return false;
+    }
+
+    function isLegacyThinArtNarrativeClient(art, content) {
+      var artPlain = curriculumFieldPlainText(art);
+      if (!artPlain || artPlain.length < PHASE_C_CURRICULUM_MIN_ART_CHARS_CLIENT) return true;
+      var contentPlain = curriculumFieldPlainText(content);
+      if (contentPlain && artPlain.length < 90 && contentPlain.indexOf(artPlain) >= 0) return true;
+      var artSentences = artPlain.match(/[.!?׃…]/g) || [];
+      if (countCurriculumNarrativeParagraphsClient(art) < 1 &&
+          artSentences.length < 2 && artPlain.length < 90) {
+        return true;
+      }
+      return false;
+    }
+
+    function isLegacyLazyExpansionRowClient(row) {
+      if (!row || typeof row !== 'object') return false;
+      if (resolveCurriculumRowContentExpansionClient(row)) return false;
+      if (row.expansion && typeof row.expansion === 'object') return true;
+      if (row.artExpansion && typeof row.artExpansion === 'object') return true;
+      if (row.hintExpansion && typeof row.hintExpansion === 'object') return true;
+      return false;
+    }
+
+    function rowHasThinCurriculumSurfaceClient(row) {
+      if (!row || typeof row !== 'object') return false;
+      var content = curriculumFieldPlainText(row.content != null ? row.content : row['תוכן וסיפור']);
+      var art = curriculumFieldPlainText(row.art != null ? row.art : row['אמנות ומעשה']);
+      return !isCorruptedCurriculumField(content) || !isCorruptedCurriculumField(art);
+    }
+
+    function isLegacyThinCurriculumRowClient(row) {
+      if (!row || typeof row !== 'object') return true;
+      if (isLegacyLazyExpansionRowClient(row)) return true;
+      if (!resolveCurriculumRowContentExpansionClient(row) && rowHasThinCurriculumSurfaceClient(row)) return true;
+      return !isPhaseCCurriculumDayUpgradedClient(row);
     }
 
     function isPhaseCCurriculumExpansionUpgradedClient(exp) {
@@ -6840,10 +6901,13 @@
 
     function isPhaseCCurriculumDayUpgradedClient(row) {
       if (!row || typeof row !== 'object') return false;
-      var content = curriculumFieldPlainText(row.content != null ? row.content : row['תוכן וסיפור']);
-      var art = curriculumFieldPlainText(row.art != null ? row.art : row['אמנות ומעשה']);
-      if (isCorruptedCurriculumField(content) || isLegacyShortCurriculumNarrativeClient(content)) return false;
-      if (isCorruptedCurriculumField(art) || art.length < PHASE_C_CURRICULUM_MIN_ART_CHARS_CLIENT) return false;
+      var rawContent = row.content != null ? row.content : row['תוכן וסיפור'];
+      var rawArt = row.art != null ? row.art : row['אמנות ומעשה'];
+      var content = curriculumFieldPlainText(rawContent);
+      var art = curriculumFieldPlainText(rawArt);
+      if (isCorruptedCurriculumField(content) || isLegacyShortCurriculumNarrativeClient(rawContent)) return false;
+      if (isCorruptedCurriculumField(art) || isLegacyThinArtNarrativeClient(rawArt, rawContent)) return false;
+      if (isLegacyLazyExpansionRowClient(row)) return false;
       var contentExpansion = resolveCurriculumRowContentExpansionClient(row);
       if (!contentExpansion) return false;
       return isPhaseCCurriculumExpansionUpgradedClient(contentExpansion);
@@ -6875,9 +6939,17 @@
       if (!rows.length) return true;
       if (rows.length < PHASE_C_CURRICULUM_REQUIRED_DAYS_CLIENT) return true;
       for (var j = 0; j < PHASE_C_CURRICULUM_REQUIRED_DAYS_CLIENT; j++) {
-        if (!isPhaseCCurriculumDayUpgradedClient(rows[j])) return true;
+        if (isLegacyThinCurriculumRowClient(rows[j])) return true;
       }
       return false;
+    }
+
+    function hasPhaseCCurriculumUpgradedContent() {
+      var plan = appState.aiGeneratedPlan;
+      if (!plan) return false;
+      var rows = extractCurriculumRowsFromLessonData({ blockPlan: plan });
+      if (!hasMeaningfulCurriculumRows(rows)) return false;
+      return !isPhaseCCurriculumPayloadLegacyClient({ blockPlan: plan, webResearch: appState.webResearch });
     }
 
     function isPhaseCCurriculumCacheCorrupt(data) {
@@ -6899,13 +6971,13 @@
     function topicPayloadNeedsBackgroundCurriculumMigration(sourceData, itemMeta) {
       if (!isResearchAvailable()) return false;
       if (!appState.topic || !String(appState.topic).trim()) return false;
-      if (itemMeta && itemMeta.curriculumLegacy === true) {
-        return topicHasMigratableEssenceClient(sourceData || {});
-      }
       var candidates = [];
       if (sourceData && isLessonCurriculumCarrierClient(sourceData)) candidates.push(sourceData);
       if (appState.aiGeneratedPlan && isLessonCurriculumCarrierClient({ blockPlan: appState.aiGeneratedPlan })) {
         candidates.push({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
+      }
+      if (itemMeta && itemMeta.curriculumLegacy === true) {
+        return candidates.some(topicHasMigratableEssenceClient);
       }
       for (var i = 0; i < candidates.length; i++) {
         var data = candidates[i];
@@ -8947,8 +9019,12 @@
 
     function applyBackgroundCurriculumMigrationResult(envelope) {
       if (!envelope || !envelope.data) return false;
-      if (!envelope.migrated) return false;
       var lessonData = envelope.data;
+      var shouldApply = envelope.migrated === true;
+      if (!shouldApply) {
+        shouldApply = !isPhaseCCurriculumPayloadLegacyClient(lessonData);
+      }
+      if (!shouldApply) return false;
       if (!lessonData.blockPlan && !lessonData.curriculum) return false;
       var merged = mergePhaseCIntoPlan(lessonData, 'curriculum');
       if (!merged && !hasMeaningfulCurriculumRows(extractCurriculumRowsFromLessonData(lessonData))) {
@@ -9039,16 +9115,21 @@
       }
       if (cTab === 'curriculum') {
         hydrateCurriculumFromUnifiedSynthesis();
-        if (hasPhaseCCurriculumContent()) {
+        var curriculumPlanWrap = { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch };
+        var displayRows = extractCurriculumRowsFromLessonData(curriculumPlanWrap);
+        if (hasMeaningfulCurriculumRows(displayRows)) {
           appState.productTabsRendered.curriculum = false;
           renderProductTabContent('curriculum');
+          if (topicPayloadNeedsBackgroundCurriculumMigration(curriculumPlanWrap)) {
+            queueBackgroundCurriculumMigration(curriculumPlanWrap);
+          }
           setPhaseCTabLoadingUi(cTab, false);
           ensurePageScrollUnlocked();
           return;
         }
       }
       if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
-      if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) return;
+      if (cTab === 'curriculum' && hasPhaseCCurriculumUpgradedContent()) return;
 
       if (shouldBlockLivePhaseCApi()) {
         if (phaseCLoadAbort[cTab]) {
@@ -9070,6 +9151,9 @@
         if (cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis()) {
           appState.productTabsRendered[cTab] = false;
           renderProductTabContent(cTab);
+          if (topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
+            queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
+          }
           setPhaseCTabLoadingUi(cTab, false);
           ensurePageScrollUnlocked();
           return;
@@ -16087,6 +16171,9 @@
               }
               if (hasPhaseCCurriculumContent()) {
                 renderCurriculumTabPanels();
+                if (topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
+                  queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
+                }
                 r.curriculum = true;
                 ensurePageScrollUnlocked();
                 return;

@@ -8,9 +8,12 @@ function upgradedDay(day, topic) {
     day: day,
     topic: topic || ('יום ' + day),
     content:
-      'תוכן עשיר ומפורט ליום ' + day + '. זרימת שיעור מלאה עם סיפור מחנך, חוויה כיתתית מעמיקה, ורישום ביומן. ' +
-      'השיעור מכסה את כל שלבי העבודה בצורה פדגוגית מותאמת לגיל הילדים בכיתה.',
-    art: 'אמנות ומעשה ליום ' + day + ' — ציור, חומרים טבעיים, ופעילות יצירתית מותאמת לגיל הכיתה.',
+      '<p>תוכן עשיר ומפורט ליום ' + day + '.</p>' +
+      '<p>זרימת שיעור מלאה עם סיפור מחנך, חוויה כיתתית מעמיקה, ורישום ביומן.</p>' +
+      '<p>השיעור מכסה את כל שלבי העבודה בצורה פדגוגית מותאמת לגיל הילדים בכיתה.</p>',
+    art:
+      '<p>אמנות ומעשה ליום ' + day + ' — ציור, חומרים טבעיים, ופעילות יצירתית מותאמת לגיל הכיתה.</p>' +
+      '<p>התלמידים עובדים בחומרים מגעיים ובצבעי מחבטים בהתאם לנושא היומי.</p>',
     hint: 'רמז ליום ' + day,
     contentExpansion: {
       classroomImplementation:
@@ -103,6 +106,28 @@ const corruptSample = {
   },
 };
 
+const nutritionLegacySample = {
+  blockPlan: {
+    theory: {
+      title: 'תזונה',
+      sections: [{ heading: 'רקע', content: 'תיאוריה עשירה על תזונה בכיתה ז.' }],
+    },
+    curriculum: Array.from({ length: 15 }, function (_, i) {
+      return {
+        day: i + 1,
+        topic: 'יום ' + (i + 1),
+        content: '<p>יום ' + (i + 1) + ': שיעור קצר על תזונה בריאה וקשר לגוף.</p>',
+        art: 'ציור או הדפסה של מזון בריא ליום ' + (i + 1),
+        expansion: {
+          classroomImplementation: 'הרחבה ישנה לפי דרישה בלבד',
+          practicalSteps: ['שלב אחד'],
+        },
+      };
+    }),
+  },
+  webResearch: { topic: 'תזונה', summary: 'תיאוריה עשירה על תזונה' },
+};
+
 const gradeInsightsSample = {
   gradeInsights: {
     rawContent: 'תמונת גיל עשירה לכיתה ד עם התפתחות ורעיונות כיתתיים.',
@@ -134,6 +159,8 @@ assert('shallow expansion table is legacy', cache.isPhaseCCurriculumPayloadLegac
 assert('empty curriculum payload is legacy', cache.isPhaseCCurriculumPayloadLegacy(emptyCurriculumSample));
 assert('dash cache is corrupt', cache.isPhaseCCurriculumCacheCorrupt(body, corruptSample));
 assert('dash cache has 0 upgraded days', cache.countValidPhaseCCurriculumDays(corruptSample) === 0);
+assert('nutrition lazy-expansion table is legacy', cache.isPhaseCCurriculumPayloadLegacy(nutritionLegacySample));
+assert('nutrition day 1 is thin legacy row', cache.isLegacyThinCurriculumRow(nutritionLegacySample.blockPlan.curriculum[0]));
 assert('grade insights are not curriculum legacy', !cache.isPhaseCCurriculumPayloadLegacy(gradeInsightsSample));
 assert('grade cache read is not curriculum corrupt', !cache.isPhaseCCurriculumCacheCorrupt(gradeBody, gradeInsightsSample));
 assert('grade insights are not lesson curriculum carrier', !cache.isLessonCurriculumCarrier(gradeInsightsSample));
