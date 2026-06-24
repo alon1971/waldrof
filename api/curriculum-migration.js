@@ -27,15 +27,17 @@ const CURRICULUM_INLINE_EXPANSION_INSTRUCTION =
   'FORBIDDEN: URLs, Pinterest phrases, gallery pins, enrichment_links, or code blocks.\n' +
   '=== END CURRICULUM INLINE EXPANSION ===\n';
 
-const GRADE7_NUTRITION_DEPTH_INSTRUCTION =
-  '\n=== GRADE 7 NUTRITION — MANDATORY WALDORF DEPTH (FORCED REGENERATION) ===\n' +
-  'This is a full live rebuild — never output thin one-line rows or lazy expansion placeholders.\n' +
+const WALDORF_CURRICULUM_DEPTH_INSTRUCTION =
+  '\n=== WALDORF CURRICULUM — MANDATORY DEPTH (LIVE GENERATION) ===\n' +
+  'Never output thin one-line rows, placeholder text, or lazy expansion buttons.\n' +
   'Each day MUST describe a complete Waldorf main-lesson arc: opening/recall, story or phenomenological introduction, ' +
   'guided practice, artistic activity with named materials, and closure/reflection.\n' +
   'content: 4–6 rich Hebrew sentences on narrative flow and classroom staging.\n' +
   'art: 2–4 Hebrew sentences on drawing/painting/clay/cooking/handwork tied to the day.\n' +
   'contentExpansion.classroomImplementation: 1–2 Hebrew paragraphs; practicalSteps: 4–8 concrete teacher actions.\n' +
-  '=== END GRADE 7 NUTRITION DEPTH ===\n';
+  '=== END WALDORF CURRICULUM DEPTH ===\n';
+
+const GRADE7_NUTRITION_DEPTH_INSTRUCTION = WALDORF_CURRICULUM_DEPTH_INSTRUCTION;
 
 function isGrade7NutritionTopicBody(topicBody) {
   const gradeId = String(topicBody && (topicBody.currentGrade ?? topicBody.gradeId) || '').trim();
@@ -169,19 +171,20 @@ function buildChunkCurriculumPrompt(topicBody, dayStart, dayEnd, theoryEssence, 
   const theoryBlock = theoryEssence
     ? '\nPHASE B ESSENCE + ARCHIVE CONTEXT (preserve alignment — do NOT duplicate verbatim):\n' + theoryEssence + '\n'
     : '';
-  const forceDepth = (options && options.forceGrade7NutritionDepth) ||
-    isGrade7NutritionTopicBody(topicBody);
+  const forceDepth = options && options.forceDepth === false
+    ? false
+    : true;
 
   return (
     researchBlock +
     theoryBlock +
-    '\n=== PHASE C CURRICULUM CHUNK (SILENT ARCHIVE MIGRATION) ===\n' +
+    '\n=== PHASE C CURRICULUM CHUNK (LIVE GENERATION) ===\n' +
     'Synthesize ONLY the «curriculum» tab for Waldorf block «' + topic + '» at grade «' + (topicBody.gradeLabel || '') + '».\n' +
     'currentGrade: ' + (topicBody.currentGrade || topicBody.gradeId || '') + '\n' +
     'Generate EXACTLY ' + dayCount + ' day objects for days ' + dayStart + ' through ' + dayEnd + ' ONLY.\n' +
     'Day numbers MUST be ' + dayStart + ', ' + (dayStart + 1) + ', … ' + dayEnd + ' — no other days.\n' +
     CURRICULUM_INLINE_EXPANSION_INSTRUCTION +
-    (forceDepth ? GRADE7_NUTRITION_DEPTH_INSTRUCTION : '') +
+    (forceDepth ? WALDORF_CURRICULUM_DEPTH_INSTRUCTION : '') +
     'CRITICAL — blockPlan.curriculum MUST be a JSON ARRAY of exactly ' + dayCount + ' objects.\n' +
     'Each day object MUST use: "day", "topic", "content" (4-6 rich Hebrew sentences), "art" (2-4 Hebrew sentences), "hint" (optional), "contentExpansion" (mandatory).\n' +
     'FORBIDDEN: blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, URLs.\n' +
@@ -290,10 +293,22 @@ async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researc
       );
       const rows = parseChunkCurriculumRows(raw, dayStart, dayEnd);
       const expected = dayEnd - dayStart + 1;
-      if (countUpgradedRows(rows) >= expected) {
+      const upgraded = countUpgradedRows(rows);
+      if (upgraded >= expected) {
+        console.log(
+          '[curriculum-migration] chunk VALIDATED',
+          dayStart + '-' + dayEnd,
+          'upgraded=' + upgraded + '/' + expected
+        );
         return rows;
       }
-      lastErr = new Error('chunk days ' + dayStart + '-' + dayEnd + ' failed validation (got ' + countUpgradedRows(rows) + '/' + expected + ')');
+      console.warn(
+        '[curriculum-migration] chunk validation FAILED',
+        dayStart + '-' + dayEnd,
+        'upgraded=' + upgraded + '/' + expected,
+        'parsedRows=' + rows.length
+      );
+      lastErr = new Error('chunk days ' + dayStart + '-' + dayEnd + ' failed validation (got ' + upgraded + '/' + expected + ')');
     } catch (err) {
       lastErr = err;
     }
@@ -356,14 +371,19 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
   const gradeId = String(topicBody.currentGrade ?? topicBody.gradeId ?? '').trim();
   if (!topic || !gradeId) return null;
 
-  console.log('[curriculum-migration] silent regen start:', topic, '@', gradeId);
+  console.log('[curriculum-migration] regen start:', topic, '@', gradeId);
 
-  const regenOptions = Object.assign({ forceFresh: true, skipCache: true }, options || {});
+  const regenOptions = Object.assign({ forceFresh: true, skipCache: true, forceDepth: true }, options || {});
   await purgeLegacyCurriculumCaches(topicBody, regenOptions);
 
+  console.log('[curriculum-migration] stage 1/4 — web research');
   const theoryEssence = extractTheoryEssenceFromTopicData(topicData);
   const researchRaw = await ensureTopicResearchBlock(topicBody, regenOptions);
   const researchBlock = buildResearchBlock(researchRaw);
+  console.log(
+    '[curriculum-migration] stage 1/4 complete — research chars=',
+    String(researchRaw && researchRaw.content || '').length
+  );
 
   const phaseBody = Object.assign({}, topicBody, {
     phase: 'phase_c',
@@ -376,7 +396,13 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
   const chunkOptions = regenOptions;
   for (let c = 0; c < CURRICULUM_CHUNKS.length; c++) {
     const chunk = CURRICULUM_CHUNKS[c];
-    console.log('[curriculum-migration] chunk', chunk.start + '-' + chunk.end, 'for', topic);
+    console.log(
+      '[curriculum-migration] stage',
+      (c + 2) + '/4 — chunk',
+      chunk.start + '-' + chunk.end,
+      'for',
+      topic
+    );
     const rows = await fetchCurriculumChunk(
       phaseBody,
       apiKey,
@@ -387,9 +413,15 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
       chunkOptions
     );
     rows.forEach(function (row) { allRows.push(row); });
+    console.log(
+      '[curriculum-migration] stage',
+      (c + 2) + '/4 complete — stitched rows=',
+      allRows.length
+    );
   }
 
   const upgradedCount = countUpgradedRows(allRows);
+  console.log('[curriculum-migration] stage 4/4 — persist', upgradedCount + '/' + cacheDb.PHASE_C_CURRICULUM_REQUIRED_DAYS);
   if (upgradedCount < cacheDb.PHASE_C_CURRICULUM_REQUIRED_DAYS) {
     console.warn(
       '[curriculum-migration] regen incomplete:',
@@ -400,7 +432,7 @@ async function regenerateTopicCurriculumChunked(topicBody, topicData, options) {
   }
 
   const merged = await persistMigratedCurriculum(topicBody, topicData, allRows);
-  console.log('[curriculum-migration] silent regen complete:', topic, 'days=' + upgradedCount);
+  console.log('[curriculum-migration] regen complete:', topic, 'days=' + upgradedCount);
   return merged;
 }
 
@@ -448,4 +480,5 @@ module.exports = {
   regenerateTopicCurriculumChunked,
   extractTheoryEssenceFromTopicData,
   CURRICULUM_CHUNKS,
+  WALDORF_CURRICULUM_DEPTH_INSTRUCTION,
 };

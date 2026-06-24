@@ -681,6 +681,115 @@ function stripCurriculumFromTopicPayload(data) {
   return cloned;
 }
 
+function isPhaseCCurriculumGeneration(body) {
+  return Boolean(body && body.phase === 'phase_c' && resolvePhaseCTab(body) === 'curriculum');
+}
+
+/**
+ * Live phase_c curriculum — always 3-chunk Perplexity (days 1–5, 6–10, 11–15).
+ * Single-call 15-day synthesis is deprecated (truncates to thin legacy rows).
+ */
+async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
+  const gradeId = String(resolvedGradeId(body) || body.currentGrade || body.gradeId || '').trim();
+  const topic = String(body.topic || '').trim();
+  if (!topic || !gradeId) {
+    const err = new Error('phase_c curriculum requires topic and currentGrade');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const topicBody = {
+    phase: 'topic',
+    topic: topic,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: body.gradeLabel || null,
+  };
+
+  console.log('[generate] phase_c curriculum PIPELINE START — 3-chunk Perplexity:', topic, '@', gradeId);
+
+  let topicData = null;
+  try {
+    const topicCached = await cacheDb.getCachedResult(topicBody, { requireEnhanced: false });
+    if (topicCached && topicCached.data) {
+      topicData = stripCurriculumFromTopicPayload(topicCached.data);
+      console.log('[generate] phase_c curriculum — topic essence loaded from archive');
+    }
+  } catch (topicCacheErr) {
+    console.warn('[generate] phase_c curriculum — topic cache read failed:', topicCacheErr.message || topicCacheErr);
+  }
+
+  if (!topicData || !curriculumMigration.topicHasMigratableEssence(topicData)) {
+    topicData = topicData || { blockPlan: {} };
+    const essence = String(body.theoryEssence || '').trim();
+    if (essence) {
+      topicData.blockPlan = topicData.blockPlan || {};
+      topicData.blockPlan.theory = {
+        title: topic,
+        sections: [{ heading: 'תיאוריה', icon: 'fa-compass', content: essence, quotes: [] }],
+      };
+      console.log('[generate] phase_c curriculum — using theoryEssence from client request');
+    } else {
+      console.log('[generate] phase_c curriculum — no topic archive essence; research-only chunks');
+    }
+  }
+
+  const forceFresh = !!(body.skipCache || body._forceGrade7NutritionChunked);
+  const chunkOptions = {
+    silent: false,
+    forceFresh: forceFresh,
+    skipCache: forceFresh,
+    forceDepth: true,
+  };
+
+  let healed;
+  try {
+    healed = await curriculumMigration.regenerateTopicCurriculumChunked(topicBody, topicData, chunkOptions);
+  } catch (chunkErr) {
+    console.error('[generate] phase_c curriculum — 3-chunk pipeline error:', chunkErr.message || chunkErr);
+    throw chunkErr;
+  }
+
+  const curriculumRows = healed && healed.blockPlan && healed.blockPlan.curriculum;
+  const upgradedDays = curriculumRows
+    ? cacheDb.countValidPhaseCCurriculumDays({ blockPlan: { curriculum: curriculumRows } })
+    : 0;
+
+  if (!curriculumRows || !curriculumRows.length || upgradedDays < cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS) {
+    console.error(
+      '[generate] phase_c curriculum — 3-chunk pipeline INCOMPLETE:',
+      topic,
+      'upgradedDays=' + upgradedDays + '/' + cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS
+    );
+    const err = new Error('לא ניתן היה ליצור תכנון תקופה מלא — נסו שוב בעוד רגע');
+    err.statusCode = 502;
+    throw err;
+  }
+
+  console.log(
+    '[generate] phase_c curriculum PIPELINE COMPLETE:',
+    topic,
+    'days=' + curriculumRows.length,
+    'upgradedDays=' + upgradedDays
+  );
+
+  const phaseData = cacheDb.stampPerplexityOnlyMetadata({
+    blockPlan: { curriculum: curriculumRows },
+  });
+
+  return {
+    data: phaseData,
+    meta: attachCommunityMeta({
+      fromCache: false,
+      source: 'phase_c_curriculum_chunked',
+      curriculumMigrated: true,
+      curriculumLegacy: false,
+      upgradedDays: upgradedDays,
+      chunkPipeline: true,
+    }, communityProbe),
+  };
+}
+
 function isPhaseCGeneration(body) {
   return Boolean(body && body.phase === 'phase_c');
 }
@@ -2368,14 +2477,10 @@ function validatePhaseCBlockPlan(blockPlan, cTab) {
       return block && Array.isArray(block.items) && block.items.length;
     });
   }
-  if (!Array.isArray(blockPlan.curriculum) || !blockPlan.curriculum.length) return false;
-  return blockPlan.curriculum.some(function (day) {
-    return day && typeof day === 'object' && (
-      String(day.topic || '').trim() ||
-      String(day.content || '').trim() ||
-      String(day.art || '').trim()
-    );
-  });
+  if (!Array.isArray(blockPlan.curriculum) || blockPlan.curriculum.length < cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS) {
+    return false;
+  }
+  return cacheDb.countValidPhaseCCurriculumDays({ blockPlan: blockPlan }) >= cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS;
 }
 
 function buildPerplexitySearchSystemPrompt() {
@@ -3740,47 +3845,8 @@ async function executeGenerate(body, apiKey, requestContext) {
 
   const perplexityOptions = {};
 
-  if (body._forceGrade7NutritionChunked) {
-    const topicBody = {
-      phase: 'topic',
-      topic: body.topic,
-      currentGrade: resolvedGradeId(body) || '7',
-      gradeId: resolvedGradeId(body) || '7',
-      gradeLabel: body.gradeLabel || null,
-    };
-    let topicData = null;
-    try {
-      const topicCached = await cacheDb.getCachedResult(topicBody, { requireEnhanced: false });
-      if (topicCached && topicCached.data) {
-        topicData = stripCurriculumFromTopicPayload(topicCached.data);
-      }
-    } catch (topicCacheErr) {
-      console.warn('[generate] grade7-nutrition topic cache read failed:', topicCacheErr.message || topicCacheErr);
-    }
-    if (!topicData || !curriculumMigration.topicHasMigratableEssence(topicData)) {
-      topicData = topicData || { blockPlan: {} };
-    }
-    const healed = await curriculumMigration.regenerateTopicCurriculumChunked(
-      topicBody,
-      topicData,
-      { silent: false, forceGrade7NutritionDepth: true, forceFresh: true, skipCache: true }
-    );
-    if (healed && healed.blockPlan && Array.isArray(healed.blockPlan.curriculum) && healed.blockPlan.curriculum.length) {
-      const phaseData = cacheDb.stampPerplexityOnlyMetadata({
-        blockPlan: { curriculum: healed.blockPlan.curriculum },
-      });
-      return {
-        data: phaseData,
-        meta: attachCommunityMeta({
-          fromCache: false,
-          source: 'grade7_nutrition_chunked',
-          forceRegen: true,
-          curriculumMigrated: true,
-          curriculumLegacy: false,
-        }, communityProbe),
-      };
-    }
-    console.warn('[generate] grade7-nutrition chunked regen failed — falling back to single-call phase_c');
+  if (isPhaseCCurriculumGeneration(body)) {
+    return await executePhaseCCurriculumChunkedGeneration(body, communityProbe);
   }
 
   const userPrompt = buildUserPrompt(body);
