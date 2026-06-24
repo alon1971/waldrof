@@ -3,14 +3,43 @@
 
 const cache = require('../api/cache');
 
-const goodSample = {
+function upgradedDay(day, topic) {
+  return {
+    day: day,
+    topic: topic || ('יום ' + day),
+    content: 'תוכן עשיר ומפורט ליום ' + day + ' עם זרימת שיעור מלאה, סיפור מחנך, וחוויה כיתתית מעמיקה שמכסה את כל שלבי השיעור בצורה פדגוגית.',
+    art: 'אמנות ומעשה ליום ' + day + ' — ציור, חומרים טבעיים, ופעילות יצירתית מותאמת לגיל.',
+    hint: 'רמז ליום ' + day,
+    contentExpansion: {
+      classroomImplementation: 'יישום כיתתי מפורט ליום ' + day + ' כולל הכנה לפני השיעור, זרימת שיעור, וסגירה רפלקטיבית עם התאמה לגיל הילדים בכיתה.',
+      parentCommunityAspects: 'היבט קהילתי והורים ליום ' + day + ' — שיתוף הורים, חג או אירוע קהילתי קטן.',
+      practicalSteps: [
+        'הכנת חומרים וסביבה לפני השיעור',
+        'פתיחה מחנכת עם שיר או תנועה',
+        'העמקה בפעילות מרכזית ורישום ביומן',
+        'סגירה רפלקטיבית ושיתוף תלמידים',
+      ],
+      inspirationReferences: ['רודולף שיינר — חינוך ואמנות', 'מאייר — חינוך לגיל הרך'],
+    },
+  };
+}
+
+const upgradedSample = {
+  blockPlan: {
+    curriculum: Array.from({ length: 15 }, function (_, i) {
+      return upgradedDay(i + 1);
+    }),
+  },
+};
+
+const legacyBasicSample = {
   blockPlan: {
     curriculum: [
-      { day: 1, topic: 'א', content: 'תוכן עשיר יום 1', art: 'אמנות 1' },
-      { day: 2, topic: 'ב', content: 'תוכן עשיר יום 2', art: 'אמנות 2' },
-      { day: 3, topic: 'ג', content: 'תוכן עשיר יום 3', art: 'אמנות 3' },
-      { day: 4, topic: 'ד', content: 'תוכן עשיר יום 4', art: 'אמנות 4' },
-      { day: 5, topic: 'ה', content: 'תוכן עשיר יום 5', art: 'אמנות 5' },
+      { day: 1, topic: 'א', content: 'תוכן קצר', art: 'אמנות' },
+      { day: 2, topic: 'ב', content: 'תוכן קצר', art: 'אמנות' },
+      { day: 3, topic: 'ג', content: 'תוכן קצר', art: 'אמנות' },
+      { day: 4, topic: 'ד', content: 'תוכן קצר', art: 'אמנות' },
+      { day: 5, topic: 'ה', content: 'תוכן קצר', art: 'אמנות' },
     ],
   },
 };
@@ -36,10 +65,12 @@ function assert(name, cond) {
   }
 }
 
-assert('good cache passes corrupt check', !cache.isPhaseCCurriculumCacheCorrupt(body, goodSample));
-assert('good cache has 5 valid days', cache.countValidPhaseCCurriculumDays(goodSample) === 5);
+assert('upgraded cache passes corrupt check', !cache.isPhaseCCurriculumCacheCorrupt(body, upgradedSample));
+assert('upgraded cache has 15 valid days', cache.countValidPhaseCCurriculumDays(upgradedSample) === 15);
+assert('legacy basic cache is corrupt', cache.isPhaseCCurriculumCacheCorrupt(body, legacyBasicSample));
+assert('legacy basic cache has <15 upgraded days', cache.countValidPhaseCCurriculumDays(legacyBasicSample) < 15);
 assert('dash cache is corrupt', cache.isPhaseCCurriculumCacheCorrupt(body, corruptSample));
-assert('dash cache has <5 valid days', cache.countValidPhaseCCurriculumDays(corruptSample) < 5);
+assert('dash cache has 0 upgraded days', cache.countValidPhaseCCurriculumDays(corruptSample) === 0);
 
 if (failed) {
   console.error(failed + ' test(s) failed');
