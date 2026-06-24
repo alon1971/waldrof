@@ -6688,12 +6688,26 @@
       if (typeof val === 'string') return val;
       if (typeof val === 'number' || typeof val === 'boolean') return String(val);
       if (Array.isArray(val)) {
+        if (val.length >= 2 && val.every(function (cell) {
+          return typeof cell === 'string' || typeof cell === 'number';
+        })) {
+          return val.map(function (cell) { return String(cell || '').trim(); }).filter(Boolean).join(' — ');
+        }
         return val.map(coerceCurriculumFieldValue).filter(Boolean).join('\n\n');
       }
       if (typeof val === 'object') {
+        var classroom = coerceCurriculumFieldValue(val.classroomImplementation || val.classroom || '');
+        var steps = val.practicalSteps || val.steps;
+        var stepText = Array.isArray(steps)
+          ? steps.map(coerceCurriculumFieldValue).filter(Boolean).join('\n')
+          : '';
+        var parent = coerceCurriculumFieldValue(val.parentCommunityAspects || val.community || '');
+        var expansionText = [classroom, stepText, parent].filter(Boolean).join('\n\n');
+        if (expansionText) return expansionText;
         return coerceCurriculumFieldValue(
           val.content || val.text || val.body || val.html || val.story || val.detail ||
-          val.preview || val.value || val.narrative || val.lesson || val.lessonContent || ''
+          val.preview || val.value || val.narrative || val.lesson || val.lessonContent ||
+          val.mainLesson || val.classroomImplementation || ''
         );
       }
       return String(val);
@@ -6829,7 +6843,7 @@
 
     function resolveCurriculumRowContentExpansionClient(row) {
       if (!row || typeof row !== 'object') return null;
-      var exp = row.contentExpansion;
+      var exp = row.contentExpansion || row.expansion;
       if (!exp || typeof exp !== 'object' || Array.isArray(exp)) return null;
       return exp;
     }
@@ -7397,6 +7411,32 @@
       return out;
     }
 
+    function curriculumRowHasRenderableText(row) {
+      if (!row || typeof row !== 'object') return false;
+      var display = mapCurriculumRowForDisplay(row, Math.max(0, (row.day || 1) - 1));
+      var content = coerceCurriculumFieldValue(display.content).trim();
+      var art = coerceCurriculumFieldValue(display.art).trim();
+      return (!isCurriculumDayTextEmpty(content) && !isCorruptedCurriculumField(content)) ||
+        (!isCurriculumDayTextEmpty(art) && !isCorruptedCurriculumField(art));
+    }
+
+    function resolveCurriculumPlanForRender() {
+      var carriers = [];
+      if (appState.aiGeneratedPlan) {
+        carriers.push({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
+      }
+      if (appState.activePlan && appState.activePlan !== appState.aiGeneratedPlan) {
+        carriers.push({ blockPlan: appState.activePlan, webResearch: appState.webResearch });
+      }
+      for (var c = 0; c < carriers.length; c++) {
+        var rows = extractCurriculumRowsFromLessonData(carriers[c]);
+        if (!rows.length) continue;
+        var padded = padCurriculumRowsToFifteen(rows);
+        if (padded.some(curriculumRowHasRenderableText)) return padded;
+      }
+      return [];
+    }
+
     function padCurriculumRowsToFifteen(rows) {
       var src = Array.isArray(rows) ? rows : [];
       var byDay = {};
@@ -7588,16 +7628,22 @@
         if (!Array.isArray(data.gallery)) data.gallery = [];
       } else if (cTab === 'curriculum') {
         var rows = coerceCurriculumRows(data.blockPlan.curriculum);
+        if (!rows.length) rows = coerceCurriculumRows(data.curriculum);
+        if (!rows.length) rows = coerceCurriculumRows(data.days);
         if (!rows.length && typeof data.blockPlan.curriculum === 'string') {
           rows = parseCurriculumFromText(data.blockPlan.curriculum);
         }
         if (!rows.length) rows = extractCurriculumFromPlan(data.blockPlan, data);
         if (!rows.length && rawFallback) rows = parseCurriculumFromText(rawFallback);
+        if (!rows.length) {
+          data.blockPlan.curriculum = [];
+          return data;
+        }
         data.blockPlan.curriculum = padCurriculumRowsToFifteen(rows.map(function (row, i) {
           return normalizeCurriculumRow(row, i) || {
             day: i + 1,
             topic: t('curriculum_day_short', { day: i + 1 }),
-            content: rawFallback || '',
+            content: '',
             art: '',
             hint: '',
           };
@@ -7751,7 +7797,7 @@
       if (!rawCurriculum.length && Array.isArray(plan.curriculum) && plan.curriculum.length) {
         rawCurriculum = plan.curriculum;
       }
-      plan.curriculum = padCurriculumRowsToFifteen(rawCurriculum);
+      plan.curriculum = rawCurriculum.length ? padCurriculumRowsToFifteen(rawCurriculum) : [];
       return plan;
     }
 
@@ -8959,13 +9005,18 @@
             appState.visualGallery = normalizeGallery(data.gallery, appState.topic || '');
           }
         }
-      } else if (cTab === 'curriculum' && Array.isArray(bp.curriculum)) {
-        var mergedPlan = mergeBlockPlanCurriculum(
-          mergeBlockPlanBibliography({ curriculum: bp.curriculum, theory: appState.aiGeneratedPlan.theory }, data),
-          data
-        );
-        appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(mergedPlan.curriculum || bp.curriculum || []);
-        appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
+      } else if (cTab === 'curriculum') {
+        var curriculumRows = coerceCurriculumRows(bp.curriculum);
+        if (!curriculumRows.length) curriculumRows = extractCurriculumFromPlan(bp, data);
+        if (!curriculumRows.length) curriculumRows = coerceCurriculumRows(data.curriculum);
+        if (curriculumRows.length) {
+          var mergedPlan = mergeBlockPlanCurriculum(
+            mergeBlockPlanBibliography({ curriculum: curriculumRows, theory: appState.aiGeneratedPlan.theory }, data),
+            data
+          );
+          appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(mergedPlan.curriculum || curriculumRows || []);
+          appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
+        }
       }
       appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
       return cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
@@ -16782,13 +16833,12 @@
     function renderCurriculum() {
       captureCurriculumUiStateFromDom();
       readCurriculumDayFromUrl();
-      var plan = (appState.activePlan && appState.activePlan.curriculum) ||
-        (appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum) || [];
+      var plan = resolveCurriculumPlanForRender();
 
       const cardsEl = document.getElementById('curriculum-cards');
       const tbody = document.getElementById('curriculum-body');
 
-      if (!plan.length) {
+      if (!plan.length || !plan.some(curriculumRowHasRenderableText)) {
         var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
           escapeHtml(isEnglish()
             ? 'No daily plan rows were found. Run topic research again — the AI must return blockPlan.curriculum as an array of 15 objects: { day, topic, content, art, hint }.'

@@ -20,6 +20,8 @@
     'rows', 'entries', 'schedule', 'plan', 'periodPlan', 'period_plan',
     'fifteenDayPlan', 'fifteen_day_plan', 'blockCurriculum', 'block_curriculum',
     'curriculumPlan', 'curriculum_plan', 'mainLessonPlan', 'main_lesson_plan',
+    'table_data', 'tableData', 'tableRows', 'table_rows', 'dayPlans', 'day_plans',
+    'weeklyPlan', 'weekly_plan', 'weeks',
   ];
 
   var CURRICULUM_TEXT_KEYS = [
@@ -255,14 +257,33 @@
     return null;
   }
 
+  function liftCurriculumExpansionNarrative(exp) {
+    if (!exp || typeof exp !== 'object' || Array.isArray(exp)) return '';
+    var parts = [];
+    var classroom = liftCurriculumFieldText(exp.classroomImplementation || exp.classroom || exp.implementation || '');
+    if (classroom) parts.push(classroom);
+    var steps = exp.practicalSteps || exp.steps || exp.activities;
+    if (Array.isArray(steps) && steps.length) {
+      parts.push(steps.map(function (step) { return liftCurriculumFieldText(step); }).filter(Boolean).join('\n'));
+    }
+    var parent = liftCurriculumFieldText(exp.parentCommunityAspects || exp.parentAspects || exp.community || '');
+    if (parent) parts.push(parent);
+    return parts.join('\n\n').trim();
+  }
+
   function liftCurriculumFieldText(val) {
     if (val == null || val === '') return '';
     if (typeof val === 'string') return val;
     if (typeof val === 'number' || typeof val === 'boolean') return String(val);
     if (Array.isArray(val)) {
+      if (val.length >= 2 && val.every(function (cell) { return typeof cell === 'string' || typeof cell === 'number'; })) {
+        return val.map(function (cell) { return String(cell || '').trim(); }).filter(Boolean).join(' — ');
+      }
       return val.map(liftCurriculumFieldText).filter(Boolean).join('\n\n');
     }
     if (typeof val === 'object') {
+      var fromExpansion = liftCurriculumExpansionNarrative(val);
+      if (fromExpansion) return fromExpansion;
       return liftCurriculumFieldText(
         val.content || val.text || val.body || val.html || val.story || val.detail ||
         val.preview || val.value || val.narrative || val.lesson || val.lessonContent ||
@@ -299,10 +320,23 @@
       return { day: index + 1, topic: text, content: text, art: '', hint: '' };
     }
     if (typeof row !== 'object') return null;
+
+    if (Array.isArray(row.cells) && row.cells.length >= 3) {
+      row = {
+        day: row.cells[0],
+        topic: row.cells[1],
+        content: row.cells[2],
+        art: row.cells[3] || '',
+        hint: row.cells[4] || '',
+        contentExpansion: row.contentExpansion,
+        artExpansion: row.artExpansion,
+      };
+    }
+
     var day = parseInt(row.day || row.dayNumber || row.n || row.number || row.index, 10);
     if (!day || isNaN(day)) day = index + 1;
     var topic = liftCurriculumFieldText(
-      row.topic || row.title || row.theme || row.heading || row.subject || row.name || ''
+      row.topic || row.title || row.theme || row.heading || row.subject || row.name || row['נושא'] || ''
     ).trim();
     var content = liftCurriculumFieldText(
       row.content || row.story || row.lesson || row.lessonContent ||
@@ -316,8 +350,9 @@
     var hint = liftCurriculumFieldText(
       row.hint || row.journey || row.note || row.notes || row.pedagogyHint || ''
     ).trim();
-    if (isCurriculumArtPlaceholder(content) && row.contentExpansion) {
-      var liftedContent = liftCurriculumFieldText(row.contentExpansion).trim();
+    var contentExpansion = row.contentExpansion || row.expansion;
+    if (isCurriculumArtPlaceholder(content) && contentExpansion) {
+      var liftedContent = liftCurriculumExpansionNarrative(contentExpansion) || liftCurriculumFieldText(contentExpansion).trim();
       if (liftedContent && !isCurriculumArtPlaceholder(liftedContent)) content = liftedContent;
     }
     if (isCurriculumArtPlaceholder(art) && row.artExpansion) {
@@ -332,8 +367,8 @@
       art: art,
       hint: hint,
     };
-    if (row.contentExpansion && typeof row.contentExpansion === 'object') {
-      out.contentExpansion = row.contentExpansion;
+    if (contentExpansion && typeof contentExpansion === 'object') {
+      out.contentExpansion = contentExpansion;
     }
     if (row.artExpansion && typeof row.artExpansion === 'object') {
       out.artExpansion = row.artExpansion;
@@ -430,15 +465,66 @@
     return [];
   }
 
+  function flattenCurriculumRowList(rows) {
+    if (!Array.isArray(rows)) return [];
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var item = rows[i];
+      if (item == null) continue;
+      if (Array.isArray(item)) {
+        out = out.concat(flattenCurriculumRowList(item));
+        continue;
+      }
+      if (typeof item === 'string') {
+        var parsedItem = tryParseArchiveJsonObject(item);
+        if (parsedItem) {
+          var fromParsed = coerceCurriculumRows(parsedItem);
+          if (fromParsed.length) {
+            out = out.concat(fromParsed);
+            continue;
+          }
+        }
+      }
+      if (typeof item === 'object' && item.blockPlan && typeof item.blockPlan === 'object') {
+        var nested = coerceCurriculumRows(item.blockPlan.curriculum || item.blockPlan.days);
+        if (nested.length) {
+          out = out.concat(nested);
+          continue;
+        }
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
   function coerceCurriculumRows(raw) {
     if (!raw) return [];
-    if (Array.isArray(raw)) return raw;
+    if (Array.isArray(raw)) return flattenCurriculumRowList(raw);
     if (typeof raw === 'string') return parseCurriculumFromText(raw);
     if (typeof raw !== 'object') return [];
 
     var i;
     for (i = 0; i < CURRICULUM_LIST_KEYS.length; i++) {
-      if (Array.isArray(raw[CURRICULUM_LIST_KEYS[i]])) return raw[CURRICULUM_LIST_KEYS[i]];
+      if (Array.isArray(raw[CURRICULUM_LIST_KEYS[i]])) {
+        return flattenCurriculumRowList(raw[CURRICULUM_LIST_KEYS[i]]);
+      }
+    }
+
+    if (Array.isArray(raw.weeks)) {
+      var weekRows = [];
+      for (i = 0; i < raw.weeks.length; i++) {
+        var week = raw.weeks[i];
+        if (!week || typeof week !== 'object') continue;
+        if (Array.isArray(week.days)) weekRows = weekRows.concat(flattenCurriculumRowList(week.days));
+        else if (Array.isArray(week.curriculum)) weekRows = weekRows.concat(flattenCurriculumRowList(week.curriculum));
+        else if (Array.isArray(week.rows)) weekRows = weekRows.concat(flattenCurriculumRowList(week.rows));
+      }
+      if (weekRows.length) return weekRows;
+    }
+
+    if (raw.table && typeof raw.table === 'object') {
+      var tableRows = coerceCurriculumRows(raw.table);
+      if (tableRows.length) return tableRows;
     }
 
     var numKeys = Object.keys(raw).filter(function (k) { return /^\d+$/.test(String(k)); });
