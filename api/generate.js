@@ -62,7 +62,7 @@ const {
 /** Minimum time (ms) the HTTP route stays open for on-demand Perplexity research (pedagogy_deep_dive, archive_summary). */
 const GENERATE_ROUTE_TIMEOUT_MS = Math.max(
   90000,
-  Number(process.env.GENERATE_ROUTE_TIMEOUT_MS) || 120000
+  Number(process.env.GENERATE_ROUTE_TIMEOUT_MS) || 300000
 );
 
 const corsHeaders = {
@@ -827,9 +827,28 @@ async function resolvePhaseCCurriculumBlockingGenerate(body, communityProbe) {
   body.skipCache = true;
   body.forceFresh = true;
 
+  try {
+    const stitchedProbe = await curriculumMigration.probeServeReadyPhaseCCurriculum(body);
+    if (stitchedProbe && stitchedProbe.ready && stitchedProbe.data) {
+      console.log('[generate] phase_c curriculum CHUNK STITCH HIT — serve-ready', topic);
+      return {
+        data: stitchedProbe.data,
+        meta: attachCommunityMeta(Object.assign({}, stitchedProbe.meta || {}, {
+          fromCache: true,
+          phase: 'phase_c',
+          cTab: 'curriculum',
+          curriculumMigrated: true,
+          curriculumLegacy: false,
+          source: (stitchedProbe.meta && stitchedProbe.meta.source) || 'chunk_stitch',
+        }), communityProbe),
+      };
+    }
+  } catch (stitchProbeErr) {
+    console.warn('[generate] phase_c curriculum chunk stitch probe failed:', stitchProbeErr.message || stitchProbeErr);
+  }
+
   if (topic && gradeId) {
     console.log('[generate] phase_c curriculum CACHE MISS/CORRUPT — blocking live pipeline for', topic);
-    await cacheDb.purgeRegenerationCaches(topicBody);
   }
 
   const result = await executePhaseCCurriculumChunkedGeneration(body, communityProbe);

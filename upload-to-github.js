@@ -48,6 +48,7 @@ const FILES_TO_UPLOAD = [
   'api/rag.js',
   'api/search-history.js',
   'api/regenerate-legacy-table.js',
+  'api/curriculum-status.js',
   'api/subscription.js',
   'api/share-material.js',
   'scripts/upload-text.js',

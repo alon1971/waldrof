@@ -21,6 +21,8 @@ function setCors(res) {
 function sendJson(res, statusCode, payload) {
   setCors(res);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   return res.status(statusCode).json(payload);
 }
 

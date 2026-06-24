@@ -210,6 +210,159 @@ function countUpgradedRows(rows) {
   return count;
 }
 
+function filterChunkRows(rows, dayStart, dayEnd) {
+  const filtered = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || typeof row !== 'object') continue;
+    const dayNum = Number(row.day);
+    if (dayNum >= dayStart && dayNum <= dayEnd) filtered.push(row);
+  }
+  return filtered;
+}
+
+async function persistCurriculumChunkToCache(topicBody, dayStart, dayEnd, rows) {
+  const chunkBody = cacheDb.buildCurriculumChunkCacheBody(topicBody, dayStart, dayEnd);
+  if (!chunkBody || !rows || !rows.length) return false;
+  const preserved = rows
+    .map(archiveCoerce.preserveCurriculumRowForStorage)
+    .filter(Boolean);
+  try {
+    await cacheDb.setCachedResult(chunkBody, cacheDb.stampPerplexityOnlyMetadata({
+      blockPlan: { curriculum: preserved },
+    }));
+    console.log(
+      '[curriculum-migration] chunk persisted to cache',
+      dayStart + '-' + dayEnd,
+      'for',
+      String(topicBody.topic || '').trim()
+    );
+    return true;
+  } catch (saveErr) {
+    console.warn('[curriculum-migration] chunk persist failed:', saveErr.message || saveErr);
+    return false;
+  }
+}
+
+async function loadCurriculumRowsFromChunkCache(topicBody, dayStart, dayEnd) {
+  const chunkBody = cacheDb.buildCurriculumChunkCacheBody(topicBody, dayStart, dayEnd);
+  if (!chunkBody) return null;
+  const cached = await cacheDb.getCachedResult(chunkBody, { requireEnhanced: false });
+  const cachedRows = cached && cached.data && cached.data.blockPlan
+    ? archiveCoerce.coerceCurriculumRows(cached.data.blockPlan.curriculum)
+    : [];
+  const filtered = filterChunkRows(cachedRows, dayStart, dayEnd);
+  const expected = dayEnd - dayStart + 1;
+  if (countUpgradedRows(filtered) < expected) return null;
+  return filtered;
+}
+
+async function assembleCurriculumFromChunkCaches(topicBody) {
+  const allRows = [];
+  for (let c = 0; c < CURRICULUM_CHUNKS.length; c++) {
+    const chunk = CURRICULUM_CHUNKS[c];
+    const rows = await loadCurriculumRowsFromChunkCache(topicBody, chunk.start, chunk.end);
+    if (!rows || !rows.length) return null;
+    rows.forEach(function (row) { allRows.push(row); });
+  }
+  return allRows.length >= cacheDb.PHASE_C_CURRICULUM_REQUIRED_DAYS ? allRows : null;
+}
+
+async function measureCurriculumChunkProgress(topicBody) {
+  let chunksComplete = 0;
+  let upgradedDays = 0;
+  for (let c = 0; c < CURRICULUM_CHUNKS.length; c++) {
+    const chunk = CURRICULUM_CHUNKS[c];
+    const rows = await loadCurriculumRowsFromChunkCache(topicBody, chunk.start, chunk.end);
+    const expected = chunk.end - chunk.start + 1;
+    if (rows && rows.length) {
+      const upgraded = countUpgradedRows(rows);
+      upgradedDays += upgraded;
+      if (upgraded >= expected) chunksComplete++;
+    }
+  }
+  return {
+    chunksComplete: chunksComplete,
+    chunksTotal: CURRICULUM_CHUNKS.length,
+    upgradedDays: upgradedDays,
+    requiredDays: cacheDb.PHASE_C_CURRICULUM_REQUIRED_DAYS,
+  };
+}
+
+/**
+ * Lightweight cache probe — no Perplexity. Stitches chunk caches into phase_c when complete.
+ */
+async function probeServeReadyPhaseCCurriculum(body) {
+  const topic = String((body && body.topic) || '').trim();
+  const gradeId = String((body && (body.currentGrade ?? body.gradeId)) || '').trim();
+  if (!topic || !gradeId) {
+    const err = new Error('חסרים נושא וכיתה לבדיקת תכנון התקופה');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const topicBody = {
+    phase: 'topic',
+    topic: topic,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: (body && body.gradeLabel) || null,
+  };
+  const phaseBody = Object.assign({}, topicBody, {
+    phase: 'phase_c',
+    cTab: 'curriculum',
+  });
+
+  const cached = await cacheDb.getCachedResult(phaseBody, { requireEnhanced: false });
+  if (cached && cached.data && cacheDb.isPhaseCCurriculumServeReady(cached.data)) {
+    return {
+      ready: true,
+      data: cached.data,
+      meta: Object.assign({}, cached.meta || {}, {
+        fromCache: true,
+        source: (cached.meta && cached.meta.source) || 'supabase',
+        upgradedDays: cacheDb.countValidPhaseCCurriculumDays(cached.data),
+      }),
+      progress: null,
+    };
+  }
+
+  const stitched = await assembleCurriculumFromChunkCaches(topicBody);
+  if (stitched && countUpgradedRows(stitched) >= cacheDb.PHASE_C_CURRICULUM_REQUIRED_DAYS) {
+    let topicData = null;
+    try {
+      const topicCached = await cacheDb.getCachedResult(topicBody, { requireEnhanced: false });
+      if (topicCached && topicCached.data) topicData = topicCached.data;
+    } catch (topicReadErr) {
+      console.warn('[curriculum-migration] probe topic read failed:', topicReadErr.message || topicReadErr);
+    }
+    topicData = topicData || { blockPlan: {} };
+    const merged = await persistMigratedCurriculum(topicBody, topicData, stitched);
+    const phasePayload = cacheDb.stampPerplexityOnlyMetadata({
+      blockPlan: { curriculum: merged.blockPlan.curriculum },
+    });
+    return {
+      ready: true,
+      data: phasePayload,
+      meta: {
+        fromCache: true,
+        source: 'chunk_stitch',
+        upgradedDays: countUpgradedRows(stitched),
+        curriculumRegenerated: true,
+      },
+      progress: null,
+    };
+  }
+
+  const progress = await measureCurriculumChunkProgress(topicBody);
+  return {
+    ready: false,
+    data: null,
+    meta: { fromCache: true, source: 'curriculum_probe' },
+    progress: progress,
+  };
+}
+
 async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researchBlock, theoryEssence, options) {
   const forceFresh = !!(options && (options.forceFresh || options.skipCache));
   const topic = String(topicBody.topic || '').trim();
@@ -282,6 +435,7 @@ async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researc
           dayStart + '-' + dayEnd,
           'upgraded=' + upgraded + '/' + expected
         );
+        await persistCurriculumChunkToCache(topicBody, dayStart, dayEnd, rows);
         return rows;
       }
       console.warn(
@@ -398,15 +552,33 @@ async function regenerateTopicCurriculumChunkedInner(topicBody, topicData, optio
       'for',
       topic
     );
-    const rows = await fetchCurriculumChunk(
-      phaseBody,
-      apiKey,
-      chunk.start,
-      chunk.end,
-      researchBlock,
-      theoryEssence,
-      chunkOptions
-    );
+    let rows;
+    try {
+      rows = await fetchCurriculumChunk(
+        phaseBody,
+        apiKey,
+        chunk.start,
+        chunk.end,
+        researchBlock,
+        theoryEssence,
+        chunkOptions
+      );
+    } catch (chunkErr) {
+      console.error(
+        '[curriculum-migration] chunk FAILED',
+        chunk.start + '-' + chunk.end,
+        'for',
+        topic,
+        ':',
+        chunkErr.message || chunkErr
+      );
+      throw chunkErr;
+    }
+    if (!rows || !rows.length) {
+      const emptyErr = new Error('curriculum chunk ' + chunk.start + '-' + chunk.end + ' returned no rows');
+      console.error('[curriculum-migration]', emptyErr.message, 'for', topic);
+      throw emptyErr;
+    }
     rows.forEach(function (row) { allRows.push(row); });
     console.log(
       '[curriculum-migration] stage',
@@ -469,6 +641,9 @@ module.exports = {
   topicHasMigratableEssence,
   healTopicCurriculumIfNeeded,
   regenerateTopicCurriculumChunked,
+  probeServeReadyPhaseCCurriculum,
+  assembleCurriculumFromChunkCaches,
+  loadCurriculumRowsFromChunkCache,
   extractTheoryEssenceFromTopicData,
   CURRICULUM_CHUNKS,
   WALDORF_CURRICULUM_DEPTH_INSTRUCTION,

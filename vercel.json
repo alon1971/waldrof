@@ -2,19 +2,24 @@
   "version": 2,
   "functions": {
     "api/generate.js": {
-      "maxDuration": 120,
+      "maxDuration": 300,
       "memory": 1024
     },
     "api/regenerate-legacy-table.js": {
-      "maxDuration": 120,
+      "maxDuration": 300,
       "memory": 1024
+    },
+    "api/curriculum-status.js": {
+      "maxDuration": 30,
+      "memory": 256
     }
   },
   "headers": [
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+        { "key": "Cache-Control", "value": "no-store, max-age=0" },
+        { "key": "Connection", "value": "keep-alive" }
       ]
     }
   ]

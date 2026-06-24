@@ -4417,8 +4417,10 @@
     const summaryFailedByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
     const EXPANSION_REQUEST_TIMEOUT_MS = 130000;
-    const CURRICULUM_REQUEST_TIMEOUT_MS = 130000;
+    const CURRICULUM_REQUEST_TIMEOUT_MS = 300000;
+    const CURRICULUM_POLL_INTERVAL_MS = 4000;
     var archiveCurriculumHealInFlight = null;
+    var curriculumPollCancel = null;
 
     function parseApiCooldownSeconds(message) {
       const match = String(message || '').match(/retry in ([0-9.]+)s/i);
@@ -7724,6 +7726,9 @@
       if (loading) {
         if (cTab === 'curriculum') {
           paintCurriculumLoadingPanels(true);
+          if (!shouldBlockLivePhaseCApi() || options.allowArchiveLoading) {
+            ensureCurriculumPipelineActive();
+          }
         } else {
           loadingEl.innerHTML = '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
             '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
@@ -7740,6 +7745,7 @@
       }
       var hasContent = cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
       if (hasContent) {
+        if (cTab === 'curriculum') stopCurriculumPollFallback();
         ensurePageScrollUnlocked();
         return;
       }
@@ -9024,14 +9030,34 @@
       return resolveCurriculumPlanForRender().some(curriculumRowHasRenderableText);
     }
 
+    function isCurriculumPollActive() {
+      return typeof curriculumPollCancel === 'function';
+    }
+
     function shouldKeepCurriculumLoading() {
       if (hasPhaseCCurriculumContent()) return false;
       if (backgroundCurriculumMigrationInFlight) return true;
       if (phaseCTabLoading.curriculum) return true;
+      if (isCurriculumPollActive()) return true;
       return topicPayloadNeedsBackgroundCurriculumMigration(
         { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
         appState.lessonCacheMeta || null
       );
+    }
+
+    function ensureCurriculumPipelineActive() {
+      if (!isResearchAvailable()) return;
+      if (hasPhaseCCurriculumContent()) return;
+      startCurriculumPollFallback();
+      if (topicPayloadNeedsBackgroundCurriculumMigration(
+        { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+        appState.lessonCacheMeta || null
+      ) && !backgroundCurriculumMigrationInFlight) {
+        void ensureArchiveCurriculumRegeneratedBlocking(
+          { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+          appState.lessonCacheMeta || null
+        );
+      }
     }
 
     function curriculumLoadingSpinnerHtml() {
@@ -9097,39 +9123,168 @@
         : '';
       var activeSignal = signal;
       if (cTab === 'curriculum') {
+        startCurriculumPollFallback();
         var timeoutWrap = mergeAbortSignals(signal, CURRICULUM_REQUEST_TIMEOUT_MS);
         activeSignal = timeoutWrap.signal;
       }
-      return invokeWaldorfResearch({
-        phase: 'phase_c',
-        cTab: cTab,
-        userInitiated: true,
-        skipCache: cTab === 'curriculum' ? true : (opts.skipCache === true),
-        forceFresh: cTab === 'curriculum' ? true : undefined,
-        gradeId: appState.grade,
-        gradeLabel: appState.gradeLabel,
-        age: g ? g.age : '',
-        topic: topicStr,
-        gradeContext: gradeCtx,
-        theoryEssence: summarizeTheoryEssenceForPhaseC(),
-        inspirationPrompt: cTab === 'inspiration' ? buildInspirationTabPrompt(topicStr, appState.gradeLabel) : undefined,
-        curriculumPrompt: cTab === 'curriculum' ? buildCurriculumTabPrompt(topicStr, appState.gradeLabel) : undefined,
-        bibliographyRequirements: undefined,
-        pedagogyExpandHint: cTab === 'curriculum' ? getInlineExpansionInstruction() : getLazyLoadExpansionInstruction(),
-        currentGrade: appState.grade,
-        gradeLockInstruction: getGradeLockInstruction(),
-        noUrlsInstruction: getNoUrlsInstruction(),
-        noLatexInstruction: getNoLatexInstruction(),
-      }, { signal: activeSignal });
+      try {
+        return await invokeWaldorfResearch({
+          phase: 'phase_c',
+          cTab: cTab,
+          userInitiated: true,
+          skipCache: cTab === 'curriculum' ? true : (opts.skipCache === true),
+          forceFresh: cTab === 'curriculum' ? true : undefined,
+          gradeId: appState.grade,
+          gradeLabel: appState.gradeLabel,
+          age: g ? g.age : '',
+          topic: topicStr,
+          gradeContext: gradeCtx,
+          theoryEssence: summarizeTheoryEssenceForPhaseC(),
+          inspirationPrompt: cTab === 'inspiration' ? buildInspirationTabPrompt(topicStr, appState.gradeLabel) : undefined,
+          curriculumPrompt: cTab === 'curriculum' ? buildCurriculumTabPrompt(topicStr, appState.gradeLabel) : undefined,
+          bibliographyRequirements: undefined,
+          pedagogyExpandHint: cTab === 'curriculum' ? getInlineExpansionInstruction() : getLazyLoadExpansionInstruction(),
+          currentGrade: appState.grade,
+          gradeLockInstruction: getGradeLockInstruction(),
+          noUrlsInstruction: getNoUrlsInstruction(),
+          noLatexInstruction: getNoLatexInstruction(),
+        }, { signal: activeSignal });
+      } catch (fetchErr) {
+        if (cTab === 'curriculum' && shouldKeepCurriculumLoading()) {
+          try {
+            var probeJson = await fetchCurriculumCacheStatus();
+            var probeStatus = (probeJson && probeJson.data) ? probeJson.data : probeJson;
+            if (applyCurriculumPollResult(probeStatus)) {
+              return { blockPlan: { curriculum: appState.aiGeneratedPlan.curriculum } };
+            }
+          } catch (probeErr) {
+            console.warn('[waldrof] curriculum post-timeout probe failed:', probeErr);
+          }
+          startCurriculumPollFallback();
+          if (fetchErr && fetchErr.name === 'AbortError') {
+            return new Promise(function () { /* poll will resolve UI */ });
+          }
+        }
+        throw fetchErr;
+      } finally {
+        if (cTab === 'curriculum' && hasPhaseCCurriculumContent()) {
+          stopCurriculumPollFallback();
+        }
+      }
     }
 
-    var backgroundCurriculumMigrationInFlight = null;
+    function curriculumStatusUrl() {
+      return (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/curriculum-status'
+        : '/api/curriculum-status';
+    }
+
+    function stopCurriculumPollFallback() {
+      if (curriculumPollCancel) {
+        curriculumPollCancel();
+        curriculumPollCancel = null;
+      }
+    }
+
+    async function fetchCurriculumCacheStatus() {
+      var topicStr = String(appState.topic || resolveLessonTopic() || '').trim();
+      var gradeId = String(appState.grade || '').trim();
+      if (!topicStr || !gradeId) return null;
+
+      var headers = { 'Content-Type': 'application/json' };
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try {
+          var token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (authErr) { /* ignore */ }
+      }
+
+      var res = await fetch(curriculumStatusUrl(), {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          topic: topicStr,
+          gradeId: gradeId,
+          currentGrade: gradeId,
+          gradeLabel: appState.gradeLabel || '',
+        }),
+      });
+      if (!res.ok) {
+        var errText = await res.text();
+        throw new Error(errText || ('HTTP ' + res.status));
+      }
+      return res.json();
+    }
+
+    function applyCurriculumPollResult(status) {
+      if (!status || status.ready !== true || !status.data) return false;
+      var lessonData = status.data;
+      if (!lessonData.blockPlan && lessonData.curriculum) {
+        lessonData = { blockPlan: { curriculum: lessonData.curriculum } };
+      }
+      if (!lessonData.blockPlan && !lessonData.curriculum) return false;
+      var merged = mergePhaseCIntoPlan(lessonData, 'curriculum');
+      if (!merged && !hasMeaningfulCurriculumRows(extractCurriculumRowsFromLessonData(lessonData))) {
+        return false;
+      }
+      appState.lessonFromArchive = false;
+      appState.productTabsRendered.curriculum = false;
+      if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
+        renderProductTabContent('curriculum');
+      } else if (typeof renderCurriculumTabPanels === 'function') {
+        renderCurriculumTabPanels();
+      }
+      if (typeof WaldorfSearchHistory !== 'undefined' && WaldorfSearchHistory.invalidate) {
+        WaldorfSearchHistory.invalidate();
+      }
+      stopCurriculumPollFallback();
+      setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
+      return true;
+    }
+
+    function startCurriculumPollFallback() {
+      if (!isResearchAvailable()) return;
+      if (curriculumPollCancel) return;
+      var stopped = false;
+      var pollInFlight = false;
+
+      async function runPollTick() {
+        if (stopped || pollInFlight) return;
+        if (!shouldKeepCurriculumLoading()) {
+          stopCurriculumPollFallback();
+          return;
+        }
+        pollInFlight = true;
+        try {
+          var json = await fetchCurriculumCacheStatus();
+          var status = (json && json.data) ? json.data : json;
+          if (applyCurriculumPollResult(status)) return;
+        } catch (pollErr) {
+          console.warn('[waldrof] curriculum status poll failed:', pollErr);
+        } finally {
+          pollInFlight = false;
+        }
+      }
+
+      void runPollTick();
+      var pollInterval = setInterval(function () {
+        void runPollTick();
+      }, CURRICULUM_POLL_INTERVAL_MS);
+
+      curriculumPollCancel = function () {
+        stopped = true;
+        clearInterval(pollInterval);
+        curriculumPollCancel = null;
+      };
+    }
 
     function regenerateLegacyTableUrl() {
       return (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
         ? location.origin + '/api/regenerate-legacy-table'
         : '/api/regenerate-legacy-table';
     }
+
+    var backgroundCurriculumMigrationInFlight = null;
 
     async function fetchRegenerateLegacyTable() {
       var topicStr = String(appState.topic || resolveLessonTopic() || '').trim();
@@ -9218,6 +9373,7 @@
           return applyBackgroundCurriculumMigrationResult(envelope);
         } catch (err) {
           console.warn('[waldrof] archive curriculum regeneration failed:', err);
+          if (shouldKeepCurriculumLoading()) startCurriculumPollFallback();
           return false;
         } finally {
           if (!shouldKeepCurriculumLoading()) {
@@ -16436,6 +16592,7 @@
           var currDomEmpty = !isCurriculumPanelMounted();
           if (phaseCTabLoading.curriculum || shouldKeepCurriculumLoading()) {
             setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+            ensureCurriculumPipelineActive();
             r.curriculum = true;
             ensurePageScrollUnlocked();
             return;
@@ -16491,6 +16648,7 @@
             restorePedagogySummaryPanels();
           } else if (shouldKeepCurriculumLoading()) {
             setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+            ensureCurriculumPipelineActive();
             r.curriculum = true;
           }
         }
@@ -17074,6 +17232,7 @@
     function renderCurriculum() {
       if (phaseCTabLoading.curriculum || shouldKeepCurriculumLoading()) {
         setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+        ensureCurriculumPipelineActive();
         return;
       }
       captureCurriculumUiStateFromDom();
