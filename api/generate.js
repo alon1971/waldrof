@@ -29,6 +29,7 @@ const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
 const curriculumMigration = require('./curriculum-migration');
+const forceLiveTopics = require('./force-live-topics');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const enrichmentLinksApi = require('./enrichment-links');
 const geminiEnrichment = require('./gemini-enrichment');
@@ -645,19 +646,9 @@ function resolvePhaseCTab(body) {
   return null;
 }
 
-/** Temporary hard bypass: Grade 7 (כיתה ז׳) Nutrition (תזונה) — never serve legacy curriculum from cache. */
-function isGrade7NutritionTopic(body) {
-  if (!body) return false;
-  const gradeId = String(resolvedGradeId(body) || body.currentGrade || body.gradeId || '').trim();
-  if (gradeId !== '7') return false;
-  const topic = String(body.topic || '').trim();
-  return topic.length > 0 && topic.indexOf('תזונה') >= 0;
-}
-
-function shouldForceGrade7NutritionCurriculumLiveRegen(body) {
-  return isGrade7NutritionTopic(body) &&
-    body.phase === 'phase_c' &&
-    resolvePhaseCTab(body) === 'curriculum';
+/** Force-live archive topics (clean-slate list) — always cache miss + live 3-chunk pipeline. */
+function isForceLiveArchiveTopic(body) {
+  return forceLiveTopics.isForceLiveArchiveTopic(body);
 }
 
 function stripCurriculumFromTopicPayload(data) {
@@ -708,15 +699,20 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
 
   console.log('[generate] phase_c curriculum PIPELINE START — 3-chunk Perplexity:', topic, '@', gradeId);
 
+  const forceLive = isForceLiveArchiveTopic(body) || body.skipCache || body.userInitiated;
   let topicData = null;
-  try {
-    const topicCached = await cacheDb.getCachedResult(topicBody, { requireEnhanced: false });
-    if (topicCached && topicCached.data) {
-      topicData = stripCurriculumFromTopicPayload(topicCached.data);
-      console.log('[generate] phase_c curriculum — topic essence loaded from archive');
+  if (!forceLive) {
+    try {
+      const topicCached = await cacheDb.getCachedResult(topicBody, { requireEnhanced: false });
+      if (topicCached && topicCached.data) {
+        topicData = stripCurriculumFromTopicPayload(topicCached.data);
+        console.log('[generate] phase_c curriculum — topic essence loaded from archive');
+      }
+    } catch (topicCacheErr) {
+      console.warn('[generate] phase_c curriculum — topic cache read failed:', topicCacheErr.message || topicCacheErr);
     }
-  } catch (topicCacheErr) {
-    console.warn('[generate] phase_c curriculum — topic cache read failed:', topicCacheErr.message || topicCacheErr);
+  } else {
+    console.log('[generate] phase_c curriculum — skipping topic archive (force live)');
   }
 
   if (!topicData || !curriculumMigration.topicHasMigratableEssence(topicData)) {
@@ -734,11 +730,10 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
     }
   }
 
-  const forceFresh = !!(body.skipCache || body._forceGrade7NutritionChunked);
   const chunkOptions = {
     silent: false,
-    forceFresh: forceFresh,
-    skipCache: forceFresh,
+    forceFresh: true,
+    skipCache: true,
     forceDepth: true,
   };
 
@@ -3562,10 +3557,12 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipRag = true;
   }
 
-  if (shouldForceGrade7NutritionCurriculumLiveRegen(body)) {
+  if (forceLiveTopics.applyForceLiveArchiveBypass(body)) {
+    // skipCache + forceFresh set for all phases on force-live topics
+  } else if (body.userInitiated && (body.phase === 'topic' || isPhaseCCurriculumGeneration(body))) {
     body.skipCache = true;
-    body._forceGrade7NutritionChunked = true;
-    console.log('[generate] FORCE_REGEN grade7-nutrition — total cache bypass for phase_c curriculum');
+    body.forceFresh = true;
+    console.log('[generate] userInitiated — cache bypass for', body.phase, body.topic || '');
   }
 
   if (body.phase === 'chat_followup') {
@@ -3621,7 +3618,7 @@ async function executeGenerate(body, apiKey, requestContext) {
       const cached = await cacheDb.getCachedResult(body, cacheOpts);
       if (cached) {
         console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
-        if (body.phase === 'topic' && isGrade7NutritionTopic(body) && cached.data) {
+        if (body.phase === 'topic' && isForceLiveArchiveTopic(body) && cached.data) {
           cached.data = stripCurriculumFromTopicPayload(cached.data);
           cached.meta.curriculumStripped = true;
           cached.meta.curriculumMigrated = false;
@@ -3650,7 +3647,7 @@ async function executeGenerate(body, apiKey, requestContext) {
           );
           return pedagogicalScope.buildScopeMismatchGenerateResult(body, suggestion.gradeMismatch, communityProbe);
         }
-        if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
+        if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData && !isForceLiveArchiveTopic(body)) {
           const serveArchive = isArchiveOnlyLookup(body)
             || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
           if (!serveArchive) {
@@ -3671,10 +3668,6 @@ async function executeGenerate(body, apiKey, requestContext) {
             let archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
               JSON.parse(JSON.stringify(suggestion.resultData))
             ).data;
-            const grade7NutritionArchive = isGrade7NutritionTopic(body);
-            if (grade7NutritionArchive) {
-              archivePayload = stripCurriculumFromTopicPayload(archivePayload);
-            }
             return {
               data: archivePayload,
               meta: attachCommunityMeta({
@@ -3685,13 +3678,8 @@ async function executeGenerate(body, apiKey, requestContext) {
                 similarity: suggestion.similarity,
                 requestedTopic: body.topic || suggestion.requestedTopic || null,
                 enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
-                curriculumMigrated: grade7NutritionArchive
-                  ? false
-                  : !cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
-                curriculumLegacy: grade7NutritionArchive
-                  ? false
-                  : cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
-                curriculumStripped: grade7NutritionArchive || undefined,
+                curriculumMigrated: !cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
+                curriculumLegacy: cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
               }, communityProbe),
             };
           }
