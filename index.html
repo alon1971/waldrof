@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="waldrof-build" content="20260619e" />
+  <meta name="waldrof-build" content="20260624a" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מתכנן תקופות לימוד אנתרופוסופי — מסע פדגוגי שלב-אחר-שלב" />
   <link rel="manifest" href="/manifest.json">
@@ -4417,8 +4417,9 @@
     const summaryFailedByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
     const EXPANSION_REQUEST_TIMEOUT_MS = 130000;
-    const CURRICULUM_REQUEST_TIMEOUT_MS = 300000;
+    const CURRICULUM_REQUEST_TIMEOUT_MS = 60000;
     const CURRICULUM_POLL_INTERVAL_MS = 4000;
+    const CURRICULUM_POLL_MAX_ATTEMPTS = 120;
     var archiveCurriculumHealInFlight = null;
     var curriculumPollCancel = null;
 
@@ -6446,6 +6447,20 @@
             : 'מפתח Perplexity לא הוגדר ב-Vercel. הוסיפו AI_API_KEY או PERPLEXITY_API_KEY במשתני הסביבה.');
         }
         throw new Error(json.error || json.message || ('שגיאת שרת ' + res.status));
+      }
+      if (json.meta && json.meta.asyncAccepted) {
+        if (typeof WaldorfAuth !== 'undefined') {
+          try {
+            await WaldorfAuth.syncUsageAfterLiveSearch(json.meta || {});
+          } catch (usageErr) {
+            console.warn('[usage] syncUsageAfterLiveSearch failed:', usageErr && usageErr.message ? usageErr.message : usageErr);
+          }
+        }
+        return {
+          _asyncAccepted: true,
+          _generationId: json.meta.generationId || json.meta.topicId || null,
+          _meta: json.meta,
+        };
       }
       const result = json.data !== undefined ? json.data : json;
       if (json.meta && json.meta.needsArchiveConfirmation && json.meta.archiveSuggestion) {
@@ -9128,7 +9143,7 @@
         activeSignal = timeoutWrap.signal;
       }
       try {
-        return await invokeWaldorfResearch({
+        var data = await invokeWaldorfResearch({
           phase: 'phase_c',
           cTab: cTab,
           userInitiated: true,
@@ -9149,6 +9164,11 @@
           noUrlsInstruction: getNoUrlsInstruction(),
           noLatexInstruction: getNoLatexInstruction(),
         }, { signal: activeSignal });
+        if (cTab === 'curriculum' && data && data._asyncAccepted) {
+          ensureCurriculumPipelineActive();
+          return await waitForCurriculumGenerationComplete();
+        }
+        return data;
       } catch (fetchErr) {
         if (cTab === 'curriculum' && shouldKeepCurriculumLoading()) {
           try {
@@ -9216,30 +9236,91 @@
       return res.json();
     }
 
-    function applyCurriculumPollResult(status) {
-      if (!status || status.ready !== true || !status.data) return false;
-      var lessonData = status.data;
-      if (!lessonData.blockPlan && lessonData.curriculum) {
-        lessonData = { blockPlan: { curriculum: lessonData.curriculum } };
+    function applyCurriculumPollResult(status, options) {
+      var opts = options || {};
+      if (!status) return false;
+      if (status.ready === true && status.data) {
+        var lessonData = status.data;
+        if (!lessonData.blockPlan && lessonData.curriculum) {
+          lessonData = { blockPlan: { curriculum: lessonData.curriculum } };
+        }
+        if (!lessonData.blockPlan && !lessonData.curriculum) return false;
+        var merged = mergePhaseCIntoPlan(lessonData, 'curriculum');
+        if (!merged && !hasMeaningfulCurriculumRows(extractCurriculumRowsFromLessonData(lessonData))) {
+          return false;
+        }
+        appState.lessonFromArchive = false;
+        appState.productTabsRendered.curriculum = false;
+        if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
+          renderProductTabContent('curriculum');
+        } else if (typeof renderCurriculumTabPanels === 'function') {
+          renderCurriculumTabPanels();
+        }
+        if (typeof WaldorfSearchHistory !== 'undefined' && WaldorfSearchHistory.invalidate) {
+          WaldorfSearchHistory.invalidate();
+        }
+        stopCurriculumPollFallback();
+        setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
+        return true;
       }
-      if (!lessonData.blockPlan && !lessonData.curriculum) return false;
-      var merged = mergePhaseCIntoPlan(lessonData, 'curriculum');
-      if (!merged && !hasMeaningfulCurriculumRows(extractCurriculumRowsFromLessonData(lessonData))) {
-        return false;
+      if (status.partial === true && status.data) {
+        var partialData = status.data;
+        if (!partialData.blockPlan && partialData.curriculum) {
+          partialData = { blockPlan: { curriculum: partialData.curriculum } };
+        }
+        if (partialData.blockPlan || partialData.curriculum) {
+          mergePhaseCIntoPlan(partialData, 'curriculum');
+          appState.productTabsRendered.curriculum = false;
+          if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
+            renderProductTabContent('curriculum');
+          } else if (typeof renderCurriculumTabPanels === 'function') {
+            renderCurriculumTabPanels();
+          }
+        }
+        if (!opts.partialOnly) {
+          setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+        }
       }
-      appState.lessonFromArchive = false;
-      appState.productTabsRendered.curriculum = false;
-      if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
-        renderProductTabContent('curriculum');
-      } else if (typeof renderCurriculumTabPanels === 'function') {
-        renderCurriculumTabPanels();
-      }
-      if (typeof WaldorfSearchHistory !== 'undefined' && WaldorfSearchHistory.invalidate) {
-        WaldorfSearchHistory.invalidate();
-      }
-      stopCurriculumPollFallback();
-      setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
-      return true;
+      return false;
+    }
+
+    function waitForCurriculumGenerationComplete() {
+      return new Promise(function (resolve, reject) {
+        var attempts = 0;
+        var stopped = false;
+
+        async function pollTick() {
+          if (stopped) return;
+          if (!shouldKeepCurriculumLoading() && hasPhaseCCurriculumContent()) {
+            resolve({ blockPlan: { curriculum: appState.aiGeneratedPlan.curriculum } });
+            return;
+          }
+          try {
+            var json = await fetchCurriculumCacheStatus();
+            var status = (json && json.data) ? json.data : json;
+            if (status && status.partial) {
+              applyCurriculumPollResult(status, { partialOnly: true });
+            }
+            if (applyCurriculumPollResult(status)) {
+              resolve({ blockPlan: { curriculum: appState.aiGeneratedPlan.curriculum } });
+              return;
+            }
+          } catch (pollErr) {
+            console.warn('[waldrof] curriculum generation poll failed:', pollErr);
+          }
+          attempts++;
+          if (attempts >= CURRICULUM_POLL_MAX_ATTEMPTS) {
+            reject(new Error(isEnglish()
+              ? 'Period planning is still being generated — please wait and refresh.'
+              : 'תכנון התקופה עדיין בהכנה — המתינו ורעננו את הדף.'));
+            return;
+          }
+          setTimeout(pollTick, CURRICULUM_POLL_INTERVAL_MS);
+        }
+
+        startCurriculumPollFallback();
+        void pollTick();
+      });
     }
 
     function startCurriculumPollFallback() {
@@ -9258,6 +9339,9 @@
         try {
           var json = await fetchCurriculumCacheStatus();
           var status = (json && json.data) ? json.data : json;
+          if (status && status.partial) {
+            applyCurriculumPollResult(status, { partialOnly: true });
+          }
           if (applyCurriculumPollResult(status)) return;
         } catch (pollErr) {
           console.warn('[waldrof] curriculum status poll failed:', pollErr);

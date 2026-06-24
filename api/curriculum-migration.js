@@ -257,6 +257,20 @@ async function loadCurriculumRowsFromChunkCache(topicBody, dayStart, dayEnd) {
   return filtered;
 }
 
+/** Load any upgraded rows saved so far for a chunk (partial progress during live generation). */
+async function loadPartialCurriculumRowsFromChunkCache(topicBody, dayStart, dayEnd) {
+  const chunkBody = cacheDb.buildCurriculumChunkCacheBody(topicBody, dayStart, dayEnd);
+  if (!chunkBody) return [];
+  const cached = await cacheDb.getCachedResult(chunkBody, { requireEnhanced: false });
+  const cachedRows = cached && cached.data && cached.data.blockPlan
+    ? archiveCoerce.coerceCurriculumRows(cached.data.blockPlan.curriculum)
+    : [];
+  const filtered = filterChunkRows(cachedRows, dayStart, dayEnd);
+  return filtered.filter(function (row) {
+    return cacheDb.isPhaseCCurriculumDayUpgraded(row);
+  });
+}
+
 async function assembleCurriculumFromChunkCaches(topicBody) {
   const allRows = [];
   for (let c = 0; c < CURRICULUM_CHUNKS.length; c++) {
@@ -266,6 +280,21 @@ async function assembleCurriculumFromChunkCaches(topicBody) {
     rows.forEach(function (row) { allRows.push(row); });
   }
   return allRows.length >= cacheDb.PHASE_C_CURRICULUM_REQUIRED_DAYS ? allRows : null;
+}
+
+/** Stitch any upgraded chunk rows saved so far — used for progressive UI during async generation. */
+async function assemblePartialCurriculumFromChunkCaches(topicBody) {
+  const allRows = [];
+  for (let c = 0; c < CURRICULUM_CHUNKS.length; c++) {
+    const chunk = CURRICULUM_CHUNKS[c];
+    const rows = await loadPartialCurriculumRowsFromChunkCache(topicBody, chunk.start, chunk.end);
+    if (rows && rows.length) {
+      rows.forEach(function (row) { allRows.push(row); });
+    }
+  }
+  if (!allRows.length) return null;
+  allRows.sort(function (a, b) { return (a.day || 0) - (b.day || 0); });
+  return allRows;
 }
 
 async function measureCurriculumChunkProgress(topicBody) {
@@ -355,6 +384,25 @@ async function probeServeReadyPhaseCCurriculum(body) {
   }
 
   const progress = await measureCurriculumChunkProgress(topicBody);
+  const partialRows = await assemblePartialCurriculumFromChunkCaches(topicBody);
+  if (partialRows && partialRows.length) {
+    const phasePayload = cacheDb.stampPerplexityOnlyMetadata({
+      blockPlan: { curriculum: partialRows },
+    });
+    return {
+      ready: false,
+      partial: true,
+      data: phasePayload,
+      meta: {
+        fromCache: true,
+        source: 'chunk_progressive',
+        upgradedDays: countUpgradedRows(partialRows),
+        partial: true,
+      },
+      progress: progress,
+    };
+  }
+
   return {
     ready: false,
     data: null,
@@ -428,15 +476,26 @@ async function fetchCurriculumChunk(topicBody, apiKey, dayStart, dayEnd, researc
       );
       const rows = parseChunkCurriculumRows(raw, dayStart, dayEnd);
       const expected = dayEnd - dayStart + 1;
-      const upgraded = countUpgradedRows(rows);
+      const upgradedRows = rows
+        .filter(function (row) { return cacheDb.isPhaseCCurriculumDayUpgraded(row); })
+        .sort(function (a, b) { return (a.day || 0) - (b.day || 0); });
+      const upgraded = upgradedRows.length;
       if (upgraded >= expected) {
         console.log(
           '[curriculum-migration] chunk VALIDATED',
           dayStart + '-' + dayEnd,
           'upgraded=' + upgraded + '/' + expected
         );
-        await persistCurriculumChunkToCache(topicBody, dayStart, dayEnd, rows);
-        return rows;
+        await persistCurriculumChunkToCache(topicBody, dayStart, dayEnd, upgradedRows);
+        return upgradedRows;
+      }
+      if (upgraded > 0) {
+        await persistCurriculumChunkToCache(topicBody, dayStart, dayEnd, upgradedRows);
+        console.log(
+          '[curriculum-migration] chunk partial save',
+          dayStart + '-' + dayEnd,
+          'upgraded=' + upgraded + '/' + expected
+        );
       }
       console.warn(
         '[curriculum-migration] chunk validation FAILED',
@@ -643,7 +702,10 @@ module.exports = {
   regenerateTopicCurriculumChunked,
   probeServeReadyPhaseCCurriculum,
   assembleCurriculumFromChunkCaches,
+  assemblePartialCurriculumFromChunkCaches,
+  measureCurriculumChunkProgress,
   loadCurriculumRowsFromChunkCache,
+  loadPartialCurriculumRowsFromChunkCache,
   extractTheoryEssenceFromTopicData,
   CURRICULUM_CHUNKS,
   WALDORF_CURRICULUM_DEPTH_INSTRUCTION,

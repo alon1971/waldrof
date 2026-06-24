@@ -190,13 +190,17 @@ async function handleApiGenerate(req, res) {
       : (result && result.data !== undefined
         ? { data: result.data, meta: result.meta || { fromCache: false } }
         : { data: result, meta: { fromCache: false } });
+    const httpStatus = generateApi.resolveGenerateHttpStatus
+      ? generateApi.resolveGenerateHttpStatus(result)
+      : 200;
     console.log(
-      '[api/generate] 200',
+      '[api/generate]',
+      httpStatus,
       phase,
       Math.round((Date.now() - generateStartedAt) / 1000) + 's',
-      payload.meta && payload.meta.fromCache ? '(cache)' : '(live)'
+      payload.meta && payload.meta.fromCache ? '(cache)' : (httpStatus === 202 ? '(async)' : '(live)')
     );
-    return writeJsonResponse(res, 200, payload);
+    return writeJsonResponse(res, httpStatus, payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const statusCode = err && err.statusCode ? err.statusCode : 500;

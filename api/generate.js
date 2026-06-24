@@ -727,8 +727,8 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
 
   const chunkOptions = {
     silent: false,
-    forceFresh: true,
-    skipCache: true,
+    forceFresh: body.asyncResume ? false : true,
+    skipCache: body.asyncResume ? false : true,
   };
 
   let healed;
@@ -782,11 +782,58 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
   };
 }
 
+function buildPhaseCCurriculumGenerationId(body) {
+  const gradeId = String(resolvedGradeId(body) || body.currentGrade || body.gradeId || '').trim();
+  const topic = String(body.topic || '').trim();
+  if (!topic || !gradeId) return null;
+  return cacheDb.buildCacheKey({
+    phase: 'phase_c',
+    cTab: 'curriculum',
+    topic: topic,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: body.gradeLabel || null,
+  });
+}
+
+/** Fire-and-forget background curriculum pipeline — chunks persist to Supabase as they complete. */
+function schedulePhaseCCurriculumBackgroundGeneration(body, communityProbe, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const topic = String(body.topic || '').trim();
+  const runBody = Object.assign({}, body);
+  if (opts.resumePartial) runBody.asyncResume = true;
+  console.log(
+    '[generate] phase_c curriculum — background job scheduled for',
+    topic,
+    opts.resumePartial ? '(resume partial)' : '(fresh)'
+  );
+  setImmediate(function () {
+    void executePhaseCCurriculumChunkedGeneration(runBody, communityProbe)
+      .then(function (result) {
+        const rows = result && result.data && result.data.blockPlan && result.data.blockPlan.curriculum;
+        const upgradedDays = rows
+          ? cacheDb.countValidPhaseCCurriculumDays({ blockPlan: { curriculum: rows } })
+          : 0;
+        console.log(
+          '[generate] phase_c curriculum — background job complete:',
+          topic,
+          'upgradedDays=' + upgradedDays
+        );
+      })
+      .catch(function (err) {
+        console.error(
+          '[generate] phase_c curriculum — background job failed:',
+          topic,
+          err && err.message ? err.message : err
+        );
+      });
+  });
+}
+
 /**
- * phase_c curriculum — strictly blocking. Returns only serve-ready 15-day tables.
- * Corrupt/partial/missing cache always awaits the full 3-chunk live pipeline.
+ * phase_c curriculum — cache hits return synchronously; live misses return 202 and run in background.
  */
-async function resolvePhaseCCurriculumBlockingGenerate(body, communityProbe) {
+async function resolvePhaseCCurriculumAsyncGenerate(body, communityProbe) {
   const gradeId = String(resolvedGradeId(body) || body.currentGrade || body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
   const topicBody = {
@@ -848,30 +895,38 @@ async function resolvePhaseCCurriculumBlockingGenerate(body, communityProbe) {
   }
 
   if (topic && gradeId) {
-    console.log('[generate] phase_c curriculum CACHE MISS/CORRUPT — blocking live pipeline for', topic);
+    console.log('[generate] phase_c curriculum CACHE MISS — async background pipeline for', topic);
   }
 
-  const result = await executePhaseCCurriculumChunkedGeneration(body, communityProbe);
-  const rows = result && result.data && result.data.blockPlan && result.data.blockPlan.curriculum;
-  const upgradedDays = rows
-    ? cacheDb.countValidPhaseCCurriculumDays({ blockPlan: { curriculum: rows } })
-    : 0;
-  if (!rows || !rows.length || upgradedDays < cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS) {
-    const err = new Error('לא ניתן היה ליצור תכנון תקופה מלא — נסו שוב בעוד רגע');
-    err.statusCode = 502;
-    throw err;
-  }
+  const generationId = buildPhaseCCurriculumGenerationId(body);
+  const topicBody = {
+    phase: 'topic',
+    topic: topic,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: body.gradeLabel || null,
+  };
+  const progress = await curriculumMigration.measureCurriculumChunkProgress(topicBody);
+  const resumePartial = progress.upgradedDays > 0
+    && progress.upgradedDays < cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS;
 
-  try {
-    const savedKey = await cacheDb.setCachedResult(body, result.data);
-    if (savedKey) {
-      console.log('[generate] phase_c curriculum persisted before response', savedKey.slice(0, 12));
-    }
-  } catch (saveErr) {
-    console.warn('[generate] phase_c curriculum pre-response save failed:', saveErr.message || saveErr);
-  }
+  schedulePhaseCCurriculumBackgroundGeneration(body, communityProbe, { resumePartial: resumePartial });
 
-  return result;
+  return {
+    data: null,
+    meta: attachCommunityMeta({
+      asyncAccepted: true,
+      generationId: generationId,
+      topicId: generationId,
+      status: 'generating',
+      fromCache: false,
+      phase: 'phase_c',
+      cTab: 'curriculum',
+      source: 'phase_c_curriculum_async',
+      chunkPipeline: true,
+      progress: progress,
+    }, communityProbe),
+  };
 }
 
 function isPhaseCGeneration(body) {
@@ -3177,6 +3232,12 @@ function isNonBlockingSubscriptionDbError(err) {
     || /schema cache/i.test(msg);
 }
 
+/** HTTP status for /api/generate — 202 when async curriculum generation was accepted. */
+function resolveGenerateHttpStatus(result) {
+  if (result && result.meta && result.meta.asyncAccepted) return 202;
+  return 200;
+}
+
 /** Build success payload for /api/generate HTTP responses. */
 function buildGenerateHttpPayload(result) {
   if (!result || typeof result !== 'object') {
@@ -3186,6 +3247,13 @@ function buildGenerateHttpPayload(result) {
   const meta = result.meta && typeof result.meta === 'object'
     ? cacheDb.sanitizeForJsonStorage(Object.assign({}, result.meta))
     : { fromCache: false };
+
+  if (meta.asyncAccepted) {
+    return {
+      data: result.data !== undefined ? result.data : null,
+      meta: meta,
+    };
+  }
 
   let data = result.data !== undefined ? result.data : result;
 
@@ -3469,7 +3537,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
     !result.meta.fromCache &&
     !result.meta.communityRouted &&
     !result.meta.needsArchiveConfirmation &&
-    result.data != null;
+    (result.data != null || result.meta.asyncAccepted);
 
   if (billable && typeof subscriptionApi.recordLiveSearchFromRequest === 'function') {
     const billingBody = Object.assign({}, parsedBody);
@@ -3688,9 +3756,9 @@ async function executeGenerate(body, apiKey, requestContext) {
     };
   }
 
-  // phase_c curriculum: always blocking — never return until 15 upgraded days are ready.
+  // phase_c curriculum: cache hit = sync 200; live miss = 202 + background 3-chunk pipeline.
   if (isPhaseCCurriculumGeneration(body)) {
-    return await resolvePhaseCCurriculumBlockingGenerate(body, communityProbe);
+    return await resolvePhaseCCurriculumAsyncGenerate(body, communityProbe);
   }
 
   if (communityProbe.count > 0) {
@@ -4107,7 +4175,8 @@ async function legacyHandler(req, res) {
       headers: req.headers || {},
       socket: req.socket,
     });
-    return sendJson(res, 200, buildGenerateHttpPayload(result));
+    const payload = buildGenerateHttpPayload(result);
+    return sendJson(res, resolveGenerateHttpStatus(result), payload);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const statusCode = e && e.statusCode ? e.statusCode : 500;
@@ -4152,7 +4221,7 @@ async function fetchHandler(request) {
     });
     const payload = buildGenerateHttpPayload(result);
     return new Response(cacheDb.safeJsonStringify(payload), {
-      status: 200,
+      status: resolveGenerateHttpStatus(result),
       headers: Object.assign({}, corsHeaders, {
         'Content-Type': 'application/json; charset=utf-8',
         Connection: 'keep-alive',
@@ -4178,6 +4247,7 @@ module.exports.handleGeneratePost = handleGeneratePost;
 module.exports.executeGenerate = executeGenerate;
 module.exports.resolveApiKey = resolveApiKey;
 module.exports.buildGenerateHttpPayload = buildGenerateHttpPayload;
+module.exports.resolveGenerateHttpStatus = resolveGenerateHttpStatus;
 module.exports.isArchiveOnlyMode = function () { return ARCHIVE_ONLY_MODE; };
 module.exports.isArchiveOnlyLookup = isArchiveOnlyLookup;
 module.exports.isOnDemandExpansionPhase = isOnDemandExpansionPhase;
