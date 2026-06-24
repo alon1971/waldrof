@@ -46,6 +46,12 @@ function topicPayloadNeedsCurriculumMigration(data) {
   return cacheDb.isPhaseCCurriculumPayloadLegacy(data);
 }
 
+/** True when topic has essence but no serve-ready deep 15-day curriculum (missing, stripped, or legacy). */
+function topicNeedsCurriculumRegeneration(data) {
+  if (!topicHasMigratableEssence(data)) return false;
+  return !cacheDb.isPhaseCCurriculumServeReady(data);
+}
+
 function extractTheoryEssenceFromTopicData(data) {
   if (!data || typeof data !== 'object') return '';
   const chunks = [];
@@ -438,6 +444,7 @@ async function healTopicCurriculumIfNeeded(topicBody, topicData, options) {
 
 module.exports = {
   topicPayloadNeedsCurriculumMigration,
+  topicNeedsCurriculumRegeneration,
   topicHasMigratableEssence,
   healTopicCurriculumIfNeeded,
   regenerateTopicCurriculumChunked,

@@ -3596,9 +3596,14 @@ async function executeGenerate(body, apiKey, requestContext) {
             cached.meta.curriculumStripped = true;
             cached.meta.curriculumMigrated = false;
             cached.meta.curriculumLegacy = false;
+            cached.meta.curriculumRegenerationRequired = true;
             cacheDb.purgeRegenerationCaches(body).catch(function (purgeErr) {
               console.warn('[generate] legacy curriculum purge failed:', purgeErr.message || purgeErr);
             });
+          } else if (!cacheDb.isPhaseCCurriculumServeReady(cached.data)
+              && curriculumMigration.topicHasMigratableEssence(cached.data)) {
+            cached.meta.curriculumMigrated = false;
+            cached.meta.curriculumRegenerationRequired = true;
           } else {
             cached.meta.curriculumMigrated = true;
             cached.meta.curriculumLegacy = false;
@@ -3651,19 +3656,23 @@ async function executeGenerate(body, apiKey, requestContext) {
                 console.warn('[generate] archive legacy curriculum purge failed:', purgeErr.message || purgeErr);
               });
             }
+            const archiveMeta = {
+              fromCache: true,
+              cacheKey: suggestion.cacheKey,
+              table: 'cached_results',
+              source: 'consolidated_archive',
+              similarity: suggestion.similarity,
+              requestedTopic: body.topic || suggestion.requestedTopic || null,
+              enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
+              curriculumMigrated: cacheDb.isPhaseCCurriculumServeReady(archivePayload),
+              curriculumLegacy: cacheDb.isPhaseCCurriculumPayloadLegacy(suggestion.resultData),
+              curriculumStripped: cacheDb.isPhaseCCurriculumPayloadLegacy(suggestion.resultData),
+              curriculumRegenerationRequired: !cacheDb.isPhaseCCurriculumServeReady(archivePayload)
+                && curriculumMigration.topicHasMigratableEssence(archivePayload),
+            };
             return {
               data: archivePayload,
-              meta: attachCommunityMeta({
-                fromCache: true,
-                cacheKey: suggestion.cacheKey,
-                table: 'cached_results',
-                source: 'consolidated_archive',
-                similarity: suggestion.similarity,
-                requestedTopic: body.topic || suggestion.requestedTopic || null,
-                enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
-                curriculumMigrated: !cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
-                curriculumLegacy: cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload),
-              }, communityProbe),
+              meta: attachCommunityMeta(archiveMeta, communityProbe),
             };
           }
         }

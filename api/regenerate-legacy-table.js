@@ -1,6 +1,6 @@
 /**
- * POST /api/regenerate-legacy-table — background migration for legacy / empty phase_c curriculum.
- * Returns immediately from archive reads; the frontend triggers this after hydration.
+ * POST /api/regenerate-legacy-table — blocking migration for legacy / empty phase_c curriculum.
+ * Awaits the full 3-chunk Perplexity pipeline before responding so the client can show a spinner.
  */
 const cacheDb = require('./cache');
 const curriculumMigration = require('./curriculum-migration');
@@ -153,32 +153,39 @@ async function executeRegenerateLegacyTable(req) {
   const teacher = await resolveTeacher(req, body);
   const loaded = await loadTopicPayload(body, teacher);
   const topicBody = loaded.topicBody;
+  const needsMigration = curriculumMigration.topicNeedsCurriculumRegeneration(loaded.topicData);
   const topicData = stripCurriculumFromTopicPayload(loaded.topicData);
 
-  const needsMigration = curriculumMigration.topicPayloadNeedsCurriculumMigration(topicData);
   if (!needsMigration) {
     return {
       ok: true,
-      migrated: false,
-      data: topicData,
+      migrated: cacheDb.isPhaseCCurriculumServeReady(loaded.topicData),
+      data: loaded.topicData,
       meta: { cacheKey: loaded.cacheKey || null },
     };
   }
 
-  const healed = await curriculumMigration.healTopicCurriculumIfNeeded(topicBody, topicData, {
-    silent: true,
+  console.log('[regenerate-legacy-table] awaiting live curriculum regen:', topicBody.topic, '@', topicBody.gradeId);
+  const healed = await curriculumMigration.regenerateTopicCurriculumChunked(topicBody, topicData, {
     forceFresh: true,
     skipCache: true,
   });
   const upgradedDays = cacheDb.countValidPhaseCCurriculumDays(healed || topicData);
 
+  if (upgradedDays < cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS) {
+    const err = new Error('לא ניתן היה ליצור תכנון תקופה מלא — נסו שוב בעוד רגע');
+    err.statusCode = 502;
+    throw err;
+  }
+
   return {
     ok: true,
-    migrated: upgradedDays >= cacheDb.PHASE_C_CURRICULUM_MIN_VALID_DAYS,
+    migrated: true,
     data: healed || topicData,
     meta: {
       cacheKey: loaded.cacheKey || null,
       upgradedDays: upgradedDays,
+      curriculumRegenerated: true,
     },
   };
 }

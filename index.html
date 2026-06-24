@@ -4920,6 +4920,7 @@
       pedagogyRegistry: {},
       pedagogySummaries: {},
       lessonCacheKey: '',
+      lessonCacheMeta: null,
       lessonFromArchive: false,
       communityAutoSync: true,
       archiveSuggestionPending: false,
@@ -4994,6 +4995,7 @@
         productTabsRendered: freshProductTabsRendered(),
         curriculumUiState: { expandedDays: [] },
         lessonCacheKey: '',
+      lessonCacheMeta: null,
         lessonFromArchive: false,
         communityAutoSync: true,
         archiveSuggestionPending: false,
@@ -7022,13 +7024,18 @@
     function topicPayloadNeedsBackgroundCurriculumMigration(sourceData, itemMeta) {
       if (!isResearchAvailable()) return false;
       if (!appState.topic || !String(appState.topic).trim()) return false;
+      if (hasPhaseCCurriculumContent()) return false;
+      if (topicHasMigratableEssenceClient({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
+        return true;
+      }
+      if (sourceData && topicHasMigratableEssenceClient(sourceData)) return true;
+      if (itemMeta && itemMeta.curriculumLegacy === true) return true;
+      if (itemMeta && itemMeta.curriculumStripped === true) return true;
+      if (itemMeta && itemMeta.curriculumRegenerationRequired === true) return true;
       var candidates = [];
       if (sourceData && isLessonCurriculumCarrierClient(sourceData)) candidates.push(sourceData);
-      if (appState.aiGeneratedPlan && isLessonCurriculumCarrierClient({ blockPlan: appState.aiGeneratedPlan })) {
+      if (appState.aiGeneratedPlan) {
         candidates.push({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
-      }
-      if (itemMeta && itemMeta.curriculumLegacy === true) {
-        return candidates.some(topicHasMigratableEssenceClient);
       }
       for (var i = 0; i < candidates.length; i++) {
         var data = candidates[i];
@@ -7681,9 +7688,9 @@
         : document.getElementById('curriculum-cards');
     }
 
-    function setPhaseCTabLoadingUi(cTab, loading) {
-      if (loading && shouldBlockLivePhaseCApi()) {
-        loading = false;
+    function setPhaseCTabLoadingUi(cTab, loading, options) {
+      options = options || {};
+      if (loading && shouldBlockLivePhaseCApi() && !options.allowArchiveLoading) {
         phaseCTabLoading[cTab] = false;
         ensurePageScrollUnlocked();
         return;
@@ -9120,27 +9127,52 @@
       if (typeof WaldorfSearchHistory !== 'undefined' && WaldorfSearchHistory.invalidate) {
         WaldorfSearchHistory.invalidate();
       }
+      setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
       return true;
     }
 
-    function queueBackgroundCurriculumMigration(sourceData, historyItem) {
+    async function ensureArchiveCurriculumRegeneratedBlocking(sourceData, historyItem) {
       var meta = historyItem && (historyItem.curriculumLegacy != null
-        ? { curriculumLegacy: historyItem.curriculumLegacy }
-        : null);
-      if (!topicPayloadNeedsBackgroundCurriculumMigration(sourceData, meta)) return;
-      if (backgroundCurriculumMigrationInFlight) return;
+        || historyItem.curriculumStripped != null
+        || historyItem.curriculumRegenerationRequired != null)
+        ? {
+          curriculumLegacy: historyItem.curriculumLegacy,
+          curriculumStripped: historyItem.curriculumStripped,
+          curriculumRegenerationRequired: historyItem.curriculumRegenerationRequired,
+        }
+        : null;
+      if (!topicPayloadNeedsBackgroundCurriculumMigration(sourceData, meta)) {
+        return hasPhaseCCurriculumContent();
+      }
+      if (backgroundCurriculumMigrationInFlight) {
+        return backgroundCurriculumMigrationInFlight;
+      }
 
-      backgroundCurriculumMigrationInFlight = fetchRegenerateLegacyTable()
-        .then(function (json) {
+      var loadingOpts = { allowArchiveLoading: true };
+      backgroundCurriculumMigrationInFlight = (async function () {
+        setPhaseCTabLoadingUi('curriculum', true, loadingOpts);
+        try {
+          if (isResearchAvailable()) {
+            return await healCorruptedArchiveCurriculum();
+          }
+          var json = await fetchRegenerateLegacyTable();
           var envelope = (json && json.data) ? json.data : json;
-          applyBackgroundCurriculumMigrationResult(envelope);
-        })
-        .catch(function (err) {
-          console.warn('[waldrof] background curriculum migration failed:', err);
-        })
-        .finally(function () {
+          return applyBackgroundCurriculumMigrationResult(envelope);
+        } catch (err) {
+          console.warn('[waldrof] archive curriculum regeneration failed:', err);
+          return false;
+        } finally {
+          if (!hasPhaseCCurriculumContent()) {
+            setPhaseCTabLoadingUi('curriculum', false, loadingOpts);
+          }
           backgroundCurriculumMigrationInFlight = null;
-        });
+        }
+      })();
+      return backgroundCurriculumMigrationInFlight;
+    }
+
+    function queueBackgroundCurriculumMigration(sourceData, historyItem) {
+      void ensureArchiveCurriculumRegeneratedBlocking(sourceData, historyItem);
     }
 
     async function healCorruptedArchiveCurriculum() {
@@ -9150,7 +9182,7 @@
       var controller = new AbortController();
       phaseCLoadAbort.curriculum = controller;
       var healPromise = (async function () {
-        setPhaseCTabLoadingUi('curriculum', true);
+        setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
         try {
           var data = await fetchPhaseCTab('curriculum', controller.signal, { skipCache: true });
           if (phaseCLoadAbort.curriculum !== controller) return false;
@@ -9169,7 +9201,7 @@
           return true;
         } finally {
           if (phaseCLoadAbort.curriculum === controller) phaseCLoadAbort.curriculum = null;
-          setPhaseCTabLoadingUi('curriculum', false);
+          setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
           ensurePageScrollUnlocked();
         }
       })();
@@ -9202,6 +9234,16 @@
           ensurePageScrollUnlocked();
           return;
         }
+        if (topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
+          var regenOk = await ensureArchiveCurriculumRegeneratedBlocking(
+            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch }
+          );
+          if (regenOk) {
+            appState.productTabsRendered.curriculum = false;
+            renderProductTabContent('curriculum');
+          }
+          return;
+        }
       }
       if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
       if (cTab === 'curriculum' && hasPhaseCCurriculumUpgradedContent()) return;
@@ -9232,9 +9274,12 @@
         }
         if (loadingEl) {
           var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
-          if (cTab === 'curriculum' && isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan })) {
-            queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan });
-            setPhaseCTabLoadingUi(cTab, true);
+          if (cTab === 'curriculum' && isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
+            var migrated = await ensureArchiveCurriculumRegeneratedBlocking({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
+            if (migrated) {
+              appState.productTabsRendered[cTab] = false;
+              renderProductTabContent(cTab);
+            }
             ensurePageScrollUnlocked();
             return;
           }
@@ -15796,6 +15841,7 @@
         if (data && data._meta && data._meta.cacheKey) {
           appState.lessonCacheKey = data._meta.cacheKey;
         }
+        appState.lessonCacheMeta = (data && data._meta) ? data._meta : null;
         if (data && data._meta && data._meta.fromCache) {
           appState.lessonFromArchive = true;
         } else if (!(data && data._meta && data._meta.fromCache)) {
@@ -16320,15 +16366,31 @@
           hydrateUnifiedLessonSynthesis();
           var currPanelEl = document.getElementById('curriculum-cards');
           var currDomEmpty = !isCurriculumPanelMounted();
+          if (phaseCTabLoading.curriculum) {
+            r.curriculum = true;
+            ensurePageScrollUnlocked();
+            return;
+          }
           if (!hasPhaseCCurriculumContent()) {
+            if (topicPayloadNeedsBackgroundCurriculumMigration(
+              { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+              (appState.lessonCacheMeta || null)
+            )) {
+              setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
+              void ensureArchiveCurriculumRegeneratedBlocking(
+                { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
+                appState.lessonCacheMeta || null
+              ).then(function (migrated) {
+                if (migrated) {
+                  appState.productTabsRendered.curriculum = false;
+                  renderProductTabContent('curriculum');
+                }
+              });
+              r.curriculum = true;
+              ensurePageScrollUnlocked();
+              return;
+            }
             if (shouldBlockLivePhaseCApi()) {
-              if (isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
-                queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
-                setPhaseCTabLoadingUi('curriculum', true);
-                r.curriculum = true;
-                ensurePageScrollUnlocked();
-                return;
-              }
               renderStructuredTextFallback(
                 currPanelEl,
                 t('curriculum_title'),
@@ -16938,6 +17000,7 @@
     }
 
     function renderCurriculum() {
+      if (phaseCTabLoading.curriculum) return;
       captureCurriculumUiStateFromDom();
       readCurriculumDayFromUrl();
       var plan = resolveCurriculumPlanForRender();
@@ -18304,6 +18367,7 @@
         productTabsRendered: freshProductTabsRendered(),
         curriculumUiState: { expandedDays: [] },
         lessonCacheKey: '',
+      lessonCacheMeta: null,
         lessonFromArchive: false,
         communityAutoSync: true,
         archiveSuggestionPending: false,
