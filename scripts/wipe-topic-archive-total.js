@@ -24,7 +24,30 @@ if (fs.existsSync(envPath)) {
 
 const cacheDb = require('../api/cache');
 const env = require('../api/env');
-const forceLive = require('../api/force-live-topics');
+
+const WIPE_TARGETS = [
+  {
+    id: 'grade3-language',
+    gradeId: '3',
+    topicContains: 'לשון',
+    topicCandidates: ['לשון ושפה', 'לשון', 'שפה ולשון', 'לשון ושפה כיתה ג׳'],
+    supabaseTopicPattern: 'לשון',
+  },
+  {
+    id: 'grade7-nutrition',
+    gradeId: '7',
+    topicContains: 'תזונה',
+    topicCandidates: ['תזונה', 'תזונה ומערכי שיעור', 'תזונה ומערכי שיעור בכיתה ז׳', 'תזונה כיתה ז׳'],
+    supabaseTopicPattern: 'תזונה',
+  },
+];
+
+function topicMatchesTarget(topic, target) {
+  const raw = String(topic || '').trim();
+  if (!raw) return false;
+  if (target.topicCandidates && target.topicCandidates.indexOf(raw) >= 0) return true;
+  return raw.indexOf(target.topicContains) >= 0;
+}
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const EXECUTE = process.argv.includes('--execute');
@@ -48,7 +71,7 @@ function rowMatchesTarget(row, target) {
   if (!row) return false;
   if (String(row.grade_id || '') !== target.gradeId) return false;
   const topic = String(row.topic || row.query_text || '').trim();
-  return forceLive.topicMatchesTarget(topic, target);
+  return topicMatchesTarget(topic, target);
 }
 
 async function fetchRowsForTarget(target) {
@@ -196,8 +219,8 @@ async function main() {
   }
 
   let totalDeleted = 0;
-  for (let i = 0; i < forceLive.FORCE_LIVE_TARGETS.length; i++) {
-    const result = await wipeTarget(forceLive.FORCE_LIVE_TARGETS[i]);
+  for (let i = 0; i < WIPE_TARGETS.length; i++) {
+    const result = await wipeTarget(WIPE_TARGETS[i]);
     totalDeleted += result.deleted || 0;
   }
 

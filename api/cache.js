@@ -716,8 +716,11 @@ async function enrichArchiveLessonWithPhaseCCaches(data, context) {
     blockPlan.curriculum = existingCurr.map(preserveCurriculumRowForStorage).filter(Boolean);
     blockPlan.days = blockPlan.curriculum.slice();
   } else if (existingCurr.length) {
-    blockPlan.curriculum = existingCurr.map(preserveCurriculumRowForStorage).filter(Boolean);
-    blockPlan.days = blockPlan.curriculum.slice();
+    delete blockPlan.curriculum;
+    delete blockPlan.days;
+    delete blockPlan.rawCurriculum;
+    delete blockPlan.curriculumRaw;
+    delete blockPlan.table_data;
   }
 
   if (upgradedEmbedded < PHASE_C_CURRICULUM_REQUIRED_DAYS) {

@@ -29,7 +29,6 @@ const perplexityClient = require('./perplexity-client');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
 const curriculumMigration = require('./curriculum-migration');
-const forceLiveTopics = require('./force-live-topics');
 const waldorfCurriculumPrompts = require('./waldorf-curriculum-prompts');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const enrichmentLinksApi = require('./enrichment-links');
@@ -647,11 +646,6 @@ function resolvePhaseCTab(body) {
   return null;
 }
 
-/** Force-live archive topics (clean-slate list) — always cache miss + live 3-chunk pipeline. */
-function isForceLiveArchiveTopic(body) {
-  return forceLiveTopics.isForceLiveArchiveTopic(body);
-}
-
 function stripCurriculumFromTopicPayload(data) {
   if (!data || typeof data !== 'object') return data;
   let cloned;
@@ -700,7 +694,7 @@ async function executePhaseCCurriculumChunkedGeneration(body, communityProbe) {
 
   console.log('[generate] phase_c curriculum PIPELINE START — 3-chunk Perplexity:', topic, '@', gradeId);
 
-  const forceLive = isForceLiveArchiveTopic(body) || body.skipCache || body.userInitiated;
+  const forceLive = Boolean(body.skipCache || body.userInitiated);
   let topicData = null;
   if (!forceLive) {
     try {
@@ -3537,9 +3531,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipRag = true;
   }
 
-  if (forceLiveTopics.applyForceLiveArchiveBypass(body)) {
-    // skipCache + forceFresh set for all phases on force-live topics
-  } else if (body.userInitiated && (body.phase === 'topic' || isPhaseCCurriculumGeneration(body))) {
+  if (body.userInitiated && (body.phase === 'topic' || isPhaseCCurriculumGeneration(body))) {
     body.skipCache = true;
     body.forceFresh = true;
     console.log('[generate] userInitiated — cache bypass for', body.phase, body.topic || '');
@@ -3598,14 +3590,16 @@ async function executeGenerate(body, apiKey, requestContext) {
       const cached = await cacheDb.getCachedResult(body, cacheOpts);
       if (cached) {
         console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
-        if (body.phase === 'topic' && isForceLiveArchiveTopic(body) && cached.data) {
-          cached.data = stripCurriculumFromTopicPayload(cached.data);
-          cached.meta.curriculumStripped = true;
-          cached.meta.curriculumMigrated = false;
-          cached.meta.curriculumLegacy = false;
-        } else if (body.phase === 'topic' && cached.data) {
-          cached.meta.curriculumMigrated = !cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data);
-          cached.meta.curriculumLegacy = cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data);
+        if (body.phase === 'topic' && cached.data) {
+          if (cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data)) {
+            cached.data = stripCurriculumFromTopicPayload(cached.data);
+            cached.meta.curriculumStripped = true;
+            cached.meta.curriculumMigrated = false;
+            cached.meta.curriculumLegacy = false;
+          } else {
+            cached.meta.curriculumMigrated = true;
+            cached.meta.curriculumLegacy = false;
+          }
         }
         if (!body.skipKnowledgeIngest) {
           knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
@@ -3627,7 +3621,7 @@ async function executeGenerate(body, apiKey, requestContext) {
           );
           return pedagogicalScope.buildScopeMismatchGenerateResult(body, suggestion.gradeMismatch, communityProbe);
         }
-        if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData && !isForceLiveArchiveTopic(body)) {
+        if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
           const serveArchive = isArchiveOnlyLookup(body)
             || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
           if (!serveArchive) {
@@ -3648,6 +3642,9 @@ async function executeGenerate(body, apiKey, requestContext) {
             let archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
               JSON.parse(JSON.stringify(suggestion.resultData))
             ).data;
+            if (cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload)) {
+              archivePayload = stripCurriculumFromTopicPayload(archivePayload);
+            }
             return {
               data: archivePayload,
               meta: attachCommunityMeta({

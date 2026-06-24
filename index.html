@@ -5781,6 +5781,7 @@
     /** Apply completed topic research and keep the teacher on wizard Step B (never auto-open Step C). */
     function commitTopicResearchToStepB(topic, data) {
       data = coerceArchiveLessonResultData(data);
+      data = stripLegacyCurriculumFromLessonData(data);
       var topicStr = String(topic || resolveLessonTopic() || '').trim();
       if (!topicStr || !data || !hasTopicResearchContent(data)) return false;
 
@@ -6944,6 +6945,23 @@
       return false;
     }
 
+    function stripLegacyCurriculumFromLessonData(data) {
+      if (!data || typeof data !== 'object') return data;
+      var carrier = { blockPlan: data.blockPlan, webResearch: data.webResearch };
+      if (!isLessonCurriculumCarrierClient(carrier)) return data;
+      if (!isPhaseCCurriculumPayloadLegacyClient(carrier)) return data;
+      if (data.blockPlan && typeof data.blockPlan === 'object') {
+        delete data.blockPlan.curriculum;
+        delete data.blockPlan.days;
+        delete data.blockPlan.rawCurriculum;
+        delete data.blockPlan.curriculumRaw;
+        delete data.blockPlan.table_data;
+      }
+      delete data.curriculum;
+      delete data.table_data;
+      return data;
+    }
+
     function hasPhaseCCurriculumUpgradedContent() {
       var plan = appState.aiGeneratedPlan;
       if (!plan) return false;
@@ -7492,22 +7510,16 @@
 
     function hydrateCurriculumFromUnifiedSynthesis(options) {
       if (!appState.aiGeneratedPlan) return false;
+      if (!hasPhaseCCurriculumUpgradedContent()) return false;
       var existing = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
       if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.curriculum);
       if (!existing.length) existing = coerceCurriculumRows(appState.aiGeneratedPlan.days);
-      if (hasMeaningfulCurriculumRows(existing)) {
-        if (!hasMeaningfulCurriculumRows(coerceCurriculumRows(appState.aiGeneratedPlan.curriculum))) {
-          appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(existing);
-          appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
-          syncActivePlanFromGenerated();
-        }
-        return true;
+      if (!hasMeaningfulCurriculumRows(existing)) return false;
+      if (!hasMeaningfulCurriculumRows(coerceCurriculumRows(appState.aiGeneratedPlan.curriculum))) {
+        appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(existing);
+        appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
+        syncActivePlanFromGenerated();
       }
-      var synthesized = buildUnifiedCurriculumSynthesis(options);
-      if (!hasMeaningfulCurriculumRows(synthesized)) return false;
-      appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(synthesized);
-      appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
-      syncActivePlanFromGenerated();
       return true;
     }
 
@@ -8910,28 +8922,7 @@
 
     function hasPhaseCCurriculumContent() {
       if (hydrateCurriculumFromUnifiedSynthesis()) return true;
-      var plan = appState.aiGeneratedPlan;
-      if (!plan) return false;
-      var rows = extractCurriculumFromPlan(plan, { blockPlan: plan });
-      if (!rows.length) rows = coerceCurriculumRows(plan.curriculum);
-      if (!rows.length) rows = coerceCurriculumRows(plan.days);
-      if (!rows.length && typeof plan.curriculum === 'string') {
-        rows = parseCurriculumFromText(plan.curriculum);
-      }
-      if (!rows.length) {
-        var rawCurr = String(plan.rawCurriculum || plan.curriculumRaw || '').trim();
-        if (rawCurr) rows = parseCurriculumFromText(rawCurr);
-      }
-      if (!rows.length) {
-        var dump = extractPhaseCRawFallback({ blockPlan: plan });
-        if (dump) rows = parseCurriculumFromText(dump);
-      }
-      if (!rows.length) {
-        var synthesized = buildUnifiedCurriculumSynthesis();
-        return hasMeaningfulCurriculumRows(synthesized);
-      }
-      if (isArchiveCurriculumCorrupted({ blockPlan: plan })) return false;
-      return hasMeaningfulCurriculumRows(rows);
+      return hasPhaseCCurriculumUpgradedContent();
     }
 
     function mergePhaseCIntoPlan(data, cTab) {
@@ -8976,7 +8967,7 @@
         phase: 'phase_c',
         cTab: cTab,
         userInitiated: true,
-        skipCache: opts.skipCache === true,
+        skipCache: cTab === 'curriculum' ? true : (opts.skipCache === true),
         gradeId: appState.grade,
         gradeLabel: appState.gradeLabel,
         age: g ? g.age : '',
@@ -9131,14 +9122,9 @@
       }
       if (cTab === 'curriculum') {
         hydrateCurriculumFromUnifiedSynthesis();
-        var curriculumPlanWrap = { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch };
-        var displayRows = extractCurriculumRowsFromLessonData(curriculumPlanWrap);
-        if (hasMeaningfulCurriculumRows(displayRows)) {
+        if (hasPhaseCCurriculumUpgradedContent()) {
           appState.productTabsRendered.curriculum = false;
           renderProductTabContent('curriculum');
-          if (topicPayloadNeedsBackgroundCurriculumMigration(curriculumPlanWrap)) {
-            queueBackgroundCurriculumMigration(curriculumPlanWrap);
-          }
           setPhaseCTabLoadingUi(cTab, false);
           ensurePageScrollUnlocked();
           return;
@@ -9164,12 +9150,9 @@
           ensurePageScrollUnlocked();
           return;
         }
-        if (cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis()) {
+        if (cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis() && hasPhaseCCurriculumUpgradedContent()) {
           appState.productTabsRendered[cTab] = false;
           renderProductTabContent(cTab);
-          if (topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
-            queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
-          }
           setPhaseCTabLoadingUi(cTab, false);
           ensurePageScrollUnlocked();
           return;
@@ -9177,20 +9160,8 @@
         if (loadingEl) {
           var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
           if (cTab === 'curriculum' && isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan })) {
-            var archiveRows = extractCurriculumRowsFromLessonData({ blockPlan: appState.aiGeneratedPlan });
-            if (hasMeaningfulCurriculumRows(archiveRows)) {
-              appState.productTabsRendered[cTab] = false;
-              renderProductTabContent(cTab);
-            } else if (cachedRaw) {
-              renderStructuredTextFallback(
-                loadingEl,
-                t('curriculum_title'),
-                cachedRaw
-              );
-            }
             queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan });
-            setPhaseCTabLoadingUi(cTab, false);
-            appState.productTabsRendered[cTab] = true;
+            setPhaseCTabLoadingUi(cTab, true);
             ensurePageScrollUnlocked();
             return;
           }
@@ -9237,9 +9208,7 @@
 
       try {
         var fetchOpts = {};
-        if (cTab === 'curriculum' && isArchiveCurriculumCorrupted({ blockPlan: appState.aiGeneratedPlan })) {
-          fetchOpts.skipCache = true;
-        } else if (cTab === 'curriculum' && needsArchiveCurriculumHeal({ blockPlan: appState.aiGeneratedPlan })) {
+        if (cTab === 'curriculum') {
           fetchOpts.skipCache = true;
         }
         var data = await fetchPhaseCTab(cTab, controller.signal, fetchOpts);
@@ -16173,57 +16142,23 @@
           var currDomEmpty = !isCurriculumPanelMounted();
           if (!hasPhaseCCurriculumContent()) {
             if (shouldBlockLivePhaseCApi()) {
-              if (!hydrateCurriculumFromUnifiedSynthesis()) {
-                var currRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
-                var parsedArchiveRows = parseCurriculumFromText(currRaw);
-                if (!parsedArchiveRows.length) {
-                  parsedArchiveRows = extractCurriculumFromPlan(appState.aiGeneratedPlan, { blockPlan: appState.aiGeneratedPlan });
-                }
-                if (hasMeaningfulCurriculumRows(parsedArchiveRows)) {
-                  appState.aiGeneratedPlan.curriculum = padCurriculumRowsToFifteen(parsedArchiveRows);
-                  appState.aiGeneratedPlan.days = appState.aiGeneratedPlan.curriculum.slice();
-                  syncActivePlanFromGenerated();
-                }
-              }
-              if (hasPhaseCCurriculumContent()) {
-                renderCurriculumTabPanels();
-                if (topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
-                  queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
-                }
+              if (isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
+                queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
+                setPhaseCTabLoadingUi('curriculum', true);
                 r.curriculum = true;
                 ensurePageScrollUnlocked();
                 return;
               }
-              if (!hasPhaseCCurriculumContent()) {
-                if (isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan })) {
-                  queueBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan });
-                  var legacyRows = extractCurriculumRowsFromLessonData({ blockPlan: appState.aiGeneratedPlan });
-                  if (hasMeaningfulCurriculumRows(legacyRows)) {
-                    renderCurriculumTabPanels();
-                  } else {
-                    renderStructuredTextFallback(
-                      currPanelEl,
-                      t('curriculum_title'),
-                      extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
-                        ? 'Archived lesson — 15-day period plan was not stored in this record.'
-                        : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
-                    );
-                  }
-                  r.curriculum = true;
-                  ensurePageScrollUnlocked();
-                  return;
-                }
-                renderStructuredTextFallback(
-                  currPanelEl,
-                  t('curriculum_title'),
-                  extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
-                    ? 'Archived lesson — 15-day period plan was not stored in this record.'
-                    : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
-                );
-                r.curriculum = true;
-                ensurePageScrollUnlocked();
-                return;
-              }
+              renderStructuredTextFallback(
+                currPanelEl,
+                t('curriculum_title'),
+                extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
+                  ? 'Archived lesson — 15-day period plan was not stored in this record.'
+                  : 'תכנית ארכיון — תכנון התקופה (15 ימים) לא נשמר ברשומה זו.')
+              );
+              r.curriculum = true;
+              ensurePageScrollUnlocked();
+              return;
             }
             if (isResearchAvailable()) {
               ensurePhaseCTabLoaded('curriculum');

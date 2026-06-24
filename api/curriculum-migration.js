@@ -17,12 +17,6 @@ const CURRICULUM_CHUNKS = [
 const CURRICULUM_INLINE_EXPANSION_INSTRUCTION = waldorfCurriculumPrompts.CURRICULUM_INLINE_EXPANSION_INSTRUCTION;
 const WALDORF_CURRICULUM_DEPTH_INSTRUCTION = waldorfCurriculumPrompts.WALDORF_CURRICULUM_DEPTH_INSTRUCTION;
 
-function isGrade7NutritionTopicBody(topicBody) {
-  const gradeId = String(topicBody && (topicBody.currentGrade ?? topicBody.gradeId) || '').trim();
-  if (gradeId !== '7') return false;
-  return String(topicBody && topicBody.topic || '').indexOf('תזונה') >= 0;
-}
-
 const migrationInflight = new Map();
 
 function stripHtml(text) {
@@ -307,9 +301,6 @@ function mergeCurriculumIntoTopicPayload(topicData, curriculumRows) {
 
 async function purgeLegacyCurriculumCaches(topicBody, options) {
   await cacheDb.purgeRegenerationCaches(topicBody);
-  if (options && options.forceFresh && isGrade7NutritionTopicBody(topicBody)) {
-    console.log('[curriculum-migration] grade7-nutrition full cache purge for', topicBody.topic);
-  }
 }
 
 async function persistMigratedCurriculum(topicBody, topicData, curriculumRows) {
