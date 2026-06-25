@@ -55,7 +55,6 @@ const DRIVE_ENRICHMENT_PHASES = new Set([
   'grade',
   'topic',
   'pedagogy_deep_dive',
-  'archive_search',
   'archive_summary',
 ]);
 
@@ -70,7 +69,6 @@ const RAG_PHASES = new Set([
   'grade',
   'topic',
   'pedagogy_deep_dive',
-  'archive_search',
   'archive_summary',
   'chat_followup',
 ]);

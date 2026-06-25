@@ -166,26 +166,6 @@
     return null;
   }
 
-  function resolvePhaseCTab(body) {
-    const tab = String((body && (body.cTab || body.productTab || body.phaseCTab)) || '').trim().toLowerCase();
-    return tab === 'curriculum' ? 'curriculum' : (tab === 'inspiration' ? 'inspiration' : '');
-  }
-
-  function buildWaldorfWebSeedPromptBlock(topic, gradeLabel) {
-    const seed = getWaldorfWebSeed();
-    if (!seed) {
-      return (
-        'OPEN WEB SEARCH — combine block topic «' + topic + '», grade, and Waldorf pedagogy. No site: restrictions.\n'
-      );
-    }
-    const queries = seed.buildWaldorfSiteSearchQueries(topic, gradeLabel);
-    return (
-      seed.buildWaldorfWebSeedInstruction(topic, gradeLabel) + '\n\n' +
-      'SUGGESTED OPEN-WEB SEARCH QUERIES:\n' +
-      queries.map(function (q, i) { return (i + 1) + '. ' + q; }).join('\n') + '\n'
-    );
-  }
-
   function getQueryGen() {
     if (typeof WaldorfQueryGeneration !== 'undefined' && WaldorfQueryGeneration) return WaldorfQueryGeneration;
     return null;
@@ -221,21 +201,6 @@
     var qg = getQueryGen();
     if (qg) return qg.sanitizePinterestGallery(gallery, body, PINTEREST_MAX_GALLERY_ITEMS);
     return [];
-  }
-
-  function applyPedagogicalResourcesFallback(resources, body) {
-    const seed = getWaldorfWebSeed();
-    if (!seed || !body || body.phase !== 'phase_c' || resolvePhaseCTab(body) !== 'inspiration') {
-      return Array.isArray(resources) ? resources.slice(0, 12) : [];
-    }
-    const topic = String(body.topic || '').trim();
-    const gradeLabel = String(body.gradeLabel || '').trim();
-    const sanitized = seed.sanitizePedagogicalResourceList
-      ? seed.sanitizePedagogicalResourceList(resources || [], topic, gradeLabel)
-      : (resources || []);
-    return seed.ensureWebInspirationFallback(sanitized, topic, gradeLabel, {
-      maxCount: 12,
-    });
   }
 
   const LAZY_LOAD_NOTE =
@@ -525,24 +490,6 @@
     if (phase === 'pedagogy_deep_dive') {
       return { pedagogyDeepDive: { title: String(ctx.activityTitle || ''), contentHtml: wrap }, _parseFallback: true };
     }
-    if (phase === 'archive_search') {
-      const paras = plain.split(/\n\n+/).filter(Boolean);
-      const chunk = function (i, len) {
-        const src = paras[i] || plain;
-        return String(src || '').slice(0, len);
-      };
-      return {
-        archiveSearch: {
-          query: String(ctx.archiveQuery || ''),
-          intro: plain.slice(0, 120),
-          developmental_axis: chunk(0, 4000),
-          core_pedagogical_emphases: chunk(1, 3000) || chunk(0, 2000),
-          recommended_literature: chunk(2, 2000),
-          relevant_links: chunk(3, 2000),
-        },
-        _parseFallback: true,
-      };
-    }
     if (phase === 'archive_summary') {
       return { archiveSummary: { title: String(ctx.sourceTitle || ''), summaryHtml: wrap }, _parseFallback: true };
     }
@@ -628,18 +575,6 @@
         'currentGrade: ' + resolvedGradeId(body) + '\nTeacher Drive scan for «' + body.topic + '» in ' + body.gradeLabel + '.\nFiles: ' + (body.personalFiles || []).join('; ') + '\n' +
         JSON_ONLY_INSTRUCTION + '\nReturn JSON: {"driveMerge":{...}}';
     }
-    if (phase === 'archive_search') {
-      const q = (body.archiveQuery || '').replace(/"/g, "'");
-      return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
-        'GENERAL CROSS-GRADE SEARCH (חיפוש כללי).\nQuery: «' + q + '»\nScope: grades א\'–ח\'.\n' +
-        'MANDATORY JSON fields — each rich Hebrew markdown:\n' +
-        'developmental_axis: grade-by-grade כיתה א\'–ח\' breakdown (≥200 chars).\n' +
-        'core_pedagogical_emphases: inner meanings & classroom methods (≥80 chars).\n' +
-        'recommended_literature: real book/lecture titles, no URLs (≥80 chars).\n' +
-        'relevant_links: HTTPS URLs only here (≥80 chars). intro ≤40 words.\n' +
-        WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
-        '{"archiveSearch":{"query":"' + q + '","intro":"Hebrew","developmental_axis":"Hebrew markdown","core_pedagogical_emphases":"Hebrew markdown","recommended_literature":"Hebrew markdown","relevant_links":"Hebrew markdown"}}';
-    }
     if (phase === 'archive_summary') {
       const title = (body.sourceTitle || '').replace(/"/g, "'");
       const isPedagogy = Boolean(body.pedagogyDeepDive);
@@ -647,33 +582,6 @@
       return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) + noUrls +
         'Deep pedagogical summary for: «' + title + '»\nAuthor: ' + (body.sourceAuthor || '') + '\n' +
         WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + '\nReturn JSON: ' + (isPedagogy ? '{"pedagogyDeepDive":{...}}' : '{"archiveSummary":{...}}');
-    }
-    if (phase === 'phase_c') {
-      const cTab = resolvePhaseCTab(body);
-      const topic = (body.topic || '').replace(/"/g, '');
-      const gradeLabel = body.gradeLabel || '';
-      const seedBlock = buildWaldorfWebSeedPromptBlock(topic, gradeLabel);
-      if (cTab === 'inspiration') {
-        return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
-          '\n=== PHASE C INSPIRATION ===\n' + seedBlock + '\n' +
-          WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION +
-          WEB_SEARCH_PRIORITY_INSTRUCTION +
-          'Grade: ' + gradeLabel + ' | Block topic: «' + topic + '»\n' +
-          'PINTEREST: 2–4 grade-locked gallery pins ONLY — each pin MUST pair Waldorf anchor with active grade (e.g. "חינוך וולדורף" "כיתה ח" מהפכות or Waldorf "Class 8" revolutions). Drop wrong-grade pins; quality over quantity.\n' +
-          JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
-          '{\n' +
-          '  "blockPlan": { "inspiration": { "title": "Hebrew", "global": [], "podcast": { "title": "Hebrew", "episodes": [] }, "narrative": [] }, "sources": { "books": [], "articles": [], "websites": [] } },\n' +
-          '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Waldorf \\"Class N\\" topic — grade-locked, max 2-4 entries" }],\n' +
-          'gallery: 2–4 DISTINCT grade-locked Waldorf Pinterest searches ONLY — quality over quantity; never pad with generic pins.\n' +
-          '  "pedagogicalResources": [{ "title": "Hebrew", "url": "https://…verified-from-live-search…", "label": "מאמר פדגוגי", "source": "source name", "snippet": "Hebrew" }]\n' +
-          '}';
-      }
-      return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
-        '\n=== PHASE C CURRICULUM ===\n' +
-        WEB_SEARCH_PRIORITY_INSTRUCTION +
-        'Grade: ' + gradeLabel + ' | Block topic: «' + topic + '»\n' +
-        JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
-        '{"blockPlan":{"curriculum":[{"day":1,"topic":"Hebrew","content":"<p>Hebrew</p>","art":"","hint":""}]}}';
     }
     throw new Error('Unknown phase');
   }
@@ -713,26 +621,9 @@
       });
     }
     if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
-    if (phase === 'archive_search') {
-      const s = data.archiveSearch;
-      if (!s || typeof s !== 'object') return false;
-      const keys = ['developmental_axis', 'core_pedagogical_emphases', 'recommended_literature', 'relevant_links'];
-      const mins = { developmental_axis: 200, core_pedagogical_emphases: 80, recommended_literature: 80, relevant_links: 80 };
-      return keys.every(function (k) {
-        return String(s[k] || '').trim().length >= (mins[k] || 80);
-      });
-    }
     if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
     if (phase === 'drive') return Boolean(data.driveMerge);
     if (phase === 'test') return data.ok === true;
-    if (phase === 'phase_c') {
-      const cTab = resolvePhaseCTab(body || {});
-      if (cTab === 'inspiration') {
-        return Boolean(data.blockPlan && data.blockPlan.inspiration) ||
-          (Array.isArray(data.pedagogicalResources) && data.pedagogicalResources.length > 0);
-      }
-      return Boolean(data.blockPlan && data.blockPlan.curriculum);
-    }
     return true;
   }
 
@@ -780,7 +671,7 @@
     if (!body || !body.phase) throw new Error('Missing phase');
     const gradeLockSystem = resolvedGradeId(body) || body.gradeLabel
       ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.' : '';
-    const searchPhases = new Set(['grade', 'topic', 'phase_c', 'pedagogy_deep_dive', 'archive_search', 'archive_summary']);
+    const searchPhases = new Set(['grade', 'topic', 'pedagogy_deep_dive', 'archive_summary']);
     const extraSystem = gradeLockSystem +
       (body.phase === 'grade' || body.phase === 'topic'
         ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
@@ -803,10 +694,6 @@
       });
       if (!validatePhaseResult(body.phase, parsed, body) && !parsed._parseFallback) {
         return buildParseFallback(body.phase, raw, body);
-      }
-      if (body.phase === 'phase_c' && resolvePhaseCTab(body) === 'inspiration' && parsed && !parsed._parseFallback) {
-        parsed.pedagogicalResources = applyPedagogicalResourcesFallback(parsed.pedagogicalResources, body);
-        parsed.gallery = sanitizePinterestGallery(parsed.gallery, body);
       }
       return parsed;
     } catch (parseErr) {

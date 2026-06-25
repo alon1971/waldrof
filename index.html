@@ -3836,9 +3836,6 @@
           <button type="button" id="header-compact-edit-topic" class="header-compact-nav-btn touch-btn">
             <span data-i18n="header_compact_edit_topic">עריכת נושא</span>
           </button>
-          <button type="button" id="header-compact-products" class="header-compact-nav-btn touch-btn" disabled>
-            <span data-i18n="header_compact_products">תוצרים ומערכי שיעור</span>
-          </button>
         </nav>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
           <div id="identity-email-bar" class="identity-email-bar hidden">
@@ -3898,7 +3895,7 @@
         </div>
       </div>
       <h1 class="app-brand-title font-display font-bold text-burgundy" data-i18n="header_title">מתכנן תקופות לימוד אנתרופוסופי</h1>
-      <p class="app-chrome-subtitle mt-0.5 text-walnut/75 text-xs max-w-3xl" data-i18n="header_subtitle">כיתה ← נושא ← תוצרים, מערכי שיעור ועוד | מאגר קהילתי | חיפוש כללי</p>
+      <p class="app-chrome-subtitle mt-0.5 text-walnut/75 text-xs max-w-3xl" data-i18n="header_subtitle">כיתה ← נושא | מאגר קהילתי</p>
     </div>
   </header>
   <div id="page-focus-sentinel" tabindex="-1" aria-hidden="true" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
@@ -3917,12 +3914,6 @@
           <span data-i18n="nav_community">מאגר קהילתי</span>
         </button>
         <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
-        <button type="button" id="btn-nav-archive"
-          class="step-pill step-pill-archive touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-gold/10"
-          data-i18n-aria="nav_archive_aria">
-          <i class="fa-solid fa-scroll text-base sm:text-sm"></i>
-          <span data-i18n="nav_archive">חיפוש כללי</span>
-        </button>
         <button type="button" id="btn-pedagogy-export-top"
           class="pedagogy-export-btn pedagogy-export-btn--nav touch-btn hidden" data-pedagogy-export
           data-i18n-aria="btn_export_pedagogy_doc">
@@ -4052,11 +4043,6 @@
         <div id="web-research-result" class="hidden mt-6 p-4 rounded-xl bg-parchment/80 border border-sage/25 text-sm"></div>
         <div id="topic-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
         <div id="topic-community-slot" class="hidden mt-4 p-4 sm:p-5 rounded-2xl border border-sage/30 bg-gradient-to-l from-sage/5 via-cream to-parchment/80"></div>
-        <button type="button" id="btn-to-workspace" disabled
-          class="touch-btn w-full mt-6 bg-burgundy hover:bg-burgundy/90 active:bg-burgundy/80 disabled:opacity-40 text-white font-medium rounded-xl">
-          <i class="fa-solid fa-lock-open icon-inline"></i>
-          <span data-i18n="btn_to_workspace">המשך לשלב ג׳ — תוצרים, מערכי שיעור ועוד</span>
-        </button>
       </div>
       </div>
     </section>
@@ -4074,40 +4060,14 @@
           <button type="button" id="ws-crumb-topic" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_topic">נושא</button>
           <span class="text-walnut/45 ws-crumb-sep" aria-hidden="true">←</span>
           <span id="ws-topic" class="font-medium text-terracotta"></span>
-          <span class="text-walnut/45 ws-crumb-sep" aria-hidden="true">←</span>
-          <button type="button" id="ws-crumb-products" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_products">תוצרים, מערכי שיעור ועוד</button>
           <span class="text-walnut/40 mx-0.5" aria-hidden="true">|</span>
           <button type="button" id="ws-crumb-community" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_community">מאגר קהילתי</button>
-          <span class="text-walnut/40 mx-0.5" aria-hidden="true">|</span>
-          <button type="button" id="ws-crumb-archive" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_archive">חיפוש כללי</button>
         </nav>
         <button type="button" id="btn-restart" class="touch-btn text-sm bg-burgundy/10 text-burgundy border border-burgundy/25 px-3 py-2 rounded-lg hover:bg-burgundy/15 shrink-0">
           <i class="fa-solid fa-rotate-right icon-inline"></i> <span data-i18n="btn_restart">מחקר חדש</span>
         </button>
       </div>
     </div>
-
-    <nav id="workspace-products-nav" class="product-tabs-nav" role="tablist" data-i18n-aria="products_tablist_aria">
-      <div class="product-tabs-row max-w-6xl mx-auto px-3 sm:px-4 py-3">
-        <button type="button" role="tab" id="product-tab-theory" data-tab="theory" aria-selected="false" aria-controls="panel-theory"
-          class="product-tab-btn touch-target">
-          <i class="fa-solid fa-book-open" aria-hidden="true"></i>
-          <span class="product-tab-label"><span data-i18n="tab_theory">רקע תיאורטי</span><span data-i18n="tab_theory_suffix"> ומקורות</span></span>
-        </button>
-        <button type="button" role="tab" id="product-tab-inspiration" data-tab="inspiration" aria-selected="false" aria-controls="panel-inspiration"
-          class="product-tab-btn touch-target">
-          <i class="fa-solid fa-lightbulb" aria-hidden="true"></i>
-          <span><span data-i18n="tab_inspiration">השראה</span><span data-i18n="tab_inspiration_suffix"></span></span>
-          <span id="community-badge" class="app-micro hidden bg-terracotta text-white px-1.5 py-0.5 rounded-full shrink-0">0</span>
-        </button>
-        <button type="button" role="tab" id="product-tab-curriculum" data-tab="curriculum" aria-selected="false" aria-controls="panel-curriculum"
-          class="product-tab-btn touch-target">
-          <i class="fa-solid fa-compass" aria-hidden="true"></i>
-          <span data-i18n="tab_curriculum">הדגשים לבניית התקופה</span>
-        </button>
-      </div>
-    </nav>
-    <div id="workspace-products-nav-spacer" class="product-tabs-nav-spacer hidden" aria-hidden="true"></div>
 
     <div class="workspace-layout max-w-7xl mx-auto px-3 sm:px-4 w-full box-border">
     <main class="workspace-main py-6 sm:py-8 pb-16 w-full box-border">
@@ -4134,73 +4094,6 @@
           <div id="catalog-grade-panel" class="hidden"></div>
           <div id="catalog-materials" class="hidden"></div>
           </div>
-        </div>
-      </section>
-
-      <div id="product-panels-shell" class="product-panels-shell is-neutral" hidden aria-hidden="true">
-      <section id="panel-theory" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-theory" hidden><div id="theoretical-content"></div></section>
-
-      <section id="panel-inspiration" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-inspiration" hidden>
-        <div id="teacher-drive-inspiration-slot" class="hidden mb-6"></div>
-        <div id="inspiration-content"></div>
-
-        <div class="mt-8 bg-white/85 rounded-2xl border border-burgundy/20 p-4 sm:p-6 shadow-sm w-full box-border">
-          <h3 class="app-subhead font-display font-bold text-burgundy mb-2">
-            <i class="fa-brands fa-pinterest text-terracotta icon-inline"></i>
-            <span data-i18n="pinterest_title">השראה חזותית ומחברות תקופה</span>
-          </h3>
-          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה</p>
-          <div id="pinterest-gallery" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3"></div>
-        </div>
-
-        <div id="pedagogical-resources-section" class="hidden" hidden aria-hidden="true"></div>
-
-        <div id="community-materials" class="mt-6"></div>
-      </section>
-
-      <section id="panel-curriculum" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-curriculum" hidden>
-        <div class="mb-4">
-          <h2 class="app-page-title font-display font-bold text-burgundy" data-i18n="curriculum_title">דגשים חשובים בהכנת התקופה הלימודית</h2>
-        </div>
-        <div id="teacher-drive-curriculum-slot" class="hidden mb-6"></div>
-        <div id="pedagogical-essence-content" class="space-y-3 pb-4"></div>
-        <div id="pedagogy-export-bar-curriculum" class="pedagogy-export-bar hidden mt-8 mb-2">
-          <button type="button" class="pedagogy-export-btn touch-btn" data-pedagogy-export>
-            <span data-i18n="btn_export_pedagogy_doc">הפקת מסמך סיכום פדגוגי למורה 📄</span>
-          </button>
-        </div>
-      </section>
-      </div>
-
-      <section id="panel-archive" class="tab-panel hidden">
-        <div class="bg-white/90 rounded-2xl border border-burgundy/25 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
-          <h2 class="app-page-title font-display font-bold text-burgundy mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-book-bookmark text-gold"></i>
-            <span data-i18n="archive_title">חיפוש כללי</span>
-          </h2>
-          <p class="text-sm text-walnut/75 mb-6 max-w-3xl leading-relaxed" data-i18n="archive_desc"></p>
-
-          <div class="flex flex-col sm:flex-row gap-3 mb-4">
-            <label for="archive-query" class="sr-only" data-i18n="archive_search_label">חיפוש כללי</label>
-            <input type="search" id="archive-query" maxlength="300" autocomplete="off"
-              data-i18n-placeholder="archive_search_ph"
-              class="touch-target flex-1 rounded-xl border border-gold/40 bg-cream px-4 py-3.5 text-base text-walnut outline-none focus:ring-2 focus:ring-sage/40"
-              placeholder="" />
-            <button type="button" id="btn-archive-search"
-              class="touch-btn shrink-0 bg-burgundy hover:bg-burgundy/90 active:bg-burgundy/80 text-white font-medium rounded-xl px-6">
-              <i class="fa-solid fa-magnifying-glass icon-inline"></i>
-              <span data-i18n="archive_search_btn">חפש</span>
-            </button>
-          </div>
-          <p id="archive-api-hint" class="hidden text-xs text-terracotta mb-3"><i class="fa-solid fa-cloud icon-inline"></i> <span data-i18n="archive_api_hint">שירות המחקר אינו זמין. ודאו שהאתר נפרס ל-Vercel עם AI_API_KEY מוגדר.</span></p>
-          <div id="archive-status" class="hidden text-sm text-sage-dark mb-4"></div>
-          <div id="archive-intro" class="hidden text-sm text-walnut/80 mb-4 p-4 rounded-xl bg-parchment/70 border border-gold/25"></div>
-          <div id="archive-export-bar" class="archive-lecture-export-bar hidden mb-4">
-            <button type="button" id="btn-export-general-search" class="action-btn" style="margin-top: 15px;">
-              <span data-i18n="btn_export_general_search">הפקת סיכום הרצאה לוורד 📄</span>
-            </button>
-          </div>
-          <div id="archive-results" class="space-y-4"></div>
         </div>
       </section>
     </main>
@@ -4435,8 +4328,6 @@
         LessonChatSidebar.syncFabReportLayout();
       }
     }
-
-    const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
 
     const summaryJobsByKey = {};
     const summaryFailedByKey = {};
@@ -4923,15 +4814,9 @@
       if (webResult && !appState.webResearch) { webResult.classList.add('hidden'); webResult.innerHTML = ''; }
       const topicSlot = document.getElementById('topic-community-slot');
       if (topicSlot && !appState.topic) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
-      const toWorkspaceBtn = document.getElementById('btn-to-workspace');
-      if (toWorkspaceBtn && !appState.aiGeneratedPlan) toWorkspaceBtn.disabled = true;
 
       setTopicResearchLoadingUi(false);
       setGradeInsightsLoadingUi(false);
-      if (!appState.aiGeneratedPlan) {
-        resetProductTabsNeutral();
-        invalidateProductTabRenders();
-      }
       updateNewResearchBarVisibility();
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
@@ -4995,15 +4880,6 @@
       gradeResearch: null,
       aiGeneratedPlan: null,
       driveMerge: null,
-      archiveQuery: '',
-      archiveSearch: null,
-      archiveSourcesById: {},
-      archiveSummaries: {},
-      archivePanelsOpen: {},
-      archiveActiveExportId: null,
-      activeProductTab: null,
-      productTabsRendered: { theory: false, inspiration: false, curriculum: false },
-      curriculumUiState: { expandedFields: ['core_emphases', 'key_points', 'recommended_reading', 'relevant_links'] },
       bibliographyRegistry: {},
       bibliographySummaries: {},
       pedagogyRegistry: {},
@@ -5077,12 +4953,8 @@
         step: 1, navSection: 'wizard', grade: null, gradeLabel: null, topic: null, topicResearchCompleted: false, webResearch: null,
         personalMaterials: [], driveScanned: false, activePlan: null, visualGallery: [], pedagogicalResources: [],
         gradeResearch: null, aiGeneratedPlan: null, driveMerge: null,
-        archiveQuery: '', archiveSearch: null, archiveSourcesById: {}, archiveSummaries: {}, archivePanelsOpen: {}, archiveActiveExportId: null,
         bibliographyRegistry: {},
         pedagogyRegistry: {},
-        activeProductTab: null,
-        productTabsRendered: freshProductTabsRendered(),
-        curriculumUiState: { expandedFields: ['core_emphases', 'key_points', 'recommended_reading', 'relevant_links'] },
         lessonCacheKey: '',
       lessonCacheMeta: null,
         lessonFromArchive: false,
@@ -5114,7 +4986,7 @@
         if (!raw) return null;
         var data = JSON.parse(raw);
         var step = parseInt(data.step, 10);
-        if (!(step >= 1 && step <= 3)) return null;
+        if (!(step >= 1 && step <= 2)) return null;
         return data;
       } catch (e) {
         return null;
@@ -5197,7 +5069,6 @@
           topic: appState.topic || null,
           scrollY: window.scrollY || window.pageYOffset || 0,
           topicResearchLoading: isTopicResearchLoadingUi(),
-          activeProductTab: appState.activeProductTab || null,
           lessonCacheKey: appState.lessonCacheKey || '',
           topicResearchCompleted: Boolean(appState.topicResearchCompleted),
           catalogView: catalogState.view || 'grades',
@@ -5556,10 +5427,7 @@
     function prepareResearchPayload(payload) {
       const p = withAiLanguage(Object.assign({}, payload || {}));
       p.userInitiated = true;
-      if (p.phase === 'phase_c' && String(p.cTab || '').trim().toLowerCase() === 'curriculum') {
-        p.skipCache = true;
-        p.forceFresh = true;
-      } else if (p.skipCache !== true) {
+      if (p.skipCache !== true) {
         delete p.skipCache;
       }
       delete p.confirmArchiveBypass;
@@ -5672,9 +5540,6 @@
       });
 
       appState.activePlan = JSON.parse(JSON.stringify(plan));
-      if (appState.productTabsRendered && appState.productTabsRendered.theory) {
-        renderProductTabContent('theory');
-      }
       return true;
     }
 
@@ -5821,21 +5686,6 @@
 
     function isCachedLessonHydration() {
       return Boolean(appState.lessonFromArchive);
-    }
-
-    function shouldBlockLivePhaseCApi() {
-      return Boolean(appState.lessonFromArchive);
-    }
-
-    function abortPhaseCLoads() {
-      ['inspiration', 'curriculum'].forEach(function (cTab) {
-        if (phaseCLoadAbort[cTab]) {
-          phaseCLoadAbort[cTab].abort();
-          phaseCLoadAbort[cTab] = null;
-        }
-        phaseCTabLoading[cTab] = false;
-      });
-      ensurePageScrollUnlocked();
     }
 
     function archiveEssenceTextFromData(data) {
@@ -6025,7 +5875,6 @@
       } catch (cloneErr) {
         appState.activePlan = appState.aiGeneratedPlan;
       }
-      appState.productTabsRendered = freshProductTabsRendered();
       hydrateVisualGalleryFromSources({ data: data, plan: appState.aiGeneratedPlan });
       if (!appState.visualGallery.length) {
         appState.visualGallery = normalizeGallery(data.gallery, topicStr);
@@ -6096,10 +5945,8 @@
 
         if (topicResearchAbort) topicResearchAbort.abort();
         topicResearchAbort = null;
-        abortPhaseCLoads();
         abortAllInlineExpansions();
         resetVisualGalleryState();
-        invalidateProductTabRenders();
         resetSummarySession();
 
         appState.lessonFromArchive = true;
@@ -6116,11 +5963,6 @@
 
         if (!commitTopicResearchToStepB(topic, data)) {
           throw new Error(t('search_history_error'));
-        }
-        if (item.curriculumLegacy || item.curriculumStripped || item.curriculumRegenerationRequired) {
-          setTimeout(function () {
-            queueBackgroundCurriculumMigration(data, item);
-          }, 0);
         }
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
@@ -6591,15 +6433,6 @@
           await WaldorfAuth.syncUsageAfterLiveSearch(json.meta || {});
         } catch (usageErr) {
           console.warn('[usage] syncUsageAfterLiveSearch failed:', usageErr && usageErr.message ? usageErr.message : usageErr);
-        }
-      }
-      if (researchPayload.phase === 'phase_c' && String(researchPayload.cTab || '').trim().toLowerCase() === 'curriculum') {
-        var curriculumCarrier = (result && result.blockPlan) ? { blockPlan: result.blockPlan } : { blockPlan: result || {} };
-        var essence = extractPhaseCCurriculumEssenceFromData(curriculumCarrier);
-        if (!essence || !isPhaseCCurriculumEssenceServeReadyClient(essence)) {
-          throw new Error(isEnglish()
-            ? 'Pedagogical essence could not be structured — please try again.'
-            : 'לא ניתן להציג את מהות הפדגוגיה במבנה המלא — נסו שוב.');
         }
       }
       return result;
@@ -7793,30 +7626,6 @@
       setupThemeActionButtons();
     }
 
-    function coercePhaseCResponse(data, cTab) {
-      if (!data || typeof data !== 'object') return data;
-      var rawFallback = extractPhaseCRawFallback(data);
-      if (!data.blockPlan || typeof data.blockPlan !== 'object') data.blockPlan = {};
-
-      if (cTab === 'inspiration') {
-        data.blockPlan.inspiration = coerceInspirationStructure(data.blockPlan.inspiration, rawFallback);
-        if (data.blockPlan.sources) delete data.blockPlan.sources;
-        if (!Array.isArray(data.gallery)) data.gallery = [];
-      } else if (cTab === 'curriculum') {
-        var curr = data.blockPlan.curriculum;
-        if (isPhaseCDailyTableCurriculumClient(curr)) {
-          data.blockPlan.curriculum = {};
-          return data;
-        }
-        if (curr && typeof curr === 'object' && !Array.isArray(curr)) {
-          data.blockPlan.curriculum = curr;
-        } else {
-          data.blockPlan.curriculum = {};
-        }
-      }
-      return data;
-    }
-
     function renderStructuredTextFallback(el, title, rawText) {
       if (!el) return;
       var html = '';
@@ -7837,55 +7646,6 @@
         document.documentElement.style.removeProperty('overflow-y');
       }
       if (programmaticScrollGuard > 0) programmaticScrollGuard = 0;
-    }
-
-    function getPhaseCTabLoadingEl(cTab) {
-      return cTab === 'inspiration'
-        ? document.getElementById('inspiration-content')
-        : document.getElementById('pedagogical-essence-content');
-    }
-
-    function setPhaseCTabLoadingUi(cTab, loading, options) {
-      options = options || {};
-      if (loading && shouldBlockLivePhaseCApi() && !options.allowArchiveLoading) {
-        phaseCTabLoading[cTab] = false;
-        ensurePageScrollUnlocked();
-        return;
-      }
-      phaseCTabLoading[cTab] = loading;
-      var loadingEl = getPhaseCTabLoadingEl(cTab);
-      if (!loadingEl) {
-        if (!loading) ensurePageScrollUnlocked();
-        return;
-      }
-      if (loading) {
-        if (cTab === 'curriculum') {
-          paintCurriculumLoadingPanels(true);
-        } else {
-          loadingEl.innerHTML = '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
-            '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
-            escapeHtml(t('tab_inspiration') + t('tab_inspiration_suffix')) +
-            '</p>';
-        }
-        return;
-      }
-      loadingEl.removeAttribute('aria-busy');
-      var stillSpinning = /fa-spinner/.test(loadingEl.innerHTML || '');
-      if (!stillSpinning) {
-        ensurePageScrollUnlocked();
-        return;
-      }
-      var hasContent = cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
-      if (hasContent) {
-        ensurePageScrollUnlocked();
-        return;
-      }
-      loadingEl.innerHTML = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
-        escapeHtml(isEnglish()
-          ? 'Content could not be structured — try again or use the pedagogical chat assistant.'
-          : 'לא ניתן להציג את התוכן במבנה המלא — נסו שוב או השתמשו בעוזר הצ׳אט הפדגוגי.') +
-        '</p>';
-      ensurePageScrollUnlocked();
     }
 
     function enrichBibliographyFromWebResearch(bib) {
@@ -9023,71 +8783,6 @@
       );
     }
 
-    function buildInspirationTabPrompt(topic, gradeLabel) {
-      const gradeLock = getGradeLockInstruction();
-      const urlPolicy = getPedagogicalResourcesUrlInstruction();
-      const lazy = getLazyLoadExpansionInstruction();
-      const prioritySearch = getPrioritySourcesSearchInstruction();
-      if (isEnglish()) {
-        return (
-          'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + urlPolicy + ' ' + lazy + ' ' + prioritySearch + ' ' +
-          'Create blockPlan.inspiration for this grade. global: 3–4 blocks with 4–6 paragraph items ({text} only — no expansion). ' +
-          'podcast: 3–5 episodes {theme, insight} — prioritize «מסעות בחינוך», Alon Yerushalmy, and educationpace.com when relevant. ' +
-          'narrative: 3–5 story paragraphs ({text} only). NO sources, bibliography, or external links. 16px UI.'
-        );
-      }
-      return (
-        'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + urlPolicy + ' ' + lazy + ' ' + prioritySearch + ' ' +
-        'צור blockPlan.inspiration לכיתה זו. global: 3–4 בלוקים עם 4–6 פריטים ({text} בלבד — ללא expansion). ' +
-        'podcast: 3–5 פרקים {theme, insight} — העדף «מסעות בחינוך», אלון ירושלמי ו-educationpace.com כשיש חומר רלוונטי. ' +
-        'narrative: 3–5 פסקאות ({text} בלבד). ללא מקורות, ביבליוגרפיה או קישורים חיצוניים. גופן 16px.'
-      );
-    }
-
-    function getWaldorfCurriculumDepthInstruction() {
-      if (isEnglish()) {
-        return (
-          'WALDORF CURRICULUM DEPTH (MANDATORY — ALL GRADES 1–8): Never shorten for older grades. ' +
-          'Each day: complete main-lesson arc (opening, story, practice, art with materials, closure). ' +
-          'content: 4–6 rich Hebrew sentences; art: 2–4 sentences; contentExpansion with classroomImplementation paragraphs and 4–8 practicalSteps.'
-        );
-      }
-      return (
-        'עומק תכנון ולדורף (חובה — כיתות א–ח): אל תקצר לכיתות גבוהות. ' +
-        'כל יום: מבנה שיעור מלא (פתיחה, סיפור, תרגול, אמנות עם חומרים, סיום). ' +
-        'content: 4–6 משפטים עשירים; art: 2–4 משפטים; contentExpansion עם פסקאות יישום כיתתי ו-4–8 practicalSteps.'
-      );
-    }
-
-    function buildCurriculumTabPrompt(topic, gradeLabel) {
-      const gradeLock = getGradeLockInstruction();
-      const noUrls = getNoUrlsInstruction();
-      if (isEnglish()) {
-        return (
-          'currentGrade: ' + (appState.grade || '') + ' · gradeLabel: «' + gradeLabel + '» · topic: «' + topic + '». ' +
-          gradeLock + ' ' + noUrls + ' ' +
-          'Return blockPlan.curriculum as a single object with exactly four Hebrew markdown string fields: ' +
-          'core_emphases (what to emphasize in this block), key_points (central themes and axes), ' +
-          'recommended_reading (articles, books, anthroposophic/general readings — no URLs), ' +
-          'relevant_links (relevant links and inspiration extensions — URLs allowed in this field only). ' +
-          'NO 15-day table, NO day rows, NO bibliography section. Grade-locked. 16px UI. ' +
-          getJsonOutputInstruction()
-        );
-      }
-      return (
-        'currentGrade: ' + (appState.grade || '') + ' · כיתה: «' + gradeLabel + '» · נושא: «' + topic + '». ' +
-        gradeLock + ' ' + noUrls + ' ' +
-        'החזירו blockPlan.curriculum כאובייקט יחיד עם ארבעה שדות markdown בעברית: ' +
-        'core_emphases (על מה לשים דגשים בתקופה הזו?), key_points (מהן הנקודות המרכזיות והצירים של התקופה?), ' +
-        'recommended_reading (הפניות למאמרים, ספרים וכתבים — ללא URLs), ' +
-        'relevant_links (קישורים רלוונטיים והרחבות השראה — URLs מותרים רק בשדה זה). ' +
-        'ללא טבלת 15 ימים, ללא שורות יום, ללא ביבליוגרפיה. אך ורק לכיתה זו. גופן 16px. ' +
-        getJsonOutputInstruction()
-      );
-    }
-
     async function fetchTopicResearchAI(topic, signal, options) {
       const topicStr = String(topic || resolveLessonTopic() || '').trim();
       if (!topicStr) {
@@ -9116,359 +8811,6 @@
       }, { signal: signal });
     }
 
-    var phaseCLoadAbort = { inspiration: null, curriculum: null };
-    var phaseCTabLoading = { inspiration: false, curriculum: false };
-
-    function summarizeTheoryEssenceForPhaseC() {
-      var plan = appState.aiGeneratedPlan;
-      if (!plan || !plan.theory) {
-        return String((appState.webResearch && appState.webResearch.summary) || '').trim();
-      }
-      var chunks = [];
-      (plan.theory.sections || []).forEach(function (sec) {
-        if (sec && sec.content) {
-          chunks.push(String(sec.heading || '') + ': ' + stripHtmlText(sec.content));
-        }
-      });
-      if (appState.webResearch && appState.webResearch.summary) {
-        chunks.unshift(appState.webResearch.summary);
-      }
-      return chunks.join('\n\n').slice(0, 4000);
-    }
-
-    function hasPhaseCInspirationContent() {
-      var insp = appState.aiGeneratedPlan && appState.aiGeneratedPlan.inspiration;
-      if (!insp) return false;
-      if (isMeaningfulArchiveInspiration(insp)) return true;
-      if (typeof insp === 'string' && insp.trim().length > 0) return true;
-      if (String(insp.rawContent || '').trim().length > 0) return true;
-      return !!(Array.isArray(insp.global) && insp.global.some(function (b) {
-        return b && Array.isArray(b.items) && b.items.length && b.items.some(function (it) {
-          var text = typeof it === 'string' ? it : (it.text || it.preview || it.detail || it.content || '');
-          return String(text).trim().length > 0;
-        });
-      }));
-    }
-
-    function hasPhaseCCurriculumContent() {
-      if (hydrateCurriculumFromUnifiedSynthesis()) {
-        return Boolean(resolvePedagogicalEssenceForRender());
-      }
-      if (!hasPhaseCCurriculumUpgradedContent()) return false;
-      return Boolean(resolvePedagogicalEssenceForRender());
-    }
-
-    function curriculumLoadingSpinnerHtml() {
-      return '<p class="text-sm text-walnut/70 p-4" role="status" aria-live="polite" aria-busy="true">' +
-        '<i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i> ' +
-        escapeHtml(t('curriculum_title')) + '</p>';
-    }
-
-    function paintCurriculumLoadingPanels(showSpinner) {
-      var el = document.getElementById('pedagogical-essence-content');
-      var html = showSpinner ? curriculumLoadingSpinnerHtml() : '';
-      if (el) el.innerHTML = html;
-    }
-
-    function mergePhaseCIntoPlan(data, cTab) {
-      if (!data || !appState.aiGeneratedPlan) return false;
-      data = coercePhaseCResponse(data, cTab);
-      if (!data.blockPlan) return false;
-      var bp = data.blockPlan;
-      if (cTab === 'inspiration') {
-        if (bp.inspiration) appState.aiGeneratedPlan.inspiration = bp.inspiration;
-        if (appState.aiGeneratedPlan.sources) delete appState.aiGeneratedPlan.sources;
-        appState.pedagogicalResources = [];
-        if (appState.aiGeneratedPlan.pedagogicalResources) delete appState.aiGeneratedPlan.pedagogicalResources;
-        if (data.gallery && data.gallery.length) {
-          hydrateVisualGalleryFromSources({ data: data, plan: appState.aiGeneratedPlan });
-          if (!appState.visualGallery.length) {
-            appState.visualGallery = normalizeGallery(data.gallery, appState.topic || '');
-          }
-        }
-      } else if (cTab === 'curriculum') {
-        var essence = null;
-        if (bp.curriculum && typeof bp.curriculum === 'object' && !Array.isArray(bp.curriculum)) {
-          essence = bp.curriculum;
-        }
-        if (essence && isPhaseCCurriculumEssenceServeReadyClient(essence)) {
-          appState.aiGeneratedPlan.curriculum = essence;
-          delete appState.aiGeneratedPlan.days;
-        }
-      }
-      appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
-      return cTab === 'inspiration' ? hasPhaseCInspirationContent() : hasPhaseCCurriculumContent();
-    }
-
-    async function fetchPhaseCTab(cTab, signal, options) {
-      var topicStr = resolveLessonTopic();
-      if (!topicStr || !appState.grade) {
-        throw new Error(isEnglish() ? 'Grade and topic are required.' : 'נדרשים כיתה ונושא.');
-      }
-      var opts = options || {};
-      var g = GRADES.find(function (x) { return x.id === appState.grade; });
-      var gradeCtx = appState.gradeResearch
-        ? JSON.stringify(appState.gradeResearch.gradeInsights || appState.gradeResearch).slice(0, 2000)
-        : '';
-      return invokeWaldorfResearch({
-        phase: 'phase_c',
-        cTab: cTab,
-        userInitiated: true,
-        skipCache: opts.skipCache === true,
-        gradeId: appState.grade,
-        gradeLabel: appState.gradeLabel,
-        age: g ? g.age : '',
-        topic: topicStr,
-        gradeContext: gradeCtx,
-        theoryEssence: summarizeTheoryEssenceForPhaseC(),
-        inspirationPrompt: cTab === 'inspiration' ? buildInspirationTabPrompt(topicStr, appState.gradeLabel) : undefined,
-        curriculumPrompt: cTab === 'curriculum' ? buildCurriculumTabPrompt(topicStr, appState.gradeLabel) : undefined,
-        bibliographyRequirements: undefined,
-        pedagogyExpandHint: cTab === 'inspiration' ? getLazyLoadExpansionInstruction() : undefined,
-        currentGrade: appState.grade,
-        gradeLockInstruction: getGradeLockInstruction(),
-        noUrlsInstruction: getNoUrlsInstruction(),
-        noLatexInstruction: getNoLatexInstruction(),
-      }, { signal: signal });
-    }
-
-    var backgroundCurriculumMigrationInFlight = null;
-
-    function applyBackgroundCurriculumMigrationResult(lessonData) {
-      if (!lessonData) return false;
-      if (isPhaseCCurriculumPayloadLegacyClient(lessonData)) return false;
-      var merged = mergePhaseCIntoPlan(lessonData, 'curriculum');
-      if (!merged) return false;
-      appState.lessonFromArchive = false;
-      appState.productTabsRendered.curriculum = false;
-      if (isProductsView() && (appState.activeProductTab || '') === 'curriculum') {
-        renderProductTabContent('curriculum');
-      } else if (typeof renderCurriculumTabPanels === 'function') {
-        renderCurriculumTabPanels();
-      }
-      if (typeof WaldorfSearchHistory !== 'undefined' && WaldorfSearchHistory.invalidate) {
-        WaldorfSearchHistory.invalidate();
-      }
-      setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
-      return true;
-    }
-
-    async function ensureArchiveCurriculumRegeneratedBlocking(sourceData, historyItem) {
-      var meta = historyItem && (historyItem.curriculumLegacy != null
-        || historyItem.curriculumStripped != null
-        || historyItem.curriculumRegenerationRequired != null)
-        ? {
-          curriculumLegacy: historyItem.curriculumLegacy,
-          curriculumStripped: historyItem.curriculumStripped,
-          curriculumRegenerationRequired: historyItem.curriculumRegenerationRequired,
-        }
-        : null;
-      if (!topicPayloadNeedsBackgroundCurriculumMigration(sourceData, meta)) {
-        return hasPhaseCCurriculumContent();
-      }
-      if (!isResearchAvailable()) return false;
-      if (backgroundCurriculumMigrationInFlight) return backgroundCurriculumMigrationInFlight;
-
-      var loadingOpts = { allowArchiveLoading: true };
-      backgroundCurriculumMigrationInFlight = (async function () {
-        setPhaseCTabLoadingUi('curriculum', true, loadingOpts);
-        try {
-          if (phaseCLoadAbort.curriculum) phaseCLoadAbort.curriculum.abort();
-          var controller = new AbortController();
-          phaseCLoadAbort.curriculum = controller;
-          var data = await fetchPhaseCTab('curriculum', controller.signal, {});
-          if (phaseCLoadAbort.curriculum !== controller) return false;
-          return applyBackgroundCurriculumMigrationResult(data);
-        } catch (err) {
-          console.warn('[waldrof] archive curriculum regeneration failed:', err);
-          return false;
-        } finally {
-          phaseCLoadAbort.curriculum = null;
-          setPhaseCTabLoadingUi('curriculum', false, loadingOpts);
-          backgroundCurriculumMigrationInFlight = null;
-        }
-      })();
-      return backgroundCurriculumMigrationInFlight;
-    }
-
-    function queueBackgroundCurriculumMigration(sourceData, historyItem) {
-      void ensureArchiveCurriculumRegeneratedBlocking(sourceData, historyItem);
-    }
-
-    async function ensurePhaseCTabLoaded(cTab) {
-      if (!appState.aiGeneratedPlan || !hasTopicEssence()) return;
-      if (cTab === 'inspiration') {
-        hydrateInspirationFromUnifiedSynthesis();
-        if (hasPhaseCInspirationContent()) {
-          appState.productTabsRendered.inspiration = false;
-          renderProductTabContent('inspiration');
-          setPhaseCTabLoadingUi(cTab, false);
-          ensurePageScrollUnlocked();
-          return;
-        }
-      }
-      if (cTab === 'curriculum') {
-        hydrateCurriculumFromUnifiedSynthesis();
-        if (hasPhaseCCurriculumUpgradedContent()) {
-          appState.productTabsRendered.curriculum = false;
-          renderProductTabContent('curriculum');
-          setPhaseCTabLoadingUi(cTab, false);
-          ensurePageScrollUnlocked();
-          return;
-        }
-        if (topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
-          var regenOk = await ensureArchiveCurriculumRegeneratedBlocking(
-            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch }
-          );
-          if (regenOk) {
-            appState.productTabsRendered.curriculum = false;
-            renderProductTabContent('curriculum');
-          }
-          return;
-        }
-      }
-      if (cTab === 'inspiration' && hasPhaseCInspirationContent()) return;
-      if (cTab === 'curriculum' && hasPhaseCCurriculumUpgradedContent()) return;
-
-      if (shouldBlockLivePhaseCApi()) {
-        if (phaseCLoadAbort[cTab]) {
-          phaseCLoadAbort[cTab].abort();
-          phaseCLoadAbort[cTab] = null;
-        }
-        phaseCTabLoading[cTab] = false;
-      }
-
-      var loadingEl = getPhaseCTabLoadingEl(cTab);
-      if (shouldBlockLivePhaseCApi()) {
-        if (cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
-          appState.productTabsRendered[cTab] = false;
-          renderProductTabContent(cTab);
-          setPhaseCTabLoadingUi(cTab, false);
-          ensurePageScrollUnlocked();
-          return;
-        }
-        if (cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis() && hasPhaseCCurriculumUpgradedContent()) {
-          appState.productTabsRendered[cTab] = false;
-          renderProductTabContent(cTab);
-          setPhaseCTabLoadingUi(cTab, false);
-          ensurePageScrollUnlocked();
-          return;
-        }
-        if (loadingEl) {
-          var cachedRaw = extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan });
-          if (cTab === 'curriculum' && isResearchAvailable() && topicPayloadNeedsBackgroundCurriculumMigration({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch })) {
-            var migrated = await ensureArchiveCurriculumRegeneratedBlocking({ blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch });
-            if (migrated) {
-              appState.productTabsRendered[cTab] = false;
-              renderProductTabContent(cTab);
-            }
-            ensurePageScrollUnlocked();
-            return;
-          }
-          if (!cachedRaw && cTab === 'inspiration') {
-            var archiveInsp = extractArchiveInspirationFromData(
-              { blockPlan: appState.aiGeneratedPlan },
-              appState.aiGeneratedPlan
-            );
-            if (archiveInsp != null) {
-              var coerced = coerceInspirationStructure(archiveInsp, cachedRaw);
-              if (coerced && isMeaningfulArchiveInspiration(coerced)) {
-                appState.aiGeneratedPlan.inspiration = coerced;
-                appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
-                appState.productTabsRendered[cTab] = false;
-                renderProductTabContent(cTab);
-                setPhaseCTabLoadingUi(cTab, false);
-                ensurePageScrollUnlocked();
-                return;
-              }
-            }
-          }
-          renderStructuredTextFallback(
-            loadingEl,
-            cTab === 'inspiration' ? (t('tab_inspiration') + t('tab_inspiration_suffix')) : t('curriculum_title'),
-            cachedRaw || (isEnglish()
-              ? 'Archived lesson — inspiration/pedagogical essence was not stored in this record.'
-              : 'תכנית ארכיון — שכבת ההשראה או מהות הפדגוגיה לתקופה לא נשמרו ברשומה זו.')
-          );
-        }
-        setPhaseCTabLoadingUi(cTab, false);
-        appState.productTabsRendered[cTab] = true;
-        ensurePageScrollUnlocked();
-        return;
-      }
-
-      if (!isResearchAvailable()) return;
-      if (phaseCTabLoading[cTab]) return;
-
-      if (phaseCLoadAbort[cTab]) phaseCLoadAbort[cTab].abort();
-      var controller = new AbortController();
-      phaseCLoadAbort[cTab] = controller;
-      var loadingEl = getPhaseCTabLoadingEl(cTab);
-      setPhaseCTabLoadingUi(cTab, true);
-
-      try {
-        var data = await fetchPhaseCTab(cTab, controller.signal, {});
-        if (phaseCLoadAbort[cTab] !== controller) return;
-        var merged = mergePhaseCIntoPlan(data, cTab);
-        appState.productTabsRendered[cTab] = false;
-        try {
-          renderProductTabContent(cTab);
-          restoreAllSummaryPanels();
-        } catch (renderErr) {
-          console.error('[waldrof] phase_c render failed:', cTab, renderErr);
-          if (loadingEl) {
-            var raw = extractPhaseCRawFallback(data);
-            if (raw) {
-              renderStructuredTextFallback(
-                loadingEl,
-                cTab === 'inspiration' ? (t('tab_inspiration') + t('tab_inspiration_suffix')) : t('curriculum_title'),
-                raw
-              );
-            } else {
-              loadingEl.innerHTML = '<p class="text-sm text-terracotta p-4">' +
-                escapeHtml(String(renderErr.message || renderErr)) + '</p>';
-            }
-          }
-        }
-        if (!merged && cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis()) {
-          appState.productTabsRendered[cTab] = false;
-          renderProductTabContent(cTab);
-          restoreAllSummaryPanels();
-        } else if (!merged && cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
-          appState.productTabsRendered[cTab] = false;
-          renderProductTabContent(cTab);
-          restoreAllSummaryPanels();
-        } else if (!merged && loadingEl && /fa-spinner/.test(loadingEl.innerHTML || '')) {
-          var fallbackRaw = extractPhaseCRawFallback(data);
-          if (fallbackRaw) {
-            renderStructuredTextFallback(
-              loadingEl,
-              cTab === 'inspiration' ? (t('tab_inspiration') + t('tab_inspiration_suffix')) : t('curriculum_title'),
-              fallbackRaw
-            );
-          }
-        }
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        console.error('[waldrof] phase_c load failed:', cTab, err);
-        if (cTab === 'curriculum' && hydrateCurriculumFromUnifiedSynthesis()) {
-          appState.productTabsRendered[cTab] = false;
-          renderProductTabContent(cTab);
-          restoreAllSummaryPanels();
-        } else if (cTab === 'inspiration' && hydrateInspirationFromUnifiedSynthesis()) {
-          appState.productTabsRendered[cTab] = false;
-          renderProductTabContent(cTab);
-          restoreAllSummaryPanels();
-        } else if (loadingEl) {
-          loadingEl.innerHTML = '<p class="text-sm text-terracotta p-4">' + escapeHtml(String(err.message || err)) + '</p>';
-        }
-      } finally {
-        if (phaseCLoadAbort[cTab] === controller) phaseCLoadAbort[cTab] = null;
-        setPhaseCTabLoadingUi(cTab, false);
-        ensurePageScrollUnlocked();
-      }
-    }
-
     async function fetchDriveMergeAI() {
       const files = appState.personalMaterials.map(function (m) {
         return m.title + (m.notes ? ' (' + m.notes + ')' : '');
@@ -9480,18 +8822,6 @@
         personalFiles: files,
       });
       return data.driveMerge || null;
-    }
-
-    async function fetchAnthroArchiveSearch(query) {
-      const g = GRADES.find(function (x) { return x.id === appState.grade; });
-      return invokeWaldorfResearch({
-        phase: 'archive_search',
-        archiveQuery: query,
-        gradeId: appState.grade,
-        gradeLabel: appState.gradeLabel,
-        age: g ? g.age : '',
-        topic: appState.topic,
-      });
     }
 
     async function fetchBibliographyDeepSummary(source, signal, options) {
@@ -10541,63 +9871,7 @@
     }
 
     function collectStepCPlanData() {
-      const plan = appState.activePlan || appState.aiGeneratedPlan;
-      if (!plan) return null;
-      const theory = plan.theory || null;
-      const inspiration = plan.inspiration || null;
-      const curriculum = plan.curriculum && typeof plan.curriculum === 'object' && !Array.isArray(plan.curriculum)
-        ? plan.curriculum
-        : null;
-      return {
-        theory: theory ? {
-          title: theory.title || '',
-          sections: (theory.sections || []).map(function (sec, i) {
-            if (/מראי מקום|ביבליוגרפיה|מקורות להעמקה|bibliography|references/i.test(String(sec.heading || ''))) return null;
-            return {
-              heading: sec.heading || '',
-              contentHtml: sec.content || '',
-              quotes: sec.quotes || [],
-              sourceId: buildPedagogyItemId('theory', 'sec', i, sec.heading),
-            };
-          }).filter(Boolean),
-          bibliography: getRenderableBibliography(theory),
-        } : null,
-        inspiration: inspiration ? {
-          title: inspiration.title || '',
-          global: (inspiration.global || []).map(function (b, bi) {
-            return {
-              title: b.title || '',
-              items: (b.items || []).map(function (it, ii) {
-                const text = typeof it === 'string' ? it : (it.text || it.preview || '');
-                return {
-                  text: text,
-                  sourceId: buildPedagogyItemId('insp', 'global', bi + '-' + ii, text),
-                };
-              }),
-            };
-          }),
-          podcast: {
-            title: (inspiration.podcast && inspiration.podcast.title) || '',
-            episodes: ((inspiration.podcast && inspiration.podcast.episodes) || []).map(function (ep, ei) {
-              return {
-                theme: ep.theme || '',
-                insight: ep.insight || '',
-                sourceId: buildPedagogyItemId('insp', 'podcast', ei, (ep.theme || '') + (ep.insight || '')),
-              };
-            }),
-          },
-          narrative: (inspiration.narrative || []).map(function (n, ni) {
-            const text = typeof n === 'string' ? n : (n.text || n.preview || '');
-            return { text: text, sourceId: buildPedagogyItemId('insp', 'narrative', ni, text) };
-          }),
-        } : null,
-        curriculum: curriculum ? {
-          core_emphases: curriculum.core_emphases || '',
-          key_points: curriculum.key_points || '',
-          recommended_reading: curriculum.recommended_reading || '',
-          relevant_links: curriculum.relevant_links || '',
-        } : null,
-      };
+      return null;
     }
 
     function normalizeInsightBullets(items) {
@@ -10720,11 +9994,7 @@
     }
 
     function collectPedagogySummaryDocumentData() {
-      // שלבים א׳–ג׳ בלבד — ללא ארכיון הרצאות (#panel-archive)
-      if (appState.aiGeneratedPlan) {
-        try { ensureActivePlan(); } catch (e) { /* plan may be partial */ }
-        ensureAllProductTabsMounted();
-      }
+      // שלבים א׳–ב׳ בלבד
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
       const gi = (appState.gradeResearch && appState.gradeResearch.gradeInsights) ? appState.gradeResearch.gradeInsights : {};
       const domGi = extractGradeInsightsFromDom();
@@ -10752,7 +10022,7 @@
           }).filter(Boolean),
           connections: wr.connections || [],
         } : null,
-        stepC: collectStepCPlanData(),
+        stepC: null,
         chatMessages: collectChatMessagesForExport(),
       };
     }
@@ -10988,138 +10258,6 @@
       return exportToWord(docData, isEnglish() ? 'en' : 'he');
     }
 
-    function coerceGeneralSearchPayload(raw) {
-      const search = (raw && raw.archiveSearch) || raw || {};
-      return {
-        query: String(search.query || '').trim(),
-        intro: String(search.intro || '').trim(),
-        developmental_axis: String(search.developmental_axis || '').trim(),
-        core_pedagogical_emphases: String(search.core_pedagogical_emphases || '').trim(),
-        recommended_literature: String(search.recommended_literature || '').trim(),
-        relevant_links: String(search.relevant_links || '').trim(),
-      };
-    }
-
-    var GENERAL_SEARCH_FIELDS = [
-      'developmental_axis',
-      'core_pedagogical_emphases',
-      'recommended_literature',
-      'relevant_links',
-    ];
-    var GENERAL_SEARCH_I18N_KEYS = {
-      developmental_axis: 'general_search_developmental_axis',
-      core_pedagogical_emphases: 'general_search_core_emphases',
-      recommended_literature: 'general_search_literature',
-      relevant_links: 'general_search_links',
-    };
-    var GENERAL_SEARCH_MIN_FIELD_CHARS = 80;
-    var GENERAL_SEARCH_DEV_AXIS_MIN_CHARS = 200;
-
-    function generalSearchFieldMinChars(fieldKey) {
-      return fieldKey === 'developmental_axis'
-        ? GENERAL_SEARCH_DEV_AXIS_MIN_CHARS
-        : GENERAL_SEARCH_MIN_FIELD_CHARS;
-    }
-
-    function generalSearchFieldHasContent(fieldKey, search) {
-      if (!search || typeof search !== 'object') return false;
-      return pedagogicalEssenceFieldPlainText(search[fieldKey]).length >= generalSearchFieldMinChars(fieldKey);
-    }
-
-    function hasGeneralSearchContent(search) {
-      if (!search || typeof search !== 'object') return false;
-      return GENERAL_SEARCH_FIELDS.every(function (k) {
-        return generalSearchFieldHasContent(k, search);
-      });
-    }
-
-    function renderGeneralSearchCard(fieldKey, search, expanded) {
-      if (!generalSearchFieldHasContent(fieldKey, search)) return '';
-      var labelKey = GENERAL_SEARCH_I18N_KEYS[fieldKey] || fieldKey;
-      var isOpen = expanded !== false;
-      return (
-        '<article class="pedagogical-essence-card general-search-card bg-white/90 rounded-2xl border border-gold/30 shadow-sm overflow-hidden min-w-0" data-field="' + escapeHtml(fieldKey) + '">' +
-        '<button type="button" class="curriculum-card-toggle general-search-card-toggle w-full px-4 py-3 flex items-center justify-between gap-3 text-dir-start bg-sage/5 border-0" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
-        '<span class="font-semibold text-walnut leading-snug">' + escapeHtml(t(labelKey)) + '</span>' +
-        '<i class="fa-solid card-chevron ' + (isOpen ? 'fa-chevron-up' : 'fa-chevron-down') + ' text-sage-dark shrink-0" aria-hidden="true"></i>' +
-        '</button>' +
-        '<div class="curriculum-card-detail pedagogical-essence-detail general-search-card-body px-4 py-4 min-w-0' + (isOpen ? '' : ' hidden') + '">' +
-        renderPedagogicalEssenceFieldBody(fieldKey, search[fieldKey]) +
-        '</div></article>'
-      );
-    }
-
-    function bindGeneralSearchCardToggles(container) {
-      if (!container || container._generalSearchToggleBound) return;
-      container._generalSearchToggleBound = true;
-      container.addEventListener('click', function (ev) {
-        var btn = ev.target.closest('.general-search-card-toggle');
-        if (!btn || !container.contains(btn)) return;
-        ev.preventDefault();
-        var card = btn.closest('.general-search-card');
-        if (!card) return;
-        var body = card.querySelector('.general-search-card-body');
-        var icon = card.querySelector('.card-chevron');
-        var open = btn.getAttribute('aria-expanded') !== 'true';
-        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-        if (body) body.classList.toggle('hidden', !open);
-        if (icon) {
-          icon.classList.toggle('fa-chevron-up', open);
-          icon.classList.toggle('fa-chevron-down', !open);
-        }
-      });
-    }
-
-    function collectGeneralSearchExportData() {
-      const search = coerceGeneralSearchPayload(appState.archiveSearch);
-      return hasGeneralSearchContent(search) ? search : null;
-    }
-
-    function buildGeneralSearchExportSectionHtml(label, text) {
-      const raw = String(text || '').trim();
-      if (!raw) return '';
-      var body;
-      if (/<[a-z][\s\S]*>/i.test(raw)) {
-        body = '<div>' + raw + '</div>';
-      } else {
-        body = '<div style="white-space:pre-wrap;">' + escapeHtml(raw) + '</div>';
-      }
-      return '<h2>' + escapeHtml(label) + '</h2>' + body;
-    }
-
-    function buildGeneralSearchExportHtml(search) {
-      const parts = [];
-      const title = search.query || appState.archiveQuery || t('archive_title');
-      parts.push('<h1>' + escapeHtml(title) + '</h1>');
-      if (search.intro) parts.push('<p>' + escapeHtml(search.intro) + '</p>');
-      parts.push(buildGeneralSearchExportSectionHtml(t('general_search_developmental_axis'), search.developmental_axis));
-      parts.push(buildGeneralSearchExportSectionHtml(t('general_search_core_emphases'), search.core_pedagogical_emphases));
-      parts.push(buildGeneralSearchExportSectionHtml(t('general_search_literature'), search.recommended_literature));
-      parts.push(buildGeneralSearchExportSectionHtml(t('general_search_links'), search.relevant_links));
-      return parts.filter(Boolean).join('\n');
-    }
-
-    function buildGeneralSearchDocxFilename(query) {
-      const name = sanitizeDocxFilename(query || t('archive_title'));
-      return t('export_general_search_filename', { query: name });
-    }
-
-    function syncGeneralSearchExportBar() {
-      const bar = document.getElementById('archive-export-bar');
-      if (!bar) return;
-      bar.classList.toggle('hidden', !hasGeneralSearchContent(coerceGeneralSearchPayload(appState.archiveSearch)));
-    }
-
-    function setupGeneralSearchExportEvents() {
-      const btn = document.getElementById('btn-export-general-search');
-      if (!btn || btn._generalSearchExportBound) return;
-      btn._generalSearchExportBound = true;
-      btn.addEventListener('click', function (e) {
-        e.preventDefault();
-        void handleGeneralSearchExportClick();
-      });
-    }
-
     function assertWordDownloadForExport() {
       if (typeof WaldorfAuth === 'undefined') return;
       WaldorfAuth.assertWordDownloadAllowed();
@@ -11132,49 +10270,6 @@
       } catch (err) {
         console.warn('[word-download] track failed', err);
       }
-    }
-
-    async function handleGeneralSearchExportClick() {
-      const search = collectGeneralSearchExportData();
-      if (!search) {
-        alert(isEnglish() ? 'Run a general search before exporting.' : 'לא נמצאו תוצאות לייצוא. חפשו נושא תחילה.');
-        return;
-      }
-      try {
-        assertWordDownloadForExport();
-      } catch (err) {
-        return;
-      }
-      const btn = document.getElementById('btn-export-general-search');
-      const labelEl = btn ? btn.querySelector('[data-i18n]') : null;
-      const defaultLabel = t('btn_export_general_search');
-      if (btn) btn.disabled = true;
-      if (labelEl) labelEl.textContent = t('export_doc_generating');
-      try {
-        const html = buildGeneralSearchExportHtml(search);
-        const blob = buildSecureWordBlob(html || '', isEnglish() ? 'en' : 'he');
-        const filename = buildGeneralSearchDocxFilename(search.query);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
-        await trackWordDownloadAfterExport();
-      } catch (err) {
-        if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
-        console.error('General search DOC export failed:', err);
-        alert(t('export_doc_error') + ': ' + (err.message || String(err)));
-      } finally {
-        if (btn) btn.disabled = false;
-        if (labelEl) labelEl.textContent = defaultLabel;
-      }
-    }
-
-    async function downloadLectureSummaryDoc() {
-      return handleGeneralSearchExportClick();
     }
 
     async function downloadPedagogySummaryDocx() {
@@ -11238,12 +10333,9 @@
 
     function updatePedagogyExportButtonsVisibility() {
       if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.updateVisibility();
-      const show = canShowPedagogyExport() && !isArchiveView();
+      const show = canShowPedagogyExport();
       const topBtn = document.getElementById('btn-pedagogy-export-top');
       if (topBtn) topBtn.classList.toggle('hidden', !show);
-      const currBar = document.getElementById('pedagogy-export-bar-curriculum');
-      const hasPlan = !!(appState.activePlan || appState.aiGeneratedPlan);
-      if (currBar) currBar.classList.toggle('hidden', !show || !hasPlan);
     }
 
     function renderPedagogyInlinePanel(panel, sourceId, summary, loading, errorMsg) {
@@ -11310,91 +10402,6 @@
       });
     }
 
-    function renderAnthroArchiveResults(data) {
-      const search = coerceGeneralSearchPayload(data);
-      appState.archiveSearch = search;
-
-      const introEl = document.getElementById('archive-intro');
-      if (search.intro) {
-        introEl.innerHTML = '<p class="leading-relaxed text-sm">' + escapeHtml(search.intro) + '</p>';
-        introEl.classList.remove('hidden');
-      } else {
-        introEl.classList.add('hidden');
-        introEl.innerHTML = '';
-      }
-
-      const wrap = document.getElementById('archive-results');
-      const cardsHtml = GENERAL_SEARCH_FIELDS.map(function (fieldKey) {
-        return renderGeneralSearchCard(fieldKey, search, true);
-      }).filter(Boolean).join('');
-
-      if (!cardsHtml) {
-        holdPageScroll(function () {
-          wrap.innerHTML =
-            '<p class="text-sm text-walnut/60 text-center py-8">' +
-            escapeHtml(t('archive_empty')) +
-            '</p>';
-        });
-        syncGeneralSearchExportBar();
-        return;
-      }
-
-      holdPageScroll(function () {
-        wrap.innerHTML = cardsHtml;
-        bindGeneralSearchCardToggles(wrap);
-      });
-      bindGeneralSearchCardToggles(wrap);
-      syncGeneralSearchExportBar();
-      updatePedagogyExportButtonsVisibility();
-    }
-
-    async function runAnthroArchiveSearch() {
-      const input = document.getElementById('archive-query');
-      const query = (input && input.value.trim()) || '';
-      if (!query) {
-        alert(t('archive_query_required'));
-        return;
-      }
-      document.getElementById('archive-api-hint').classList.add('hidden');
-
-      const btn = document.getElementById('btn-archive-search');
-      const status = document.getElementById('archive-status');
-      btn.disabled = true;
-      status.classList.remove('hidden');
-      status.innerHTML = '<i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('archive_searching'));
-      document.getElementById('archive-results').innerHTML = '';
-      document.getElementById('archive-intro').classList.add('hidden');
-      syncGeneralSearchExportBar();
-
-      appState.archiveQuery = query;
-
-      try {
-        const data = await fetchAnthroArchiveSearch(query);
-        renderAnthroArchiveResults(data);
-        status.innerHTML = '<i class="fa-solid fa-check text-sage ml-1"></i> ' + escapeHtml(t('archive_status_done'));
-      } catch (e) {
-        if (isRateLimitError(e)) return;
-        status.innerHTML = '<span class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message || String(e)) + '</span>';
-        document.getElementById('archive-results').innerHTML = '';
-      } finally {
-        btn.disabled = false;
-      }
-    }
-
-    function initAnthroArchivePanel() {
-      const hint = document.getElementById('archive-api-hint');
-      if (hint) {
-        if (!isResearchAvailable()) hint.classList.remove('hidden');
-        else hint.classList.add('hidden');
-      }
-      setupGeneralSearchExportEvents();
-      const q = document.getElementById('archive-query');
-      if (appState.archiveSearch && appState.archiveQuery && q && q.value.trim() === appState.archiveQuery) {
-        renderAnthroArchiveResults({ archiveSearch: appState.archiveSearch });
-      }
-      syncGeneralSearchExportBar();
-    }
-
     function renderWebResearchResult() {
       const wr = appState.webResearch;
       const out = document.getElementById('web-research-result');
@@ -11431,7 +10438,6 @@
         out.classList.remove('hidden');
       });
       ensurePedagogySuggestionEvents();
-      document.getElementById('btn-to-workspace').disabled = !hasLessonReady();
       updatePedagogyExportButtonsVisibility();
       checkAndShowCommunityTopicAlert();
       nudgeGoogleTranslate();
@@ -12195,8 +11201,6 @@
       if (appState.webResearch) {
         holdPageScroll(function () { renderWebResearchResult(); });
       }
-      var toWorkspaceBtn = document.getElementById('btn-to-workspace');
-      if (toWorkspaceBtn) toWorkspaceBtn.disabled = !hasLessonReady();
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
@@ -14263,7 +13267,7 @@
     }
 
     // ---------- Step UI engine ----------
-    const STEP_NAV_KEYS = ['step_nav_a', 'step_nav_b', 'step_nav_c'];
+    const STEP_NAV_KEYS = ['step_nav_a', 'step_nav_b'];
 
     function syncGradeLabelFromState() {
       if (appState.grade) appState.gradeLabel = getGradeLabelById(appState.grade);
@@ -14274,10 +13278,7 @@
     }
 
     function canNavigateToStep(n) {
-      if (n === 1) return true;
-      if (n === 2) return true;
-      if (n === 3) return Boolean(appState.grade && resolveLessonTopic() && hasStructuredLessonPlan());
-      return false;
+      return n === 1 || n === 2;
     }
 
     function syncTopicFromInput() {
@@ -14285,29 +13286,18 @@
     }
 
     function getMaxCompletedWizardStep() {
-      if (isWorkspaceOpen() && appState.navSection === 'products') return 3;
       if (appState.grade && appState.topic) return 2;
       if (appState.grade) return 1;
       return 0;
-    }
-
-    function isProductsView() {
-      return isWorkspaceOpen() && appState.navSection === 'products';
     }
 
     function isCommunityView() {
       return isWorkspaceOpen() && appState.navSection === 'community';
     }
 
-    function isArchiveView() {
-      return isWorkspaceOpen() && appState.navSection === 'archive';
-    }
-
     function updateTopNavButtons() {
       const communityBtn = document.getElementById('btn-nav-community');
-      const archiveBtn = document.getElementById('btn-nav-archive');
       if (communityBtn) communityBtn.classList.toggle('active', isCommunityView());
-      if (archiveBtn) archiveBtn.classList.toggle('active', isArchiveView());
     }
 
     function renderWorkspaceBreadcrumb() {
@@ -14319,9 +13309,7 @@
       const crumbs = [
         { id: 'ws-crumb-grade', section: 'wizard' },
         { id: 'ws-crumb-topic', section: 'wizard' },
-        { id: 'ws-crumb-products', section: 'products' },
         { id: 'ws-crumb-community', section: 'community' },
-        { id: 'ws-crumb-archive', section: 'archive' },
       ];
       crumbs.forEach(function (c) {
         const el = document.getElementById(c.id);
@@ -14355,15 +13343,11 @@
       var root = document.documentElement;
       var siteChrome = document.getElementById('app-site-chrome');
       var spacer = document.getElementById('app-site-chrome-spacer');
-      var tabsNav = document.getElementById('workspace-products-nav');
       if (siteChrome) {
         var chromeHeight = siteChrome.offsetHeight;
         root.style.setProperty('--app-site-chrome-height', chromeHeight + 'px');
         root.style.setProperty('--app-sticky-nav-height', chromeHeight + 'px');
         if (spacer) spacer.style.height = chromeHeight + 'px';
-      }
-      if (tabsNav && !tabsNav.classList.contains('hidden')) {
-        root.style.setProperty('--product-tabs-nav-height', tabsNav.offsetHeight + 'px');
       }
     }
 
@@ -14376,11 +13360,7 @@
       if (grade && topic) return grade + ' · ' + topic;
       if (grade) return grade;
       if (topic) return topic;
-      if (isWorkspaceOpen()) {
-        if (isCommunityView()) return t('nav_community');
-        if (isArchiveView()) return t('nav_archive');
-        if (isProductsView()) return t('step_prefix') + ' ' + t('step_nav_c');
-      }
+      if (isWorkspaceOpen() && isCommunityView()) return t('nav_community');
       var stepIdx = Math.max(0, Math.min(STEP_NAV_KEYS.length - 1, (appState.step || 1) - 1));
       var stepKey = STEP_NAV_KEYS[stepIdx];
       return stepKey ? (t('step_prefix') + ' ' + t(stepKey)) : '';
@@ -14391,18 +13371,12 @@
       var labelEl = document.getElementById('header-compact-context-label');
       var gradeBtn = document.getElementById('header-compact-edit-grade');
       var topicBtn = document.getElementById('header-compact-edit-topic');
-      var productsBtn = document.getElementById('header-compact-products');
       var labelText = getHeaderCompactContextLabel();
       if (labelEl) {
         labelEl.textContent = labelText;
         labelEl.setAttribute('aria-hidden', labelText ? 'false' : 'true');
       }
       if (topicBtn) topicBtn.disabled = false;
-      var productsReady = canNavigateToStep(3);
-      if (productsBtn) {
-        productsBtn.disabled = !productsReady;
-        productsBtn.classList.toggle('active', productsReady && isProductsView());
-      }
       if (gradeBtn) {
         gradeBtn.classList.toggle('active', !isWorkspaceOpen() && appState.step === 1);
       }
@@ -14465,11 +13439,6 @@
       scrollToStepBAndFocus({ expandHeader: true, behavior: 'smooth', focusField: false });
     }
 
-    function navigateCompactHeaderToProducts() {
-      if (!canNavigateToStep(3)) return;
-      openProductsWorkspace(true);
-    }
-
     function setHeaderCompact(compact) {
       var siteChrome = document.getElementById('app-site-chrome');
       if (!siteChrome) return;
@@ -14508,12 +13477,7 @@
     }
 
     function updateWorkspaceChrome() {
-      const productsNav = document.getElementById('workspace-products-nav');
-      const productsSpacer = document.getElementById('workspace-products-nav-spacer');
-      const inProducts = isProductsView();
-      if (productsNav) productsNav.classList.toggle('hidden', !inProducts);
-      if (productsSpacer) productsSpacer.classList.toggle('hidden', !inProducts);
-      document.body.classList.toggle('ws-products-view', inProducts);
+      document.body.classList.remove('ws-products-view');
       requestAnimationFrame(syncProductTabsStickyLayout);
       renderWorkspaceBreadcrumb();
       updateTopNavButtons();
@@ -14527,7 +13491,7 @@
         const n = i + 1;
         const label = t(key);
         const enabled = canNavigateToStep(n);
-        const isActive = (!inWs && n === appState.step) || (isProductsView() && n === 3);
+        const isActive = !inWs && n === appState.step;
         const isDone = !isActive && (
           (n === 1 && Boolean(appState.grade) && (appState.step > 1 || inWs)) ||
           (n === 2 && Boolean(appState.grade && appState.topic) && (appState.step > 2 || inWs))
@@ -14842,25 +13806,11 @@
       options = options || {};
       navSection = navSection || 'wizard';
       step = parseInt(step, 10);
-      if (navSection === 'products' && step === 3) {
-        if (canNavigateToStep(3)) {
-          openProductsWorkspace(false);
-        } else if (appState.topic && (appState.webResearch || appState.aiGeneratedPlan)) {
-          restoreStepBTopicResultsView();
-        } else {
-          goToStep(1, false);
-        }
-        return;
-      }
       if (navSection === 'community') {
         openCommunityRepo();
         if (catalogState.view && catalogState.view !== 'grades') {
           renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
         }
-        return;
-      }
-      if (navSection === 'archive') {
-        openArchiveNav();
         return;
       }
       if (step === 2) {
@@ -14876,20 +13826,8 @@
         }
         if (appState.webResearch) {
           holdPageScroll(function () { renderWebResearchResult(); });
-          var toWorkspaceBtn = document.getElementById('btn-to-workspace');
-          if (toWorkspaceBtn && appState.aiGeneratedPlan) toWorkspaceBtn.disabled = !hasLessonReady();
         }
         if (!options.restoreScrollY) scrollToStepB(false);
-        return;
-      }
-      if (step === 3) {
-        if (canNavigateToStep(3)) {
-          openProductsWorkspace(false);
-        } else if (appState.topic && (appState.webResearch || appState.aiGeneratedPlan)) {
-          restoreStepBTopicResultsView();
-        } else {
-          goToStep(1, false);
-        }
         return;
       }
       if (step === 1) {
@@ -14926,7 +13864,7 @@
       }
 
       var step = parseInt(saved.step, 10);
-      if (!(step >= 1 && step <= 3)) return;
+      if (!(step >= 1 && step <= 2)) return;
 
       if (options.preferMemory && appState.step >= step && appState.grade) {
         step = appState.step;
@@ -14937,7 +13875,6 @@
         }
         if (saved.topic) appState.topic = saved.topic;
         if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
-        if (saved.activeProductTab) appState.activeProductTab = saved.activeProductTab;
         if (typeof saved.topicResearchCompleted === 'boolean') {
           appState.topicResearchCompleted = saved.topicResearchCompleted;
         }
@@ -15144,34 +14081,6 @@
       updateNewResearchBarVisibility();
     }
 
-    function openProductsWorkspace(fromWizard) {
-      syncTopicFromInput();
-      var topic = resolveLessonTopic();
-      if (!appState.grade || !topic || !appState.aiGeneratedPlan) return;
-      if (!hasStructuredLessonPlan()) {
-        restoreStepBTopicResultsView();
-        return;
-      }
-      appState.step = 3;
-      appState.navSection = 'products';
-      if (!appState.activePlan) appState.activePlan = buildActivePlan();
-      showWorkspaceShell();
-      try {
-        ensureProductTabsHydrated();
-        hydrateUnifiedLessonSynthesis();
-        switchTab(appState.activeProductTab || 'theory');
-      } catch (err) {
-        console.error('[waldrof] openProductsWorkspace render failed:', err);
-        restoreStepBTopicResultsView();
-        return;
-      }
-      renderStepProgress();
-      updateWorkspaceChrome();
-      updatePedagogyExportButtonsVisibility();
-      if (fromWizard) scrollToWorkspaceTop('smooth');
-      persistActiveStep();
-    }
-
     function openCommunityRepo() {
       syncTopicFromInput();
       appState.navSection = 'community';
@@ -15182,20 +14091,6 @@
       } else if (!catalogState.gradeId) {
         renderCatalog('grades');
       }
-      renderStepProgress();
-      updateWorkspaceChrome();
-      persistActiveStep();
-    }
-
-    function openArchiveNav() {
-      syncTopicFromInput();
-      appState.navSection = 'archive';
-      showWorkspaceShell();
-      if (appState.grade && appState.topic && !appState.activePlan && appState.aiGeneratedPlan) {
-        appState.activePlan = buildActivePlan();
-      }
-      switchTab('archive');
-      initAnthroArchivePanel();
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
@@ -15223,24 +14118,16 @@
     function hideAllWorkspacePanels() {
       document.querySelectorAll('#workspace .tab-panel').forEach(function (p) {
         p.classList.add('hidden');
-        if (p.classList.contains('product-tab-panel')) p.setAttribute('hidden', '');
       });
-      resetProductTabsNeutral();
     }
 
     function restoreWizardAfterTopicCancel() {
-      appState.activeProductTab = null;
       appState.activePlan = null;
       hideAllWorkspacePanels();
-      clearProductPanelDom();
       ensureStepBWizardView();
     }
 
     function goToStep(n, scrollBehavior) {
-      if (n === 3) {
-        openProductsWorkspace();
-        return;
-      }
       appState.step = n;
       appState.navSection = 'wizard';
       document.getElementById('workspace').classList.add('hidden');
@@ -15377,7 +14264,6 @@
       appState.lessonCacheKey = '';
       resetVisualGalleryState();
       appState._visualGallerySessionKey = visualGallerySessionKey();
-      invalidateProductTabRenders();
 
       const topicInputReset = document.getElementById('topic-input');
       if (topicInputReset) topicInputReset.value = '';
@@ -15385,7 +14271,6 @@
       if (webResultReset) { webResultReset.classList.add('hidden'); webResultReset.innerHTML = ''; }
       const topicSlotReset = document.getElementById('topic-community-slot');
       if (topicSlotReset) { topicSlotReset.classList.add('hidden'); topicSlotReset.innerHTML = ''; }
-      document.getElementById('btn-to-workspace').disabled = true;
       setTopicResearchLoadingUi(false);
       updateTopicResearchButton();
 
@@ -15475,22 +14360,7 @@
     }
 
     function initStreaming() {
-      return new Promise(function (resolve) {
-        ensureProductTabsHydrated(true);
-        if (!isWorkspaceOpen()) {
-          resolve();
-          return;
-        }
-        setupThemeActionButtons();
-        switchTab('theory');
-        setupThemeActionButtons();
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            setupThemeActionButtons();
-            resolve();
-          });
-        });
-      });
+      return Promise.resolve();
     }
 
     function resetTopicResearchForEdit() {
@@ -15503,19 +14373,15 @@
       resetVisualGalleryState();
       appState._visualGallerySessionKey = '';
       appState.lessonFromArchive = false;
-      appState.productTabsRendered = freshProductTabsRendered();
       resetSummarySession();
       abortAllInlineExpansions();
-      invalidateProductTabRenders();
 
       const input = document.getElementById('topic-input');
       const out = document.getElementById('web-research-result');
       const topicSlot = document.getElementById('topic-community-slot');
-      const toWorkspaceBtn = document.getElementById('btn-to-workspace');
       if (input) input.value = '';
       if (out) { out.classList.add('hidden'); out.innerHTML = ''; }
       if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
-      if (toWorkspaceBtn) toWorkspaceBtn.disabled = true;
 
       setTopicResearchLoadingUi(false);
       updateTopicResearchButton();
@@ -15760,7 +14626,6 @@
         topicResearchAbort = null;
         setTopicResearchLoadingUi(false);
         if (!signal.aborted && btn) btn.disabled = false;
-        document.getElementById('btn-to-workspace').disabled = !hasLessonReady();
       }
     }
 
@@ -15872,7 +14737,6 @@
       appState._visualGallerySessionKey = visualGallerySessionKey();
       resetSummarySession();
       abortAllInlineExpansions();
-      invalidateProductTabRenders();
 
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
@@ -15934,15 +14798,10 @@
 
     function refreshWorkspaceIfOpen() {
       if (document.getElementById('workspace').classList.contains('hidden')) return;
-      renderTeacherDriveMergeSlots();
-      if (!appState.productTabsRendered.inspiration) {
-        ensureAllProductTabsMounted();
-        return;
+      const catalogPanel = document.getElementById('panel-catalog');
+      if (catalogPanel && !catalogPanel.classList.contains('hidden')) {
+        renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
       }
-      renderPersonalInWorkspace();
-      renderCommunityMaterials();
-      updateCommunityBadge();
-      restoreAllSummaryPanels();
     }
 
     function isGoogleDriveConfigured() {
@@ -16121,32 +14980,6 @@
     }
 
     // ---------- Workspace render ----------
-    function freshProductTabsRendered() {
-      return { theory: false, inspiration: false, curriculum: false };
-    }
-
-    function clearProductPanelDom() {
-      var theoryEl = document.getElementById('theoretical-content');
-      if (theoryEl) theoryEl.innerHTML = '';
-      var inspBase = document.getElementById('inspiration-content');
-      if (inspBase) inspBase.innerHTML = '';
-      var pinGal = document.getElementById('pinterest-gallery');
-      if (pinGal) pinGal.innerHTML = '';
-      var commMat = document.getElementById('community-materials');
-      if (commMat) commMat.innerHTML = '';
-      var cards = document.getElementById('pedagogical-essence-content');
-      if (cards) cards.innerHTML = '';
-      var inspSlot = document.getElementById('teacher-drive-inspiration-slot');
-      if (inspSlot) { inspSlot.innerHTML = ''; inspSlot.classList.add('hidden'); }
-      var currSlot = document.getElementById('teacher-drive-curriculum-slot');
-      if (currSlot) { currSlot.innerHTML = ''; currSlot.classList.add('hidden'); }
-    }
-
-    function invalidateProductTabRenders() {
-      appState.productTabsRendered = freshProductTabsRendered();
-      clearProductPanelDom();
-    }
-
     function ensureActivePlan() {
       if (!appState.activePlan) {
         appState.activePlan = buildActivePlan();
@@ -16155,200 +14988,6 @@
         throw new Error('אין תוכנית עשירה — הריצו מחקר AI בשלב ב׳');
       }
       return appState.activePlan;
-    }
-
-    function renderProductTabContent(tabId) {
-      if (!appState.aiGeneratedPlan) return;
-      try {
-        ensureActivePlan();
-      } catch (planErr) {
-        console.error('[waldrof] ensureActivePlan failed:', planErr);
-        var theoryEl = document.getElementById('theoretical-content');
-        if (theoryEl && tabId === 'theory') {
-          var rawPlan = appState.aiGeneratedPlan && (appState.aiGeneratedPlan.rawContent || '');
-          renderStructuredTextFallback(theoryEl, t('tab_theory'), rawPlan || String(planErr.message || planErr));
-        }
-        ensurePageScrollUnlocked();
-        return;
-      }
-      var r = appState.productTabsRendered;
-      try {
-        if (tabId === 'theory' && !r.theory) {
-          renderTheory();
-          r.theory = true;
-        } else if (tabId === 'inspiration') {
-          hydrateUnifiedLessonSynthesis();
-          var inspPanelEl = document.getElementById('inspiration-content');
-          var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
-          if (!hasPhaseCInspirationContent()) {
-            if (shouldBlockLivePhaseCApi()) {
-              if (!hydrateInspirationFromUnifiedSynthesis()) {
-                var archiveInspRaw = extractArchiveInspirationFromData(
-                  { blockPlan: appState.aiGeneratedPlan },
-                  appState.aiGeneratedPlan
-                );
-                if (archiveInspRaw != null) {
-                  var coercedInsp = coerceInspirationStructure(
-                    archiveInspRaw,
-                    extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan })
-                  );
-                  if (coercedInsp && isMeaningfulArchiveInspiration(coercedInsp)) {
-                    appState.aiGeneratedPlan.inspiration = coercedInsp;
-                    appState.activePlan = JSON.parse(JSON.stringify(appState.aiGeneratedPlan));
-                  }
-                }
-              }
-              if (hasPhaseCInspirationContent()) {
-                renderInspirationTabPanels();
-                r.inspiration = true;
-                ensurePageScrollUnlocked();
-                return;
-              }
-              renderStructuredTextFallback(
-                inspPanelEl,
-                t('tab_inspiration') + t('tab_inspiration_suffix'),
-                extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
-                  ? 'Archived lesson — inspiration was not stored in this record.'
-                  : 'תכנית ארכיון — שכבת ההשראה לא נשמרה ברשומה זו.')
-              );
-              renderCommunityMaterials();
-              updateCommunityBadge();
-              r.inspiration = true;
-              ensurePageScrollUnlocked();
-              return;
-            }
-            if (isResearchAvailable()) {
-              ensurePhaseCTabLoaded('inspiration');
-              return;
-            }
-            if (hydrateInspirationFromUnifiedSynthesis()) {
-              renderInspirationTabPanels();
-              r.inspiration = true;
-              ensurePageScrollUnlocked();
-              return;
-            }
-          }
-          if (!r.inspiration || inspDomEmpty) {
-            renderInspirationTabPanels();
-            r.inspiration = true;
-          }
-        } else if (tabId === 'curriculum') {
-          hydrateUnifiedLessonSynthesis();
-          var currPanelEl = document.getElementById('pedagogical-essence-content');
-          var currDomEmpty = !isCurriculumPanelMounted();
-          if (phaseCTabLoading.curriculum) {
-            setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-            r.curriculum = true;
-            ensurePageScrollUnlocked();
-            return;
-          }
-          if (!hasPhaseCCurriculumContent()) {
-            if (topicPayloadNeedsBackgroundCurriculumMigration(
-              { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-              (appState.lessonCacheMeta || null)
-            )) {
-              setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-              void ensureArchiveCurriculumRegeneratedBlocking(
-                { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-                appState.lessonCacheMeta || null
-              ).then(function (migrated) {
-                if (migrated) {
-                  appState.productTabsRendered.curriculum = false;
-                  renderProductTabContent('curriculum');
-                } else {
-                  setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
-                }
-              });
-              r.curriculum = true;
-              ensurePageScrollUnlocked();
-              return;
-            }
-            if (shouldBlockLivePhaseCApi()) {
-              renderStructuredTextFallback(
-                currPanelEl,
-                t('curriculum_title'),
-                extractPhaseCRawFallback({ blockPlan: appState.aiGeneratedPlan }) || (isEnglish()
-                  ? 'Archived lesson — pedagogical essence for the block was not stored in this record.'
-                  : 'תכנית ארכיון — מהות הפדגוגיה לתקופה לא נשמרה ברשומה זו.')
-              );
-              r.curriculum = true;
-              ensurePageScrollUnlocked();
-              return;
-            }
-            if (isResearchAvailable()) {
-              ensurePhaseCTabLoaded('curriculum');
-              return;
-            }
-            if (hydrateCurriculumFromUnifiedSynthesis()) {
-              renderCurriculumTabPanels();
-              r.curriculum = true;
-              ensurePageScrollUnlocked();
-              return;
-            }
-          }
-          if (hasPhaseCCurriculumContent() && (!r.curriculum || currDomEmpty)) {
-            renderCurriculumTabPanels();
-            r.curriculum = true;
-          } else if (hasPhaseCCurriculumContent()) {
-            setupThemeActionButtons();
-            restorePedagogicalEssenceExpandedFields();
-            restorePedagogySummaryPanels();
-          }
-        }
-      } catch (renderErr) {
-        console.error('[waldrof] renderProductTabContent failed:', tabId, renderErr);
-        var panelEl = tabId === 'theory'
-          ? document.getElementById('theoretical-content')
-          : (tabId === 'inspiration' ? document.getElementById('inspiration-content') : document.getElementById('pedagogical-essence-content'));
-        var rawFallback = String(
-          (appState.activePlan && appState.activePlan.rawContent) ||
-          (appState.webResearch && appState.webResearch.rawContent) ||
-          ''
-        ).trim();
-        if (panelEl) {
-          renderStructuredTextFallback(panelEl, tabId === 'theory' ? t('tab_theory') : (
-            tabId === 'inspiration' ? (t('tab_inspiration') + t('tab_inspiration_suffix')) : t('curriculum_title')
-          ), rawFallback || String(renderErr.message || renderErr));
-        }
-      } finally {
-        ensurePageScrollUnlocked();
-      }
-    }
-
-    function ensureProductTabsHydrated(forceRemount) {
-      if (!appState.aiGeneratedPlan) return;
-      ensureActivePlan();
-      var theoryEl = document.getElementById('theoretical-content');
-      var domEmpty = theoryEl && !theoryEl.innerHTML.trim();
-      if (forceRemount || domEmpty) {
-        invalidateProductTabRenders();
-      }
-      ensureAllProductTabsMounted();
-    }
-
-    function ensureAllProductTabsMounted() {
-      if (!appState.aiGeneratedPlan) return;
-      PRODUCT_TAB_IDS.forEach(function (tabId) {
-        renderProductTabContent(tabId);
-      });
-      restoreAllSummaryPanels();
-      setupPhase3ActionButtons();
-    }
-
-    function unlockWorkspace(remountPanels) {
-      syncTopicFromInput();
-      appState.activePlan = null;
-      showWorkspaceShell();
-      if (remountPanels !== false) {
-        appState.activeProductTab = null;
-        invalidateProductTabRenders();
-        resetProductTabsNeutral();
-      }
-      renderStepProgress();
-      updateWorkspaceChrome();
-      updateNewResearchBarVisibility();
-      initAnthroArchivePanel();
-      nudgeGoogleTranslate();
     }
 
     function shouldShowDriveMerge() {
@@ -16955,10 +15594,6 @@
     }
 
     function renderCurriculum() {
-      if (phaseCTabLoading.curriculum) {
-        setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-        return;
-      }
       capturePedagogicalEssenceUiStateFromDom();
       var essenceEl = document.getElementById('pedagogical-essence-content');
       var essence = resolvePedagogicalEssenceForRender();
@@ -16966,28 +15601,10 @@
       if (!essence || !PHASE_C_ESSENCE_FIELDS.some(function (fieldKey) {
         return pedagogicalEssenceFieldHasContent(fieldKey, essence);
       })) {
-        if (topicPayloadNeedsBackgroundCurriculumMigration(
-          { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-          appState.lessonCacheMeta || null
-        )) {
-          setPhaseCTabLoadingUi('curriculum', true, { allowArchiveLoading: true });
-          void ensureArchiveCurriculumRegeneratedBlocking(
-            { blockPlan: appState.aiGeneratedPlan, webResearch: appState.webResearch },
-            appState.lessonCacheMeta || null
-          ).then(function (migrated) {
-            if (migrated) {
-              appState.productTabsRendered.curriculum = false;
-              renderCurriculumTabPanels();
-            } else {
-              setPhaseCTabLoadingUi('curriculum', false, { allowArchiveLoading: true });
-            }
-          });
-          return;
-        }
         var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
           escapeHtml(isEnglish()
-            ? 'No pedagogical essence fields were found. Open this tab again to generate core_emphases, key_points, recommended_reading, and relevant_links.'
-            : 'לא נמצאו שדות מהות פדגוגית. פתחו שוב את הלשונית כדי ליצור core_emphases, key_points, recommended_reading ו-relevant_links.') +
+            ? 'No pedagogical essence fields were found.'
+            : 'לא נמצאו שדות מהות פדגוגית.') +
           '</p>';
         holdPageScroll(function () {
           if (essenceEl) essenceEl.innerHTML = emptyMsg;
@@ -18152,113 +16769,19 @@
       persistActiveStep();
     }
 
-    function syncProductTabButtons(activeId) {
-      document.querySelectorAll('#workspace-products-nav .product-tab-btn').forEach(function (b) {
-        const on = Boolean(activeId) && b.getAttribute('data-tab') === activeId;
-        b.classList.toggle('is-active', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-      });
-    }
-
-    function hideProductTabPanel(id) {
-      const panel = document.getElementById('panel-' + id);
-      if (!panel) return;
-      panel.classList.add('hidden');
-      panel.setAttribute('hidden', '');
-      panel.classList.remove('product-tab-panel--enter');
-    }
-
-    function revealProductTabPanel(id) {
-      var shell = document.getElementById('product-panels-shell');
-      if (shell) {
-        shell.classList.remove('hidden', 'is-neutral');
-        shell.removeAttribute('hidden');
-        shell.setAttribute('aria-hidden', 'false');
-      }
-      PRODUCT_TAB_IDS.forEach(function (pid) {
-        if (pid !== id) hideProductTabPanel(pid);
-      });
-      const panel = document.getElementById('panel-' + id);
-      if (!panel) return;
-      panel.classList.remove('hidden');
-      panel.removeAttribute('hidden');
-      panel.classList.remove('product-tab-panel--enter');
-      void panel.offsetWidth;
-      panel.classList.add('product-tab-panel--enter');
-      panel.addEventListener('animationend', function onEnd() {
-        panel.classList.remove('product-tab-panel--enter');
-        panel.removeEventListener('animationend', onEnd);
-      });
-    }
-
-    function resetProductTabsNeutral() {
-      appState.activeProductTab = null;
-      syncProductTabButtons(null);
-      PRODUCT_TAB_IDS.forEach(hideProductTabPanel);
-      var shell = document.getElementById('product-panels-shell');
-      if (shell) {
-        shell.classList.add('hidden', 'is-neutral');
-        shell.setAttribute('hidden', '');
-        shell.setAttribute('aria-hidden', 'true');
-      }
-    }
-
-    function isProductTab(id) {
-      return PRODUCT_TAB_IDS.indexOf(id) >= 0;
-    }
-
     function switchTab(id) {
-      var prevProductTab = appState.activeProductTab;
-      var prevNavSection = appState.navSection;
-      var tabViewChanged = isProductTab(id)
-        ? prevProductTab !== id
-        : (id === 'catalog' || id === 'archive' ? prevNavSection !== id : false);
-
-      if (id === 'catalog') {
-        appState.navSection = 'community';
-        resetProductTabsNeutral();
-      } else if (id === 'archive') {
-        appState.navSection = 'archive';
-        resetProductTabsNeutral();
-      } else if (isProductTab(id)) {
-        if (!appState.aiGeneratedPlan) return;
-        if (!isWorkspaceOpen()) return;
-        resolveLessonTopic();
-        appState.navSection = 'products';
-        appState.activeProductTab = id;
-        syncProductTabButtons(id);
-        document.querySelectorAll('.tab-panel').forEach(function (p) {
-          if (!p.classList.contains('product-tab-panel')) {
-            p.classList.add('hidden');
-          }
-        });
-        ensureProductTabsHydrated();
-        revealProductTabPanel(id);
-        if (id === 'curriculum') {
-          setupPhase3ActionButtons();
-          restorePedagogicalEssenceExpandedFields();
-          restorePedagogySummaryPanels();
-        }
-        if (tabViewChanged) resetMainViewScroll();
-        updateWorkspaceChrome();
-        updatePedagogyExportButtonsVisibility();
-        renderStepProgress();
-        persistActiveStep();
-        document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
-        return;
-      }
+      if (id !== 'catalog') return;
+      var tabViewChanged = appState.navSection !== 'community';
+      appState.navSection = 'community';
       if (tabViewChanged) resetMainViewScroll();
       document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
-      document.querySelectorAll('.tab-panel').forEach(function (p) {
-        p.classList.add('hidden');
-        if (p.classList.contains('product-tab-panel')) p.setAttribute('hidden', '');
-      });
-      const panel = document.getElementById('panel-' + id);
+      document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.add('hidden'); });
+      const panel = document.getElementById('panel-catalog');
       if (panel) {
         panel.classList.remove('hidden');
         panel.removeAttribute('hidden');
       }
-      if (id === 'catalog') renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
@@ -18275,12 +16798,8 @@
         step: 1, navSection: 'wizard', grade: null, gradeLabel: null, topic: null, topicResearchCompleted: false, webResearch: null,
         personalMaterials: [], driveScanned: false, activePlan: null,
         gradeResearch: null, aiGeneratedPlan: null, driveMerge: null,
-        archiveQuery: '', archiveSearch: null, archiveSourcesById: {}, archiveSummaries: {}, archivePanelsOpen: {}, archiveActiveExportId: null,
         bibliographyRegistry: {},
         pedagogyRegistry: {},
-        activeProductTab: null,
-        productTabsRendered: freshProductTabsRendered(),
-        curriculumUiState: { expandedFields: ['core_emphases', 'key_points', 'recommended_reading', 'relevant_links'] },
         lessonCacheKey: '',
       lessonCacheMeta: null,
         lessonFromArchive: false,
@@ -18296,8 +16815,6 @@
       resetArchiveSearchFlowState();
       resetSummarySession();
       abortAllInlineExpansions();
-      invalidateProductTabRenders();
-      resetProductTabsNeutral();
       if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.reset();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
@@ -18314,29 +16831,11 @@
       document.getElementById('web-research-result').classList.add('hidden');
       document.getElementById('web-research-result').innerHTML = '';
       setTopicResearchLoadingUi(false);
-      document.getElementById('btn-to-workspace').disabled = true;
       document.getElementById('btn-topic-research').disabled = false;
       updateTopicResearchButton();
       const topicSlotReset = document.getElementById('topic-community-slot');
       if (topicSlotReset) { topicSlotReset.classList.add('hidden'); topicSlotReset.innerHTML = ''; }
-      document.getElementById('teacher-drive-inspiration-slot').classList.add('hidden');
-      document.getElementById('teacher-drive-inspiration-slot').innerHTML = '';
-      document.getElementById('teacher-drive-curriculum-slot').classList.add('hidden');
-      document.getElementById('teacher-drive-curriculum-slot').innerHTML = '';
-      document.getElementById('theoretical-content').innerHTML = '';
-      document.getElementById('inspiration-content').innerHTML = '';
-      document.getElementById('pinterest-gallery').innerHTML = '';
-      var essenceReset = document.getElementById('pedagogical-essence-content');
-      if (essenceReset) essenceReset.innerHTML = '';
-      document.getElementById('archive-query').value = '';
-      document.getElementById('archive-status').classList.add('hidden');
-      document.getElementById('archive-status').innerHTML = '';
-      document.getElementById('archive-intro').classList.add('hidden');
-      document.getElementById('archive-intro').textContent = '';
-      document.getElementById('archive-results').innerHTML = '';
-      var archiveHint = document.getElementById('archive-api-hint');
-      if (archiveHint) archiveHint.classList.add('hidden');
-      var apiHint = document.getElementById('api-hint-step2');
+      const apiHint = document.getElementById('api-hint-step2');
       if (apiHint) apiHint.classList.add('hidden');
       catalogState.view = 'grades';
       catalogState.gradeId = null;
@@ -18429,18 +16928,6 @@
           }
         }
 
-        if (active.classList.contains('product-tab-btn') && active.closest('#workspace-products-nav')) {
-          e.preventDefault();
-          switchTab(active.getAttribute('data-tab'));
-          return;
-        }
-
-        if (active.id === 'archive-query') {
-          e.preventDefault();
-          runAnthroArchiveSearch();
-          return;
-        }
-
         const stepNavBtn = active.closest('[data-step-nav]');
         if (stepNavBtn && !stepNavBtn.disabled) {
           e.preventDefault();
@@ -18525,19 +17012,13 @@
         onStepNavClick(parseInt(btn.getAttribute('data-step-nav'), 10), e);
       });
       bindWizardNavClick(document.getElementById('btn-nav-community'), function () { openCommunityRepo(); });
-      bindWizardNavClick(document.getElementById('btn-nav-archive'), function () { openArchiveNav(); });
       bindWizardNavClick(document.getElementById('ws-crumb-grade'), function () { if (appState.grade) goToStep(1, 'smooth'); });
       bindWizardNavClick(document.getElementById('ws-crumb-topic'), function () {
         goToStep(2, 'smooth');
       });
       bindWizardNavClick(document.getElementById('header-compact-edit-grade'), navigateCompactHeaderToGrade);
       bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
-      bindWizardNavClick(document.getElementById('header-compact-products'), navigateCompactHeaderToProducts);
-      bindWizardNavClick(document.getElementById('ws-crumb-products'), function () {
-        if (canNavigateToStep(3)) openProductsWorkspace();
-      });
       bindWizardNavClick(document.getElementById('ws-crumb-community'), function () { openCommunityRepo(); });
-      bindWizardNavClick(document.getElementById('ws-crumb-archive'), function () { openArchiveNav(); });
       var gradeSelectEl = document.getElementById('grade-select');
       gradeSelectEl.addEventListener('change', function () {
         const loadingEl = document.getElementById('grade-research-loading');
@@ -18591,23 +17072,17 @@
         });
       }
       bindWizardNavClick(document.getElementById('btn-topic-research-cancel'), cancelTopicResearch);
-      bindWizardNavClick(document.getElementById('btn-to-workspace'), function () { openProductsWorkspace(true); });
       bindWizardNavClick(document.getElementById('btn-new-research'), function () { startNewResearch(); });
 
       document.querySelectorAll('[data-pedagogy-export]').forEach(function (btn) {
         btn.addEventListener('click', function () { downloadPedagogySummaryDocx(); });
       });
 
-      document.querySelectorAll('#workspace-products-nav .product-tab-btn').forEach(function (b) {
-        b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
-      });
-      document.getElementById('btn-archive-search').addEventListener('click', runAnthroArchiveSearch);
       bindWizardNavClick(document.getElementById('btn-restart'), function () { startNewResearch(); });
 
       initGlobalEnterNavigation();
       ensurePedagogySuggestionEvents();
       setupThemeActionButtons();
-      setupGeneralSearchExportEvents();
 
       document.getElementById('refresh-community').addEventListener('click', async function () {
         try {
@@ -18648,15 +17123,6 @@
       const catalogPanel = document.getElementById('panel-catalog');
       if (isWorkspaceOpen() && catalogPanel && !catalogPanel.classList.contains('hidden')) {
         renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
-      }
-      if (isProductsView() && appState.aiGeneratedPlan && appState.productTabsRendered.theory) {
-        const activeTab = appState.activeProductTab || 'theory';
-        invalidateProductTabRenders();
-        ensureAllProductTabsMounted();
-        syncProductTabButtons(activeTab);
-        revealProductTabPanel(activeTab);
-        restoreAllSummaryPanels();
-        setupPhase3ActionButtons();
       }
       if (appState.gradeResearch && appState.grade) {
         renderGradeInsightsPanel(appState.grade, appState.gradeResearch);

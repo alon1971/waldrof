@@ -343,35 +343,6 @@ function buildModelParseFallback(phase, rawText, context) {
     };
   }
 
-  if (phase === 'phase_c') {
-    const cTab = String((ctx && (ctx.cTab || ctx.productTab || ctx.phaseCTab)) || '').toLowerCase();
-    if (cTab === 'curriculum') {
-      return {
-        blockPlan: {
-          curriculum: {
-            core_emphases: plain.slice(0, 4000),
-            key_points: '',
-            recommended_reading: '',
-            relevant_links: '',
-          },
-        },
-        _parseFallback: true,
-      };
-    }
-    return {
-      blockPlan: {
-        inspiration: {
-          title: 'השראה',
-          global: [{ title: 'סיכום', items: [{ text: plain.slice(0, 1200) }] }],
-          podcast: { title: 'תובנות', episodes: [] },
-          narrative: [],
-        },
-      },
-      gallery: [],
-      _parseFallback: true,
-    };
-  }
-
   if (phase === 'chat_followup') {
     return {
       chatReply: { answer: plain || 'לא ניתן לעבד את תשובת המודל.' },
@@ -384,25 +355,6 @@ function buildModelParseFallback(phase, rawText, context) {
       pedagogyDeepDive: {
         title: String(ctx.activityTitle || ''),
         contentHtml: wrap,
-      },
-      _parseFallback: true,
-    };
-  }
-
-  if (phase === 'archive_search') {
-    const paras = plain.split(/\n\n+/).filter(Boolean);
-    const chunk = function (i, len) {
-      const src = paras[i] || plain;
-      return String(src || '').slice(0, len);
-    };
-    return {
-      archiveSearch: {
-        query: String(ctx.archiveQuery || ''),
-        intro: plain.slice(0, 120),
-        developmental_axis: chunk(0, 4000),
-        core_pedagogical_emphases: chunk(1, 3000) || chunk(0, 2000),
-        recommended_literature: chunk(2, 2000),
-        relevant_links: chunk(3, 2000),
       },
       _parseFallback: true,
     };

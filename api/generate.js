@@ -1,14 +1,13 @@
 /**
  * Waldorf research API — strict Perplexity / Gemini separation.
- * PERPLEXITY_API_KEY: ALL core generation (Phase A grade, Phase B topic, Phase C tabs, on-demand expansions).
+ * PERPLEXITY_API_KEY: ALL core generation (Phase A grade, Phase B topic, on-demand expansions).
  * GEMINI_API_KEY: pedagogical chat + enrichment_links (Gemini Google Search) ONLY.
- * enrichment_links (phase_c inspiration): Gemini live search + dynamic Pinterest — no hardcoded domains.
  *
  * Core pipeline (decoupled — Perplexity only):
  *   1. SUPABASE ARCHIVE — return cached_results immediately on hit
  *   2. LIVE WEB SEARCH (Perplexity Sonar) — raw research saved to cached_results (phase perplexity_raw)
  *   3. PERPLEXITY SYNTHESIS (sonar-pro) — structured JSON → cached_results
- *   Phase B (topic / phase_b): theory essence only. Phase C (phase_c + cTab): independent inspiration or curriculum per tab.
+ *   Phase B (topic / phase_b): theory essence only.
  *   On-demand expansions (pedagogy_deep_dive / archive_summary): independent Perplexity Sonar routes per button.
  *
  * Primary runtime: Render / Node.js via server.js → executeGenerate().
@@ -32,7 +31,6 @@ const waldorfWebSeed = require('../waldorf-web-seed');
 const enrichmentLinksApi = require('./enrichment-links');
 const geminiEnrichment = require('./gemini-enrichment');
 const waldorfQueryGen = require('../waldorf-query-generation');
-const archiveCoerce = require('../archive-coerce');
 
 /** Grade/topic: cache-first from Supabase; on miss run Perplexity-only pipeline. */
 const ARCHIVE_ONLY_MODE = process.env.ARCHIVE_ONLY !== 'false';
@@ -317,13 +315,6 @@ const ENRICHMENT_LINKS_GEMINI_SEARCH_INSTRUCTION =
   'If search finds no verified URLs, article_links stays empty. Pinterest links are built dynamically from topic + grade.\n' +
   '=== END ENRICHMENT LINKS — GEMINI LIVE SEARCH ===\n';
 
-const PERPLEXITY_PHASE_C_INSPIRATION_NO_LINKS_INSTRUCTION =
-  '\n=== PHASE C INSPIRATION — NO SOURCES MODE (TEXT ONLY) ===\n' +
-  'Do NOT generate books, articles, websites, bibliography, blockPlan.sources, enrichment_links, or pedagogicalResources.\n' +
-  'Do NOT copy, transform, or merge Perplexity citation URLs into any output field.\n' +
-  'FORBIDDEN: sources lists, HTTPS URLs, enrichment_links, pedagogicalResources (gallery.src must stay empty; pin = English phrase only).\n' +
-  '=== END PHASE C INSPIRATION — NO SOURCES MODE ===\n';
-
 const NO_SOURCES_MODE_INSTRUCTION =
   '\n=== NO SOURCES MODE (MANDATORY) ===\n' +
   'Do NOT generate books, websites, external links, bibliography, blockPlan.sources, or any "מקורות (Sources)" section.\n' +
@@ -389,19 +380,6 @@ function normalizePedagogicalResourceItem(item, body) {
   };
 }
 
-function normalizePedagogicalResources(raw, body) {
-  const list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.items) ? raw.items : []);
-  const seen = Object.create(null);
-  const out = [];
-  list.forEach(function (item) {
-    const norm = normalizePedagogicalResourceItem(item, body);
-    if (!norm || seen[norm.url]) return;
-    seen[norm.url] = true;
-    out.push(norm);
-  });
-  return applyPedagogicalResourcesFallback(out, body);
-}
-
 function isValidPinterestSearchUrl(url) {
   return waldorfQueryGen.isValidPinterestSearchUrl(url);
 }
@@ -425,13 +403,6 @@ function normalizeEnrichmentRequestBody(body) {
 }
 
 async function attachGeminiEnrichmentLinks(data, body) {
-  if (!data || typeof data !== 'object') return data;
-  if (resolvePhaseCTab(body) !== 'inspiration') return data;
-  delete data.enrichment_links;
-  delete data.pedagogicalResources;
-  if (data.blockPlan && typeof data.blockPlan === 'object') {
-    delete data.blockPlan.sources;
-  }
   return data;
 }
 
@@ -571,26 +542,6 @@ function normalizeEnrichmentLinks(raw, body, options) {
   };
 }
 
-function applyPedagogicalResourcesFallback(resources, body) {
-  if (!body || resolvePhaseCTab(body) !== 'inspiration') {
-    return (resources || []).slice(0, 12);
-  }
-  const topic = String(body.topic || '').trim();
-  const gradeLabel = String(body.gradeLabel || '').trim();
-  const merged = waldorfWebSeed.ensureWebInspirationFallback(resources || [], topic, gradeLabel, {
-    maxCount: 12,
-  });
-  const seen = Object.create(null);
-  const out = [];
-  merged.forEach(function (item) {
-    const norm = normalizePedagogicalResourceItem(item, body);
-    if (!norm || seen[norm.url]) return;
-    seen[norm.url] = true;
-    out.push(norm);
-  });
-  return out.slice(0, 12);
-}
-
 function waldorfSystemPrompt(extra) {
   return (
     'You are an expert Waldorf / Steiner-Waldorf pedagogy researcher and curriculum designer. ' +
@@ -618,15 +569,10 @@ function waldorfSystemPrompt(extra) {
   );
 }
 
-/** Perplexity synthesis system prompt — strips link-generation rules for phase_c inspiration (Gemini-only). */
+/** Perplexity synthesis system prompt. */
 function buildPerplexitySynthesisSystemPrompt(body) {
   return function (extra) {
-    let prompt = waldorfSystemPrompt(extra || '');
-    if (body && body.phase === 'phase_c' && resolvePhaseCTab(body) === 'inspiration') {
-      prompt = prompt.replace(WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION, '');
-      prompt += PERPLEXITY_PHASE_C_INSPIRATION_NO_LINKS_INSTRUCTION;
-    }
-    return prompt;
+    return waldorfSystemPrompt(extra || '');
   };
 }
 
@@ -638,10 +584,17 @@ const PHASE_B_TOPIC_FORBIDDEN_OUTPUT =
   'Do NOT generate daily lesson breakdown, inspiration blocks, background resource lists, or bibliography — those load on-demand via pedagogy_deep_dive or pedagogical chat.\n' +
   '=== END PHASE B ===\n';
 
-function resolvePhaseCTab(body) {
-  const tab = String((body && (body.cTab || body.productTab || body.phaseCTab)) || '').trim().toLowerCase();
-  if (tab === 'inspiration' || tab === 'curriculum') return tab;
-  return null;
+/** Map API aliases: phase_b → topic (Phase B essence). */
+function normalizeRequestPhase(body) {
+  if (!body || !body.phase) return;
+  if (body.phase === 'phase_b') {
+    body.phase = 'topic';
+  }
+}
+
+function isDecoupledGenerationPhase(body) {
+  const phase = body && body.phase;
+  return phase === 'grade' || phase === 'topic';
 }
 
 function stripCurriculumFromTopicPayload(data) {
@@ -663,32 +616,6 @@ function stripCurriculumFromTopicPayload(data) {
   delete cloned.curriculum;
   delete cloned.table_data;
   return cloned;
-}
-
-function isPhaseCCurriculumGeneration(body) {
-  return Boolean(body && body.phase === 'phase_c' && resolvePhaseCTab(body) === 'curriculum');
-}
-
-function isPhaseCGeneration(body) {
-  return Boolean(body && body.phase === 'phase_c');
-}
-
-/** Map API aliases: phase_b → topic (Phase B essence), phase_c stays phase_c with cTab. */
-function normalizeRequestPhase(body) {
-  if (!body || !body.phase) return;
-  if (body.phase === 'phase_b') {
-    body.phase = 'topic';
-    return;
-  }
-  if (body.phase === 'phase_c') {
-    const cTab = resolvePhaseCTab(body);
-    if (cTab) body.cTab = cTab;
-  }
-}
-
-function isDecoupledGenerationPhase(body) {
-  const phase = body && body.phase;
-  return phase === 'grade' || phase === 'topic' || phase === 'phase_c' || phase === 'archive_search';
 }
 
 function isOnDemandExpansionPhase(body) {
@@ -923,7 +850,6 @@ function buildActionLabel(body) {
   const parts = [];
   if (b.phase) parts.push(String(b.phase));
   if (b.phase === 'pedagogy_deep_dive' && b.expansionScope) parts.push(String(b.expansionScope));
-  if (b.phase === 'phase_c' && b.cTab) parts.push(String(b.cTab));
   const grade = String(b.gradeLabel || b.currentGrade || b.gradeId || '').trim();
   if (grade) parts.push(grade);
   const subject = String(
@@ -987,8 +913,8 @@ function buildRagContextBlock(body) {
   const driveCtx = String(body.ragDriveContext || '').trim();
   const communityCtx = String(body.ragCommunityContext || '').trim();
   const isChat = body && body.phase === 'chat_followup';
-  const isLessonPhase = body && (body.phase === 'grade' || body.phase === 'topic' || body.phase === 'phase_c' ||
-    body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_search' || body.phase === 'archive_summary');
+  const isLessonPhase = body && (body.phase === 'grade' || body.phase === 'topic' ||
+    body.phase === 'pedagogy_deep_dive' || body.phase === 'archive_summary');
 
   if (!rag && !driveCtx && !communityCtx && isChat) {
     return (
@@ -1417,116 +1343,6 @@ function parseGradeJsonFromModel(text) {
   return parseJsonFromModel(text);
 }
 
-function buildPhaseCUserPrompt(body) {
-  const cTab = resolvePhaseCTab(body);
-  const topic = (body.topic || '').replace(/"/g, '');
-  const inspirationExtra = body.inspirationPrompt
-    ? '\nINSPIRATION TAB INSTRUCTIONS:\n' + body.inspirationPrompt + '\n'
-    : '';
-  const curriculumExtra = body.curriculumPrompt
-    ? '\nCURRICULUM TAB INSTRUCTIONS:\n' + body.curriculumPrompt + '\n'
-    : '';
-  const bibExtra = body.bibliographyRequirements
-    ? '\nBIBLIOGRAPHY REQUIREMENTS (MANDATORY):\n' + body.bibliographyRequirements + '\n'
-    : '';
-  const pedagogyHint = body.pedagogyExpandHint
-    ? '\nINSPIRATION & CURRICULUM FORMAT:\n' + body.pedagogyExpandHint + '\n'
-    : '';
-  const prioritySearch = body.prioritySearchInstruction
-    ? '\nPRIORITY SEARCH (MANDATORY):\n' + body.prioritySearchInstruction + '\n'
-    : '';
-  const isInspirationTab = cTab === 'inspiration';
-  const noUrls = isInspirationTab
-    ? (
-      '\n=== URL POLICY (PHASE C INSPIRATION — PERPLEXITY TEXT ONLY) ===\n' +
-      'FORBIDDEN: URLs in blockPlan.inspiration HTML/text, blockPlan.sources, gallery.src, enrichment_links, pedagogicalResources, or narrative paragraphs.\n' +
-      'Gallery "pin" fields are English search PHRASES only (src must stay empty). Link URLs are generated separately by Gemini.\n' +
-      (body.noUrlsInstruction ? body.noUrlsInstruction + '\n' : '') +
-      '=== END URL POLICY ===\n'
-    )
-    : (body.noUrlsInstruction
-      ? '\nNO URLS (MANDATORY):\n' + body.noUrlsInstruction + '\n'
-      : '\nDo NOT include internet URLs in bibliography, HTML, summaries, or recommendations.\n');
-  const theoryContext = String(body.theoryEssence || '').trim();
-  const theoryBlock = theoryContext
-    ? '\nPHASE B ESSENCE (context only — do NOT copy or paraphrase verbatim into this tab):\n' +
-      theoryContext.slice(0, 4000) + '\n'
-    : '';
-
-  const sharedHeader =
-    buildGradeLockBlock(body) +
-    buildLanguageBlock(body) +
-    buildNoLatexBlock(body) +
-    noUrls +
-    theoryBlock +
-    '\n=== PHASE C — INDEPENDENT TAB GENERATION (MANDATORY) ===\n' +
-    'Synthesize the PERPLEXITY WEB RESEARCH above into rich Waldorf content for the «' + cTab + '» tab ONLY.\n' +
-    'Do NOT duplicate, mirror, or lightly rephrase Phase B theory essence — produce unique, tab-specific deep material.\n' +
-    'currentGrade: ' + resolvedGradeId(body) + '\n' +
-    'Grade: ' + body.gradeLabel + ' (age ' + (body.age || '') + ')\n' +
-    'Block topic: «' + topic + '»\n' +
-    'Grade context: ' + (body.gradeContext || '') + '\n' +
-    'Every field MUST be written for currentGrade only. Do not mention activities, stories, or developmental themes from other grades.\n' +
-    'Produce rich, deeply anthroposophic content. Uniform 16px text in UI.\n' +
-    prioritySearch +
-    WEB_SEARCH_PRIORITY_INSTRUCTION;
-
-  if (cTab === 'inspiration') {
-    return (
-      sharedHeader +
-      inspirationExtra +
-      pedagogyHint +
-      NO_SOURCES_MODE_INSTRUCTION +
-      PERPLEXITY_PHASE_C_INSPIRATION_NO_LINKS_INSTRUCTION +
-      'blockPlan.inspiration.podcast: when priority sources have relevant material, convey themes and insights objectively in episode entries.\n' +
-      'PINTEREST (WALDORF ONLY — QUALITY OVER QUANTITY): populate gallery with 2–4 DISTINCT grade-locked visual inspiration pin PHRASES ONLY (English, no URLs).\n' +
-      'Each "pin" MUST be clean unquoted English: Waldorf Class N {englishTopic} — e.g. Waldorf Class 8 revolutions.\n' +
-      'NEVER include pins from other grades. If only 2–3 perfect matches exist, return only those — do NOT pad with generic clutter.\n' +
-      LAZY_LOAD_NOTE +
-      'CRITICAL — blockPlan MUST include inspiration object only (NO sources, NO bibliography, NO links).\n' +
-      'blockPlan.inspiration MUST be an object with title, global, podcast, and narrative.\n' +
-      'FORBIDDEN in this response: blockPlan.sources, blockPlan.theory, blockPlan.curriculum, theory.sections, daily lesson breakdown, enrichment_links, pedagogicalResources, URLs.\n' +
-      JSON_ONLY_INSTRUCTION +
-      JSON_RESPONSE_ENFORCEMENT +
-      '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
-      '{\n' +
-      '  "blockPlan": {\n' +
-      '    "inspiration": { "title": "Hebrew", "global": [{ "title": "Hebrew", "items": [{ "text": "full Hebrew paragraph per item" }] }], "podcast": { "title": "Hebrew", "episodes": [{ "theme": "Hebrew", "insight": "rich Hebrew paragraph" }] }, "narrative": [{ "text": "rich story/metaphor paragraph" }] }\n' +
-      '  },\n' +
-      '  "gallery": [{ "board": "Hebrew", "title": "Hebrew", "pin": "Waldorf Class 8 revolutions", "src": "" }]\n' +
-      '}\n' +
-      'blockPlan.inspiration.global: 3–4 blocks with 4–6 paragraph items each.\n' +
-      'gallery: 2–4 DISTINCT grade-locked Waldorf Pinterest pin phrases — quality over quantity; no duplicate or wrong-grade pin phrases.'
-    );
-  }
-
-  return (
-    sharedHeader +
-    curriculumExtra +
-    pedagogyHint +
-    NO_SOURCES_MODE_INSTRUCTION +
-    'PEDAGOGICAL ESSENCE FOR BLOCK PREPARATION (MANDATORY): Synthesize emphases for building this main-lesson period — NOT a daily lesson table.\n' +
-    'blockPlan.curriculum MUST be ONE object (never an array) with Hebrew markdown strings:\n' +
-    'core_emphases, key_points, recommended_reading, relevant_links.\n' +
-    'FORBIDDEN: 15-day breakdown, daily rows, contentExpansion, day/topic/content/art fields, blockPlan.theory, blockPlan.inspiration, blockPlan.sources, gallery, bibliography, enrichment_links, pedagogicalResources.\n' +
-    'URLs allowed ONLY inside relevant_links. Grade-locked rich anthroposophic depth.\n' +
-    JSON_ONLY_INSTRUCTION +
-    JSON_RESPONSE_ENFORCEMENT +
-    '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
-    '{\n' +
-    '  "blockPlan": {\n' +
-    '    "curriculum": {\n' +
-    '      "core_emphases": "Hebrew markdown — what to emphasize when building this period",\n' +
-    '      "key_points": "Hebrew markdown — central themes and pedagogical axes",\n' +
-    '      "recommended_reading": "Hebrew markdown — books, articles, Steiner writings (names only, no URLs)",\n' +
-    '      "relevant_links": "Hebrew markdown — external links and inspirational extensions (URLs allowed here only)"\n' +
-    '    }\n' +
-    '  }\n' +
-    '}\n' +
-    'Each field MUST be substantive (multiple paragraphs or rich bullet lists). Never placeholders.'
-  );
-}
-
 function buildUserPrompt(body) {
   const phase = body.phase;
   const chatExpansion = phase === 'chat_followup' && chatApi.shouldTreatChatAsPedagogicalExpansion(body);
@@ -1628,10 +1444,6 @@ function buildUserPrompt(body) {
     );
   }
 
-  if (phase === 'phase_c') {
-    return buildPhaseCUserPrompt(body);
-  }
-
   if (phase === 'pedagogy_deep_dive') {
     const title = (body.activityTitle || '').replace(/"/g, "'");
     const preview = (body.activityPreview || '').replace(/"/g, "'");
@@ -1715,45 +1527,6 @@ function buildUserPrompt(body) {
       '    "curriculumNotes": "Hebrew notes for daily plan tab"\n' +
       '  }\n' +
       '}'
-    );
-  }
-
-  if (phase === 'archive_search') {
-    const q = (body.archiveQuery || '').replace(/"/g, "'");
-    return (
-      buildLanguageBlock(body) +
-      buildNoLatexBlock(body) +
-      'GENERAL CROSS-GRADE SEARCH (חיפוש כללי): Mandatory structured JSON — NOT a single intro paragraph.\n' +
-      'Search query (Hebrew or English): «' + q + '»\n' +
-      'Scope: ALL Waldorf grades א\'–ח\' (ages 7–14). Map the FULL developmental arc — never limit to one grade.\n' +
-      'Optional teacher context — active grade: ' + (body.gradeLabel || 'none') + ', active block topic: ' + (body.topic || 'none') + '\n\n' +
-      WEB_SEARCH_PRIORITY_INSTRUCTION +
-      'Prioritize: Steiner GA lectures, rsarchive.org, steinerarchive.org, Waldorf curriculum overviews, ' +
-      'AWSNA/IASWECE, anthroposophic pedagogy, Hebrew Waldorf resources when relevant.\n\n' +
-      'MANDATORY FIELD REQUIREMENTS (each is a separate Hebrew markdown string inside archiveSearch):\n' +
-      '1. developmental_axis — Grade-by-grade breakdown כיתה א\' through כיתה ח\': for EACH grade explain how «' + q + '» ' +
-      'is taught in Steiner/Waldorf (age consciousness, main-lesson approach, artistic methods, building on prior grades). ' +
-      'Use clear grade headings (כיתה א\', ב\', ג\'…). Minimum ~250 Hebrew words.\n' +
-      '2. core_pedagogical_emphases — Inner spiritual/pedagogical meanings, classroom artistic methods, soul-development motives. Minimum ~150 Hebrew words.\n' +
-      '3. recommended_literature — Actual book titles, GA lectures, articles (Steiner + anthroposophic authors). Names only — NO URLs here. Minimum ~100 Hebrew words.\n' +
-      '4. relevant_links — Real HTTPS URLs to archives, Waldorf resources, practical extensions. Minimum ~80 Hebrew words.\n\n' +
-      'intro: ONE short sentence only (≤40 words) — never put the main content in intro.\n' +
-      'FORBIDDEN: sources array, per-book cards, inline expansions, collapsing all content into intro.\n' +
-      'URLs allowed ONLY in relevant_links.\n' +
-      JSON_ONLY_INSTRUCTION +
-      JSON_RESPONSE_ENFORCEMENT +
-      '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
-      '{\n' +
-      '  "archiveSearch": {\n' +
-      '    "query": "' + q + '",\n' +
-      '    "intro": "משפט פתיחה קצר בלבד",\n' +
-      '    "developmental_axis": "Hebrew markdown — כיתה א\'… כיתה ב\'… עד כיתה ח\'",\n' +
-      '    "core_pedagogical_emphases": "Hebrew markdown — דגשים פדגוגיים מרכזיים",\n' +
-      '    "recommended_literature": "Hebrew markdown — כותרות ספרים והרצאות",\n' +
-      '    "relevant_links": "Hebrew markdown — קישורים חיצוניים (URLs מותרים כאן בלבד)"\n' +
-      '  }\n' +
-      '}\n' +
-      'ALL FOUR content fields MUST be filled with rich multi-paragraph Hebrew text. Never placeholders or dashes.'
     );
   }
 
@@ -1919,81 +1692,8 @@ function getEnrichmentLinksSchemaProperties() {
   };
 }
 
-function getPhaseCResponseSchema(cTab) {
-  if (cTab === 'curriculum') {
-    const essenceField = { type: 'string' };
-    return {
-      type: 'object',
-      properties: {
-        blockPlan: {
-          type: 'object',
-          properties: {
-            curriculum: {
-              type: 'object',
-              properties: {
-                core_emphases: essenceField,
-                key_points: essenceField,
-                recommended_reading: essenceField,
-                relevant_links: essenceField,
-              },
-              required: ['core_emphases', 'key_points', 'recommended_reading', 'relevant_links'],
-            },
-          },
-          required: ['curriculum'],
-        },
-      },
-      required: ['blockPlan'],
-    };
-  }
-
-  return {
-    type: 'object',
-    properties: {
-      blockPlan: {
-        type: 'object',
-        properties: {
-          inspiration: { type: 'object' },
-        },
-        required: ['inspiration'],
-      },
-      gallery: { type: 'array', items: { type: 'object' } },
-    },
-    required: ['blockPlan', 'gallery'],
-  };
-}
-
-function getGeneralSearchResponseSchema() {
-  const essenceField = { type: 'string' };
-  return {
-    type: 'object',
-    properties: {
-      archiveSearch: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' },
-          intro: { type: 'string' },
-          developmental_axis: essenceField,
-          core_pedagogical_emphases: essenceField,
-          recommended_literature: essenceField,
-          relevant_links: essenceField,
-        },
-        required: [
-          'query',
-          'developmental_axis',
-          'core_pedagogical_emphases',
-          'recommended_literature',
-          'relevant_links',
-        ],
-      },
-    },
-    required: ['archiveSearch'],
-  };
-}
-
 function getStructuredResponseSchema(phase, body) {
   if (phase === 'topic') return getTopicResponseSchema();
-  if (phase === 'phase_c') return getPhaseCResponseSchema(resolvePhaseCTab(body));
-  if (phase === 'archive_search') return getGeneralSearchResponseSchema();
   return undefined;
 }
 
@@ -2125,244 +1825,6 @@ function sanitizeGradePhaseOutput(data) {
   return data;
 }
 
-function coerceServerCurriculumFieldValue(val) {
-  if (val == null || val === '') return '';
-  if (typeof val === 'string') return val;
-  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
-  if (Array.isArray(val)) {
-    return val.map(coerceServerCurriculumFieldValue).filter(Boolean).join('\n\n');
-  }
-  if (typeof val === 'object') {
-    return coerceServerCurriculumFieldValue(
-      val.content || val.text || val.body || val.html || val.story || val.detail ||
-      val.preview || val.value || val.narrative || val.lesson || val.lessonContent || ''
-    );
-  }
-  return String(val);
-}
-
-function coerceServerCurriculumRows(raw) {
-  return archiveCoerce.coerceCurriculumRows(raw);
-}
-
-function normalizePhaseCInspirationItem(it) {
-  if (typeof it === 'string') return { text: sanitizePedagogicalText(it.trim()) };
-  if (!it || typeof it !== 'object') return { text: sanitizePedagogicalText(String(it || '').trim()) };
-  return {
-    text: sanitizePedagogicalText(String(it.text || it.preview || it.detail || it.content || it.body || '').trim()),
-    expansion: it.expansion,
-  };
-}
-
-function normalizePhaseCInspiration(insp, rawFallback) {
-  if (typeof insp === 'string' && insp.trim()) {
-    return {
-      title: 'השראה',
-      global: [{ title: 'סיכום', items: [normalizePhaseCInspirationItem(insp)] }],
-      podcast: { title: 'תובנות', episodes: [] },
-      narrative: [],
-    };
-  }
-  if (!insp || typeof insp !== 'object') {
-    if (rawFallback) {
-      return normalizePhaseCInspiration({
-        title: 'השראה',
-        global: [{ title: 'סיכום', items: [{ text: rawFallback }] }],
-      });
-    }
-    return null;
-  }
-
-  let global = insp.global;
-  if (typeof global === 'string' && global.trim()) {
-    global = [{ title: 'סיכום', items: [global.trim()] }];
-  } else if (!Array.isArray(global)) {
-    if (global && typeof global === 'object') global = [global];
-    else global = [];
-  }
-
-  global = global.map(function (block, bi) {
-    if (typeof block === 'string') {
-      return { title: 'בלוק ' + (bi + 1), items: [normalizePhaseCInspirationItem(block)] };
-    }
-    if (!block || typeof block !== 'object') return { title: '', items: [] };
-    let items = block.items;
-    if (typeof items === 'string') items = [items];
-    if (!Array.isArray(items)) {
-      if (items && typeof items === 'object') items = [items];
-      else items = [];
-    }
-    items = items.map(normalizePhaseCInspirationItem).filter(function (it) {
-      return String(it.text || '').trim();
-    });
-    return {
-      title: String(block.title || block.heading || ('בלוק ' + (bi + 1))).trim(),
-      items: items,
-    };
-  }).filter(function (b) { return b.items.length; });
-
-  if (!global.length && rawFallback) {
-    global = [{ title: 'סיכום', items: [normalizePhaseCInspirationItem(rawFallback)] }];
-  }
-
-  const podcastSrc = insp.podcast && typeof insp.podcast === 'object' ? insp.podcast : {};
-  const episodes = Array.isArray(podcastSrc.episodes) ? podcastSrc.episodes.map(function (ep) {
-    if (!ep || typeof ep !== 'object') {
-      const text = String(ep || '').trim();
-      return text ? { theme: text, insight: text } : null;
-    }
-    return {
-      theme: sanitizePedagogicalText(String(ep.theme || ep.title || '').trim()),
-      insight: sanitizePedagogicalText(String(ep.insight || ep.text || ep.preview || ep.content || '').trim()),
-      expansion: ep.expansion,
-    };
-  }).filter(function (ep) { return ep && (ep.theme || ep.insight); }) : [];
-
-  let narrative = insp.narrative;
-  if (typeof narrative === 'string' && narrative.trim()) narrative = [narrative];
-  if (!Array.isArray(narrative)) narrative = [];
-  narrative = narrative.map(function (n) {
-    if (typeof n === 'string') return sanitizePedagogicalText(n.trim());
-    if (!n || typeof n !== 'object') return sanitizePedagogicalText(String(n || '').trim());
-    return sanitizePedagogicalText(String(n.text || n.preview || n.content || '').trim());
-  }).filter(Boolean);
-
-  return {
-    title: sanitizePedagogicalText(String(insp.title || 'השראה').trim()),
-    global: global,
-    podcast: {
-      title: sanitizePedagogicalText(String(podcastSrc.title || 'תובנות').trim()),
-      episodes: episodes,
-    },
-    narrative: narrative,
-    rawContent: sanitizePedagogicalText(String(insp.rawContent || rawFallback || '').trim()) || undefined,
-  };
-}
-
-function normalizePhaseCCurriculumRow(row, index, rawFallback) {
-  const preserved = archiveCoerce.preserveCurriculumRowForStorage(row, index);
-  if (!preserved) {
-    if (rawFallback) {
-      return { day: index + 1, topic: 'יום ' + (index + 1), content: rawFallback, art: '', hint: '' };
-    }
-    return null;
-  }
-  if (!preserved.content && rawFallback && !archiveCoerce.isCurriculumFieldPlaceholder(rawFallback)) {
-    preserved.content = rawFallback;
-  }
-  return preserved;
-}
-
-function normalizePhaseCCurriculum(raw, rawFallback) {
-  let rows = coerceServerCurriculumRows(raw);
-  if (!rows.length && typeof raw === 'string' && raw.trim()) {
-    rows = archiveCoerce.parseCurriculumFromText(raw);
-    if (!rows.length) rows = [{ content: raw.trim() }];
-  }
-  if (!rows.length && rawFallback) {
-    rows = archiveCoerce.parseCurriculumFromText(rawFallback);
-  }
-  rows = rows.map(function (row, i) {
-    return normalizePhaseCCurriculumRow(row, i, rawFallback);
-  }).filter(Boolean).slice(0, 15);
-
-  if (archiveCoerce.hasMeaningfulCurriculumRows(rows)) {
-    return rows;
-  }
-
-  while (rows.length < 15) {
-    const day = rows.length + 1;
-    rows.push({
-      day: day,
-      topic: 'יום ' + day,
-      content: rawFallback || '',
-      art: '',
-      hint: '',
-    });
-  }
-  return rows;
-}
-
-function normalizePhaseCSources(sources) {
-  if (!sources || typeof sources !== 'object' || Array.isArray(sources)) {
-    return { books: [], articles: [], websites: [] };
-  }
-  return {
-    books: Array.isArray(sources.books) ? sources.books : [],
-    articles: Array.isArray(sources.articles) ? sources.articles : [],
-    websites: Array.isArray(sources.websites) ? sources.websites : [],
-  };
-}
-
-function stripPhaseCCurriculumCrossTabFields(data) {
-  if (!data || typeof data !== 'object') return data;
-  if (!data.blockPlan || typeof data.blockPlan !== 'object') data.blockPlan = {};
-  const bp = data.blockPlan;
-  delete bp.theory;
-  delete bp.inspiration;
-  delete bp.sources;
-  delete data.gallery;
-  delete data.pedagogicalResources;
-  delete data.enrichment_links;
-  return data;
-}
-
-const PHASE_C_ESSENCE_FIELD_KEYS = [
-  'core_emphases',
-  'key_points',
-  'recommended_reading',
-  'relevant_links',
-];
-
-function normalizePhaseCCurriculumEssence(raw) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const out = {};
-  PHASE_C_ESSENCE_FIELD_KEYS.forEach(function (key) {
-    out[key] = String(raw[key] || '').trim();
-  });
-  return out;
-}
-
-function sanitizePhaseCCurriculumEssenceOutput(data) {
-  if (!data || typeof data !== 'object') return data;
-  data = stripPhaseCCurriculumCrossTabFields(data);
-  if (!data.blockPlan || typeof data.blockPlan !== 'object') data.blockPlan = {};
-  data.blockPlan.curriculum = normalizePhaseCCurriculumEssence(data.blockPlan.curriculum);
-  delete data.blockPlan.days;
-  return data;
-}
-
-function sanitizePhaseCOutput(data, body) {
-  if (!data || typeof data !== 'object') return data;
-  const cTab = resolvePhaseCTab(body || {});
-  const rawFallback = String(
-    (data.blockPlan && data.blockPlan.rawContent) ||
-    data.rawText ||
-    data.rawContent ||
-    ''
-  ).trim();
-
-  if (!data.blockPlan || typeof data.blockPlan !== 'object') {
-    data.blockPlan = {};
-  }
-  const bp = data.blockPlan;
-
-  if (cTab === 'inspiration') {
-    delete bp.theory;
-    delete bp.curriculum;
-    delete bp.sources;
-    bp.inspiration = normalizePhaseCInspiration(bp.inspiration, rawFallback);
-    if (!Array.isArray(data.gallery)) data.gallery = [];
-    data.gallery = sanitizePinterestGallery(data.gallery, body);
-    delete data.enrichment_links;
-    delete data.pedagogicalResources;
-  } else if (cTab === 'curriculum') {
-    return sanitizePhaseCCurriculumEssenceOutput(data);
-  }
-
-  return data;
-}
-
 function validateTopicBlockPlan(blockPlan) {
   if (!blockPlan || typeof blockPlan !== 'object') return false;
   if (String(blockPlan.rawContent || '').trim()) return true;
@@ -2373,20 +1835,6 @@ function validateTopicBlockPlan(blockPlan) {
       String(sec.content || '').trim() || String(sec.heading || '').trim()
     );
   });
-}
-
-function validatePhaseCBlockPlan(blockPlan, cTab) {
-  if (!blockPlan || typeof blockPlan !== 'object') return false;
-  if (String(blockPlan.rawContent || '').trim()) return true;
-  if (cTab === 'inspiration') {
-    if (!blockPlan.inspiration || typeof blockPlan.inspiration !== 'object') return false;
-    if (String(blockPlan.inspiration.rawContent || '').trim()) return true;
-    if (!Array.isArray(blockPlan.inspiration.global) || !blockPlan.inspiration.global.length) return false;
-    return blockPlan.inspiration.global.some(function (block) {
-      return block && Array.isArray(block.items) && block.items.length;
-    });
-  }
-  return cacheDb.isPhaseCCurriculumServeReady({ blockPlan: blockPlan });
 }
 
 function buildPerplexitySearchSystemPrompt() {
@@ -2474,24 +1922,6 @@ function buildPerplexitySearchUserPrompt(body) {
     );
   }
 
-  if (phase === 'archive_search') {
-    const q = String(body.archiveQuery || '').trim();
-    return (
-      'GENERAL CROSS-GRADE SEARCH (חיפוש כללי) — exhaustive Waldorf/Steiner web research.\n' +
-      'Topic: «' + q + '»\n' +
-      'Scope: grades א\'–ח\' (ages 7–14) — FULL developmental arc across ALL grades.\n\n' +
-      'Research and report in Hebrew with FOUR distinct sections (for later JSON synthesis):\n' +
-      '1. developmental_axis — Grade-by-grade (כיתה א\' through ח\'): how «' + q + '» evolves in Waldorf curriculum, ' +
-      'age consciousness, main-lesson methods, artistic practice per grade.\n' +
-      '2. core_pedagogical_emphases — Spiritual/pedagogical inner meaning, classroom artistic methods, teaching motives.\n' +
-      '3. recommended_literature — Real book titles, GA numbers, lectures, articles (Steiner + anthroposophic authors).\n' +
-      '4. relevant_links — Verified HTTPS URLs to Steiner archives, Waldorf curriculum resources, practical tools.\n\n' +
-      'Each section needs multiple substantive paragraphs. Do NOT write only a generic introduction.\n' +
-      'Prioritize: rsarchive.org, Steiner GA lectures, AWSNA, IASWECE, Waldorf teacher resources.\n' +
-      'Include a numbered "Sources" section with HTTPS URLs for major claims.'
-    );
-  }
-
   if (phase === 'archive_summary') {
     const title = String(body.sourceTitle || '').trim();
     const author = String(body.sourceAuthor || '').trim();
@@ -2513,41 +1943,6 @@ function buildPerplexitySearchUserPrompt(body) {
     );
   }
 
-  if (phase === 'phase_c') {
-    const cTab = resolvePhaseCTab(body);
-    if (cTab === 'inspiration') {
-      const siteQueries = waldorfWebSeed.buildWaldorfSiteSearchQueries(topic, gradeLabel);
-      return (
-        'Perform a deep, exhaustive factual web search for Waldorf/Steiner INSPIRATION & BACKGROUND MATERIAL.\n' +
-        'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
-        'Block topic: «' + topic + '»\n' +
-        'Grade context: ' + (body.gradeContext || '') + '\n\n' +
-        waldorfWebSeed.buildWaldorfWebSeedInstruction(topic, gradeLabel) + '\n\n' +
-        'SUGGESTED OPEN-WEB SEARCH QUERIES:\n' +
-        siteQueries.map(function (q, i) { return (i + 1) + '. ' + q; }).join('\n') + '\n\n' +
-        'Return a detailed Hebrew research report with:\n' +
-        '1. Rich inspiration themes: stories, metaphors, global Waldorf perspectives, podcast-worthy insights\n' +
-        '2. Narrative/metaphor material suited to currentGrade main-lesson consciousness\n' +
-        '3. Pinterest/visual inspiration search phrases — clean unquoted English only: Waldorf Class N {topic}; max 2–4 vetted entries (e.g. Waldorf Class 8 revolutions)\n' +
-        '4. Priority: «מסעות בחינוך», Alon Yerushalmy, educationpace.com only when genuinely relevant — weave insights into narrative, never as a sources list\n' +
-        'Do NOT produce a 15-day daily breakdown, bibliography, book lists, website lists, or any "מקורות (Sources)" section — curriculum is a separate Phase C tab.'
-      );
-    }
-    return (
-      'Perform a deep, exhaustive factual web search for Waldorf PEDAGOGICAL EMPHASES when building a main-lesson period.\n' +
-      'Grade: ' + gradeLabel + ' (id: ' + gradeId + ', age ' + age + ')\n' +
-      'Block topic: «' + topic + '»\n' +
-      'Grade context: ' + (body.gradeContext || '') + '\n\n' +
-      'Return a detailed Hebrew research report with:\n' +
-      '1. Core emphases — what to prioritize when preparing this period for currentGrade\n' +
-      '2. Key pedagogical themes, axes, and anthroposophic developmental framing\n' +
-      '3. Recommended reading — books, articles, Steiner lectures (names only)\n' +
-      '4. Relevant external links and inspirational extensions for the teacher\n' +
-      'Do NOT structure as a 15-day daily lesson plan — synthesize period-building guidance only.\n' +
-      'Do NOT produce inspiration anthology — that is a separate Phase C tab.'
-    );
-  }
-
   if (phase === 'topic') {
     return (
       'Perform a factual web search on Waldorf main-lesson block planning — PEDAGOGICAL ESSENCE ONLY.\n' +
@@ -2558,7 +1953,7 @@ function buildPerplexitySearchUserPrompt(body) {
       '1. Waldorf pedagogical principles and anthroposophic developmental context for this topic at this grade level\n' +
       '2. Core pedagogical essence and overview of the main-lesson block (biography, artistic integration, classroom rhythm)\n' +
       '3. Grade-specific connections and pedagogical highlights\n' +
-      'Do NOT structure as a 15-day curriculum, inspiration anthology, or teacher resource bibliography — those load via phase_c.\n' +
+      'Do NOT structure as a 15-day curriculum, inspiration anthology, or teacher resource bibliography — those load on-demand via pedagogy_deep_dive or pedagogical chat.\n' +
       '4. A numbered "Sources" section with HTTPS reference URLs for every major claim (for internal synthesis only — not copied into Phase B user output)'
     );
   }
@@ -2689,47 +2084,6 @@ function extractPerplexityMessageContent(data) {
   return '';
 }
 
-const GENERAL_SEARCH_FIELDS = [
-  'developmental_axis',
-  'core_pedagogical_emphases',
-  'recommended_literature',
-  'relevant_links',
-];
-const GENERAL_SEARCH_MIN_FIELD_CHARS = 80;
-const GENERAL_SEARCH_DEV_AXIS_MIN_CHARS = 200;
-
-function generalSearchFieldMinChars(key) {
-  return key === 'developmental_axis' ? GENERAL_SEARCH_DEV_AXIS_MIN_CHARS : GENERAL_SEARCH_MIN_FIELD_CHARS;
-}
-
-function validateGeneralSearchPayload(search) {
-  if (!search || typeof search !== 'object') return false;
-  for (let i = 0; i < GENERAL_SEARCH_FIELDS.length; i++) {
-    const key = GENERAL_SEARCH_FIELDS[i];
-    if (String(search[key] || '').trim().length < generalSearchFieldMinChars(key)) return false;
-  }
-  return true;
-}
-
-function normalizeGeneralSearchPayload(search, queryFallback) {
-  if (!search || typeof search !== 'object') search = {};
-  return {
-    query: String(search.query || queryFallback || '').trim(),
-    intro: String(search.intro || '').trim(),
-    developmental_axis: String(search.developmental_axis || '').trim(),
-    core_pedagogical_emphases: String(search.core_pedagogical_emphases || '').trim(),
-    recommended_literature: String(search.recommended_literature || '').trim(),
-    relevant_links: String(search.relevant_links || '').trim(),
-  };
-}
-
-function sanitizeGeneralSearchOutput(data, body) {
-  if (!data || typeof data !== 'object') return data;
-  const queryFallback = body && body.archiveQuery ? String(body.archiveQuery) : '';
-  data.archiveSearch = normalizeGeneralSearchPayload(data.archiveSearch, queryFallback);
-  return data;
-}
-
 function validatePhaseResult(phase, data, body) {
   if (!data || typeof data !== 'object') return false;
   if (phase === 'grade') {
@@ -2743,16 +2097,10 @@ function validatePhaseResult(phase, data, body) {
     if (data.webResearch && String(data.webResearch.summary || '').trim()) return true;
     return false;
   }
-  if (phase === 'phase_c') {
-    const cTab = resolvePhaseCTab(body || {});
-    if (!cTab || !data.blockPlan) return false;
-    return validatePhaseCBlockPlan(data.blockPlan, cTab);
-  }
   if (phase === 'chat_followup') {
     return Boolean(cacheDb.extractChatAnswerText(data));
   }
   if (phase === 'pedagogy_deep_dive') return hasPedagogyDeepDiveContent(data.pedagogyDeepDive);
-  if (phase === 'archive_search') return validateGeneralSearchPayload(data.archiveSearch);
   if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
   if (phase === 'drive') return Boolean(data.driveMerge);
   if (phase === 'test') return data.ok === true;
@@ -2766,18 +2114,6 @@ const JSON_RETRY_SYSTEM_SUFFIX_TOPIC =
   'Do NOT include inspiration, curriculum, sources, bibliography, gallery, URLs, or [N] reference brackets. ' +
   'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
   'No ```json fences, no Hebrew/English preamble, no trailing commas.';
-const JSON_RETRY_SYSTEM_SUFFIX_PHASE_C =
-  ' CRITICAL RETRY: Your previous reply was rejected — invalid JSON or missing required fields. ' +
-  'For phase_c inspiration: return blockPlan.inspiration + gallery pin phrases ONLY — NO sources, NO enrichment_links, NO pedagogicalResources, NO URLs. ' +
-  'For phase_c curriculum: return blockPlan.curriculum as ONE object with core_emphases, key_points, recommended_reading, relevant_links — NO daily table. ' +
-  'Do NOT include theory.sections or duplicate Phase B essence text. ' +
-  'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
-  'No ```json fences, no Hebrew/English preamble, no trailing commas.';
-const JSON_RETRY_SYSTEM_SUFFIX_ARCHIVE_SEARCH =
-  ' CRITICAL RETRY: archiveSearch MUST contain ALL FOUR fields filled with rich Hebrew markdown: ' +
-  'developmental_axis (grade-by-grade א\'–ח\', ≥200 chars), core_pedagogical_emphases (≥80 chars), ' +
-  'recommended_literature (≥80 chars), relevant_links (≥80 chars). intro ≤40 words only. ' +
-  'Do NOT put main content in intro. NO sources array. Reply raw JSON only.';
 const JSON_RETRY_SYSTEM_SUFFIX =
   JSON_RETRY_SYSTEM_SUFFIX_TOPIC;
 const GENERIC_GENERATION_ERROR = 'לא הצלחנו ליצור את התוכן הפדגוגי. נסו שוב בעוד רגע.';
@@ -2814,7 +2150,7 @@ function rethrowApiClientError(err, fallbackMessage) {
 }
 
 /**
- * Core phases (grade / topic / phase_c): Perplexity Sonar research → Perplexity JSON synthesis.
+ * Core phases (grade / topic): Perplexity Sonar research → Perplexity JSON synthesis.
  */
 async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, logContext) {
   const phase = body.phase;
@@ -2835,13 +2171,7 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
-    const retrySuffix = isRetry
-      ? (phase === 'phase_c'
-        ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C
-        : phase === 'archive_search'
-          ? JSON_RETRY_SYSTEM_SUFFIX_ARCHIVE_SEARCH
-          : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
-      : '';
+    const retrySuffix = isRetry ? JSON_RETRY_SYSTEM_SUFFIX_TOPIC : '';
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
     let raw;
@@ -2898,18 +2228,6 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
     if (phase === 'grade' && data && !data._parseFallback) {
       data = sanitizeGradePhaseOutput(data);
     }
-    if (phase === 'phase_c' && data && !data._parseFallback) {
-      const cTab = resolvePhaseCTab(body);
-      if (cTab === 'inspiration') {
-        data = sanitizePhaseCOutput(data, body);
-        data = await attachGeminiEnrichmentLinks(data, body);
-      } else if (cTab === 'curriculum') {
-        data = sanitizePhaseCCurriculumEssenceOutput(data);
-      }
-    }
-    if (phase === 'archive_search' && data && !data._parseFallback) {
-      data = sanitizeGeneralSearchOutput(data, body);
-    }
     if (!validatePhaseResult(phase, data, body)) {
       console.error(
         '[perplexity] Parsed JSON missing required fields for phase',
@@ -2958,13 +2276,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
-    const retrySuffix = isRetry && !isChatFollowup
-      ? (phase === 'phase_c'
-        ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C
-        : phase === 'archive_search'
-          ? JSON_RETRY_SYSTEM_SUFFIX_ARCHIVE_SEARCH
-          : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
-      : '';
+    const retrySuffix = isRetry && !isChatFollowup ? JSON_RETRY_SYSTEM_SUFFIX_TOPIC : '';
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
     let raw;
@@ -3024,14 +2336,6 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
     }
     if (phase === 'grade' && data && !data._parseFallback) {
       data = sanitizeGradePhaseOutput(data);
-    }
-    if (phase === 'phase_c' && data && !data._parseFallback) {
-      const cTab = resolvePhaseCTab(body);
-      if (cTab === 'inspiration') {
-        data = sanitizePhaseCOutput(data, body);
-      } else if (cTab === 'curriculum') {
-        data = sanitizePhaseCCurriculumEssenceOutput(data);
-      }
     }
 
     if (!validatePhaseResult(phase, data, body)) {
@@ -3125,8 +2429,6 @@ function buildGenerateHttpPayload(result) {
 
   data = cacheDb.sanitizeForJsonStorage(data);
 
-  assertServeReadyPhaseCCurriculumResponse(data, meta);
-
   if (meta.fromCache) {
     if (!data || typeof data !== 'object') {
       const err = new Error('מבנה נתוני cache לא תקין');
@@ -3137,23 +2439,6 @@ function buildGenerateHttpPayload(result) {
   }
 
   return { data: data, meta: meta };
-}
-
-/** Never return HTTP 200 for phase_c curriculum unless pedagogical essence is serve-ready. */
-function assertServeReadyPhaseCCurriculumResponse(data, meta) {
-  if (!meta || typeof meta !== 'object') return;
-  if (meta.curriculumRegenerationRequired) return;
-
-  const isCurriculumResponse = (
-    meta.phase === 'phase_c' && meta.cTab === 'curriculum'
-  );
-  if (!isCurriculumResponse) return;
-
-  if (!data || !cacheDb.isPhaseCCurriculumServeReady(data)) {
-    const err = new Error('דגשי התקופה עדיין בהכנה — נסו שוב בעוד רגע');
-    err.statusCode = 503;
-    throw err;
-  }
 }
 
 function shouldProbeCommunityMaterials(phase) {
@@ -3326,11 +2611,6 @@ async function handleGeneratePost(parsedBody, requestContext) {
   normalizeRequestPhase(parsedBody);
   if (parsedBody.phase === 'pedagogy_deep_dive') {
     normalizeExpansionRequest(parsedBody);
-  }
-  if (parsedBody.phase === 'phase_c' && !resolvePhaseCTab(parsedBody)) {
-    const err = new Error('phase_c requires cTab: inspiration or curriculum');
-    err.statusCode = 400;
-    throw err;
   }
   if (parsedBody.userInitiated !== true) {
     logBlockedUnauthorizedAccess(resolveClientIp(ctx), buildActionLabel(parsedBody));
@@ -3508,11 +2788,6 @@ async function executeGenerate(body, apiKey, requestContext) {
   }
   normalizeRequestPhase(body);
   pedagogicalScope.normalizePedagogicalScopeOverride(body);
-  if (body.phase === 'phase_c' && !resolvePhaseCTab(body)) {
-    const err = new Error('phase_c requires cTab: inspiration or curriculum');
-    err.statusCode = 400;
-    throw err;
-  }
   if (body.phase === 'pedagogy_deep_dive') {
     normalizeExpansionRequest(body);
     if (isAgeExpansionRequest(body)) {
@@ -3574,7 +2849,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipRag = true;
   }
 
-  if (body.userInitiated && (body.phase === 'topic' || isPhaseCCurriculumGeneration(body))) {
+  if (body.userInitiated && body.phase === 'topic') {
     body.skipCache = true;
     body.forceFresh = true;
     console.log('[generate] userInitiated — cache bypass for', body.phase, body.topic || '');
@@ -3635,25 +2910,7 @@ async function executeGenerate(body, apiKey, requestContext) {
       if (cached) {
         console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
         if (body.phase === 'topic' && cached.data) {
-          if (cacheDb.isPhaseCCurriculumPayloadLegacy(cached.data)) {
-            cached.data = stripCurriculumFromTopicPayload(cached.data);
-            cached.meta.curriculumStripped = true;
-            cached.meta.curriculumMigrated = false;
-            cached.meta.curriculumLegacy = false;
-            cached.meta.curriculumRegenerationRequired = true;
-            try {
-              await cacheDb.purgeRegenerationCaches(body);
-            } catch (purgeErr) {
-              console.warn('[generate] legacy curriculum purge failed:', purgeErr.message || purgeErr);
-            }
-          } else if (!cacheDb.isPhaseCCurriculumServeReady(cached.data)
-              && cacheDb.topicPayloadNeedsCurriculumMigration(cached.data)) {
-            cached.meta.curriculumMigrated = false;
-            cached.meta.curriculumRegenerationRequired = true;
-          } else {
-            cached.meta.curriculumMigrated = true;
-            cached.meta.curriculumLegacy = false;
-          }
+          cached.data = stripCurriculumFromTopicPayload(cached.data);
         }
         if (!body.skipKnowledgeIngest) {
           knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
@@ -3696,14 +2953,7 @@ async function executeGenerate(body, apiKey, requestContext) {
             let archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
               JSON.parse(JSON.stringify(suggestion.resultData))
             ).data;
-            if (cacheDb.isPhaseCCurriculumPayloadLegacy(archivePayload)) {
-              archivePayload = stripCurriculumFromTopicPayload(archivePayload);
-              try {
-                await cacheDb.purgeRegenerationCaches(body);
-              } catch (purgeErr) {
-                console.warn('[generate] archive legacy curriculum purge failed:', purgeErr.message || purgeErr);
-              }
-            }
+            archivePayload = stripCurriculumFromTopicPayload(archivePayload);
             const archiveMeta = {
               fromCache: true,
               cacheKey: suggestion.cacheKey,
@@ -3712,11 +2962,6 @@ async function executeGenerate(body, apiKey, requestContext) {
               similarity: suggestion.similarity,
               requestedTopic: body.topic || suggestion.requestedTopic || null,
               enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
-              curriculumMigrated: cacheDb.isPhaseCCurriculumServeReady(archivePayload),
-              curriculumLegacy: cacheDb.isPhaseCCurriculumPayloadLegacy(suggestion.resultData),
-              curriculumStripped: cacheDb.isPhaseCCurriculumPayloadLegacy(suggestion.resultData),
-              curriculumRegenerationRequired: !cacheDb.isPhaseCCurriculumServeReady(archivePayload)
-                && cacheDb.topicPayloadNeedsCurriculumMigration(archivePayload),
             };
             return {
               data: archivePayload,
@@ -3768,7 +3013,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     liveDriveRefresh: false,
   };
 
-  // Main generation: grade/topic/phase_c → Perplexity Sonar + synthesis; phase_c inspiration enrichment_links → Gemini Google Search; chat → Gemini.
+  // Main generation: grade/topic → Perplexity Sonar + synthesis; enrichment_links → Gemini Google Search; chat → Gemini.
   if (isDecoupledGenerationPhase(body) || isOnDemandExpansionPhase(body)) {
     body.skipRag = true;
   }
@@ -3826,7 +3071,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     : '';
 
   const searchPhases = new Set([
-    'grade', 'topic', 'pedagogy_deep_dive', 'archive_search', 'archive_summary',
+    'grade', 'topic', 'pedagogy_deep_dive', 'archive_summary',
     'chat_followup',
   ]);
   const isChatFollowup = body.phase === 'chat_followup';
@@ -3841,19 +3086,11 @@ async function executeGenerate(body, apiKey, requestContext) {
     scopeGuardSystem +
     (isDecoupledGen || isOnDemandExpansion ? '' : CONTENT_HIERARCHY_INSTRUCTION) +
     communityCriticalBlock +
-    (body.phase === 'grade' || body.phase === 'topic' || body.phase === 'phase_c' || body.phase === 'archive_search'
+    (body.phase === 'grade' || body.phase === 'topic'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (body.phase === 'topic'
       ? PHASE_B_TOPIC_FORBIDDEN_OUTPUT
-      : '') +
-    (body.phase === 'phase_c'
-      ? ' PHASE C — INDEPENDENT TAB («' + body.cTab + '»): Do NOT duplicate or paraphrase Phase B theory essence. Generate unique, deep tab-specific content from Perplexity research only. NO sources, bibliography, or external links in output.'
-      : '') +
-    (body.phase === 'archive_search'
-      ? ' GENERAL SEARCH (חיפוש כללי): Return archiveSearch JSON with FOUR separate rich Hebrew markdown fields — ' +
-        'developmental_axis (grade-by-grade א\'–ח\'), core_pedagogical_emphases, recommended_literature, relevant_links. ' +
-        'intro = one short sentence only. NO sources array. NO collapsing content into intro.'
       : '') +
     (isOnDemandExpansion
       ? (isAgeExpansionRequest(body)
@@ -3908,7 +3145,6 @@ async function executeGenerate(body, apiKey, requestContext) {
   if (!body.skipCache && !body._onDemandCacheSaved && body.phase !== 'chat_followup') {
     try {
       const cachePayload = cacheDb.stampPerplexityOnlyMetadata(data);
-      // phase_c curriculum: setCachedResult stores blockPlan.curriculum verbatim (no normalizePhaseCCurriculum).
       const savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
       if (savedKey) {
         const merged = ragMeta.chunkCount > 0;

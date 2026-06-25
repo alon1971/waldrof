@@ -122,7 +122,6 @@ const CURRICULUM_BLOCKS = [
 /** Phases that write into the active grade curriculum view — grade-lock enforced here only. */
 const SCOPE_VALIDATION_PHASES = new Set([
   'topic',
-  'phase_c',
   'pedagogy_deep_dive',
 ]);
 
