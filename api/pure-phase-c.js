@@ -1,8 +1,9 @@
 /**
- * POST /api/pure-phase-c — isolated Phase C synthesis via Perplexity (no cache).
- * Body: { grade, topic }
+ * POST /api/pure-phase-c — unified Step B→C synthesis via Perplexity with topic_master archive cache.
+ * Body: { grade, gradeId, topic }
  */
 const shared = require('./pure-api-shared');
+const cache = require('./cache');
 
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
@@ -165,11 +166,33 @@ function normalizePhaseCResponse(parsed, grade, topic) {
   };
 }
 
+function resolveGradeId(body) {
+  const fromBody = String(body.gradeId || body.currentGrade || '').trim();
+  if (fromBody) return fromBody;
+  const grade = String(body.grade || body.gradeLabel || '').trim();
+  const digit = grade.match(/[1-8]/);
+  return digit ? digit[0] : '';
+}
+
 async function runPurePhaseC(body) {
   const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
+  const gradeId = resolveGradeId(body);
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
+
+  if (gradeId && !body.forceFresh && !body.skipCache) {
+    const cached = await cache.getTopicMasterCache(gradeId, topic);
+    if (cached && cached.data) {
+      return {
+        data: normalizePhaseCResponse(cached.data, grade, topic),
+        meta: Object.assign({
+          fromCache: true,
+          source: 'topic_master_archive',
+        }, cached.meta || {}),
+      };
+    }
+  }
 
   const userPrompt = [
     'Produce Phase C pedagogical products and essence for Waldorf education.',
@@ -194,10 +217,24 @@ async function runPurePhaseC(body) {
   ].join('\n');
 
   const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt);
-  return normalizePhaseCResponse(parsed, grade, topic);
+  const normalized = normalizePhaseCResponse(parsed, grade, topic);
+
+  if (gradeId) {
+    cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
+      console.warn('[pure-phase-c] topic_master cache save failed:', err.message || err);
+    });
+  }
+
+  return {
+    data: normalized,
+    meta: { fromCache: false, source: 'perplexity-pure' },
+  };
 }
 
-const legacyHandler = shared.createLegacyPostHandler(runPurePhaseC);
+const legacyHandler = shared.createLegacyPostHandler(async function (body) {
+  const result = await runPurePhaseC(body || {});
+  return result.data;
+});
 
 async function fetchHandler(request) {
   const headers = new Headers(shared.CORS_HEADERS);
@@ -214,8 +251,12 @@ async function fetchHandler(request) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400, headers: headers });
   }
   try {
-    const data = await runPurePhaseC(body || {});
-    return Response.json({ ok: true, data: data, meta: { fromCache: false, source: 'perplexity-pure' } }, { status: 200, headers: headers });
+    const result = await runPurePhaseC(body || {});
+    return Response.json({
+      ok: true,
+      data: result.data,
+      meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
+    }, { status: 200, headers: headers });
   } catch (err) {
     const statusCode = err && err.statusCode ? err.statusCode : 500;
     return Response.json({ error: err.message || String(err) }, { status: statusCode, headers: headers });

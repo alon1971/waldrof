@@ -176,6 +176,24 @@
       text-decoration-thickness: 2px;
       text-decoration-color: #4a6b53;
     }
+    .theory-live-links-section a.prose-source-link,
+    .theory-live-links-section a.prose-source-link:visited,
+    #phase-c-structured-cards a.prose-source-link,
+    #phase-c-structured-cards a.prose-source-link:visited {
+      color: #9B1B30;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-color: rgba(155, 27, 48, 0.55);
+    }
+    .theory-live-links-section a.prose-source-link:hover,
+    .theory-live-links-section a.prose-source-link:focus-visible,
+    #phase-c-structured-cards a.prose-source-link:hover,
+    #phase-c-structured-cards a.prose-source-link:focus-visible {
+      color: #7A1526;
+      text-decoration-thickness: 2px;
+      text-decoration-color: #9B1B30;
+    }
     #grade-insights-body a.prose-source-link,
     #grade-insights-body a.prose-source-link:visited,
     .grade-insights-sources a.prose-source-link,
@@ -5190,7 +5208,8 @@
         var raw = readWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
         if (!raw) return null;
         var data = JSON.parse(raw);
-        if (!data || !data.snapshot || !data.snapshot.blockPlan) return null;
+        if (!data || !data.snapshot) return null;
+        if (!data.snapshot.blockPlan && !data.snapshot.purePhaseC) return null;
         return data;
       } catch (e) {
         return null;
@@ -5220,7 +5239,8 @@
     }
 
     function applyPersistedLessonSnapshot(snapshotData) {
-      if (!snapshotData || !snapshotData.snapshot || !snapshotData.snapshot.blockPlan) return false;
+      if (!snapshotData || !snapshotData.snapshot) return false;
+      if (!snapshotData.snapshot.blockPlan && !snapshotData.snapshot.purePhaseC) return false;
       var topicStr = String(snapshotData.topic || '').trim();
       var gradeId = snapshotData.grade || appState.grade;
       if (!topicStr || !gradeId) return false;
@@ -5240,6 +5260,12 @@
       if (gradeSelect) gradeSelect.value = gradeId;
       var topicInput = document.getElementById('topic-input');
       if (topicInput) topicInput.value = topicStr;
+
+      if (snapshotData.snapshot && snapshotData.snapshot.purePhaseC) {
+        populateAiGeneratedPlanFromPurePhaseC(snapshotData.snapshot.purePhaseC);
+        appState.topicResearchCompleted = true;
+        return true;
+      }
 
       return commitTopicResearchToStepB(topicStr, snapshotData.snapshot);
     }
@@ -5752,6 +5778,9 @@
         blockPlan: appState.aiGeneratedPlan
           ? JSON.parse(JSON.stringify(appState.aiGeneratedPlan))
           : null,
+        purePhaseC: appState.purePhaseC
+          ? JSON.parse(JSON.stringify(appState.purePhaseC))
+          : null,
         webResearch: appState.webResearch
           ? JSON.parse(JSON.stringify(appState.webResearch))
           : null,
@@ -5941,6 +5970,16 @@
       return false;
     }
 
+    function extractTopicMasterFromData(data) {
+      if (!data || typeof data !== 'object') return null;
+      if (data.theory && (String(data.core_emphases || '').trim() || (Array.isArray(data.key_points) && data.key_points.length))) {
+        return data;
+      }
+      if (data.purePhaseC && typeof data.purePhaseC === 'object') return data.purePhaseC;
+      if (data.phaseC && typeof data.phaseC === 'object') return data.phaseC;
+      return null;
+    }
+
     /** Apply completed topic research and keep the teacher on wizard Step B (never auto-open Step C). */
     function commitTopicResearchToStepB(topic, data) {
       data = coerceArchiveLessonResultData(data);
@@ -6091,6 +6130,9 @@
       hydrateCurriculumFromUnifiedSynthesis({
         communityMatches: appState.topicCommunityMatches,
       });
+
+      var topicMaster = extractTopicMasterFromData(data);
+      if (topicMaster) populateAiGeneratedPlanFromPurePhaseC(topicMaster);
 
       resetSummarySession();
       ensureStepBWizardView();
@@ -13715,6 +13757,7 @@
       syncActivePlanFromGenerated();
       hydratePurePhaseCLinkData();
       appState.productTabsRendered = freshProductTabsRendered();
+      persistLessonSnapshot();
     }
 
     function clearProductPanelDom() {
@@ -13920,19 +13963,21 @@
       if (!res.ok || json.error) {
         throw new Error(json.error || ('שגיאת שרת (' + res.status + ')'));
       }
-      return json.data || json;
+      return { data: json.data || json, meta: json.meta || null };
     }
 
     async function fetchPurePhaseC(grade, topic, signal) {
-      return invokePureApi(PURE_PHASE_C_ENDPOINT, {
+      var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, {
         grade: grade || appState.gradeLabel || appState.grade,
         gradeId: appState.grade,
         topic: topic,
       }, signal);
+      return response;
     }
 
     async function fetchPureGeneralSearch(query, signal) {
-      return invokePureApi(PURE_GENERAL_SEARCH_ENDPOINT, { query: query }, signal);
+      var response = await invokePureApi(PURE_GENERAL_SEARCH_ENDPOINT, { query: query }, signal);
+      return response.data;
     }
 
     function hideGeneralSearchView() {
@@ -13960,9 +14005,6 @@
       var initialTab = options.initialTab || appState.activeProductTab || 'theory';
       if (appState.grade && appState.topic) {
         switchProductTab(initialTab, options);
-        if (!options.skipLoad && !appState.purePhaseC) {
-          loadPurePhaseCForCurrentTopic(initialTab);
-        }
       } else {
         syncPhaseCEmptyVisibility();
       }
@@ -14637,13 +14679,10 @@
       if (navSection === 'phase-c' || step === 3) {
         if (appState.grade && appState.topic) {
           openPhaseCWorkspace({
-            skipLoad: Boolean(appState.purePhaseC),
             initialTab: options.activeProductTab || appState.activeProductTab || 'theory',
             forceRemount: false,
           });
-          if (!appState.purePhaseC && !options.skipPhaseCLiveLoad) {
-            loadPurePhaseCForCurrentTopic(options.activeProductTab || appState.activeProductTab || 'theory');
-          } else if (appState.activeProductTab) {
+          if (appState.activeProductTab) {
             switchProductTab(appState.activeProductTab);
           }
         }
@@ -14744,7 +14783,6 @@
       restoreWizardStepView(step, appState.navSection, Object.assign({}, options, {
         activeProductTab: saved.activeProductTab || appState.activeProductTab,
         generalSearchQuery: saved.generalSearchQuery || '',
-        skipPhaseCLiveLoad: Boolean(appState.purePhaseC || snapshot),
       }));
 
       if (options.restoreScroll && typeof saved.scrollY === 'number' && saved.scrollY > 0) {
@@ -14921,7 +14959,11 @@
       }
       if (n === 3) {
         if (!appState.grade || !appState.topic) return;
-        openPhaseCWorkspace();
+        if (!appState.purePhaseC && !appState.aiGeneratedPlan) {
+          goToStep(2, 'smooth');
+          return;
+        }
+        openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'theory' });
         return;
       }
       if (n === 1) {
@@ -15391,21 +15433,27 @@
       const out = document.getElementById('web-research-result');
 
       try {
-        const data = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, signal);
+        const response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, signal);
         if (runId !== topicResearchRunId || signal.aborted) return;
 
+        const data = response.data;
+        const meta = response.meta || {};
         appState.topic = topic;
         populateAiGeneratedPlanFromPurePhaseC(data);
         appState.topicResearchCompleted = true;
-        appState.lessonFromArchive = false;
+        appState.lessonFromArchive = Boolean(meta.fromCache);
+        if (meta.cacheKey) appState.lessonCacheKey = meta.cacheKey;
 
         if (out) {
           out.classList.remove('hidden');
+          var statusMsg = meta.fromCache
+            ? (isEnglish() ? 'Loaded from archive — opening dashboard.' : 'נטען מהארכיון — פותח לוח בקרה.')
+            : (isEnglish() ? 'Phase C products ready — opening dashboard.' : 'תוצרי שלב ג׳ מוכנים — פותח לוח בקרה.');
           out.innerHTML = '<p class="text-sage-dark m-0"><i class="fa-solid fa-circle-check ml-1"></i> ' +
-            escapeHtml(isEnglish() ? 'Phase C products ready — opening dashboard.' : 'תוצרי שלב ג׳ מוכנים — פותח לוח בקרה.') + '</p>';
+            escapeHtml(statusMsg) + '</p>';
         }
 
-        openPhaseCWorkspace({ skipLoad: true, initialTab: 'theory', forceRemount: true });
+        openPhaseCWorkspace({ initialTab: 'theory', forceRemount: true });
 
         if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
           try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
@@ -15483,7 +15531,6 @@
       appState.topic = topic;
       appState.lessonFromArchive = false;
       appState.purePhaseC = null;
-      abortPhaseCLoads();
 
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
@@ -15846,7 +15893,7 @@
     function renderPureTheoryLiveLinksSection(theory, pureData) {
       var links = collectPureTheoryLiveLinks(theory, pureData);
       if (!links.length) return '';
-      return '<section class="theory-bibliography-card mt-6" aria-labelledby="theory-live-links-heading">' +
+      return '<section class="theory-bibliography-card theory-live-links-section mt-6" aria-labelledby="theory-live-links-heading">' +
         '<h3 id="theory-live-links-heading" class="theory-bib-main-title"><i class="fa-solid fa-link text-burgundy ml-1" aria-hidden="true"></i> ' +
         escapeHtml(t('phase_c_tab_links')) + '</h3>' +
         '<p class="text-walnut/65 mb-4">' + escapeHtml(isEnglish()
@@ -15956,9 +16003,8 @@
       if (bib.books.length || bib.articles.length || bib.websites.length) {
         html += renderTheoryBibliography(bib);
       }
-      if (isPurePhaseCMode()) {
-        html += renderPureTheoryLiveLinksSection(d, appState.purePhaseC);
-      }
+      var liveLinkData = appState.purePhaseC || { relevant_links: [] };
+      html += renderPureTheoryLiveLinksSection(d, liveLinkData);
       holdPageScroll(function () {
         document.getElementById('theoretical-content').innerHTML = html;
       });
@@ -17599,27 +17645,6 @@
       persistActiveStep();
     }
 
-    async function loadPurePhaseCForCurrentTopic(initialTab) {
-      if (!appState.grade || !appState.topic) return;
-      setPhaseCLoadingUi(true);
-      try {
-        const data = await fetchPurePhaseC(appState.gradeLabel || appState.grade, appState.topic);
-        populateAiGeneratedPlanFromPurePhaseC(data);
-        appState.topicResearchCompleted = true;
-        openPhaseCWorkspace({ skipLoad: true, initialTab: initialTab || 'theory', forceRemount: true });
-      } catch (err) {
-        renderPurePhaseCCards(null);
-        var cardsEl = document.getElementById('phase-c-structured-cards');
-        if (cardsEl) {
-          cardsEl.classList.remove('hidden');
-          cardsEl.innerHTML = '<p class="text-terracotta col-span-full"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(err.message || String(err)) + '</p>';
-        }
-        switchProductTab(initialTab || 'curriculum');
-      } finally {
-        setPhaseCLoadingUi(false);
-      }
-    }
-
     function restartJourney() {
       if (gradeResearchAbort) {
         gradeResearchAbort.abort();
@@ -17883,7 +17908,12 @@
       bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
       bindWizardNavClick(document.getElementById('header-compact-phase-c'), function () {
         if (!canNavigateToStep(3)) return;
-        openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'theory' });
+        if (!appState.purePhaseC && !appState.aiGeneratedPlan) {
+          alert(isEnglish() ? 'Run topic research in Step B first.' : 'יש להפעיל מחקר נושא בשלב ב׳ תחילה.');
+          goToStep(2, 'smooth');
+          return;
+        }
+        openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'theory', forceRemount: false });
       });
       bindWizardNavClick(document.getElementById('header-compact-general-search'), function () {
         openGeneralSearchView();

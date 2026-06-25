@@ -20,6 +20,8 @@ const enrichmentLinks = require('./enrichment-links');
 const TABLE_NAME = 'cached_results';
 /** Phase stored in cached_results for raw Perplexity web-search payloads (hybrid pipeline). */
 const RAW_PERPLEXITY_PHASE = 'perplexity_raw';
+/** Unified Step B→C master payload (theory + inspiration + pedagogy + live links) keyed by grade_id + topic. */
+const TOPIC_MASTER_PHASE = 'topic_master';
 const HYBRID_GENERATED_VERSION = '2025-06-hybrid-v1';
 
 function resolveFallbackPath() {
@@ -149,6 +151,13 @@ function buildCacheKey(body) {
     const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
     if (!gradeId) return null;
     return hashString(['grade', gradeId].join('|'));
+  }
+
+  if (body.phase === TOPIC_MASTER_PHASE) {
+    const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
+    const topic = normalizeTopicQuery(body.topic ?? '');
+    if (!gradeId || !topic) return null;
+    return hashString([TOPIC_MASTER_PHASE, gradeId, topic].join('|'));
   }
 
   const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
@@ -582,6 +591,7 @@ function isValidCachedPayload(phase, data) {
     return Boolean(String(data.content || '').trim());
   }
   if (phase === 'grade') return Boolean(normalizeGradeResultForCache(data));
+  if (phase === TOPIC_MASTER_PHASE) return isTopicMasterPayload(data);
   if (phase === 'topic') {
     const bp = data.blockPlan;
     if (bp && typeof bp === 'object' && String(bp.rawContent || '').trim()) return true;
@@ -1569,6 +1579,55 @@ async function lookupChatPriorAnswer(body) {
  * Lookup cached result. Returns { data, meta } or null.
  * For topic/grade phases, only returns rows that pass isEnhancedCachedPayload when requireEnhanced is true.
  */
+function isTopicMasterPayload(data) {
+  const coerced = coerceCachedResultData(data);
+  if (!coerced || typeof coerced !== 'object') return false;
+  const hasTheory = coerced.theory && typeof coerced.theory === 'object';
+  const hasPedagogy = String(coerced.core_emphases || '').trim().length > 40
+    || (Array.isArray(coerced.key_points) && coerced.key_points.length > 0);
+  return Boolean(hasTheory && hasPedagogy);
+}
+
+function buildTopicMasterCacheBody(gradeId, gradeLabel, topic) {
+  return {
+    phase: TOPIC_MASTER_PHASE,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: gradeLabel || null,
+    topic: topic,
+  };
+}
+
+/** Lookup unified Step B→C master JSON by grade_id + normalized topic (archive fast-path). */
+async function getTopicMasterCache(gradeId, topic, options) {
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr) return null;
+  const body = buildTopicMasterCacheBody(gid, null, topicStr);
+  const opts = Object.assign({ requireEnhanced: false }, options || {});
+  const cached = await getCachedResult(body, opts);
+  if (!cached || !cached.data || !isTopicMasterPayload(cached.data)) return null;
+  return cached;
+}
+
+/** Persist unified Step B→C master JSON under grade_id + normalized topic. */
+async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr || !masterData) return null;
+  const safe = ensureJsonObjectForStorage(masterData);
+  if (!safe) return null;
+  safe._topicMaster = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    gradeId: gid,
+    topic: topicStr,
+    topicNormalized: normalizeTopicQuery(topicStr) || topicStr,
+  };
+  const body = buildTopicMasterCacheBody(gid, gradeLabel, topicStr);
+  return setCachedResult(body, safe);
+}
+
 async function getCachedResult(body, options) {
   const opts = options && typeof options === 'object' ? options : {};
   const requireEnhanced = opts.requireEnhanced !== false
@@ -2992,6 +3051,7 @@ async function probeCommunityGlobalSearch(query, options) {
 module.exports = {
   TABLE_NAME,
   RAW_PERPLEXITY_PHASE,
+  TOPIC_MASTER_PHASE,
   HYBRID_GENERATED_VERSION,
   buildCacheKey,
   normalizeGradeCacheRequest,
@@ -3011,6 +3071,10 @@ module.exports = {
   stampHybridGeneratedMetadata,
   stampPerplexityOnlyMetadata,
   getCachedResult,
+  getTopicMasterCache,
+  setTopicMasterCache,
+  isTopicMasterPayload,
+  buildTopicMasterCacheBody,
   getRawPerplexityCache,
   setRawPerplexityCache,
   lookupChatPriorAnswer,
