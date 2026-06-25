@@ -13965,6 +13965,15 @@
       var emptyEl = document.getElementById('phase-c-empty');
       if (!cardsEl) return;
       var view = normalizePedagogicalEssenceView(data) || data || resolvePurePhaseCTab3View();
+      if (!view && hasPhaseCTopicContext()) {
+        var fallbackSrc = data || appState.purePhaseC || {};
+        view = {
+          core_emphases: String(fallbackSrc.core_emphases || '').trim(),
+          key_points: Array.isArray(fallbackSrc.key_points) ? fallbackSrc.key_points : [],
+          recommended_reading: Array.isArray(fallbackSrc.recommended_reading) ? fallbackSrc.recommended_reading : [],
+          relevant_links: Array.isArray(fallbackSrc.relevant_links) ? fallbackSrc.relevant_links : [],
+        };
+      }
       if (!view) {
         cardsEl.classList.add('hidden');
         cardsEl.innerHTML = '';

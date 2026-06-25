@@ -639,6 +639,12 @@ function partitionFallbackEssay(essay) {
   };
 }
 
+const PHASE_C_TAB3_MIN_PLAIN_CHARS = 40;
+
+function tab3FieldPlainLen(value) {
+  return stripHtmlToPlainText(String(value || '')).trim().length;
+}
+
 const CORE_EMPHASES_HEADINGS_BY_GRADE = {
   '8': [
     'מצפן התפתחותי — סמכות פנימית ואתגר המרד',
@@ -655,7 +661,130 @@ const CORE_EMPHASES_HEADINGS_BY_GRADE = {
     'יחס המורה לשאלות צדק, סמכות וקהילה',
     'דגשים לבניית תקופה והיעדים הפדגוגיים',
   ],
+  '5': [
+    'מצפן התפתחותי — גיל האחד עשר והתעוררות הרציונלית',
+    'יחס המורה לדימוי, לסיפור ולמעבר לעולם המושגים',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
+  '4': [
+    'מצפן התפתחותי — גיל העשירי ואיזון בין קסם לרציונליות',
+    'יחס המורה לסמכות, לקהילה ולשאלות מוסריות',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
+  '3': [
+    'מצפן התפתחותי — גיל התשע ומעבר לעצמאות רגשית',
+    'יחס המורה לביטחון, לסדר ולדימוי חי',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
+  '2': [
+    'מצפן התפתחותי — גיל השמונה וחיזוק האני',
+    'יחס המורה לדימוי, לסיפור ולקצב עדין',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
+  '1': [
+    'מצפן התפתחותי — גיל השבע ופתיחת שער בית הספר',
+    'יחס המורה לקסם, לסמכות חמה ולסדר מגן',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
 };
+
+/** Grade-specific 3-paragraph developmental defaults when prose splitting fails entirely. */
+const GRADE_DEFAULT_CORE_EMPHASES_PARAGRAPHS = {
+  '8': [
+    'בגיל ארבע-עשרה (כיתה ח׳) הילד עובר לשלב שבו הסמכות הפנימית והשיפוט המוסרי העצמי הופכים למרכז ההתפתחות. המורה נדרשת לכבד את רגישות גיל המרד ולספק מסגרת ברורה שמאפשרת לתלמיד לבחון רעיונות, לחשוב בביקורתיות ולגלות עצמאות רוחנית — לא כהתנגדות עיוורת, אלא כבניית שיפוט פנימי.',
+    'בתקופת היסטוריה בכיתה ח׳ הדגש הוא על יחסים סיבתיים בהיסטוריה: איך כוחות חברתיים, רעיונות ומהפכות משפיעים זה על זה. התלמיד לומד לראות דפוסים, לקשר בין אירועים ולהבין את המחיר האנושי של שינוי. המורה מלווה את התלמידים בדיון, בדימוי ובחוויה אמנותית — כך שההיסטוריה נהיית חוויה נפשית חיה ולא רק עובדות.',
+    'בגיל זה מתאזנים קוטבי רגשיים — ביטחון מול חוסר ודאות, אידיאליזם מול אכזבה, קבלה מול מרד. המורה שומרת על קצב, על יחס חם ועל מטרות פדגוגיות ברורות: לעודד חשיבה עצמאית, לטפח אמפתיה היסטורית, ולבנות תקופה שבה התלמיד מרגיש מוכר, מאתגר ומעורב — עם דגש על שיעור ראשי, אמנות, תנועה ודיון כחלקים אינטגרליים.',
+  ],
+  '7': [
+    'בגיל שלוש-עשרה (כיתה ז׳) מתעוררת תחושת עצמאות רגשית ושאלות עמוקות על זהות וקיום. המורה מציעה דימויים חיים, סיפורים וחוויות אמנותיות שמאפשרים לתלמיד לעבד מורכבות בלי לחץ אינטלקטואלי יתר. הקצב חשוב: לא למהר, לא לדחוף — אלא להאזין ולהוביל בעדינות.',
+    'התלמיד בגיל זה מתחיל לראות את העולם דרך עדשה אישית — גילוי, רנסנס, מפגשים בין תרבויות. המורה מחברת בין התוכן לבין חוויית הנפש: איך גילוי משנה תפיסה, איך אמנות משקפת רוח תקופה, ואיך ההיסטוריה נוגעת בשאלות שמעסיקות את התלמיד עצמו.',
+    'דגשים לבניית התקופה: ליצור מרחב בטוח לשאלות, לשלב אמנות ותנועה, לבנות מעברים ברורים בין שיעורים, ולהציב יעדים פדגוגיים מדידים — הבנה דרך חוויה, לא רק שינון. המורה היא מלווה רוחני-פדגוגי שמכיר את מצפן הגיל.',
+  ],
+  '6': [
+    'בגיל שתים-עשרה (כיתה ו׳) הילד נכנס לעולם הארצי והרציונלי בצורה מובהקת יותר. הוא שואל על צדק, על סמכות ועל מקומו בקהילה. המורה מספקת תוכן שמאתגר את החשיבה תוך שמירה על קשר אישי ועל דימוי חי.',
+    'המעבר מגיל ילדותי לגיל ההתבגרות המוקדמת מביא עימו רגישות לשוויון ולחוק. בתכנון התקופה יש להדגיש דיון, עבודה קבוצתית ופרויקטים שמאפשרים לתלמיד לקחת אחריות. המורה מאזנת בין סמכות חיצונית לבין עידוד שיפוט פנימי מתפתח.',
+    'יעדים פדגוגיים לתקופה: לחזק חשיבה סיבתית, לטפח אמפתיה חברתית, לשלב אמנות ומעשה, ולבנות רצף שיעורים שמכבד את קצב הגיל. המצפן ההתפתחותי מנחה את בחירת הדימויים, הסיפורים והפעילויות.',
+  ],
+  '5': [
+    'בגיל אחד-עשר (כיתה ה׳) מתחדדת היכולת לחשוב במושגים מופשטים יותר, אך עדיין נדרש דימוי חי וסיפור. המורה בונה תקופה שמחברת בין הרציונל לבין האמנותי — כך שהתלמיד חווה את התוכן בגוף ובנפש.',
+    'גיל זה מאופיין בחיפוש אחר משמעות ובשאלות על מקום האדם בעולם. המורה מציעה תוכן שמאתגר בעדינות, שומרת על סדר וקצב, ומאפשרת לתלמידים לגלות עצמאות בהדרגה.',
+    'דגשים לבניית התקופה: שיעור ראשי עשיר בדימוי, מעברים ברורים בין נושאים, שילוב תנועה ואמנות, ומטרות ברורות לכל בלוק — הבנה, חוויה ויישום בכיתה.',
+  ],
+  '4': [
+    'בגיל עשר (כיתה ד׳) הילד חווה מעבר בין עולם הילדות לעולם המבוגרים. הוא עדיין זקוק לסיפור ולדימוי, אך מתחיל לבקש הסברים רציונליים. המורה מאזנת בין קסם לבין בהירות, ובונה אמון דרך עקביות וסמכות חמה.',
+    'שאלות על צדק, על קהילה ועל מקום האישי בחברה בולטות יותר. בתכנון התקופה יש להדגיש חוויה קבוצתית, פרויקטים ועבודה שמחזקת את תחושת השייכות לכיתה כקהילה לומדת.',
+    'יעדים פדגוגיים: לחזק כתיבה ורישום, לעמק דימויים, לשלב אמנות ומעשה, ולהציב יעדים ברורים לכל שבוע — כך שהתלמיד יודע לאן התקופה מובילה.',
+  ],
+  '3': [
+    'בגיל תשע (כיתה ג׳) הילד מחפש יציבות וביטחון תוך גילוי עצמאות רגשית. המורה יוצרת סדר ברור, קצב מוכר ודימויים חיים שמאפשרים לו להרגיש בטוח לקחת צעדים קטנים לעצמאות.',
+    'המעבר לעולם מופשט יותר — בקריאה, בכתיבה ובחשבון — דורש מהמורה לבנות גשרים מדימוי לרעיון. כל תוכן חדש מומלץ להציג דרך סיפור, תמונה או חוויה לפני הסבר מופשט.',
+    'דגשים לבניית התקופה: לשמור על קצב אחיד, לחזק מיומנויות יסוד, לשלב אמנות ותנועה, ולהגדיר יעדים פדגוגיים ברורים — ביטחון, מיומנות ושמחה בלמידה.',
+  ],
+  '2': [
+    'בגיל שמונה (כיתה ב׳) הילד מחזק את תחושת האני ומחפש הכרה. המורה מציעה סיפורים, שירים ודימויים שמאפשרים לו להרגיש נראה ומוערך, תוך שמירה על סדר ועל גבולות ברורים.',
+    'הקשר למורה עדיין מרכזי — אמון, חום ועקביות מאפשרים למידה עמוקה. בתכנון התקופה יש להדגיש חזרה על מוטיבים, עבודה ידנית ואמנות שמחזקים את הקשר בין גוף לנפש.',
+    'יעדים פדגוגיים: לחזק קריאה וכתיבה בדימוי, לטפח קשב וסבלנות, לשלב תנועה ושירה, ולבנות תקופה עם מטרות ברורות שמכבדות את קצב הגיל.',
+  ],
+  '1': [
+    'בגיל שבע (כיתה א׳) הילד פותח את דלת בית הספר — עולם של קסם, סדר וסמכות מלאה. המורה היא דמות מכונה שמובילה בעדינות, בדימוי ובשמחה. הקצב איטי, חוזר ומגן.',
+    'הדגש הוא על חוויה חושית, סיפור ואמנות — לא על הסברים מופשטים. כל נושא חדש נכנס דרך שיר, ציור, תנועה או מעשה ידני, כך שהילד חווה את הלמידה בגוף ובלב.',
+    'דגשים לבניית התקופה: לשמור על רצף ועל קסם, לבנות הרגלים של שיעור ראשי, לחזק מיומנויות יסוד בעדינות, ולהגדיר יעדים פדגוגיים פשוטים וברורים — ביטחון, שמחה ופתיחות לעולם.',
+  ],
+};
+
+function buildGradeDefaultCoreEmphasesParagraphs(grade, topic) {
+  const gradeNum = resolveGradeNum(grade);
+  const topicStr = String(topic || 'הנושא').trim();
+  const base = (gradeNum && GRADE_DEFAULT_CORE_EMPHASES_PARAGRAPHS[gradeNum])
+    ? GRADE_DEFAULT_CORE_EMPHASES_PARAGRAPHS[gradeNum].slice()
+    : [
+      'מצפן התפתחותי: כל תקופה בוולדורף נבנית מתוך הבנת הגיל — מה הילד חווה בנפש, ברוח ובגוף, ומה המורה יכולה להציע כדי לתמוך בצמיחה.',
+      'יחס המורה לקצב, לדימוי ולמסגרת: המורה שומרת על סדר ברור, על חום ועל דימויים חיים שמאפשרים לתלמיד להרגיש בטוח, מעורב ומאתגר — בלי לדחוף מעבר לקצב ההתפתחותי.',
+      'דגשים לבניית התקופה בנושא «' + topicStr + '»: להגדיר יעדים פדגוגיים ברורים, לשלב שיעור ראשי אמנות ותנועה, ולבנות מעברים שמחברים בין היום-יום לבין תמונה גדולה של התקופה.',
+    ];
+  if (!topicStr || topicStr === 'הנושא' || topicStr === 'נושא') return base;
+  return base.map(function (paragraph, index) {
+    if (index === 2) {
+      return paragraph.replace('«' + topicStr + '»', '«' + topicStr + '»')
+        .replace(/דגשים לבניית התקופה[^:]*:/, 'דגשים לבניית התקופה בנושא «' + topicStr + '»:');
+    }
+    return paragraph + ' הנושא «' + topicStr + '» מציע הזדמנות לחבר בין התוכן לבין מצפן הגיל.';
+  });
+}
+
+function gatherRichTab3SourceText(normalized, essay, parsed) {
+  const chunks = [];
+  function pushText(value) {
+    const text = stripHtmlToPlainText(String(value || '')).trim();
+    if (text && text.length >= 12) chunks.push(text);
+  }
+  pushText(essay);
+  pushText(gatherPhaseCFallbackSourceText(parsed));
+  if (normalized && normalized.theory && Array.isArray(normalized.theory.sections)) {
+    normalized.theory.sections.forEach(function (sec) {
+      pushText(sec && (sec.content || sec.text || sec.body));
+    });
+  }
+  if (normalized && normalized.inspiration) {
+    const insp = normalized.inspiration;
+    if (Array.isArray(insp.global)) {
+      insp.global.forEach(function (block) {
+        if (block && Array.isArray(block.items)) block.items.forEach(pushText);
+      });
+    }
+    if (Array.isArray(insp.narrative)) insp.narrative.forEach(pushText);
+  }
+  pushText(normalized && normalized.core_emphases);
+  const seen = new Set();
+  const unique = [];
+  chunks.forEach(function (chunk) {
+    const key = chunk.slice(0, 100);
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(chunk);
+  });
+  return unique.join('\n\n').trim();
+}
 
 function getCoreEmphasesHeadings(grade) {
   const gradeNum = resolveGradeNum(grade);
@@ -812,36 +941,65 @@ function buildTheoryFallbackSections(essay, paragraphs) {
 
 function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade) {
   const headings = getCoreEmphasesHeadings(grade);
-  let source = (paragraphs || []).slice();
-  if (!source.length && essay) {
-    source = paragraphsFromSterileEssay(essay);
+  const fallbackEssay = String(essay || '').trim();
+  let source = (paragraphs || []).slice().filter(function (p) { return String(p || '').trim().length > 8; });
+  if (!source.length && fallbackEssay) {
+    source = paragraphsFromSterileEssay(fallbackEssay);
   }
-  if (!source.length && essay) {
-    source = splitEssayIntoChunks(essay, 3);
+  if (!source.length && fallbackEssay) {
+    source = splitEssayIntoChunks(fallbackEssay, 3);
+  }
+  if (!source.length) {
+    source = buildGradeDefaultCoreEmphasesParagraphs(grade, '');
   }
 
   let chunks = source.length >= 2
     ? groupParagraphsIntoChunks(source, 3)
-    : splitEssayIntoChunks(source.join('\n\n') || essay, 3);
-  chunks = chunks.slice(0, 3);
-  while (chunks.length < 2 && essay) {
-    chunks = splitEssayIntoChunks(essay, 3).slice(0, 3);
-    break;
+    : splitEssayIntoChunks(source.join('\n\n') || fallbackEssay, 3);
+  chunks = chunks.filter(function (c) { return String(c || '').trim().length > 8; }).slice(0, 3);
+
+  const duplicatePayload = fallbackEssay || source.join('\n\n') || chunks.join('\n\n');
+  while (chunks.length < 3) {
+    const donor = chunks[chunks.length - 1] || duplicatePayload ||
+      buildGradeDefaultCoreEmphasesParagraphs(grade, '')[chunks.length] ||
+      buildGradeDefaultCoreEmphasesParagraphs(grade, '')[0];
+    chunks.push(donor);
   }
 
   const allLinks = [];
   let html = '<div class="prose-ai leading-relaxed w-full space-y-5">';
+  let articleCount = 0;
   chunks.forEach(function (content, i) {
-    if (!content) return;
-    const formatted = formatFallbackProseChunk(content);
+    const text = String(content || duplicatePayload || '').trim();
+    if (!text) return;
+    const formatted = formatFallbackProseChunk(text);
+    if (!formatted.html || tab3FieldPlainLen(formatted.html) < 8) {
+      const fallbackChunk = buildGradeDefaultCoreEmphasesParagraphs(grade, '')[i] ||
+        buildGradeDefaultCoreEmphasesParagraphs(grade, '')[0];
+      const fallbackFormatted = formatFallbackProseChunk(fallbackChunk);
+      allLinks.push.apply(allLinks, fallbackFormatted.links || []);
+      html += '<article class="theory-fallback-window bg-white/75 rounded-2xl border border-gold/25 p-5 sm:p-6 w-full box-border">';
+      html += '<h4 class="app-subhead font-display font-bold text-sage-dark mb-3"><strong>' +
+        escapeHtmlForFallback(headings[i] || ('דגש ' + (i + 1))) + '</strong></h4>';
+      html += fallbackFormatted.html || '<p>' + boldPedagogicalPhrases(fallbackChunk) + '</p>';
+      html += '</article>';
+      articleCount++;
+      return;
+    }
     allLinks.push.apply(allLinks, formatted.links || []);
     html += '<article class="theory-fallback-window bg-white/75 rounded-2xl border border-gold/25 p-5 sm:p-6 w-full box-border">';
     html += '<h4 class="app-subhead font-display font-bold text-sage-dark mb-3"><strong>' +
       escapeHtmlForFallback(headings[i] || ('דגש ' + (i + 1))) + '</strong></h4>';
-    html += formatted.html || '';
+    html += formatted.html;
     html += '</article>';
+    articleCount++;
   });
   html += '</div>';
+
+  if (!articleCount || tab3FieldPlainLen(html) < PHASE_C_TAB3_MIN_PLAIN_CHARS) {
+    const defaults = buildGradeDefaultCoreEmphasesParagraphs(grade, '');
+    return buildCoreEmphasesFallbackHtml(defaults, defaults.join('\n\n'), grade);
+  }
   return { html: html, links: allLinks };
 }
 
@@ -849,6 +1007,144 @@ function splitInspirationFallbackItems(paragraphs, essay) {
   let items = paragraphs.length ? paragraphs.slice() : splitEssayIntoChunks(essay, 6);
   if (!items.length && essay) items = [essay];
   return items.filter(function (item) { return String(item || '').trim().length > 4; });
+}
+
+/**
+ * Absolute safety net — every Tab 3 field must have substantive content before response leaves the server.
+ * Duplicates the richest available prose payload when regex/split isolation fails.
+ */
+function ensurePhaseCTab3Population(normalized, opts) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  const options = opts || {};
+  const grade = String(options.grade || '').trim();
+  const topic = String(options.topic || 'נושא').trim();
+  const parsed = options.parsed;
+  const richEssay = gatherRichTab3SourceText(
+    normalized,
+    options.essay || '',
+    parsed
+  );
+  const defaultParagraphs = buildGradeDefaultCoreEmphasesParagraphs(grade, topic);
+  const payloadEssay = richEssay || defaultParagraphs.join('\n\n');
+
+  if (tab3FieldPlainLen(normalized.core_emphases) < PHASE_C_TAB3_MIN_PLAIN_CHARS) {
+    const partition = partitionFallbackEssay(payloadEssay);
+    let coreParagraphs = partition.coreParagraphs.filter(function (p) {
+      return String(p || '').trim().length > 8;
+    });
+    if (!coreParagraphs.length) {
+      coreParagraphs = paragraphsFromSterileEssay(payloadEssay);
+    }
+    if (!coreParagraphs.length) {
+      coreParagraphs = defaultParagraphs.slice();
+    }
+    if (!coreParagraphs.length) {
+      coreParagraphs = [payloadEssay];
+    }
+    const coreResult = buildCoreEmphasesFallbackHtml(coreParagraphs, payloadEssay, grade);
+    normalized.core_emphases = coreResult.html;
+    mergeExtractedLinksIntoNormalized(normalized, [coreResult.links], topic);
+  }
+
+  if (!Array.isArray(normalized.key_points)) normalized.key_points = [];
+  const substantiveKeyPoints = normalized.key_points.filter(function (item) {
+    return String(item || '').trim().length >= 20;
+  });
+  if (!substantiveKeyPoints.length) {
+    const kpParagraphs = paragraphsFromSterileEssay(payloadEssay);
+    normalized.key_points = buildKeyPointsFromEssay(payloadEssay, kpParagraphs);
+  }
+  if (!normalized.key_points.length) {
+    normalized.key_points = defaultParagraphs.map(function (paragraph) {
+      return paragraph.split(/(?<=[.!?׃。])\s+/).slice(0, 2).join(' ').trim() || paragraph;
+    }).filter(function (item) { return item.length >= 20; }).slice(0, 6);
+  }
+  if (!normalized.key_points.length) {
+    normalized.key_points = defaultParagraphs.slice(0, 5);
+  }
+
+  if (!Array.isArray(normalized.relevant_links)) normalized.relevant_links = [];
+  if (!normalized.relevant_links.length) {
+    applyPhaseCFallbackLinkHarvester(normalized, parsed, topic);
+  }
+  normalized.relevant_links = filterLiveNormalizedLinks(normalized.relevant_links);
+  if (!normalized.relevant_links.length && normalized.theory && normalized.theory.bibliography) {
+    normalized.relevant_links = filterLiveNormalizedLinks(normalized.theory.bibliography.websites)
+      .map(function (item) {
+        return { title: String(item.title || item.url || '').trim(), url: String(item.url || '').trim() };
+      })
+      .filter(function (item) { return item.url; })
+      .slice(0, 8);
+  }
+  if (!normalized.relevant_links.length && normalized.pedagogical_resources && normalized.pedagogical_resources.length) {
+    normalized.relevant_links = filterLiveNormalizedLinks(normalized.pedagogical_resources)
+      .map(function (item) {
+        return { title: String(item.title || item.url || '').trim(), url: String(item.url || '').trim() };
+      })
+      .filter(function (item) { return item.url; })
+      .slice(0, 8);
+  }
+  if (!normalized.relevant_links.length) {
+    normalized.relevant_links = buildDefaultRelevantLinks(grade, topic);
+  }
+
+  ensureRecommendedReading(normalized, payloadEssay, grade, topic);
+  deduplicatePhaseCTabLinks(normalized);
+
+  if (tab3FieldPlainLen(normalized.core_emphases) < PHASE_C_TAB3_MIN_PLAIN_CHARS) {
+    const emergency = buildCoreEmphasesFallbackHtml(defaultParagraphs, defaultParagraphs.join('\n\n'), grade);
+    normalized.core_emphases = emergency.html;
+  }
+
+  return normalized;
+}
+
+function duplicateRichPayloadAcrossFallbackTabs(normalized, essay, grade, topic) {
+  const text = String(essay || '').trim();
+  if (!text) return normalized;
+  const topicStr = String(topic || 'נושא').trim();
+  const titleSuffix = grade ? (grade + ' · ' + topicStr) : topicStr;
+
+  const theorySections = normalized.theory && Array.isArray(normalized.theory.sections)
+    ? normalized.theory.sections
+    : [];
+  const theoryHasContent = theorySections.some(function (sec) {
+    return tab3FieldPlainLen(sec && sec.content) >= PHASE_C_TAB3_MIN_PLAIN_CHARS;
+  });
+  if (!theoryHasContent) {
+    const theoryResult = buildTheoryFallbackSections(text, paragraphsFromSterileEssay(text));
+    if (theoryResult.sections.length) {
+      normalized.theory = {
+        title: (normalized.theory && normalized.theory.title) || ('רקע תיאורטי — ' + titleSuffix),
+        sections: theoryResult.sections,
+        bibliography: (normalized.theory && normalized.theory.bibliography) || { books: [], articles: [], websites: [] },
+      };
+      mergeExtractedLinksIntoNormalized(normalized, [theoryResult.links], topicStr);
+    }
+  }
+
+  const insp = normalized.inspiration;
+  const inspHasContent = insp && (
+    (Array.isArray(insp.global) && insp.global.some(function (b) { return b && b.items && b.items.length; })) ||
+    (Array.isArray(insp.narrative) && insp.narrative.length)
+  );
+  if (!inspHasContent) {
+    const inspirationItems = splitInspirationFallbackItems(paragraphsFromSterileEssay(text), text);
+    normalized.inspiration = {
+      title: (insp && insp.title) || ('השראה פדגוגית — ' + topicStr),
+      global: buildInspirationFallbackGlobalBlocks(inspirationItems.length ? inspirationItems : [text]),
+      podcast: (insp && insp.podcast) || { title: 'תובנות', episodes: [] },
+      narrative: paragraphsFromSterileEssay(text).slice(-3),
+    };
+  }
+
+  if (tab3FieldPlainLen(normalized.core_emphases) < PHASE_C_TAB3_MIN_PLAIN_CHARS) {
+    const coreResult = buildCoreEmphasesFallbackHtml(paragraphsFromSterileEssay(text), text, grade);
+    normalized.core_emphases = coreResult.html;
+    mergeExtractedLinksIntoNormalized(normalized, [coreResult.links], topicStr);
+  }
+
+  return normalized;
 }
 
 function buildInspirationFallbackGlobalBlocks(items) {
@@ -1027,6 +1323,35 @@ function buildDefaultRecommendedReading(grade, topic) {
   ];
 }
 
+function buildDefaultRelevantLinks(grade, topic) {
+  const topicStr = String(topic || 'נושא').trim();
+  const gradeNum = resolveGradeNum(grade);
+  const historyTopic = /מהפכ|היסטור|history|revolution/i.test(topicStr);
+  const links = [
+    {
+      title: 'Rudolf Steiner Archive — Education Lectures Index',
+      url: 'https://rsarchive.org/Lectures/EduIndex.html',
+    },
+    {
+      title: 'Waldorf Library — Book reviews and articles',
+      url: 'https://waldorflibrary.org/pages/book-reviews/',
+    },
+    {
+      title: 'AWSNA — Association of Waldorf Schools of North America',
+      url: 'https://www.waldorfeducation.org/waldorf-education',
+    },
+  ];
+  if (historyTopic || gradeNum === '7' || gradeNum === '8') {
+    links.unshift({
+      title: 'GA 325 — History Curriculum Lectures (Steiner Archive)',
+      url: 'https://rsarchive.org/Lectures/GA0325/English/RSPC325_index.html',
+    });
+  }
+  return links.filter(function (item) {
+    return item && item.url && !isDeadPhaseCFallbackUrl(item.url);
+  }).slice(0, 6);
+}
+
 function ensureRecommendedReading(normalized, essay, grade, topic) {
   let reading = Array.isArray(normalized.recommended_reading)
     ? normalized.recommended_reading.filter(function (item) { return item && item.title; })
@@ -1105,21 +1430,37 @@ function deduplicatePhaseCTabLinks(normalized) {
  */
 function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   const source = gatherPhaseCFallbackSourceText(parsed);
-  const essay = sterilizePhaseCFallbackText(source);
-  if (!essay) return normalized;
+  let essay = sterilizePhaseCFallbackText(source);
+  if (!essay) {
+    essay = sterilizePhaseCFallbackText(gatherPhaseCFallbackApiResponse(parsed));
+  }
+  if (!essay) {
+    essay = String(source || '').trim();
+  }
 
   const topicStr = String(topic || 'נושא').trim();
   const gradeStr = String(grade || '').trim();
   const titleSuffix = gradeStr ? (gradeStr + ' · ' + topicStr) : topicStr;
-  const partition = partitionFallbackEssay(essay);
+  const defaultParagraphs = buildGradeDefaultCoreEmphasesParagraphs(gradeStr, topicStr);
+  const richEssay = essay || defaultParagraphs.join('\n\n');
+  const partition = partitionFallbackEssay(richEssay);
 
-  const theoryParagraphs = partition.theoryParagraphs;
-  const inspirationParagraphs = partition.inspirationParagraphs;
-  const coreParagraphs = partition.coreParagraphs;
+  let theoryParagraphs = partition.theoryParagraphs;
+  let inspirationParagraphs = partition.inspirationParagraphs;
+  let coreParagraphs = partition.coreParagraphs;
 
-  const theoryEssay = theoryParagraphs.join('\n\n') || essay;
-  const inspirationEssay = inspirationParagraphs.join('\n\n') || essay;
-  const coreEssay = coreParagraphs.join('\n\n') || essay;
+  if (!theoryParagraphs.length && !inspirationParagraphs.length && !coreParagraphs.length) {
+    theoryParagraphs = paragraphsFromSterileEssay(richEssay);
+    inspirationParagraphs = theoryParagraphs.slice();
+    coreParagraphs = theoryParagraphs.slice();
+  }
+  if (!coreParagraphs.length) {
+    coreParagraphs = defaultParagraphs.slice();
+  }
+
+  const theoryEssay = theoryParagraphs.join('\n\n') || richEssay;
+  const inspirationEssay = inspirationParagraphs.join('\n\n') || richEssay;
+  const coreEssay = coreParagraphs.join('\n\n') || richEssay;
 
   const theoryResult = buildTheoryFallbackSections(
     theoryEssay,
@@ -1134,21 +1475,30 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
     inspirationParagraphs.length ? inspirationParagraphs : paragraphsFromSterileEssay(inspirationEssay),
     inspirationEssay
   );
-  const keyPoints = buildKeyPointsFromEssay(
+  let keyPoints = buildKeyPointsFromEssay(
     coreEssay,
     coreParagraphs.length ? coreParagraphs : paragraphsFromSterileEssay(coreEssay)
   );
+  if (!keyPoints.length) {
+    keyPoints = defaultParagraphs.map(function (p) {
+      return p.split(/(?<=[.!?׃。])\s+/).slice(0, 2).join(' ').trim() || p;
+    }).slice(0, 6);
+  }
 
   normalized.theory = {
     title: 'רקע תיאורטי — ' + titleSuffix,
-    sections: theoryResult.sections,
+    sections: theoryResult.sections.length
+      ? theoryResult.sections
+      : buildTheoryFallbackSections(richEssay, paragraphsFromSterileEssay(richEssay)).sections,
     bibliography: (normalized.theory && normalized.theory.bibliography) || { books: [], articles: [], websites: [] },
   };
   normalized.inspiration = {
     title: 'השראה פדגוגית — ' + topicStr,
-    global: buildInspirationFallbackGlobalBlocks(inspirationItems),
+    global: buildInspirationFallbackGlobalBlocks(
+      inspirationItems.length ? inspirationItems : paragraphsFromSterileEssay(richEssay)
+    ),
     podcast: { title: 'תובנות', episodes: [] },
-    narrative: inspirationParagraphs.length > 2 ? inspirationParagraphs.slice(-3) : [],
+    narrative: inspirationParagraphs.length > 2 ? inspirationParagraphs.slice(-3) : paragraphsFromSterileEssay(richEssay).slice(-3),
   };
   normalized.core_emphases = coreResult.html;
   normalized.key_points = keyPoints;
@@ -1157,12 +1507,18 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   if (!Array.isArray(normalized.pinterest_links)) normalized.pinterest_links = [];
   if (!Array.isArray(normalized.pedagogical_resources)) normalized.pedagogical_resources = [];
 
+  duplicateRichPayloadAcrossFallbackTabs(normalized, richEssay, gradeStr, topicStr);
   mergeExtractedLinksIntoNormalized(normalized, [theoryResult.links, coreResult.links], topicStr);
   applyPhaseCFallbackLinkHarvester(normalized, parsed, topicStr);
-  ensureRecommendedReading(normalized, coreEssay || essay, gradeStr, topicStr);
+  ensureRecommendedReading(normalized, coreEssay || richEssay, gradeStr, topicStr);
   deduplicatePhaseCTabLinks(normalized);
 
-  return normalized;
+  return ensurePhaseCTab3Population(normalized, {
+    essay: richEssay,
+    grade: gradeStr,
+    topic: topicStr,
+    parsed: parsed,
+  });
 }
 
 const SYSTEM_PROMPT = [
@@ -1412,6 +1768,16 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
   }
   if (needsFallbackClean) {
     result = applyPhaseCFallbackCleaner(result, parsed, grade, topicStr);
+  } else {
+    const sourceEssay = sterilizePhaseCFallbackText(gatherPhaseCFallbackSourceText(parsed)) ||
+      gatherRichTab3SourceText(result, '', parsed);
+    duplicateRichPayloadAcrossFallbackTabs(result, sourceEssay, grade, topicStr);
+    result = ensurePhaseCTab3Population(result, {
+      essay: sourceEssay,
+      grade: grade,
+      topic: topicStr,
+      parsed: parsed,
+    });
   }
   return result;
 }
@@ -1543,4 +1909,7 @@ module.exports = {
   deduplicatePhaseCTabLinks,
   extractRecommendedReadingFromText,
   buildDefaultRecommendedReading,
+  ensurePhaseCTab3Population,
+  buildGradeDefaultCoreEmphasesParagraphs,
+  tab3FieldPlainLen,
 };
