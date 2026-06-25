@@ -5315,6 +5315,25 @@
       if (snapshotData.snapshot && snapshotData.snapshot.purePhaseC) {
         populateAiGeneratedPlanFromPurePhaseC(snapshotData.snapshot.purePhaseC);
         appState.topicResearchCompleted = true;
+        if (snapshotData.snapshot.webResearch && typeof snapshotData.snapshot.webResearch === 'object') {
+          appState.webResearch = snapshotData.snapshot.webResearch;
+        } else {
+          var restoredHtml = buildStepBSummaryHtmlFromPurePhaseC(snapshotData.snapshot.purePhaseC);
+          var restoredCitations = Array.isArray(snapshotData.snapshot.purePhaseC._liveCitations)
+            ? snapshotData.snapshot.purePhaseC._liveCitations.slice()
+            : collectPhaseCLinkItemsClient(snapshotData.snapshot.purePhaseC).map(function (item) { return item.url; });
+          appState.webResearch = {
+            topic: topicStr,
+            summary: stripHtmlText(restoredHtml).slice(0, 800),
+            rawContent: restoredHtml,
+            connections: [],
+            highlights: [],
+            citations: restoredCitations,
+          };
+        }
+        if (appState.webResearch && String(appState.webResearch.rawContent || '').trim()) {
+          injectStepBWebResearchHtml(appState.webResearch.rawContent);
+        }
         return true;
       }
 
@@ -10229,11 +10248,38 @@
       return String(text || '').replace(/\[\d+\]/g, '').replace(/[^\S\n]{2,}/g, ' ').trim();
     }
 
+    function isCompiledPedagogicalHtml(text) {
+      return /<[a-z][\s\S]*>/i.test(String(text || ''));
+    }
+
+    /** Render pre-compiled HTML as-is for innerHTML; only escape plain-text/markdown payloads. */
+    function renderCompiledPedagogicalHtml(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return '';
+      if (isCompiledPedagogicalHtml(raw)) return raw;
+      return formatPerplexityRawText(raw);
+    }
+
+    function injectStepBWebResearchHtml(html) {
+      var out = document.getElementById('web-research-result');
+      if (!out) return;
+      var content = String(html || '').trim();
+      if (!content) content = '<p class="text-walnut/70">—</p>';
+      holdPageScroll(function () {
+        out.innerHTML = content;
+        out.classList.remove('hidden');
+        ensurePedagogySuggestionEvents();
+        updatePedagogyExportButtonsVisibility();
+        checkAndShowCommunityTopicAlert();
+        nudgeGoogleTranslate();
+      });
+    }
+
     function buildPhaseBEssenceHtml(dive) {
       const data = dive || {};
       const rawContent = stripPhaseBReferenceBrackets(data.rawContent || '');
       if (!rawContent) return '';
-      return formatPerplexityRawText(rawContent);
+      return renderCompiledPedagogicalHtml(rawContent);
     }
 
     function buildPerplexityExpansionHtml(dive) {
@@ -11019,13 +11065,14 @@
 
     function renderWebResearchResult() {
       const wr = appState.webResearch;
-      const out = document.getElementById('web-research-result');
       if (!wr) return;
       let html = '';
       if (String(wr.rawContent || '').trim()) {
         html = buildPhaseBEssenceHtml({
           rawContent: wr.rawContent,
         });
+      } else if (isCompiledPedagogicalHtml(wr.summary)) {
+        html = String(wr.summary || '').trim();
       } else {
         html = '<p class="leading-relaxed">' + escapeHtml(sanitizePedagogicalText(wr.summary)) + '</p>';
         if (wr.highlights && wr.highlights.length) {
@@ -11048,14 +11095,7 @@
             (wr.connections || []).map(function (c) { return escapeHtml(sanitizePedagogicalText(c)); }).join(' · ') + '</p>';
         }
       }
-      holdPageScroll(function () {
-        out.innerHTML = html;
-        out.classList.remove('hidden');
-      });
-      ensurePedagogySuggestionEvents();
-      updatePedagogyExportButtonsVisibility();
-      checkAndShowCommunityTopicAlert();
-      nudgeGoogleTranslate();
+      injectStepBWebResearchHtml(html);
     }
 
     const COMMUNITY_PREVIEW_LIMIT = 3;
@@ -14058,7 +14098,7 @@
     function renderPureTextBlock(text) {
       var raw = String(text || '').trim();
       if (!raw) return '<p class="text-walnut/50">—</p>';
-      if (/<[a-z][\s\S]*>/i.test(raw)) return '<div class="pure-card-body">' + raw + '</div>';
+      if (isCompiledPedagogicalHtml(raw)) return '<div class="pure-card-body">' + raw + '</div>';
       return '<div class="pure-card-body">' + formatPerplexityRawText(raw) + '</div>';
     }
 
@@ -15962,23 +16002,14 @@
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
-      holdPageScroll(function () {
-        var out = document.getElementById('web-research-result');
-        if (!out) return;
-        var html = summaryHtml;
-        if (!String(html || '').trim()) {
-          html = '<p class="text-walnut/70">—</p>';
-        }
-        if (meta.statusBanner) {
-          html = meta.statusBanner + html;
-        }
-        out.innerHTML = html;
-        out.classList.remove('hidden');
-        ensurePedagogySuggestionEvents();
-        updatePedagogyExportButtonsVisibility();
-        checkAndShowCommunityTopicAlert();
-        nudgeGoogleTranslate();
-      });
+      var displayHtml = summaryHtml;
+      if (!String(displayHtml || '').trim()) {
+        displayHtml = '<p class="text-walnut/70">—</p>';
+      }
+      if (meta.statusBanner) {
+        displayHtml = meta.statusBanner + displayHtml;
+      }
+      injectStepBWebResearchHtml(displayHtml);
       updateTopicResearchButton();
       updatePedagogyExportButtonsVisibility();
       ensurePedagogySuggestionEvents();
@@ -16552,9 +16583,12 @@
         const secIcon = sec.icon || 'fa-compass';
         const secHeading = sec.heading || sec.title || '';
         const secContent = sec.content || sec.text || sec.body || '';
+        const secBodyHtml = isCompiledPedagogicalHtml(secContent)
+          ? secContent
+          : ensureAiHtml(secContent);
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
-          '<div class="text-lg leading-relaxed prose-ai">' + ensureAiHtml(secContent) + '</div>';
+          '<div class="text-lg leading-relaxed prose-ai">' + secBodyHtml + '</div>';
         if (sec.quotes && Array.isArray(sec.quotes)) {
           sec.quotes.forEach(function (q) {
             if (!q) return;
@@ -16831,6 +16865,9 @@
       raw = String(raw || '').trim();
       if (!raw) return '<div class="pedagogical-essence-body"></div>';
       var allowLinks = fieldKey === 'relevant_links';
+      if (isCompiledPedagogicalHtml(raw)) {
+        return '<div class="pedagogical-essence-body prose-ai">' + raw + '</div>';
+      }
       if (looksLikeAiHtml(raw) || raw.indexOf('<') >= 0) {
         return '<div class="pedagogical-essence-body prose-ai">' + (allowLinks ? raw : ensureAiHtml(raw)) + '</div>';
       }
