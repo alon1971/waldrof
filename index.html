@@ -5076,6 +5076,13 @@
     const ACTIVE_STEP_STORAGE_KEY = 'waldorf_active_step';
     const LESSON_SNAPSHOT_STORAGE_KEY = 'waldorf_lesson_snapshot';
     var persistStepTimer = null;
+    /** One-shot: hard refresh must reopen Step A while keeping cached form fields. */
+    var resetWizardStepViewOnThisLoad = false;
+
+    function shouldResetWizardStepViewOnLoad(options) {
+      if (options && options.forceStepAReset) return true;
+      return resetWizardStepViewOnThisLoad;
+    }
 
     function isHardPageReload() {
       try {
@@ -7851,7 +7858,11 @@
       if (title) {
         html += '<h2 class="app-page-title font-display font-bold text-burgundy mb-4">' + escapeHtml(title) + '</h2>';
       }
-      html += formatPerplexityRawText(String(rawText || '').trim() || t('research_need_topic'));
+      var bodyText = String(rawText || '').trim();
+      if (!bodyText && !hasPhaseCTopicContext()) {
+        bodyText = t('research_need_topic');
+      }
+      html += formatPerplexityRawText(bodyText);
       holdPageScroll(function () { el.innerHTML = html; });
     }
 
@@ -13560,6 +13571,16 @@
       return isWorkspaceOpen() && appState.navSection === 'phase-c';
     }
 
+    function hasPhaseCTopicContext() {
+      return Boolean(appState.grade && String(appState.topic || '').trim());
+    }
+
+    function syncPhaseCEmptyVisibility() {
+      var emptyEl = document.getElementById('phase-c-empty');
+      if (!emptyEl) return;
+      emptyEl.classList.toggle('hidden', hasPhaseCTopicContext());
+    }
+
     function isProductsView() {
       return isPhaseCView();
     }
@@ -13656,7 +13677,7 @@
       if (!data) {
         cardsEl.classList.add('hidden');
         cardsEl.innerHTML = '';
-        if (emptyEl) emptyEl.classList.remove('hidden');
+        if (emptyEl) emptyEl.classList.toggle('hidden', hasPhaseCTopicContext());
         return;
       }
       if (emptyEl) emptyEl.classList.add('hidden');
@@ -13767,7 +13788,7 @@
     }
 
     function renderProductTabContent(tabId) {
-      if (!appState.aiGeneratedPlan && !appState.purePhaseC) return;
+      if (!appState.aiGeneratedPlan && !appState.purePhaseC && !hasPhaseCTopicContext()) return;
       try {
         ensureActivePlan();
       } catch (planErr) {
@@ -13793,7 +13814,7 @@
     }
 
     function ensureProductTabsHydrated(forceRemount) {
-      if (!appState.aiGeneratedPlan && !appState.purePhaseC) return;
+      if (!appState.aiGeneratedPlan && !appState.purePhaseC && !hasPhaseCTopicContext()) return;
       var theoryEl = document.getElementById('theoretical-content');
       var domEmpty = theoryEl && !theoryEl.innerHTML.trim();
       if (forceRemount || domEmpty) invalidateProductTabRenders();
@@ -13808,7 +13829,7 @@
     function switchProductTab(id, options) {
       options = options || {};
       if (!isProductTab(id)) return;
-      if (!appState.aiGeneratedPlan && !appState.purePhaseC) return;
+      if (!appState.aiGeneratedPlan && !appState.purePhaseC && !hasPhaseCTopicContext()) return;
       appState.navSection = 'phase-c';
       appState.activeProductTab = id;
       appState.step = 3;
@@ -13817,7 +13838,10 @@
       if (phaseLegacy) phaseLegacy.classList.add('hidden');
       syncProductTabButtons(id);
       revealProductTabPanel(id);
-      ensureProductTabsHydrated(options.forceRemount === true);
+      syncPhaseCEmptyVisibility();
+      if (appState.aiGeneratedPlan || appState.purePhaseC) {
+        ensureProductTabsHydrated(options.forceRemount === true);
+      }
       if (id === 'curriculum') setupThemeActionButtons();
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
@@ -13921,10 +13945,13 @@
       hideGeneralSearchView();
       document.getElementById('panel-catalog').classList.add('hidden');
       var initialTab = options.initialTab || appState.activeProductTab || 'theory';
-      if (!options.skipLoad && !appState.purePhaseC && appState.grade && appState.topic) {
-        loadPurePhaseCForCurrentTopic(initialTab);
-      } else {
+      if (appState.grade && appState.topic) {
         switchProductTab(initialTab, options);
+        if (!options.skipLoad && !appState.purePhaseC) {
+          loadPurePhaseCForCurrentTopic(initialTab);
+        }
+      } else {
+        syncPhaseCEmptyVisibility();
       }
       renderStepProgress();
       updateWorkspaceChrome();
@@ -14498,6 +14525,7 @@
     }
 
     function shouldPreserveWizardViewport() {
+      if (resetWizardStepViewOnThisLoad) return false;
       if (appState.step > 1) return true;
       if (isWorkspaceOpen()) return true;
       if (isPhaseCView() || isGeneralSearchView()) return true;
@@ -14506,6 +14534,57 @@
       if (!saved) return false;
       var savedStep = parseInt(saved.step, 10);
       return savedStep > 1 || saved.navSection !== 'wizard' || Boolean(saved.topicResearchLoading);
+    }
+
+    function hydrateWizardFormFieldsFromSaved(saved, snapshot) {
+      if (saved) {
+        if (saved.grade) {
+          appState.grade = saved.grade;
+          appState.gradeLabel = saved.gradeLabel || getGradeLabelById(saved.grade);
+        }
+        if (saved.topic) appState.topic = saved.topic;
+        if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
+        if (typeof saved.topicResearchCompleted === 'boolean') {
+          appState.topicResearchCompleted = saved.topicResearchCompleted;
+        }
+      } else if (snapshot) {
+        if (snapshot.grade) {
+          appState.grade = snapshot.grade;
+          appState.gradeLabel = snapshot.gradeLabel || getGradeLabelById(snapshot.grade);
+        }
+        if (snapshot.topic) appState.topic = snapshot.topic;
+        if (snapshot.lessonCacheKey) appState.lessonCacheKey = snapshot.lessonCacheKey;
+        if (typeof snapshot.topicResearchCompleted === 'boolean') {
+          appState.topicResearchCompleted = snapshot.topicResearchCompleted;
+        }
+      }
+
+      var topicInput = document.getElementById('topic-input');
+      if (topicInput) {
+        var topicVal = saved
+          ? String(saved.topicInput || saved.topic || appState.topic || '').trim()
+          : String((snapshot && snapshot.topic) || appState.topic || '').trim();
+        if (topicVal) topicInput.value = topicVal;
+      }
+      var gradeSelect = document.getElementById('grade-select');
+      if (gradeSelect && appState.grade) gradeSelect.value = appState.grade;
+      var btnGrade = document.getElementById('btn-grade-submit');
+      if (btnGrade && appState.grade) btnGrade.disabled = false;
+    }
+
+    function resetWizardStepViewToPhaseA(options) {
+      options = options || {};
+      appState.step = 1;
+      appState.navSection = 'wizard';
+      appState.activeProductTab = null;
+      catalogState.view = 'grades';
+      catalogState.gradeId = null;
+      catalogState.topic = null;
+      restoreWizardStepView(1, 'wizard', options);
+      renderStepProgress();
+      updateWorkspaceChrome();
+      updateNewResearchBarVisibility();
+      persistActiveStep();
     }
 
     function restoreCatalogFromSaved(saved) {
@@ -14586,6 +14665,12 @@
       options = options || {};
       var saved = readPersistedActiveStep();
       var snapshot = readPersistedLessonSnapshot();
+
+      if (shouldResetWizardStepViewOnLoad(options)) {
+        hydrateWizardFormFieldsFromSaved(saved, snapshot);
+        resetWizardStepViewToPhaseA(options);
+        return;
+      }
 
       if (snapshot && !appState.aiGeneratedPlan) {
         applyPersistedLessonSnapshot(snapshot);
@@ -15780,7 +15865,11 @@
           holdPageScroll(function () {
             const el = document.getElementById('theoretical-content');
             if (!el) return;
-            el.innerHTML = '<p class="text-sm text-terracotta">' + escapeHtml(t('research_need_topic')) + '</p>';
+            if (!hasPhaseCTopicContext()) {
+              el.innerHTML = '<p class="text-sm text-terracotta">' + escapeHtml(t('research_need_topic')) + '</p>';
+            } else {
+              el.innerHTML = '<p class="text-sm text-walnut/50">—</p>';
+            }
           });
           return;
         }
@@ -15791,7 +15880,9 @@
           if (!el) return;
           el.innerHTML = raw
             ? buildPerplexityExpansionHtml({ rawContent: raw, citations: citations })
-            : '<p class="text-sm text-terracotta">' + escapeHtml(t('research_need_topic')) + '</p>';
+            : (hasPhaseCTopicContext()
+              ? '<p class="text-sm text-walnut/50">—</p>'
+              : '<p class="text-sm text-terracotta">' + escapeHtml(t('research_need_topic')) + '</p>');
         });
         return;
       }
@@ -15872,9 +15963,15 @@
       }
       if (!d) {
         holdPageScroll(function () {
-          if (inspEl) inspEl.innerHTML = rawPlanFallback
-            ? formatPerplexityRawText(rawPlanFallback)
-            : '<p class="text-sm text-walnut/65 p-4">' + escapeHtml(t('research_need_topic')) + '</p>';
+          if (inspEl) {
+            if (rawPlanFallback) {
+              inspEl.innerHTML = formatPerplexityRawText(rawPlanFallback);
+            } else if (!hasPhaseCTopicContext()) {
+              inspEl.innerHTML = '<p class="text-sm text-walnut/65 p-4">' + escapeHtml(t('research_need_topic')) + '</p>';
+            } else {
+              inspEl.innerHTML = '<p class="text-sm text-walnut/50 p-4">—</p>';
+            }
+          }
         });
         return;
       }
@@ -17898,6 +17995,7 @@
 
     async function init() {
       var pageReloaded = isHardPageReload();
+      resetWizardStepViewOnThisLoad = pageReloaded;
       try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
       try {
       ensurePageAtTop();
@@ -18111,6 +18209,7 @@
         try { await loadCommunity(); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
       }
       scheduleInitialPageScrollReset();
+      resetWizardStepViewOnThisLoad = false;
       requestAnimationFrame(syncProductTabsStickyLayout);
       } catch (err) {
         console.error('[waldrof] init failed:', err);
@@ -18137,10 +18236,10 @@
         pageLoadFocusGuard = true;
         bindPageLoadScrollGuards();
         defocusGradeSelectDuringPageLoad();
-        try { hydrateActiveStepFromStorage({ restoreScroll: true }); } catch (err) {
+        try { hydrateActiveStepFromStorage({ forceStepAReset: true }); } catch (err) {
           console.warn('[waldrof] pageshow hydrateActiveStepFromStorage:', err);
         }
-        if (!shouldPreserveWizardViewport()) ensurePageAtTop();
+        ensurePageAtTop();
         scheduleInitialPageScrollReset();
         return;
       }
