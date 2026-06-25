@@ -28,7 +28,13 @@ function coerceText(value) {
     return value.map(function (item) { return String(item || '').trim(); }).filter(Boolean).join('\n\n');
   }
   if (typeof value === 'object') {
-    return String(value.text || value.content || value.summary || JSON.stringify(value)).trim();
+    const direct = String(value.text || value.content || value.summary || '').trim();
+    if (direct) return direct;
+    try {
+      return JSON.stringify(value).trim();
+    } catch (stringifyErr) {
+      return '';
+    }
   }
   return String(value).trim();
 }
@@ -99,7 +105,47 @@ async function callPerplexityJson(systemPrompt, userPrompt, options) {
       { role: 'user', content: userPrompt },
     ],
   });
-  return jsonRepair.parseJsonFromModel(raw);
+  const phase = opts.phase || 'topic_master';
+  const result = jsonRepair.parsePureModelJson(raw, {
+    phase: phase,
+    context: {
+      grade: opts.grade || opts.gradeLabel || '',
+      gradeLabel: opts.gradeLabel || opts.grade || '',
+      topic: opts.topic || '',
+      query: opts.query || '',
+    },
+    unwrap: true,
+  });
+  return result.parsed;
+}
+
+/**
+ * Same as callPerplexityJson but exposes whether a safe parse fallback was used.
+ */
+async function callPerplexityJsonSafe(systemPrompt, userPrompt, options) {
+  const opts = options || {};
+  const raw = await perplexityClient.callPerplexityChat({
+    model: perplexityClient.PERPLEXITY_MODEL,
+    temperature: opts.temperature != null ? opts.temperature : 0.35,
+    max_tokens: opts.max_tokens != null
+      ? opts.max_tokens
+      : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+  });
+  const phase = opts.phase || 'topic_master';
+  return jsonRepair.parsePureModelJson(raw, {
+    phase: phase,
+    context: {
+      grade: opts.grade || opts.gradeLabel || '',
+      gradeLabel: opts.gradeLabel || opts.grade || '',
+      topic: opts.topic || '',
+      query: opts.query || '',
+    },
+    unwrap: true,
+  });
 }
 
 function createLegacyPostHandler(runFn) {
@@ -206,6 +252,7 @@ module.exports = {
   coerceReadingList,
   coerceLinks,
   callPerplexityJson,
+  callPerplexityJsonSafe,
   createLegacyPostHandler,
   badRequest,
   PROFESSIONAL_LINKS_INSTRUCTION,

@@ -45,7 +45,10 @@ async function runPureGeneralSearch(body) {
     '- relevant_links (קישורים): 6-8 live professional sources with descriptive titles — not parent-facing school homepages.',
   ].join('\n');
 
-  const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt);
+  const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt, {
+    phase: 'general_search',
+    query: query,
+  });
   return normalizeGeneralSearchResponse(parsed);
 }
 

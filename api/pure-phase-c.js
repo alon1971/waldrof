@@ -221,6 +221,24 @@ function resolveGradeId(body) {
   return digit ? digit[0] : '';
 }
 
+function safeNormalizePhaseCResponse(parsed, grade, topic) {
+  try {
+    return normalizePhaseCResponse(parsed, grade, topic);
+  } catch (normErr) {
+    console.warn('[pure-phase-c] normalizePhaseCResponse failed:', normErr.message || normErr);
+    const plain = shared.coerceText(parsed);
+    const topicStr = String(topic || 'נושא').trim();
+    return normalizePhaseCResponse({
+      theory: {
+        title: 'רקע תיאורטי — ' + topicStr,
+        sections: [{ heading: 'תוכן', content: plain || 'לא ניתן לעבד את התשובה.', icon: 'fa-compass' }],
+      },
+      core_emphases: plain,
+      _normalizeFallback: true,
+    }, grade, topicStr);
+  }
+}
+
 async function runPurePhaseC(body) {
   const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
@@ -231,13 +249,17 @@ async function runPurePhaseC(body) {
   if (gradeId && !body.forceFresh && !body.skipCache) {
     const cached = await cache.getTopicMasterCache(gradeId, topic);
     if (cached && cached.data) {
-      return {
-        data: normalizePhaseCResponse(cached.data, grade, topic),
-        meta: Object.assign({
-          fromCache: true,
-          source: 'topic_master_archive',
-        }, cached.meta || {}),
-      };
+      try {
+        return {
+          data: safeNormalizePhaseCResponse(cached.data, grade, topic),
+          meta: Object.assign({
+            fromCache: true,
+            source: 'topic_master_archive',
+          }, cached.meta || {}),
+        };
+      } catch (cacheErr) {
+        console.warn('[pure-phase-c] cache normalize failed, regenerating:', cacheErr.message || cacheErr);
+      }
     }
   }
 
@@ -265,12 +287,17 @@ async function runPurePhaseC(body) {
     '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live professional sources — MUST NOT be empty.',
   ].join('\n');
 
-  const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt, {
+  const modelResult = await shared.callPerplexityJsonSafe(SYSTEM_PROMPT, userPrompt, {
+    phase: 'topic_master',
+    grade: grade,
+    gradeLabel: grade,
+    topic: topic,
     max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
   });
-  const normalized = normalizePhaseCResponse(parsed, grade, topic);
+  const parsed = modelResult.parsed;
+  const normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
 
-  if (gradeId) {
+  if (gradeId && !modelResult.parseFallback) {
     cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
       console.warn('[pure-phase-c] topic_master cache save failed:', err.message || err);
     });
@@ -278,7 +305,11 @@ async function runPurePhaseC(body) {
 
   return {
     data: normalized,
-    meta: { fromCache: false, source: 'perplexity-pure' },
+    meta: {
+      fromCache: false,
+      source: modelResult.parseFallback ? 'perplexity-pure-fallback' : 'perplexity-pure',
+      parseFallback: Boolean(modelResult.parseFallback),
+    },
   };
 }
 
@@ -319,4 +350,5 @@ module.exports = {
   fetch: fetchHandler,
   runPurePhaseC,
   normalizePhaseCResponse,
+  safeNormalizePhaseCResponse,
 };

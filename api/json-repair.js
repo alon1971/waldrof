@@ -378,7 +378,94 @@ function buildModelParseFallback(phase, rawText, context) {
     return { ok: true, message: plain || 'fallback', _parseFallback: true };
   }
 
+  if (phase === 'topic_master' || phase === 'pure_phase_c') {
+    const topic = String(ctx.topic || 'נושא').trim();
+    const grade = String(ctx.grade || ctx.gradeLabel || '').trim();
+    const titleSuffix = grade ? (grade + ' · ' + topic) : topic;
+    return {
+      theory: {
+        title: 'רקע תיאורטי — ' + titleSuffix,
+        sections: [{
+          heading: 'תוכן שנוצר',
+          icon: 'fa-compass',
+          content: wrap || '<p>לא ניתן לפרסר את תשובת המודל כ-JSON — מוצג תוכן גולמי.</p>',
+        }],
+        bibliography: { books: [], articles: [], websites: [] },
+      },
+      inspiration: {
+        title: 'השראה פדגוגית — ' + topic,
+        global: plain ? [{ title: 'השראה', items: [plain.slice(0, 4000)] }] : [],
+        podcast: { title: 'תובנות', episodes: [] },
+        narrative: [],
+      },
+      pinterest_links: [],
+      pedagogical_resources: [],
+      core_emphases: plain.slice(0, 12000),
+      key_points: [],
+      recommended_reading: [],
+      relevant_links: [],
+      _parseFallback: true,
+    };
+  }
+
+  if (phase === 'general_search' || phase === 'pure_general_search') {
+    return {
+      developmental_axis: plain.slice(0, 8000),
+      core_pedagogical_emphases: plain.slice(0, 8000),
+      recommended_literature: [],
+      relevant_links: [],
+      _parseFallback: true,
+    };
+  }
+
   return { rawText: plain, _parseFallback: true };
+}
+
+/**
+ * Bulletproof parser for pure Perplexity routes — never throws on malformed model JSON.
+ * @returns {{ parsed: object, parseFallback: boolean }}
+ */
+function parsePureModelJson(raw, options) {
+  const opts = options || {};
+  const phase = opts.phase || 'topic_master';
+  const context = opts.context || {};
+  const text = String(raw || '');
+
+  if (!text.trim()) {
+    return {
+      parsed: buildModelParseFallback(phase, '', context),
+      parseFallback: true,
+    };
+  }
+
+  const safe = safeParseJson(text);
+  if (safe && typeof safe === 'object' && !Array.isArray(safe)) {
+    return {
+      parsed: opts.unwrap === false ? safe : unwrapParsedModelPayload(safe),
+      parseFallback: false,
+    };
+  }
+
+  try {
+    const parsed = parseJsonLenient(text);
+    return {
+      parsed: opts.unwrap === false ? parsed : unwrapParsedModelPayload(parsed),
+      parseFallback: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      '[json-repair] parsePureModelJson fallback for',
+      phase + ':',
+      msg,
+      '| preview:',
+      text.slice(0, 180)
+    );
+    return {
+      parsed: buildModelParseFallback(phase, text, context),
+      parseFallback: true,
+    };
+  }
 }
 
 function buildJsonParseAttempts(text) {
@@ -539,5 +626,6 @@ module.exports = {
   parseSseJsonPayload,
   unwrapParsedModelPayload,
   parseJsonFromModel,
+  parsePureModelJson,
   isJsonSyntaxError,
 };
