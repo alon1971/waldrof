@@ -6,6 +6,7 @@ const shared = require('./pure-api-shared');
 const cache = require('./cache');
 const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
+const waldorfWebSeed = require('../waldorf-web-seed');
 
 /** Structural JSON keys that must never appear in pedagogical fallback text. */
 const PHASE_C_JSON_KEY_PATTERN = /["']?(?:theory|inspiration|sections|heading|headings|content|title|text|body|summary|bibliography|books|articles|websites|global|items|podcast|episodes|theme|insight|narrative|pinterest_links|pedagogical_resources|core_emphases|key_points|recommended_reading|relevant_links|icon|url|board|label|source|snippet|author|note|pin|quotes|fa-compass|theory_background|pedagogical_inspiration|developmental_compass|pedagogical_emphases)["']?\s*:/gi;
@@ -193,6 +194,257 @@ function paragraphsFromSterileEssay(essay) {
   return essay.split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
 }
 
+/** Regex harvester for live bilingual URLs embedded in raw Perplexity apiResponse debris. */
+const PHASE_C_URL_PATTERN = /https?:\/\/[^\s"'<>\\\]\)】\u0000-\u001f]+/gi;
+
+/** Legacy structural archive URLs known to 404 — never emit as fallback links. */
+const PHASE_C_DEAD_URL_PATTERNS = [
+  /harduf\.org\.il/i,
+  /shaked\.org\.il/i,
+  /kehilanet/i,
+  /\/http_new\//i,
+  /index\.asp/i,
+  /ViewPage\.asp/i,
+  /edupage\.org\/.*login/i,
+  /google\.com\/search/i,
+];
+
+const PHASE_C_THEORY_URL_HINTS = /rsarchive|waldorflibrary|steiner|anthroposoph|gesamtausgabe|\bga[\d_]|lecture|archive|library|essay|article|journal|research|pdf|anthro/i;
+const PHASE_C_INSPIRATION_URL_HINTS = /pinterest|form[\-_]?draw|chalkboard|blackboard|main[\-_]?lesson|lesson[\-_]?book|gallery|creative|craft|artistic|inspiration|pint/i;
+const PHASE_C_PEDAGOGY_URL_HINTS = /awsna|iaswece|waldorfeducation|teacher|classroom|curriculum|pedagog|educationpace|mofet/i;
+
+function cleanHarvestedUrl(raw) {
+  let url = String(raw || '').trim();
+  if (!url) return '';
+  url = url.replace(/\\+$/g, '');
+  url = url.replace(/[),.;:'"»«\]}>]+$/g, '');
+  url = url.replace(/&amp;/gi, '&');
+  url = url.replace(/&#x2F;/gi, '/');
+  return url;
+}
+
+function isDeadPhaseCFallbackUrl(url) {
+  const u = String(url || '').trim();
+  if (!u || !/^https?:\/\//i.test(u)) return true;
+  if (/pinterest\.com/i.test(u)) return false;
+  if (waldorfWebSeed.isBrokenOrGuessedPedagogicalUrl(u)) return true;
+  for (let i = 0; i < PHASE_C_DEAD_URL_PATTERNS.length; i++) {
+    if (PHASE_C_DEAD_URL_PATTERNS[i].test(u)) return true;
+  }
+  try {
+    const parsed = new URL(u);
+    const path = (parsed.pathname || '').replace(/\/+$/, '');
+    if (!path || path === '/' || path === '/index.html' || path === '/index.php') return true;
+  } catch (e) {
+    return true;
+  }
+  return false;
+}
+
+function gatherPhaseCFallbackApiResponse(parsed) {
+  if (parsed == null) return '';
+  if (typeof parsed === 'string') return parsed;
+  const parts = [];
+  if (parsed._apiResponseRaw) parts.push(String(parsed._apiResponseRaw));
+  if (parsed.rawText) parts.push(String(parsed.rawText));
+  try {
+    parts.push(JSON.stringify(parsed));
+  } catch (e) { /* ignore circular refs */ }
+  const sourceText = gatherPhaseCFallbackSourceText(parsed);
+  if (sourceText) parts.push(sourceText);
+  return parts.join('\n');
+}
+
+function inferHarvestedLinkTitle(url, raw, topic) {
+  const u = String(url || '').trim();
+  const blob = String(raw || '');
+  const idx = blob.indexOf(u);
+  if (idx >= 0) {
+    const windowStart = Math.max(0, idx - 420);
+    const windowText = blob.slice(windowStart, idx + u.length + 40);
+    const md = windowText.match(new RegExp('\\[([^\\]]{2,120})\\]\\(\\s*' + u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\)', 'i'));
+    if (md && md[1]) return md[1].trim();
+    const jsonTitle = windowText.match(/"title"\s*:\s*"((?:\\.|[^"\\]){2,160})"[\s\S]{0,220}"url"\s*:\s*"/i);
+    if (jsonTitle && jsonTitle[1]) return unescapeJsonStringFragment(jsonTitle[1]);
+    const heTitle = windowText.match(/"title"\s*:\s*"([^"]*[\u0590-\u05FF][^"]{1,160})"/);
+    if (heTitle && heTitle[1]) return unescapeJsonStringFragment(heTitle[1]);
+  }
+  try {
+    const host = new URL(u).hostname.replace(/^www\./i, '');
+    const tail = (new URL(u).pathname || '').split('/').filter(Boolean).pop() || '';
+    const readable = decodeURIComponent(tail).replace(/[-_]+/g, ' ').replace(/\.[a-z0-9]+$/i, '').trim();
+    const topicStr = String(topic || '').trim();
+    if (readable && readable.length > 2) return readable + (topicStr ? ' — ' + topicStr : '');
+    return host + (topicStr ? ' — ' + topicStr : '');
+  } catch (e) {
+    return u;
+  }
+}
+
+function classifyPhaseCFallbackUrl(url) {
+  const u = String(url || '').toLowerCase();
+  if (/pinterest\.com/i.test(u)) return 'pinterest';
+  if (PHASE_C_INSPIRATION_URL_HINTS.test(u)) return 'inspiration';
+  if (PHASE_C_THEORY_URL_HINTS.test(u)) return 'theory';
+  if (PHASE_C_PEDAGOGY_URL_HINTS.test(u)) return 'relevant';
+  return 'relevant';
+}
+
+function harvestPhaseCFallbackLinksFromRaw(apiResponse, topic) {
+  const raw = String(apiResponse || '');
+  if (!raw.trim()) return [];
+  const seen = new Set();
+  const out = [];
+  let match;
+  const re = new RegExp(PHASE_C_URL_PATTERN.source, 'gi');
+  while ((match = re.exec(raw)) !== null) {
+    const url = cleanHarvestedUrl(match[0]);
+    if (!url || seen.has(url) || isDeadPhaseCFallbackUrl(url)) continue;
+    seen.add(url);
+    out.push({
+      title: inferHarvestedLinkTitle(url, raw, topic),
+      url: url,
+      bucket: classifyPhaseCFallbackUrl(url),
+    });
+  }
+  return out;
+}
+
+
+function filterLiveNormalizedLinks(links) {
+  if (!Array.isArray(links)) return [];
+  return links.filter(function (item) {
+    if (!item || typeof item !== 'object') return false;
+    const url = String(item.url || item.link || item.href || '').trim();
+    return url && !isDeadPhaseCFallbackUrl(url);
+  });
+}
+
+/**
+ * Distribute harvested live URLs across Phase C tabs without duplicating the same list.
+ * Theory → bibliography.websites | Inspiration → pinterest + pedagogical_resources | Tab 3 → relevant_links.
+ */
+function distributePhaseCFallbackLinks(normalized, harvested, topic) {
+  if (!normalized) return normalized;
+  harvested = harvested || [];
+
+  normalized.relevant_links = filterLiveNormalizedLinks(normalized.relevant_links);
+  normalized.pinterest_links = filterLiveNormalizedLinks(normalized.pinterest_links);
+  normalized.pedagogical_resources = filterLiveNormalizedLinks(normalized.pedagogical_resources);
+  if (!normalized.theory || typeof normalized.theory !== 'object') {
+    normalized.theory = { title: '', sections: [], bibliography: { books: [], articles: [], websites: [] } };
+  }
+  if (!normalized.theory.bibliography) {
+    normalized.theory.bibliography = { books: [], articles: [], websites: [] };
+  }
+  normalized.theory.bibliography.websites = filterLiveNormalizedLinks(normalized.theory.bibliography.websites);
+
+  if (!harvested.length) return normalized;
+
+  const seen = new Set();
+  function seenUrl(url) {
+    const u = String(url || '').trim();
+    if (!u || seen.has(u)) return true;
+    seen.add(u);
+    return false;
+  }
+
+  (normalized.relevant_links || []).forEach(function (item) { seenUrl(item.url); });
+  (normalized.pinterest_links || []).forEach(function (item) { seenUrl(item.url); });
+  (normalized.pedagogical_resources || []).forEach(function (item) { seenUrl(item.url); });
+  (normalized.theory.bibliography.websites || []).forEach(function (item) { seenUrl(item.url); });
+
+  const pinterest = normalized.pinterest_links.slice();
+  const inspiration = normalized.pedagogical_resources.slice();
+  const theorySites = normalized.theory.bibliography.websites.slice();
+  const relevant = normalized.relevant_links.slice();
+
+  harvested.forEach(function (item) {
+    const url = String(item.url || '').trim();
+    if (!url || seenUrl(url)) return;
+    const title = String(item.title || url).trim();
+    const bucket = item.bucket || classifyPhaseCFallbackUrl(url);
+
+    if (bucket === 'pinterest' && pinterest.length < 8) {
+      pinterest.push({
+        title: title,
+        url: url,
+        board: String(topic || '').trim(),
+        pin: title,
+        src: '',
+      });
+      return;
+    }
+    if (bucket === 'inspiration' && inspiration.length < 10) {
+      inspiration.push({
+        title: title,
+        url: url,
+        label: 'השראה מעשית',
+        source: '',
+        snippet: '',
+      });
+      return;
+    }
+    if (bucket === 'theory' && theorySites.length < 8) {
+      theorySites.push({
+        title: title,
+        author: '',
+        year: '',
+        detail: '',
+        url: url,
+        category: 'websites',
+        id: 'websites-harvest-' + theorySites.length,
+      });
+      return;
+    }
+    if (relevant.length < 8) {
+      relevant.push({ title: title, url: url });
+    }
+  });
+
+  normalized.pinterest_links = pinterest;
+  normalized.pedagogical_resources = inspiration;
+  normalized.theory.bibliography.websites = theorySites;
+  normalized.relevant_links = relevant;
+  return normalized;
+}
+
+function applyPhaseCFallbackLinkHarvester(normalized, parsed, topic) {
+  const raw = gatherPhaseCFallbackApiResponse(parsed);
+  const harvested = harvestPhaseCFallbackLinksFromRaw(raw, topic);
+  return distributePhaseCFallbackLinks(normalized, harvested, topic);
+}
+
+async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
+  const opts = options || {};
+  const raw = await perplexityClient.callPerplexityChat({
+    model: perplexityClient.PERPLEXITY_MODEL,
+    temperature: opts.temperature != null ? opts.temperature : 0.35,
+    max_tokens: opts.max_tokens != null
+      ? opts.max_tokens
+      : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+  });
+  const phase = opts.phase || 'topic_master';
+  const result = jsonRepair.parsePureModelJson(raw, {
+    phase: phase,
+    context: {
+      grade: opts.grade || opts.gradeLabel || '',
+      gradeLabel: opts.gradeLabel || opts.grade || '',
+      topic: opts.topic || '',
+      query: opts.query || '',
+    },
+    unwrap: true,
+  });
+  if (result.parsed && typeof result.parsed === 'object') {
+    result.parsed._apiResponseRaw = String(raw || '');
+  }
+  return result;
+}
+
 function buildKeyPointsFromEssay(essay, paragraphs) {
   if (paragraphs.length >= 5) return paragraphs.slice(0, 6);
   if (paragraphs.length >= 2) return paragraphs.slice(0, 6);
@@ -247,6 +499,8 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   if (!Array.isArray(normalized.relevant_links)) normalized.relevant_links = [];
   if (!Array.isArray(normalized.pinterest_links)) normalized.pinterest_links = [];
   if (!Array.isArray(normalized.pedagogical_resources)) normalized.pedagogical_resources = [];
+
+  applyPhaseCFallbackLinkHarvester(normalized, parsed, topicStr);
 
   return normalized;
 }
@@ -543,7 +797,7 @@ async function runPurePhaseC(body) {
     '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live professional sources — MUST NOT be empty.',
   ].join('\n');
 
-  const modelResult = await shared.callPerplexityJsonSafe(SYSTEM_PROMPT, userPrompt, {
+  const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
     phase: 'topic_master',
     grade: grade,
     gradeLabel: grade,
@@ -610,4 +864,7 @@ module.exports = {
   sterilizePhaseCFallbackText,
   gatherPhaseCFallbackSourceText,
   applyPhaseCFallbackCleaner,
+  harvestPhaseCFallbackLinksFromRaw,
+  distributePhaseCFallbackLinks,
+  gatherPhaseCFallbackApiResponse,
 };
