@@ -1017,6 +1017,9 @@
       display: grid;
       grid-template-columns: 1fr;
       gap: 1rem;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     @media (min-width: 768px) {
       .pure-phase-c-grid { grid-template-columns: 1fr 1fr; }
@@ -1028,6 +1031,35 @@
       padding: 1.25rem 1.35rem;
       box-shadow: 0 2px 12px rgba(92, 74, 58, 0.06);
       min-height: 8rem;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    #theoretical-content,
+    #inspiration-content,
+    #phase-c-structured-cards,
+    #product-panels-shell .product-tab-panel {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .phase-c-inspiration-blocks {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      width: 100%;
+    }
+    .phase-c-inspiration-item-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+      width: 100%;
+    }
+    @media (min-width: 768px) {
+      .phase-c-inspiration-item-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .theory-fallback-window {
+      margin-bottom: 1.5rem;
     }
     .pure-data-card h3 {
       font-family: 'Cormorant Garamond', serif;
@@ -4240,12 +4272,12 @@
 
       <div id="product-panels-shell" class="product-panels-shell is-neutral hidden" hidden aria-hidden="true">
       <section id="panel-theory" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-theory" hidden>
-        <div id="theoretical-content"></div>
+        <div id="theoretical-content" class="w-full box-border"></div>
       </section>
 
       <section id="panel-inspiration" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-inspiration" hidden>
         <div id="teacher-drive-inspiration-slot" class="hidden mb-6"></div>
-        <div id="inspiration-content"></div>
+        <div id="inspiration-content" class="w-full box-border"></div>
         <div class="mt-8 bg-white/85 rounded-2xl border border-burgundy/20 p-4 sm:p-6 shadow-sm w-full box-border">
           <h3 class="app-subhead font-display font-bold text-burgundy mb-2">
             <i class="fa-brands fa-pinterest text-terracotta icon-inline"></i>
@@ -4264,7 +4296,7 @@
         </div>
         <div id="teacher-drive-curriculum-slot" class="hidden mb-6"></div>
         <div id="phase-c-empty" class="text-sm text-walnut/65 py-6 text-center hidden" data-i18n="phase_c_empty">טענו נושא בשלב ב׳ כדי לראות את תוצרי שלב ג׳.</div>
-        <div id="phase-c-structured-cards" class="pure-phase-c-grid hidden"></div>
+        <div id="phase-c-structured-cards" class="pure-phase-c-grid w-full box-border hidden"></div>
         <div id="pedagogical-essence-content" class="hidden" aria-hidden="true"></div>
         <div id="phase-c-marketing-mount"></div>
       </section>
@@ -8063,6 +8095,42 @@
       setupThemeActionButtons();
     }
 
+    function formatPhaseCFallbackProseHtml(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return '<div class="prose-ai"></div>';
+      if (/<[a-z][\s\S]*>/i.test(raw)) {
+        return '<div class="prose-ai leading-relaxed w-full">' + raw + '</div>';
+      }
+      var paragraphs = raw.split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
+      if (paragraphs.length < 2) {
+        paragraphs = raw.split(/(?<=[.!?׃。])\s+/).filter(function (s) { return s.trim().length > 40; });
+      }
+      if (paragraphs.length < 2) {
+        return formatPerplexityRawText(raw);
+      }
+      var headings = [
+        'יסודות אנתרופוסופיים ומהות הנושא',
+        'גיל והתפתחות — מצפן למורה',
+        'יישום בכיתה ודימוי פדגוגי',
+        'מקורות, השראה והעמקה',
+      ];
+      var chunkCount = Math.min(4, Math.max(3, Math.ceil(paragraphs.length / 2)));
+      var groupSize = Math.max(1, Math.ceil(paragraphs.length / chunkCount));
+      var html = '<div class="prose-ai leading-relaxed w-full space-y-5">';
+      for (var i = 0; i < paragraphs.length; i += groupSize) {
+        var slice = paragraphs.slice(i, i + groupSize);
+        if (!slice.length) continue;
+        var windowIdx = Math.floor(i / groupSize);
+        html += '<article class="theory-fallback-window bg-white/75 rounded-2xl border border-gold/25 p-5 sm:p-6 w-full box-border">';
+        html += '<h4 class="app-subhead font-display font-bold text-sage-dark mb-3">' +
+          escapeHtml(headings[windowIdx] || ('חלון ' + (windowIdx + 1))) + '</h4>';
+        html += formatPerplexityRawText(slice.join('\n\n'));
+        html += '</article>';
+      }
+      html += '</div>';
+      return html;
+    }
+
     function renderStructuredTextFallback(el, title, rawText) {
       if (!el) return;
       var html = '';
@@ -8073,7 +8141,7 @@
       if (!bodyText && !hasPhaseCTopicContext()) {
         bodyText = t('research_need_topic');
       }
-      html += formatPerplexityRawText(bodyText);
+      html += formatPhaseCFallbackProseHtml(bodyText);
       holdPageScroll(function () { el.innerHTML = html; });
     }
 
@@ -8953,7 +9021,7 @@
       var resources = appState.pedagogicalResources || [];
       var mount = document.getElementById('inspiration-content');
       if (!mount || !resources.length) return;
-      var html = '<section id="pure-pedagogical-resources" class="mt-6 bg-white/75 rounded-2xl border border-sage/25 p-5">' +
+      var html = '<section id="pure-pedagogical-resources" class="mt-6 bg-white/75 rounded-2xl border border-sage/25 p-5 w-full box-border">' +
         '<h3 class="app-subhead font-bold text-sage-dark mb-3"><i class="fa-solid fa-link ml-1" aria-hidden="true"></i> ' +
         escapeHtml(t('pedagogical_resources_title')) + '</h3><ul class="space-y-3">';
       resources.forEach(function (item) {
@@ -16054,13 +16122,17 @@
         seen[u] = true;
         out.push({ title: t, url: u });
       }
-      (pureData && pureData.relevant_links || []).forEach(function (item) {
-        pushLink(item.title, item.url);
-      });
       var websites = theory && theory.bibliography && theory.bibliography.websites;
       (websites || []).forEach(function (item) {
         if (!item) return;
         if (typeof item === 'object') pushLink(item.title || item.name, item.url || item.link);
+      });
+      var articles = theory && theory.bibliography && theory.bibliography.articles;
+      (articles || []).forEach(function (item) {
+        if (!item) return;
+        if (typeof item === 'object' && (item.url || item.link)) {
+          pushLink(item.title || item.name, item.url || item.link);
+        }
       });
       return out;
     }
@@ -16235,11 +16307,11 @@
       if (!Array.isArray(d.narrative)) d.narrative = [];
       let html = '<h2 class="app-page-title font-display font-bold text-burgundy mb-4">' + escapeHtml(d.title) + '</h2>' +
         '<p class="text-walnut/65 mb-4 text-sm">' + escapeHtml(t('pedagogy_inspiration_hint')) + '</p>' +
-        '<div class="grid md:grid-cols-2 gap-4">';
+        '<div class="phase-c-inspiration-blocks w-full">';
       d.global.forEach(function (b, bi) {
         if (!b) return;
         var blockTitle = b.title || (t('tab_inspiration') + ' ' + (bi + 1));
-        html += '<div class="bg-white/75 rounded-xl p-4 border border-sage/25"><h3 class="app-subhead font-bold text-sage-dark mb-3">' + escapeHtml(blockTitle) + '</h3><div class="space-y-1">';
+        html += '<section class="bg-white/75 rounded-xl p-4 sm:p-5 border border-sage/25 w-full box-border"><h3 class="app-subhead font-bold text-sage-dark mb-3">' + escapeHtml(blockTitle) + '</h3><div class="phase-c-inspiration-item-grid">';
         (b.items || []).forEach(function (it, ii) {
           const text = typeof it === 'string' ? it : (it.text || it.preview || it.detail || it.content || '');
           if (!String(text).trim()) return;
@@ -16253,9 +16325,9 @@
             expansion: normalizeExpansion(typeof it === 'object' ? it.expansion : null),
           });
         });
-        html += '</div></div>';
+        html += '</div></section>';
       });
-      html += '</div><div class="mt-4 bg-burgundy/5 rounded-xl p-5 border border-burgundy/15"><h3 class="app-subhead font-bold text-burgundy mb-3"><i class="fa-solid fa-podcast ml-1"></i> ' + escapeHtml(d.podcast.title || 'תובנות') + '</h3><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">';
+      html += '</div><div class="mt-4 bg-burgundy/5 rounded-xl p-5 border border-burgundy/15 w-full box-border"><h3 class="app-subhead font-bold text-burgundy mb-3"><i class="fa-solid fa-podcast ml-1"></i> ' + escapeHtml(d.podcast.title || 'תובנות') + '</h3><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">';
       d.podcast.episodes.forEach(function (ep, ei) {
         if (!ep) return;
         html += renderPedagogySuggestionCard({

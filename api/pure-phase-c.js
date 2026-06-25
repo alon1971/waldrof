@@ -463,6 +463,286 @@ function buildKeyPointsFromEssay(essay, paragraphs) {
   return [essay];
 }
 
+const PHASE_C_FALLBACK_BOLD_PHRASES = [
+  'מצפן התפתחותי', 'רציונל התפתחותי', 'רודולף שטיינר', 'רודולף סטיינר', 'Rudolf Steiner',
+  'וולדורף', 'אנתרופוסופיה', 'אימגינציה', 'רישום צורות', 'שיעור ראשי', 'מחזור התפתחותי',
+  'גיל התשע', 'גיל השמונה', 'גיל השבע', 'גיל השש', 'גיל החמש', 'גיל הארבע', 'גיל השלוש',
+  'נפש', 'רוח', 'גוף', 'פדגוגיה', 'התפתחותי', 'דימוי', 'תנועה', 'אמנות',
+];
+
+const THEORY_FALLBACK_HEADINGS = [
+  'יסודות אנתרופוסופיים ומהות הנושא',
+  'גיל והתפתחות — מצפן למורה',
+  'יישום בכיתה ודימוי פדגוגי',
+  'מקורות, השראה והעמקה',
+];
+
+function splitEssayIntoChunks(essay, targetCount) {
+  const paragraphs = paragraphsFromSterileEssay(essay);
+  if (paragraphs.length >= targetCount) return paragraphs;
+  if (!essay) return [];
+  const sentences = essay.split(/(?<=[.!?׃。])\s+/).map(function (s) { return s.trim(); }).filter(function (s) {
+    return s.length > 20;
+  });
+  if (sentences.length < targetCount) return paragraphs.length ? paragraphs : [essay];
+  const groupSize = Math.max(1, Math.ceil(sentences.length / targetCount));
+  const chunks = [];
+  for (let i = 0; i < sentences.length && chunks.length < targetCount; i += groupSize) {
+    chunks.push(sentences.slice(i, i + groupSize).join(' '));
+  }
+  return chunks.length ? chunks : [essay];
+}
+
+function escapeHtmlForFallback(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function boldPedagogicalPhrases(text) {
+  let out = escapeHtmlForFallback(text);
+  PHASE_C_FALLBACK_BOLD_PHRASES.forEach(function (phrase) {
+    const re = new RegExp('(' + phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    out = out.replace(re, '<strong>$1</strong>');
+  });
+  return out;
+}
+
+function formatFallbackProseChunk(text) {
+  const parts = String(text || '').split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
+  if (!parts.length) return '';
+  return parts.map(function (part) {
+    return '<p>' + boldPedagogicalPhrases(part) + '</p>';
+  }).join('\n');
+}
+
+function buildTheoryFallbackSections(essay, paragraphs) {
+  const source = paragraphs.length >= 3 ? paragraphs : splitEssayIntoChunks(essay, 4);
+  const chunks = source.slice(0, 4);
+  while (chunks.length < 3 && essay) {
+    chunks.push(essay);
+    break;
+  }
+  return chunks.map(function (content, i) {
+    return {
+      heading: THEORY_FALLBACK_HEADINGS[i] || ('חלון ' + (i + 1)),
+      content: formatFallbackProseChunk(content),
+      icon: 'fa-compass',
+    };
+  });
+}
+
+function splitInspirationFallbackItems(paragraphs, essay) {
+  let items = paragraphs.length > 1 ? paragraphs.slice() : splitEssayIntoChunks(essay, 6);
+  if (!items.length && essay) items = [essay];
+  return items.filter(function (item) { return String(item || '').trim().length > 24; });
+}
+
+function buildInspirationFallbackGlobalBlocks(items) {
+  if (!items.length) return [{ title: 'תובנות והשראה', items: [] }];
+  const blockTitles = ['רעיונות מעשיים לכיתה', 'דימוי ואמנות', 'תנועה וחוויה', 'השראה נוספת'];
+  const perBlock = Math.max(2, Math.ceil(items.length / Math.min(4, Math.ceil(items.length / 2))));
+  const blocks = [];
+  for (let i = 0; i < items.length; i += perBlock) {
+    const slice = items.slice(i, i + perBlock);
+    if (!slice.length) continue;
+    blocks.push({
+      title: blockTitles[blocks.length] || ('השראה ' + (blocks.length + 1)),
+      items: slice,
+    });
+  }
+  return blocks.length ? blocks : [{ title: 'תובנות והשראה', items: items }];
+}
+
+const BOOK_TITLE_FROM_TEXT_PATTERNS = [
+  /«([^»]{4,120})»/g,
+  /"([^"]{4,120})"/g,
+  /(?:ספר|כתב|הרצאות|מאמר)[:\s—–-]+([^\n,.:]{4,100})/gi,
+  /(?:Rudolf Steiner|רודולף (?:שטיינר|סטיינר))[^,\n]{0,60}/gi,
+  /GA\s*\d{1,4}[^,\n]{0,80}/gi,
+  /(?:Form Drawing|Education as Art|Painting and Drawing|Kingdom of Childhood)[^,\n]{0,60}/gi,
+];
+
+function extractRecommendedReadingFromText(text, topic) {
+  const raw = String(text || '');
+  if (!raw.trim()) return [];
+  const seen = new Set();
+  const out = [];
+  function pushBook(title, author, note) {
+    const t = String(title || '').trim().replace(/^[\s:–—\-]+|[\s:–—\-]+$/g, '');
+    if (!t || t.length < 4 || seen.has(t.toLowerCase())) return;
+    seen.add(t.toLowerCase());
+    out.push({
+      title: t,
+      author: String(author || '').trim(),
+      note: String(note || ('מקור מומלץ להעמקה בנושא ' + String(topic || '').trim())).trim(),
+    });
+  }
+  BOOK_TITLE_FROM_TEXT_PATTERNS.forEach(function (pattern) {
+    const re = new RegExp(pattern.source, pattern.flags);
+    let match;
+    while ((match = re.exec(raw)) !== null) {
+      if (match[1]) {
+        pushBook(match[1], '', '');
+      } else {
+        pushBook(match[0], '', '');
+      }
+    }
+  });
+  return out.slice(0, 8);
+}
+
+function resolveGradeNum(grade) {
+  const digit = String(grade || '').match(/[1-8]/);
+  return digit ? digit[0] : '';
+}
+
+function buildDefaultRecommendedReading(grade, topic) {
+  const topicStr = String(topic || '').trim();
+  const gradeNum = resolveGradeNum(grade);
+  const hebrewGrades = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח'];
+  const gradeLabel = gradeNum
+    ? ('כיתה ' + hebrewGrades[parseInt(gradeNum, 10) - 1] + "'")
+    : String(grade || '').trim();
+
+  if (/רישום|צורות|form[\s-]?draw/i.test(topicStr)) {
+    return [
+      {
+        title: 'Form Drawing — Grades 1–4',
+        author: 'Laura Embrey-Stine & Ernst Schuberth',
+        note: 'מדריך מעשי לרישום צורות לפי גילאים — קווים, סימטריה ומעבר לכתב עבור ' + gradeLabel + '.',
+      },
+      {
+        title: 'Painting and Drawing in Waldorf Schools',
+        author: 'Thomas Wildgruber',
+        note: 'עקרונות אמנותיים וולדורפיים לציור ורישום — רלוונטי במיוחד ל' + topicStr + '.',
+      },
+      {
+        title: 'הרצאות על חינוך וולדורפי — כרך ב׳',
+        author: 'רודולף שטיינר',
+        note: 'יסודות אנתרופוסופיים לחינוך אמנותי-תנועתי בגילאי בית הספר היסודי.',
+      },
+    ];
+  }
+
+  if (/חשבון|מתמטיק/i.test(topicStr)) {
+    return [
+      { title: 'Mathematics in the Waldorf School', author: 'Ernst Schuberth', note: 'גישה וולדורפית לחשבון ב' + gradeLabel + ' — מספרים, דימויים ותנועה.' },
+      { title: 'Active Arithmetic', author: 'Henning Andersen', note: 'תרגילים וחוויות מעשיות לשיעורי חשבון בגיל הרך והיסודי.' },
+      { title: 'הרצאות למורים — GA 304', author: 'רודולף שטיינר', note: 'עקרונות מתמטיים-אנתרופוסופיים לשיעור הראשי.' },
+    ];
+  }
+
+  if (/שפה|קריאה|כתיבה|ספרות/i.test(topicStr)) {
+    return [
+      { title: 'The Kingdom of Childhood', author: 'Rudolf Steiner', note: 'הרצאות יסוד על דימוי שפה וספרות בגיל ' + (gradeLabel || 'בית הספר היסודי') + '.' },
+      { title: 'Teaching Language Arts in the Waldorf School', author: 'Dorit Winter', note: 'קריאה, כתיבה וספרות כחוויה חיה — מותאם ל' + topicStr + '.' },
+      { title: 'הרצאות על חינוך — GA 306', author: 'רודולף שטיינר', note: 'רקע אנתרופוסופי לעבודת השפה והדיבור בכיתה.' },
+    ];
+  }
+
+  const genericByGrade = {
+    '1': [
+      { title: 'The Kingdom of Childhood', author: 'Rudolf Steiner', note: 'יסודות חינוך וולדורפי לכיתה א׳ — דימוי, קסם וסדר.' },
+      { title: 'You Are Your Child\'s First Teacher', author: 'Rahima Baldwin Dancy', note: 'התפתחות ראשונית וגישה בית-בית ספרית לגיל השבע.' },
+      { title: 'הרצאות לכיתה א׳', author: 'רודולף שטיינר', note: 'מצפן פדגוגי לפתיחת דרכו של הילד בבית הספר.' },
+    ],
+    '2': [
+      { title: 'Waldorf Education: A Family Guide', author: 'Pamela Johnson Fenner', note: 'סקירה נגישה של עקרונות וולדורף לשנה השנייה.' },
+      { title: 'Teaching As a Lively Art', author: 'Marjorie Spock', note: 'יחס מורה-תלמיד ואמנות ההוראה בגיל הרך.' },
+      { title: 'הרצאות על חינוך וולדורפי', author: 'רודולף שטיינר', note: 'העמקה ביסודות הרוחניים-פדגוגיים לכיתה ב׳.' },
+    ],
+    '3': [
+      { title: 'Form Drawing — Grades 1–4', author: 'Laura Embrey-Stine', note: 'רישום צורות ומעבר לכתב — מרכזי לעבודת כיתה ג׳.' },
+      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לפי כיתות — עוגן לתכנון תקופה.' },
+      { title: 'הרצאות לכיתה ג׳', author: 'רודולף שטיינר', note: 'רקע התפתחותי לעבודה אמנותית-תנועתית בגיל התשע.' },
+    ],
+  };
+
+  if (gradeNum && genericByGrade[gradeNum]) return genericByGrade[gradeNum];
+
+  return [
+    { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לפי כיתות — רלוונטי ל' + topicStr + ' ב' + (gradeLabel || 'בית הספר היסודי') + '.' },
+    { title: 'Education as Art', author: 'Eugene Schwartz', note: 'חיבור בין אמנות, דימוי ושיעור ראשי בוולדורף.' },
+    { title: 'הרצאות על חינוך וולדורפי', author: 'רודולף שטיינר', note: 'מקור אנתרופוסופי מרכזי להבנת הנושא ' + topicStr + '.' },
+  ];
+}
+
+function ensureRecommendedReading(normalized, essay, grade, topic) {
+  let reading = Array.isArray(normalized.recommended_reading)
+    ? normalized.recommended_reading.filter(function (item) { return item && item.title; })
+    : [];
+  if (!reading.length) {
+    reading = extractRecommendedReadingFromText(essay, topic);
+  }
+  if (!reading.length && normalized.theory && normalized.theory.bibliography) {
+    const bib = normalized.theory.bibliography;
+    (bib.books || []).forEach(function (book) {
+      if (!book || !book.title) return;
+      reading.push({
+        title: book.title,
+        author: book.author || '',
+        note: book.detail || book.note || '',
+      });
+    });
+  }
+  if (!reading.length) {
+    reading = buildDefaultRecommendedReading(grade, topic);
+  }
+  normalized.recommended_reading = reading.slice(0, 8);
+  return normalized;
+}
+
+function collectPhaseCTabUrls(lists) {
+  const urls = new Set();
+  (lists || []).forEach(function (list) {
+    (list || []).forEach(function (item) {
+      if (!item) return;
+      const u = String(item.url || item.link || item.href || '').trim();
+      if (u) urls.add(u);
+    });
+  });
+  return urls;
+}
+
+function deduplicatePhaseCTabLinks(normalized) {
+  if (!normalized) return normalized;
+  const inspirationUrls = collectPhaseCTabUrls([
+    normalized.pinterest_links,
+    normalized.pedagogical_resources,
+  ]);
+  const theoryUrls = collectPhaseCTabUrls([
+    normalized.theory && normalized.theory.bibliography && normalized.theory.bibliography.websites,
+  ]);
+
+  normalized.pedagogical_resources = filterLiveNormalizedLinks(normalized.pedagogical_resources).filter(function (item) {
+    const u = String(item.url || '').trim();
+    return u && !theoryUrls.has(u);
+  });
+
+  normalized.relevant_links = filterLiveNormalizedLinks(normalized.relevant_links).filter(function (item) {
+    const u = String(item.url || '').trim();
+    if (!u) return false;
+    if (inspirationUrls.has(u)) return false;
+    if (theoryUrls.has(u)) return false;
+    return true;
+  });
+
+  if (normalized.theory && normalized.theory.bibliography) {
+    const tab3Urls = collectPhaseCTabUrls([normalized.relevant_links]);
+    normalized.theory.bibliography.websites = filterLiveNormalizedLinks(
+      normalized.theory.bibliography.websites
+    ).filter(function (item) {
+      const u = String(item.url || '').trim();
+      return u && !inspirationUrls.has(u) && !tab3Urls.has(u);
+    });
+  }
+
+  return normalized;
+}
+
 /**
  * Rebuild a normalized Phase C response from parse-fallback debris into full-length sterile prose.
  */
@@ -475,25 +755,21 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   const gradeStr = String(grade || '').trim();
   const titleSuffix = gradeStr ? (gradeStr + ' · ' + topicStr) : topicStr;
   const paragraphs = paragraphsFromSterileEssay(essay);
-  const inspirationItems = paragraphs.length > 1 ? paragraphs : [essay];
+  const inspirationItems = splitInspirationFallbackItems(paragraphs, essay);
   const keyPoints = buildKeyPointsFromEssay(essay, paragraphs);
 
   normalized.theory = {
     title: 'רקע תיאורטי — ' + titleSuffix,
-    sections: [{
-      heading: 'רקע פדגוגי מעמיק',
-      content: essay,
-      icon: 'fa-compass',
-    }],
+    sections: buildTheoryFallbackSections(essay, paragraphs),
     bibliography: (normalized.theory && normalized.theory.bibliography) || { books: [], articles: [], websites: [] },
   };
   normalized.inspiration = {
     title: 'השראה פדגוגית — ' + topicStr,
-    global: [{ title: 'תובנות והשראה', items: inspirationItems }],
+    global: buildInspirationFallbackGlobalBlocks(inspirationItems),
     podcast: { title: 'תובנות', episodes: [] },
     narrative: paragraphs.length > 2 ? paragraphs.slice(-3) : [],
   };
-  normalized.core_emphases = essay;
+  normalized.core_emphases = formatFallbackProseChunk(essay);
   normalized.key_points = keyPoints;
   if (!Array.isArray(normalized.recommended_reading)) normalized.recommended_reading = [];
   if (!Array.isArray(normalized.relevant_links)) normalized.relevant_links = [];
@@ -501,6 +777,8 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   if (!Array.isArray(normalized.pedagogical_resources)) normalized.pedagogical_resources = [];
 
   applyPhaseCFallbackLinkHarvester(normalized, parsed, topicStr);
+  ensureRecommendedReading(normalized, essay, gradeStr, topicStr);
+  deduplicatePhaseCTabLinks(normalized);
 
   return normalized;
 }
@@ -680,10 +958,6 @@ function normalizePhaseCResponse(parsed, grade, topic) {
   const nested = pickNestedEssenceObject(data) || {};
   const deep = (data.pedagogicalDeepDive || data.pedagogical_deep_dive);
   const deepObj = deep && typeof deep === 'object' && !Array.isArray(deep) ? deep : null;
-  const relevantLinks = shared.coerceLinks(
-    data.relevant_links || data.links || data.professional_links ||
-    nested.relevant_links || (deepObj && deepObj.relevant_links)
-  );
   const pedagogicalResources = normalizePedagogicalResources(data.pedagogical_resources);
   const pinterestLinks = normalizePinterestLinks(data.pinterest_links);
   const coreEmphases = pickEssenceText(data, nested, deepObj, [
@@ -698,18 +972,29 @@ function normalizePhaseCResponse(parsed, grade, topic) {
     nested.recommended_reading || nested.recommended_literature ||
     (deepObj && (deepObj.recommended_reading || deepObj.recommended_literature))
   );
-  return {
+  const relevantLinks = shared.coerceLinks(
+    data.relevant_links || data.links || data.professional_links ||
+    nested.relevant_links || (deepObj && deepObj.relevant_links)
+  );
+  const inspirationUrlSet = collectPhaseCTabUrls([pinterestLinks, pedagogicalResources]);
+  const pedagogicalFallback = relevantLinks
+    .filter(function (link) { return link && link.url && !inspirationUrlSet.has(String(link.url).trim()); })
+    .slice(0, 8)
+    .map(function (link) {
+      return { title: link.title, url: link.url, label: 'מאמר פדגוגי', source: '', snippet: '' };
+    });
+  const result = {
     theory: normalizeTheoryBlock(data, grade, topic),
     inspiration: normalizeInspirationBlock(data, topic),
     pinterest_links: pinterestLinks,
-    pedagogical_resources: pedagogicalResources.length ? pedagogicalResources : relevantLinks.map(function (link) {
-      return { title: link.title, url: link.url, label: 'מאמר פדגוגי', source: '', snippet: '' };
-    }),
+    pedagogical_resources: pedagogicalResources.length ? pedagogicalResources : pedagogicalFallback,
     core_emphases: coreEmphases,
     key_points: keyPoints,
     recommended_reading: recommendedReading,
     relevant_links: relevantLinks,
   };
+  ensureRecommendedReading(result, coreEmphases, grade, topic);
+  return deduplicatePhaseCTabLinks(result);
 }
 
 function resolveGradeId(body) {
@@ -867,4 +1152,9 @@ module.exports = {
   harvestPhaseCFallbackLinksFromRaw,
   distributePhaseCFallbackLinks,
   gatherPhaseCFallbackApiResponse,
+  buildTheoryFallbackSections,
+  ensureRecommendedReading,
+  deduplicatePhaseCTabLinks,
+  extractRecommendedReadingFromText,
+  buildDefaultRecommendedReading,
 };
