@@ -209,6 +209,75 @@ const PHASE_C_THEORY_URL_HINTS = /rsarchive|waldorflibrary|steiner|anthroposoph|
 const PHASE_C_INSPIRATION_URL_HINTS = /pinterest|form[\-_]?draw|chalkboard|blackboard|main[\-_]?lesson|lesson[\-_]?book|gallery|creative|craft|artistic|inspiration|pint/i;
 const PHASE_C_PEDAGOGY_URL_HINTS = /awsna|iaswece|waldorfeducation|teacher|classroom|curriculum|pedagog|educationpace|mofet/i;
 
+/** Trusted pedagogical hosts — always pass the educational gate. */
+const PHASE_C_EDUCATIONAL_DOMAIN_HINTS = /(?:^|\.)rsarchive\.org|waldorflibrary|waldorfeducation|awsna|iaswece|steiner|anthroposoph|educationpace|mofet\.macam|gesamtausgabe|pedagogy|waldorf/i;
+
+/** Keywords in URL path/query that rescue borderline hosts (Pinterest pins, etc.). */
+const PHASE_C_EDUCATIONAL_PATH_KEYWORDS = /waldorf|steiner|anthroposoph|astronomy|astronom|lesson|pedagog|curriculum|classroom|main[\-_]?lesson|form[\-_]?draw|chalkboard|blackboard|education|archive|lecture|compass|inspiration|pin|board|teacher|development|gesamtausgabe|\bga[\d_]|block|מחזור|וולדורף|שטיינר|אסטרונומ|פדגוג|שיעור|כיתה|השראה/i;
+
+/** Generic e-commerce / clothing / marketplace hosts. */
+const PHASE_C_SPAM_COMMERCE_DOMAINS = /(?:^|\.)(?:amazon|ebay|aliexpress|alibaba|wish|shein|asos|zara|hm|nike|adidas|etsy|shopify|woocommerce|fashion|clothing|boutique|apparel)(?:\.[a-z]{2,})?$/i;
+
+/** Ad networks and tracking domains. */
+const PHASE_C_AD_NETWORK_DOMAINS = /(?:^|\.)(?:doubleclick|googlesyndication|adservice|taboola|outbrain|adnxs|adform|criteo)(?:\.[a-z]{2,})?$/i;
+
+/** Raw social network homepages (no educational path). */
+const PHASE_C_GENERIC_SOCIAL_HOSTS = /^(?:www\.)?(?:facebook|instagram|tiktok|twitter|x)\.com$/i;
+
+function urlHasEducationalKeyword(url) {
+  return PHASE_C_EDUCATIONAL_PATH_KEYWORDS.test(String(url || ''));
+}
+
+function isTrustedEducationalDomain(url) {
+  try {
+    const host = new URL(String(url || '')).hostname.replace(/^www\./i, '');
+    return PHASE_C_EDUCATIONAL_DOMAIN_HINTS.test(host);
+  } catch (e) {
+    return false;
+  }
+}
+
+function isSpamCommerceOrAdUrl(url) {
+  try {
+    const host = new URL(String(url || '')).hostname.replace(/^www\./i, '');
+    if (PHASE_C_SPAM_COMMERCE_DOMAINS.test(host) || PHASE_C_AD_NETWORK_DOMAINS.test(host)) {
+      return !urlHasEducationalKeyword(url);
+    }
+    return false;
+  } catch (e) {
+    return true;
+  }
+}
+
+function isGenericSocialRootUrl(url) {
+  try {
+    const parsed = new URL(String(url || ''));
+    const host = (parsed.hostname || '').replace(/^www\./i, '');
+    const path = (parsed.pathname || '').replace(/\/+$/, '');
+    if (PHASE_C_GENERIC_SOCIAL_HOSTS.test(host) && (!path || path === '/')) return true;
+    if (/^pinterest\.com$/i.test(host)) {
+      if (!path || path === '/' || path === '/index.html') return true;
+      if (/^\/(login|signup|about|business|ideas|settings)\/?$/i.test(path)) return true;
+      if (/^\/(pin|search|boards?)\//i.test(path)) return false;
+      if (urlHasEducationalKeyword(url)) return false;
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return true;
+  }
+}
+
+/** Reject generic commerce, ad networks, and bare social homepages unless URL carries educational keywords. */
+function isNonEducationalSpamUrl(url) {
+  const u = String(url || '').trim();
+  if (!u) return true;
+  if (isTrustedEducationalDomain(u)) return false;
+  if (isSpamCommerceOrAdUrl(u)) return true;
+  if (isGenericSocialRootUrl(u)) return true;
+  return false;
+}
+
 function cleanHarvestedUrl(raw) {
   let url = String(raw || '').trim();
   if (!url) return '';
@@ -222,7 +291,7 @@ function cleanHarvestedUrl(raw) {
 function isDeadPhaseCFallbackUrl(url) {
   const u = String(url || '').trim();
   if (!u || !/^https?:\/\//i.test(u)) return true;
-  if (/pinterest\.com/i.test(u)) return false;
+  if (isNonEducationalSpamUrl(u)) return true;
   if (waldorfWebSeed.isBrokenOrGuessedPedagogicalUrl(u)) return true;
   for (let i = 0; i < PHASE_C_DEAD_URL_PATTERNS.length; i++) {
     if (PHASE_C_DEAD_URL_PATTERNS[i].test(u)) return true;
@@ -2018,4 +2087,6 @@ module.exports = {
   collectPhaseCLinkItemsForDisplay,
   buildPhaseCFallbackSourcesSectionHtml,
   hasArchivedLinkContent,
+  isNonEducationalSpamUrl,
+  isDeadPhaseCFallbackUrl,
 };

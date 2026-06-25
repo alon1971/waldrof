@@ -8146,6 +8146,10 @@
     function renderInspirationTabPanels() {
       syncVisualGalleryOnLessonContextChange();
       hydrateUnifiedLessonSynthesis();
+      var inspEl = document.getElementById('inspiration-content');
+      if (inspEl) inspEl.innerHTML = '';
+      var pinGal = document.getElementById('pinterest-gallery');
+      if (pinGal) pinGal.innerHTML = '';
       if (!isPurePhaseCMode() && !appState.visualGallery.length) {
         appState.visualGallery = generateVisualGallery(appState.topic || '');
       }
@@ -9170,7 +9174,7 @@
           '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
           (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
           '</div>' +
-          '<p class="font-medium text-walnut">' + buildInspirationTabSourceAnchorHtml(item.url, item.title || item.url) + '</p>' +
+          '<p class="font-medium text-walnut">' + buildPhaseCTabAnchorHtml(item.url, item.title || item.url) + '</p>' +
           (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '') +
           '</li>';
       });
@@ -14034,6 +14038,120 @@
       return work;
     }
 
+    function renderPhaseCTabMarkdownInline(text) {
+      if (!text) return '';
+      var placeholders = [];
+      var work = String(text);
+      work = work.replace(/(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, url) {
+        var href = sanitizeExternalLinkUrl(url);
+        if (!href) return _m;
+        var idx = placeholders.length;
+        placeholders.push(buildPhaseCTabAnchorHtml(href, ''));
+        return '\x00MDLINK' + idx + '\x00';
+      });
+      work = work.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
+        var href = sanitizeExternalLinkUrl(url);
+        if (!href) return _m;
+        var idx = placeholders.length;
+        placeholders.push(buildPhaseCTabAnchorHtml(href, label));
+        return '\x00MDLINK' + idx + '\x00';
+      });
+      work = replaceExternalHttpUrls(work, function (href) {
+        var idx = placeholders.length;
+        placeholders.push(buildPhaseCTabAnchorHtml(href, ''));
+        return '\x00MDLINK' + idx + '\x00';
+      });
+      work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
+      work = escapeHtml(work);
+      work = work.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      placeholders.forEach(function (html, i) {
+        work = work.split('\x00MDLINK' + i + '\x00').join(html);
+      });
+      return work;
+    }
+
+    function formatInspirationAiMarkdown(text) {
+      if (!text) return '';
+      var lines = String(text).split(/\r?\n/);
+      var html = [];
+      var inOl = false;
+      var inUl = false;
+      var linkedUrls = collectMarkdownLinkUrls(text);
+
+      function closeLists() {
+        if (inOl) { html.push('</ol>'); inOl = false; }
+        if (inUl) { html.push('</ul>'); inUl = false; }
+      }
+
+      lines.forEach(function (rawLine) {
+        var trimmed = String(rawLine || '').trim();
+        if (!trimmed) {
+          closeLists();
+          return;
+        }
+        if (isStandaloneUrlLine(trimmed)) {
+          if (Object.keys(linkedUrls).length > 0) return;
+          closeLists();
+          html.push('<p>' + buildPhaseCTabAnchorHtml(trimmed, '') + '</p>');
+          return;
+        }
+        var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+        if (titleUrlMatch) {
+          var titleUrlHref = sanitizeExternalLinkUrl(titleUrlMatch[2]);
+          if (titleUrlHref) {
+            closeLists();
+            html.push('<p>' + buildPhaseCTabAnchorHtml(titleUrlHref, titleUrlMatch[1]) + '</p>');
+            return;
+          }
+        }
+        var headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch) {
+          closeLists();
+          var level = Math.min(headingMatch[1].length + 2, 6);
+          var headingClass = level <= 4 ? ' class="app-subhead"' : '';
+          html.push('<h' + level + headingClass + '>' + renderPhaseCTabMarkdownInline(headingMatch[2]) + '</h' + level + '>');
+          return;
+        }
+        var olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+        if (olMatch) {
+          if (!inOl) {
+            closeLists();
+            html.push('<ol class="list-decimal mr-5 space-y-1 i18n-list">');
+            inOl = true;
+          }
+          var olBody = olMatch[1];
+          var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+          if (olTitleUrl) {
+            html.push('<li>' + buildPhaseCTabAnchorHtml(olTitleUrl[2], olTitleUrl[1]) + '</li>');
+          } else {
+            html.push('<li>' + renderPhaseCTabMarkdownInline(olBody) + '</li>');
+          }
+          return;
+        }
+        var ulMatch = trimmed.match(/^[-*•]\s+(.+)$/);
+        if (ulMatch) {
+          if (!inUl) {
+            closeLists();
+            html.push('<ul class="list-disc mr-5 space-y-1 i18n-list">');
+            inUl = true;
+          }
+          var ulBody = ulMatch[1];
+          var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+          if (ulTitleUrl) {
+            html.push('<li>' + buildPhaseCTabAnchorHtml(ulTitleUrl[2], ulTitleUrl[1]) + '</li>');
+          } else {
+            html.push('<li>' + renderPhaseCTabMarkdownInline(ulBody) + '</li>');
+          }
+          return;
+        }
+        closeLists();
+        html.push('<p>' + renderPhaseCTabMarkdownInline(trimmed) + '</p>');
+      });
+
+      closeLists();
+      return upgradeInspirationTabAnchors(html.join('\n'));
+    }
+
     function formatAiMarkdown(text) {
       if (!text) return '';
       var lines = String(text).split(/\r?\n/);
@@ -14238,9 +14356,10 @@
       var raw = String(text || '').trim();
       if (!raw) return '<p class="text-walnut/50">—</p>';
       if (isCompiledPedagogicalHtml(raw)) {
-        return '<div class="pure-card-body prose-ai">' + dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false })) + '</div>';
+        return '<div class="pure-card-body prose-ai">' +
+          upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false }))) + '</div>';
       }
-      return '<div class="pure-card-body">' + formatPerplexityRawText(raw) + '</div>';
+      return '<div class="pure-card-body">' + upgradePhaseCTabAnchors(formatPerplexityRawText(raw)) + '</div>';
     }
 
     function renderPureListBlock(items) {
@@ -14263,7 +14382,7 @@
         var url = String(item.url || '').trim();
         var author = item.author ? ' <span class="text-walnut/60">— ' + escapeHtml(item.author) + '</span>' : '';
         var note = item.note ? '<div class="text-sm text-walnut/70 mt-0.5">' + renderMarkdownInline(item.note) + '</div>' : '';
-        return '<li>' + buildStepBStyleSourceAnchorHtml(url, item.title || url) + author + note + '</li>';
+        return '<li>' + buildPhaseCTabAnchorHtml(url, item.title || url) + author + note + '</li>';
       }).join('') + '</ul>';
     }
 
@@ -14277,7 +14396,7 @@
         var url = String(item.url || item.link || item.href || '').trim();
         var title = String(item.title || item.name || url).trim();
         if (!url) return '<li>' + escapeHtml(title) + '</li>';
-        return '<li>' + buildStepBStyleSourceAnchorHtml(url, title) + '</li>';
+        return '<li>' + buildPhaseCTabAnchorHtml(url, title) + '</li>';
       }).join('') + '</ul>';
     }
 
@@ -16801,8 +16920,17 @@
       if (!href) return escapeHtml(String(title || url || ''));
       var label = humanizeSourceLinkLabel(title, href);
       if (isDeadSourceLinkLabel(label)) label = getSourceLinkDisplayLabel('', href);
-      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-green-600 underline hover:text-green-800">' +
+      return '<a href="' + escapeHtml(href) + '" target="_blank" class="text-green-600 underline hover:text-green-800">' +
         escapeHtml(label) + '</a>';
+    }
+
+    /** Phase C Tab 2/3 — same verified green anchor template as inspiration resources. */
+    function buildPhaseCTabAnchorHtml(url, title) {
+      return buildInspirationTabSourceAnchorHtml(url, title);
+    }
+
+    function upgradePhaseCTabAnchors(html) {
+      return upgradeInspirationTabAnchors(html);
     }
 
     function upgradeInspirationTabAnchors(html) {
@@ -16819,10 +16947,6 @@
         return buildInspirationTabSourceAnchorHtml(href, '');
       });
       return out;
-    }
-
-    function formatInspirationAiMarkdown(text) {
-      return upgradeInspirationTabAnchors(formatAiMarkdown(text));
     }
 
     function renderInspirationCardPreviewHtml(text) {
@@ -16889,13 +17013,20 @@
         html += '<section class="bg-white/75 rounded-xl p-4 sm:p-5 border border-sage/25 w-full box-border"><h3 class="app-subhead font-bold text-sage-dark mb-3">' + escapeHtml(blockTitle) + '</h3><div class="phase-c-inspiration-item-grid">';
         (b.items || []).forEach(function (it, ii) {
           const text = typeof it === 'string' ? it : (it.text || it.preview || it.detail || it.content || '');
-          if (!String(text).trim()) return;
+          const itemUrl = (typeof it === 'object' && it) ? String(it.url || it.link || it.href || '').trim() : '';
+          const itemTitle = (typeof it === 'object' && it) ? String(it.title || it.name || '').trim() : '';
+          var previewPayload = String(text).trim();
+          if (itemUrl) {
+            var linkHtml = buildPhaseCTabAnchorHtml(itemUrl, itemTitle || itemUrl);
+            previewPayload = previewPayload ? (previewPayload + '\n\n' + itemUrl) : itemUrl;
+          }
+          if (!previewPayload) return;
           html += renderPedagogySuggestionCard({
-            id: buildPedagogyItemId('insp', 'global', bi + '-' + ii, text),
+            id: buildPedagogyItemId('insp', 'global', bi + '-' + ii, previewPayload),
             type: 'inspiration',
             subtype: 'global',
             title: blockTitle,
-            preview: text,
+            preview: previewPayload,
             context: d.title + ' · ' + blockTitle,
             expansion: normalizeExpansion(typeof it === 'object' ? it.expansion : null),
           });
@@ -16944,12 +17075,12 @@
       syncVisualGalleryOnLessonContextChange();
       const galEl = ensurePinterestGalleryContainer();
       if (!galEl) return;
+      galEl.innerHTML = '';
       hydrateVisualGalleryFromSources({ plan: appState.activePlan || appState.aiGeneratedPlan });
       if (!appState.visualGallery.length) {
         appState.visualGallery = generateVisualGallery(appState.topic || '');
       }
       if (!appState.visualGallery.length) {
-        galEl.innerHTML = '';
         return;
       }
       holdPageScroll(function () {
@@ -17080,12 +17211,14 @@
       }
       raw = String(raw || '').trim();
       if (!raw) return '<div class="pedagogical-essence-body"></div>';
-      var allowLinks = fieldKey === 'relevant_links';
+      var allowLinks = fieldKey === 'relevant_links' || fieldKey === 'core_emphases';
       if (isCompiledPedagogicalHtml(raw)) {
-        return '<div class="pedagogical-essence-body prose-ai">' + normalizeAiHtml(raw, { wrap: false }) + '</div>';
+        return '<div class="pedagogical-essence-body prose-ai">' +
+          upgradePhaseCTabAnchors(normalizeAiHtml(raw, { wrap: false })) + '</div>';
       }
       if (looksLikeAiHtml(raw) || raw.indexOf('<') >= 0) {
-        return '<div class="pedagogical-essence-body prose-ai">' + (allowLinks ? raw : ensureAiHtml(raw)) + '</div>';
+        return '<div class="pedagogical-essence-body prose-ai">' +
+          (allowLinks ? upgradePhaseCTabAnchors(raw) : ensureAiHtml(raw)) + '</div>';
       }
       var sanitized = allowLinks ? sanitizePedagogicalText(raw) : sanitizeCurriculumDayNarrative(raw);
       var paragraphs = sanitized.split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
@@ -17097,12 +17230,13 @@
           }).filter(Boolean);
           return '<ul class="list-disc mr-5 space-y-1 i18n-list">' +
             items.map(function (item) {
-              return '<li>' + (allowLinks ? renderMarkdownInline(item) : escapeHtml(item)) + '</li>';
+              return '<li>' + (allowLinks ? renderPhaseCTabMarkdownInline(item) : escapeHtml(item)) + '</li>';
             }).join('') + '</ul>';
         }
-        return '<p>' + (allowLinks ? renderMarkdownInline(p) : escapeHtml(p).replace(/\n/g, '<br>')) + '</p>';
+        return '<p>' + (allowLinks ? renderPhaseCTabMarkdownInline(p) : escapeHtml(p).replace(/\n/g, '<br>')) + '</p>';
       }).join('');
-      return '<div class="pedagogical-essence-body"><div class="prose-ai">' + html + '</div></div>';
+      return '<div class="pedagogical-essence-body"><div class="prose-ai">' +
+        (allowLinks ? upgradePhaseCTabAnchors(html) : html) + '</div></div>';
     }
 
     function renderPedagogicalEssenceCard(fieldKey, essence, expanded) {
@@ -17289,7 +17423,10 @@
             : 'לא נמצאו שדות מהות פדגוגית.') +
           '</p>';
         holdPageScroll(function () {
-          if (essenceEl) essenceEl.innerHTML = emptyMsg;
+          if (essenceEl) {
+            essenceEl.innerHTML = '';
+            essenceEl.innerHTML = emptyMsg;
+          }
         });
         setupThemeActionButtons();
         return;
@@ -17306,7 +17443,10 @@
       }).filter(Boolean).join('');
 
       holdPageScroll(function () {
-        if (essenceEl) essenceEl.innerHTML = cardsHtml;
+        if (essenceEl) {
+          essenceEl.innerHTML = '';
+          essenceEl.innerHTML = cardsHtml;
+        }
         setupThemeActionButtons();
       });
       bindPedagogicalEssenceCardToggles();
