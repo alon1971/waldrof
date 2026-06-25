@@ -150,11 +150,55 @@ function normalizeInspirationBlock(parsed, topic) {
   };
 }
 
+function pickNestedEssenceObject(data) {
+  if (!data || typeof data !== 'object') return null;
+  if (data.curriculum && typeof data.curriculum === 'object' && !Array.isArray(data.curriculum)) {
+    return data.curriculum;
+  }
+  const deep = data.pedagogicalDeepDive || data.pedagogical_deep_dive;
+  if (deep && typeof deep === 'object' && !Array.isArray(deep)) return deep;
+  return null;
+}
+
+function pickEssenceText(data, nested, deep, keys) {
+  let i;
+  const sources = [data, nested, deep];
+  for (i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    let s;
+    for (s = 0; s < sources.length; s++) {
+      const src = sources[s];
+      if (!src || src[key] == null) continue;
+      const text = shared.coerceText(src[key]);
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
 function normalizePhaseCResponse(parsed, grade, topic) {
   const data = parsed && typeof parsed === 'object' ? parsed : {};
-  const relevantLinks = shared.coerceLinks(data.relevant_links);
+  const nested = pickNestedEssenceObject(data) || {};
+  const deep = (data.pedagogicalDeepDive || data.pedagogical_deep_dive);
+  const deepObj = deep && typeof deep === 'object' && !Array.isArray(deep) ? deep : null;
+  const relevantLinks = shared.coerceLinks(
+    data.relevant_links || data.links || data.professional_links ||
+    nested.relevant_links || (deepObj && deepObj.relevant_links)
+  );
   const pedagogicalResources = normalizePedagogicalResources(data.pedagogical_resources);
   const pinterestLinks = normalizePinterestLinks(data.pinterest_links);
+  const coreEmphases = pickEssenceText(data, nested, deepObj, [
+    'core_emphases', 'core_pedagogical_emphases', 'pedagogical_emphases', 'developmental_compass',
+  ]) || (typeof deep === 'string' ? shared.coerceText(deep) : '');
+  const keyPoints = shared.coerceList(
+    data.key_points || data.keyPoints || data.main_points || data.central_points ||
+    nested.key_points || (deepObj && (deepObj.key_points || deepObj.pedagogical_goals))
+  );
+  const recommendedReading = shared.coerceReadingList(
+    data.recommended_reading || data.recommended_literature || data.recommendedLiterature ||
+    nested.recommended_reading || nested.recommended_literature ||
+    (deepObj && (deepObj.recommended_reading || deepObj.recommended_literature))
+  );
   return {
     theory: normalizeTheoryBlock(data, grade, topic),
     inspiration: normalizeInspirationBlock(data, topic),
@@ -162,9 +206,9 @@ function normalizePhaseCResponse(parsed, grade, topic) {
     pedagogical_resources: pedagogicalResources.length ? pedagogicalResources : relevantLinks.map(function (link) {
       return { title: link.title, url: link.url, label: 'מאמר פדגוגי', source: '', snippet: '' };
     }),
-    core_emphases: shared.coerceText(data.core_emphases),
-    key_points: shared.coerceList(data.key_points),
-    recommended_reading: shared.coerceReadingList(data.recommended_reading),
+    core_emphases: coreEmphases,
+    key_points: keyPoints,
+    recommended_reading: recommendedReading,
     relevant_links: relevantLinks,
   };
 }
@@ -210,17 +254,15 @@ async function runPurePhaseC(body) {
     '',
     shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
     '',
-    'Return rich, classroom-ready content — ALL sections fully populated, no truncation:',
-    '- theory: deep Waldorf theoretical background with 3-5 sections and bibliography (websites must include verified URLs).',
-    '- inspiration: vivid artistic/pedagogical ideas with global blocks and podcast-style episodes (no URLs inside text).',
+    'Return MAXIMUM-DEPTH, classroom-ready content — ALL sections fully populated at full length, zero truncation:',
+    '- Tab 1 theory: exhaustive historical & anthroposophical foundations — 3-5 deep sections; bibliography with live HTTPS URLs on every website entry.',
+    '- Tab 2 inspiration: highly enriched artistic/creative ideas — multiple global blocks, podcast episodes, narrative threads (no URLs inside text).',
     '- pinterest_links: 4-8 LIVE pinterest.com board or pin URLs matching grade+topic (main lesson books, form drawing, chalkboard art, student work).',
     '- pedagogical_resources: 5-10 LIVE professional teacher-facing links (articles, archives, deep sources — not parent school pages).',
-    '- Tab 3 core_emphases (דגשים פדגוגיים ומהותיים): deep multi-paragraph breakdown with explicit Developmental Compass (מצפן התפתחותי) and concrete pedagogical goals — complete every paragraph.',
-    '- Tab 3 key_points (נקודות מרכזיות): 5-6 substantial bullets on lesson architecture — never superficial one-liners.',
+    '- Tab 3 core_emphases (דגשים פדגוגיים ומהותיים): 3-4 deep paragraphs with Developmental Compass (מצפן התפתחותי) and concrete pedagogical goals.',
+    '- Tab 3 key_points (נקודות מרכזיות): 5-6 substantial bullets on lesson architecture.',
     '- Tab 3 recommended_reading (ספרות מומלצת): 5-8 entries with contextual notes — MUST NOT be empty.',
-    '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live professional sources with descriptive titles — MUST NOT be empty.',
-    '',
-    'COMPLETION PRIORITY: If approaching length limits, shorten theory/inspiration prose slightly but NEVER truncate Tab 3 fields or leave recommended_reading / relevant_links empty.',
+    '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live professional sources — MUST NOT be empty.',
   ].join('\n');
 
   const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt, {

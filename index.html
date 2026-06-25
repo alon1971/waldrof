@@ -178,6 +178,8 @@
     }
     .theory-live-links-section a.prose-source-link,
     .theory-live-links-section a.prose-source-link:visited,
+    #theoretical-content .theory-bibliography-card a.prose-source-link,
+    #theoretical-content .theory-bibliography-card a.prose-source-link:visited,
     #phase-c-structured-cards a.prose-source-link,
     #phase-c-structured-cards a.prose-source-link:visited {
       color: #9B1B30;
@@ -188,6 +190,8 @@
     }
     .theory-live-links-section a.prose-source-link:hover,
     .theory-live-links-section a.prose-source-link:focus-visible,
+    #theoretical-content .theory-bibliography-card a.prose-source-link:hover,
+    #theoretical-content .theory-bibliography-card a.prose-source-link:focus-visible,
     #phase-c-structured-cards a.prose-source-link:hover,
     #phase-c-structured-cards a.prose-source-link:focus-visible {
       color: #7A1526;
@@ -5972,11 +5976,13 @@
 
     function extractTopicMasterFromData(data) {
       if (!data || typeof data !== 'object') return null;
-      if (data.theory && (String(data.core_emphases || '').trim() || (Array.isArray(data.key_points) && data.key_points.length))) {
-        return data;
-      }
+      if (data.theory && normalizePedagogicalEssenceView(data)) return data;
       if (data.purePhaseC && typeof data.purePhaseC === 'object') return data.purePhaseC;
       if (data.phaseC && typeof data.phaseC === 'object') return data.phaseC;
+      var essenceOnly = normalizePedagogicalEssenceView(data);
+      if (essenceOnly && (essenceOnly.core_emphases || essenceOnly.key_points.length)) {
+        return Object.assign({}, data, essenceOnly);
+      }
       return null;
     }
 
@@ -6771,6 +6777,7 @@
         const id = buildBibliographyItemId(category, { title: cleaned }, index);
         return { id: id, category: category, label: cleaned, url: '', raw: { title: cleaned } };
       }
+      const sourceUrl = String(item.url || item.link || item.href || item.readUrl || '').trim();
       item = sanitizeBibliographyRawItem(item);
       const label = buildBibliographyLabel(item);
       const id = buildBibliographyItemId(category, item, index);
@@ -6779,7 +6786,7 @@
         id: id,
         category: category,
         label: label || t('theory_bib_source'),
-        url: '',
+        url: category === 'websites' ? sourceUrl : '',
         raw: item,
         expansion: expansion,
       };
@@ -7054,6 +7061,149 @@
     var PHASE_C_ESSENCE_MIN_FIELD_CHARS = 40;
     var PHASE_C_ESSENCE_MIN_FILLED_FIELDS = 3;
 
+    function pickPedagogicalEssenceText() {
+      var i;
+      var sources = [];
+      for (i = 0; i < arguments.length; i++) {
+        var v = arguments[i];
+        if (v == null) continue;
+        if (typeof v === 'object' && !Array.isArray(v)) {
+          var t = String(v.text || v.content || v.summary || v.body || '').trim();
+          if (t) return t;
+        } else {
+          var s = String(v).trim();
+          if (s) return s;
+        }
+      }
+      return '';
+    }
+
+    function coercePedagogicalEssenceReadingList(value) {
+      if (!value) return [];
+      if (!Array.isArray(value)) {
+        var line = pickPedagogicalEssenceText(value);
+        return line ? [{ title: line, author: '', note: '' }] : [];
+      }
+      return value.map(function (item) {
+        if (typeof item === 'string') return { title: item.trim(), author: '', note: '' };
+        if (!item || typeof item !== 'object') return null;
+        return {
+          title: String(item.title || item.name || item.book || '').trim(),
+          author: String(item.author || item.writer || '').trim(),
+          note: String(item.note || item.description || item.summary || '').trim(),
+        };
+      }).filter(function (item) { return item && item.title; });
+    }
+
+    function coercePedagogicalEssenceLinks(value) {
+      if (!value) return [];
+      if (!Array.isArray(value)) {
+        var text = pickPedagogicalEssenceText(value);
+        if (!text) return [];
+        var urlMatch = text.match(/https?:\/\/\S+/);
+        return urlMatch ? [{ title: text.replace(urlMatch[0], '').trim() || urlMatch[0], url: urlMatch[0] }] : [];
+      }
+      return value.map(function (item) {
+        if (typeof item === 'string') {
+          var m = item.match(/https?:\/\/\S+/);
+          if (!m) return null;
+          return { title: item.replace(m[0], '').trim() || m[0], url: m[0] };
+        }
+        if (!item || typeof item !== 'object') return null;
+        var url = String(item.url || item.link || item.href || '').trim();
+        if (!url) return null;
+        return { title: String(item.title || item.name || url).trim(), url: url };
+      }).filter(Boolean);
+    }
+
+    function coercePedagogicalEssenceKeyPoints(value) {
+      if (!value) return [];
+      if (Array.isArray(value)) {
+        return value.map(function (item) {
+          if (item == null) return '';
+          if (typeof item === 'object') {
+            return String(item.text || item.title || item.content || item.point || '').trim();
+          }
+          return String(item).trim();
+        }).filter(Boolean);
+      }
+      var text = pickPedagogicalEssenceText(value);
+      if (!text) return [];
+      return text.split(/\n+/).map(function (line) { return line.replace(/^[-*•\d.)\s]+/, '').trim(); }).filter(Boolean);
+    }
+
+    function normalizePedagogicalEssenceView(raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      var nested = {};
+      if (raw.curriculum && typeof raw.curriculum === 'object' && !Array.isArray(raw.curriculum)) {
+        nested = raw.curriculum;
+      }
+      var deep = raw.pedagogicalDeepDive || raw.pedagogical_deep_dive;
+      var deepObj = deep && typeof deep === 'object' && !Array.isArray(deep) ? deep : null;
+      var coreEmphases = pickPedagogicalEssenceText(
+        raw.core_emphases,
+        raw.core_pedagogical_emphases,
+        raw.pedagogical_emphases,
+        nested.core_emphases,
+        nested.core_pedagogical_emphases,
+        deepObj && (deepObj.core_emphases || deepObj.developmentalCompass || deepObj.compass),
+        deepObj && (deepObj.text || deepObj.content || deepObj.summary),
+        typeof deep === 'string' ? deep : null
+      );
+      var keyPoints = coercePedagogicalEssenceKeyPoints(
+        raw.key_points || raw.keyPoints || raw.main_points || raw.central_points ||
+        nested.key_points || (deepObj && (deepObj.key_points || deepObj.pedagogical_goals))
+      );
+      var recommendedReading = coercePedagogicalEssenceReadingList(
+        raw.recommended_reading || raw.recommended_literature || raw.recommendedLiterature ||
+        nested.recommended_reading || nested.recommended_literature ||
+        (deepObj && (deepObj.recommended_reading || deepObj.recommended_literature))
+      );
+      var relevantLinks = coercePedagogicalEssenceLinks(
+        raw.relevant_links || raw.links || raw.professional_links ||
+        nested.relevant_links || (deepObj && deepObj.relevant_links)
+      );
+      if (!coreEmphases && !keyPoints.length && !recommendedReading.length && !relevantLinks.length) {
+        return null;
+      }
+      return {
+        core_emphases: coreEmphases,
+        key_points: keyPoints,
+        recommended_reading: recommendedReading,
+        relevant_links: relevantLinks,
+      };
+    }
+
+    function resolvePurePhaseCTab3View() {
+      var merged = { core_emphases: '', key_points: [], recommended_reading: [], relevant_links: [] };
+      var sources = [];
+      if (appState.purePhaseC) sources.push(appState.purePhaseC);
+      if (appState.aiGeneratedPlan && appState.aiGeneratedPlan.curriculum) {
+        sources.push(appState.aiGeneratedPlan.curriculum);
+      }
+      if (appState.aiGeneratedPlan) sources.push(appState.aiGeneratedPlan);
+      if (appState.activePlan && appState.activePlan !== appState.aiGeneratedPlan) {
+        sources.push(appState.activePlan);
+      }
+      sources.forEach(function (src) {
+        var norm = normalizePedagogicalEssenceView(src);
+        if (!norm) return;
+        if (!merged.core_emphases && norm.core_emphases) merged.core_emphases = norm.core_emphases;
+        if (!merged.key_points.length && norm.key_points.length) merged.key_points = norm.key_points.slice();
+        if (!merged.recommended_reading.length && norm.recommended_reading.length) {
+          merged.recommended_reading = norm.recommended_reading.slice();
+        }
+        if (!merged.relevant_links.length && norm.relevant_links.length) {
+          merged.relevant_links = norm.relevant_links.slice();
+        }
+      });
+      if (!merged.core_emphases && !merged.key_points.length &&
+          !merged.recommended_reading.length && !merged.relevant_links.length) {
+        return null;
+      }
+      return merged;
+    }
+
     function extractPhaseCCurriculumEssenceFromData(data) {
       var bp = data && data.blockPlan;
       if (!bp || typeof bp !== 'object') return null;
@@ -7075,7 +7225,11 @@
 
     function pedagogicalEssenceFieldHasContent(fieldKey, essence) {
       if (!essence || typeof essence !== 'object') return false;
-      return pedagogicalEssenceFieldPlainText(essence[fieldKey]).length >= PHASE_C_ESSENCE_MIN_FIELD_CHARS;
+      var val = essence[fieldKey];
+      if (fieldKey === 'key_points' || fieldKey === 'recommended_reading' || fieldKey === 'relevant_links') {
+        return Array.isArray(val) && val.length > 0;
+      }
+      return pedagogicalEssenceFieldPlainText(val).length >= PHASE_C_ESSENCE_MIN_FIELD_CHARS;
     }
 
     function isPhaseCCurriculumEssenceServeReadyClient(essence) {
@@ -7088,6 +7242,8 @@
     }
 
     function resolvePedagogicalEssenceForRender() {
+      var fromPure = resolvePurePhaseCTab3View();
+      if (fromPure) return fromPure;
       var carriers = [];
       if (appState.aiGeneratedPlan) carriers.push({ blockPlan: appState.aiGeneratedPlan });
       if (appState.activePlan && appState.activePlan !== appState.aiGeneratedPlan) {
@@ -7095,7 +7251,11 @@
       }
       for (var i = 0; i < carriers.length; i++) {
         var essence = extractPhaseCCurriculumEssenceFromData(carriers[i]);
-        if (essence && isPhaseCCurriculumEssenceServeReadyClient(essence)) return essence;
+        if (essence) {
+          var normalized = normalizePedagogicalEssenceView(essence);
+          if (normalized && isPhaseCCurriculumEssenceServeReadyClient(normalized)) return normalized;
+          if (essence && isPhaseCCurriculumEssenceServeReadyClient(essence)) return essence;
+        }
       }
       return null;
     }
@@ -13725,7 +13885,8 @@
       var cardsEl = document.getElementById('phase-c-structured-cards');
       var emptyEl = document.getElementById('phase-c-empty');
       if (!cardsEl) return;
-      if (!data) {
+      var view = normalizePedagogicalEssenceView(data) || data || resolvePurePhaseCTab3View();
+      if (!view) {
         cardsEl.classList.add('hidden');
         cardsEl.innerHTML = '';
         if (emptyEl) emptyEl.classList.toggle('hidden', hasPhaseCTopicContext());
@@ -13734,10 +13895,10 @@
       if (emptyEl) emptyEl.classList.add('hidden');
       cardsEl.classList.remove('hidden');
       cardsEl.innerHTML =
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_tab_core')) + '</h3>' + renderPureTextBlock(data.core_emphases) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_tab_points')) + '</h3>' + renderPureListBlock(data.key_points) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_tab_reading')) + '</h3>' + renderPureReadingBlock(data.recommended_reading) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_tab_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links) + '</article>';
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_tab_core')) + '</h3>' + renderPureTextBlock(view.core_emphases) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_tab_points')) + '</h3>' + renderPureListBlock(view.key_points) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_tab_reading')) + '</h3>' + renderPureReadingBlock(view.recommended_reading) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_tab_links')) + '</h3>' + renderPureLinksBlock(view.relevant_links) + '</article>';
       renderMarketingBench('phase-c-marketing-mount');
       if (appState.productTabsRendered) appState.productTabsRendered.curriculum = true;
     }
@@ -13746,13 +13907,20 @@
       if (!data) return;
       var topic = appState.topic || '';
       var gradeLabel = appState.gradeLabel || '';
-      appState.purePhaseC = data;
+      var tab3 = normalizePedagogicalEssenceView(data) || {
+        core_emphases: String(data.core_emphases || '').trim(),
+        key_points: Array.isArray(data.key_points) ? data.key_points : [],
+        recommended_reading: Array.isArray(data.recommended_reading) ? data.recommended_reading : [],
+        relevant_links: Array.isArray(data.relevant_links) ? data.relevant_links : [],
+      };
+      appState.purePhaseC = Object.assign({}, data, tab3);
       appState.aiGeneratedPlan = {
         title: topic,
         topic: topic,
         gradeLabel: gradeLabel,
         theory: data.theory || null,
         inspiration: data.inspiration || null,
+        curriculum: tab3,
       };
       syncActivePlanFromGenerated();
       hydratePurePhaseCLinkData();
@@ -13859,7 +14027,7 @@
           r.inspiration = true;
         }
       } else if (tabId === 'curriculum') {
-        renderPurePhaseCCards(appState.purePhaseC);
+        renderPurePhaseCCards(resolvePurePhaseCTab3View() || appState.purePhaseC);
         r.curriculum = true;
       }
       ensurePageScrollUnlocked();
@@ -15843,11 +16011,18 @@
       return '<ul class="theory-bib-list theory-bib-list--interactive">' + items.map(function (item) {
         const id = item.id;
         appState.bibliographyRegistry[id] = item;
+        const rawItem = item.raw || {};
+        const websiteUrl = category === 'websites'
+          ? String(item.url || rawItem.url || rawItem.link || rawItem.href || '').trim()
+          : '';
+        const labelHtml = websiteUrl
+          ? buildProseSourceLinkHtml(websiteUrl, item.label)
+          : escapeHtml(item.label);
         return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
           '<div class="theory-bib-item-row">' +
           '<div class="theory-bib-source-text">' +
           '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
-          '<span class="theory-bib-label">' + escapeHtml(item.label) + '</span>' +
+          '<span class="theory-bib-label">' + labelHtml + '</span>' +
           '</div>' +
           '<button type="button" class="theory-bib-deep-btn expansion-practical-btn" data-bib-id="' + escapeHtml(id) + '">' +
           escapeHtml(expansionBtnLabel()) +
@@ -16243,7 +16418,20 @@
     }
 
     function renderPedagogicalEssenceFieldBody(fieldKey, text) {
-      var raw = String(text || '').trim();
+      var raw = text;
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        raw = pedagogicalEssenceFieldPlainText(raw);
+      }
+      if (fieldKey === 'key_points') {
+        return '<div class="pedagogical-essence-body">' + renderPureListBlock(Array.isArray(text) ? text : []) + '</div>';
+      }
+      if (fieldKey === 'recommended_reading') {
+        return '<div class="pedagogical-essence-body">' + renderPureReadingBlock(Array.isArray(text) ? text : []) + '</div>';
+      }
+      if (fieldKey === 'relevant_links') {
+        return '<div class="pedagogical-essence-body">' + renderPureLinksBlock(Array.isArray(text) ? text : []) + '</div>';
+      }
+      raw = String(raw || '').trim();
       if (!raw) return '<div class="pedagogical-essence-body"></div>';
       var allowLinks = fieldKey === 'relevant_links';
       if (looksLikeAiHtml(raw) || raw.indexOf('<') >= 0) {
