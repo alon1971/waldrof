@@ -137,6 +137,34 @@ const PROFESSIONAL_LINKS_INSTRUCTION = [
   'If a link cannot be verified from live search, omit it — never invent URLs.',
 ].join(' ');
 
+const PEDAGOGICAL_DEPTH_INSTRUCTION = [
+  '=== HIGH-DENSITY PEDAGOGICAL CONTENT (MANDATORY — never superficial, brief, or generic) ===',
+  '',
+  'דגשים פדגוגיים ומהותיים (core_emphases / core_pedagogical_emphases):',
+  '- Write a deep, highly detailed pedagogical breakdown of AT LEAST 2-3 comprehensive paragraphs (not short summaries).',
+  '- MUST explicitly include the "Developmental Compass" (רציונל התפתחותי ומצפן למורה):',
+  '  (1) Why are we teaching this specific topic at this specific age/grade?',
+  '  (2) What inner developmental milestone of the child does it address (soul-spiritual, cognitive, moral-imaginative)?',
+  '  (3) What structural rhythm, artistic approach, or qualitative attitude must the teacher embody in the classroom?',
+  '- Ground the prose in Waldorf/anthroposophical developmental psychology (e.g. seven-year cycles, temperaments, main-lesson rhythm).',
+  '',
+  'נקודות מרכזיות (key_points — when present):',
+  '- Provide exactly 5-6 SUBSTANTIAL bullet points; each must be 2-4 full sentences.',
+  '- Detail explicit lesson-block dynamics, transition ideas, rhythm/architecture of the main lesson, or core subject concepts.',
+  '- Do NOT write terse one-line bullets or vague slogans.',
+  '',
+  'ספרות מומלצת (recommended_reading / recommended_literature):',
+  '- List 5-8 foundational Waldorf/anthroposophical texts relevant to the topic.',
+  '- Each entry MUST include a substantive "note" field: 1-2 sentences explaining what the source covers and why it matters for the teacher.',
+  '',
+  'קישורים (relevant_links):',
+  '- Actively hunt for live professional essays, Rudolf Steiner lecture archives (GA), Waldorf Library items, AWSNA/IASWECE resources, and professional journals.',
+  '- Each link title MUST include a short context phrase (after an em dash or colon) explaining what the source covers.',
+  '- Provide at least 6-8 verified links when possible.',
+  '',
+  '=== END PEDAGOGICAL DEPTH REQUIREMENTS ===',
+].join('\n');
+
 module.exports = {
   CORS_HEADERS,
   setCors,
@@ -149,4 +177,5 @@ module.exports = {
   createLegacyPostHandler,
   badRequest,
   PROFESSIONAL_LINKS_INSTRUCTION,
+  PEDAGOGICAL_DEPTH_INSTRUCTION,
 };

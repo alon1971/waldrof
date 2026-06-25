@@ -11,10 +11,10 @@ const SYSTEM_PROMPT = [
   'inspiration (object: {title, global: [{title, items: [strings]}], podcast: {title, episodes: [{theme, insight}]}, narrative: [strings]} — artistic/pedagogical classroom inspiration),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
   'pedagogical_resources (array of objects: {title, url, label, source, snippet} — live professional inspiration links for teachers),',
-  'core_emphases (string: 2-4 HTML-safe paragraphs in Hebrew on pedagogical essence for this grade+topic),',
-  'key_points (array of 4-7 concise Hebrew strings),',
-  'recommended_reading (array of objects: {title, author, note}),',
-  'relevant_links (array of objects: {title, url} — live professional Waldorf/education sources for the theory tab).',
+  'core_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — covering why-this-age, inner developmental milestone, and teacher attitude/rhythm; never brief),',
+  'key_points (array of exactly 5-6 substantial Hebrew strings — each 2-4 sentences on lesson-block dynamics, transitions, or core concepts; NOT terse one-liners),',
+  'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it is relevant),',
+  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
 ].join(' ');
 
 function normalizeBibliography(bib) {
@@ -180,13 +180,17 @@ async function runPurePhaseC(body) {
     '',
     shared.PROFESSIONAL_LINKS_INSTRUCTION,
     '',
+    shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
+    '',
     'Return rich, classroom-ready content:',
     '- theory: deep Waldorf theoretical background with 3-5 sections and bibliography (websites must include verified URLs).',
     '- inspiration: vivid artistic/pedagogical ideas with global blocks and podcast-style episodes (no URLs inside text).',
     '- pinterest_links: 4-8 LIVE pinterest.com board or pin URLs matching grade+topic (main lesson books, form drawing, chalkboard art, student work).',
     '- pedagogical_resources: 5-10 LIVE professional teacher-facing links (articles, archives, deep sources — not parent school pages).',
-    '- relevant_links: 5-10 LIVE professional links for the theory/information tab (Steiner archives, Waldorf essays, Adam Olam, academic sources).',
-    '- core_emphases / key_points / recommended_reading: structured block-building guidance.',
+    '- core_emphases (דגשים פדגוגיים ומהותיים): deep multi-paragraph breakdown with explicit Developmental Compass (רציונל התפתחותי ומצפן למורה).',
+    '- key_points (נקודות מרכזיות): 5-6 substantial bullets on lesson architecture — never superficial one-liners.',
+    '- recommended_reading (ספרות מומלצת): each entry with contextual note explaining coverage and relevance.',
+    '- relevant_links (קישורים): 6-8 live professional sources with descriptive titles explaining what each covers.',
   ].join('\n');
 
   const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt);

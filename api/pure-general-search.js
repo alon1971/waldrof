@@ -7,10 +7,10 @@ const shared = require('./pure-api-shared');
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'developmental_axis (string: Hebrew overview of the developmental thread across grades 1-8 for this query),',
-  'core_pedagogical_emphases (string: Hebrew multi-grade pedagogical emphases with grade-band references),',
-  'recommended_literature (array of objects: {title, author, note} — foundational Waldorf texts),',
-  'relevant_links (array of objects: {title, url} from reputable sources).',
+  'developmental_axis (string: AT LEAST 2-3 comprehensive Hebrew paragraphs tracing the developmental thread across grades 1-8 — soul-spiritual milestones per age band, never brief),',
+  'core_pedagogical_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — plus grade-band lesson dynamics; never superficial),',
+  'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
+  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
 ].join(' ');
 
 function normalizeGeneralSearchResponse(parsed) {
@@ -35,7 +35,14 @@ async function runPureGeneralSearch(body) {
     'Write in Hebrew unless the query is clearly in another language.',
     '',
     shared.PROFESSIONAL_LINKS_INSTRUCTION,
-    'relevant_links must be live, functioning professional sources (Steiner archives, Waldorf essays, Adam Olam, academic centers) — not parent-facing school homepages.',
+    '',
+    shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
+    '',
+    'Section requirements:',
+    '- developmental_axis (ציר התפתחותי): deep multi-paragraph developmental progression across grades 1-8.',
+    '- core_pedagogical_emphases (דגשים פדגוגיים מרכזיים): deep breakdown with Developmental Compass and grade-band lesson dynamics.',
+    '- recommended_literature (ספרות מומלצת): each entry with contextual note explaining coverage and relevance.',
+    '- relevant_links (קישורים): 6-8 live professional sources with descriptive titles — not parent-facing school homepages.',
   ].join('\n');
 
   const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt);
