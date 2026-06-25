@@ -86,10 +86,14 @@ function coerceLinks(value) {
   }).filter(Boolean);
 }
 
-async function callPerplexityJson(systemPrompt, userPrompt) {
+async function callPerplexityJson(systemPrompt, userPrompt, options) {
+  const opts = options || {};
   const raw = await perplexityClient.callPerplexityChat({
     model: perplexityClient.PERPLEXITY_MODEL,
-    temperature: 0.35,
+    temperature: opts.temperature != null ? opts.temperature : 0.35,
+    max_tokens: opts.max_tokens != null
+      ? opts.max_tokens
+      : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -137,6 +141,20 @@ const PROFESSIONAL_LINKS_INSTRUCTION = [
   'If a link cannot be verified from live search, omit it — never invent URLs.',
 ].join(' ');
 
+const STRUCTURAL_COMPLETENESS_INSTRUCTION = [
+  '=== STRUCTURAL COMPLETENESS (NON-NEGOTIABLE) ===',
+  'Every top-level JSON key in the response schema MUST be fully populated — never omit, stub, or truncate any section.',
+  'NEVER cut off mid-sentence or mid-array because of length pressure; prioritize completing Tab 3 pedagogy fields before decorative extras.',
+  '',
+  'Tab 3 — דגשים פדגוגיים ומהותיים (core_emphases + key_points + recommended_reading + relevant_links):',
+  '- core_emphases: MANDATORY multi-paragraph Hebrew prose with an explicit "Developmental Compass" subsection (מצפן התפתחותי / רציונל התפתחותי ומצפן למורה).',
+  '- key_points: exactly 5-6 substantial bullets — never empty or one-liners.',
+  '- recommended_reading (ספרות מומלצת): MUST contain 5-8 entries — NEVER return an empty array.',
+  '- relevant_links (קישורים רלוונטיים): MUST contain 6-8 live HTTPS URLs with descriptive titles — NEVER return an empty array.',
+  'Match the depth and link quality of Tab 1 bibliography blocks: active professional sources with short context per item.',
+  '=== END STRUCTURAL COMPLETENESS ===',
+].join('\n');
+
 const PEDAGOGICAL_DEPTH_INSTRUCTION = [
   '=== HIGH-DENSITY PEDAGOGICAL CONTENT (MANDATORY — never superficial, brief, or generic) ===',
   '',
@@ -177,5 +195,6 @@ module.exports = {
   createLegacyPostHandler,
   badRequest,
   PROFESSIONAL_LINKS_INSTRUCTION,
+  STRUCTURAL_COMPLETENESS_INSTRUCTION,
   PEDAGOGICAL_DEPTH_INSTRUCTION,
 };

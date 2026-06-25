@@ -4,6 +4,7 @@
  */
 const shared = require('./pure-api-shared');
 const cache = require('./cache');
+const perplexityClient = require('./perplexity-client');
 
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
@@ -12,10 +13,12 @@ const SYSTEM_PROMPT = [
   'inspiration (object: {title, global: [{title, items: [strings]}], podcast: {title, episodes: [{theme, insight}]}, narrative: [strings]} — artistic/pedagogical classroom inspiration),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
   'pedagogical_resources (array of objects: {title, url, label, source, snippet} — live professional inspiration links for teachers),',
-  'core_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — covering why-this-age, inner developmental milestone, and teacher attitude/rhythm; never brief),',
-  'key_points (array of exactly 5-6 substantial Hebrew strings — each 2-4 sentences on lesson-block dynamics, transitions, or core concepts; NOT terse one-liners),',
-  'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it is relevant),',
-  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
+  'core_emphases (string: AT LEAST 3-4 comprehensive Hebrew paragraphs with a dedicated Developmental Compass block — מצפן התפתחותי / רציונל התפתחותי ומצפן למורה — covering why-this-age, inner developmental milestone, teacher attitude/rhythm, and concrete pedagogical goals; NEVER brief or truncated),',
+  'key_points (array of exactly 5-6 substantial Hebrew strings — each 2-4 sentences on lesson-block dynamics, transitions, or core concepts; NOT terse one-liners; NEVER empty),',
+  'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it is relevant; NEVER an empty array),',
+  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays; NEVER an empty array).',
+  '',
+  shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
 ].join(' ');
 
 function normalizeBibliography(bib) {
@@ -201,22 +204,28 @@ async function runPurePhaseC(body) {
     'Focus on developmental appropriateness, soul-spiritual qualities, and practical classroom orientation.',
     'Write pedagogical content in Hebrew unless the topic itself is in another language.',
     '',
+    shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
+    '',
     shared.PROFESSIONAL_LINKS_INSTRUCTION,
     '',
     shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
     '',
-    'Return rich, classroom-ready content:',
+    'Return rich, classroom-ready content — ALL sections fully populated, no truncation:',
     '- theory: deep Waldorf theoretical background with 3-5 sections and bibliography (websites must include verified URLs).',
     '- inspiration: vivid artistic/pedagogical ideas with global blocks and podcast-style episodes (no URLs inside text).',
     '- pinterest_links: 4-8 LIVE pinterest.com board or pin URLs matching grade+topic (main lesson books, form drawing, chalkboard art, student work).',
     '- pedagogical_resources: 5-10 LIVE professional teacher-facing links (articles, archives, deep sources — not parent school pages).',
-    '- core_emphases (דגשים פדגוגיים ומהותיים): deep multi-paragraph breakdown with explicit Developmental Compass (רציונל התפתחותי ומצפן למורה).',
-    '- key_points (נקודות מרכזיות): 5-6 substantial bullets on lesson architecture — never superficial one-liners.',
-    '- recommended_reading (ספרות מומלצת): each entry with contextual note explaining coverage and relevance.',
-    '- relevant_links (קישורים): 6-8 live professional sources with descriptive titles explaining what each covers.',
+    '- Tab 3 core_emphases (דגשים פדגוגיים ומהותיים): deep multi-paragraph breakdown with explicit Developmental Compass (מצפן התפתחותי) and concrete pedagogical goals — complete every paragraph.',
+    '- Tab 3 key_points (נקודות מרכזיות): 5-6 substantial bullets on lesson architecture — never superficial one-liners.',
+    '- Tab 3 recommended_reading (ספרות מומלצת): 5-8 entries with contextual notes — MUST NOT be empty.',
+    '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live professional sources with descriptive titles — MUST NOT be empty.',
+    '',
+    'COMPLETION PRIORITY: If approaching length limits, shorten theory/inspiration prose slightly but NEVER truncate Tab 3 fields or leave recommended_reading / relevant_links empty.',
   ].join('\n');
 
-  const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt);
+  const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt, {
+    max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+  });
   const normalized = normalizePhaseCResponse(parsed, grade, topic);
 
   if (gradeId) {

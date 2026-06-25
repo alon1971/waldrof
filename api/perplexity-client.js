@@ -9,6 +9,9 @@ const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 /** Stable factual web-search model for hybrid routing (Perplexity → Gemini). */
 const PERPLEXITY_SEARCH_MODEL = 'sonar';
 const PERPLEXITY_MODEL = 'sonar-pro';
+/** sonar-pro allows up to 8k completion tokens; default was unset (API truncates early). */
+const PERPLEXITY_MAX_OUTPUT_TOKENS_PRO = 8000;
+const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 4000;
 const REQUEST_TIMEOUT_MS = 180000;
 
 function normalizeApiKey(apiKey) {
@@ -259,9 +262,14 @@ async function callPerplexityChat(options) {
     throw new Error('PERPLEXITY_API_KEY is not configured');
   }
 
+  const model = opts.model || PERPLEXITY_MODEL;
+  const defaultMaxTokens = model === PERPLEXITY_SEARCH_MODEL
+    ? PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH
+    : PERPLEXITY_MAX_OUTPUT_TOKENS_PRO;
   const body = {
-    model: opts.model || PERPLEXITY_MODEL,
+    model: model,
     temperature: opts.temperature != null ? opts.temperature : 0.35,
+    max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
     messages: opts.messages || [],
   };
 
@@ -299,6 +307,7 @@ async function callPerplexitySearch(options) {
   const body = {
     model: opts.model || PERPLEXITY_SEARCH_MODEL,
     temperature: opts.temperature != null ? opts.temperature : 0.2,
+    max_tokens: opts.max_tokens != null ? opts.max_tokens : PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH,
     messages: opts.messages || [],
   };
 
@@ -325,6 +334,8 @@ module.exports = {
   PERPLEXITY_URL,
   PERPLEXITY_MODEL,
   PERPLEXITY_SEARCH_MODEL,
+  PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+  PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH,
   normalizeApiKey,
   resolveApiKey,
   callPerplexityChat,
