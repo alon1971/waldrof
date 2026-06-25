@@ -358,8 +358,13 @@ function filterRecommendedReadingByLiveCitations(reading, citationSet) {
 
 function applyLiveCitationGate(normalized, parsed) {
   if (!normalized || typeof normalized !== 'object') return normalized;
-  const citationSet = buildLiveCitationUrlSet(parsed);
+  stampTopicMasterArchiveLinks(normalized, parsed || normalized);
+  const citationSet = buildLiveCitationUrlSet(parsed || normalized);
   if (!citationSet || !citationSet.size) {
+    if (hasArchivedLinkContent(normalized)) {
+      normalized._liveCitations = collectPhaseCLinkUrlList(normalized);
+      return deduplicatePhaseCTabLinks(normalized);
+    }
     normalized.recommended_reading = [];
     normalized.relevant_links = [];
     normalized.pedagogical_resources = [];
@@ -964,7 +969,7 @@ const FALLBACK_MARKDOWN_LINK_PATTERN = /\[([^\]]{2,160})\]\(\s*(https?:\/\/[^)\s
 const FALLBACK_TITLE_URL_PATTERN = /([^\n]{4,140}?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)/gi;
 const FALLBACK_BARE_URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
 const PHASE_C_BROKEN_HTTPS_LINK_PATTERN = /(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
-const PHASE_C_SOURCE_LINK_CLASS = 'text-blue-600 underline hover:text-blue-800';
+const PHASE_C_SOURCE_LINK_CLASS = 'prose-source-link text-blue-600 underline hover:text-blue-800';
 const PHASE_C_SOURCE_LINK_LABEL = 'קישור למקור';
 
 function buildFallbackAnchorHtml(url, label) {
@@ -976,6 +981,100 @@ function buildFallbackAnchorHtml(url, label) {
   }
   return '<a href="' + escapeHtmlForFallback(href) + '" target="_blank" rel="noopener noreferrer" class="' +
     PHASE_C_SOURCE_LINK_CLASS + '">' + escapeHtmlForFallback(display) + '</a>';
+}
+
+function extractUrlFromLinkItem(item) {
+  if (!item) return '';
+  if (typeof item === 'string') return cleanHarvestedUrl(item);
+  return cleanHarvestedUrl(item.url || item.link || item.href || '');
+}
+
+/** Harvest every live HTTPS URL stored across Phase C link arrays (for archive round-trip). */
+function collectPhaseCLinkUrlList(normalized) {
+  if (!normalized || typeof normalized !== 'object') return [];
+  const seen = new Set();
+  const out = [];
+  function pushUrl(raw) {
+    const clean = cleanHarvestedUrl(raw);
+    if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    const key = normalizeCitationUrlForMatch(clean);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  }
+  (normalized._liveCitations || []).forEach(pushUrl);
+  (normalized.relevant_links || []).forEach(function (item) { pushUrl(extractUrlFromLinkItem(item)); });
+  (normalized.pinterest_links || []).forEach(function (item) { pushUrl(extractUrlFromLinkItem(item)); });
+  (normalized.pedagogical_resources || []).forEach(function (item) { pushUrl(extractUrlFromLinkItem(item)); });
+  (normalized.recommended_reading || []).forEach(function (item) { pushUrl(extractUrlFromLinkItem(item)); });
+  const bib = normalized.theory && normalized.theory.bibliography;
+  if (bib) {
+    ['books', 'articles', 'websites'].forEach(function (cat) {
+      (bib[cat] || []).forEach(function (item) { pushUrl(extractUrlFromLinkItem(item)); });
+    });
+  }
+  extractLiveCitationsFromParsed(normalized).forEach(pushUrl);
+  return out;
+}
+
+function hasArchivedLinkContent(normalized) {
+  return collectPhaseCLinkUrlList(normalized).length > 0;
+}
+
+/** Persist citation index from all stored link fields so Supabase archive hydrates completely. */
+function stampTopicMasterArchiveLinks(normalized, parsed) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  const seed = parsed && typeof parsed === 'object' ? parsed : normalized;
+  const merged = Object.assign({}, seed, normalized);
+  normalized._liveCitations = collectPhaseCLinkUrlList(merged);
+  return normalized;
+}
+
+function collectPhaseCLinkItemsForDisplay(normalized, topic) {
+  const seen = new Set();
+  const out = [];
+  function pushItem(title, url) {
+    const clean = cleanHarvestedUrl(url);
+    if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    const key = normalizeCitationUrlForMatch(clean);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const label = String(title || inferHarvestedLinkTitle(clean, '', topic) || clean).trim();
+    out.push({ title: label, url: clean });
+  }
+  (normalized.relevant_links || []).forEach(function (item) {
+    if (!item) return;
+    pushItem(item.title || item.name, item.url || item.link || item.href);
+  });
+  (normalized.pedagogical_resources || []).forEach(function (item) {
+    if (!item) return;
+    pushItem(item.title || item.name, item.url || item.link || item.href);
+  });
+  const bib = normalized.theory && normalized.theory.bibliography;
+  if (bib) {
+    ['websites', 'articles', 'books'].forEach(function (cat) {
+      (bib[cat] || []).forEach(function (item) {
+        if (!item) return;
+        pushItem(item.title || item.name, item.url || item.link || item.href);
+      });
+    });
+  }
+  collectPhaseCLinkUrlList(normalized).forEach(function (url) {
+    pushItem('', url);
+  });
+  return out.slice(0, 12);
+}
+
+/** Sources block with real clickable anchors (never styled spans). */
+function buildPhaseCFallbackSourcesSectionHtml(normalized, topic) {
+  const links = collectPhaseCLinkItemsForDisplay(normalized, topic);
+  if (!links.length) return '';
+  const items = links.map(function (item) {
+    return '<li>' + buildFallbackAnchorHtml(item.url, item.title) + '</li>';
+  }).join('');
+  return '<div class="grade-insights-sources mt-4 text-walnut/80">' +
+    '<p class="mb-1"><strong>מקורות:</strong></p>' +
+    '<ul class="list-disc mr-5 space-y-1 i18n-list">' + items + '</ul></div>';
 }
 
 function ensureDomainHref(domain) {
@@ -1738,6 +1837,9 @@ function resolveGradeId(body) {
 
 function safeNormalizePhaseCResponse(parsed, grade, topic) {
   const topicStr = String(topic || 'נושא').trim();
+  if (parsed && typeof parsed === 'object') {
+    stampTopicMasterArchiveLinks(parsed, parsed);
+  }
   const needsFallbackClean = isPhaseCParseFallback(parsed) ||
     Boolean(parsed && parsed._normalizeFallback);
   let result;
@@ -1772,6 +1874,7 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
       parsed: parsed,
     });
   }
+  stampTopicMasterArchiveLinks(result, parsed || result);
   return applyLiveCitationGate(result, parsed || result);
 }
 
@@ -1786,6 +1889,7 @@ async function runPurePhaseC(body) {
     const cached = await cache.getTopicMasterCache(gradeId, topic);
     if (cached && cached.data) {
       try {
+        stampTopicMasterArchiveLinks(cached.data, cached.data);
         return {
           data: safeNormalizePhaseCResponse(cached.data, grade, topic),
           meta: Object.assign({
@@ -1834,6 +1938,7 @@ async function runPurePhaseC(body) {
   });
   const parsed = modelResult.parsed;
   const normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+  stampTopicMasterArchiveLinks(normalized, parsed);
 
   if (gradeId) {
     cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
@@ -1908,4 +2013,9 @@ module.exports = {
   ensurePhaseCTab3Population,
   buildGradeDefaultCoreEmphasesParagraphs,
   tab3FieldPlainLen,
+  stampTopicMasterArchiveLinks,
+  collectPhaseCLinkUrlList,
+  collectPhaseCLinkItemsForDisplay,
+  buildPhaseCFallbackSourcesSectionHtml,
+  hasArchivedLinkContent,
 };

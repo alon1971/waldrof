@@ -201,7 +201,9 @@
     #grade-insights-body a.prose-source-link,
     #grade-insights-body a.prose-source-link:visited,
     .grade-insights-sources a.prose-source-link,
-    .grade-insights-sources a.prose-source-link:visited {
+    .grade-insights-sources a.prose-source-link:visited,
+    #web-research-result a.prose-source-link,
+    #web-research-result a.prose-source-link:visited {
       color: #4a6b53;
       font-weight: 500;
       text-decoration: underline;
@@ -211,7 +213,9 @@
     #grade-insights-body a.prose-source-link:hover,
     #grade-insights-body a.prose-source-link:focus-visible,
     .grade-insights-sources a.prose-source-link:hover,
-    .grade-insights-sources a.prose-source-link:focus-visible {
+    .grade-insights-sources a.prose-source-link:focus-visible,
+    #web-research-result a.prose-source-link:hover,
+    #web-research-result a.prose-source-link:focus-visible {
       color: #3d5848;
       text-decoration-thickness: 2px;
       text-decoration-color: #4a6b53;
@@ -8167,10 +8171,19 @@
     function getLiveCitationUrlSet() {
       var citations = [];
       if (appState.purePhaseC && Array.isArray(appState.purePhaseC._liveCitations)) {
-        citations = appState.purePhaseC._liveCitations;
+        citations = appState.purePhaseC._liveCitations.slice();
       } else if (appState.webResearch && Array.isArray(appState.webResearch.citations)) {
-        citations = appState.webResearch.citations;
+        citations = appState.webResearch.citations.slice();
       }
+      var seen = Object.create(null);
+      citations.forEach(function (url) { seen[String(url || '').trim()] = true; });
+      collectPhaseCLinkItemsClient(appState.purePhaseC || {}).forEach(function (item) {
+        var u = String(item.url || '').trim();
+        if (u && !seen[u]) {
+          seen[u] = true;
+          citations.push(u);
+        }
+      });
       var set = Object.create(null);
       citations.forEach(function (url) {
         var clean = String(url || '').trim();
@@ -8188,10 +8201,14 @@
 
     function isVerifiedLiveCitationUrlClient(url) {
       var clean = String(url || '').trim();
-      if (!clean) return false;
+      if (!clean || !/^https?:\/\//i.test(clean)) return false;
       var set = getLiveCitationUrlSet();
       var keys = Object.keys(set);
-      if (!keys.length) return false;
+      if (!keys.length) {
+        return collectPhaseCLinkItemsClient(appState.purePhaseC || {}).some(function (item) {
+          return String(item.url || '').trim() === clean;
+        });
+      }
       var key = '';
       try {
         var parsed = new URL(clean);
@@ -13580,11 +13597,29 @@
         .replace(/<h1(\s[^>]*)?>/gi, '<h3 class="app-subhead"$1>')
         .replace(/<\/h1>/gi, '</h3>')
         .replace(/<h2(\s[^>]*)?>/gi, '<h3 class="app-subhead"$1>')
-        .replace(/<\/h2>/gi, '</h3>')
-        .replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1')
+        .replace(/<\/h2>/gi, '</h3>');
+      var preservedLinks = [];
+      out = out.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, function (_match, attrs, inner) {
+        var hrefMatch = attrs.match(/href\s*=\s*["']([^"']+)["']/i);
+        var href = hrefMatch ? sanitizeMarkdownLinkUrl(hrefMatch[1]) : '';
+        if (!href) return inner;
+        var idx = preservedLinks.length;
+        preservedLinks.push(
+          '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+          inner + '</a>'
+        );
+        return '\x00ALINK' + idx + '\x00';
+      });
+      out = out
         .replace(/\sstyle="[^"]*font-size\s*:[^"]*"/gi, '')
-        .replace(/\sstyle="\s*"/gi, '')
-        .replace(/\bhttps?:\/\/[^\s<>"']+/gi, '');
+        .replace(/\sstyle="\s*"/gi, '');
+      out = out.replace(/\bhttps?:\/\/[^\s<>"']+/gi, function (bareUrl) {
+        if (out.indexOf(bareUrl) >= 0 && out.indexOf('href="' + bareUrl) < 0) return bareUrl;
+        return bareUrl;
+      });
+      preservedLinks.forEach(function (html, index) {
+        out = out.split('\x00ALINK' + index + '\x00').join(html);
+      });
       if (!/<h[3-6]\b[^>]*class="[^"]*app-subhead/i.test(out)) {
         out = out.replace(/<h([3-6])(\s[^>]*)?>/gi, function (_m, level, attrs) {
           if (attrs && /class="/i.test(attrs)) {
@@ -13763,7 +13798,7 @@
       var parsed = parseSourceEntry(source);
       if (!parsed || (!parsed.label && !parsed.url)) return '';
       var url = parsed.url || '';
-      if (!url || !isVerifiedLiveCitationUrlClient(url)) return '';
+      if (!url || !/^https?:\/\//i.test(url)) return '';
       return buildProseSourceLinkHtml(url, getSourceLinkDisplayLabel(parsed.label, url));
     }
 
@@ -14053,15 +14088,16 @@
 
     function renderPureLinksBlock(items) {
       var list = (Array.isArray(items) ? items : []).filter(function (item) {
-        var url = String(item.url || '').trim();
-        return url && isVerifiedLiveCitationUrlClient(url);
+        var url = String(item.url || item.link || item.href || '').trim();
+        return url && /^https?:\/\//i.test(url);
       });
       if (!list.length) return '';
       return '<ul class="pure-card-body i18n-list pure-links-grid w-full">' + list.map(function (item) {
-        var url = String(item.url || '').trim();
-        var title = String(item.title || url).trim();
+        var url = String(item.url || item.link || item.href || '').trim();
+        var title = String(item.title || item.name || url).trim();
         if (!url) return '<li>' + escapeHtml(title) + '</li>';
-        return '<li>' + buildProseSourceLinkHtml(url, title) + '</li>';
+        return '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+          escapeHtml(title) + '</a></li>';
       }).join('') + '</ul>';
     }
 
@@ -14111,8 +14147,12 @@
         relevant_links: Array.isArray(data.relevant_links) ? data.relevant_links : [],
       };
       appState.purePhaseC = Object.assign({}, data, tab3);
-      if (Array.isArray(data._liveCitations)) {
+      if (Array.isArray(data._liveCitations) && data._liveCitations.length) {
         appState.purePhaseC._liveCitations = data._liveCitations.slice();
+      } else {
+        appState.purePhaseC._liveCitations = collectPhaseCLinkItemsClient(appState.purePhaseC).map(function (item) {
+          return item.url;
+        });
       }
       appState.aiGeneratedPlan = {
         title: topic,
@@ -15801,13 +15841,97 @@
       var parts = [];
       if (data.theory && Array.isArray(data.theory.sections)) {
         data.theory.sections.forEach(function (sec) {
-          var t = stripHtmlText(sec.content || '');
+          var t = stripHtmlText(sec.content || sec.text || sec.body || '');
           if (t) parts.push(t);
         });
       }
       var core = String(data.core_emphases || '').trim();
       if (core) parts.push(stripHtmlText(core));
+      if (!parts.length && Array.isArray(data.key_points)) {
+        data.key_points.forEach(function (kp) {
+          var line = String(kp || '').trim();
+          if (line) parts.push(line);
+        });
+      }
       return parts.join('\n\n').trim();
+    }
+
+    function collectPhaseCLinkItemsClient(data) {
+      if (!data || typeof data !== 'object') return [];
+      var seen = Object.create(null);
+      var out = [];
+      function push(title, url) {
+        var u = String(url || '').trim();
+        if (!u || !/^https?:\/\//i.test(u) || seen[u]) return;
+        seen[u] = true;
+        out.push({ title: String(title || u).trim(), url: u });
+      }
+      function walk(list) {
+        (list || []).forEach(function (item) {
+          if (!item) return;
+          if (typeof item === 'string') push(item, item);
+          else push(item.title || item.name || item.url, item.url || item.link || item.href);
+        });
+      }
+      walk(data.relevant_links);
+      walk(data.pedagogical_resources);
+      walk(data.recommended_reading);
+      walk(data.pinterest_links);
+      var bib = data.theory && data.theory.bibliography;
+      if (bib) {
+        walk(bib.websites);
+        walk(bib.articles);
+        walk(bib.books);
+      }
+      return out;
+    }
+
+    function buildStepBSourcesSectionHtml(data) {
+      var items = collectPhaseCLinkItemsClient(data);
+      if (!items.length) return '';
+      return '<div class="grade-insights-sources mt-4 text-walnut/80">' +
+        '<p class="mb-1"><strong>' + escapeHtml(t('sources_label')) + ':</strong></p>' +
+        '<ul class="list-disc mr-5 space-y-1 i18n-list">' +
+        items.map(function (item) {
+          return '<li><a href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+            escapeHtml(item.title || item.url) + '</a></li>';
+        }).join('') +
+        '</ul></div>';
+    }
+
+    function buildStepBSummaryHtmlFromPurePhaseC(data) {
+      if (!data) return '';
+      var parts = [];
+      if (data.theory && Array.isArray(data.theory.sections)) {
+        data.theory.sections.forEach(function (sec) {
+          if (!sec) return;
+          var content = String(sec.content || sec.text || sec.body || '').trim();
+          if (!content) return;
+          var heading = String(sec.heading || sec.title || '').trim();
+          if (heading) {
+            parts.push('<h3 class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(heading) + '</h3>');
+          }
+          if (/<[a-z][\s\S]*>/i.test(content)) {
+            parts.push('<div class="prose-ai leading-relaxed mb-4">' + content + '</div>');
+          } else {
+            parts.push(formatPerplexityRawText(content));
+          }
+        });
+      }
+      var core = String(data.core_emphases || '').trim();
+      if (core) {
+        if (/<[a-z][\s\S]*>/i.test(core)) {
+          parts.push('<div class="prose-ai leading-relaxed mb-4">' + core + '</div>');
+        } else {
+          parts.push(formatPerplexityRawText(core));
+        }
+      }
+      if (!parts.length) {
+        var plain = buildStepBSummaryFromPurePhaseC(data);
+        if (plain) parts.push(formatPerplexityRawText(plain));
+      }
+      parts.push(buildStepBSourcesSectionHtml(data));
+      return parts.join('\n');
     }
 
     /** Apply completed pure Phase C research and keep the teacher on wizard Step B (never auto-open Step C). */
@@ -15819,14 +15943,18 @@
       appState.lessonFromArchive = Boolean(meta.fromCache);
       if (meta.cacheKey) appState.lessonCacheKey = meta.cacheKey;
 
-      var summaryText = buildStepBSummaryFromPurePhaseC(data);
+      var summaryHtml = buildStepBSummaryHtmlFromPurePhaseC(data);
+      var citationItems = collectPhaseCLinkItemsClient(data);
+      var citations = Array.isArray(data._liveCitations) && data._liveCitations.length
+        ? data._liveCitations.slice()
+        : citationItems.map(function (item) { return item.url; });
       appState.webResearch = {
         topic: topic,
-        summary: summaryText.slice(0, 800),
-        rawContent: summaryText,
+        summary: stripHtmlText(summaryHtml).slice(0, 800),
+        rawContent: summaryHtml,
         connections: [],
         highlights: [],
-        citations: [],
+        citations: citations,
       };
 
       resetSummarySession();
@@ -15835,7 +15963,21 @@
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
       holdPageScroll(function () {
-        renderWebResearchResult();
+        var out = document.getElementById('web-research-result');
+        if (!out) return;
+        var html = summaryHtml;
+        if (!String(html || '').trim()) {
+          html = '<p class="text-walnut/70">—</p>';
+        }
+        if (meta.statusBanner) {
+          html = meta.statusBanner + html;
+        }
+        out.innerHTML = html;
+        out.classList.remove('hidden');
+        ensurePedagogySuggestionEvents();
+        updatePedagogyExportButtonsVisibility();
+        checkAndShowCommunityTopicAlert();
+        nudgeGoogleTranslate();
       });
       updateTopicResearchButton();
       updatePedagogyExportButtonsVisibility();
@@ -15855,16 +15997,13 @@
 
         const data = response.data;
         const meta = response.meta || {};
-        commitPurePhaseCToStepB(topic, data, meta);
-
-        if (out) {
-          out.classList.remove('hidden');
-          var statusMsg = meta.fromCache
-            ? (isEnglish() ? 'Loaded from archive — review the topic summary, then open Step C when ready.' : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.')
-            : (isEnglish() ? 'Research complete — review the topic summary, then open Step C when ready.' : 'המחקר הושלם — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.');
-          out.innerHTML = '<p class="text-sage-dark m-0"><i class="fa-solid fa-circle-check ml-1"></i> ' +
-            escapeHtml(statusMsg) + '</p>';
-        }
+        var statusMsg = meta.fromCache
+          ? (isEnglish() ? 'Loaded from archive — review the topic summary, then open Step C when ready.' : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.')
+          : (isEnglish() ? 'Research complete — review the topic summary, then open Step C when ready.' : 'המחקר הושלם — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.');
+        commitPurePhaseCToStepB(topic, data, Object.assign({}, meta, {
+          statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
+            escapeHtml(statusMsg) + '</p>',
+        }));
 
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 

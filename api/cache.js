@@ -308,6 +308,7 @@ function setFallbackCached(cacheKey, body, resultData) {
 function applyArchiveLinkCleanupPolicy(data, phase) {
   if (!data || typeof data !== 'object') return data;
   if (phase !== 'topic') return data;
+  if (isTopicMasterPayload(data)) return data;
   const cloned = cloneJsonSafe(data);
   if (!cloned) return data;
   return enrichmentLinks.stripNonPinterestLinksFromArchiveData(cloned).data;
@@ -1834,15 +1835,57 @@ async function getTopicMasterCache(gradeId, topic, options) {
   const opts = Object.assign({ requireEnhanced: false }, options || {});
   const cached = await getCachedResult(body, opts);
   if (cached && cached.data && isTopicMasterPayload(cached.data)) {
+    hydrateTopicMasterArchiveLinks(cached.data);
     return cached;
   }
 
   const semantic = await findSemanticTopicMasterMatch(gid, topicStr);
   if (semantic && semantic.data && isTopicMasterPayload(semantic.data)) {
+    hydrateTopicMasterArchiveLinks(semantic.data);
     return semantic;
   }
 
   return null;
+}
+
+/** Rebuild _liveCitations from every stored link field after Supabase hydration. */
+function hydrateTopicMasterArchiveLinks(data) {
+  if (!data || typeof data !== 'object') return data;
+  try {
+    const phaseC = require('./pure-phase-c');
+    if (phaseC && typeof phaseC.stampTopicMasterArchiveLinks === 'function') {
+      phaseC.stampTopicMasterArchiveLinks(data, data);
+    }
+  } catch (err) {
+    const urls = [];
+    const seen = new Set();
+    function pushUrl(raw) {
+      const u = String(raw || '').trim();
+      if (!u || !/^https?:\/\//i.test(u) || seen.has(u)) return;
+      seen.add(u);
+      urls.push(u);
+    }
+    function walkList(list) {
+      (list || []).forEach(function (item) {
+        if (!item) return;
+        if (typeof item === 'string') pushUrl(item);
+        else pushUrl(item.url || item.link || item.href);
+      });
+    }
+    (data._liveCitations || []).forEach(pushUrl);
+    walkList(data.relevant_links);
+    walkList(data.pinterest_links);
+    walkList(data.pedagogical_resources);
+    walkList(data.recommended_reading);
+    const bib = data.theory && data.theory.bibliography;
+    if (bib) {
+      walkList(bib.books);
+      walkList(bib.articles);
+      walkList(bib.websites);
+    }
+    if (urls.length) data._liveCitations = urls;
+  }
+  return data;
 }
 
 /** Persist unified Step B→C master JSON under grade_id + normalized topic. */
