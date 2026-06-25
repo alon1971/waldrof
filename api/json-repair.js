@@ -348,14 +348,12 @@ function buildModelParseFallback(phase, rawText, context) {
     if (cTab === 'curriculum') {
       return {
         blockPlan: {
-          curriculum: Array.from({ length: 15 }, function (_, i) {
-            return {
-              day: i + 1,
-              topic: 'יום ' + (i + 1),
-              content: wrap,
-              art: '',
-            };
-          }),
+          curriculum: {
+            core_emphases: plain.slice(0, 4000),
+            key_points: '',
+            recommended_reading: '',
+            relevant_links: '',
+          },
         },
         _parseFallback: true,
       };
@@ -396,7 +394,10 @@ function buildModelParseFallback(phase, rawText, context) {
       archiveSearch: {
         query: String(ctx.archiveQuery || ''),
         intro: plain.slice(0, 1500),
-        sources: [],
+        developmental_axis: plain.slice(0, 4000),
+        core_pedagogical_emphases: '',
+        recommended_literature: '',
+        relevant_links: '',
       },
       _parseFallback: true,
     };
