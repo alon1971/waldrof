@@ -220,6 +220,38 @@
       text-decoration-thickness: 2px;
       text-decoration-color: #4a6b53;
     }
+    #inspiration-content a.prose-source-link,
+    #inspiration-content a.prose-source-link:visited,
+    #pure-pedagogical-resources a.prose-source-link,
+    #pure-pedagogical-resources a.prose-source-link:visited,
+    #panel-inspiration a.prose-source-link,
+    #panel-inspiration a.prose-source-link:visited,
+    #panel-theory a.prose-source-link,
+    #panel-theory a.prose-source-link:visited,
+    #panel-curriculum a.prose-source-link,
+    #panel-curriculum a.prose-source-link:visited {
+      color: #4a6b53;
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-color: rgba(74, 107, 83, 0.45);
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    #inspiration-content a.prose-source-link:hover,
+    #inspiration-content a.prose-source-link:focus-visible,
+    #pure-pedagogical-resources a.prose-source-link:hover,
+    #pure-pedagogical-resources a.prose-source-link:focus-visible,
+    #panel-inspiration a.prose-source-link:hover,
+    #panel-inspiration a.prose-source-link:focus-visible,
+    #panel-theory a.prose-source-link:hover,
+    #panel-theory a.prose-source-link:focus-visible,
+    #panel-curriculum a.prose-source-link:hover,
+    #panel-curriculum a.prose-source-link:focus-visible {
+      color: #3d5848;
+      text-decoration-thickness: 2px;
+      text-decoration-color: #4a6b53;
+    }
     /* Workspace tabs — larger readable pedagogical body text (not site header/chrome) */
     #workspace .product-tab-panel,
     #product-panels-shell .product-tab-panel {
@@ -8129,7 +8161,7 @@
       var raw = String(text || '').trim();
       if (!raw) return '<div class="prose-ai"></div>';
       if (/<[a-z][\s\S]*>/i.test(raw)) {
-        return '<div class="prose-ai leading-relaxed w-full">' + raw + '</div>';
+        return '<div class="prose-ai leading-relaxed w-full">' + normalizeAiHtml(raw, { wrap: false }) + '</div>';
       }
       var paragraphs = raw.split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
       if (paragraphs.length < 2) {
@@ -9130,7 +9162,7 @@
           '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
           (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
           '</div>' +
-          '<p class="font-medium text-walnut">' + buildProseSourceLinkHtml(item.url, item.title || item.url) + '</p>' +
+          '<p class="font-medium text-walnut">' + buildStepBStyleSourceAnchorHtml(item.url, item.title || item.url) + '</p>' +
           (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '') +
           '</li>';
       });
@@ -9943,6 +9975,7 @@
       if (!container) return;
       theoryBibEventsBound = true;
       container.addEventListener('click', function (e) {
+        if (e.target.closest('a[href^="http"]')) return;
         const collapseBtn = e.target.closest('[data-bib-collapse]');
         if (collapseBtn) {
           e.preventDefault();
@@ -10098,7 +10131,15 @@
       var titleHtml = display.titleSource
         ? '<strong>' + escapeHtml(display.titleSource) + '</strong>'
         : '';
-      var previewHtml = display.previewText ? renderAiPreview(display.previewText) : '';
+      var previewHtml = '';
+      if (display.previewText) {
+        var previewRaw = String(display.previewText).trim();
+        if (isCompiledPedagogicalHtml(previewRaw)) {
+          previewHtml = '<div class="prose-ai">' + normalizeAiHtml(previewRaw, { wrap: false }) + '</div>';
+        } else {
+          previewHtml = renderAiPreview(display.previewText);
+        }
+      }
       const btnLabel = expansionBtnLabel();
       return '<div class="pedagogy-suggestion-card" data-pedagogy-card="' + escapeHtml(item.id) + '">' +
         '<div class="pedagogy-suggestion-text">' +
@@ -11048,6 +11089,7 @@
       if (pedagogyEventsBound) return;
       pedagogyEventsBound = true;
       document.addEventListener('click', function (e) {
+        if (e.target.closest('a[href^="http"]')) return;
         const collapseBtn = e.target.closest('[data-ped-collapse]');
         if (collapseBtn) {
           e.preventDefault();
@@ -13653,10 +13695,7 @@
       out = out
         .replace(/\sstyle="[^"]*font-size\s*:[^"]*"/gi, '')
         .replace(/\sstyle="\s*"/gi, '');
-      out = out.replace(/\bhttps?:\/\/[^\s<>"']+/gi, function (bareUrl) {
-        if (out.indexOf(bareUrl) >= 0 && out.indexOf('href="' + bareUrl) < 0) return bareUrl;
-        return bareUrl;
-      });
+      out = linkifyNakedUrlsInPlainText(out);
       preservedLinks.forEach(function (html, index) {
         out = out.split('\x00ALINK' + index + '\x00').join(html);
       });
@@ -14098,7 +14137,9 @@
     function renderPureTextBlock(text) {
       var raw = String(text || '').trim();
       if (!raw) return '<p class="text-walnut/50">—</p>';
-      if (isCompiledPedagogicalHtml(raw)) return '<div class="pure-card-body">' + raw + '</div>';
+      if (isCompiledPedagogicalHtml(raw)) {
+        return '<div class="pure-card-body prose-ai">' + normalizeAiHtml(raw, { wrap: false }) + '</div>';
+      }
       return '<div class="pure-card-body">' + formatPerplexityRawText(raw) + '</div>';
     }
 
@@ -14122,7 +14163,7 @@
         var url = String(item.url || '').trim();
         var author = item.author ? ' <span class="text-walnut/60">— ' + escapeHtml(item.author) + '</span>' : '';
         var note = item.note ? '<div class="text-sm text-walnut/70 mt-0.5">' + renderMarkdownInline(item.note) + '</div>' : '';
-        return '<li>' + buildProseSourceLinkHtml(url, item.title || url) + author + note + '</li>';
+        return '<li>' + buildStepBStyleSourceAnchorHtml(url, item.title || url) + author + note + '</li>';
       }).join('') + '</ul>';
     }
 
@@ -14136,8 +14177,7 @@
         var url = String(item.url || item.link || item.href || '').trim();
         var title = String(item.title || item.name || url).trim();
         if (!url) return '<li>' + escapeHtml(title) + '</li>';
-        return '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
-          escapeHtml(title) + '</a></li>';
+        return '<li>' + buildStepBStyleSourceAnchorHtml(url, title) + '</li>';
       }).join('') + '</ul>';
     }
 
@@ -15926,6 +15966,14 @@
       return out;
     }
 
+    function buildStepBStyleSourceAnchorHtml(url, title) {
+      var href = String(url || '').trim();
+      if (!href || !/^https?:\/\//i.test(href)) return escapeHtml(String(title || url || ''));
+      var label = String(title || href).trim() || href;
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+        escapeHtml(label) + '</a>';
+    }
+
     function buildStepBSourcesSectionHtml(data) {
       var items = collectPhaseCLinkItemsClient(data);
       if (!items.length) return '';
@@ -16430,7 +16478,7 @@
         if (!websiteUrl || !isVerifiedLiveCitationUrlClient(websiteUrl)) return '';
         if (!hasLiveReferenceSnippetClient(rawItem)) return '';
         appState.bibliographyRegistry[id] = item;
-        const labelHtml = buildProseSourceLinkHtml(websiteUrl, item.label);
+        const labelHtml = buildStepBStyleSourceAnchorHtml(websiteUrl, item.label);
         return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
           '<div class="theory-bib-item-row">' +
           '<div class="theory-bib-source-text">' +
@@ -16584,7 +16632,7 @@
         const secHeading = sec.heading || sec.title || '';
         const secContent = sec.content || sec.text || sec.body || '';
         const secBodyHtml = isCompiledPedagogicalHtml(secContent)
-          ? secContent
+          ? normalizeAiHtml(secContent, { wrap: false })
           : ensureAiHtml(secContent);
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
@@ -16866,7 +16914,7 @@
       if (!raw) return '<div class="pedagogical-essence-body"></div>';
       var allowLinks = fieldKey === 'relevant_links';
       if (isCompiledPedagogicalHtml(raw)) {
-        return '<div class="pedagogical-essence-body prose-ai">' + raw + '</div>';
+        return '<div class="pedagogical-essence-body prose-ai">' + normalizeAiHtml(raw, { wrap: false }) + '</div>';
       }
       if (looksLikeAiHtml(raw) || raw.indexOf('<') >= 0) {
         return '<div class="pedagogical-essence-body prose-ai">' + (allowLinks ? raw : ensureAiHtml(raw)) + '</div>';
