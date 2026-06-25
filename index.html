@@ -8197,11 +8197,12 @@
         html += '</article>';
       }
       html += '</div>';
-      return html;
+      return dedupeRepeatedHtmlBlocks(html);
     }
 
     function renderStructuredTextFallback(el, title, rawText) {
       if (!el) return;
+      el.innerHTML = '';
       var html = '';
       if (title) {
         html += '<h2 class="app-page-title font-display font-bold text-burgundy mb-4">' + escapeHtml(title) + '</h2>';
@@ -13694,8 +13695,11 @@
       var preservedLinks = [];
       out = out.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, function (_match, attrs, inner) {
         var hrefMatch = attrs.match(/href\s*=\s*["']([^"']+)["']/i);
-        var href = hrefMatch ? sanitizeMarkdownLinkUrl(hrefMatch[1]) : '';
-        if (!href) return inner;
+        var href = hrefMatch ? sanitizeExternalLinkUrl(hrefMatch[1]) : '';
+        if (!href) {
+          var plainLabel = stripHtmlText(inner).trim();
+          return plainLabel ? '<strong>' + escapeHtml(plainLabel) + '</strong>' : inner;
+        }
         var idx = preservedLinks.length;
         preservedLinks.push(
           '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
@@ -13734,8 +13738,86 @@
     }
 
     function sanitizeMarkdownLinkUrl(url) {
-      var u = String(url || '').trim();
-      return /^https?:\/\//i.test(u) ? u : '';
+      return sanitizeExternalLinkUrl(url);
+    }
+
+    var EXTERNAL_HTTP_URL_PATTERN = /https?:\/\/(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%[\]-]*)?/gi;
+    var PROVEN_BARE_DOMAIN_PATTERN = /^(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:org|com|edu|net|il)(?:\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%[\]-]*)?$/i;
+
+    function isValidExternalSourceUrl(url) {
+      var raw = String(url || '').trim();
+      if (!raw) return false;
+      if (!/^https?:\/\//i.test(raw)) {
+        return PROVEN_BARE_DOMAIN_PATTERN.test(raw);
+      }
+      try {
+        var parsed = new URL(raw);
+        var host = String(parsed.hostname || '').replace(/^www\./i, '');
+        if (!host || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/i.test(host)) {
+          return false;
+        }
+        var pathQuery = (parsed.pathname || '') + (parsed.search || '');
+        if (/%D7[0-9A-Fa-f]{2}/i.test(pathQuery)) {
+          return false;
+        }
+        if (pathQuery.length > 160 && /%[0-9A-Fa-f]{2}/i.test(pathQuery)) {
+          return false;
+        }
+        if (/[\u0590-\u05FF]/.test(pathQuery)) {
+          return false;
+        }
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function sanitizeExternalLinkUrl(url) {
+      var raw = String(url || '').trim();
+      if (!raw) return '';
+      if (!/^https?:\/\//i.test(raw)) {
+        if (!PROVEN_BARE_DOMAIN_PATTERN.test(raw)) return '';
+        raw = 'https://' + raw.replace(/^\/+/, '');
+      }
+      if (!isValidExternalSourceUrl(raw)) return '';
+      return raw;
+    }
+
+    function matchExternalHttpUrls(text) {
+      if (!text) return [];
+      return String(text).match(EXTERNAL_HTTP_URL_PATTERN) || [];
+    }
+
+    function replaceExternalHttpUrls(text, replacer) {
+      var work = String(text || '');
+      if (!work) return work;
+      return work.replace(EXTERNAL_HTTP_URL_PATTERN, function (url) {
+        var href = sanitizeExternalLinkUrl(url);
+        if (!href) return url;
+        return replacer(href, url);
+      });
+    }
+
+    function dedupeRepeatedHtmlBlocks(html) {
+      var out = String(html || '');
+      if (!out) return out;
+      var seen = Object.create(null);
+      function keepUniqueBlock(blockHtml) {
+        var key = stripHtmlText(blockHtml).replace(/\s+/g, ' ').trim().slice(0, 360);
+        if (!key || key.length < 24) return blockHtml;
+        if (seen[key]) return '';
+        seen[key] = true;
+        return blockHtml;
+      }
+      out = out.replace(/<article\b[^>]*class="[^"]*theory-fallback-window[^"]*"[^>]*>[\s\S]*?<\/article>/gi, keepUniqueBlock);
+      out = out.replace(/<div\b[^>]*class="[^"]*prose-ai[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, function (full, inner) {
+        var innerKey = stripHtmlText(inner).replace(/\s+/g, ' ').trim().slice(0, 360);
+        if (!innerKey || innerKey.length < 24) return full;
+        if (seen[innerKey]) return '';
+        seen[innerKey] = true;
+        return full;
+      });
+      return out;
     }
 
     function isDeadSourceLinkLabel(text) {
@@ -13847,7 +13929,7 @@
     }
 
     function buildProseSourceLinkHtml(url, label) {
-      var href = sanitizeMarkdownLinkUrl(url);
+      var href = sanitizeExternalLinkUrl(url);
       if (!href) return escapeHtml(humanizeSourceLinkLabel(label, url));
       var display = humanizeSourceLinkLabel(label, href);
       if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
@@ -13859,7 +13941,7 @@
       var placeholders = [];
       var work = String(text || '');
       function stash(url, label) {
-        var href = sanitizeMarkdownLinkUrl(url);
+        var href = sanitizeExternalLinkUrl(url);
         if (!href) return null;
         var idx = placeholders.length;
         placeholders.push(buildProseSourceLinkHtml(href, label || ''));
@@ -13874,8 +13956,8 @@
       work = work.replace(/\[([^\]]*)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
         return stash(url, label) || _m;
       });
-      work = work.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, function (url) {
-        return stash(url, '') || url;
+      work = replaceExternalHttpUrls(work, function (href) {
+        return stash(href, '') || href;
       });
       work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
       placeholders.forEach(function (html, i) {
@@ -13914,7 +13996,10 @@
     }
 
     function isStandaloneUrlLine(line) {
-      return /^https?:\/\/\S+$/i.test(String(line || '').trim());
+      var trimmed = String(line || '').trim();
+      if (!trimmed) return false;
+      var href = sanitizeExternalLinkUrl(trimmed);
+      return !!href && trimmed === href;
     }
 
     function renderMarkdownInline(text) {
@@ -13922,21 +14007,22 @@
       var placeholders = [];
       var work = String(text);
       work = work.replace(/(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, url) {
-        var href = sanitizeMarkdownLinkUrl(url);
+        var href = sanitizeExternalLinkUrl(url);
+        if (!href) return _m;
         var idx = placeholders.length;
-        placeholders.push(buildProseSourceLinkHtml(href || url, ''));
+        placeholders.push(buildProseSourceLinkHtml(href, ''));
         return '\x00MDLINK' + idx + '\x00';
       });
       work = work.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
-        var href = sanitizeMarkdownLinkUrl(url);
+        var href = sanitizeExternalLinkUrl(url);
+        if (!href) return _m;
         var idx = placeholders.length;
-        placeholders.push(buildProseSourceLinkHtml(href || url, label));
+        placeholders.push(buildProseSourceLinkHtml(href, label));
         return '\x00MDLINK' + idx + '\x00';
       });
-      work = work.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, function (url) {
-        var href = sanitizeMarkdownLinkUrl(url);
+      work = replaceExternalHttpUrls(work, function (href) {
         var idx = placeholders.length;
-        placeholders.push(buildProseSourceLinkHtml(href || url, ''));
+        placeholders.push(buildProseSourceLinkHtml(href, ''));
         return '\x00MDLINK' + idx + '\x00';
       });
       work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
@@ -13975,9 +14061,12 @@
         }
         var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
         if (titleUrlMatch) {
-          closeLists();
-          html.push('<p>' + buildProseSourceLinkHtml(titleUrlMatch[2], titleUrlMatch[1]) + '</p>');
-          return;
+          var titleUrlHref = sanitizeExternalLinkUrl(titleUrlMatch[2]);
+          if (titleUrlHref) {
+            closeLists();
+            html.push('<p>' + buildProseSourceLinkHtml(titleUrlHref, titleUrlMatch[1]) + '</p>');
+            return;
+          }
         }
         var headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
         if (headingMatch) {
@@ -14149,7 +14238,7 @@
       var raw = String(text || '').trim();
       if (!raw) return '<p class="text-walnut/50">—</p>';
       if (isCompiledPedagogicalHtml(raw)) {
-        return '<div class="pure-card-body prose-ai">' + normalizeAiHtml(raw, { wrap: false }) + '</div>';
+        return '<div class="pure-card-body prose-ai">' + dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false })) + '</div>';
       }
       return '<div class="pure-card-body">' + formatPerplexityRawText(raw) + '</div>';
     }
@@ -14196,6 +14285,13 @@
       var cardsEl = document.getElementById('phase-c-structured-cards');
       var emptyEl = document.getElementById('phase-c-empty');
       if (!cardsEl) return;
+      cardsEl.innerHTML = '';
+      var essenceEl = document.getElementById('pedagogical-essence-content');
+      if (essenceEl) {
+        essenceEl.innerHTML = '';
+        essenceEl.classList.add('hidden');
+        essenceEl.setAttribute('aria-hidden', 'true');
+      }
       var view = normalizePedagogicalEssenceView(data) || data || resolvePurePhaseCTab3View();
       if (!view && hasPhaseCTopicContext()) {
         var fallbackSrc = data || appState.purePhaseC || {};
@@ -14347,9 +14443,13 @@
       }
       var r = appState.productTabsRendered || freshProductTabsRendered();
       appState.productTabsRendered = r;
-      if (tabId === 'theory' && !r.theory) {
-        renderTheory();
-        r.theory = true;
+      if (tabId === 'theory') {
+        var theoryPanelEl = document.getElementById('theoretical-content');
+        var theoryDomEmpty = !theoryPanelEl || !theoryPanelEl.innerHTML.trim();
+        if (!r.theory || theoryDomEmpty) {
+          renderTheory();
+          r.theory = true;
+        }
       } else if (tabId === 'inspiration') {
         var inspPanelEl = document.getElementById('inspiration-content');
         var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
@@ -14358,8 +14458,12 @@
           r.inspiration = true;
         }
       } else if (tabId === 'curriculum') {
-        renderPurePhaseCCards(resolvePurePhaseCTab3View() || appState.purePhaseC);
-        r.curriculum = true;
+        var cardsEl = document.getElementById('phase-c-structured-cards');
+        var cardsDomEmpty = !cardsEl || !cardsEl.innerHTML.trim();
+        if (!r.curriculum || cardsDomEmpty) {
+          renderPurePhaseCCards(resolvePurePhaseCTab3View() || appState.purePhaseC);
+          r.curriculum = true;
+        }
       }
       ensurePageScrollUnlocked();
     }
@@ -15978,8 +16082,8 @@
     }
 
     function buildStepBStyleSourceAnchorHtml(url, title) {
-      var href = String(url || '').trim();
-      if (!href || !/^https?:\/\//i.test(href)) return escapeHtml(String(title || url || ''));
+      var href = sanitizeExternalLinkUrl(url);
+      if (!href) return escapeHtml(String(title || url || ''));
       var label = String(title || href).trim() || href;
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
         escapeHtml(label) + '</a>';
@@ -16469,7 +16573,9 @@
     function renderPersonalInWorkspace() {
       const base = document.getElementById('inspiration-content');
       if (!base || !appState.personalMaterials.length) return;
-      const html = '<div class="mt-6 bg-terracotta/10 rounded-xl p-4 border border-terracotta/25"><h4 class="font-bold text-burgundy mb-2"><i class="fa-solid fa-folder-open ml-1"></i> ' + escapeHtml(t('personal_materials_ws')) + '</h4><ul class="text-sm space-y-1">' +
+      var existing = base.querySelector('[data-personal-materials-ws]');
+      if (existing) existing.remove();
+      const html = '<div class="mt-6 bg-terracotta/10 rounded-xl p-4 border border-terracotta/25" data-personal-materials-ws><h4 class="font-bold text-burgundy mb-2"><i class="fa-solid fa-folder-open ml-1"></i> ' + escapeHtml(t('personal_materials_ws')) + '</h4><ul class="text-sm space-y-1">' +
         appState.personalMaterials.map(function (m) {
           return '<li>• ' + escapeHtml(m.title) + (m.notes ? ' — <span class="text-walnut/70">' + escapeHtml(m.notes) + '</span>' : '') + '</li>';
         }).join('') + '</ul></div>';
@@ -16591,6 +16697,9 @@
       appState.bibliographyRegistry = {};
       const plan = appState.activePlan;
       const d = plan && plan.theory;
+      const theoryEl = document.getElementById('theoretical-content');
+      if (!theoryEl) return;
+      theoryEl.innerHTML = '';
       if (!d) {
         if (isPurePhaseCMode()) {
           holdPageScroll(function () {
@@ -16627,12 +16736,16 @@
       }
       const bib = getRenderableBibliography(d);
       d.bibliography = bib;
+      var renderedSectionBodies = Object.create(null);
       let html = '<div class="mb-6"><h2 class="app-page-title font-display font-bold text-burgundy">' + escapeHtml(d.title) + '</h2>' +
         '<p class="text-sage-dark mt-1">' + escapeHtml(appState.gradeLabel) + ' · ' + escapeHtml(appState.topic) + '</p></div>';
       d.sections.forEach(function (sec, i) {
         if (!sec || typeof sec !== 'object') {
           var secText = String(sec || '').trim();
           if (!secText) return;
+          var looseKey = stripHtmlText(secText).replace(/\s+/g, ' ').trim().slice(0, 360);
+          if (looseKey && renderedSectionBodies[looseKey]) return;
+          if (looseKey) renderedSectionBodies[looseKey] = true;
           html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6">' +
             '<div class="text-lg leading-relaxed prose-ai">' + formatPerplexityRawText(secText) + '</div></article>';
           return;
@@ -16642,9 +16755,14 @@
         const secIcon = sec.icon || 'fa-compass';
         const secHeading = sec.heading || sec.title || '';
         const secContent = sec.content || sec.text || sec.body || '';
-        const secBodyHtml = isCompiledPedagogicalHtml(secContent)
-          ? normalizeAiHtml(secContent, { wrap: false })
-          : ensureAiHtml(secContent);
+        var sectionFingerprint = stripHtmlText(secContent).replace(/\s+/g, ' ').trim().slice(0, 360);
+        if (sectionFingerprint && renderedSectionBodies[sectionFingerprint]) return;
+        if (sectionFingerprint) renderedSectionBodies[sectionFingerprint] = true;
+        const secBodyHtml = dedupeRepeatedHtmlBlocks(
+          isCompiledPedagogicalHtml(secContent)
+            ? normalizeAiHtml(secContent, { wrap: false })
+            : ensureAiHtml(secContent)
+        );
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
           '<div class="text-lg leading-relaxed prose-ai">' + secBodyHtml + '</div>';
@@ -16679,8 +16797,8 @@
     }
 
     function buildInspirationTabSourceAnchorHtml(url, title) {
-      var href = sanitizeMarkdownLinkUrl(url) || String(url || '').trim();
-      if (!href || !/^https?:\/\//i.test(href)) return escapeHtml(String(title || url || ''));
+      var href = sanitizeExternalLinkUrl(url);
+      if (!href) return escapeHtml(String(title || url || ''));
       var label = humanizeSourceLinkLabel(title, href);
       if (isDeadSourceLinkLabel(label)) label = getSourceLinkDisplayLabel('', href);
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-green-600 underline hover:text-green-800">' +
@@ -16690,11 +16808,15 @@
     function upgradeInspirationTabAnchors(html) {
       var out = String(html || '');
       out = out.replace(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, function (_m, href, inner) {
+        if (!sanitizeExternalLinkUrl(href)) {
+          var label = stripHtmlText(inner).trim();
+          return label ? '<strong>' + escapeHtml(label) + '</strong>' : inner;
+        }
         return buildInspirationTabSourceAnchorHtml(href, stripHtmlText(inner));
       });
-      out = out.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, function (url) {
-        if (out.indexOf('href="' + url) >= 0 || out.indexOf("href='" + url) >= 0) return url;
-        return buildInspirationTabSourceAnchorHtml(url, '');
+      out = replaceExternalHttpUrls(out, function (href) {
+        if (out.indexOf('href="' + href) >= 0 || out.indexOf("href='" + href) >= 0) return href;
+        return buildInspirationTabSourceAnchorHtml(href, '');
       });
       return out;
     }
@@ -16718,6 +16840,7 @@
         if (k.indexOf('ped-insp-') === 0) delete appState.pedagogyRegistry[k];
       });
       const inspEl = document.getElementById('inspiration-content');
+      if (inspEl) inspEl.innerHTML = '';
       const rawPlanFallback = String(
         (appState.activePlan && appState.activePlan.rawContent) ||
         (appState.webResearch && appState.webResearch.rawContent) ||
