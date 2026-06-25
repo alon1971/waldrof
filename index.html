@@ -989,6 +989,82 @@
       text-decoration: underline;
       pointer-events: auto;
     }
+    .pure-phase-c-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+    @media (min-width: 768px) {
+      .pure-phase-c-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .pure-data-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(247,243,235,0.9));
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      border-radius: 1rem;
+      padding: 1.25rem 1.35rem;
+      box-shadow: 0 2px 12px rgba(92, 74, 58, 0.06);
+      min-height: 8rem;
+    }
+    .pure-data-card h3 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #8B3A3A;
+      margin: 0 0 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .pure-data-card .pure-card-body p,
+    .pure-data-card .pure-card-body li {
+      font-size: var(--app-body-size);
+      line-height: 1.65;
+      color: #5C4A3A;
+    }
+    .pure-data-card .pure-card-body ul {
+      margin: 0;
+      padding-inline-start: 1.25rem;
+    }
+    .pure-data-card .pure-card-body a {
+      color: #c45c3e;
+      text-decoration: underline;
+    }
+    .marketing-bench {
+      margin-top: 1.5rem;
+      padding: 1rem 1.25rem;
+      border-radius: 1rem;
+      border: 2px dashed rgba(139, 58, 58, 0.35);
+      background: rgba(139, 58, 58, 0.04);
+    }
+    .marketing-bench h4 {
+      margin: 0 0 0.75rem;
+      font-weight: 700;
+      color: #8B3A3A;
+      font-size: 0.95rem;
+    }
+    .marketing-bench-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .marketing-bench-btn {
+      border: 1px solid rgba(139, 58, 58, 0.3);
+      background: #fff;
+      color: #8B3A3A;
+      border-radius: 0.75rem;
+      padding: 0.5rem 0.85rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .marketing-bench-btn:hover { background: rgba(139, 58, 58, 0.06); }
+    #general-search-view .general-search-results { margin-top: 1.25rem; }
+    #btn-nav-phase-c.active,
+    #btn-nav-general-search.active {
+      border-color: rgba(139, 58, 58, 0.45);
+      background: rgba(139, 58, 58, 0.08);
+      font-weight: 700;
+    }
     .lang-toggle {
       display: inline-flex;
       align-items: center;
@@ -3913,6 +3989,18 @@
           <i class="fa-solid fa-users-rays text-base sm:text-sm"></i>
           <span data-i18n="nav_community">מאגר קהילתי</span>
         </button>
+        <button type="button" id="btn-nav-phase-c"
+          class="step-pill step-pill-phase-c touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
+          data-i18n-aria="step_nav_c">
+          <i class="fa-solid fa-layer-group text-base sm:text-sm"></i>
+          <span data-i18n="step_nav_c">ג׳ תוצרים ומהות פדגוגית</span>
+        </button>
+        <button type="button" id="btn-nav-general-search"
+          class="step-pill step-pill-general-search touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
+          data-i18n-aria="nav_general_search_aria">
+          <i class="fa-solid fa-magnifying-glass-chart text-base sm:text-sm"></i>
+          <span data-i18n="nav_general_search">חיפוש כללי</span>
+        </button>
         <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
         <button type="button" id="btn-pedagogy-export-top"
           class="pedagogy-export-btn pedagogy-export-btn--nav touch-btn hidden" data-pedagogy-export
@@ -4096,7 +4184,51 @@
           </div>
         </div>
       </section>
+
+      <section id="panel-phase-c" class="tab-panel hidden">
+        <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
+          <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
+            <i class="fa-solid fa-layer-group text-gold"></i>
+            <span data-i18n="phase_c_title">שלב ג׳ — תוצרים ומהות פדגוגית</span>
+          </h2>
+          <p class="text-sm text-walnut/70 mb-5" data-i18n="phase_c_desc">מהות פדגוגית, נקודות מפתח, ספרות מומלצת וקישורים רלוונטיים לנושא ולכיתה.</p>
+          <div id="phase-c-loading" class="hidden mb-4 p-4 rounded-xl bg-parchment/90 border border-sage/25 text-sm text-sage-dark" role="status" aria-live="polite">
+            <i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i>
+            <span data-i18n="phase_c_loading">מפיק תוצרים ומהות פדגוגית...</span>
+          </div>
+          <div id="phase-c-empty" class="text-sm text-walnut/65 py-6 text-center" data-i18n="phase_c_empty">טענו נושא בשלב ב׳ כדי לראות את תוצרי שלב ג׳.</div>
+          <div id="phase-c-cards" class="pure-phase-c-grid hidden"></div>
+          <div id="phase-c-marketing-mount"></div>
+        </div>
+      </section>
     </main>
+    </div>
+  </div>
+
+  <!-- ========== GENERAL SEARCH (חיפוש כללי) ========== -->
+  <div id="general-search-view" class="hidden max-w-6xl mx-auto px-3 sm:px-4 pb-16 w-full box-border">
+    <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
+      <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
+        <i class="fa-solid fa-magnifying-glass-chart text-gold"></i>
+        <span data-i18n="general_search_title">חיפוש כללי</span>
+      </h2>
+      <p class="text-sm text-walnut/70 mb-5" data-i18n="general_search_desc">חיפוש פדגוגי רב-שכבתי על פני כיתות א׳–ח׳.</p>
+      <div class="flex flex-col sm:flex-row gap-2 mb-2">
+        <input type="text" id="general-search-input" maxlength="300"
+          class="flex-1 rounded-xl border border-gold/40 bg-cream px-4 py-3 text-base focus:ring-2 focus:ring-sage/40 outline-none"
+          data-i18n-placeholder="general_search_placeholder" placeholder="לדוגמה: התפתחות החשבון מא׳–ח׳" />
+        <button type="button" id="btn-general-search-submit"
+          class="touch-btn bg-sage hover:bg-sage-dark text-white font-semibold px-6 py-3 rounded-xl text-sm shrink-0">
+          <i class="fa-solid fa-magnifying-glass icon-inline"></i>
+          <span data-i18n="general_search_btn">חפש</span>
+        </button>
+      </div>
+      <div id="general-search-loading" class="hidden mt-4 p-4 rounded-xl bg-parchment/90 border border-sage/25 text-sm text-sage-dark" role="status" aria-live="polite">
+        <i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i>
+        <span data-i18n="general_search_loading">מחפש ומנתח...</span>
+      </div>
+      <div id="general-search-results" class="general-search-results hidden"></div>
+      <div id="general-search-marketing-mount"></div>
     </div>
   </div>
   </div>
@@ -4282,6 +4414,8 @@
     /** Cache-first grade/topic: Supabase hit returns instantly; cache miss triggers Perplexity Sonar via /api/generate. */
     const ARCHIVE_ONLY_MODE = true;
     const AI_GENERATE_ENDPOINT = '/api/generate';
+    const PURE_PHASE_C_ENDPOINT = '/api/pure-phase-c';
+    const PURE_GENERAL_SEARCH_ENDPOINT = '/api/pure-general-search';
 
     async function loadRuntimeConfig() {
       try {
@@ -4894,6 +5028,8 @@
       archiveRejectedSuggestions: [],
       topicCommunityMatches: [],
       isSubmitting: false,
+      purePhaseC: null,
+      generalSearchResult: null,
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -13267,7 +13403,7 @@
     }
 
     // ---------- Step UI engine ----------
-    const STEP_NAV_KEYS = ['step_nav_a', 'step_nav_b'];
+    const STEP_NAV_KEYS = ['step_nav_a', 'step_nav_b', 'step_nav_c'];
 
     function syncGradeLabelFromState() {
       if (appState.grade) appState.gradeLabel = getGradeLabelById(appState.grade);
@@ -13278,7 +13414,261 @@
     }
 
     function canNavigateToStep(n) {
-      return n === 1 || n === 2;
+      if (n === 1 || n === 2) return true;
+      if (n === 3) return Boolean(appState.grade && appState.topic);
+      return false;
+    }
+
+    function isPhaseCView() {
+      return isWorkspaceOpen() && appState.navSection === 'phase-c';
+    }
+
+    function isGeneralSearchView() {
+      var el = document.getElementById('general-search-view');
+      return el && !el.classList.contains('hidden');
+    }
+
+    function getAuthUserEmail() {
+      if (typeof WaldorfAuth === 'undefined') return '';
+      var state = typeof WaldorfAuth.getState === 'function' ? WaldorfAuth.getState() : null;
+      if (state && state.user && state.user.email) return String(state.user.email).trim();
+      var profile = typeof WaldorfAuth.getContributorProfile === 'function' ? WaldorfAuth.getContributorProfile() : null;
+      return profile && profile.email ? String(profile.email).trim() : '';
+    }
+
+    function isAlonMarketingUser() {
+      return getAuthUserEmail() === 'alon1971@gmail.com';
+    }
+
+    function renderMarketingBench(mountId) {
+      var mount = document.getElementById(mountId);
+      if (!mount) return;
+      if (!isAlonMarketingUser()) {
+        mount.innerHTML = '';
+        mount.classList.add('hidden');
+        return;
+      }
+      mount.classList.remove('hidden');
+      mount.innerHTML =
+        '<div class="marketing-bench" role="region" aria-label="' + escapeHtml(t('marketing_bench_title')) + '">' +
+        '<h4>' + escapeHtml(t('marketing_bench_title')) + '</h4>' +
+        '<div class="marketing-bench-actions">' +
+        '<button type="button" class="marketing-bench-btn" data-marketing-action="facebook">' + escapeHtml(t('marketing_btn_facebook')) + '</button>' +
+        '<button type="button" class="marketing-bench-btn" data-marketing-action="principal">' + escapeHtml(t('marketing_btn_principal')) + '</button>' +
+        '<button type="button" class="marketing-bench-btn" data-marketing-action="parents">' + escapeHtml(t('marketing_btn_parents')) + '</button>' +
+        '</div></div>';
+      mount.querySelectorAll('[data-marketing-action]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var action = btn.getAttribute('data-marketing-action');
+          alert(isEnglish()
+            ? 'Marketing action "' + action + '" — coming soon.'
+            : 'פעולת שיווק "' + action + '" — בקרוב.');
+        });
+      });
+    }
+
+    function renderPureTextBlock(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return '<p class="text-walnut/50">—</p>';
+      if (/<[a-z][\s\S]*>/i.test(raw)) return '<div class="pure-card-body">' + raw + '</div>';
+      return '<div class="pure-card-body">' + formatPerplexityRawText(raw) + '</div>';
+    }
+
+    function renderPureListBlock(items) {
+      var list = Array.isArray(items) ? items : [];
+      if (!list.length) return '<p class="text-walnut/50">—</p>';
+      return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
+        return '<li>' + renderMarkdownInline(String(item || '')) + '</li>';
+      }).join('') + '</ul>';
+    }
+
+    function renderPureReadingBlock(items) {
+      var list = Array.isArray(items) ? items : [];
+      if (!list.length) return '<p class="text-walnut/50">—</p>';
+      return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
+        var title = escapeHtml(item.title || '');
+        var author = item.author ? ' <span class="text-walnut/60">— ' + escapeHtml(item.author) + '</span>' : '';
+        var note = item.note ? '<div class="text-sm text-walnut/70 mt-0.5">' + renderMarkdownInline(item.note) + '</div>' : '';
+        return '<li><strong>' + title + '</strong>' + author + note + '</li>';
+      }).join('') + '</ul>';
+    }
+
+    function renderPureLinksBlock(items) {
+      var list = Array.isArray(items) ? items : [];
+      if (!list.length) return '<p class="text-walnut/50">—</p>';
+      return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
+        var url = String(item.url || '').trim();
+        var title = String(item.title || url).trim();
+        if (!url) return '<li>' + escapeHtml(title) + '</li>';
+        return '<li>' + buildProseSourceLinkHtml(url, title) + '</li>';
+      }).join('') + '</ul>';
+    }
+
+    function renderPurePhaseCCards(data) {
+      var cardsEl = document.getElementById('phase-c-cards');
+      var emptyEl = document.getElementById('phase-c-empty');
+      if (!cardsEl) return;
+      if (!data) {
+        cardsEl.classList.add('hidden');
+        cardsEl.innerHTML = '';
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        return;
+      }
+      if (emptyEl) emptyEl.classList.add('hidden');
+      cardsEl.classList.remove('hidden');
+      cardsEl.innerHTML =
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_card_core')) + '</h3>' + renderPureTextBlock(data.core_emphases) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_card_points')) + '</h3>' + renderPureListBlock(data.key_points) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_card_reading')) + '</h3>' + renderPureReadingBlock(data.recommended_reading) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_card_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links) + '</article>';
+      renderMarketingBench('phase-c-marketing-mount');
+    }
+
+    function renderGeneralSearchResults(data) {
+      var resultsEl = document.getElementById('general-search-results');
+      if (!resultsEl) return;
+      if (!data) {
+        resultsEl.classList.add('hidden');
+        resultsEl.innerHTML = '';
+        return;
+      }
+      resultsEl.classList.remove('hidden');
+      resultsEl.innerHTML =
+        '<div class="pure-phase-c-grid">' +
+        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + renderPureTextBlock(data.developmental_axis) + '</article>' +
+        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + renderPureTextBlock(data.core_pedagogical_emphases) + '</article>' +
+        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-book text-gold"></i> ' + escapeHtml(t('general_search_section_literature')) + '</h3>' + renderPureReadingBlock(data.recommended_literature) + '</article>' +
+        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links) + '</article>' +
+        '</div>';
+      renderMarketingBench('general-search-marketing-mount');
+    }
+
+    function setPhaseCLoadingUi(loading) {
+      var el = document.getElementById('phase-c-loading');
+      if (el) el.classList.toggle('hidden', !loading);
+    }
+
+    function setGeneralSearchLoadingUi(loading) {
+      var el = document.getElementById('general-search-loading');
+      if (el) el.classList.toggle('hidden', !loading);
+    }
+
+    async function invokePureApi(endpoint, payload, signal) {
+      var headers = { 'Content-Type': 'application/json' };
+      if (typeof WaldorfAuth !== 'undefined') {
+        try {
+          var token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (authErr) { /* optional */ }
+        var identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function' ? WaldorfAuth.getIdentityEmail() : '';
+        if (identityEmail) headers['X-User-Email'] = identityEmail;
+      }
+      var fetchInit = { method: 'POST', headers: headers, body: JSON.stringify(payload || {}) };
+      if (signal) fetchInit.signal = signal;
+      var res;
+      try {
+        res = await fetch(endpoint, fetchInit);
+      } catch (netErr) {
+        if (netErr && netErr.name === 'AbortError') throw netErr;
+        throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
+      }
+      var bodyText = await res.text();
+      var json;
+      try {
+        json = parseApiJsonResponse(bodyText);
+      } catch (parseErr) {
+        throw new Error(friendlyJsonParseError(parseErr));
+      }
+      if (!res.ok || json.error) {
+        throw new Error(json.error || ('שגיאת שרת (' + res.status + ')'));
+      }
+      return json.data || json;
+    }
+
+    async function fetchPurePhaseC(grade, topic, signal) {
+      return invokePureApi(PURE_PHASE_C_ENDPOINT, {
+        grade: grade || appState.gradeLabel || appState.grade,
+        gradeId: appState.grade,
+        topic: topic,
+      }, signal);
+    }
+
+    async function fetchPureGeneralSearch(query, signal) {
+      return invokePureApi(PURE_GENERAL_SEARCH_ENDPOINT, { query: query }, signal);
+    }
+
+    function hideGeneralSearchView() {
+      var el = document.getElementById('general-search-view');
+      if (el) el.classList.add('hidden');
+    }
+
+    function showGeneralSearchView() {
+      document.getElementById('wizard').classList.add('hidden');
+      document.getElementById('workspace').classList.add('hidden');
+      var el = document.getElementById('general-search-view');
+      if (el) el.classList.remove('hidden');
+      updateNewResearchBarVisibility();
+      renderMarketingBench('general-search-marketing-mount');
+    }
+
+    function openPhaseCWorkspace(options) {
+      options = options || {};
+      syncTopicFromInput();
+      appState.navSection = 'phase-c';
+      appState.step = 3;
+      showWorkspaceShell();
+      hideGeneralSearchView();
+      switchTab('phase-c', options);
+      renderStepProgress();
+      updateWorkspaceChrome();
+      persistActiveStep();
+    }
+
+    function openGeneralSearchView() {
+      appState.navSection = 'general-search';
+      document.getElementById('wizard').classList.add('hidden');
+      document.getElementById('workspace').classList.add('hidden');
+      hideAllWorkspacePanels();
+      var el = document.getElementById('general-search-view');
+      if (el) el.classList.remove('hidden');
+      updateNewResearchBarVisibility();
+      renderMarketingBench('general-search-marketing-mount');
+      renderStepProgress();
+      updateTopNavButtons();
+      updateWorkspaceChrome();
+      persistActiveStep();
+      var input = document.getElementById('general-search-input');
+      if (input) {
+        requestAnimationFrame(function () {
+          try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+        });
+      }
+    }
+
+    async function runGeneralSearch() {
+      var input = document.getElementById('general-search-input');
+      var query = input ? String(input.value || '').trim() : '';
+      if (!query) {
+        if (input) input.focus();
+        return;
+      }
+      var btn = document.getElementById('btn-general-search-submit');
+      setGeneralSearchLoadingUi(true);
+      if (btn) btn.disabled = true;
+      try {
+        var data = await fetchPureGeneralSearch(query);
+        appState.generalSearchResult = data;
+        renderGeneralSearchResults(data);
+      } catch (err) {
+        var resultsEl = document.getElementById('general-search-results');
+        if (resultsEl) {
+          resultsEl.classList.remove('hidden');
+          resultsEl.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(err.message || String(err)) + '</p>';
+        }
+      } finally {
+        setGeneralSearchLoadingUi(false);
+        if (btn) btn.disabled = false;
+      }
     }
 
     function syncTopicFromInput() {
@@ -13297,7 +13687,11 @@
 
     function updateTopNavButtons() {
       const communityBtn = document.getElementById('btn-nav-community');
+      const phaseCBtn = document.getElementById('btn-nav-phase-c');
+      const generalSearchBtn = document.getElementById('btn-nav-general-search');
       if (communityBtn) communityBtn.classList.toggle('active', isCommunityView());
+      if (phaseCBtn) phaseCBtn.classList.toggle('active', isPhaseCView());
+      if (generalSearchBtn) generalSearchBtn.classList.toggle('active', isGeneralSearchView());
     }
 
     function renderWorkspaceBreadcrumb() {
@@ -13361,6 +13755,8 @@
       if (grade) return grade;
       if (topic) return topic;
       if (isWorkspaceOpen() && isCommunityView()) return t('nav_community');
+      if (isGeneralSearchView()) return t('nav_general_search');
+      if (isPhaseCView()) return t('step_nav_c');
       var stepIdx = Math.max(0, Math.min(STEP_NAV_KEYS.length - 1, (appState.step || 1) - 1));
       var stepKey = STEP_NAV_KEYS[stepIdx];
       return stepKey ? (t('step_prefix') + ' ' + t(stepKey)) : '';
@@ -13491,10 +13887,11 @@
         const n = i + 1;
         const label = t(key);
         const enabled = canNavigateToStep(n);
-        const isActive = !inWs && n === appState.step;
+        const isActive = (n === 3 && isPhaseCView()) || (!inWs && n === appState.step);
         const isDone = !isActive && (
           (n === 1 && Boolean(appState.grade) && (appState.step > 1 || inWs)) ||
-          (n === 2 && Boolean(appState.grade && appState.topic) && (appState.step > 2 || inWs))
+          (n === 2 && Boolean(appState.grade && appState.topic) && (appState.step > 2 || inWs)) ||
+          (n === 3 && Boolean(appState.purePhaseC) && (isPhaseCView() || inWs))
         );
         let cls = 'step-pill touch-btn inline-flex items-center justify-center px-4 py-2.5 sm:px-3 sm:py-1.5 rounded-full border border-gold/30 bg-white/60 text-sm sm:text-xs ';
         if (enabled) cls += 'cursor-pointer ';
@@ -14067,6 +14464,11 @@
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: !hasLessonReady() });
         return;
       }
+      if (n === 3) {
+        if (!appState.grade || !appState.topic) return;
+        openPhaseCWorkspace();
+        return;
+      }
       if (n === 1) {
         goToStep(1, false);
         scrollToStepAAndFocus({ behavior: 'smooth' });
@@ -14077,12 +14479,14 @@
 
     function showWorkspaceShell() {
       document.getElementById('wizard').classList.add('hidden');
+      hideGeneralSearchView();
       document.getElementById('workspace').classList.remove('hidden');
       updateNewResearchBarVisibility();
     }
 
     function openCommunityRepo() {
       syncTopicFromInput();
+      hideGeneralSearchView();
       appState.navSection = 'community';
       showWorkspaceShell();
       switchTab('catalog');
@@ -14130,6 +14534,7 @@
     function goToStep(n, scrollBehavior) {
       appState.step = n;
       appState.navSection = 'wizard';
+      hideGeneralSearchView();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
       hideAllWorkspacePanels();
@@ -14525,85 +14930,31 @@
       return true;
     }
 
-    async function runTopicResearchGeneration(topic, runId, signal, options) {
-      const opts = options || {};
+    async function runPurePhaseCFromStepB(topic, runId, signal) {
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
-      const topicSlot = document.getElementById('topic-community-slot');
-
-      await checkAndShowCommunityTopicAlert();
-      if (runId !== topicResearchRunId || signal.aborted) {
-        setTopicResearchLoadingUi(false);
-        if (btn) btn.disabled = false;
-        updateTopicResearchButton();
-        return;
-      }
 
       try {
-        const data = await fetchTopicResearchAI(topic, signal, {
-          skipCache: opts.skipCache === true,
-          pedagogicalScopeOverride: opts.pedagogicalScopeOverride === true || appState.pedagogicalScopeOverride === true,
-        });
+        const data = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, signal);
         if (runId !== topicResearchRunId || signal.aborted) return;
 
-        if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
-          if (opts.skipCache === true || isArchiveSuggestionRejected(data._archiveSuggestion)) {
-            data = await fetchTopicResearchAI(topic, signal, {
-              skipCache: true,
-              pedagogicalScopeOverride: opts.pedagogicalScopeOverride === true || appState.pedagogicalScopeOverride === true,
-            });
-            if (runId !== topicResearchRunId || signal.aborted) return;
-            if (data && data._needsArchiveConfirmation && data._archiveSuggestion) {
-              console.warn('[waldrof] archive suggestion persisted after skipCache — ignoring');
-            }
-          } else {
-            setTopicResearchLoadingUi(false);
-            if (btn) btn.disabled = false;
-            updateTopicResearchButton();
-            topicResearchAbort = null;
-            presentArchivePartialMatch(topic, data._archiveSuggestion);
-            return;
-          }
+        appState.topic = topic;
+        appState.purePhaseC = data;
+        appState.topicResearchCompleted = true;
+        appState.lessonFromArchive = false;
+
+        if (out) {
+          out.classList.remove('hidden');
+          out.innerHTML = '<p class="text-sage-dark m-0"><i class="fa-solid fa-circle-check ml-1"></i> ' +
+            escapeHtml(isEnglish() ? 'Phase C products ready — opening dashboard.' : 'תוצרי שלב ג׳ מוכנים — פותח לוח בקרה.') + '</p>';
         }
 
-        if (data && data._gradeMismatch) {
-          setTopicResearchLoadingUi(false);
-          if (btn) btn.disabled = false;
-          updateTopicResearchButton();
-          topicResearchAbort = null;
-          presentGradeMismatchNotice(data._gradeMismatchData || {
-            requestedTopic: topic,
-            currentGradeLabel: appState.gradeLabel || '',
-            canonicalGradeLabel: '',
-          });
-          return;
+        openPhaseCWorkspace({ skipLoad: true });
+        renderPurePhaseCCards(data);
+
+        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
+          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
         }
-
-        if (data && data._meta && data._meta.cacheKey) {
-          appState.lessonCacheKey = data._meta.cacheKey;
-        }
-        appState.lessonCacheMeta = (data && data._meta) ? data._meta : null;
-        if (data && data._meta && data._meta.fromCache) {
-          appState.lessonFromArchive = true;
-        } else if (!(data && data._meta && data._meta.fromCache)) {
-          appState.lessonFromArchive = false;
-        }
-
-        const communityMatches = (data && data._communityMatches) ||
-          (data && data._meta && data._meta.communityMatches) || [];
-
-        if (!hasTopicResearchContent(data)) throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
-        if (!commitTopicResearchToStepB(topic, data)) {
-          throw new Error('לא התקבל תוכן מלא מה-AI — נסו שוב');
-        }
-
-        const resolvedCommunity = await resolveCommunityMatchesForTopic(topic, appState.grade, communityMatches);
-        appState.topicCommunityMatches = resolvedCommunity;
-        hydrateUnifiedLessonSynthesis({ communityMatches: resolvedCommunity });
-
-        await checkAndShowCommunityTopicAlert(resolvedCommunity.length ? resolvedCommunity : undefined);
-        queueCommunityLessonSync();
-        if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
       } catch (e) {
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
@@ -14612,7 +14963,6 @@
           out.classList.remove('hidden');
           out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message) + '</p>';
         }
-        if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
         updateTopicResearchButton();
       } finally {
         if (runId !== topicResearchRunId) {
@@ -14627,6 +14977,10 @@
         setTopicResearchLoadingUi(false);
         if (!signal.aborted && btn) btn.disabled = false;
       }
+    }
+
+    async function runTopicResearchGeneration(topic, runId, signal, options) {
+      return runPurePhaseCFromStepB(topic, runId, signal);
     }
 
     function proceedDespiteGradeMismatch() {
@@ -14673,70 +15027,8 @@
 
       appState.topic = topic;
       appState.lessonFromArchive = false;
+      appState.purePhaseC = null;
       abortPhaseCLoads();
-
-      const bypassArchive = shouldBypassArchiveHybridMatch(topic, currentGrade) || genOpts.scopeOverride === true;
-
-      if (!bypassArchive) {
-        let archiveMatch = null;
-        try {
-          if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.refresh === 'function') {
-            try { await WaldorfSearchHistory.refresh(); } catch (refreshErr) { /* ignore */ }
-          }
-          archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-          if (archiveMatch && archiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
-            presentGradeMismatchNotice(archiveMatch.gradeMismatch);
-            return;
-          }
-          archiveMatch = filterArchiveProbeMatch(archiveMatch);
-        } catch (probeErr) {
-          console.warn('[archive-probe] failed:', probeErr);
-        }
-        if (runId !== topicResearchRunId || signal.aborted) return;
-
-        if (archiveMatch && archiveMatch.matchType === 'exact') {
-          topicResearchAbort = null;
-          try {
-            await applyArchiveTopicMatch(archiveMatch, { closeChat: false, userQuery: topic });
-          } catch (archiveErr) {
-            const out = document.getElementById('web-research-result');
-            if (out) {
-              out.classList.remove('hidden');
-              out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(archiveErr.message || String(archiveErr)) + '</p>';
-            }
-          } finally {
-            setTopicResearchLoadingUi(false);
-            const exactBtn = document.getElementById('btn-topic-research');
-            if (exactBtn) {
-              exactBtn.disabled = false;
-              updateTopicResearchButton();
-            }
-          }
-          return;
-        }
-
-        if (archiveMatch && archiveMatch.matchType === 'partial') {
-          topicResearchAbort = null;
-          presentArchivePartialMatch(topic, archiveMatch);
-          setTopicResearchLoadingUi(false);
-          const partialBtn = document.getElementById('btn-topic-research');
-          if (partialBtn) {
-            partialBtn.disabled = false;
-            updateTopicResearchButton();
-          }
-          return;
-        }
-      }
-
-      appState.topicResearchCompleted = false;
-      appState.aiGeneratedPlan = null;
-      appState.activePlan = null;
-      appState.webResearch = null;
-      appState.lessonCacheKey = '';
-      resetVisualGalleryState();
-      appState._visualGallerySessionKey = visualGallerySessionKey();
-      resetSummarySession();
-      abortAllInlineExpansions();
 
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
@@ -14759,9 +15051,6 @@
       }
       document.getElementById('api-hint-step2').classList.add('hidden');
 
-      if (isCloudConfigured()) {
-        try { await loadCommunity(); } catch (e) { /* ignore */ }
-      }
       if (runId !== topicResearchRunId || signal.aborted) {
         setTopicResearchLoadingUi(false);
         btn.disabled = false;
@@ -14769,14 +15058,7 @@
         return;
       }
 
-      await runTopicResearchGeneration(topic, runId, signal, {
-        skipCache: bypassArchive,
-        pedagogicalScopeOverride: genOpts.scopeOverride === true,
-      });
-      if (bypassArchive) {
-        appState.archiveFreshSearchPending = false;
-        appState.archiveRejectedSearch = null;
-      }
+      await runPurePhaseCFromStepB(topic, runId, signal);
     }
 
     function renderPersonalList() {
@@ -16769,23 +17051,51 @@
       persistActiveStep();
     }
 
-    function switchTab(id) {
-      if (id !== 'catalog') return;
-      var tabViewChanged = appState.navSection !== 'community';
-      appState.navSection = 'community';
+    function switchTab(id, options) {
+      options = options || {};
+      if (id !== 'catalog' && id !== 'phase-c') return;
+      var tabViewChanged = appState.navSection !== (id === 'catalog' ? 'community' : 'phase-c');
+      appState.navSection = id === 'catalog' ? 'community' : 'phase-c';
       if (tabViewChanged) resetMainViewScroll();
       document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
       document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.add('hidden'); });
-      const panel = document.getElementById('panel-catalog');
+      const panel = document.getElementById(id === 'catalog' ? 'panel-catalog' : 'panel-phase-c');
       if (panel) {
         panel.classList.remove('hidden');
         panel.removeAttribute('hidden');
       }
-      renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      if (id === 'catalog') {
+        renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      } else {
+        renderPurePhaseCCards(appState.purePhaseC);
+        if (!options.skipLoad && !appState.purePhaseC && appState.grade && appState.topic) {
+          loadPurePhaseCForCurrentTopic();
+        }
+      }
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
       persistActiveStep();
+    }
+
+    async function loadPurePhaseCForCurrentTopic() {
+      if (!appState.grade || !appState.topic) return;
+      setPhaseCLoadingUi(true);
+      try {
+        const data = await fetchPurePhaseC(appState.gradeLabel || appState.grade, appState.topic);
+        appState.purePhaseC = data;
+        appState.topicResearchCompleted = true;
+        renderPurePhaseCCards(data);
+      } catch (err) {
+        renderPurePhaseCCards(null);
+        var cardsEl = document.getElementById('phase-c-cards');
+        if (cardsEl) {
+          cardsEl.classList.remove('hidden');
+          cardsEl.innerHTML = '<p class="text-terracotta col-span-full"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(err.message || String(err)) + '</p>';
+        }
+      } finally {
+        setPhaseCLoadingUi(false);
+      }
     }
 
     function restartJourney() {
@@ -16810,6 +17120,8 @@
         archiveRejectedSuggestions: [],
         topicCommunityMatches: [],
       });
+      appState.purePhaseC = null;
+      appState.generalSearchResult = null;
       resetVisualGalleryState();
       appState._visualGallerySessionKey = '';
       resetArchiveSearchFlowState();
@@ -16817,6 +17129,7 @@
       abortAllInlineExpansions();
       if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.reset();
       document.getElementById('workspace').classList.add('hidden');
+      hideGeneralSearchView();
       document.getElementById('wizard').classList.remove('hidden');
       document.getElementById('grade-insights-panel').classList.add('hidden');
       document.getElementById('grade-insights-body').innerHTML = '';
@@ -16830,6 +17143,11 @@
       document.getElementById('topic-input').value = '';
       document.getElementById('web-research-result').classList.add('hidden');
       document.getElementById('web-research-result').innerHTML = '';
+      renderPurePhaseCCards(null);
+      var gsResults = document.getElementById('general-search-results');
+      if (gsResults) { gsResults.classList.add('hidden'); gsResults.innerHTML = ''; }
+      var gsInput = document.getElementById('general-search-input');
+      if (gsInput) gsInput.value = '';
       setTopicResearchLoadingUi(false);
       document.getElementById('btn-topic-research').disabled = false;
       updateTopicResearchButton();
@@ -17012,6 +17330,28 @@
         onStepNavClick(parseInt(btn.getAttribute('data-step-nav'), 10), e);
       });
       bindWizardNavClick(document.getElementById('btn-nav-community'), function () { openCommunityRepo(); });
+      bindWizardNavClick(document.getElementById('btn-nav-phase-c'), function () {
+        if (!appState.grade || !appState.topic) {
+          alert(t('community_need_topic'));
+          goToStep(2, 'smooth');
+          return;
+        }
+        openPhaseCWorkspace();
+      });
+      bindWizardNavClick(document.getElementById('btn-nav-general-search'), function () { openGeneralSearchView(); });
+      var generalSearchSubmit = document.getElementById('btn-general-search-submit');
+      if (generalSearchSubmit) {
+        generalSearchSubmit.addEventListener('click', function () { runGeneralSearch(); });
+      }
+      var generalSearchInput = document.getElementById('general-search-input');
+      if (generalSearchInput) {
+        generalSearchInput.addEventListener('keydown', function (e) {
+          if (isPrimaryEnter(e)) {
+            e.preventDefault();
+            runGeneralSearch();
+          }
+        });
+      }
       bindWizardNavClick(document.getElementById('ws-crumb-grade'), function () { if (appState.grade) goToStep(1, 'smooth'); });
       bindWizardNavClick(document.getElementById('ws-crumb-topic'), function () {
         goToStep(2, 'smooth');
@@ -17123,6 +17463,12 @@
       const catalogPanel = document.getElementById('panel-catalog');
       if (isWorkspaceOpen() && catalogPanel && !catalogPanel.classList.contains('hidden')) {
         renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      }
+      if (isPhaseCView() && appState.purePhaseC) {
+        renderPurePhaseCCards(appState.purePhaseC);
+      }
+      if (isGeneralSearchView() && appState.generalSearchResult) {
+        renderGeneralSearchResults(appState.generalSearchResult);
       }
       if (appState.gradeResearch && appState.grade) {
         renderGradeInsightsPanel(appState.grade, appState.gradeResearch);

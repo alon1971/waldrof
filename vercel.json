@@ -4,6 +4,14 @@
     "api/generate.js": {
       "maxDuration": 300,
       "memory": 1024
+    },
+    "api/pure-phase-c.js": {
+      "maxDuration": 300,
+      "memory": 1024
+    },
+    "api/pure-general-search.js": {
+      "maxDuration": 300,
+      "memory": 1024
     }
   },
   "headers": [

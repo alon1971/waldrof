@@ -33,6 +33,8 @@ const knowledgeSeed = require('./api/knowledge-seed');
 const billingCheckout = require('./api/billing-checkout');
 const billingWebhooks = require('./api/billing-webhooks');
 const billingReport = require('./api/billing-report');
+const purePhaseCApi = require('./api/pure-phase-c');
+const pureGeneralSearchApi = require('./api/pure-general-search');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
   console.error('api/generate.js must export handleGeneratePost for Render Node hosting.');
@@ -473,6 +475,33 @@ function assertCronAuthorized(req, query) {
   throw err;
 }
 
+async function handlePureApiRoute(req, res, apiModule) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    await apiModule.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
 async function handleApiDriveCatalogSyncCron(req, res) {
   try {
     const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
@@ -560,6 +589,16 @@ const server = http.createServer(async function (req, res) {
     return handleApiDriveCatalogSyncCron(req, res);
   }
 
+  if (pathname === '/api/pure-phase-c') {
+    applyLongRunningRouteTimeout(req, res);
+    return handlePureApiRoute(req, res, purePhaseCApi);
+  }
+
+  if (pathname === '/api/pure-general-search') {
+    applyLongRunningRouteTimeout(req, res);
+    return handlePureApiRoute(req, res, pureGeneralSearchApi);
+  }
+
   serveStatic(req, res, pathname);
 });
 
@@ -576,7 +615,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
