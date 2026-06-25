@@ -5,6 +5,251 @@
 const shared = require('./pure-api-shared');
 const cache = require('./cache');
 const perplexityClient = require('./perplexity-client');
+const jsonRepair = require('./json-repair');
+
+/** Structural JSON keys that must never appear in pedagogical fallback text. */
+const PHASE_C_JSON_KEY_PATTERN = /["']?(?:theory|inspiration|sections|heading|headings|content|title|text|body|summary|bibliography|books|articles|websites|global|items|podcast|episodes|theme|insight|narrative|pinterest_links|pedagogical_resources|core_emphases|key_points|recommended_reading|relevant_links|icon|url|board|label|source|snippet|author|note|pin|quotes|fa-compass|theory_background|pedagogical_inspiration|developmental_compass|pedagogical_emphases)["']?\s*:/gi;
+
+function isPhaseCParseFallback(parsed) {
+  return Boolean(parsed && typeof parsed === 'object' && parsed._parseFallback);
+}
+
+function stripHtmlToPlainText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<\/li>\s*<li[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+}
+
+/** Known JSON key tokens — discard if a quoted value equals one of these exactly. */
+const PHASE_C_JSON_KEY_TOKENS = new Set([
+  'theory', 'inspiration', 'sections', 'heading', 'headings', 'content', 'title', 'text', 'body',
+  'summary', 'bibliography', 'books', 'articles', 'websites', 'global', 'items', 'podcast', 'episodes',
+  'theme', 'insight', 'narrative', 'pinterest_links', 'pedagogical_resources', 'core_emphases',
+  'key_points', 'recommended_reading', 'relevant_links', 'icon', 'url', 'board', 'label', 'source',
+  'snippet', 'author', 'note', 'pin', 'quotes', 'fa-compass', 'theory_background',
+  'pedagogical_inspiration', 'developmental_compass', 'pedagogical_emphases',
+]);
+
+function unescapeJsonStringFragment(fragment) {
+  return String(fragment || '')
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\\t/g, ' ')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
+function isSubstantiveFallbackFragment(text) {
+  const s = String(text || '').trim();
+  if (!s || s.length < 4) return false;
+  if (PHASE_C_JSON_KEY_TOKENS.has(s.toLowerCase())) return false;
+  if (/^fa-[a-z0-9-]+$/i.test(s)) return false;
+  if (/^https?:\/\//i.test(s) && s.length < 80) return false;
+  if (/^[\w_\-]+$/i.test(s) && s.length < 40) return false;
+  if (/[\u0590-\u05FF]/.test(s)) return true;
+  return s.split(/\s+/).length >= 4;
+}
+
+/** Pull human prose out of malformed JSON by harvesting quoted string literals. */
+function extractQuotedProseFromJsonDebris(text) {
+  const values = [];
+  const seen = new Set();
+  const re = /"((?:\\.|[^"\\])*)"/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const inner = unescapeJsonStringFragment(match[1]);
+    if (!isSubstantiveFallbackFragment(inner)) continue;
+    const key = inner.slice(0, 80);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(inner);
+  }
+  return values;
+}
+
+function mergeProseFragments(fragments) {
+  const seen = new Set();
+  const unique = [];
+  fragments.forEach(function (part) {
+    const trimmed = String(part || '').trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    unique.push(trimmed);
+  });
+  return unique.join('\n\n').trim();
+}
+
+/**
+ * Strip JSON architectural debris and rebuild continuous pedagogical prose.
+ * Preserves full text length — never truncates.
+ */
+function sterilizePhaseCFallbackText(raw) {
+  let text = stripHtmlToPlainText(raw);
+  text = jsonRepair.plainTextFromModelOutput(text);
+
+  const quotedProse = extractQuotedProseFromJsonDebris(text);
+  if (quotedProse.length) {
+    return mergeProseFragments(quotedProse);
+  }
+
+  text = unescapeJsonStringFragment(text);
+  text = text.replace(/[\u201c\u201d\u05f4]/g, '"').replace(/[\u2018\u2019\u05f3]/g, "'");
+
+  text = text.replace(PHASE_C_JSON_KEY_PATTERN, ' ');
+  text = text.replace(/[{}\[\]]/g, ' ');
+  text = text.replace(/\bnull\b/gi, ' ').replace(/\b(?:true|false)\b/gi, ' ');
+
+  text = text.replace(/,\s*,+/g, ',');
+  text = text.replace(/^\s*[,:\s]+/gm, '');
+  text = text.replace(/\s*,\s*$/gm, '');
+  text = text.replace(/^\s*:\s*/gm, '');
+  text = text.replace(/^\s*,+\s*/gm, '');
+  text = text.replace(/"\s*,\s*"/g, '\n\n');
+  text = text.replace(/["']/g, '');
+
+  text = text.replace(/[^\S\n]+/g, ' ');
+  text = text.replace(/ *\n */g, '\n');
+  text = text.replace(/\n{3,}/g, '\n\n');
+
+  const paragraphs = text.split(/\n\n+/).map(function (part) {
+    return part.replace(/^[\s,"':\-–—]+|[\s,"':\-–—]+$/g, '').trim();
+  }).filter(function (part) {
+    return isSubstantiveFallbackFragment(part);
+  });
+
+  return paragraphs.join('\n\n').trim();
+}
+
+function pushFallbackTextChunk(chunks, value) {
+  if (value == null) return;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed) chunks.push(trimmed);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(function (item) { pushFallbackTextChunk(chunks, item); });
+    return;
+  }
+  if (typeof value === 'object') {
+    pushFallbackTextChunk(chunks, value.content || value.text || value.body || value.summary || value.insight);
+    pushFallbackTextChunk(chunks, value.heading || value.title || value.theme);
+    if (Array.isArray(value.sections)) value.sections.forEach(function (sec) { pushFallbackTextChunk(chunks, sec); });
+    if (Array.isArray(value.items)) value.items.forEach(function (item) { pushFallbackTextChunk(chunks, item); });
+    if (Array.isArray(value.episodes)) value.episodes.forEach(function (ep) { pushFallbackTextChunk(chunks, ep); });
+    if (Array.isArray(value.global)) value.global.forEach(function (block) { pushFallbackTextChunk(chunks, block); });
+  }
+}
+
+/** Collect every textual fragment from a parse-fallback payload (prefer longest source). */
+function gatherPhaseCFallbackSourceText(parsed) {
+  if (parsed == null) return '';
+  if (typeof parsed === 'string') return parsed;
+  if (typeof parsed !== 'object') return String(parsed);
+
+  const chunks = [];
+  pushFallbackTextChunk(chunks, parsed.core_emphases);
+  pushFallbackTextChunk(chunks, parsed.core_pedagogical_emphases);
+  pushFallbackTextChunk(chunks, parsed.pedagogical_emphases);
+  pushFallbackTextChunk(chunks, parsed.key_points);
+  pushFallbackTextChunk(chunks, parsed.theory);
+  pushFallbackTextChunk(chunks, parsed.inspiration);
+  pushFallbackTextChunk(chunks, parsed.pedagogical_inspiration);
+  pushFallbackTextChunk(chunks, parsed.theory_background);
+  pushFallbackTextChunk(chunks, parsed.rawText);
+
+  if (!chunks.length) {
+    return shared.coerceText(parsed);
+  }
+
+  chunks.sort(function (a, b) { return b.length - a.length; });
+  const richest = chunks[0];
+  if (richest && richest.length >= 200) return richest;
+
+  const seen = new Set();
+  const unique = [];
+  chunks.forEach(function (chunk) {
+    const key = chunk.slice(0, 120);
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(chunk);
+  });
+  return unique.join('\n\n');
+}
+
+function paragraphsFromSterileEssay(essay) {
+  if (!essay) return [];
+  return essay.split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
+}
+
+function buildKeyPointsFromEssay(essay, paragraphs) {
+  if (paragraphs.length >= 5) return paragraphs.slice(0, 6);
+  if (paragraphs.length >= 2) return paragraphs.slice(0, 6);
+  if (!essay) return [];
+  const sentences = essay.split(/(?<=[.!?׃。])\s+/).map(function (s) { return s.trim(); }).filter(function (s) {
+    return s.length > 24;
+  });
+  if (sentences.length >= 4) {
+    const groupSize = Math.max(1, Math.ceil(sentences.length / 5));
+    const groups = [];
+    for (let i = 0; i < sentences.length && groups.length < 6; i += groupSize) {
+      groups.push(sentences.slice(i, i + groupSize).join(' '));
+    }
+    return groups;
+  }
+  return [essay];
+}
+
+/**
+ * Rebuild a normalized Phase C response from parse-fallback debris into full-length sterile prose.
+ */
+function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
+  const source = gatherPhaseCFallbackSourceText(parsed);
+  const essay = sterilizePhaseCFallbackText(source);
+  if (!essay) return normalized;
+
+  const topicStr = String(topic || 'נושא').trim();
+  const gradeStr = String(grade || '').trim();
+  const titleSuffix = gradeStr ? (gradeStr + ' · ' + topicStr) : topicStr;
+  const paragraphs = paragraphsFromSterileEssay(essay);
+  const inspirationItems = paragraphs.length > 1 ? paragraphs : [essay];
+  const keyPoints = buildKeyPointsFromEssay(essay, paragraphs);
+
+  normalized.theory = {
+    title: 'רקע תיאורטי — ' + titleSuffix,
+    sections: [{
+      heading: 'רקע פדגוגי מעמיק',
+      content: essay,
+      icon: 'fa-compass',
+    }],
+    bibliography: (normalized.theory && normalized.theory.bibliography) || { books: [], articles: [], websites: [] },
+  };
+  normalized.inspiration = {
+    title: 'השראה פדגוגית — ' + topicStr,
+    global: [{ title: 'תובנות והשראה', items: inspirationItems }],
+    podcast: { title: 'תובנות', episodes: [] },
+    narrative: paragraphs.length > 2 ? paragraphs.slice(-3) : [],
+  };
+  normalized.core_emphases = essay;
+  normalized.key_points = keyPoints;
+  if (!Array.isArray(normalized.recommended_reading)) normalized.recommended_reading = [];
+  if (!Array.isArray(normalized.relevant_links)) normalized.relevant_links = [];
+  if (!Array.isArray(normalized.pinterest_links)) normalized.pinterest_links = [];
+  if (!Array.isArray(normalized.pedagogical_resources)) normalized.pedagogical_resources = [];
+
+  return normalized;
+}
 
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
@@ -222,21 +467,32 @@ function resolveGradeId(body) {
 }
 
 function safeNormalizePhaseCResponse(parsed, grade, topic) {
+  const topicStr = String(topic || 'נושא').trim();
+  const needsFallbackClean = isPhaseCParseFallback(parsed) ||
+    Boolean(parsed && parsed._normalizeFallback);
+  let result;
   try {
-    return normalizePhaseCResponse(parsed, grade, topic);
+    result = normalizePhaseCResponse(parsed, grade, topicStr);
   } catch (normErr) {
     console.warn('[pure-phase-c] normalizePhaseCResponse failed:', normErr.message || normErr);
-    const plain = shared.coerceText(parsed);
-    const topicStr = String(topic || 'נושא').trim();
-    return normalizePhaseCResponse({
+    result = normalizePhaseCResponse({
       theory: {
         title: 'רקע תיאורטי — ' + topicStr,
-        sections: [{ heading: 'תוכן', content: plain || 'לא ניתן לעבד את התשובה.', icon: 'fa-compass' }],
+        sections: [{
+          heading: 'תוכן',
+          content: gatherPhaseCFallbackSourceText(parsed) || 'לא ניתן לעבד את התשובה.',
+          icon: 'fa-compass',
+        }],
       },
-      core_emphases: plain,
+      core_emphases: gatherPhaseCFallbackSourceText(parsed),
+      _parseFallback: true,
       _normalizeFallback: true,
     }, grade, topicStr);
   }
+  if (needsFallbackClean) {
+    result = applyPhaseCFallbackCleaner(result, parsed, grade, topicStr);
+  }
+  return result;
 }
 
 async function runPurePhaseC(body) {
@@ -351,4 +607,7 @@ module.exports = {
   runPurePhaseC,
   normalizePhaseCResponse,
   safeNormalizePhaseCResponse,
+  sterilizePhaseCFallbackText,
+  gatherPhaseCFallbackSourceText,
+  applyPhaseCFallbackCleaner,
 };
