@@ -6829,7 +6829,7 @@
         id: id,
         category: category,
         label: label || t('theory_bib_source'),
-        url: category === 'websites' ? sourceUrl : '',
+        url: sourceUrl,
         raw: item,
         expansion: expansion,
       };
@@ -7124,16 +7124,19 @@
     function coercePedagogicalEssenceReadingList(value) {
       if (!value) return [];
       if (!Array.isArray(value)) {
-        var line = pickPedagogicalEssenceText(value);
-        return line ? [{ title: line, author: '', note: '' }] : [];
+        return [];
       }
       return value.map(function (item) {
-        if (typeof item === 'string') return { title: item.trim(), author: '', note: '' };
+        if (typeof item === 'string') return null;
         if (!item || typeof item !== 'object') return null;
+        var url = String(item.url || item.link || item.href || '').trim();
+        var note = String(item.note || item.description || item.summary || '').trim();
+        if (!url || !isVerifiedLiveCitationUrlClient(url) || note.length < 20) return null;
         return {
           title: String(item.title || item.name || item.book || '').trim(),
           author: String(item.author || item.writer || '').trim(),
-          note: String(item.note || item.description || item.summary || '').trim(),
+          note: note,
+          url: url,
         };
       }).filter(function (item) { return item && item.title; });
     }
@@ -7141,20 +7144,13 @@
     function coercePedagogicalEssenceLinks(value) {
       if (!value) return [];
       if (!Array.isArray(value)) {
-        var text = pickPedagogicalEssenceText(value);
-        if (!text) return [];
-        var urlMatch = text.match(/https?:\/\/\S+/);
-        return urlMatch ? [{ title: text.replace(urlMatch[0], '').trim() || urlMatch[0], url: urlMatch[0] }] : [];
+        return [];
       }
       return value.map(function (item) {
-        if (typeof item === 'string') {
-          var m = item.match(/https?:\/\/\S+/);
-          if (!m) return null;
-          return { title: item.replace(m[0], '').trim() || m[0], url: m[0] };
-        }
+        if (typeof item === 'string') return null;
         if (!item || typeof item !== 'object') return null;
         var url = String(item.url || item.link || item.href || '').trim();
-        if (!url) return null;
+        if (!url || !isVerifiedLiveCitationUrlClient(url)) return null;
         return { title: String(item.title || item.name || url).trim(), url: url };
       }).filter(Boolean);
     }
@@ -8168,6 +8164,56 @@
       if (programmaticScrollGuard > 0) programmaticScrollGuard = 0;
     }
 
+    function getLiveCitationUrlSet() {
+      var citations = [];
+      if (appState.purePhaseC && Array.isArray(appState.purePhaseC._liveCitations)) {
+        citations = appState.purePhaseC._liveCitations;
+      } else if (appState.webResearch && Array.isArray(appState.webResearch.citations)) {
+        citations = appState.webResearch.citations;
+      }
+      var set = Object.create(null);
+      citations.forEach(function (url) {
+        var clean = String(url || '').trim();
+        if (!clean || !/^https?:\/\//i.test(clean)) return;
+        try {
+          var parsed = new URL(clean);
+          var path = (parsed.pathname || '').replace(/\/+$/, '');
+          set[(parsed.origin + path + (parsed.search || '')).toLowerCase()] = clean;
+        } catch (e) {
+          set[clean.toLowerCase().replace(/\/+$/, '')] = clean;
+        }
+      });
+      return set;
+    }
+
+    function isVerifiedLiveCitationUrlClient(url) {
+      var clean = String(url || '').trim();
+      if (!clean) return false;
+      var set = getLiveCitationUrlSet();
+      var keys = Object.keys(set);
+      if (!keys.length) return false;
+      var key = '';
+      try {
+        var parsed = new URL(clean);
+        var path = (parsed.pathname || '').replace(/\/+$/, '');
+        key = (parsed.origin + path + (parsed.search || '')).toLowerCase();
+      } catch (e) {
+        key = clean.toLowerCase().replace(/\/+$/, '');
+      }
+      if (set[key]) return true;
+      return keys.some(function (citeKey) {
+        return key.indexOf(citeKey) === 0 || citeKey.indexOf(key) === 0;
+      });
+    }
+
+    function hasLiveReferenceSnippetClient(item) {
+      if (!item || typeof item !== 'object') return false;
+      var snippet = String(
+        item.note || item.detail || item.description || item.snippet || item.summary || ''
+      ).trim();
+      return snippet.length >= 20;
+    }
+
     function enrichBibliographyFromWebResearch(bib) {
       return {
         books: (bib.books || []).slice(),
@@ -8182,7 +8228,13 @@
       function mapCategory(list, category) {
         return sortBibliographyItems((list || []).map(function (item, idx) {
           return normalizeBibliographyItem(item, category, idx);
-        }).filter(function (i) { return i && i.label; }));
+        }).filter(function (i) {
+          if (!i || !i.label) return false;
+          var raw = i.raw || {};
+          var sourceUrl = String(i.url || raw.url || raw.link || raw.href || '').trim();
+          if (!sourceUrl || !isVerifiedLiveCitationUrlClient(sourceUrl)) return false;
+          return hasLiveReferenceSnippetClient(raw);
+        }));
       }
       var normalized = {
         books: mapCategory(merged.books, 'books'),
@@ -9747,7 +9799,7 @@
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_relevance')) + '</h4>';
         html += '<p class="leading-relaxed">' + escapeHtml(relevance) + '</p>';
       }
-      return html || '<p class="text-walnut/70">' + escapeHtml(t('theory_bib_summary_empty')) + '</p>';
+      return html || '';
     }
 
     function renderBibInlinePanel(panel, sourceId, summary, loading, errorMsg) {
@@ -9770,6 +9822,11 @@
         return;
       }
       const content = buildBibSummaryHtml(summary);
+      if (!content) {
+        panel.innerHTML = '';
+        panel.classList.add('hidden');
+        return;
+      }
       holdPageScroll(function () {
         panel.innerHTML = '<div class="inline-expand-inner">' + content +
           '<button type="button" class="inline-expand-close" data-bib-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
@@ -13676,9 +13733,8 @@
     function renderGradeInsightsSourceItem(source) {
       var parsed = parseSourceEntry(source);
       if (!parsed || (!parsed.label && !parsed.url)) return '';
-      var url = parsed.url || resolveOfficialSourceUrl(parsed.label);
-      if (!url && parsed.label) url = buildSourceSearchUrl(parsed.label);
-      if (!url) return escapeHtml(parsed.label);
+      var url = parsed.url || '';
+      if (!url || !isVerifiedLiveCitationUrlClient(url)) return '';
       return buildProseSourceLinkHtml(url, getSourceLinkDisplayLabel(parsed.label, url));
     }
 
@@ -13939,19 +13995,27 @@
     }
 
     function renderPureReadingBlock(items) {
-      var list = Array.isArray(items) ? items : [];
-      if (!list.length) return '<p class="text-walnut/50">—</p>';
+      var list = (Array.isArray(items) ? items : []).filter(function (item) {
+        if (!item || !item.title) return false;
+        var note = String(item.note || item.description || '').trim();
+        var url = String(item.url || item.link || '').trim();
+        return note.length >= 20 && url && isVerifiedLiveCitationUrlClient(url);
+      });
+      if (!list.length) return '';
       return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
-        var title = escapeHtml(item.title || '');
+        var url = String(item.url || '').trim();
         var author = item.author ? ' <span class="text-walnut/60">— ' + escapeHtml(item.author) + '</span>' : '';
         var note = item.note ? '<div class="text-sm text-walnut/70 mt-0.5">' + renderMarkdownInline(item.note) + '</div>' : '';
-        return '<li><strong>' + title + '</strong>' + author + note + '</li>';
+        return '<li>' + buildProseSourceLinkHtml(url, item.title || url) + author + note + '</li>';
       }).join('') + '</ul>';
     }
 
     function renderPureLinksBlock(items) {
-      var list = Array.isArray(items) ? items : [];
-      if (!list.length) return '<p class="text-walnut/50">—</p>';
+      var list = (Array.isArray(items) ? items : []).filter(function (item) {
+        var url = String(item.url || '').trim();
+        return url && isVerifiedLiveCitationUrlClient(url);
+      });
+      if (!list.length) return '';
       return '<ul class="pure-card-body i18n-list pure-links-grid w-full">' + list.map(function (item) {
         var url = String(item.url || '').trim();
         var title = String(item.title || url).trim();
@@ -13985,8 +14049,12 @@
       cardsEl.innerHTML =
         '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_tab_core')) + '</h3>' + renderPureTextBlock(view.core_emphases) + '</article>' +
         '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_tab_points')) + '</h3>' + renderPureListBlock(view.key_points) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_tab_reading')) + '</h3>' + renderPureReadingBlock(view.recommended_reading) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_tab_links')) + '</h3>' + renderPureLinksBlock(view.relevant_links) + '</article>';
+        (renderPureReadingBlock(view.recommended_reading)
+          ? '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_tab_reading')) + '</h3>' + renderPureReadingBlock(view.recommended_reading) + '</article>'
+          : '') +
+        (renderPureLinksBlock(view.relevant_links)
+          ? '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_tab_links')) + '</h3>' + renderPureLinksBlock(view.relevant_links) + '</article>'
+          : '');
       renderMarketingBench('phase-c-marketing-mount');
       if (appState.productTabsRendered) appState.productTabsRendered.curriculum = true;
     }
@@ -14002,6 +14070,9 @@
         relevant_links: Array.isArray(data.relevant_links) ? data.relevant_links : [],
       };
       appState.purePhaseC = Object.assign({}, data, tab3);
+      if (Array.isArray(data._liveCitations)) {
+        appState.purePhaseC._liveCitations = data._liveCitations.slice();
+      }
       appState.aiGeneratedPlan = {
         title: topic,
         topic: topic,
@@ -16137,20 +16208,18 @@
 
     function renderBibliographyList(items, category) {
       if (!items || !items.length) {
-        return '<p class="theory-bib-empty">' + escapeHtml(t('theory_bib_empty')) + '</p>';
+        return '';
       }
       const iconMap = { books: 'fa-book', articles: 'fa-file-lines', websites: 'fa-globe' };
       const icon = iconMap[category] || 'fa-bookmark';
-      return '<ul class="theory-bib-list theory-bib-list--interactive">' + items.map(function (item) {
+      const rendered = items.map(function (item) {
         const id = item.id;
-        appState.bibliographyRegistry[id] = item;
         const rawItem = item.raw || {};
-        const websiteUrl = category === 'websites'
-          ? String(item.url || rawItem.url || rawItem.link || rawItem.href || '').trim()
-          : '';
-        const labelHtml = websiteUrl
-          ? buildProseSourceLinkHtml(websiteUrl, item.label)
-          : escapeHtml(item.label);
+        const websiteUrl = String(item.url || rawItem.url || rawItem.link || rawItem.href || '').trim();
+        if (!websiteUrl || !isVerifiedLiveCitationUrlClient(websiteUrl)) return '';
+        if (!hasLiveReferenceSnippetClient(rawItem)) return '';
+        appState.bibliographyRegistry[id] = item;
+        const labelHtml = buildProseSourceLinkHtml(websiteUrl, item.label);
         return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
           '<div class="theory-bib-item-row">' +
           '<div class="theory-bib-source-text">' +
@@ -16162,7 +16231,9 @@
           '</button>' +
           '<div id="bib-expand-' + escapeHtml(id) + '" class="inline-expand-panel hidden" aria-live="polite"></div>' +
           '</div></li>';
-      }).join('') + '</ul>';
+      }).filter(Boolean);
+      if (!rendered.length) return '';
+      return '<ul class="theory-bib-list theory-bib-list--interactive">' + rendered.join('') + '</ul>';
     }
 
     function getRenderableBibliography(theory) {
@@ -16217,23 +16288,32 @@
 
     function renderTheoryBibliography(bib) {
       const b = bib || { books: [], articles: [], websites: [] };
+      const booksHtml = renderBibliographyList(b.books, 'books');
+      const articlesHtml = renderBibliographyList(b.articles, 'articles');
+      const websitesHtml = renderBibliographyList(b.websites, 'websites');
+      if (!booksHtml && !articlesHtml && !websitesHtml) return '';
+      let categoriesHtml = '';
+      if (booksHtml) {
+        categoriesHtml += '<div class="theory-bib-category">' +
+        '<h4 class="theory-bib-category-title"><i class="fa-solid fa-book"></i> ' + escapeHtml(t('theory_bib_books')) + '</h4>' +
+        booksHtml + '</div>';
+      }
+      if (articlesHtml) {
+        categoriesHtml += '<div class="theory-bib-category">' +
+        '<h4 class="theory-bib-category-title"><i class="fa-solid fa-file-lines"></i> ' + escapeHtml(t('theory_bib_articles')) + '</h4>' +
+        articlesHtml + '</div>';
+      }
+      if (websitesHtml) {
+        categoriesHtml += '<div class="theory-bib-category">' +
+        '<h4 class="theory-bib-category-title"><i class="fa-solid fa-globe"></i> ' + escapeHtml(t('theory_bib_websites')) + '</h4>' +
+        websitesHtml + '</div>';
+      }
       return '<section class="theory-bibliography-card" aria-labelledby="theory-bib-heading">' +
         '<h3 id="theory-bib-heading" class="theory-bib-main-title">' + escapeHtml(getTheoryBibliographySectionTitle()) + '</h3>' +
         '<p class="text-walnut/65 mb-4">' + escapeHtml(t('theory_bib_intro', { topic: appState.topic || '', grade: appState.gradeLabel || '' })) + '</p>' +
         '<p class="text-walnut/60 mb-3">' + escapeHtml(isEnglish() ? t('theory_bib_note_en') : t('theory_bib_note')) + '</p>' +
         '<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 theory-bib-categories">' +
-        '<div class="theory-bib-category">' +
-        '<h4 class="theory-bib-category-title"><i class="fa-solid fa-book"></i> ' + escapeHtml(t('theory_bib_books')) + '</h4>' +
-        renderBibliographyList(b.books, 'books') +
-        '</div>' +
-        '<div class="theory-bib-category">' +
-        '<h4 class="theory-bib-category-title"><i class="fa-solid fa-file-lines"></i> ' + escapeHtml(t('theory_bib_articles')) + '</h4>' +
-        renderBibliographyList(b.articles, 'articles') +
-        '</div>' +
-        '<div class="theory-bib-category">' +
-        '<h4 class="theory-bib-category-title"><i class="fa-solid fa-globe"></i> ' + escapeHtml(t('theory_bib_websites')) + '</h4>' +
-        renderBibliographyList(b.websites, 'websites') +
-        '</div>' +
+        categoriesHtml +
         '</div></section>';
     }
 

@@ -224,7 +224,7 @@ async function fetchPerplexityResponse(apiKey, body, useStream) {
     }
     const content = extractMessageContent(data);
     if (!content) throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
-    return { content: content, citations: extractCitations(data) };
+    return { content: content, citations: extractCitations(data), rawResponseText: responseText };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -248,7 +248,55 @@ async function httpsPerplexity(apiKey, body) {
   }
   const content = extractMessageContent(data);
   if (!content) throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
-  return { content: content, citations: extractCitations(data) };
+  return { content: content, citations: extractCitations(data), rawResponseText: result.text };
+}
+
+/**
+ * Non-streaming Perplexity chat — returns assistant text, live citations, and raw API JSON.
+ */
+async function callPerplexityChatWithCitations(options) {
+  const opts = options || {};
+  const apiKey = normalizeApiKey(opts.apiKey || resolveApiKey());
+  if (!apiKey) {
+    throw new Error('PERPLEXITY_API_KEY is not configured');
+  }
+
+  const model = opts.model || PERPLEXITY_MODEL;
+  const defaultMaxTokens = model === PERPLEXITY_SEARCH_MODEL
+    ? PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH
+    : PERPLEXITY_MAX_OUTPUT_TOKENS_PRO;
+  const body = {
+    model: model,
+    temperature: opts.temperature != null ? opts.temperature : 0.35,
+    max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
+    messages: opts.messages || [],
+  };
+
+  try {
+    const result = await fetchPerplexityResponse(apiKey, body, false);
+    return {
+      content: result.content,
+      citations: result.citations || [],
+      rawResponseText: result.rawResponseText || '',
+    };
+  } catch (fetchErr) {
+    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+    const isNetwork = /fetch failed|network|timeout|abort|ECONN|ENOTFOUND|UND_ERR/i.test(msg);
+    if (!isNetwork) throw fetchErr;
+
+    console.warn('[perplexity] fetch failed, retrying via https:', msg);
+    try {
+      const result = await httpsPerplexity(apiKey, body);
+      return {
+        content: result.content,
+        citations: result.citations || [],
+        rawResponseText: result.rawResponseText || '',
+      };
+    } catch (httpsErr) {
+      const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
+      throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
+    }
+  }
 }
 
 /**
@@ -339,6 +387,7 @@ module.exports = {
   normalizeApiKey,
   resolveApiKey,
   callPerplexityChat,
+  callPerplexityChatWithCitations,
   callPerplexitySearch,
   extractMessageContent,
   extractCitations,

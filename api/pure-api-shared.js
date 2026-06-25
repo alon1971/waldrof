@@ -204,8 +204,8 @@ const STRUCTURAL_COMPLETENESS_INSTRUCTION = [
   'Tab 3 — דגשים פדגוגיים ומהותיים (core_emphases + key_points + recommended_reading + relevant_links):',
   '- core_emphases: 3-4 comprehensive Hebrew paragraphs with explicit Developmental Compass (מצפן התפתחותי / רציונל התפתחותי ומצפן למורה).',
   '- key_points: exactly 5-6 substantial bullets — never empty or one-liners.',
-  '- recommended_reading (ספרות מומלצת): 5-8 entries — NEVER an empty array.',
-  '- relevant_links (קישורים רלוונטיים): 6-8 live HTTPS URLs — NEVER an empty array.',
+  '- recommended_reading (ספרות מומלצת): include ONLY entries with verified live citation URLs and substantive notes — empty array if none verified.',
+  '- relevant_links (קישורים רלוונטיים): include ONLY verified live HTTPS URLs from Perplexity citations — empty array if none verified.',
   '=== END STRUCTURAL COMPLETENESS ===',
 ].join('\n');
 

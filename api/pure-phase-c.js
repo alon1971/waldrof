@@ -237,6 +237,165 @@ function isDeadPhaseCFallbackUrl(url) {
   return false;
 }
 
+const LIVE_REFERENCE_MIN_SNIPPET_CHARS = 20;
+
+function normalizeCitationUrlForMatch(url) {
+  const clean = cleanHarvestedUrl(url);
+  if (!clean) return '';
+  try {
+    const parsed = new URL(clean);
+    const path = (parsed.pathname || '').replace(/\/+$/, '');
+    return (parsed.origin + path + (parsed.search || '')).toLowerCase();
+  } catch (e) {
+    return clean.toLowerCase().replace(/\/+$/, '');
+  }
+}
+
+function extractLiveCitationsFromParsed(parsed) {
+  const out = [];
+  const seen = new Set();
+  function pushUrl(url) {
+    const clean = cleanHarvestedUrl(url);
+    if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    const key = normalizeCitationUrlForMatch(clean);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  }
+  if (!parsed) return out;
+  if (Array.isArray(parsed._liveCitations)) {
+    parsed._liveCitations.forEach(pushUrl);
+  }
+  const raw = parsed._apiResponseRaw;
+  if (raw) {
+    try {
+      const data = JSON.parse(String(raw));
+      perplexityClient.extractCitations(data).forEach(pushUrl);
+    } catch (e) {
+      const match = String(raw).match(/"citations"\s*:\s*(\[[\s\S]*?\])/);
+      if (match) {
+        try {
+          const arr = JSON.parse(match[1]);
+          if (Array.isArray(arr)) {
+            arr.forEach(function (item) {
+              if (typeof item === 'string') pushUrl(item);
+              else if (item && item.url) pushUrl(item.url);
+            });
+          }
+        } catch (e2) { /* ignore partial JSON */ }
+      }
+    }
+  }
+  return out;
+}
+
+function buildLiveCitationUrlSet(parsed) {
+  const set = new Set();
+  extractLiveCitationsFromParsed(parsed).forEach(function (url) {
+    const key = normalizeCitationUrlForMatch(url);
+    if (key) set.add(key);
+  });
+  return set;
+}
+
+function isVerifiedLiveCitationUrl(url, citationSet) {
+  const key = normalizeCitationUrlForMatch(url);
+  if (!key || !citationSet || !citationSet.size) return false;
+  if (citationSet.has(key)) return true;
+  for (const cite of citationSet) {
+    if (key.startsWith(cite) || cite.startsWith(key)) return true;
+  }
+  return false;
+}
+
+function hasLiveReferenceSnippet(item) {
+  if (!item || typeof item !== 'object') return false;
+  const snippet = String(
+    item.note || item.detail || item.description || item.snippet || item.summary || ''
+  ).trim();
+  return snippet.length >= LIVE_REFERENCE_MIN_SNIPPET_CHARS;
+}
+
+function filterLinkItemsByLiveCitations(items, citationSet, options) {
+  const opts = options || {};
+  if (!citationSet || !citationSet.size) return [];
+  return (items || []).filter(function (item) {
+    if (!item || typeof item !== 'object') return false;
+    const url = String(item.url || item.link || item.href || '').trim();
+    if (!url || !isVerifiedLiveCitationUrl(url, citationSet)) return false;
+    if (opts.requireSnippet && !hasLiveReferenceSnippet(item)) return false;
+    const title = String(item.title || item.name || '').trim();
+    return Boolean(title || url);
+  });
+}
+
+function filterBibliographyByLiveCitations(bib, citationSet) {
+  const data = bib && typeof bib === 'object' ? bib : {};
+  function filterList(list) {
+    return (list || []).filter(function (item) {
+      if (!item || typeof item !== 'object' || !item.title) return false;
+      const url = String(item.url || item.link || item.href || '').trim();
+      if (!url || !isVerifiedLiveCitationUrl(url, citationSet)) return false;
+      return hasLiveReferenceSnippet(item);
+    });
+  }
+  return {
+    books: filterList(data.books),
+    articles: filterList(data.articles),
+    websites: filterList(data.websites),
+  };
+}
+
+function filterRecommendedReadingByLiveCitations(reading, citationSet) {
+  if (!citationSet || !citationSet.size) return [];
+  return (reading || []).filter(function (item) {
+    if (!item || !item.title) return false;
+    if (!hasLiveReferenceSnippet(item)) return false;
+    const url = String(item.url || item.link || item.href || '').trim();
+    return url && isVerifiedLiveCitationUrl(url, citationSet);
+  });
+}
+
+function applyLiveCitationGate(normalized, parsed) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  const citationSet = buildLiveCitationUrlSet(parsed);
+  if (!citationSet || !citationSet.size) {
+    normalized.recommended_reading = [];
+    normalized.relevant_links = [];
+    normalized.pedagogical_resources = [];
+    normalized.pinterest_links = [];
+    if (normalized.theory && normalized.theory.bibliography) {
+      normalized.theory.bibliography = { books: [], articles: [], websites: [] };
+    }
+    return normalized;
+  }
+
+  normalized.relevant_links = filterLinkItemsByLiveCitations(normalized.relevant_links, citationSet);
+  normalized.pinterest_links = filterLinkItemsByLiveCitations(
+    filterLiveNormalizedLinks(normalized.pinterest_links),
+    citationSet
+  ).filter(function (item) {
+    return item && item.url && /pinterest/i.test(item.url);
+  });
+  normalized.pedagogical_resources = filterLinkItemsByLiveCitations(
+    filterLiveNormalizedLinks(normalized.pedagogical_resources),
+    citationSet,
+    { requireSnippet: true }
+  );
+  normalized.recommended_reading = filterRecommendedReadingByLiveCitations(
+    normalized.recommended_reading,
+    citationSet
+  );
+
+  if (normalized.theory && normalized.theory.bibliography) {
+    const filtered = filterBibliographyByLiveCitations(normalized.theory.bibliography, citationSet);
+    normalized.theory.bibliography = filtered;
+  }
+
+  normalized._liveCitations = extractLiveCitationsFromParsed(parsed);
+  return deduplicatePhaseCTabLinks(normalized);
+}
+
 function gatherPhaseCFallbackApiResponse(parsed) {
   if (parsed == null) return '';
   if (typeof parsed === 'string') return parsed;
@@ -286,23 +445,21 @@ function classifyPhaseCFallbackUrl(url) {
   return 'relevant';
 }
 
-function harvestPhaseCFallbackLinksFromRaw(apiResponse, topic) {
+function harvestPhaseCFallbackLinksFromRaw(apiResponse, topic, parsed) {
   const raw = String(apiResponse || '');
-  if (!raw.trim()) return [];
+  const liveUrls = extractLiveCitationsFromParsed(parsed);
+  if (!liveUrls.length) return [];
   const seen = new Set();
   const out = [];
-  let match;
-  const re = new RegExp(PHASE_C_URL_PATTERN.source, 'gi');
-  while ((match = re.exec(raw)) !== null) {
-    const url = cleanHarvestedUrl(match[0]);
-    if (!url || seen.has(url) || isDeadPhaseCFallbackUrl(url)) continue;
+  liveUrls.forEach(function (url) {
+    if (!url || seen.has(url) || isDeadPhaseCFallbackUrl(url)) return;
     seen.add(url);
     out.push({
       title: inferHarvestedLinkTitle(url, raw, topic),
       url: url,
       bucket: classifyPhaseCFallbackUrl(url),
     });
-  }
+  });
   return out;
 }
 
@@ -406,14 +563,16 @@ function distributePhaseCFallbackLinks(normalized, harvested, topic) {
 }
 
 function applyPhaseCFallbackLinkHarvester(normalized, parsed, topic) {
+  const citationSet = buildLiveCitationUrlSet(parsed);
+  if (!citationSet.size) return normalized;
   const raw = gatherPhaseCFallbackApiResponse(parsed);
-  const harvested = harvestPhaseCFallbackLinksFromRaw(raw, topic);
+  const harvested = harvestPhaseCFallbackLinksFromRaw(raw, topic, parsed);
   return distributePhaseCFallbackLinks(normalized, harvested, topic);
 }
 
 async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
   const opts = options || {};
-  const raw = await perplexityClient.callPerplexityChat({
+  const apiResult = await perplexityClient.callPerplexityChatWithCitations({
     model: perplexityClient.PERPLEXITY_MODEL,
     temperature: opts.temperature != null ? opts.temperature : 0.35,
     max_tokens: opts.max_tokens != null
@@ -424,6 +583,7 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
       { role: 'user', content: userPrompt },
     ],
   });
+  const raw = apiResult.content;
   const phase = opts.phase || 'topic_master';
   const result = jsonRepair.parsePureModelJson(raw, {
     phase: phase,
@@ -436,7 +596,8 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
     unwrap: true,
   });
   if (result.parsed && typeof result.parsed === 'object') {
-    result.parsed._apiResponseRaw = String(raw || '');
+    result.parsed._apiResponseRaw = String(apiResult.rawResponseText || raw || '');
+    result.parsed._liveCitations = Array.isArray(apiResult.citations) ? apiResult.citations.filter(Boolean) : [];
   }
   return result;
 }
@@ -1084,12 +1245,9 @@ function ensurePhaseCTab3Population(normalized, opts) {
       .filter(function (item) { return item.url; })
       .slice(0, 8);
   }
-  if (!normalized.relevant_links.length) {
-    normalized.relevant_links = buildDefaultRelevantLinks(grade, topic);
-  }
 
-  ensureRecommendedReading(normalized, payloadEssay, grade, topic);
-  deduplicatePhaseCTabLinks(normalized);
+  ensureRecommendedReading(normalized, payloadEssay, grade, topic, parsed);
+  applyLiveCitationGate(normalized, parsed);
 
   if (tab3FieldPlainLen(normalized.core_emphases) < PHASE_C_TAB3_MIN_PLAIN_CHARS) {
     const emergency = buildCoreEmphasesFallbackHtml(defaultParagraphs, defaultParagraphs.join('\n\n'), grade);
@@ -1172,33 +1330,8 @@ const BOOK_TITLE_FROM_TEXT_PATTERNS = [
   /(?:Form Drawing|Education as Art|Painting and Drawing|Kingdom of Childhood)[^,\n]{0,60}/gi,
 ];
 
-function extractRecommendedReadingFromText(text, topic) {
-  const raw = String(text || '');
-  if (!raw.trim()) return [];
-  const seen = new Set();
-  const out = [];
-  function pushBook(title, author, note) {
-    const t = String(title || '').trim().replace(/^[\s:–—\-]+|[\s:–—\-]+$/g, '');
-    if (!t || t.length < 4 || seen.has(t.toLowerCase())) return;
-    seen.add(t.toLowerCase());
-    out.push({
-      title: t,
-      author: String(author || '').trim(),
-      note: String(note || ('מקור מומלץ להעמקה בנושא ' + String(topic || '').trim())).trim(),
-    });
-  }
-  BOOK_TITLE_FROM_TEXT_PATTERNS.forEach(function (pattern) {
-    const re = new RegExp(pattern.source, pattern.flags);
-    let match;
-    while ((match = re.exec(raw)) !== null) {
-      if (match[1]) {
-        pushBook(match[1], '', '');
-      } else {
-        pushBook(match[0], '', '');
-      }
-    }
-  });
-  return out.slice(0, 8);
+function extractRecommendedReadingFromText() {
+  return [];
 }
 
 function resolveGradeNum(grade) {
@@ -1206,173 +1339,20 @@ function resolveGradeNum(grade) {
   return digit ? digit[0] : '';
 }
 
-function buildDefaultRecommendedReading(grade, topic) {
-  const topicStr = String(topic || '').trim();
-  const gradeNum = resolveGradeNum(grade);
-  const hebrewGrades = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח'];
-  const gradeLabel = gradeNum
-    ? ('כיתה ' + hebrewGrades[parseInt(gradeNum, 10) - 1] + "'")
-    : String(grade || '').trim();
-
-  if (/מהפכ|היסטור|history|revolution|age\s*of/i.test(topicStr)) {
-    const historyByGrade = {
-      '8': [
-        { title: 'The Age of Revolution — Waldorf Curriculum Lectures', author: 'Rudolf Steiner', note: 'הרצאות GA 325 על תקופת המהפכות בכיתה ח׳ — רקע היסטורי-אנתרופוסופי ומצפן התפתחותי לגיל המרד.' },
-        { title: 'The Human Being and the Age of Revolution', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — מהפכות אירופה, סמכות פנימית ועצמאות רוחנית בגיל 14.' },
-        { title: 'הרצאות על חינוך וולדורפי — כרך ח׳', author: 'רודולף שטיינר', note: 'מקור מרכזי לתכנון תקופת היסטוריה בכיתה ח׳ — ' + topicStr + '.' },
-      ],
-      '7': [
-        { title: 'The Renaissance and the Age of Discovery', author: 'Charles Kovacs', note: 'סיפורי היסטוריה חיים לכיתה ז׳ — גילוי העולם, רנסנס ומעבר לעולם הארצי.' },
-        { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'עקרונות הוראת היסטוריה כחוויה נפשית-אמנותית בגיל ההתבגרות המוקדמת.' },
-        { title: 'הרצאות GA 325 — היסטוריה', author: 'רודולף שטיינר', note: 'רקע אנתרופוסופי לתקופות היסטוריות ב' + gradeLabel + '.' },
-      ],
-    };
-    if (gradeNum && historyByGrade[gradeNum]) return historyByGrade[gradeNum];
-    return [
-      { title: 'The Age of Revolution — Waldorf Curriculum Lectures', author: 'Rudolf Steiner', note: 'הרצאות GA 325 על תקופות מהפכה והיסטוריה — רלוונטי ל' + topicStr + ' ב' + (gradeLabel || 'בית הספר') + '.' },
-      { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — דימוי, סיפור ומצפן התפתחותי.' },
-      { title: 'הרצאות על חינוך וולדורפי', author: 'רודולף שטיינר', note: 'מקור אנתרופוסופי מרכזי לתקופת ' + topicStr + '.' },
-    ];
-  }
-
-  if (/רישום|צורות|form[\s-]?draw/i.test(topicStr)) {
-    return [
-      {
-        title: 'Form Drawing — Grades 1–4',
-        author: 'Laura Embrey-Stine & Ernst Schuberth',
-        note: 'מדריך מעשי לרישום צורות לפי גילאים — קווים, סימטריה ומעבר לכתב עבור ' + gradeLabel + '.',
-      },
-      {
-        title: 'Painting and Drawing in Waldorf Schools',
-        author: 'Thomas Wildgruber',
-        note: 'עקרונות אמנותיים וולדורפיים לציור ורישום — רלוונטי במיוחד ל' + topicStr + '.',
-      },
-      {
-        title: 'הרצאות על חינוך וולדורפי — כרך ב׳',
-        author: 'רודולף שטיינר',
-        note: 'יסודות אנתרופוסופיים לחינוך אמנותי-תנועתי בגילאי בית הספר היסודי.',
-      },
-    ];
-  }
-
-  if (/חשבון|מתמטיק/i.test(topicStr)) {
-    return [
-      { title: 'Mathematics in the Waldorf School', author: 'Ernst Schuberth', note: 'גישה וולדורפית לחשבון ב' + gradeLabel + ' — מספרים, דימויים ותנועה.' },
-      { title: 'Active Arithmetic', author: 'Henning Andersen', note: 'תרגילים וחוויות מעשיות לשיעורי חשבון בגיל הרך והיסודי.' },
-      { title: 'הרצאות למורים — GA 304', author: 'רודולף שטיינר', note: 'עקרונות מתמטיים-אנתרופוסופיים לשיעור הראשי.' },
-    ];
-  }
-
-  if (/שפה|קריאה|כתיבה|ספרות/i.test(topicStr)) {
-    return [
-      { title: 'The Kingdom of Childhood', author: 'Rudolf Steiner', note: 'הרצאות יסוד על דימוי שפה וספרות בגיל ' + (gradeLabel || 'בית הספר היסודי') + '.' },
-      { title: 'Teaching Language Arts in the Waldorf School', author: 'Dorit Winter', note: 'קריאה, כתיבה וספרות כחוויה חיה — מותאם ל' + topicStr + '.' },
-      { title: 'הרצאות על חינוך — GA 306', author: 'רודולף שטיינר', note: 'רקע אנתרופוסופי לעבודת השפה והדיבור בכיתה.' },
-    ];
-  }
-
-  const genericByGrade = {
-    '1': [
-      { title: 'The Kingdom of Childhood', author: 'Rudolf Steiner', note: 'יסודות חינוך וולדורפי לכיתה א׳ — דימוי, קסם וסדר.' },
-      { title: 'You Are Your Child\'s First Teacher', author: 'Rahima Baldwin Dancy', note: 'התפתחות ראשונית וגישה בית-בית ספרית לגיל השבע.' },
-      { title: 'הרצאות לכיתה א׳', author: 'רודולף שטיינר', note: 'מצפן פדגוגי לפתיחת דרכו של הילד בבית הספר.' },
-    ],
-    '2': [
-      { title: 'Waldorf Education: A Family Guide', author: 'Pamela Johnson Fenner', note: 'סקירה נגישה של עקרונות וולדורף לשנה השנייה.' },
-      { title: 'Teaching As a Lively Art', author: 'Marjorie Spock', note: 'יחס מורה-תלמיד ואמנות ההוראה בגיל הרך.' },
-      { title: 'הרצאות על חינוך וולדורפי', author: 'רודולף שטיינר', note: 'העמקה ביסודות הרוחניים-פדגוגיים לכיתה ב׳.' },
-    ],
-    '3': [
-      { title: 'Form Drawing — Grades 1–4', author: 'Laura Embrey-Stine & Ernst Schuberth', note: 'מדריך מעשי לרישום צורות — קווים, סימטריה ומעבר לכתב עבור ' + gradeLabel + '.' },
-      { title: 'Painting and Drawing in Waldorf Schools', author: 'Thomas Wildgruber', note: 'עקרונות אמנותיים וולדורפיים לציור ורישום — רלוונטי במיוחד ל' + topicStr + '.' },
-      { title: 'הרצאות על חינוך וולדורפי — כרך ג׳', author: 'רודולף שטיינר', note: 'יסודות אנתרופוסופיים לעבודה אמנותית-תנועתית בגיל התשע.' },
-    ],
-    '4': [
-      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לכיתה ד׳ — עוגן לתכנון תקופה ב' + topicStr + '.' },
-      { title: 'Teaching As a Lively Art', author: 'Marjorie Spock', note: 'יחס מורה-תלמיד ואמנות ההוראה בגיל העשירי.' },
-      { title: 'הרצאות לכיתה ד׳', author: 'רודולף שטיינר', note: 'רקע התפתחותי לעבודה בכיתה ד׳ — ' + topicStr + '.' },
-    ],
-    '5': [
-      { title: 'The Kingdom of Childhood', author: 'Rudolf Steiner', note: 'הרצאות יסוד על דימוי וחינוך בגיל 11 — רלוונטי ל' + topicStr + '.' },
-      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לכיתה ה׳ — תכנון תקופה ומצפן גילי.' },
-      { title: 'הרצאות GA 304 — חינוך', author: 'רודולף שטיינר', note: 'עקרונות אנתרופוסופיים לשיעור הראשי בכיתה ה׳.' },
-    ],
-    '6': [
-      { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — מעבר לעולם הארצי והרציונלי בגיל 12.' },
-      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לכיתה ו׳ — ' + topicStr + '.' },
-      { title: 'הרצאות על חינוך וולדורפי — כרך ו׳', author: 'רודולף שטיינר', note: 'מצפן התפתחותי לעבודה בכיתה ו׳.' },
-    ],
-    '7': [
-      { title: 'The Renaissance and the Age of Discovery', author: 'Charles Kovacs', note: 'סיפורי היסטוריה חיים לכיתה ז׳ — גילוי העולם ורנסנס.' },
-      { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'עקרונות הוראת היסטוריה כחוויה נפשית-אמנותית.' },
-      { title: 'הרצאות GA 325 — היסטוריה', author: 'רודולף שטיינר', note: 'רקע אנתרופוסופי ל' + topicStr + ' ב' + gradeLabel + '.' },
-    ],
-    '8': [
-      { title: 'The Age of Revolution — Waldorf Curriculum Lectures', author: 'Rudolf Steiner', note: 'הרצאות GA 325 על תקופת המהפכות — מצפן התפתחותי לגיל המרד.' },
-      { title: 'The Human Being and the Age of Revolution', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — סמכות פנימית ועצמאות רוחנית.' },
-      { title: 'הרצאות על חינוך וולדורפי — כרך ח׳', author: 'רודולף שטיינר', note: 'מקור מרכזי לתכנון תקופה בכיתה ח׳ — ' + topicStr + '.' },
-    ],
-  };
-
-  if (gradeNum && genericByGrade[gradeNum]) return genericByGrade[gradeNum];
-
-  return [
-    { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לפי כיתות — רלוונטי ל' + topicStr + ' ב' + (gradeLabel || 'בית הספר היסודי') + '.' },
-    { title: 'Education as Art', author: 'Eugene Schwartz', note: 'חיבור בין אמנות, דימוי ושיעור ראשי בוולדורף.' },
-    { title: 'הרצאות על חינוך וולדורפי', author: 'רודולף שטיינר', note: 'מקור אנתרופוסופי מרכזי להבנת הנושא ' + topicStr + '.' },
-  ];
+function buildDefaultRecommendedReading() {
+  return [];
 }
 
-function buildDefaultRelevantLinks(grade, topic) {
-  const topicStr = String(topic || 'נושא').trim();
-  const gradeNum = resolveGradeNum(grade);
-  const historyTopic = /מהפכ|היסטור|history|revolution/i.test(topicStr);
-  const links = [
-    {
-      title: 'Rudolf Steiner Archive — Education Lectures Index',
-      url: 'https://rsarchive.org/Lectures/EduIndex.html',
-    },
-    {
-      title: 'Waldorf Library — Book reviews and articles',
-      url: 'https://waldorflibrary.org/pages/book-reviews/',
-    },
-    {
-      title: 'AWSNA — Association of Waldorf Schools of North America',
-      url: 'https://www.waldorfeducation.org/waldorf-education',
-    },
-  ];
-  if (historyTopic || gradeNum === '7' || gradeNum === '8') {
-    links.unshift({
-      title: 'GA 325 — History Curriculum Lectures (Steiner Archive)',
-      url: 'https://rsarchive.org/Lectures/GA0325/English/RSPC325_index.html',
-    });
-  }
-  return links.filter(function (item) {
-    return item && item.url && !isDeadPhaseCFallbackUrl(item.url);
-  }).slice(0, 6);
+function buildDefaultRelevantLinks() {
+  return [];
 }
 
-function ensureRecommendedReading(normalized, essay, grade, topic) {
-  let reading = Array.isArray(normalized.recommended_reading)
-    ? normalized.recommended_reading.filter(function (item) { return item && item.title; })
-    : [];
-  if (!reading.length) {
-    reading = extractRecommendedReadingFromText(essay, topic);
-  }
-  if (!reading.length && normalized.theory && normalized.theory.bibliography) {
-    const bib = normalized.theory.bibliography;
-    (bib.books || []).forEach(function (book) {
-      if (!book || !book.title) return;
-      reading.push({
-        title: book.title,
-        author: book.author || '',
-        note: book.detail || book.note || '',
-      });
-    });
-  }
-  if (!reading.length) {
-    reading = buildDefaultRecommendedReading(grade, topic);
-  }
+function ensureRecommendedReading(normalized, essay, grade, topic, parsed) {
+  const citationSet = buildLiveCitationUrlSet(parsed);
+  let reading = filterRecommendedReadingByLiveCitations(
+    Array.isArray(normalized.recommended_reading) ? normalized.recommended_reading : [],
+    citationSet
+  );
   normalized.recommended_reading = reading.slice(0, 8);
   return normalized;
 }
@@ -1510,8 +1490,8 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   duplicateRichPayloadAcrossFallbackTabs(normalized, richEssay, gradeStr, topicStr);
   mergeExtractedLinksIntoNormalized(normalized, [theoryResult.links, coreResult.links], topicStr);
   applyPhaseCFallbackLinkHarvester(normalized, parsed, topicStr);
-  ensureRecommendedReading(normalized, coreEssay || richEssay, gradeStr, topicStr);
-  deduplicatePhaseCTabLinks(normalized);
+  ensureRecommendedReading(normalized, coreEssay || richEssay, gradeStr, topicStr, parsed);
+  applyLiveCitationGate(normalized, parsed);
 
   return ensurePhaseCTab3Population(normalized, {
     essay: richEssay,
@@ -1731,8 +1711,8 @@ function normalizePhaseCResponse(parsed, grade, topic) {
     recommended_reading: recommendedReading,
     relevant_links: relevantLinks,
   };
-  ensureRecommendedReading(result, coreEmphases, grade, topic);
-  return deduplicatePhaseCTabLinks(result);
+  ensureRecommendedReading(result, coreEmphases, grade, topic, parsed);
+  return applyLiveCitationGate(result, parsed);
 }
 
 function resolveGradeId(body) {
@@ -1779,7 +1759,7 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
       parsed: parsed,
     });
   }
-  return result;
+  return applyLiveCitationGate(result, parsed || result);
 }
 
 async function runPurePhaseC(body) {
@@ -1907,8 +1887,9 @@ module.exports = {
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
-  extractRecommendedReadingFromText,
-  buildDefaultRecommendedReading,
+  applyLiveCitationGate,
+  extractLiveCitationsFromParsed,
+  buildLiveCitationUrlSet,
   ensurePhaseCTab3Population,
   buildGradeDefaultCoreEmphasesParagraphs,
   tab3FieldPlainLen,
