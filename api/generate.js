@@ -2524,7 +2524,7 @@ async function probeCommunityMaterialsForBody(body) {
     semanticFallback: enableSemantic,
     globalSemantic: false,
     recursiveDeepScan: true,
-    includeFolderBrief: body.phase !== 'chat_followup',
+    includeFolderBrief: false,
     phase: body.phase || '',
   };
   try {
@@ -2537,6 +2537,111 @@ async function probeCommunityMaterialsForBody(body) {
     console.warn('[community] probe failed:', probeErr.message || probeErr);
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
+}
+
+const EMPTY_COMMUNITY_PROBE = Object.freeze({
+  matches: [],
+  count: 0,
+  query: '',
+  matchMethod: 'none',
+});
+
+/** Cache fast path — no community folder scans or folder-brief lookups. */
+async function tryServeFromCachedResults(body, communityProbe) {
+  if (!body || body.skipCache || body.phase === 'chat_followup') return null;
+  const probeMeta = communityProbe || EMPTY_COMMUNITY_PROBE;
+
+  const cacheOpts = isArchiveOnlyLookup(body) ? { requireEnhanced: false } : {};
+  const cached = await cacheDb.getCachedResult(body, cacheOpts);
+  if (cached) {
+    console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
+    if (body.phase === 'topic' && cached.data) {
+      cached.data = stripCurriculumFromTopicPayload(cached.data);
+    }
+    if (!body.skipKnowledgeIngest) {
+      knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
+    }
+    cached.meta = attachCommunityMeta(cached.meta, probeMeta);
+    return cached;
+  }
+
+  if (body.phase !== 'topic') return null;
+
+  const suggestion = await cacheDb.findArchiveTopicSuggestion({
+    topic: body.topic,
+    gradeId: body.currentGrade ?? body.gradeId,
+    gradeLabel: body.gradeLabel || null,
+  });
+  if (suggestion && suggestion.matchType === 'grade_mismatch' && suggestion.gradeMismatch &&
+      !pedagogicalScope.isPedagogicalScopeOverridden(body)) {
+    console.log(
+      '[cached_results] GRADE GUARDRAIL blocked topic search:',
+      suggestion.requestedTopic || body.topic
+    );
+    return pedagogicalScope.buildScopeMismatchGenerateResult(body, suggestion.gradeMismatch, probeMeta);
+  }
+  if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
+    const serveArchive = isArchiveOnlyLookup(body)
+      || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
+    if (!serveArchive) {
+      console.log(
+        '[cached_results] SKIP non-enhanced archive exact match — Perplexity regeneration:',
+        suggestion.topic
+      );
+      return null;
+    }
+    console.log(
+      '[cached_results] HIT (consolidated archive ≥99% similarity)',
+      suggestion.topic,
+      suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : '',
+      'sim=' + (suggestion.similarity || 1).toFixed(3)
+    );
+    if (!body.skipKnowledgeIngest) {
+      knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
+    }
+    let archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
+      JSON.parse(JSON.stringify(suggestion.resultData))
+    ).data;
+    archivePayload = stripCurriculumFromTopicPayload(archivePayload);
+    const archiveMeta = {
+      fromCache: true,
+      cacheKey: suggestion.cacheKey,
+      table: 'cached_results',
+      source: 'consolidated_archive',
+      similarity: suggestion.similarity,
+      requestedTopic: body.topic || suggestion.requestedTopic || null,
+      enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
+    };
+    return {
+      data: archivePayload,
+      meta: attachCommunityMeta(archiveMeta, probeMeta),
+    };
+  }
+  if (!isArchiveOnlyLookup(body) && suggestion && suggestion.matchType === 'partial') {
+    console.log(
+      '[cached_results] PARTIAL archive topic — awaiting confirmation:',
+      suggestion.topic,
+      suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : ''
+    );
+    return {
+      data: null,
+      meta: attachCommunityMeta({
+        fromCache: false,
+        needsArchiveConfirmation: true,
+        archiveSuggestion: {
+          matchType: 'partial',
+          suggestedTopic: suggestion.topic,
+          archiveTitle: suggestion.topic,
+          requestedTopic: body.topic || null,
+          cacheKey: suggestion.cacheKey,
+          similarity: suggestion.similarity,
+          gradeId: suggestion.gradeId,
+          gradeLabel: suggestion.gradeLabel || null,
+        },
+      }, probeMeta),
+    };
+  }
+  return null;
 }
 
 function attachCommunityMeta(meta, communityProbe, options) {
@@ -2863,6 +2968,11 @@ async function executeGenerate(body, apiKey, requestContext) {
     chatApi.clearCommunityArchiveContextForExpansion(body);
   }
 
+  if (body.phase !== 'chat_followup' && body.phase !== 'enrichment_links') {
+    const cachedFast = await tryServeFromCachedResults(body, EMPTY_COMMUNITY_PROBE);
+    if (cachedFast) return cachedFast;
+  }
+
   const communityProbe = await probeCommunityMaterialsForBody(body);
 
   if (body.phase === 'enrichment_links') {
@@ -2909,95 +3019,6 @@ async function executeGenerate(body, apiKey, requestContext) {
     if (body.phase === 'chat_followup') {
       // Strict isolation: no prior grade/topic/answer cache injection into chat prompts.
     } else {
-      const cacheOpts = isArchiveOnlyLookup(body) ? { requireEnhanced: false } : {};
-      const cached = await cacheDb.getCachedResult(body, cacheOpts);
-      if (cached) {
-        console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
-        if (body.phase === 'topic' && cached.data) {
-          cached.data = stripCurriculumFromTopicPayload(cached.data);
-        }
-        if (!body.skipKnowledgeIngest) {
-          knowledgeIngest.ingestFromGenerateResultAsync(body, cached.data);
-        }
-        cached.meta = attachCommunityMeta(cached.meta, communityProbe);
-        return cached;
-      }
-      if (body.phase === 'topic') {
-        const suggestion = await cacheDb.findArchiveTopicSuggestion({
-          topic: body.topic,
-          gradeId: body.currentGrade ?? body.gradeId,
-          gradeLabel: body.gradeLabel || null,
-        });
-        if (suggestion && suggestion.matchType === 'grade_mismatch' && suggestion.gradeMismatch &&
-            !pedagogicalScope.isPedagogicalScopeOverridden(body)) {
-          console.log(
-            '[cached_results] GRADE GUARDRAIL blocked topic search:',
-            suggestion.requestedTopic || body.topic
-          );
-          return pedagogicalScope.buildScopeMismatchGenerateResult(body, suggestion.gradeMismatch, communityProbe);
-        }
-        if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
-          const serveArchive = isArchiveOnlyLookup(body)
-            || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
-          if (!serveArchive) {
-            console.log(
-              '[cached_results] SKIP non-enhanced archive exact match — Perplexity regeneration:',
-              suggestion.topic
-            );
-          } else {
-            console.log(
-              '[cached_results] HIT (consolidated archive ≥99% similarity)',
-              suggestion.topic,
-              suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : '',
-              'sim=' + (suggestion.similarity || 1).toFixed(3)
-            );
-            if (!body.skipKnowledgeIngest) {
-              knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
-            }
-            let archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
-              JSON.parse(JSON.stringify(suggestion.resultData))
-            ).data;
-            archivePayload = stripCurriculumFromTopicPayload(archivePayload);
-            const archiveMeta = {
-              fromCache: true,
-              cacheKey: suggestion.cacheKey,
-              table: 'cached_results',
-              source: 'consolidated_archive',
-              similarity: suggestion.similarity,
-              requestedTopic: body.topic || suggestion.requestedTopic || null,
-              enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
-            };
-            return {
-              data: archivePayload,
-              meta: attachCommunityMeta(archiveMeta, communityProbe),
-            };
-          }
-        }
-        if (!isArchiveOnlyLookup(body) && suggestion && suggestion.matchType === 'partial') {
-          console.log(
-            '[cached_results] PARTIAL archive topic — awaiting confirmation:',
-            suggestion.topic,
-            suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : ''
-          );
-          return {
-            data: null,
-            meta: attachCommunityMeta({
-              fromCache: false,
-              needsArchiveConfirmation: true,
-              archiveSuggestion: {
-                matchType: 'partial',
-                suggestedTopic: suggestion.topic,
-                archiveTitle: suggestion.topic,
-                requestedTopic: body.topic || null,
-                cacheKey: suggestion.cacheKey,
-                similarity: suggestion.similarity,
-                gradeId: suggestion.gradeId,
-                gradeLabel: suggestion.gradeLabel || null,
-              },
-            }, communityProbe),
-          };
-        }
-      }
       console.log('[cached_results] MISS', body.phase, cacheDb.isSupabaseCacheEnabled() ? '(supabase)' : '(fallback only)');
       if (shouldLiveGenerateOnDemandExpansion(body)) {
         console.log('[on-demand] expansion cache MISS — live Perplexity pipeline (no archive error):', body.phase);

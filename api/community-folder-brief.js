@@ -73,7 +73,17 @@ function filterMatchesForInferredGrade(probe, query, gradeId) {
 }
 
 function resolveParentCatalogTopicFromMatch(match, query) {
-  return cacheDb.resolveParentCommunityFolderTopic(match, query);
+  if (!match) return '';
+  const catalogTopic = cacheDb.resolveCommunityCatalogTopic(match);
+  if (catalogTopic) return catalogTopic;
+  const bundleTopic = String(match.bundleTopic || match.subfolderTopic || match.topic || '').trim();
+  if (!bundleTopic) return '';
+  const queryNorm = stableNormalize(query);
+  const bundleNorm = stableNormalize(bundleTopic);
+  if (queryNorm && bundleNorm && queryNorm !== bundleNorm) {
+    return catalogTopics.resolveCatalogTopicFromFolderName(bundleTopic);
+  }
+  return bundleTopic;
 }
 
 /**

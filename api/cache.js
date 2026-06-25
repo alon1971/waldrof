@@ -14,7 +14,6 @@ const jsonRepair = require('./json-repair');
 const archiveCoerce = require('../archive-coerce');
 const communitySemanticMatch = require('./community-semantic-match');
 const catalogTopics = require('./catalog-topics');
-const communityFolderBrief = require('./community-folder-brief');
 const driveCatalogSync = require('./drive-catalog-sync');
 const enrichmentLinks = require('./enrichment-links');
 
@@ -752,7 +751,7 @@ async function lookupGradeCachedContext(body) {
     const gradeBody = buildGradeCacheBody(body);
     if (!gradeBody) return null;
     const cacheKey = buildCacheKey(gradeBody);
-    const row = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
+    const row = await resolveCachedRow(cacheKey);
     const data = row ? await readAndValidateCachedResultData(row, cacheKey) : null;
     if (!row || !data || !extractGradeInsightsText(data)) return null;
     bumpHitCountAsync(cacheKey, row.hit_count);
@@ -777,7 +776,7 @@ async function lookupTopicCachedContext(body) {
   const topicBody = buildTopicCacheBody(body);
   if (!topicBody) return null;
   const cacheKey = buildCacheKey(topicBody);
-  const row = await resolveCachedRowWithLegacyFallback(topicBody, cacheKey);
+  const row = await resolveCachedRow(cacheKey);
   const data = row ? await readAndValidateCachedResultData(row, cacheKey) : null;
   if (!row || !data) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
@@ -803,7 +802,7 @@ async function mergeChatEnrichmentIntoGradeCache(body, chatResultData) {
     if (!answer || !userMessage) return null;
 
     const cacheKey = buildCacheKey(gradeBody);
-    const existing = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
+    const existing = await resolveCachedRow(cacheKey);
     const coerced = existing && existing.result_data
       ? coerceCachedResultData(existing.result_data)
       : null;
@@ -1436,159 +1435,6 @@ const GRADE_LABEL_BY_ID = {
 const LEGACY_ROW_SELECT =
   'cache_key,phase,grade_id,grade_label,topic,query_text,result_data,hit_count,created_at,last_hit_at,user_id,user_email';
 
-function gradeLabelSearchVariants(gradeId, gradeLabel) {
-  const variants = [];
-  const seen = new Set();
-  function add(value) {
-    const text = String(value || '').trim();
-    if (!text || seen.has(text)) return;
-    seen.add(text);
-    variants.push(text);
-  }
-  const id = String(gradeId || '').trim();
-  if (id && GRADE_LABEL_BY_ID[id]) add(GRADE_LABEL_BY_ID[id]);
-  add(gradeLabel);
-  return variants;
-}
-
-function pickValidLegacyGradeRow(rows, newCacheKey) {
-  if (!Array.isArray(rows)) return null;
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || !row.result_data || row.cache_key === newCacheKey) continue;
-    if (normalizeGradeResultForCache(coerceCachedResultData(row.result_data))) return row;
-  }
-  return null;
-}
-
-function lookupLegacyGradeInFallback(body, newCacheKey) {
-  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
-  if (!gradeId) return null;
-  const labels = gradeLabelSearchVariants(gradeId, body.gradeLabel);
-  loadFallbackStore();
-  let best = null;
-  fallbackStore.rows.forEach(function (row) {
-    if (!row || row.phase !== 'grade' || !row.result_data || row.cache_key === newCacheKey) return;
-    const rowGradeId = String(row.grade_id || '').trim();
-    const matchesId = rowGradeId === gradeId;
-    const matchesText = labels.some(function (lbl) {
-      const qt = String(row.query_text || '');
-      const gl = String(row.grade_label || '');
-      return qt.indexOf(lbl) >= 0 || gl.indexOf(lbl) >= 0;
-    });
-    if (!matchesId && !matchesText) return;
-    if (!normalizeGradeResultForCache(coerceCachedResultData(row.result_data))) return;
-    best = row;
-  });
-  return best;
-}
-
-/**
- * Fallback for rows saved under the old cache-key scheme (or keyed only by Hebrew label text).
- */
-async function lookupLegacyGradeCachedRow(body, newCacheKey) {
-  console.log('[CACHE_DEBUG] lookupLegacyGradeCachedRow called, newCacheKey:', newCacheKey);
-  console.log('[CACHE_DEBUG] lookupLegacyGradeCachedRow body:', JSON.stringify(body));
-  console.log('[CACHE_DEBUG] Supabase cache enabled:', isSupabaseCacheEnabled());
-
-  if (!body || body.phase !== 'grade' || !newCacheKey) {
-    console.log('[CACHE_DEBUG] Legacy lookup skipped — invalid body/phase/newCacheKey');
-    return null;
-  }
-  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
-  if (!gradeId) {
-    console.log('[CACHE_DEBUG] Legacy lookup skipped — empty gradeId');
-    return null;
-  }
-  console.log('[CACHE_DEBUG] Legacy lookup gradeId:', gradeId, 'gradeLabel:', body.gradeLabel);
-
-  if (isSupabaseCacheEnabled()) {
-    try {
-      const byIdParams = new URLSearchParams();
-      byIdParams.set('select', LEGACY_ROW_SELECT);
-      byIdParams.set('phase', 'eq.grade');
-      byIdParams.set('grade_id', 'eq.' + gradeId);
-      byIdParams.set('order', 'hit_count.desc,created_at.desc');
-      byIdParams.set('limit', '8');
-
-      const byIdUrl = '/rest/v1/' + TABLE_NAME + '?' + byIdParams.toString();
-      console.log('[CACHE_DEBUG] Legacy byId query URL:', byIdUrl);
-      const byIdRes = await supabaseRequest(byIdUrl, { method: 'GET' });
-      console.log('[CACHE_DEBUG] Legacy byId response status:', byIdRes.status, byIdRes.ok);
-      if (!byIdRes.ok) {
-        const errText = await byIdRes.text();
-        console.log('[CACHE_DEBUG] Supabase error (byId):', errText.slice(0, 500));
-      } else {
-        const legacyRows = await byIdRes.json();
-        console.log('[CACHE_DEBUG] Legacy query results count (byId):', legacyRows?.length);
-        if (legacyRows?.length) {
-          legacyRows.forEach(function (r, idx) {
-            console.log('[CACHE_DEBUG] Legacy byId row[' + idx + ']:', JSON.stringify({
-              cache_key: r.cache_key ? r.cache_key.slice(0, 16) : null,
-              phase: r.phase,
-              grade_id: r.grade_id,
-              grade_label: r.grade_label,
-              query_text: r.query_text,
-              has_result_data: Boolean(r.result_data),
-            }));
-          });
-        }
-        const match = pickValidLegacyGradeRow(legacyRows, newCacheKey);
-        console.log('[CACHE_DEBUG] Legacy byId valid match:', match ? match.cache_key.slice(0, 16) : null);
-        if (match) return match;
-      }
-
-      const labels = gradeLabelSearchVariants(gradeId, body.gradeLabel);
-      console.log('[CACHE_DEBUG] Legacy label search variants:', labels);
-      for (let i = 0; i < labels.length; i++) {
-        const label = labels[i];
-        const textParams = new URLSearchParams();
-        textParams.set('select', LEGACY_ROW_SELECT);
-        textParams.set('phase', 'eq.grade');
-        textParams.set('or', '(query_text.ilike.*' + label + '*,grade_label.ilike.*' + label + '*)');
-        textParams.set('order', 'hit_count.desc,created_at.desc');
-        textParams.set('limit', '8');
-
-        const textUrl = '/rest/v1/' + TABLE_NAME + '?' + textParams.toString();
-        console.log('[CACHE_DEBUG] Legacy byLabel query URL:', textUrl);
-        const textRes = await supabaseRequest(textUrl, { method: 'GET' });
-        console.log('[CACHE_DEBUG] Legacy byLabel response status:', textRes.status, 'label:', label);
-        if (!textRes.ok) {
-          const errText = await textRes.text();
-          console.log('[CACHE_DEBUG] Supabase error (byLabel):', errText.slice(0, 500));
-          continue;
-        }
-        const labelRows = await textRes.json();
-        console.log('[CACHE_DEBUG] Legacy query results count (byLabel):', labelRows?.length);
-        if (labelRows?.length) {
-          labelRows.forEach(function (r, idx) {
-            console.log('[CACHE_DEBUG] Legacy byLabel row[' + idx + ']:', JSON.stringify({
-              cache_key: r.cache_key ? r.cache_key.slice(0, 16) : null,
-              phase: r.phase,
-              grade_id: r.grade_id,
-              grade_label: r.grade_label,
-              query_text: r.query_text,
-              has_result_data: Boolean(r.result_data),
-            }));
-          });
-        }
-        const textMatch = pickValidLegacyGradeRow(labelRows, newCacheKey);
-        console.log('[CACHE_DEBUG] Legacy byLabel valid match:', textMatch ? textMatch.cache_key.slice(0, 16) : null);
-        if (textMatch) return textMatch;
-      }
-    } catch (err) {
-      console.log('[CACHE_DEBUG] Supabase error:', err);
-      console.warn('[cached_results] legacy grade lookup failed:', err.message || err);
-    }
-  } else {
-    console.log('[CACHE_DEBUG] Supabase disabled — trying local fallback only');
-  }
-
-  const fallbackRow = lookupLegacyGradeInFallback(body, newCacheKey);
-  console.log('[CACHE_DEBUG] Local fallback legacy match:', fallbackRow ? fallbackRow.cache_key.slice(0, 16) : null);
-  return fallbackRow;
-}
-
 function topicCacheTextsMatch(body, row, resultData) {
   if (!body || !row) return false;
   const wanted = normalizeTopicQuery(body.topic || '');
@@ -1606,159 +1452,6 @@ function topicCacheTextsMatch(body, row, resultData) {
     if (wantedStable && stableNormalize(raw) === wantedStable) return true;
   }
   return false;
-}
-
-function pickValidLegacyTopicRow(rows, body, newCacheKey) {
-  if (!Array.isArray(rows)) return null;
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || !row.result_data || row.cache_key === newCacheKey) continue;
-    if (!isValidCachedPayload('topic', coerceCachedResultData(row.result_data))) continue;
-    if (!topicCacheTextsMatch(body, row)) continue;
-    return row;
-  }
-  return null;
-}
-
-function lookupLegacyTopicInFallback(body, newCacheKey) {
-  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
-  if (!gradeId) return null;
-  loadFallbackStore();
-  let best = null;
-  fallbackStore.rows.forEach(function (row) {
-    if (!row || row.phase !== 'topic' || !row.result_data || row.cache_key === newCacheKey) return;
-    if (String(row.grade_id || '').trim() !== gradeId) return;
-    if (!topicCacheTextsMatch(body, row)) return;
-    if (!isValidCachedPayload('topic', coerceCachedResultData(row.result_data))) return;
-    best = row;
-  });
-  return best;
-}
-
-/**
- * Fallback for topic rows saved under the old (non-normalized) cache-key scheme.
- */
-async function lookupLegacyTopicCachedRow(body, newCacheKey) {
-  if (!body || body.phase !== 'topic' || !newCacheKey) return null;
-  const gradeId = String(body.currentGrade ?? body.gradeId ?? '').trim();
-  const wanted = normalizeTopicQuery(body.topic || '');
-  if (!gradeId || !wanted) return null;
-
-  if (isSupabaseCacheEnabled()) {
-    try {
-      const params = new URLSearchParams();
-      params.set('select', LEGACY_ROW_SELECT);
-      params.set('phase', 'eq.topic');
-      params.set('grade_id', 'eq.' + gradeId);
-      params.set('order', 'hit_count.desc,created_at.desc');
-      params.set('limit', '20');
-
-      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
-      if (res.ok) {
-        const rows = await res.json();
-        const match = pickValidLegacyTopicRow(rows, body, newCacheKey);
-        if (match) return match;
-      }
-    } catch (err) {
-      console.warn('[cached_results] legacy topic lookup failed:', err.message || err);
-    }
-  }
-
-  return lookupLegacyTopicInFallback(body, newCacheKey);
-}
-
-async function migrateLegacyTopicRowCacheKey(legacyRow, body, newCacheKey) {
-  if (!legacyRow || !newCacheKey || legacyRow.cache_key === newCacheKey) return false;
-
-  const data = coerceCachedResultData(legacyRow.result_data);
-  if (!data || !isValidCachedPayload('topic', data)) return false;
-
-  const existingNew = await fetchCachedRowByKey(newCacheKey);
-  if (existingNew && existingNew.result_data && isValidCachedPayload('topic', coerceCachedResultData(existingNew.result_data))) {
-    return false;
-  }
-
-  const row = buildRow(newCacheKey, body, cloneJsonSafe(data) || data);
-  row.hit_count = Number(legacyRow.hit_count) || 0;
-  if (legacyRow.user_id && authContext.isValidAuthUuid(legacyRow.user_id) && !authContext.isMockUserId(legacyRow.user_id)) {
-    row.user_id = legacyRow.user_id;
-  }
-  if (legacyRow.user_email) row.user_email = legacyRow.user_email;
-
-  if (isSupabaseCacheEnabled()) {
-    try {
-      const upsertRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?on_conflict=cache_key', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify(row),
-      });
-      if (upsertRes.ok) {
-        console.log(
-          '[cached_results] LEGACY TOPIC MIGRATE',
-          String(legacyRow.cache_key).slice(0, 12),
-          '->',
-          newCacheKey.slice(0, 12)
-        );
-        return true;
-      }
-    } catch (err) {
-      console.warn('[cached_results] legacy topic migrate failed:', err.message || err);
-    }
-  }
-
-  setFallbackCached(newCacheKey, body, data);
-  return true;
-}
-
-/**
- * Re-key a legacy row to the simplified cache_key (upsert). Never deletes the legacy row's data.
- */
-async function migrateLegacyRowCacheKey(legacyRow, body, newCacheKey) {
-  if (!legacyRow || !newCacheKey || legacyRow.cache_key === newCacheKey) return false;
-
-  const data = normalizeGradeResultForCache(coerceCachedResultData(legacyRow.result_data));
-  if (!data) return false;
-
-  const existingNew = await fetchCachedRowByKey(newCacheKey);
-  if (existingNew && existingNew.result_data && normalizeGradeResultForCache(coerceCachedResultData(existingNew.result_data))) {
-    return false;
-  }
-
-  const row = buildRow(newCacheKey, body, data);
-  row.hit_count = Number(legacyRow.hit_count) || 0;
-  if (legacyRow.user_id && authContext.isValidAuthUuid(legacyRow.user_id) && !authContext.isMockUserId(legacyRow.user_id)) {
-    row.user_id = legacyRow.user_id;
-  }
-  if (legacyRow.user_email) row.user_email = legacyRow.user_email;
-
-  if (isSupabaseCacheEnabled()) {
-    try {
-      const upsertRes = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?on_conflict=cache_key', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify(row),
-      });
-      if (upsertRes.ok) {
-        console.log(
-          '[cached_results] LEGACY MIGRATE',
-          String(legacyRow.cache_key).slice(0, 12),
-          '->',
-          newCacheKey.slice(0, 12)
-        );
-        return true;
-      }
-      const errText = await upsertRes.text();
-      console.warn('[cached_results] legacy migrate upsert error', upsertRes.status, errText.slice(0, 200));
-    } catch (err) {
-      console.warn('[cached_results] legacy migrate failed:', err.message || err);
-    }
-  }
-
-  loadFallbackStore();
-  row.created_at = legacyRow.created_at || new Date().toISOString();
-  fallbackStore.rows.set(newCacheKey, row);
-  persistFallbackStore();
-  return true;
 }
 
 async function fetchCachedRowByKey(cacheKey) {
@@ -1785,42 +1478,11 @@ async function fetchCachedRowByKey(cacheKey) {
   return fallbackStore.rows.get(cacheKey) || null;
 }
 
-async function resolveCachedRowWithLegacyFallback(body, cacheKey) {
-  console.log('[CACHE_DEBUG] Checking new key:', cacheKey);
-  console.log('[CACHE_DEBUG] Body data received:', JSON.stringify(body));
-
+/** Direct cache_key lookup only — on miss the route proceeds to live Perplexity. */
+async function resolveCachedRow(cacheKey) {
+  if (!cacheKey) return null;
   const row = await fetchCachedRowByKey(cacheKey);
-  console.log('[CACHE_DEBUG] Direct key lookup result:', row
-    ? { cache_key: row.cache_key ? row.cache_key.slice(0, 16) : null, has_result_data: Boolean(row.result_data) }
-    : null);
-
-  if (row && row.result_data) {
-    console.log('[CACHE_DEBUG] Cache HIT on new key');
-    return row;
-  }
-
-  console.log('[CACHE_DEBUG] Cache MISS on new key — trying legacy fallback');
-  if (body && body.phase === 'grade') {
-    const legacyRow = await lookupLegacyGradeCachedRow(body, cacheKey);
-    console.log('[CACHE_DEBUG] Legacy fallback result:', legacyRow
-      ? { cache_key: legacyRow.cache_key ? legacyRow.cache_key.slice(0, 16) : null, has_result_data: Boolean(legacyRow.result_data) }
-      : null);
-    if (legacyRow && legacyRow.result_data) {
-      const migrated = await migrateLegacyRowCacheKey(legacyRow, body, cacheKey);
-      console.log('[CACHE_DEBUG] Legacy migration attempted:', migrated);
-      return legacyRow;
-    }
-  }
-
-  if (body && body.phase === 'topic') {
-    const legacyTopicRow = await lookupLegacyTopicCachedRow(body, cacheKey);
-    if (legacyTopicRow && legacyTopicRow.result_data) {
-      await migrateLegacyTopicRowCacheKey(legacyTopicRow, body, cacheKey);
-      return legacyTopicRow;
-    }
-  }
-
-  console.log('[CACHE_DEBUG] No cache row found (new key + legacy)');
+  if (row && row.result_data) return row;
   return null;
 }
 
@@ -1928,7 +1590,7 @@ async function getCachedResult(body, options) {
     return null;
   }
 
-  const row = await resolveCachedRowWithLegacyFallback(body, cacheKey);
+  const row = await resolveCachedRow(cacheKey);
   let data = row ? await readAndValidateCachedResultData(row, cacheKey) : null;
 
   if (!data) {
@@ -1973,7 +1635,6 @@ async function getCachedResult(body, options) {
       cacheKey: cacheKey,
       table: TABLE_NAME,
       source: isSupabaseCacheEnabled() ? 'supabase' : 'fallback',
-      legacyMigrated: row.cache_key !== cacheKey,
       enhanced: isEnhancedCachedPayload(body.phase, payload),
     },
   };
@@ -2684,20 +2345,25 @@ async function recursiveDeepScanCommunityRows(gradeId) {
 }
 
 function attachCommunityFolderBriefToResult(result, opts) {
-  if (!result || opts.includeFolderBrief === false) return result;
+  if (!result || !opts || opts.includeFolderBrief !== true) return result;
   const query = String(opts.userMessage || opts.query || result.query || '').trim();
   if (!query || !result.count) return result;
-  const brief = communityFolderBrief.tryBuildCommunityFolderBrief(
-    {
-      userMessage: query,
-      phase: opts.phase || '',
-      repositorySearch: opts.repositorySearch === true,
-    },
-    result
-  );
-  if (brief) {
-    result.folderBrief = brief;
-    result.matchMethod = result.matchMethod || 'folder_brief';
+  try {
+    const communityFolderBrief = require('./community-folder-brief');
+    const brief = communityFolderBrief.tryBuildCommunityFolderBrief(
+      {
+        userMessage: query,
+        phase: opts.phase || '',
+        repositorySearch: opts.repositorySearch === true,
+      },
+      result
+    );
+    if (brief) {
+      result.folderBrief = brief;
+      result.matchMethod = result.matchMethod || 'folder_brief';
+    }
+  } catch (briefErr) {
+    console.warn('[community] folder brief skipped:', briefErr.message || briefErr);
   }
   return result;
 }
@@ -2833,75 +2499,6 @@ function looksLikeUserChatQuestion(text) {
 
 function stableNormalizeCommunityText(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-/**
- * Parent topic folder for a nested community file (e.g. יוון for מסעות אודיסאוס).
- */
-function resolveParentCommunityFolderTopic(hit, query) {
-  if (!hit || typeof hit !== 'object') return '';
-
-  const title = String(hit.displayTitle || hit.title || hit.fileName || hit.internalFileName || '').trim();
-  const titleNorm = stableNormalizeCommunityText(title);
-  const segments = [];
-
-  function pushSegment(value) {
-    const cleaned = String(value || '').trim();
-    if (!cleaned) return;
-    segments.push(cleaned);
-  }
-
-  pushSegment(hit.bundleTopic);
-  pushSegment(hit.subfolderTopic);
-  if (hit.pathLabels) {
-    String(hit.pathLabels).split(/\s+/).forEach(pushSegment);
-  }
-  if (hit.drivePath) {
-    String(hit.drivePath).split('/').forEach(pushSegment);
-  }
-
-  const catalogTopic = String(resolveCommunityCatalogTopic(hit) || '').trim();
-  const rowTopic = String(hit.topic || '').trim();
-  [catalogTopic, rowTopic].forEach(pushSegment);
-
-  const seen = new Set();
-  const candidates = segments.filter(function (candidate) {
-    const key = stableNormalizeCommunityText(candidate);
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  const queryText = String(query || '').trim();
-  if (queryText) {
-    const queryNorms = catalogTopics.expandCatalogTopicAliases([queryText])
-      .map(stableNormalizeCommunityText)
-      .filter(Boolean);
-    for (let i = 0; i < candidates.length; i++) {
-      const candidate = candidates[i];
-      const candidateNorm = stableNormalizeCommunityText(candidate);
-      if (!candidateNorm) continue;
-      if (titleNorm && candidateNorm === titleNorm) continue;
-      const matchesQuery = queryNorms.some(function (qNorm) {
-        return qNorm === candidateNorm
-          || (qNorm.length >= 2 && candidateNorm.indexOf(qNorm) >= 0)
-          || (candidateNorm.length >= 2 && qNorm.indexOf(candidateNorm) >= 0);
-      });
-      if (matchesQuery) {
-        return catalogTopics.resolveCatalogTopicFromFolderName(candidate);
-      }
-    }
-  }
-
-  for (let j = 0; j < candidates.length; j++) {
-    const candidate = candidates[j];
-    const candidateNorm = stableNormalizeCommunityText(candidate);
-    if (!candidateNorm) continue;
-    if (titleNorm && candidateNorm === titleNorm) continue;
-    return catalogTopics.resolveCatalogTopicFromFolderName(candidate);
-  }
-
-  return catalogTopic || String(hit.bundleTopic || '').trim() || rowTopic || '';
 }
 
 /**
@@ -3442,7 +3039,6 @@ module.exports = {
   buildCommunitySearchTerms,
   looksLikeUserChatQuestion,
   resolveCommunityCatalogTopic,
-  resolveParentCommunityFolderTopic,
   withCatalogNavigationFields,
   resolveInheritedCatalogTopicFromRow,
   backgroundFetchDriveCatalog: driveCatalogSync.backgroundFetchDriveCatalogAsync,

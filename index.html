@@ -903,6 +903,7 @@
     }
     @media (min-width: 640px) {
       .app-top-nav-inner > .step-pill-community,
+      .app-top-nav-inner > .step-pill-general-search,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
         flex: 1 1 10rem;
@@ -923,6 +924,7 @@
       }
       #step-progress .step-pill,
       .app-top-nav-inner > .step-pill-community,
+      .app-top-nav-inner > .step-pill-general-search,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
         width: 100%;
@@ -2612,10 +2614,11 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.3rem;
+      flex-wrap: wrap;
+      gap: 0.25rem;
       flex: 1 1 auto;
       min-width: 0;
-      max-width: 55%;
+      max-width: 100%;
       padding-inline: 0.15rem;
       pointer-events: auto;
     }
@@ -3910,6 +3913,12 @@
           <span id="header-compact-context-label" class="header-compact-context-label" aria-hidden="true"></span>
           <button type="button" id="header-compact-edit-topic" class="header-compact-nav-btn touch-btn">
             <span data-i18n="header_compact_edit_topic">עריכת נושא</span>
+          </button>
+          <button type="button" id="header-compact-phase-c" class="header-compact-nav-btn touch-btn">
+            <span data-i18n="step_nav_c">ג׳ תוצרים ומהות פדגוגית</span>
+          </button>
+          <button type="button" id="header-compact-general-search" class="header-compact-nav-btn touch-btn">
+            <span data-i18n="nav_general_search">חיפוש כללי</span>
           </button>
         </nav>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
@@ -13830,6 +13839,7 @@
       options = options || {};
       if (!isProductTab(id)) return;
       if (!appState.aiGeneratedPlan && !appState.purePhaseC && !hasPhaseCTopicContext()) return;
+      var scrollY = window.scrollY || window.pageYOffset || 0;
       appState.navSection = 'phase-c';
       appState.activeProductTab = id;
       appState.step = 3;
@@ -13847,6 +13857,9 @@
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
       persistActiveStep();
+      requestAnimationFrame(function () {
+        window.scrollTo(0, scrollY);
+      });
     }
 
     function renderGeneralSearchResults(data) {
@@ -14103,17 +14116,26 @@
       var labelEl = document.getElementById('header-compact-context-label');
       var gradeBtn = document.getElementById('header-compact-edit-grade');
       var topicBtn = document.getElementById('header-compact-edit-topic');
+      var phaseCBtn = document.getElementById('header-compact-phase-c');
+      var generalSearchBtn = document.getElementById('header-compact-general-search');
       var labelText = getHeaderCompactContextLabel();
       if (labelEl) {
         labelEl.textContent = labelText;
         labelEl.setAttribute('aria-hidden', labelText ? 'false' : 'true');
       }
       if (topicBtn) topicBtn.disabled = false;
+      if (phaseCBtn) {
+        phaseCBtn.disabled = !canNavigateToStep(3);
+        phaseCBtn.classList.toggle('active', isPhaseCView());
+      }
+      if (generalSearchBtn) {
+        generalSearchBtn.classList.toggle('active', isGeneralSearchView());
+      }
       if (gradeBtn) {
-        gradeBtn.classList.toggle('active', !isWorkspaceOpen() && appState.step === 1);
+        gradeBtn.classList.toggle('active', !isWorkspaceOpen() && !isGeneralSearchView() && appState.step === 1);
       }
       if (topicBtn) {
-        topicBtn.classList.toggle('active', !isWorkspaceOpen() && appState.step === 2);
+        topicBtn.classList.toggle('active', !isWorkspaceOpen() && !isGeneralSearchView() && appState.step === 2);
       }
       if (nav) {
         nav.setAttribute('aria-label', t('header_compact_nav_aria'));
@@ -17859,6 +17881,13 @@
       });
       bindWizardNavClick(document.getElementById('header-compact-edit-grade'), navigateCompactHeaderToGrade);
       bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
+      bindWizardNavClick(document.getElementById('header-compact-phase-c'), function () {
+        if (!canNavigateToStep(3)) return;
+        openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'theory' });
+      });
+      bindWizardNavClick(document.getElementById('header-compact-general-search'), function () {
+        openGeneralSearchView();
+      });
       bindWizardNavClick(document.getElementById('ws-crumb-community'), function () { openCommunityRepo(); });
       var gradeSelectEl = document.getElementById('grade-select');
       gradeSelectEl.addEventListener('change', function () {
