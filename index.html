@@ -1059,7 +1059,6 @@
     }
     .marketing-bench-btn:hover { background: rgba(139, 58, 58, 0.06); }
     #general-search-view .general-search-results { margin-top: 1.25rem; }
-    #btn-nav-phase-c.active,
     #btn-nav-general-search.active {
       border-color: rgba(139, 58, 58, 0.45);
       background: rgba(139, 58, 58, 0.08);
@@ -3989,12 +3988,6 @@
           <i class="fa-solid fa-users-rays text-base sm:text-sm"></i>
           <span data-i18n="nav_community">מאגר קהילתי</span>
         </button>
-        <button type="button" id="btn-nav-phase-c"
-          class="step-pill step-pill-phase-c touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
-          data-i18n-aria="step_nav_c">
-          <i class="fa-solid fa-layer-group text-base sm:text-sm"></i>
-          <span data-i18n="step_nav_c">ג׳ תוצרים ומהות פדגוגית</span>
-        </button>
         <button type="button" id="btn-nav-general-search"
           class="step-pill step-pill-general-search touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
           data-i18n-aria="nav_general_search_aria">
@@ -4157,6 +4150,33 @@
       </div>
     </div>
 
+    <div id="phase-c-loading" class="hidden max-w-6xl mx-auto px-3 sm:px-4 mb-3 p-4 rounded-xl bg-parchment/90 border border-sage/25 text-sm text-sage-dark" role="status" aria-live="polite">
+      <i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i>
+      <span data-i18n="phase_c_loading">מפיק תוצרים ומהות פדגוגית...</span>
+    </div>
+
+    <nav id="workspace-products-nav" class="product-tabs-nav hidden" role="tablist" data-i18n-aria="products_tablist_aria">
+      <div class="product-tabs-row max-w-6xl mx-auto px-3 sm:px-4 py-3">
+        <button type="button" role="tab" id="product-tab-theory" data-tab="theory" aria-selected="false" aria-controls="panel-theory"
+          class="product-tab-btn touch-target">
+          <i class="fa-solid fa-book-open" aria-hidden="true"></i>
+          <span class="product-tab-label"><span data-i18n="tab_theory">רקע תיאורטי</span><span data-i18n="tab_theory_suffix"> ומקורות (מידע)</span></span>
+        </button>
+        <button type="button" role="tab" id="product-tab-inspiration" data-tab="inspiration" aria-selected="false" aria-controls="panel-inspiration"
+          class="product-tab-btn touch-target">
+          <i class="fa-solid fa-lightbulb" aria-hidden="true"></i>
+          <span><span data-i18n="tab_inspiration">השראה פדגוגית</span><span data-i18n="tab_inspiration_suffix"></span></span>
+          <span id="community-badge" class="app-micro hidden bg-terracotta text-white px-1.5 py-0.5 rounded-full shrink-0">0</span>
+        </button>
+        <button type="button" role="tab" id="product-tab-curriculum" data-tab="curriculum" aria-selected="false" aria-controls="panel-curriculum"
+          class="product-tab-btn touch-target">
+          <i class="fa-solid fa-compass" aria-hidden="true"></i>
+          <span data-i18n="tab_curriculum">הדגשים לבניית התקופה</span>
+        </button>
+      </div>
+    </nav>
+    <div id="workspace-products-nav-spacer" class="product-tabs-nav-spacer hidden" aria-hidden="true"></div>
+
     <div class="workspace-layout max-w-7xl mx-auto px-3 sm:px-4 w-full box-border">
     <main class="workspace-main py-6 sm:py-8 pb-16 w-full box-border">
       <section id="panel-catalog" class="tab-panel hidden">
@@ -4185,22 +4205,39 @@
         </div>
       </section>
 
-      <section id="panel-phase-c" class="tab-panel hidden">
-        <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
-          <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
-            <i class="fa-solid fa-layer-group text-gold"></i>
-            <span data-i18n="phase_c_title">שלב ג׳ — תוצרים ומהות פדגוגית</span>
-          </h2>
-          <p class="text-sm text-walnut/70 mb-5" data-i18n="phase_c_desc">מהות פדגוגית, נקודות מפתח, ספרות מומלצת וקישורים רלוונטיים לנושא ולכיתה.</p>
-          <div id="phase-c-loading" class="hidden mb-4 p-4 rounded-xl bg-parchment/90 border border-sage/25 text-sm text-sage-dark" role="status" aria-live="polite">
-            <i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i>
-            <span data-i18n="phase_c_loading">מפיק תוצרים ומהות פדגוגית...</span>
-          </div>
-          <div id="phase-c-empty" class="text-sm text-walnut/65 py-6 text-center" data-i18n="phase_c_empty">טענו נושא בשלב ב׳ כדי לראות את תוצרי שלב ג׳.</div>
-          <div id="phase-c-cards" class="pure-phase-c-grid hidden"></div>
-          <div id="phase-c-marketing-mount"></div>
-        </div>
+      <section id="panel-phase-c" class="tab-panel hidden" aria-hidden="true"></section>
+
+      <div id="product-panels-shell" class="product-panels-shell is-neutral hidden" hidden aria-hidden="true">
+      <section id="panel-theory" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-theory" hidden>
+        <div id="theoretical-content"></div>
       </section>
+
+      <section id="panel-inspiration" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-inspiration" hidden>
+        <div id="teacher-drive-inspiration-slot" class="hidden mb-6"></div>
+        <div id="inspiration-content"></div>
+        <div class="mt-8 bg-white/85 rounded-2xl border border-burgundy/20 p-4 sm:p-6 shadow-sm w-full box-border">
+          <h3 class="app-subhead font-display font-bold text-burgundy mb-2">
+            <i class="fa-brands fa-pinterest text-terracotta icon-inline"></i>
+            <span data-i18n="pinterest_title">השראה חזותית ומחברות תקופה</span>
+          </h3>
+          <p class="text-xs text-walnut/60 mb-4" data-i18n="pinterest_desc">השראה חזותית בלבד — לוחות Pinterest ומחברות תקופה</p>
+          <div id="pinterest-gallery" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3"></div>
+        </div>
+        <div id="pedagogical-resources-section" class="hidden" hidden aria-hidden="true"></div>
+        <div id="community-materials" class="mt-6"></div>
+      </section>
+
+      <section id="panel-curriculum" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-curriculum" hidden>
+        <div class="mb-4">
+          <h2 class="app-page-title font-display font-bold text-burgundy" data-i18n="tab_curriculum">הדגשים לבניית התקופה</h2>
+        </div>
+        <div id="teacher-drive-curriculum-slot" class="hidden mb-6"></div>
+        <div id="phase-c-empty" class="text-sm text-walnut/65 py-6 text-center hidden" data-i18n="phase_c_empty">טענו נושא בשלב ב׳ כדי לראות את תוצרי שלב ג׳.</div>
+        <div id="phase-c-structured-cards" class="pure-phase-c-grid hidden"></div>
+        <div id="pedagogical-essence-content" class="hidden" aria-hidden="true"></div>
+        <div id="phase-c-marketing-mount"></div>
+      </section>
+      </div>
     </main>
     </div>
   </div>
@@ -4416,6 +4453,7 @@
     const AI_GENERATE_ENDPOINT = '/api/generate';
     const PURE_PHASE_C_ENDPOINT = '/api/pure-phase-c';
     const PURE_GENERAL_SEARCH_ENDPOINT = '/api/pure-general-search';
+    const PRODUCT_TAB_IDS = ['theory', 'inspiration', 'curriculum'];
 
     async function loadRuntimeConfig() {
       try {
@@ -5030,6 +5068,8 @@
       isSubmitting: false,
       purePhaseC: null,
       generalSearchResult: null,
+      activeProductTab: null,
+      productTabsRendered: { theory: false, inspiration: false, curriculum: false },
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -7734,7 +7774,43 @@
       }
     }
 
+    function isPurePhaseCMode() {
+      return Boolean(appState.purePhaseC);
+    }
+
+    function hydratePurePhaseCLinkData() {
+      var data = appState.purePhaseC;
+      if (!data) return;
+      var topic = String(appState.topic || '').trim();
+      if (Array.isArray(data.pinterest_links) && data.pinterest_links.length) {
+        var gallery = [];
+        data.pinterest_links.forEach(function (item, i) {
+          if (!item || typeof item !== 'object') return;
+          var url = String(item.url || '').trim();
+          if (!url || !/pinterest/i.test(url)) return;
+          gallery.push({
+            title: String(item.title || item.board || ('Pinterest ' + (i + 1))).trim(),
+            url: url,
+            board: String(item.board || '').trim(),
+            pin: String(item.pin || item.title || '').trim(),
+            src: String(item.src || item.image || '').trim(),
+          });
+        });
+        appState.visualGallery = finalizeVisualGallery(gallery, topic, { plan: appState.aiGeneratedPlan });
+      } else {
+        appState.visualGallery = [];
+      }
+      var resources = Array.isArray(data.pedagogical_resources) ? data.pedagogical_resources : [];
+      appState.pedagogicalResources = normalizePedagogicalResources(resources, topic);
+      if (appState.aiGeneratedPlan) appState.aiGeneratedPlan.pedagogicalResources = appState.pedagogicalResources.slice();
+      if (appState.activePlan) appState.activePlan.pedagogicalResources = appState.pedagogicalResources.slice();
+    }
+
     function hydrateUnifiedLessonSynthesis(options) {
+      if (isPurePhaseCMode()) {
+        hydratePurePhaseCLinkData();
+        return Boolean(appState.aiGeneratedPlan && appState.aiGeneratedPlan.inspiration);
+      }
       var insp = hydrateInspirationFromUnifiedSynthesis(options);
       var curr = hydrateCurriculumFromUnifiedSynthesis(options);
       hydrateVisualGalleryFromSources(options);
@@ -7745,11 +7821,12 @@
     function renderInspirationTabPanels() {
       syncVisualGalleryOnLessonContextChange();
       hydrateUnifiedLessonSynthesis();
-      if (!appState.visualGallery.length) {
+      if (!isPurePhaseCMode() && !appState.visualGallery.length) {
         appState.visualGallery = generateVisualGallery(appState.topic || '');
       }
       renderInspirationBase();
       renderPinterestGallery();
+      renderPedagogicalResourcesSection();
       renderPersonalInWorkspace();
       renderTeacherDriveMergeSlots();
       renderCommunityMaterials();
@@ -8642,7 +8719,28 @@
     }
 
     function renderPedagogicalResourcesSection() {
-      /* no-sources mode: pedagogical resource links removed from UI */
+      var existing = document.getElementById('pure-pedagogical-resources');
+      if (existing) existing.remove();
+      if (!isPurePhaseCMode()) return;
+      var resources = appState.pedagogicalResources || [];
+      var mount = document.getElementById('inspiration-content');
+      if (!mount || !resources.length) return;
+      var html = '<section id="pure-pedagogical-resources" class="mt-6 bg-white/75 rounded-2xl border border-sage/25 p-5">' +
+        '<h3 class="app-subhead font-bold text-sage-dark mb-3"><i class="fa-solid fa-link ml-1" aria-hidden="true"></i> ' +
+        escapeHtml(t('pedagogical_resources_title')) + '</h3><ul class="space-y-3">';
+      resources.forEach(function (item) {
+        var labelClass = pedagogicalResourceLabelClass(item.label || 'מאמר פדגוגי');
+        html += '<li class="rounded-xl border p-3 bg-cream/40 ' + labelClass + '">' +
+          '<div class="flex flex-wrap items-center gap-2 mb-1">' +
+          '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
+          (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
+          '</div>' +
+          '<p class="font-medium text-walnut">' + buildProseSourceLinkHtml(item.url, item.title || item.url) + '</p>' +
+          (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '') +
+          '</li>';
+      });
+      html += '</ul></section>';
+      mount.insertAdjacentHTML('beforeend', html);
     }
 
     function normalizeGallery(items, topic, options) {
@@ -13423,6 +13521,14 @@
       return isWorkspaceOpen() && appState.navSection === 'phase-c';
     }
 
+    function isProductsView() {
+      return isPhaseCView();
+    }
+
+    function freshProductTabsRendered() {
+      return { theory: false, inspiration: false, curriculum: false };
+    }
+
     function isGeneralSearchView() {
       var el = document.getElementById('general-search-view');
       return el && !el.classList.contains('hidden');
@@ -13505,7 +13611,7 @@
     }
 
     function renderPurePhaseCCards(data) {
-      var cardsEl = document.getElementById('phase-c-cards');
+      var cardsEl = document.getElementById('phase-c-structured-cards');
       var emptyEl = document.getElementById('phase-c-empty');
       if (!cardsEl) return;
       if (!data) {
@@ -13517,11 +13623,167 @@
       if (emptyEl) emptyEl.classList.add('hidden');
       cardsEl.classList.remove('hidden');
       cardsEl.innerHTML =
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_card_core')) + '</h3>' + renderPureTextBlock(data.core_emphases) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_card_points')) + '</h3>' + renderPureListBlock(data.key_points) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_card_reading')) + '</h3>' + renderPureReadingBlock(data.recommended_reading) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_card_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links) + '</article>';
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_tab_core')) + '</h3>' + renderPureTextBlock(data.core_emphases) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_tab_points')) + '</h3>' + renderPureListBlock(data.key_points) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_tab_reading')) + '</h3>' + renderPureReadingBlock(data.recommended_reading) + '</article>' +
+        '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_tab_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links) + '</article>';
       renderMarketingBench('phase-c-marketing-mount');
+      if (appState.productTabsRendered) appState.productTabsRendered.curriculum = true;
+    }
+
+    function populateAiGeneratedPlanFromPurePhaseC(data) {
+      if (!data) return;
+      var topic = appState.topic || '';
+      var gradeLabel = appState.gradeLabel || '';
+      appState.purePhaseC = data;
+      appState.aiGeneratedPlan = {
+        title: topic,
+        topic: topic,
+        gradeLabel: gradeLabel,
+        theory: data.theory || null,
+        inspiration: data.inspiration || null,
+      };
+      syncActivePlanFromGenerated();
+      hydratePurePhaseCLinkData();
+      appState.productTabsRendered = freshProductTabsRendered();
+    }
+
+    function clearProductPanelDom() {
+      var theoryEl = document.getElementById('theoretical-content');
+      if (theoryEl) theoryEl.innerHTML = '';
+      var inspBase = document.getElementById('inspiration-content');
+      if (inspBase) inspBase.innerHTML = '';
+      var pinGal = document.getElementById('pinterest-gallery');
+      if (pinGal) pinGal.innerHTML = '';
+      var commMat = document.getElementById('community-materials');
+      if (commMat) commMat.innerHTML = '';
+      var cards = document.getElementById('phase-c-structured-cards');
+      if (cards) { cards.innerHTML = ''; cards.classList.add('hidden'); }
+      var essence = document.getElementById('pedagogical-essence-content');
+      if (essence) essence.innerHTML = '';
+      var inspSlot = document.getElementById('teacher-drive-inspiration-slot');
+      if (inspSlot) { inspSlot.innerHTML = ''; inspSlot.classList.add('hidden'); }
+      var currSlot = document.getElementById('teacher-drive-curriculum-slot');
+      if (currSlot) { currSlot.innerHTML = ''; currSlot.classList.add('hidden'); }
+    }
+
+    function invalidateProductTabRenders() {
+      appState.productTabsRendered = freshProductTabsRendered();
+      clearProductPanelDom();
+    }
+
+    function syncProductTabButtons(activeId) {
+      document.querySelectorAll('#workspace-products-nav .product-tab-btn').forEach(function (b) {
+        var on = Boolean(activeId) && b.getAttribute('data-tab') === activeId;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+    }
+
+    function hideProductTabPanel(id) {
+      var panel = document.getElementById('panel-' + id);
+      if (!panel) return;
+      panel.classList.add('hidden');
+      panel.setAttribute('hidden', '');
+      panel.classList.remove('product-tab-panel--enter');
+    }
+
+    function revealProductTabPanel(id) {
+      var shell = document.getElementById('product-panels-shell');
+      if (shell) {
+        shell.classList.remove('hidden', 'is-neutral');
+        shell.removeAttribute('hidden');
+        shell.setAttribute('aria-hidden', 'false');
+      }
+      PRODUCT_TAB_IDS.forEach(function (pid) {
+        if (pid !== id) hideProductTabPanel(pid);
+      });
+      var panel = document.getElementById('panel-' + id);
+      if (!panel) return;
+      panel.classList.remove('hidden');
+      panel.removeAttribute('hidden');
+      panel.classList.remove('product-tab-panel--enter');
+      void panel.offsetWidth;
+      panel.classList.add('product-tab-panel--enter');
+      panel.addEventListener('animationend', function onEnd() {
+        panel.classList.remove('product-tab-panel--enter');
+        panel.removeEventListener('animationend', onEnd);
+      });
+    }
+
+    function resetProductTabsNeutral() {
+      appState.activeProductTab = null;
+      syncProductTabButtons(null);
+      PRODUCT_TAB_IDS.forEach(hideProductTabPanel);
+      var shell = document.getElementById('product-panels-shell');
+      if (shell) {
+        shell.classList.add('hidden', 'is-neutral');
+        shell.setAttribute('hidden', '');
+        shell.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    function isProductTab(id) {
+      return PRODUCT_TAB_IDS.indexOf(id) >= 0;
+    }
+
+    function renderProductTabContent(tabId) {
+      if (!appState.aiGeneratedPlan && !appState.purePhaseC) return;
+      try {
+        ensureActivePlan();
+      } catch (planErr) {
+        console.warn('[waldrof] ensureActivePlan:', planErr);
+      }
+      var r = appState.productTabsRendered || freshProductTabsRendered();
+      appState.productTabsRendered = r;
+      if (tabId === 'theory' && !r.theory) {
+        renderTheory();
+        r.theory = true;
+      } else if (tabId === 'inspiration') {
+        var inspPanelEl = document.getElementById('inspiration-content');
+        var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
+        if (!r.inspiration || inspDomEmpty) {
+          renderInspirationTabPanels();
+          r.inspiration = true;
+        }
+      } else if (tabId === 'curriculum') {
+        renderPurePhaseCCards(appState.purePhaseC);
+        r.curriculum = true;
+      }
+      ensurePageScrollUnlocked();
+    }
+
+    function ensureProductTabsHydrated(forceRemount) {
+      if (!appState.aiGeneratedPlan && !appState.purePhaseC) return;
+      var theoryEl = document.getElementById('theoretical-content');
+      var domEmpty = theoryEl && !theoryEl.innerHTML.trim();
+      if (forceRemount || domEmpty) invalidateProductTabRenders();
+      PRODUCT_TAB_IDS.forEach(function (tabId) {
+        renderProductTabContent(tabId);
+      });
+      restoreBibliographySummaryPanels();
+      restorePedagogySummaryPanels();
+      setupThemeActionButtons();
+    }
+
+    function switchProductTab(id, options) {
+      options = options || {};
+      if (!isProductTab(id)) return;
+      if (!appState.aiGeneratedPlan && !appState.purePhaseC) return;
+      appState.navSection = 'phase-c';
+      appState.activeProductTab = id;
+      appState.step = 3;
+      document.getElementById('panel-catalog').classList.add('hidden');
+      var phaseLegacy = document.getElementById('panel-phase-c');
+      if (phaseLegacy) phaseLegacy.classList.add('hidden');
+      syncProductTabButtons(id);
+      revealProductTabPanel(id);
+      ensureProductTabsHydrated(options.forceRemount === true);
+      if (id === 'curriculum') setupThemeActionButtons();
+      updateWorkspaceChrome();
+      updatePedagogyExportButtonsVisibility();
+      renderStepProgress();
+      persistActiveStep();
     }
 
     function renderGeneralSearchResults(data) {
@@ -13618,7 +13880,13 @@
       appState.step = 3;
       showWorkspaceShell();
       hideGeneralSearchView();
-      switchTab('phase-c', options);
+      document.getElementById('panel-catalog').classList.add('hidden');
+      var initialTab = options.initialTab || appState.activeProductTab || 'theory';
+      if (!options.skipLoad && !appState.purePhaseC && appState.grade && appState.topic) {
+        loadPurePhaseCForCurrentTopic(initialTab);
+      } else {
+        switchProductTab(initialTab, options);
+      }
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
@@ -13687,10 +13955,8 @@
 
     function updateTopNavButtons() {
       const communityBtn = document.getElementById('btn-nav-community');
-      const phaseCBtn = document.getElementById('btn-nav-phase-c');
       const generalSearchBtn = document.getElementById('btn-nav-general-search');
       if (communityBtn) communityBtn.classList.toggle('active', isCommunityView());
-      if (phaseCBtn) phaseCBtn.classList.toggle('active', isPhaseCView());
       if (generalSearchBtn) generalSearchBtn.classList.toggle('active', isGeneralSearchView());
     }
 
@@ -13737,11 +14003,15 @@
       var root = document.documentElement;
       var siteChrome = document.getElementById('app-site-chrome');
       var spacer = document.getElementById('app-site-chrome-spacer');
+      var tabsNav = document.getElementById('workspace-products-nav');
       if (siteChrome) {
         var chromeHeight = siteChrome.offsetHeight;
         root.style.setProperty('--app-site-chrome-height', chromeHeight + 'px');
         root.style.setProperty('--app-sticky-nav-height', chromeHeight + 'px');
         if (spacer) spacer.style.height = chromeHeight + 'px';
+      }
+      if (tabsNav && !tabsNav.classList.contains('hidden')) {
+        root.style.setProperty('--product-tabs-nav-height', tabsNav.offsetHeight + 'px');
       }
     }
 
@@ -13873,7 +14143,12 @@
     }
 
     function updateWorkspaceChrome() {
-      document.body.classList.remove('ws-products-view');
+      const productsNav = document.getElementById('workspace-products-nav');
+      const productsSpacer = document.getElementById('workspace-products-nav-spacer');
+      const inProducts = isProductsView();
+      if (productsNav) productsNav.classList.toggle('hidden', !inProducts);
+      if (productsSpacer) productsSpacer.classList.toggle('hidden', !inProducts);
+      document.body.classList.toggle('ws-products-view', inProducts);
       requestAnimationFrame(syncProductTabsStickyLayout);
       renderWorkspaceBreadcrumb();
       updateTopNavButtons();
@@ -14535,6 +14810,7 @@
       appState.step = n;
       appState.navSection = 'wizard';
       hideGeneralSearchView();
+      resetProductTabsNeutral();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
       hideAllWorkspacePanels();
@@ -14939,7 +15215,7 @@
         if (runId !== topicResearchRunId || signal.aborted) return;
 
         appState.topic = topic;
-        appState.purePhaseC = data;
+        populateAiGeneratedPlanFromPurePhaseC(data);
         appState.topicResearchCompleted = true;
         appState.lessonFromArchive = false;
 
@@ -14949,8 +15225,7 @@
             escapeHtml(isEnglish() ? 'Phase C products ready — opening dashboard.' : 'תוצרי שלב ג׳ מוכנים — פותח לוח בקרה.') + '</p>';
         }
 
-        openPhaseCWorkspace({ skipLoad: true });
-        renderPurePhaseCCards(data);
+        openPhaseCWorkspace({ skipLoad: true, initialTab: 'theory', forceRemount: true });
 
         if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
           try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
@@ -15356,11 +15631,49 @@
     }
 
     function getRenderableBibliography(theory) {
+      if (isPurePhaseCMode()) {
+        var raw = (theory && theory.bibliography) || null;
+        return normalizeBibliography(raw, appState.grade, appState.topic, null);
+      }
       if (!theory) {
         return normalizeBibliography(null, appState.grade, appState.topic, appState.webResearch);
       }
-      var raw = extractBibliographyFromPlan({ theory: theory }) || theory.bibliography;
-      return normalizeBibliography(raw, appState.grade, appState.topic, appState.webResearch);
+      var rawBib = extractBibliographyFromPlan({ theory: theory }) || theory.bibliography;
+      return normalizeBibliography(rawBib, appState.grade, appState.topic, appState.webResearch);
+    }
+
+    function collectPureTheoryLiveLinks(theory, pureData) {
+      var seen = Object.create(null);
+      var out = [];
+      function pushLink(title, url) {
+        var u = String(url || '').trim();
+        var t = String(title || u).trim();
+        if (!u || !/^https?:\/\//i.test(u) || seen[u]) return;
+        seen[u] = true;
+        out.push({ title: t, url: u });
+      }
+      (pureData && pureData.relevant_links || []).forEach(function (item) {
+        pushLink(item.title, item.url);
+      });
+      var websites = theory && theory.bibliography && theory.bibliography.websites;
+      (websites || []).forEach(function (item) {
+        if (!item) return;
+        if (typeof item === 'object') pushLink(item.title || item.name, item.url || item.link);
+      });
+      return out;
+    }
+
+    function renderPureTheoryLiveLinksSection(theory, pureData) {
+      var links = collectPureTheoryLiveLinks(theory, pureData);
+      if (!links.length) return '';
+      return '<section class="theory-bibliography-card mt-6" aria-labelledby="theory-live-links-heading">' +
+        '<h3 id="theory-live-links-heading" class="theory-bib-main-title"><i class="fa-solid fa-link text-burgundy ml-1" aria-hidden="true"></i> ' +
+        escapeHtml(t('phase_c_tab_links')) + '</h3>' +
+        '<p class="text-walnut/65 mb-4">' + escapeHtml(isEnglish()
+          ? 'Live professional sources from web search — archives, essays, and deep pedagogical centers.'
+          : 'מקורות מקצועיים חיים מחיפוש רשת — ארכיונים, מאמרים ומרכזי מקור עמוקים.') + '</p>' +
+        renderPureLinksBlock(links) +
+        '</section>';
     }
 
     function renderTheoryBibliography(bib) {
@@ -15390,6 +15703,14 @@
       const plan = appState.activePlan;
       const d = plan && plan.theory;
       if (!d) {
+        if (isPurePhaseCMode()) {
+          holdPageScroll(function () {
+            const el = document.getElementById('theoretical-content');
+            if (!el) return;
+            el.innerHTML = '<p class="text-sm text-terracotta">' + escapeHtml(t('research_need_topic')) + '</p>';
+          });
+          return;
+        }
         const raw = String((plan && plan.rawContent) || (appState.webResearch && appState.webResearch.rawContent) || '').trim();
         const citations = (plan && plan.citations) || (appState.webResearch && appState.webResearch.citations) || [];
         holdPageScroll(function () {
@@ -15448,6 +15769,9 @@
       });
       if (bib.books.length || bib.articles.length || bib.websites.length) {
         html += renderTheoryBibliography(bib);
+      }
+      if (isPurePhaseCMode()) {
+        html += renderPureTheoryLiveLinksSection(d, appState.purePhaseC);
       }
       holdPageScroll(function () {
         document.getElementById('theoretical-content').innerHTML = html;
@@ -17053,46 +17377,52 @@
 
     function switchTab(id, options) {
       options = options || {};
-      if (id !== 'catalog' && id !== 'phase-c') return;
-      var tabViewChanged = appState.navSection !== (id === 'catalog' ? 'community' : 'phase-c');
-      appState.navSection = id === 'catalog' ? 'community' : 'phase-c';
+      if (isProductTab(id)) {
+        showWorkspaceShell();
+        hideGeneralSearchView();
+        document.getElementById('panel-catalog').classList.add('hidden');
+        switchProductTab(id, options);
+        return;
+      }
+      if (id === 'phase-c') {
+        openPhaseCWorkspace(options);
+        return;
+      }
+      if (id !== 'catalog') return;
+      var tabViewChanged = appState.navSection !== 'community';
+      appState.navSection = 'community';
+      resetProductTabsNeutral();
       if (tabViewChanged) resetMainViewScroll();
       document.querySelectorAll('.catalog-upload-form').forEach(function (form) { syncCommunityFormDraftFromForm(form); });
       document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.add('hidden'); });
-      const panel = document.getElementById(id === 'catalog' ? 'panel-catalog' : 'panel-phase-c');
+      const panel = document.getElementById('panel-catalog');
       if (panel) {
         panel.classList.remove('hidden');
         panel.removeAttribute('hidden');
       }
-      if (id === 'catalog') {
-        renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
-      } else {
-        renderPurePhaseCCards(appState.purePhaseC);
-        if (!options.skipLoad && !appState.purePhaseC && appState.grade && appState.topic) {
-          loadPurePhaseCForCurrentTopic();
-        }
-      }
+      renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
       persistActiveStep();
     }
 
-    async function loadPurePhaseCForCurrentTopic() {
+    async function loadPurePhaseCForCurrentTopic(initialTab) {
       if (!appState.grade || !appState.topic) return;
       setPhaseCLoadingUi(true);
       try {
         const data = await fetchPurePhaseC(appState.gradeLabel || appState.grade, appState.topic);
-        appState.purePhaseC = data;
+        populateAiGeneratedPlanFromPurePhaseC(data);
         appState.topicResearchCompleted = true;
-        renderPurePhaseCCards(data);
+        openPhaseCWorkspace({ skipLoad: true, initialTab: initialTab || 'theory', forceRemount: true });
       } catch (err) {
         renderPurePhaseCCards(null);
-        var cardsEl = document.getElementById('phase-c-cards');
+        var cardsEl = document.getElementById('phase-c-structured-cards');
         if (cardsEl) {
           cardsEl.classList.remove('hidden');
           cardsEl.innerHTML = '<p class="text-terracotta col-span-full"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(err.message || String(err)) + '</p>';
         }
+        switchProductTab(initialTab || 'curriculum');
       } finally {
         setPhaseCLoadingUi(false);
       }
@@ -17122,6 +17452,9 @@
       });
       appState.purePhaseC = null;
       appState.generalSearchResult = null;
+      appState.activeProductTab = null;
+      appState.productTabsRendered = freshProductTabsRendered();
+      resetProductTabsNeutral();
       resetVisualGalleryState();
       appState._visualGallerySessionKey = '';
       resetArchiveSearchFlowState();
@@ -17330,15 +17663,10 @@
         onStepNavClick(parseInt(btn.getAttribute('data-step-nav'), 10), e);
       });
       bindWizardNavClick(document.getElementById('btn-nav-community'), function () { openCommunityRepo(); });
-      bindWizardNavClick(document.getElementById('btn-nav-phase-c'), function () {
-        if (!appState.grade || !appState.topic) {
-          alert(t('community_need_topic'));
-          goToStep(2, 'smooth');
-          return;
-        }
-        openPhaseCWorkspace();
-      });
       bindWizardNavClick(document.getElementById('btn-nav-general-search'), function () { openGeneralSearchView(); });
+      document.querySelectorAll('#workspace-products-nav .product-tab-btn').forEach(function (b) {
+        b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
+      });
       var generalSearchSubmit = document.getElementById('btn-general-search-submit');
       if (generalSearchSubmit) {
         generalSearchSubmit.addEventListener('click', function () { runGeneralSearch(); });
@@ -17465,7 +17793,9 @@
         renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
       }
       if (isPhaseCView() && appState.purePhaseC) {
-        renderPurePhaseCCards(appState.purePhaseC);
+        invalidateProductTabRenders();
+        ensureProductTabsHydrated(true);
+        if (appState.activeProductTab) switchProductTab(appState.activeProductTab);
       }
       if (isGeneralSearchView() && appState.generalSearchResult) {
         renderGeneralSearchResults(appState.generalSearchResult);

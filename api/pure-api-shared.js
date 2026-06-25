@@ -129,6 +129,14 @@ function badRequest(message) {
   return err;
 }
 
+const PROFESSIONAL_LINKS_INSTRUCTION = [
+  'LIVE WEB SEARCH REQUIRED for every external URL — include ONLY verified, functioning HTTPS links from professional pedagogical sources.',
+  'PRIORITIZE: Rudolf Steiner Archive / GA lectures, waldorflibrary.org, AWSNA, IASWECE, academic Waldorf essays, teacher journals,',
+  'deep source centers (e.g. Adam Olam / אדם עולם), anthroposophic research libraries, and classroom-practice curriculum guides.',
+  'EXCLUDE: generic parent-facing school homepages, enrollment pages, broken or guessed URLs, social media (except Pinterest in pinterest_links).',
+  'If a link cannot be verified from live search, omit it — never invent URLs.',
+].join(' ');
+
 module.exports = {
   CORS_HEADERS,
   setCors,
@@ -140,4 +148,5 @@ module.exports = {
   callPerplexityJson,
   createLegacyPostHandler,
   badRequest,
+  PROFESSIONAL_LINKS_INSTRUCTION,
 };

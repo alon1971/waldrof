@@ -33,6 +33,9 @@ async function runPureGeneralSearch(body) {
     'Provide a structured multi-grade analysis: developmental progression, core emphases by age band,',
     'recommended professional literature, and relevant web resources.',
     'Write in Hebrew unless the query is clearly in another language.',
+    '',
+    shared.PROFESSIONAL_LINKS_INSTRUCTION,
+    'relevant_links must be live, functioning professional sources (Steiner archives, Waldorf essays, Adam Olam, academic centers) — not parent-facing school homepages.',
   ].join('\n');
 
   const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt);
