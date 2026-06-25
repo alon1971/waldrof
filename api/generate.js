@@ -2431,8 +2431,12 @@ function buildGenerateHttpPayload(result) {
 
   if (meta.fromCache) {
     if (!data || typeof data !== 'object') {
+      if (meta.cacheKey && typeof cacheDb.purgeCorruptedCachedRow === 'function') {
+        cacheDb.purgeCorruptedCachedRow(meta.cacheKey, 'http_payload_invalid').catch(function () { /* ignore */ });
+      }
       const err = new Error('מבנה נתוני cache לא תקין');
       err.statusCode = 500;
+      err.cacheCorrupt = true;
       throw err;
     }
     return { data: data, meta: meta };

@@ -506,6 +506,51 @@ function safeJsonStringify(value) {
   }
 }
 
+/**
+ * Coerce incoming payload to a plain JSON object for Postgres jsonb — never a string.
+ * Prevents double-stringify corruption (Hebrew quotes / special chars in archived rows).
+ */
+function ensureJsonObjectForStorage(value) {
+  if (value == null) return null;
+  let data = value;
+  if (typeof data === 'string') {
+    const text = data.trim();
+    if (!text) return null;
+    data = tryParseCachedJsonText(text);
+    if (data == null) return null;
+    if (typeof data === 'string') {
+      data = tryParseCachedJsonText(data);
+      if (data == null) return null;
+    }
+  }
+  if (typeof data !== 'object' || Array.isArray(data)) return null;
+  return sanitizeForJsonStorage(data);
+}
+
+async function purgeCorruptedCachedRow(cacheKey, reason) {
+  if (!cacheKey) return false;
+  console.warn(
+    '[cached_results] purging corrupted row',
+    cacheKey.slice(0, 12),
+    reason || 'unparseable_result_data'
+  );
+  return deleteCachedRowByKey(cacheKey);
+}
+
+/**
+ * Parse result_data from a DB row; delete the row when JSON is irreparably corrupt.
+ */
+async function readAndValidateCachedResultData(row, cacheKey) {
+  if (!row || row.result_data == null) return null;
+  const key = cacheKey || row.cache_key || null;
+  const data = coerceCachedResultData(row.result_data);
+  if (!data) {
+    if (key) await purgeCorruptedCachedRow(key, 'coerce_failed');
+    return null;
+  }
+  return data;
+}
+
 function sanitizeChatEnrichmentEntry(entry) {
   if (!entry || typeof entry !== 'object') return null;
   return {
@@ -708,7 +753,7 @@ async function lookupGradeCachedContext(body) {
     if (!gradeBody) return null;
     const cacheKey = buildCacheKey(gradeBody);
     const row = await resolveCachedRowWithLegacyFallback(gradeBody, cacheKey);
-    const data = coerceCachedResultData(row && row.result_data);
+    const data = row ? await readAndValidateCachedResultData(row, cacheKey) : null;
     if (!row || !data || !extractGradeInsightsText(data)) return null;
     bumpHitCountAsync(cacheKey, row.hit_count);
     const safeData = sanitizeForJsonStorage(data);
@@ -733,7 +778,7 @@ async function lookupTopicCachedContext(body) {
   if (!topicBody) return null;
   const cacheKey = buildCacheKey(topicBody);
   const row = await resolveCachedRowWithLegacyFallback(topicBody, cacheKey);
-  const data = coerceCachedResultData(row && row.result_data);
+  const data = row ? await readAndValidateCachedResultData(row, cacheKey) : null;
   if (!row || !data) return null;
   bumpHitCountAsync(cacheKey, row.hit_count);
   return {
@@ -1884,7 +1929,7 @@ async function getCachedResult(body, options) {
   }
 
   const row = await resolveCachedRowWithLegacyFallback(body, cacheKey);
-  let data = row && row.result_data ? coerceCachedResultData(row.result_data) : null;
+  let data = row ? await readAndValidateCachedResultData(row, cacheKey) : null;
 
   if (!data) {
     const fallbackRaw = getFallbackCached(cacheKey);
@@ -1947,7 +1992,7 @@ async function getRawPerplexityCache(body) {
 async function setRawPerplexityCache(body, rawPayload) {
   const rawBody = buildRawPerplexityCacheBody(body);
   if (!rawBody || !rawPayload) return null;
-  const safe = sanitizeForJsonStorage(Object.assign({}, rawPayload, {
+  const safe = ensureJsonObjectForStorage(Object.assign({}, rawPayload, {
     searchedAt: rawPayload.searchedAt || new Date().toISOString(),
     topic: rawPayload.topic || body.topic || null,
     gradeId: rawPayload.gradeId || body.currentGrade || body.gradeId || null,
@@ -1968,8 +2013,11 @@ async function setCachedResult(body, resultData) {
   const cacheKey = buildCacheKey(body);
   if (!cacheKey || !resultData) return null;
 
-  const safeResultData = sanitizeForJsonStorage(resultData);
-  if (!safeResultData) return null;
+  const safeResultData = ensureJsonObjectForStorage(resultData);
+  if (!safeResultData) {
+    console.warn('[cached_results] skip save — result_data is not a JSON object', cacheKey.slice(0, 12));
+    return null;
+  }
 
   const row = buildRow(cacheKey, body, safeResultData);
   const rowBodyJson = safeJsonStringify(row);
@@ -2273,8 +2321,13 @@ async function listTeacherChatHistory(teacher, options) {
 async function getCommunityLessonByCacheKey(cacheKey) {
   const row = await fetchCachedRowByKey(cacheKey);
   if (!row || row.phase !== 'topic') return null;
-  let data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
-  if (!data || !data.blockPlan) return null;
+  const coerced = await readAndValidateCachedResultData(row, cacheKey);
+  if (!coerced) return null;
+  let data = coerceArchiveLessonResultData(coerced);
+  if (!data || !data.blockPlan) {
+    await purgeCorruptedCachedRow(cacheKey, 'invalid_lesson_shape');
+    return null;
+  }
   data = applyArchiveLinkCleanupPolicy(data, 'topic');
   bumpHitCountAsync(cacheKey, row.hit_count);
   return formatHistoryItem(Object.assign({}, row, { result_data: data }));
@@ -2287,8 +2340,13 @@ async function getTeacherLessonByCacheKey(teacher, cacheKey) {
   const row = await fetchCachedRowByKey(cacheKey);
   if (!row || row.phase !== 'topic') return null;
   if (!teacherOwnsRow(teacher, row)) return null;
-  let data = coerceArchiveLessonResultData(coerceCachedResultData(row.result_data));
-  if (!data || !data.blockPlan) return null;
+  const coerced = await readAndValidateCachedResultData(row, cacheKey);
+  if (!coerced) return null;
+  let data = coerceArchiveLessonResultData(coerced);
+  if (!data || !data.blockPlan) {
+    await purgeCorruptedCachedRow(cacheKey, 'invalid_lesson_shape');
+    return null;
+  }
   data = applyArchiveLinkCleanupPolicy(data, 'topic');
   bumpHitCountAsync(cacheKey, row.hit_count);
   return formatHistoryItem(Object.assign({}, row, { result_data: data }));
@@ -2302,7 +2360,9 @@ async function saveTopicChatSession(teacher, cacheKey, session) {
   if (!row || row.phase !== 'topic') return false;
   if (!teacherOwnsRow(teacher, row)) return false;
 
-  const data = Object.assign({}, coerceCachedResultData(row.result_data) || {});
+  const baseData = await readAndValidateCachedResultData(row, cacheKey);
+  if (!baseData) return false;
+  const data = Object.assign({}, baseData);
   const messages = Array.isArray(session && session.messages) ? session.messages : [];
   data.chatHistory = messages.slice(-40).map(function (m) {
     return {
@@ -2324,7 +2384,7 @@ async function saveTopicChatSession(teacher, cacheKey, session) {
         {
           method: 'PATCH',
           headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({ result_data: data }),
+          body: safeJsonStringify({ result_data: ensureJsonObjectForStorage(data) }),
         }
       );
       if (res.ok) return true;
@@ -3343,6 +3403,9 @@ module.exports = {
   coerceCachedResultData,
   deleteCachedRowByKey,
   deleteRawPerplexityCache,
+  purgeCorruptedCachedRow,
+  ensureJsonObjectForStorage,
+  readAndValidateCachedResultData,
   coerceArchiveLessonResultData,
   sanitizeForJsonStorage,
   safeJsonStringify,

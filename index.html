@@ -5097,12 +5097,12 @@
 
     function readWizardStorageItem(key) {
       try {
-        var raw = sessionStorage.getItem(key);
+        var raw = localStorage.getItem(key);
         if (raw) return raw;
-        raw = localStorage.getItem(key);
+        raw = sessionStorage.getItem(key);
         if (!raw) return null;
-        sessionStorage.setItem(key, raw);
-        localStorage.removeItem(key);
+        localStorage.setItem(key, raw);
+        sessionStorage.removeItem(key);
         return raw;
       } catch (e) {
         return null;
@@ -5111,8 +5111,8 @@
 
     function writeWizardStorageItem(key, value) {
       try {
-        sessionStorage.setItem(key, value);
-        localStorage.removeItem(key);
+        localStorage.setItem(key, value);
+        sessionStorage.removeItem(key);
       } catch (e) { /* quota / private mode */ }
     }
 
@@ -5162,7 +5162,7 @@
         if (!raw) return null;
         var data = JSON.parse(raw);
         var step = parseInt(data.step, 10);
-        if (!(step >= 1 && step <= 2)) return null;
+        if (!(step >= 1 && step <= 3)) return null;
         return data;
       } catch (e) {
         return null;
@@ -5238,15 +5238,21 @@
 
     function persistActiveStep() {
       try {
+        var generalSearchInput = document.getElementById('general-search-input');
+        var topicInput = document.getElementById('topic-input');
         writeWizardStorageItem(ACTIVE_STEP_STORAGE_KEY, JSON.stringify({
           step: appState.step,
           navSection: appState.navSection || 'wizard',
           grade: appState.grade || null,
+          gradeLabel: appState.gradeLabel || null,
           topic: appState.topic || null,
+          topicInput: topicInput ? String(topicInput.value || '').trim() : (appState.topic || ''),
           scrollY: window.scrollY || window.pageYOffset || 0,
           topicResearchLoading: isTopicResearchLoadingUi(),
           lessonCacheKey: appState.lessonCacheKey || '',
           topicResearchCompleted: Boolean(appState.topicResearchCompleted),
+          activeProductTab: appState.activeProductTab || null,
+          generalSearchQuery: generalSearchInput ? String(generalSearchInput.value || '').trim() : '',
           catalogView: catalogState.view || 'grades',
           catalogGradeId: catalogState.gradeId || null,
           catalogTopic: catalogState.topic || null,
@@ -11099,30 +11105,63 @@
       return data && data.item ? data.item : null;
     }
 
+    async function fallbackToLiveTopicResearch(topic) {
+      var topicStr = String(topic || appState.topic || '').trim();
+      if (!topicStr || !appState.grade) return false;
+      console.warn('[waldrof] archive unusable — falling back to live Perplexity for:', topicStr);
+      appState.lessonFromArchive = false;
+      appState.lessonCacheKey = '';
+      var topicInput = document.getElementById('topic-input');
+      if (topicInput) topicInput.value = topicStr;
+      var runId = ++topicResearchRunId;
+      var ac = new AbortController();
+      topicResearchAbort = ac;
+      setTopicResearchLoadingUi(true);
+      try {
+        await runTopicResearchGeneration(topicStr, runId, ac.signal);
+        return true;
+      } catch (liveErr) {
+        if (!isTopicResearchAbortError(liveErr) && !isRateLimitError(liveErr)) {
+          console.error('[waldrof] live topic fallback failed:', liveErr);
+        }
+        return false;
+      }
+    }
+
     async function applyArchiveTopicMatch(match, options) {
       options = options || {};
       if (!match) return false;
+      var userQuery = String(
+        options.userQuery || match.requestedTopic || appState.topic || (document.getElementById('topic-input') && document.getElementById('topic-input').value) || ''
+      ).trim();
       try {
         let item = match.item;
         if (!item && match.cacheKey) {
           item = await reloadArchiveLessonItem(match.cacheKey);
         }
-        if (item) {
-          const normalized = coerceArchiveLessonResultData(item);
-          if (normalized) item = Object.assign({}, item, { resultData: normalized });
+        if (!item || !item.resultData) {
+          return await fallbackToLiveTopicResearch(userQuery);
         }
-        if (!item || !item.resultData || !item.resultData.blockPlan) return false;
+        let normalized = null;
+        try {
+          normalized = coerceArchiveLessonResultData(item.resultData);
+        } catch (parseErr) {
+          console.warn('[waldrof] archive JSON parse failed:', parseErr);
+          normalized = null;
+        }
+        if (!normalized || !normalized.blockPlan) {
+          return await fallbackToLiveTopicResearch(userQuery);
+        }
+        item = Object.assign({}, item, { resultData: normalized });
         if (options.closeChat && typeof LessonChatSidebar !== 'undefined') {
           LessonChatSidebar.setDisplayMode('bubble');
         }
-        const userQuery = String(
-          options.userQuery || match.requestedTopic || appState.topic || document.getElementById('topic-input')?.value || ''
-        ).trim();
         await applyLessonPlanFromHistory(item, { userQuery: userQuery });
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         return true;
       } catch (err) {
-        console.error('[waldrof] applyArchiveTopicMatch failed:', err);
+        console.error('[waldrof] applyArchiveTopicMatch failed — trying live fallback:', err);
+        if (await fallbackToLiveTopicResearch(userQuery)) return true;
         throw err;
       } finally {
         setTopicResearchLoadingUi(false);
@@ -14461,10 +14500,12 @@
     function shouldPreserveWizardViewport() {
       if (appState.step > 1) return true;
       if (isWorkspaceOpen()) return true;
+      if (isPhaseCView() || isGeneralSearchView()) return true;
       if (isTopicResearchLoadingUi()) return true;
       var saved = readPersistedActiveStep();
       if (!saved) return false;
-      return saved.step > 1 || saved.navSection !== 'wizard' || Boolean(saved.topicResearchLoading);
+      var savedStep = parseInt(saved.step, 10);
+      return savedStep > 1 || saved.navSection !== 'wizard' || Boolean(saved.topicResearchLoading);
     }
 
     function restoreCatalogFromSaved(saved) {
@@ -14482,6 +14523,28 @@
         openCommunityRepo();
         if (catalogState.view && catalogState.view !== 'grades') {
           renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+        }
+        return;
+      }
+      if (navSection === 'general-search') {
+        openGeneralSearchView();
+        var gsInput = document.getElementById('general-search-input');
+        if (gsInput && options.generalSearchQuery) gsInput.value = options.generalSearchQuery;
+        if (appState.generalSearchResult) renderGeneralSearchResults(appState.generalSearchResult);
+        return;
+      }
+      if (navSection === 'phase-c' || step === 3) {
+        if (appState.grade && appState.topic) {
+          openPhaseCWorkspace({
+            skipLoad: Boolean(appState.purePhaseC),
+            initialTab: options.activeProductTab || appState.activeProductTab || 'theory',
+            forceRemount: false,
+          });
+          if (!appState.purePhaseC && !options.skipPhaseCLiveLoad) {
+            loadPurePhaseCForCurrentTopic(options.activeProductTab || appState.activeProductTab || 'theory');
+          } else if (appState.activeProductTab) {
+            switchProductTab(appState.activeProductTab);
+          }
         }
         return;
       }
@@ -14529,30 +14592,36 @@
       }
 
       if (!saved) {
-        if (appState.step > 1 || isTopicResearchLoadingUi()) {
+        if (appState.step > 1 || isTopicResearchLoadingUi() || isWorkspaceOpen()) {
           restoreWizardStepView(appState.step, appState.navSection, options);
         }
         return;
       }
 
       var step = parseInt(saved.step, 10);
-      if (!(step >= 1 && step <= 2)) return;
+      if (!(step >= 1 && step <= 3)) return;
 
       if (options.preferMemory && appState.step >= step && appState.grade) {
         step = appState.step;
       } else {
         if (saved.grade) {
           appState.grade = saved.grade;
-          appState.gradeLabel = getGradeLabelById(saved.grade);
+          appState.gradeLabel = saved.gradeLabel || getGradeLabelById(saved.grade);
         }
         if (saved.topic) appState.topic = saved.topic;
         if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
         if (typeof saved.topicResearchCompleted === 'boolean') {
           appState.topicResearchCompleted = saved.topicResearchCompleted;
         }
+        if (saved.activeProductTab) appState.activeProductTab = saved.activeProductTab;
         appState.step = step;
         appState.navSection = saved.navSection || 'wizard';
         restoreCatalogFromSaved(saved);
+      }
+
+      var topicInput = document.getElementById('topic-input');
+      if (topicInput) {
+        topicInput.value = String(saved.topicInput || saved.topic || appState.topic || '').trim();
       }
 
       if (saved.topicResearchLoading && step < 2) {
@@ -14565,7 +14634,11 @@
         applyPersistedLessonSnapshot(snapshot);
       }
 
-      restoreWizardStepView(step, appState.navSection, options);
+      restoreWizardStepView(step, appState.navSection, Object.assign({}, options, {
+        activeProductTab: saved.activeProductTab || appState.activeProductTab,
+        generalSearchQuery: saved.generalSearchQuery || '',
+        skipPhaseCLiveLoad: Boolean(appState.purePhaseC || snapshot),
+      }));
 
       if (options.restoreScroll && typeof saved.scrollY === 'number' && saved.scrollY > 0) {
         requestAnimationFrame(function () {
@@ -17679,6 +17752,9 @@
             runGeneralSearch();
           }
         });
+        generalSearchInput.addEventListener('input', function () {
+          schedulePersistActiveStep();
+        });
       }
       bindWizardNavClick(document.getElementById('ws-crumb-grade'), function () { if (appState.grade) goToStep(1, 'smooth'); });
       bindWizardNavClick(document.getElementById('ws-crumb-topic'), function () {
@@ -17823,9 +17899,6 @@
     async function init() {
       var pageReloaded = isHardPageReload();
       try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
-      if (pageReloaded) {
-        try { resetWizardSessionState(); } catch (e) { console.warn('[waldrof] resetWizardSessionState:', e); }
-      }
       try {
       ensurePageAtTop();
       bindPageLoadScrollGuards();
@@ -17901,9 +17974,7 @@
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
       try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
-      if (!pageReloaded) {
-        try { hydrateActiveStepFromStorage(); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
-      }
+      try { hydrateActiveStepFromStorage(); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
       const gradeSelAfterPopulate = document.getElementById('grade-select');
       if (gradeSelAfterPopulate && !appState.grade) {
         gradeSelAfterPopulate.value = '';
@@ -18063,13 +18134,13 @@
         return;
       }
       if (isHardPageReload()) {
-        try { resetWizardSessionState(); } catch (err) { console.warn('[waldrof] pageshow resetWizardSessionState:', err); }
-        try { resetCommunityClientStateOnReload(); } catch (err) { console.warn('[waldrof] pageshow resetCommunityClientStateOnReload:', err); }
-        try { resetWizardOnPageLoad(); } catch (err) { console.warn('[waldrof] pageshow resetWizardOnPageLoad:', err); }
         pageLoadFocusGuard = true;
         bindPageLoadScrollGuards();
         defocusGradeSelectDuringPageLoad();
-        ensurePageAtTop();
+        try { hydrateActiveStepFromStorage({ restoreScroll: true }); } catch (err) {
+          console.warn('[waldrof] pageshow hydrateActiveStepFromStorage:', err);
+        }
+        if (!shouldPreserveWizardViewport()) ensurePageAtTop();
         scheduleInitialPageScrollReset();
         return;
       }
