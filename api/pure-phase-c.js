@@ -174,10 +174,6 @@ function gatherPhaseCFallbackSourceText(parsed) {
     return shared.coerceText(parsed);
   }
 
-  chunks.sort(function (a, b) { return b.length - a.length; });
-  const richest = chunks[0];
-  if (richest && richest.length >= 200) return richest;
-
   const seen = new Set();
   const unique = [];
   chunks.forEach(function (chunk) {
@@ -481,7 +477,7 @@ function splitIntoSentences(text) {
   return String(text || '').split(/(?<=[.!?׃。])\s+/).map(function (s) {
     return s.trim();
   }).filter(function (s) {
-    return s.length > 20;
+    return s.length > 4;
   });
 }
 
@@ -584,55 +580,62 @@ function fillFallbackBucket(bucket, targetChars, pool) {
   return pool;
 }
 
-function partitionFallbackEssay(essay, grade) {
-  let paragraphs = paragraphsFromSterileEssay(essay);
-  if (paragraphs.length < 4) {
-    paragraphs = groupParagraphsIntoChunks(splitIntoSentences(essay), Math.max(6, Math.ceil(splitIntoSentences(essay).length / 2)));
+/**
+ * Split sterilized essay proportionally across tabs — 35% theory, 35% pedagogy, 30% inspiration.
+ * Preserves 100% of text; nothing is dropped or deduplicated across tabs.
+ */
+function partitionFallbackEssay(essay) {
+  const text = String(essay || '').trim();
+  if (!text) {
+    return { theoryParagraphs: [], inspirationParagraphs: [], coreParagraphs: [] };
   }
-  if (!paragraphs.length && essay) paragraphs = [essay];
 
-  const tagged = paragraphs.map(function (paragraph, index) {
-    return {
-      text: paragraph,
-      bucket: classifyFallbackParagraphBucket(paragraph),
-      index: index,
-      len: paragraph.length,
-    };
-  });
+  let paragraphs = paragraphsFromSterileEssay(text);
+  if (paragraphs.length < 3) {
+    const sentences = splitIntoSentences(text);
+    paragraphs = groupParagraphsIntoChunks(sentences, Math.max(3, Math.ceil(sentences.length / 3)));
+  }
+  if (!paragraphs.length) paragraphs = [text];
 
-  const totalLen = tagged.reduce(function (sum, item) { return sum + item.len; }, 0) || essay.length || 1;
-  const targetCore = Math.floor(totalLen * 0.37);
-  const targetTheory = Math.floor(totalLen * 0.33);
-  const targetInsp = Math.max(0, totalLen - targetCore - targetTheory);
+  const totalLen = paragraphs.reduce(function (sum, p) { return sum + p.length; }, 0) || text.length;
+  const targetTheory = Math.floor(totalLen * 0.35);
+  const targetCore = Math.floor(totalLen * 0.35);
 
-  const core = [];
   const theory = [];
+  const core = [];
   const inspiration = [];
-  const neutral = [];
-  tagged.forEach(function (item) {
-    if (item.bucket === 'pedagogy') core.push(item);
-    else if (item.bucket === 'theory') theory.push(item);
-    else if (item.bucket === 'inspiration') inspiration.push(item);
-    else neutral.push(item);
+  let theoryLen = 0;
+  let coreLen = 0;
+  let phase = 0;
+
+  paragraphs.forEach(function (p) {
+    if (phase === 0) {
+      theory.push(p);
+      theoryLen += p.length;
+      if (theoryLen >= targetTheory) phase = 1;
+    } else if (phase === 1) {
+      core.push(p);
+      coreLen += p.length;
+      if (coreLen >= targetCore) phase = 2;
+    } else {
+      inspiration.push(p);
+    }
   });
 
-  let remainder = neutral.slice();
-  remainder = fillFallbackBucket(core, targetCore, remainder.filter(function (item) {
-    return FALLBACK_PEDAGOGY_KEYWORDS.test(item.text);
-  }));
-  remainder = fillFallbackBucket(core, targetCore, remainder);
-  remainder = fillFallbackBucket(theory, targetTheory, remainder);
-  remainder = fillFallbackBucket(inspiration, targetInsp, remainder);
-  remainder.forEach(function (item) {
-    if (core.reduce(function (s, t) { return s + t.len; }, 0) < targetCore) core.push(item);
-    else if (theory.reduce(function (s, t) { return s + t.len; }, 0) < targetTheory) theory.push(item);
-    else inspiration.push(item);
-  });
+  if (!theory.length && !core.length && !inspiration.length) {
+    const theoryEnd = Math.floor(text.length * 0.35);
+    const coreEnd = Math.floor(text.length * 0.70);
+    return {
+      theoryParagraphs: [text.slice(0, theoryEnd)],
+      coreParagraphs: [text.slice(theoryEnd, coreEnd)],
+      inspirationParagraphs: [text.slice(coreEnd)],
+    };
+  }
 
   return {
-    theoryParagraphs: theory.map(function (item) { return item.text; }),
-    inspirationParagraphs: inspiration.map(function (item) { return item.text; }),
-    coreParagraphs: core.map(function (item) { return item.text; }),
+    theoryParagraphs: theory,
+    inspirationParagraphs: inspiration,
+    coreParagraphs: core,
   };
 }
 
@@ -767,15 +770,13 @@ function formatFallbackProseChunk(text) {
   return { html: html, links: allLinks };
 }
 
-function buildTheoryFallbackSections(essay, paragraphs, seenKeys) {
-  const seen = seenKeys || new Set();
-  let source = paragraphs && paragraphs.length >= 3
-    ? dedupeTextFragments(paragraphs.slice(), seen)
-    : dedupeTextFragments(splitEssayIntoChunks(essay, 4), seen);
+function buildTheoryFallbackSections(essay, paragraphs) {
+  let source = paragraphs && paragraphs.length >= 1
+    ? paragraphs.slice()
+    : splitEssayIntoChunks(essay, 4);
 
   if (source.length < 3 && essay) {
-    const extra = dedupeTextFragments(splitIntoSentences(essay), seen);
-    source = source.concat(extra);
+    source = source.concat(splitIntoSentences(essay));
   }
 
   let chunks = source.slice(0, 4);
@@ -791,20 +792,13 @@ function buildTheoryFallbackSections(essay, paragraphs, seenKeys) {
     const sentences = splitIntoSentences(largest);
     if (sentences.length < 2) break;
     const mid = Math.ceil(sentences.length / 2);
-    const first = dedupeTextFragments([sentences.slice(0, mid).join(' ')], seen);
-    const second = dedupeTextFragments([sentences.slice(mid).join(' ')], seen);
-    if (!first.length && !second.length) break;
-    chunks.splice(largestIdx, 1);
-    if (first.length) chunks.splice(largestIdx, 0, first[0]);
-    if (second.length) chunks.splice(largestIdx + (first.length ? 1 : 0), 0, second[0]);
+    chunks.splice(largestIdx, 1, sentences.slice(0, mid).join(' '), sentences.slice(mid).join(' '));
     if (chunks.length >= 4) break;
   }
 
   const allLinks = [];
   const sections = chunks.map(function (content, i) {
-    const deduped = dedupeTextFragments([content], seen);
-    const chunkText = deduped[0] || content;
-    const formatted = formatFallbackProseChunk(chunkText);
+    const formatted = formatFallbackProseChunk(content);
     allLinks.push.apply(allLinks, formatted.links || []);
     return {
       heading: THEORY_FALLBACK_HEADINGS[i] || ('חלון ' + (i + 1)),
@@ -816,24 +810,22 @@ function buildTheoryFallbackSections(essay, paragraphs, seenKeys) {
   return { sections: sections, links: allLinks };
 }
 
-function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, seenKeys) {
-  const seen = seenKeys || new Set();
+function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade) {
   const headings = getCoreEmphasesHeadings(grade);
-  let source = dedupeTextFragments((paragraphs || []).slice(), seen);
+  let source = (paragraphs || []).slice();
   if (!source.length && essay) {
-    source = dedupeTextFragments(paragraphsFromSterileEssay(essay), seen);
+    source = paragraphsFromSterileEssay(essay);
   }
   if (!source.length && essay) {
-    source = dedupeTextFragments(splitEssayIntoChunks(essay, 3), seen);
+    source = splitEssayIntoChunks(essay, 3);
   }
 
   let chunks = source.length >= 2
     ? groupParagraphsIntoChunks(source, 3)
-    : dedupeTextFragments(splitEssayIntoChunks(source.join('\n\n') || essay, 3), seen);
-  chunks = dedupeTextFragments(chunks, seen).slice(0, 3);
+    : splitEssayIntoChunks(source.join('\n\n') || essay, 3);
+  chunks = chunks.slice(0, 3);
   while (chunks.length < 2 && essay) {
-    const extra = dedupeTextFragments(splitEssayIntoChunks(essay, 3), seen);
-    chunks = dedupeTextFragments(chunks.concat(extra), seen).slice(0, 3);
+    chunks = splitEssayIntoChunks(essay, 3).slice(0, 3);
     break;
   }
 
@@ -854,9 +846,9 @@ function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, seenKeys) {
 }
 
 function splitInspirationFallbackItems(paragraphs, essay) {
-  let items = paragraphs.length > 1 ? paragraphs.slice() : splitEssayIntoChunks(essay, 6);
+  let items = paragraphs.length ? paragraphs.slice() : splitEssayIntoChunks(essay, 6);
   if (!items.length && essay) items = [essay];
-  return items.filter(function (item) { return String(item || '').trim().length > 24; });
+  return items.filter(function (item) { return String(item || '').trim().length > 4; });
 }
 
 function buildInspirationFallbackGlobalBlocks(items) {
@@ -926,6 +918,27 @@ function buildDefaultRecommendedReading(grade, topic) {
     ? ('כיתה ' + hebrewGrades[parseInt(gradeNum, 10) - 1] + "'")
     : String(grade || '').trim();
 
+  if (/מהפכ|היסטור|history|revolution|age\s*of/i.test(topicStr)) {
+    const historyByGrade = {
+      '8': [
+        { title: 'The Age of Revolution — Waldorf Curriculum Lectures', author: 'Rudolf Steiner', note: 'הרצאות GA 325 על תקופת המהפכות בכיתה ח׳ — רקע היסטורי-אנתרופוסופי ומצפן התפתחותי לגיל המרד.' },
+        { title: 'The Human Being and the Age of Revolution', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — מהפכות אירופה, סמכות פנימית ועצמאות רוחנית בגיל 14.' },
+        { title: 'הרצאות על חינוך וולדורפי — כרך ח׳', author: 'רודולף שטיינר', note: 'מקור מרכזי לתכנון תקופת היסטוריה בכיתה ח׳ — ' + topicStr + '.' },
+      ],
+      '7': [
+        { title: 'The Renaissance and the Age of Discovery', author: 'Charles Kovacs', note: 'סיפורי היסטוריה חיים לכיתה ז׳ — גילוי העולם, רנסנס ומעבר לעולם הארצי.' },
+        { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'עקרונות הוראת היסטוריה כחוויה נפשית-אמנותית בגיל ההתבגרות המוקדמת.' },
+        { title: 'הרצאות GA 325 — היסטוריה', author: 'רודולף שטיינר', note: 'רקע אנתרופוסופי לתקופות היסטוריות ב' + gradeLabel + '.' },
+      ],
+    };
+    if (gradeNum && historyByGrade[gradeNum]) return historyByGrade[gradeNum];
+    return [
+      { title: 'The Age of Revolution — Waldorf Curriculum Lectures', author: 'Rudolf Steiner', note: 'הרצאות GA 325 על תקופות מהפכה והיסטוריה — רלוונטי ל' + topicStr + ' ב' + (gradeLabel || 'בית הספר') + '.' },
+      { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — דימוי, סיפור ומצפן התפתחותי.' },
+      { title: 'הרצאות על חינוך וולדורפי', author: 'רודולף שטיינר', note: 'מקור אנתרופוסופי מרכזי לתקופת ' + topicStr + '.' },
+    ];
+  }
+
   if (/רישום|צורות|form[\s-]?draw/i.test(topicStr)) {
     return [
       {
@@ -974,9 +987,34 @@ function buildDefaultRecommendedReading(grade, topic) {
       { title: 'הרצאות על חינוך וולדורפי', author: 'רודולף שטיינר', note: 'העמקה ביסודות הרוחניים-פדגוגיים לכיתה ב׳.' },
     ],
     '3': [
-      { title: 'Form Drawing — Grades 1–4', author: 'Laura Embrey-Stine', note: 'רישום צורות ומעבר לכתב — מרכזי לעבודת כיתה ג׳.' },
-      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לפי כיתות — עוגן לתכנון תקופה.' },
-      { title: 'הרצאות לכיתה ג׳', author: 'רודולף שטיינר', note: 'רקע התפתחותי לעבודה אמנותית-תנועתית בגיל התשע.' },
+      { title: 'Form Drawing — Grades 1–4', author: 'Laura Embrey-Stine & Ernst Schuberth', note: 'מדריך מעשי לרישום צורות — קווים, סימטריה ומעבר לכתב עבור ' + gradeLabel + '.' },
+      { title: 'Painting and Drawing in Waldorf Schools', author: 'Thomas Wildgruber', note: 'עקרונות אמנותיים וולדורפיים לציור ורישום — רלוונטי במיוחד ל' + topicStr + '.' },
+      { title: 'הרצאות על חינוך וולדורפי — כרך ג׳', author: 'רודולף שטיינר', note: 'יסודות אנתרופוסופיים לעבודה אמנותית-תנועתית בגיל התשע.' },
+    ],
+    '4': [
+      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לכיתה ד׳ — עוגן לתכנון תקופה ב' + topicStr + '.' },
+      { title: 'Teaching As a Lively Art', author: 'Marjorie Spock', note: 'יחס מורה-תלמיד ואמנות ההוראה בגיל העשירי.' },
+      { title: 'הרצאות לכיתה ד׳', author: 'רודולף שטיינר', note: 'רקע התפתחותי לעבודה בכיתה ד׳ — ' + topicStr + '.' },
+    ],
+    '5': [
+      { title: 'The Kingdom of Childhood', author: 'Rudolf Steiner', note: 'הרצאות יסוד על דימוי וחינוך בגיל 11 — רלוונטי ל' + topicStr + '.' },
+      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לכיתה ה׳ — תכנון תקופה ומצפן גילי.' },
+      { title: 'הרצאות GA 304 — חינוך', author: 'רודולף שטיינר', note: 'עקרונות אנתרופוסופיים לשיעור הראשי בכיתה ה׳.' },
+    ],
+    '6': [
+      { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — מעבר לעולם הארצי והרציונלי בגיל 12.' },
+      { title: 'The Tasks and Content of the Steiner-Waldorf Curriculum', author: 'Martyn Rawson', note: 'מפת תכנים לכיתה ו׳ — ' + topicStr + '.' },
+      { title: 'הרצאות על חינוך וולדורפי — כרך ו׳', author: 'רודולף שטיינר', note: 'מצפן התפתחותי לעבודה בכיתה ו׳.' },
+    ],
+    '7': [
+      { title: 'The Renaissance and the Age of Discovery', author: 'Charles Kovacs', note: 'סיפורי היסטוריה חיים לכיתה ז׳ — גילוי העולם ורנסנס.' },
+      { title: 'Teaching History in the Waldorf School', author: 'Eugene Schwartz', note: 'עקרונות הוראת היסטוריה כחוויה נפשית-אמנותית.' },
+      { title: 'הרצאות GA 325 — היסטוריה', author: 'רודולף שטיינר', note: 'רקע אנתרופוסופי ל' + topicStr + ' ב' + gradeLabel + '.' },
+    ],
+    '8': [
+      { title: 'The Age of Revolution — Waldorf Curriculum Lectures', author: 'Rudolf Steiner', note: 'הרצאות GA 325 על תקופת המהפכות — מצפן התפתחותי לגיל המרד.' },
+      { title: 'The Human Being and the Age of Revolution', author: 'Eugene Schwartz', note: 'היסטוריה כחוויה נפשית — סמכות פנימית ועצמאות רוחנית.' },
+      { title: 'הרצאות על חינוך וולדורפי — כרך ח׳', author: 'רודולף שטיינר', note: 'מקור מרכזי לתכנון תקופה בכיתה ח׳ — ' + topicStr + '.' },
     ],
   };
 
@@ -1073,12 +1111,11 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   const topicStr = String(topic || 'נושא').trim();
   const gradeStr = String(grade || '').trim();
   const titleSuffix = gradeStr ? (gradeStr + ' · ' + topicStr) : topicStr;
-  const seenKeys = new Set();
-  const partition = partitionFallbackEssay(essay, gradeStr);
+  const partition = partitionFallbackEssay(essay);
 
-  const theoryParagraphs = dedupeTextFragments(partition.theoryParagraphs, seenKeys);
-  const inspirationParagraphs = dedupeTextFragments(partition.inspirationParagraphs, seenKeys);
-  const coreParagraphs = dedupeTextFragments(partition.coreParagraphs, seenKeys);
+  const theoryParagraphs = partition.theoryParagraphs;
+  const inspirationParagraphs = partition.inspirationParagraphs;
+  const coreParagraphs = partition.coreParagraphs;
 
   const theoryEssay = theoryParagraphs.join('\n\n') || essay;
   const inspirationEssay = inspirationParagraphs.join('\n\n') || essay;
@@ -1086,14 +1123,12 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
 
   const theoryResult = buildTheoryFallbackSections(
     theoryEssay,
-    theoryParagraphs.length ? theoryParagraphs : paragraphsFromSterileEssay(theoryEssay),
-    seenKeys
+    theoryParagraphs.length ? theoryParagraphs : paragraphsFromSterileEssay(theoryEssay)
   );
   const coreResult = buildCoreEmphasesFallbackHtml(
     coreParagraphs,
     coreEssay,
-    gradeStr,
-    seenKeys
+    gradeStr
   );
   const inspirationItems = splitInspirationFallbackItems(
     inspirationParagraphs.length ? inspirationParagraphs : paragraphsFromSterileEssay(inspirationEssay),
@@ -1439,7 +1474,7 @@ async function runPurePhaseC(body) {
   const parsed = modelResult.parsed;
   const normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
 
-  if (gradeId && !modelResult.parseFallback) {
+  if (gradeId) {
     cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
       console.warn('[pure-phase-c] topic_master cache save failed:', err.message || err);
     });

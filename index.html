@@ -1024,6 +1024,17 @@
     @media (min-width: 768px) {
       .pure-phase-c-grid { grid-template-columns: 1fr 1fr; }
     }
+    .pure-links-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.65rem;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    @media (min-width: 768px) {
+      .pure-links-grid { grid-template-columns: 1fr 1fr; }
+    }
     .pure-data-card {
       background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(247,243,235,0.9));
       border: 1px solid rgba(201, 169, 98, 0.35);
@@ -13842,7 +13853,7 @@
 
     function canNavigateToStep(n) {
       if (n === 1 || n === 2) return true;
-      if (n === 3) return Boolean(appState.grade && appState.topic);
+      if (n === 3) return Boolean(appState.grade && appState.topic && appState.topicResearchCompleted);
       return false;
     }
 
@@ -13941,7 +13952,7 @@
     function renderPureLinksBlock(items) {
       var list = Array.isArray(items) ? items : [];
       if (!list.length) return '<p class="text-walnut/50">—</p>';
-      return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
+      return '<ul class="pure-card-body i18n-list pure-links-grid w-full">' + list.map(function (item) {
         var url = String(item.url || '').trim();
         var title = String(item.title || url).trim();
         if (!url) return '<li>' + escapeHtml(title) + '</li>';
@@ -15664,6 +15675,55 @@
       return true;
     }
 
+    function buildStepBSummaryFromPurePhaseC(data) {
+      if (!data) return '';
+      var parts = [];
+      if (data.theory && Array.isArray(data.theory.sections)) {
+        data.theory.sections.forEach(function (sec) {
+          var t = stripHtmlText(sec.content || '');
+          if (t) parts.push(t);
+        });
+      }
+      var core = String(data.core_emphases || '').trim();
+      if (core) parts.push(stripHtmlText(core));
+      return parts.join('\n\n').trim();
+    }
+
+    /** Apply completed pure Phase C research and keep the teacher on wizard Step B (never auto-open Step C). */
+    function commitPurePhaseCToStepB(topic, data, meta) {
+      meta = meta || {};
+      populateAiGeneratedPlanFromPurePhaseC(data);
+      appState.topic = topic;
+      appState.topicResearchCompleted = true;
+      appState.lessonFromArchive = Boolean(meta.fromCache);
+      if (meta.cacheKey) appState.lessonCacheKey = meta.cacheKey;
+
+      var summaryText = buildStepBSummaryFromPurePhaseC(data);
+      appState.webResearch = {
+        topic: topic,
+        summary: summaryText.slice(0, 800),
+        rawContent: summaryText,
+        connections: [],
+        highlights: [],
+        citations: [],
+      };
+
+      resetSummarySession();
+      ensureStepBWizardView();
+      renderStepProgress();
+      updateWorkspaceChrome();
+      updateNewResearchBarVisibility();
+      holdPageScroll(function () {
+        renderWebResearchResult();
+      });
+      updateTopicResearchButton();
+      updatePedagogyExportButtonsVisibility();
+      ensurePedagogySuggestionEvents();
+      nudgeGoogleTranslate();
+      persistActiveStep();
+      ensurePageScrollUnlocked();
+    }
+
     async function runPurePhaseCFromStepB(topic, runId, signal) {
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
@@ -15674,22 +15734,18 @@
 
         const data = response.data;
         const meta = response.meta || {};
-        appState.topic = topic;
-        populateAiGeneratedPlanFromPurePhaseC(data);
-        appState.topicResearchCompleted = true;
-        appState.lessonFromArchive = Boolean(meta.fromCache);
-        if (meta.cacheKey) appState.lessonCacheKey = meta.cacheKey;
+        commitPurePhaseCToStepB(topic, data, meta);
 
         if (out) {
           out.classList.remove('hidden');
           var statusMsg = meta.fromCache
-            ? (isEnglish() ? 'Loaded from archive — opening dashboard.' : 'נטען מהארכיון — פותח לוח בקרה.')
-            : (isEnglish() ? 'Phase C products ready — opening dashboard.' : 'תוצרי שלב ג׳ מוכנים — פותח לוח בקרה.');
+            ? (isEnglish() ? 'Loaded from archive — review the topic summary, then open Step C when ready.' : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.')
+            : (isEnglish() ? 'Research complete — review the topic summary, then open Step C when ready.' : 'המחקר הושלם — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.');
           out.innerHTML = '<p class="text-sage-dark m-0"><i class="fa-solid fa-circle-check ml-1"></i> ' +
             escapeHtml(statusMsg) + '</p>';
         }
 
-        openPhaseCWorkspace({ initialTab: 'theory', forceRemount: true });
+        scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
         if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
           try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
