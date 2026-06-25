@@ -365,9 +365,13 @@ const isMeaningfulInspiration = archiveCoerce.isMeaningfulInspiration;
 const preserveCurriculumRowForStorage = archiveCoerce.preserveCurriculumRowForStorage;
 const preparePhaseCCurriculumForStorage = archiveCoerce.preparePhaseCCurriculumForStorage;
 
-/** phase_c curriculum cache fail-safe — legacy/basic rows without upgraded expansion ⇒ corrupt, delete + live regen. */
-const PHASE_C_CURRICULUM_REQUIRED_DAYS = 15;
-const PHASE_C_CURRICULUM_MIN_VALID_DAYS = PHASE_C_CURRICULUM_REQUIRED_DAYS;
+/** phase_c pedagogical essence — unified object (core_emphases, key_points, recommended_reading, relevant_links). */
+const PHASE_C_ESSENCE_FIELDS = ['core_emphases', 'key_points', 'recommended_reading', 'relevant_links'];
+const PHASE_C_ESSENCE_MIN_FIELD_CHARS = 40;
+const PHASE_C_ESSENCE_MIN_FILLED_FIELDS = 3;
+/** @deprecated daily-table era — kept for callers that still reference day counts */
+const PHASE_C_CURRICULUM_REQUIRED_DAYS = 1;
+const PHASE_C_CURRICULUM_MIN_VALID_DAYS = 1;
 const PHASE_C_CURRICULUM_MIN_CONTENT_CHARS = 120;
 const PHASE_C_CURRICULUM_MIN_ART_CHARS = 55;
 const PHASE_C_CURRICULUM_MIN_CLASSROOM_CHARS = 120;
@@ -536,13 +540,33 @@ function extractPhaseCCurriculumRows(data) {
   return Array.isArray(bp.curriculum) ? bp.curriculum : [];
 }
 
-function countValidPhaseCCurriculumDays(data) {
-  const rows = extractPhaseCCurriculumRows(data);
-  let count = 0;
-  for (let i = 0; i < rows.length; i++) {
-    if (isPhaseCCurriculumDayUpgraded(rows[i])) count++;
+function extractPhaseCCurriculumEssence(data) {
+  const bp = data && data.blockPlan;
+  if (!bp || typeof bp !== 'object') return null;
+  const curr = bp.curriculum;
+  if (!curr || typeof curr !== 'object' || Array.isArray(curr)) return null;
+  if (curr.day != null || curr.topic != null || curr.content != null || curr.art != null) return null;
+  return curr;
+}
+
+function isPhaseCDailyTableCurriculum(curr) {
+  if (Array.isArray(curr)) return true;
+  if (!curr || typeof curr !== 'object') return false;
+  return curr.day != null || curr.topic != null || curr.content != null || curr.art != null;
+}
+
+function isPhaseCCurriculumEssenceServeReady(essence) {
+  if (!essence || typeof essence !== 'object' || Array.isArray(essence)) return false;
+  let filled = 0;
+  for (let i = 0; i < PHASE_C_ESSENCE_FIELDS.length; i++) {
+    const plain = curriculumFieldPlainText(essence[PHASE_C_ESSENCE_FIELDS[i]]);
+    if (plain.length >= PHASE_C_ESSENCE_MIN_FIELD_CHARS) filled++;
   }
-  return count;
+  return filled >= PHASE_C_ESSENCE_MIN_FILLED_FIELDS;
+}
+
+function countValidPhaseCCurriculumDays(data) {
+  return isPhaseCCurriculumServeReady(data) ? 1 : 0;
 }
 
 function isLessonCurriculumCarrier(data) {
@@ -552,18 +576,21 @@ function isLessonCurriculumCarrier(data) {
   if (data.webResearch != null) return true;
   if (bp.theory != null || bp.inspiration != null) return true;
   if (Array.isArray(bp.curriculum) || Array.isArray(bp.days)) return true;
+  if (bp.curriculum && typeof bp.curriculum === 'object') return true;
   if (String(bp.rawContent || '').trim()) return true;
   return false;
 }
 
 function isPhaseCCurriculumPayloadLegacy(data) {
-  if (!isLessonCurriculumCarrier(data)) return false;
-  const rows = extractPhaseCCurriculumRows(data);
-  if (!rows.length) return true;
-  if (rows.length < PHASE_C_CURRICULUM_REQUIRED_DAYS) return true;
-  for (let i = 0; i < PHASE_C_CURRICULUM_REQUIRED_DAYS; i++) {
-    if (isLegacyThinCurriculumRow(rows[i])) return true;
-  }
+  if (!data || typeof data !== 'object') return false;
+  const bp = data.blockPlan;
+  if (!bp || typeof bp !== 'object') return false;
+  const curr = bp.curriculum;
+  if (isPhaseCDailyTableCurriculum(curr)) return true;
+  if (Array.isArray(bp.days) && bp.days.length) return true;
+  const essence = extractPhaseCCurriculumEssence(data);
+  if (essence) return !isPhaseCCurriculumEssenceServeReady(essence);
+  if (curr != null) return true;
   return false;
 }
 
@@ -682,12 +709,11 @@ function buildPhaseCCacheBody(cTab, context) {
   };
 }
 
-/** True when a payload has 15 fully upgraded deep-pipeline curriculum days. */
+/** True when blockPlan.curriculum is a serve-ready pedagogical essence object. */
 function isPhaseCCurriculumServeReady(data) {
   if (!data || typeof data !== 'object') return false;
-  if (!isLessonCurriculumCarrier(data)) return false;
-  return countValidPhaseCCurriculumDays(data) >= PHASE_C_CURRICULUM_REQUIRED_DAYS
-    && !isPhaseCCurriculumPayloadLegacy(data);
+  const essence = extractPhaseCCurriculumEssence(data);
+  return isPhaseCCurriculumEssenceServeReady(essence);
 }
 
 /** Load phase_c inspiration/curriculum row directly (no topic enrichment recursion). */
@@ -727,13 +753,14 @@ async function enrichArchiveLessonWithPhaseCCaches(data, context) {
   if (!data.blockPlan || typeof data.blockPlan !== 'object') return data;
 
   let blockPlan = data.blockPlan;
-  const existingCurr = extractCurriculumFromArchivePlan(blockPlan, data);
-  const embeddedCarrier = { blockPlan: { curriculum: existingCurr }, webResearch: data.webResearch };
-  const embeddedServeReady = isPhaseCCurriculumServeReady(embeddedCarrier);
+  const embeddedEssence = extractPhaseCCurriculumEssence({ blockPlan: blockPlan });
+  const embeddedDailyTable = isPhaseCDailyTableCurriculum(blockPlan.curriculum)
+    || (Array.isArray(blockPlan.days) && blockPlan.days.length);
+  const embeddedServeReady = isPhaseCCurriculumEssenceServeReady(embeddedEssence);
   if (embeddedServeReady) {
-    blockPlan.curriculum = existingCurr.map(preserveCurriculumRowForStorage).filter(Boolean);
-    blockPlan.days = blockPlan.curriculum.slice();
-  } else if (existingCurr.length) {
+    blockPlan.curriculum = embeddedEssence;
+    delete blockPlan.days;
+  } else if (embeddedDailyTable || isPhaseCDailyTableCurriculum(blockPlan.curriculum)) {
     delete blockPlan.curriculum;
     delete blockPlan.days;
     delete blockPlan.rawCurriculum;
@@ -746,11 +773,13 @@ async function enrichArchiveLessonWithPhaseCCaches(data, context) {
   if (!embeddedServeReady) {
     const phaseCCurr = await fetchPhaseCCachePayload('curriculum', context);
     if (phaseCCurr && phaseCCurr.blockPlan && isPhaseCCurriculumServeReady(phaseCCurr)) {
-      const currRows = extractCurriculumFromArchivePlan(phaseCCurr.blockPlan, phaseCCurr);
-      blockPlan.curriculum = currRows.map(preserveCurriculumRowForStorage).filter(Boolean);
-      blockPlan.days = blockPlan.curriculum.slice();
-      blockPlan = liftArchivePhaseCFields(blockPlan, Object.assign({}, data, phaseCCurr));
-      data.blockPlan = blockPlan;
+      const essence = extractPhaseCCurriculumEssence(phaseCCurr);
+      if (essence) {
+        blockPlan.curriculum = essence;
+        delete blockPlan.days;
+        blockPlan = liftArchivePhaseCFields(blockPlan, Object.assign({}, data, phaseCCurr));
+        data.blockPlan = blockPlan;
+      }
     }
   }
 

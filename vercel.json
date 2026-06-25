@@ -4,14 +4,6 @@
     "api/generate.js": {
       "maxDuration": 300,
       "memory": 1024
-    },
-    "api/regenerate-legacy-table.js": {
-      "maxDuration": 300,
-      "memory": 1024
-    },
-    "api/curriculum-status.js": {
-      "maxDuration": 30,
-      "memory": 256
     }
   },
   "headers": [
