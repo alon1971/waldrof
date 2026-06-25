@@ -2,7 +2,7 @@
 'use strict';
 /**
  * TOTAL archive wipe — deletes ALL cached_results rows for configured grade/topic targets.
- * No partial strip — every phase (topic, phase_c, perplexity_raw, chat, etc.) is removed.
+ * No partial strip — every cached row for the target (topic, perplexity_raw, legacy rows, etc.) is removed.
  *
  * Usage:
  *   node scripts/wipe-topic-archive-total.js --dry-run
@@ -101,44 +101,17 @@ async function fetchRowsForTarget(target) {
 
 function collectExplicitKeys(target) {
   const keys = new Set();
-  const phases = ['topic', 'phase_c', 'perplexity_raw'];
-  const cTabs = ['curriculum', 'inspiration'];
+  const phases = ['topic', 'perplexity_raw'];
   (target.topicCandidates || []).forEach(function (topic) {
     phases.forEach(function (phase) {
-      if (phase === 'phase_c') {
-        cTabs.forEach(function (cTab) {
-          const key = cacheDb.buildCacheKey({
-            phase: phase,
-            cTab: cTab,
-            topic: topic,
-            currentGrade: target.gradeId,
-            gradeId: target.gradeId,
-            gradeLabel: target.gradeLabel,
-          });
-          if (key) keys.add(key);
-        });
-        [1, 6, 11].forEach(function (start) {
-          const end = start + 4;
-          const chunkKey = cacheDb.buildCacheKey({
-            phase: 'phase_c',
-            cTab: 'curriculum_days_' + start + '_' + end,
-            topic: topic,
-            currentGrade: target.gradeId,
-            gradeId: target.gradeId,
-            gradeLabel: target.gradeLabel,
-          });
-          if (chunkKey) keys.add(chunkKey);
-        });
-      } else {
-        const key = cacheDb.buildCacheKey({
-          phase: phase,
-          topic: topic,
-          currentGrade: target.gradeId,
-          gradeId: target.gradeId,
-          gradeLabel: target.gradeLabel,
-        });
-        if (key) keys.add(key);
-      }
+      const key = cacheDb.buildCacheKey({
+        phase: phase,
+        topic: topic,
+        currentGrade: target.gradeId,
+        gradeId: target.gradeId,
+        gradeLabel: target.gradeLabel,
+      });
+      if (key) keys.add(key);
     });
   });
   return keys;

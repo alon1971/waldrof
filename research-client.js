@@ -145,11 +145,11 @@
     '- "מחברת תקופה" → Waldorf Class N main lesson book\n' +
     'Each "pin" MUST be a SHORT search of at most 2–4 high-impact keywords — never one long concatenated string.\n' +
     'Hebrew board titles may be descriptive; "pin" phrases must stay short, grade-locked, and Waldorf-anchored in English.\n' +
-    'WALDORF PEDAGOGICAL WEB RESOURCES (Phase C inspiration): open web search for verified Waldorf articles — return empty array if none found.\n' +
+    'WALDORF PEDAGOGICAL WEB RESOURCES: open web search for verified Waldorf articles — return empty array if none found.\n' +
     '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
   const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
-    '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY — INSPIRATION / PHASE C) ===\n' +
+    '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY) ===\n' +
     (typeof WaldorfWebSeed !== 'undefined' && WaldorfWebSeed.ANTI_URL_HALLUCINATION_INSTRUCTION
       ? WaldorfWebSeed.ANTI_URL_HALLUCINATION_INSTRUCTION
       : 'NEVER invent static URLs for Waldorf resources — include url ONLY from live search citations.\n') +
@@ -418,7 +418,7 @@
 
   function unwrapParsedModelPayload(parsed) {
     if (parsed && typeof parsed === 'object' && parsed.data && typeof parsed.data === 'object' &&
-        !parsed.gradeInsights && !parsed.blockPlan && !parsed.webResearch && !parsed.archiveSearch && !parsed.pedagogyDeepDive) {
+        !parsed.gradeInsights && !parsed.blockPlan && !parsed.webResearch && !parsed.pedagogyDeepDive) {
       return parsed.data;
     }
     return parsed;

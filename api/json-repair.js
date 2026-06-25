@@ -471,7 +471,6 @@ function unwrapParsedModelPayload(parsed) {
     !parsed.gradeInsights &&
     !parsed.blockPlan &&
     !parsed.webResearch &&
-    !parsed.archiveSearch &&
     !parsed.pedagogyDeepDive
   ) {
     return parsed.data;

@@ -333,8 +333,7 @@ function coerceCachedResultData(raw) {
     !data.chatReply &&
     !data.reply &&
     !data.pedagogyDeepDive &&
-    !data.webResearch &&
-    !data.archiveSearch
+    !data.webResearch
   ) {
     data = data.data;
   }

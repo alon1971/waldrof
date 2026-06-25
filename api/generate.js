@@ -294,13 +294,13 @@ const SOURCES_CITATION_INSTRUCTION =
   '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
 const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
-  '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY — INSPIRATION / PHASE C) ===\n' +
+  '\n=== WALDORF PEDAGOGICAL WEB RESOURCES (MANDATORY) ===\n' +
   waldorfWebSeed.ANTI_URL_HALLUCINATION_INSTRUCTION +
   'Discover Waldorf pedagogical articles via open web search — NOT generic education blogs.\n' +
   'Use dynamic queries from block topic + grade + Waldorf pedagogy. Do NOT restrict to specific websites or site: operators.\n' +
   'STRICT CONTEXTUAL FILTER — include a link ONLY when the page matches BOTH block subject AND Waldorf pedagogical context.\n' +
   'URL RULE: include url ONLY when copied verbatim from live search citations. If none found, return an empty pedagogicalResources array.\n' +
-  'OUTPUT SHAPE — top-level "pedagogicalResources" array (Phase C inspiration ONLY; URLs allowed HERE ONLY):\n' +
+  'OUTPUT SHAPE — top-level "pedagogicalResources" array (URLs allowed HERE ONLY):\n' +
   'Each item: { "title": "Hebrew page title", "url": "https://…verified-deep-link-only…", "label": "…", "source": "…", "snippet": "…" }\n' +
   'Populate DISTINCT verified items only — quality over quantity. FORBIDDEN: Pinterest URLs, fabricated paths, site-restricted Google searches.\n' +
   'blockPlan.sources (books/articles/websites) remains name-only — NO url fields there.\n' +
