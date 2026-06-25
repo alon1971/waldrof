@@ -617,7 +617,10 @@
       const q = (body.archiveQuery || '').replace(/"/g, "'");
       return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
         'Live web search: Anthroposophic archive.\nQuery: «' + q + '»\nGrade: ' + (body.gradeLabel || '') + '\n' +
-        WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + '\nReturn JSON: {"archiveSearch":{"query":"' + q + '","intro":"Hebrew","sources":[...]}}';
+        'INLINE EXPANSION (MANDATORY): every source includes a complete embedded "expansion" object ' +
+        '(classroomImplementation, parentCommunityAspects, practicalSteps[], inspirationReferences[], expansionHtml). ' +
+        'No readUrl or URLs. UI renders immediately — no second API call.\n' +
+        WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + '\nReturn JSON: {"archiveSearch":{"query":"' + q + '","intro":"Hebrew","sources":[{"id":"slug","title":"Hebrew","author":"Hebrew","type":"lecture","year":"","description":"Hebrew","expansion":{...}}]}}';
     }
     if (phase === 'archive_summary') {
       const title = (body.sourceTitle || '').replace(/"/g, "'");

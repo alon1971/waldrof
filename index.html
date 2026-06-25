@@ -886,7 +886,7 @@
     #theoretical-content,
     #inspiration-content,
     #daily-planning-content,
-    #curriculum-cards,
+    #pedagogical-essence-content,
     #workspace .tab-panel.product-tab-panel {
       overflow: visible !important;
       overflow-y: visible !important;
@@ -4068,8 +4068,8 @@
         </button>
         <button type="button" role="tab" id="product-tab-curriculum" data-tab="curriculum" aria-selected="false" aria-controls="panel-curriculum"
           class="product-tab-btn touch-target">
-          <i class="fa-solid fa-table-list" aria-hidden="true"></i>
-          <span><span data-i18n="tab_curriculum">תכנון</span><span data-i18n="tab_curriculum_suffix"> תקופה</span></span>
+          <i class="fa-solid fa-compass" aria-hidden="true"></i>
+          <span data-i18n="tab_curriculum">הדגשים לבניית התקופה</span>
         </button>
       </div>
     </nav>
@@ -4126,25 +4126,10 @@
 
       <section id="panel-curriculum" class="tab-panel product-tab-panel hidden" role="tabpanel" aria-labelledby="product-tab-curriculum" hidden>
         <div class="mb-4">
-          <h2 class="app-page-title font-display font-bold text-burgundy" data-i18n="curriculum_title">תכנון תקופה — 15 ימים</h2>
+          <h2 class="app-page-title font-display font-bold text-burgundy" data-i18n="curriculum_title">דגשים חשובים בהכנת התקופה הלימודית</h2>
         </div>
         <div id="teacher-drive-curriculum-slot" class="hidden mb-6"></div>
-        <div id="daily-planning-content">
-          <div id="curriculum-cards" class="md:hidden space-y-3 pb-4" data-i18n-aria="curriculum_cards_aria"></div>
-          <div class="hidden md:block curriculum-table-wrap rounded-2xl border border-gold/30 bg-white/80 shadow-sm">
-            <table class="w-full text-sm curriculum-period-table">
-              <thead>
-                <tr class="bg-sage/15 border-b border-gold/30">
-                  <th class="px-3 py-3 text-dir-start font-semibold w-14" data-i18n="col_day">יום</th>
-                  <th class="px-3 py-3 text-dir-start font-semibold w-[16%]" data-i18n="col_topic">נושא</th>
-                  <th class="px-3 py-3 text-dir-start font-semibold w-[42%]" data-i18n="col_content">תוכן וסיפור</th>
-                  <th class="px-3 py-3 text-dir-start font-semibold w-[42%]" data-i18n="col_art">אמנות ומעשה</th>
-                </tr>
-              </thead>
-              <tbody id="curriculum-body"></tbody>
-            </table>
-          </div>
-        </div>
+        <div id="pedagogical-essence-content" class="space-y-3 pb-4"></div>
         <div id="pedagogy-export-bar-curriculum" class="pedagogy-export-bar hidden mt-8 mb-2">
           <button type="button" class="pedagogy-export-btn touch-btn" data-pedagogy-export>
             <span data-i18n="btn_export_pedagogy_doc">הפקת מסמך סיכום פדגוגי למורה 📄</span>
@@ -4674,8 +4659,8 @@
     function mapExpansionToArchiveSummary(exp, source) {
       const data = exp || {};
       return {
-        title: (source && (source.raw && source.raw.title)) || source.label || '',
-        author: (source && source.raw && source.raw.author) || '',
+        title: (source && (source.title || (source.raw && source.raw.title))) || source.label || '',
+        author: (source && (source.author || (source.raw && source.raw.author))) || '',
         summaryHtml: data.expansionHtml || '',
         summary: data.classroomImplementation || '',
         keyPoints: data.practicalSteps || [],
@@ -4683,6 +4668,69 @@
         relevance: data.parentCommunityAspects || '',
         furtherReading: data.inspirationReferences || [],
       };
+    }
+
+    function normalizeArchiveSummaryObject(raw, src) {
+      const s = raw || {};
+      const summary = {
+        title: s.title || (src && src.title) || '',
+        author: s.author || (src && src.author) || '',
+        summaryHtml: String(s.summaryHtml || '').trim(),
+        summary: String(s.summary || s.essence || '').trim(),
+        keyPoints: Array.isArray(s.keyPoints) ? s.keyPoints.filter(Boolean) : [],
+        pedagogicalAngles: Array.isArray(s.pedagogicalAngles) ? s.pedagogicalAngles.filter(Boolean) : [],
+        relevance: String(s.relevance || '').trim(),
+        furtherReading: Array.isArray(s.furtherReading) ? s.furtherReading.filter(Boolean) : [],
+      };
+      if (
+        summary.summaryHtml || summary.summary || summary.relevance ||
+        summary.keyPoints.length || summary.pedagogicalAngles.length || summary.furtherReading.length
+      ) return summary;
+      return null;
+    }
+
+    function normalizeArchiveSourceSummary(src) {
+      if (!src || typeof src !== 'object') return null;
+      if (src.archiveSummary && typeof src.archiveSummary === 'object') {
+        return normalizeArchiveSummaryObject(src.archiveSummary, src);
+      }
+      const expansion = normalizeExpansion(src.expansion);
+      if (expansion) return mapExpansionToArchiveSummary(expansion, src);
+      return null;
+    }
+
+    function buildArchiveSummaryContentHtml(summary) {
+      if (!summary) return '';
+      let html = '<h4 class="app-subhead font-bold text-burgundy mb-2 flex items-center gap-2">' +
+        '<i class="fa-solid fa-feather-pointed text-sage"></i> ' + escapeHtml(t('theory_bib_summary_title')) + '</h4>';
+      if (summary.summaryHtml) {
+        html += ensureAiHtml(summary.summaryHtml);
+      } else if (summary.summary) {
+        html += '<p class="leading-relaxed">' + escapeHtml(summary.summary) + '</p>';
+      }
+      if (summary.relevance) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_relevance')) + '</h5>';
+        html += '<p class="leading-relaxed">' + escapeHtml(summary.relevance) + '</p>';
+      }
+      if (summary.keyPoints && summary.keyPoints.length) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_key_points')) + '</h5>';
+        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
+        summary.keyPoints.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
+        html += '</ul>';
+      }
+      if (summary.pedagogicalAngles && summary.pedagogicalAngles.length) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_lesson_angles')) + '</h5>';
+        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
+        summary.pedagogicalAngles.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
+        html += '</ul>';
+      }
+      if (summary.furtherReading && summary.furtherReading.length) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h5>';
+        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
+        summary.furtherReading.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
+        html += '</ul>';
+      }
+      return html;
     }
 
     function buildExpansionContentHtml(exp) {
@@ -5711,6 +5759,8 @@
           return b && Array.isArray(b.items) && b.items.length;
         })) return true;
       }
+      var essence = extractPhaseCCurriculumEssenceFromData({ blockPlan: bp });
+      if (essence && isPhaseCCurriculumEssenceServeReadyClient(essence)) return true;
       var rows = extractCurriculumFromPlan(bp);
       if (!rows.length) rows = coerceCurriculumRows(bp.curriculum);
       if (!rows.length && typeof bp.curriculum === 'string') {
@@ -6875,6 +6925,62 @@
     var PHASE_C_CURRICULUM_MIN_PARAGRAPHS_CLIENT = 2;
     var PHASE_C_CURRICULUM_MIN_SENTENCES_CLIENT = 3;
     var PHASE_C_CURRICULUM_DEEP_NARRATIVE_CHARS_CLIENT = 320;
+
+    var PHASE_C_ESSENCE_FIELDS = ['core_emphases', 'key_points', 'recommended_reading', 'relevant_links'];
+    var PHASE_C_ESSENCE_I18N_KEYS = {
+      core_emphases: 'essence_core_emphases',
+      key_points: 'essence_key_points',
+      recommended_reading: 'essence_recommended_reading',
+      relevant_links: 'essence_relevant_links',
+    };
+    var PHASE_C_ESSENCE_MIN_FIELD_CHARS = 40;
+    var PHASE_C_ESSENCE_MIN_FILLED_FIELDS = 3;
+
+    function extractPhaseCCurriculumEssenceFromData(data) {
+      var bp = data && data.blockPlan;
+      if (!bp || typeof bp !== 'object') return null;
+      var curr = bp.curriculum;
+      if (!curr || typeof curr !== 'object' || Array.isArray(curr)) return null;
+      if (curr.day != null || curr.topic != null || curr.content != null || curr.art != null) return null;
+      return curr;
+    }
+
+    function isPhaseCDailyTableCurriculumClient(curr) {
+      if (Array.isArray(curr)) return true;
+      if (!curr || typeof curr !== 'object') return false;
+      return curr.day != null || curr.topic != null || curr.content != null || curr.art != null;
+    }
+
+    function pedagogicalEssenceFieldPlainText(val) {
+      return String(val || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function pedagogicalEssenceFieldHasContent(fieldKey, essence) {
+      if (!essence || typeof essence !== 'object') return false;
+      return pedagogicalEssenceFieldPlainText(essence[fieldKey]).length >= PHASE_C_ESSENCE_MIN_FIELD_CHARS;
+    }
+
+    function isPhaseCCurriculumEssenceServeReadyClient(essence) {
+      if (!essence || typeof essence !== 'object' || Array.isArray(essence)) return false;
+      var filled = 0;
+      PHASE_C_ESSENCE_FIELDS.forEach(function (fieldKey) {
+        if (pedagogicalEssenceFieldHasContent(fieldKey, essence)) filled++;
+      });
+      return filled >= PHASE_C_ESSENCE_MIN_FILLED_FIELDS;
+    }
+
+    function resolvePedagogicalEssenceForRender() {
+      var carriers = [];
+      if (appState.aiGeneratedPlan) carriers.push({ blockPlan: appState.aiGeneratedPlan });
+      if (appState.activePlan && appState.activePlan !== appState.aiGeneratedPlan) {
+        carriers.push({ blockPlan: appState.activePlan });
+      }
+      for (var i = 0; i < carriers.length; i++) {
+        var essence = extractPhaseCCurriculumEssenceFromData(carriers[i]);
+        if (essence && isPhaseCCurriculumEssenceServeReadyClient(essence)) return essence;
+      }
+      return null;
+    }
 
     function resolveCurriculumRowContentExpansionClient(row) {
       if (!row || typeof row !== 'object') return null;
@@ -9567,24 +9673,6 @@
       });
     }
 
-    async function fetchAnthroArchiveSummary(source) {
-      return invokeWaldorfResearch({
-        phase: 'archive_summary',
-        sourceTitle: source.title,
-        sourceAuthor: source.author,
-        sourceType: source.type,
-        sourceYear: source.year,
-        sourceDescription: source.description,
-        gradeLabel: appState.gradeLabel,
-        topic: appState.topic,
-        noUrlsInstruction: getNoUrlsInstruction(),
-        noLatexInstruction: getNoLatexInstruction(),
-        summaryDepthInstruction: isEnglish()
-          ? 'Produce an exceptionally broad, deep pedagogical summary. Text only — no URLs or links.'
-          : 'הפק תקציר פדגוגי רחב ומעמיק במיוחד. טקסט בלבד — ללא קישורים או URLs.',
-      });
-    }
-
     async function fetchBibliographyDeepSummary(source, signal, options) {
       const opts = options || {};
       const raw = source.raw || {};
@@ -11069,12 +11157,6 @@
       return exportToWord(docData, isEnglish() ? 'en' : 'he');
     }
 
-    function isArchiveSummaryPanelOpen(sourceId) {
-      const panel = document.getElementById('archive-sum-' + sourceId);
-      return !!(panel && !panel.classList.contains('hidden') && panel.innerHTML.trim() &&
-        !panel.querySelector('.fa-spinner'));
-    }
-
     function normalizeArchiveSourceType(type) {
       const raw = String(type || '').toLowerCase().trim();
       if (raw === 'lecture' || raw === 'הרצאה' || raw === 'vortrag' || raw === 'talk' || raw === 'speech' || raw === 'ga') {
@@ -11114,7 +11196,6 @@
       const card = document.querySelector('.archive-source-card[data-source-id="' + sourceId + '"]');
       if (!card) return null;
 
-      const expansionOpen = !!(appState.archivePanelsOpen[sourceId] || isArchiveSummaryPanelOpen(sourceId));
       const cached = appState.archiveSummaries[sourceId] || null;
       const cachedData = (cached && cached.archiveSummary) || cached || {};
 
@@ -11122,29 +11203,21 @@
         title: src.title || '',
         author: src.author || '',
         description: src.description || '',
-        expansionOpen: expansionOpen,
-        summaryHtml: '',
-        summaryText: '',
-        keyPoints: [],
-        pedagogicalAngles: [],
-        furtherReading: [],
+        summaryHtml: cachedData.summaryHtml || '',
+        summaryText: cachedData.summary || '',
+        keyPoints: cachedData.keyPoints || [],
+        pedagogicalAngles: cachedData.pedagogicalAngles || [],
+        furtherReading: cachedData.furtherReading || [],
+        relevance: cachedData.relevance || '',
       };
 
-      if (expansionOpen) {
-        data.summaryHtml = cachedData.summaryHtml || '';
-        data.summaryText = cachedData.summary || '';
-        data.keyPoints = cachedData.keyPoints || [];
-        data.pedagogicalAngles = cachedData.pedagogicalAngles || [];
-        data.furtherReading = cachedData.furtherReading || [];
-
-        if (!data.summaryHtml && !data.summaryText) {
-          const panel = document.getElementById('archive-sum-' + sourceId);
-          if (panel) {
-            const clone = panel.cloneNode(true);
-            const heading = clone.querySelector('h4');
-            if (heading) heading.remove();
-            data.summaryHtml = clone.innerHTML.trim();
-          }
+      if (!data.summaryHtml && !data.summaryText && !data.keyPoints.length) {
+        const block = card.querySelector('.archive-content-block');
+        if (block) {
+          const clone = block.cloneNode(true);
+          const heading = clone.querySelector('h4');
+          if (heading) heading.remove();
+          data.summaryHtml = clone.innerHTML.trim();
         }
       }
 
@@ -11158,12 +11231,21 @@
       if (data.author) parts.push('<p><strong>מרצה:</strong> ' + escapeHtml(data.author) + '</p>');
       if (data.description) parts.push('<p>' + escapeHtml(data.description) + '</p>');
 
-      if (data.expansionOpen) {
+      const hasContent = Boolean(
+        data.summaryHtml || data.summaryText || data.relevance ||
+        (data.keyPoints && data.keyPoints.length) ||
+        (data.pedagogicalAngles && data.pedagogicalAngles.length) ||
+        (data.furtherReading && data.furtherReading.length)
+      );
+      if (hasContent) {
         parts.push('<div class="expansion-block"><p><strong>── ' + escapeHtml(EXPANSION_LABEL) + ' ──</strong></p>');
         if (data.summaryHtml) {
           parts.push('<div>' + ensureAiHtml(data.summaryHtml) + '</div>');
         } else if (data.summaryText) {
           parts.push('<p>' + escapeHtml(data.summaryText) + '</p>');
+        }
+        if (data.relevance) {
+          parts.push('<h3>' + escapeHtml(t('theory_bib_relevance')) + '</h3><p>' + escapeHtml(data.relevance) + '</p>');
         }
         if (data.keyPoints && data.keyPoints.length) {
           parts.push('<h3>נקודות מפתח</h3><ul>');
@@ -11441,14 +11523,6 @@
           e.preventDefault();
           e.stopPropagation();
           handleArchiveLectureExportClick(exportBtn.getAttribute('data-archive-export'));
-          return;
-        }
-        const summaryBtn = e.target.closest('.btn-archive-summary[data-source-id]');
-        if (summaryBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          appState.archiveActiveExportId = summaryBtn.getAttribute('data-source-id');
-          requestAnthroArchiveSummary(summaryBtn.getAttribute('data-source-id'));
           return;
         }
         const card = e.target.closest('.archive-source-card[data-source-id]');

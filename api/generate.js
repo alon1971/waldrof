@@ -1982,6 +1982,14 @@ function buildUserPrompt(body) {
       'Hebrew Waldorf/anthroposophy resources when relevant.\n' +
       'Include Rudolf Steiner AND other anthroposophic authors (e.g. von Baravalle, Finser, Harwood, ' +
       'Stebbing, Rawson, Aeppli) when they match the query.\n' +
+      'INLINE EXPANSION (MANDATORY): Every source MUST include a complete embedded "expansion" object — ' +
+      'the UI renders it immediately with no second API call.\n' +
+      'expansion shape: classroomImplementation (2–3 paragraphs: core ideas, soul-spirit development, main-lesson relevance), ' +
+      'parentCommunityAspects (paragraph on parents/community when relevant), ' +
+      'practicalSteps (5–8 concrete classroom steps for currentGrade), ' +
+      'inspirationReferences (3–6 named books/articles/projects — NO URLs), ' +
+      'expansionHtml (rich Hebrew pedagogical HTML — <p>, <ul>, <li>, <strong> only; no links).\n' +
+      'Do NOT include readUrl, url, link, or href fields anywhere.\n' +
       JSON_ONLY_INSTRUCTION + '\nReturn JSON only:\n' +
       '{\n' +
       '  "archiveSearch": {\n' +
@@ -1995,13 +2003,18 @@ function buildUserPrompt(body) {
       '        "type": "book|lecture|article",\n' +
       '        "year": "optional year or GA number",\n' +
       '        "description": "1-2 Hebrew sentences on relevance to pedagogy",\n' +
-      '        "readUrl": "https://full-working-url-to-read-or-archive-page"\n' +
+      '        "expansion": {\n' +
+      '          "classroomImplementation": "Hebrew — broad deep pedagogical core summary",\n' +
+      '          "parentCommunityAspects": "Hebrew — parents/community angles",\n' +
+      '          "practicalSteps": ["Hebrew step 1", "Hebrew step 2"],\n' +
+      '          "inspirationReferences": ["Hebrew book/source name only"],\n' +
+      '          "expansionHtml": "<p>Rich Hebrew HTML summary</p>"\n' +
+      '        }\n' +
       '      }\n' +
       '    ]\n' +
       '  }\n' +
       '}\n' +
-      'Provide 6–10 sources. readUrl MUST be real HTTPS links to public pages (archive, publisher, PDF index). ' +
-      'Do not invent dead links.'
+      'Provide 6–10 sources. Each expansion MUST be complete, grade-locked, and substantive — never placeholders.'
     );
   }
 
@@ -3045,7 +3058,6 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
         data = stripPhaseCCurriculumCrossTabFields(data);
       }
     }
-
     if (!validatePhaseResult(phase, data, body)) {
       console.error(
         '[perplexity] Parsed JSON missing required fields for phase',
@@ -3980,7 +3992,7 @@ async function executeGenerate(body, apiKey, requestContext) {
     scopeGuardSystem +
     (isDecoupledGen || isOnDemandExpansion ? '' : CONTENT_HIERARCHY_INSTRUCTION) +
     communityCriticalBlock +
-    (body.phase === 'grade' || body.phase === 'topic' || body.phase === 'phase_c'
+    (body.phase === 'grade' || body.phase === 'topic' || body.phase === 'phase_c' || body.phase === 'archive_search'
       ? ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.'
       : '') +
     (body.phase === 'topic'

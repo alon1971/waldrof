@@ -396,7 +396,10 @@ function buildModelParseFallback(phase, rawText, context) {
       archiveSearch: {
         query: String(ctx.archiveQuery || ''),
         intro: plain.slice(0, 1500),
-        sources: [],
+        developmental_axis: plain.slice(0, 4000),
+        core_pedagogical_emphases: '',
+        recommended_literature: '',
+        relevant_links: '',
       },
       _parseFallback: true,
     };
