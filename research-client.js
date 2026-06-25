@@ -526,7 +526,17 @@
       return { pedagogyDeepDive: { title: String(ctx.activityTitle || ''), contentHtml: wrap }, _parseFallback: true };
     }
     if (phase === 'archive_search') {
-      return { archiveSearch: { query: String(ctx.archiveQuery || ''), intro: plain.slice(0, 1500), sources: [] }, _parseFallback: true };
+      return {
+        archiveSearch: {
+          query: String(ctx.archiveQuery || ''),
+          intro: plain.slice(0, 1500),
+          developmental_axis: plain.slice(0, 4000),
+          core_pedagogical_emphases: '',
+          recommended_literature: '',
+          relevant_links: '',
+        },
+        _parseFallback: true,
+      };
     }
     if (phase === 'archive_summary') {
       return { archiveSummary: { title: String(ctx.sourceTitle || ''), summaryHtml: wrap }, _parseFallback: true };
@@ -616,11 +626,9 @@
     if (phase === 'archive_search') {
       const q = (body.archiveQuery || '').replace(/"/g, "'");
       return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
-        'Live web search: Anthroposophic archive.\nQuery: «' + q + '»\nGrade: ' + (body.gradeLabel || '') + '\n' +
-        'INLINE EXPANSION (MANDATORY): every source includes a complete embedded "expansion" object ' +
-        '(classroomImplementation, parentCommunityAspects, practicalSteps[], inspirationReferences[], expansionHtml). ' +
-        'No readUrl or URLs. UI renders immediately — no second API call.\n' +
-        WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + '\nReturn JSON: {"archiveSearch":{"query":"' + q + '","intro":"Hebrew","sources":[{"id":"slug","title":"Hebrew","author":"Hebrew","type":"lecture","year":"","description":"Hebrew","expansion":{...}}]}}';
+        'GENERAL CROSS-GRADE SEARCH (חיפוש כללי).\nQuery: «' + q + '»\nScope: grades א\'–ח\'.\n' +
+        WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
+        '{"archiveSearch":{"query":"' + q + '","intro":"Hebrew","developmental_axis":"Hebrew markdown","core_pedagogical_emphases":"Hebrew markdown","recommended_literature":"Hebrew markdown","relevant_links":"Hebrew markdown"}}';
     }
     if (phase === 'archive_summary') {
       const title = (body.sourceTitle || '').replace(/"/g, "'");
@@ -695,7 +703,13 @@
       });
     }
     if (phase === 'pedagogy_deep_dive') return Boolean(data.pedagogyDeepDive);
-    if (phase === 'archive_search') return Boolean(data.archiveSearch);
+    if (phase === 'archive_search') {
+      const s = data.archiveSearch;
+      if (!s || typeof s !== 'object') return false;
+      const keys = ['developmental_axis', 'core_pedagogical_emphases', 'recommended_literature', 'relevant_links'];
+      const filled = keys.filter(function (k) { return String(s[k] || '').trim().length >= 40; });
+      return filled.length >= 3;
+    }
     if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
     if (phase === 'drive') return Boolean(data.driveMerge);
     if (phase === 'test') return data.ok === true;
