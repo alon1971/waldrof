@@ -477,13 +477,19 @@ const THEORY_FALLBACK_HEADINGS = [
   'מקורות, השראה והעמקה',
 ];
 
+function splitIntoSentences(text) {
+  return String(text || '').split(/(?<=[.!?׃。])\s+/).map(function (s) {
+    return s.trim();
+  }).filter(function (s) {
+    return s.length > 20;
+  });
+}
+
 function splitEssayIntoChunks(essay, targetCount) {
   const paragraphs = paragraphsFromSterileEssay(essay);
   if (paragraphs.length >= targetCount) return paragraphs;
   if (!essay) return [];
-  const sentences = essay.split(/(?<=[.!?׃。])\s+/).map(function (s) { return s.trim(); }).filter(function (s) {
-    return s.length > 20;
-  });
+  const sentences = splitIntoSentences(essay);
   if (sentences.length < targetCount) return paragraphs.length ? paragraphs : [essay];
   const groupSize = Math.max(1, Math.ceil(sentences.length / targetCount));
   const chunks = [];
@@ -491,6 +497,245 @@ function splitEssayIntoChunks(essay, targetCount) {
     chunks.push(sentences.slice(i, i + groupSize).join(' '));
   }
   return chunks.length ? chunks : [essay];
+}
+
+function groupParagraphsIntoChunks(paragraphs, targetCount) {
+  const items = (paragraphs || []).filter(Boolean);
+  if (!items.length) return [];
+  if (items.length <= targetCount) return items.slice();
+  const groupSize = Math.max(1, Math.ceil(items.length / targetCount));
+  const chunks = [];
+  for (let i = 0; i < items.length && chunks.length < targetCount; i += groupSize) {
+    chunks.push(items.slice(i, i + groupSize).join('\n\n'));
+  }
+  return chunks.length ? chunks : [items.join('\n\n')];
+}
+
+function normalizeForDedup(text) {
+  return stripHtmlToPlainText(text)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isDuplicateText(fragment, seenKeys, minLen) {
+  const norm = normalizeForDedup(fragment);
+  const floor = minLen != null ? minLen : 24;
+  if (!norm || norm.length < floor) return false;
+  if (seenKeys.has(norm)) return true;
+  let seen;
+  for (seen of seenKeys) {
+    if (seen.length < 40 || norm.length < 40) continue;
+    if (seen.includes(norm) || norm.includes(seen)) return true;
+    const wordsA = norm.split(' ').filter(function (w) { return w.length > 3; });
+    const setB = new Set(seen.split(' ').filter(function (w) { return w.length > 3; }));
+    let overlap = 0;
+    wordsA.forEach(function (w) { if (setB.has(w)) overlap++; });
+    const ratio = overlap / Math.max(wordsA.length, 1);
+    if (ratio > 0.72 && overlap >= 6) return true;
+  }
+  return false;
+}
+
+function markTextSeen(fragment, seenKeys) {
+  const norm = normalizeForDedup(fragment);
+  if (norm) seenKeys.add(norm);
+  splitIntoSentences(fragment).forEach(function (sentence) {
+    const sentenceNorm = normalizeForDedup(sentence);
+    if (sentenceNorm.length >= 30) seenKeys.add(sentenceNorm);
+  });
+}
+
+function dedupeTextFragments(fragments, seenKeys) {
+  const out = [];
+  (fragments || []).forEach(function (frag) {
+    const trimmed = String(frag || '').trim();
+    if (!trimmed || isDuplicateText(trimmed, seenKeys, 20)) return;
+    markTextSeen(trimmed, seenKeys);
+    out.push(trimmed);
+  });
+  return out;
+}
+
+const FALLBACK_PEDAGOGY_KEYWORDS = /מצפן|התפתחות|גיל\s|מורה|פדגוג|דימוי|נפש|רוח|סמכות|עצמאות|מרד|developmental|compass|teacher|authority|rebellion/i;
+const FALLBACK_THEORY_KEYWORDS = /היסטור|מהפכ|אנתרופוסופ|שטיינר|steiner|רקע|תקופה|anthroposoph|revolution|history|lecture|ga\s*\d/i;
+const FALLBACK_INSPIRATION_KEYWORDS = /כיתה|שיעור|פעילות|תנועה|אמנות|חווי|יישום|דוגמ|יציר|drawing|art|classroom|practical|inspiration|creative/i;
+
+function classifyFallbackParagraphBucket(paragraph) {
+  const text = String(paragraph || '');
+  const pedScore = (text.match(FALLBACK_PEDAGOGY_KEYWORDS) || []).length;
+  const theoryScore = (text.match(FALLBACK_THEORY_KEYWORDS) || []).length;
+  const inspScore = (text.match(FALLBACK_INSPIRATION_KEYWORDS) || []).length;
+  if (pedScore >= theoryScore && pedScore >= inspScore && pedScore > 0) return 'pedagogy';
+  if (theoryScore >= inspScore && theoryScore > 0) return 'theory';
+  if (inspScore > 0) return 'inspiration';
+  return 'neutral';
+}
+
+function fillFallbackBucket(bucket, targetChars, pool) {
+  let len = bucket.reduce(function (sum, item) { return sum + item.len; }, 0);
+  while (len < targetChars && pool.length) {
+    const item = pool.shift();
+    if (!item) break;
+    bucket.push(item);
+    len += item.len;
+  }
+  return pool;
+}
+
+function partitionFallbackEssay(essay, grade) {
+  let paragraphs = paragraphsFromSterileEssay(essay);
+  if (paragraphs.length < 4) {
+    paragraphs = groupParagraphsIntoChunks(splitIntoSentences(essay), Math.max(6, Math.ceil(splitIntoSentences(essay).length / 2)));
+  }
+  if (!paragraphs.length && essay) paragraphs = [essay];
+
+  const tagged = paragraphs.map(function (paragraph, index) {
+    return {
+      text: paragraph,
+      bucket: classifyFallbackParagraphBucket(paragraph),
+      index: index,
+      len: paragraph.length,
+    };
+  });
+
+  const totalLen = tagged.reduce(function (sum, item) { return sum + item.len; }, 0) || essay.length || 1;
+  const targetCore = Math.floor(totalLen * 0.37);
+  const targetTheory = Math.floor(totalLen * 0.33);
+  const targetInsp = Math.max(0, totalLen - targetCore - targetTheory);
+
+  const core = [];
+  const theory = [];
+  const inspiration = [];
+  const neutral = [];
+  tagged.forEach(function (item) {
+    if (item.bucket === 'pedagogy') core.push(item);
+    else if (item.bucket === 'theory') theory.push(item);
+    else if (item.bucket === 'inspiration') inspiration.push(item);
+    else neutral.push(item);
+  });
+
+  let remainder = neutral.slice();
+  remainder = fillFallbackBucket(core, targetCore, remainder.filter(function (item) {
+    return FALLBACK_PEDAGOGY_KEYWORDS.test(item.text);
+  }));
+  remainder = fillFallbackBucket(core, targetCore, remainder);
+  remainder = fillFallbackBucket(theory, targetTheory, remainder);
+  remainder = fillFallbackBucket(inspiration, targetInsp, remainder);
+  remainder.forEach(function (item) {
+    if (core.reduce(function (s, t) { return s + t.len; }, 0) < targetCore) core.push(item);
+    else if (theory.reduce(function (s, t) { return s + t.len; }, 0) < targetTheory) theory.push(item);
+    else inspiration.push(item);
+  });
+
+  return {
+    theoryParagraphs: theory.map(function (item) { return item.text; }),
+    inspirationParagraphs: inspiration.map(function (item) { return item.text; }),
+    coreParagraphs: core.map(function (item) { return item.text; }),
+  };
+}
+
+const CORE_EMPHASES_HEADINGS_BY_GRADE = {
+  '8': [
+    'מצפן התפתחותי — סמכות פנימית ואתגר המרד',
+    'יחס המורה לגיל המרד והעצמאות הרוחנית',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
+  '7': [
+    'מצפן התפתחותי — גיל ההתבגרות המוקדמת',
+    'יחס המורה לקצב, לדימוי ולשאלות הקיום',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
+  '6': [
+    'מצפן התפתחותי — מעבר לעולם הארצי והרציונלי',
+    'יחס המורה לשאלות צדק, סמכות וקהילה',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ],
+};
+
+function getCoreEmphasesHeadings(grade) {
+  const gradeNum = resolveGradeNum(grade);
+  if (gradeNum && CORE_EMPHASES_HEADINGS_BY_GRADE[gradeNum]) {
+    return CORE_EMPHASES_HEADINGS_BY_GRADE[gradeNum].slice();
+  }
+  return [
+    'מצפן התפתחותי — רציונל גילי',
+    'יחס המורה לקצב ולמצפן ההתפתחותי',
+    'דגשים לבניית תקופה והיעדים הפדגוגיים',
+  ];
+}
+
+const FALLBACK_DOMAIN_PATTERN = /\b((?:www\.)?[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a-z0-9]*)+\.(?:org|com|edu|net|il)(?:\/[^\s,.;:)}\]"']*)?)/gi;
+const FALLBACK_MARKDOWN_LINK_PATTERN = /\[([^\]]{2,160})\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
+const FALLBACK_TITLE_URL_PATTERN = /([^\n]{4,140}?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)/gi;
+const FALLBACK_BARE_URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
+
+function buildFallbackAnchorHtml(url, label) {
+  const href = cleanHarvestedUrl(url);
+  if (!href || isDeadPhaseCFallbackUrl(href)) return escapeHtmlForFallback(label || url);
+  const display = String(label || href).trim() || href;
+  return '<a href="' + escapeHtmlForFallback(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+    escapeHtmlForFallback(display) + '</a>';
+}
+
+function ensureDomainHref(domain) {
+  const raw = String(domain || '').trim().replace(/^www\./i, '');
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return cleanHarvestedUrl(raw);
+  return cleanHarvestedUrl('https://' + raw.replace(/^\/+/, ''));
+}
+
+function linkifyFallbackSegment(text) {
+  const extracted = [];
+  const placeholders = [];
+  let work = String(text || '');
+
+  function stashLink(url, label) {
+    const clean = ensureDomainHref(url);
+    if (!clean || isDeadPhaseCFallbackUrl(clean)) return null;
+    const title = String(label || clean).trim() || clean;
+    extracted.push({ title: title, url: clean, bucket: classifyPhaseCFallbackUrl(clean) });
+    const token = '\x00FLINK' + placeholders.length + '\x00';
+    placeholders.push(buildFallbackAnchorHtml(clean, title));
+    return token;
+  }
+
+  work = work.replace(FALLBACK_MARKDOWN_LINK_PATTERN, function (full, label, url) {
+    return stashLink(url, label) || full;
+  });
+  work = work.replace(FALLBACK_TITLE_URL_PATTERN, function (full, label, url) {
+    return stashLink(url, label) || full;
+  });
+  work = work.replace(FALLBACK_BARE_URL_PATTERN, function (url) {
+    return stashLink(url, '') || url;
+  });
+  work = work.replace(FALLBACK_DOMAIN_PATTERN, function (domain) {
+    if (/^https?:\/\//i.test(domain)) return domain;
+    return stashLink(domain, domain) || domain;
+  });
+
+  work = escapeHtmlForFallback(work);
+  PHASE_C_FALLBACK_BOLD_PHRASES.forEach(function (phrase) {
+    const re = new RegExp('(' + phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    work = work.replace(re, '<strong>$1</strong>');
+  });
+  placeholders.forEach(function (html, index) {
+    work = work.split('\x00FLINK' + index + '\x00').join(html);
+  });
+
+  return { html: work, links: extracted };
+}
+
+function mergeExtractedLinksIntoNormalized(normalized, linkGroups, topic) {
+  const harvested = [];
+  (linkGroups || []).forEach(function (group) {
+    (group || []).forEach(function (item) {
+      if (item && item.url) harvested.push(item);
+    });
+  });
+  if (!harvested.length) return normalized;
+  return distributePhaseCFallbackLinks(normalized, harvested, topic);
 }
 
 function escapeHtmlForFallback(text) {
@@ -512,26 +757,100 @@ function boldPedagogicalPhrases(text) {
 
 function formatFallbackProseChunk(text) {
   const parts = String(text || '').split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
-  if (!parts.length) return '';
-  return parts.map(function (part) {
-    return '<p>' + boldPedagogicalPhrases(part) + '</p>';
+  if (!parts.length) return { html: '', links: [] };
+  const allLinks = [];
+  const html = parts.map(function (part) {
+    const linked = linkifyFallbackSegment(part);
+    allLinks.push.apply(allLinks, linked.links || []);
+    return '<p>' + linked.html + '</p>';
   }).join('\n');
+  return { html: html, links: allLinks };
 }
 
-function buildTheoryFallbackSections(essay, paragraphs) {
-  const source = paragraphs.length >= 3 ? paragraphs : splitEssayIntoChunks(essay, 4);
-  const chunks = source.slice(0, 4);
-  while (chunks.length < 3 && essay) {
-    chunks.push(essay);
-    break;
+function buildTheoryFallbackSections(essay, paragraphs, seenKeys) {
+  const seen = seenKeys || new Set();
+  let source = paragraphs && paragraphs.length >= 3
+    ? dedupeTextFragments(paragraphs.slice(), seen)
+    : dedupeTextFragments(splitEssayIntoChunks(essay, 4), seen);
+
+  if (source.length < 3 && essay) {
+    const extra = dedupeTextFragments(splitIntoSentences(essay), seen);
+    source = source.concat(extra);
   }
-  return chunks.map(function (content, i) {
+
+  let chunks = source.slice(0, 4);
+  while (chunks.length < 3 && chunks.length > 0) {
+    let largest = chunks[0];
+    let largestIdx = 0;
+    for (let i = 1; i < chunks.length; i++) {
+      if (chunks[i].length > largest.length) {
+        largest = chunks[i];
+        largestIdx = i;
+      }
+    }
+    const sentences = splitIntoSentences(largest);
+    if (sentences.length < 2) break;
+    const mid = Math.ceil(sentences.length / 2);
+    const first = dedupeTextFragments([sentences.slice(0, mid).join(' ')], seen);
+    const second = dedupeTextFragments([sentences.slice(mid).join(' ')], seen);
+    if (!first.length && !second.length) break;
+    chunks.splice(largestIdx, 1);
+    if (first.length) chunks.splice(largestIdx, 0, first[0]);
+    if (second.length) chunks.splice(largestIdx + (first.length ? 1 : 0), 0, second[0]);
+    if (chunks.length >= 4) break;
+  }
+
+  const allLinks = [];
+  const sections = chunks.map(function (content, i) {
+    const deduped = dedupeTextFragments([content], seen);
+    const chunkText = deduped[0] || content;
+    const formatted = formatFallbackProseChunk(chunkText);
+    allLinks.push.apply(allLinks, formatted.links || []);
     return {
       heading: THEORY_FALLBACK_HEADINGS[i] || ('חלון ' + (i + 1)),
-      content: formatFallbackProseChunk(content),
+      content: formatted.html,
       icon: 'fa-compass',
     };
+  }).filter(function (sec) { return sec.content; });
+
+  return { sections: sections, links: allLinks };
+}
+
+function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, seenKeys) {
+  const seen = seenKeys || new Set();
+  const headings = getCoreEmphasesHeadings(grade);
+  let source = dedupeTextFragments((paragraphs || []).slice(), seen);
+  if (!source.length && essay) {
+    source = dedupeTextFragments(paragraphsFromSterileEssay(essay), seen);
+  }
+  if (!source.length && essay) {
+    source = dedupeTextFragments(splitEssayIntoChunks(essay, 3), seen);
+  }
+
+  let chunks = source.length >= 2
+    ? groupParagraphsIntoChunks(source, 3)
+    : dedupeTextFragments(splitEssayIntoChunks(source.join('\n\n') || essay, 3), seen);
+  chunks = dedupeTextFragments(chunks, seen).slice(0, 3);
+  while (chunks.length < 2 && essay) {
+    const extra = dedupeTextFragments(splitEssayIntoChunks(essay, 3), seen);
+    chunks = dedupeTextFragments(chunks.concat(extra), seen).slice(0, 3);
+    break;
+  }
+
+  const allLinks = [];
+  let html = '<div class="prose-ai leading-relaxed w-full space-y-5">';
+  chunks.forEach(function (content, i) {
+    if (!content) return;
+    const formatted = formatFallbackProseChunk(content);
+    allLinks.push.apply(allLinks, formatted.links || []);
+    html += '<article class="theory-fallback-window bg-white/75 rounded-2xl border border-gold/25 p-5 sm:p-6 w-full box-border">';
+    html += '<h4 class="app-subhead font-display font-bold text-sage-dark mb-3"><strong>' +
+      escapeHtmlForFallback(headings[i] || ('דגש ' + (i + 1))) + '</strong></h4>';
+    html += formatted.html || '';
+    html += '</article>';
   });
+  html += '</div>';
+  return { html: html, links: allLinks };
 }
 
 function splitInspirationFallbackItems(paragraphs, essay) {
@@ -754,30 +1073,58 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   const topicStr = String(topic || 'נושא').trim();
   const gradeStr = String(grade || '').trim();
   const titleSuffix = gradeStr ? (gradeStr + ' · ' + topicStr) : topicStr;
-  const paragraphs = paragraphsFromSterileEssay(essay);
-  const inspirationItems = splitInspirationFallbackItems(paragraphs, essay);
-  const keyPoints = buildKeyPointsFromEssay(essay, paragraphs);
+  const seenKeys = new Set();
+  const partition = partitionFallbackEssay(essay, gradeStr);
+
+  const theoryParagraphs = dedupeTextFragments(partition.theoryParagraphs, seenKeys);
+  const inspirationParagraphs = dedupeTextFragments(partition.inspirationParagraphs, seenKeys);
+  const coreParagraphs = dedupeTextFragments(partition.coreParagraphs, seenKeys);
+
+  const theoryEssay = theoryParagraphs.join('\n\n') || essay;
+  const inspirationEssay = inspirationParagraphs.join('\n\n') || essay;
+  const coreEssay = coreParagraphs.join('\n\n') || essay;
+
+  const theoryResult = buildTheoryFallbackSections(
+    theoryEssay,
+    theoryParagraphs.length ? theoryParagraphs : paragraphsFromSterileEssay(theoryEssay),
+    seenKeys
+  );
+  const coreResult = buildCoreEmphasesFallbackHtml(
+    coreParagraphs,
+    coreEssay,
+    gradeStr,
+    seenKeys
+  );
+  const inspirationItems = splitInspirationFallbackItems(
+    inspirationParagraphs.length ? inspirationParagraphs : paragraphsFromSterileEssay(inspirationEssay),
+    inspirationEssay
+  );
+  const keyPoints = buildKeyPointsFromEssay(
+    coreEssay,
+    coreParagraphs.length ? coreParagraphs : paragraphsFromSterileEssay(coreEssay)
+  );
 
   normalized.theory = {
     title: 'רקע תיאורטי — ' + titleSuffix,
-    sections: buildTheoryFallbackSections(essay, paragraphs),
+    sections: theoryResult.sections,
     bibliography: (normalized.theory && normalized.theory.bibliography) || { books: [], articles: [], websites: [] },
   };
   normalized.inspiration = {
     title: 'השראה פדגוגית — ' + topicStr,
     global: buildInspirationFallbackGlobalBlocks(inspirationItems),
     podcast: { title: 'תובנות', episodes: [] },
-    narrative: paragraphs.length > 2 ? paragraphs.slice(-3) : [],
+    narrative: inspirationParagraphs.length > 2 ? inspirationParagraphs.slice(-3) : [],
   };
-  normalized.core_emphases = formatFallbackProseChunk(essay);
+  normalized.core_emphases = coreResult.html;
   normalized.key_points = keyPoints;
   if (!Array.isArray(normalized.recommended_reading)) normalized.recommended_reading = [];
   if (!Array.isArray(normalized.relevant_links)) normalized.relevant_links = [];
   if (!Array.isArray(normalized.pinterest_links)) normalized.pinterest_links = [];
   if (!Array.isArray(normalized.pedagogical_resources)) normalized.pedagogical_resources = [];
 
+  mergeExtractedLinksIntoNormalized(normalized, [theoryResult.links, coreResult.links], topicStr);
   applyPhaseCFallbackLinkHarvester(normalized, parsed, topicStr);
-  ensureRecommendedReading(normalized, essay, gradeStr, topicStr);
+  ensureRecommendedReading(normalized, coreEssay || essay, gradeStr, topicStr);
   deduplicatePhaseCTabLinks(normalized);
 
   return normalized;
@@ -1153,6 +1500,10 @@ module.exports = {
   distributePhaseCFallbackLinks,
   gatherPhaseCFallbackApiResponse,
   buildTheoryFallbackSections,
+  buildCoreEmphasesFallbackHtml,
+  partitionFallbackEssay,
+  dedupeTextFragments,
+  linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
   extractRecommendedReadingFromText,
