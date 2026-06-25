@@ -10201,11 +10201,11 @@
     function formatPerplexityRawText(text) {
       if (!text) return '<div class="prose-ai"></div>';
       const s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(String(text))));
-      const hasMarkdownLinks = /\[[^\]]+\]\(\s*https?:\/\//i.test(s);
+      const hasMarkdownLinks = /\[[^\]]+\]\(\s*https?:\/\//i.test(s) || /\bhttps?:\/\//i.test(s);
       if (hasMarkdownLinks || !looksLikeAiHtml(s)) {
         return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s) + '</div>';
       }
-      return ensureAiHtml(s);
+      return ensureAiHtml(linkifyNakedUrlsInPlainText(s));
     }
 
     function stripPhaseBReferenceBrackets(text) {
@@ -13726,8 +13726,37 @@
       if (!href) return escapeHtml(humanizeSourceLinkLabel(label, url));
       var display = humanizeSourceLinkLabel(label, href);
       if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
-      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-blue-600 underline hover:text-blue-800">' +
         escapeHtml(display) + '</a>';
+    }
+
+    function linkifyNakedUrlsInPlainText(text) {
+      var placeholders = [];
+      var work = String(text || '');
+      function stash(url, label) {
+        var href = sanitizeMarkdownLinkUrl(url);
+        if (!href) return null;
+        var idx = placeholders.length;
+        placeholders.push(buildProseSourceLinkHtml(href, label || ''));
+        return '\x00URLINK' + idx + '\x00';
+      }
+      work = work.replace(/(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, url) {
+        return stash(url, '') || _m;
+      });
+      work = work.replace(/\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, url) {
+        return stash(url, '') || _m;
+      });
+      work = work.replace(/\[([^\]]*)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
+        return stash(url, label) || _m;
+      });
+      work = work.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, function (url) {
+        return stash(url, '') || url;
+      });
+      work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
+      placeholders.forEach(function (html, i) {
+        work = work.split('\x00URLINK' + i + '\x00').join(html);
+      });
+      return work;
     }
 
     function renderGradeInsightsSourceItem(source) {
@@ -13767,13 +13796,25 @@
       if (!text) return '';
       var placeholders = [];
       var work = String(text);
+      work = work.replace(/(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, url) {
+        var href = sanitizeMarkdownLinkUrl(url);
+        var idx = placeholders.length;
+        placeholders.push(buildProseSourceLinkHtml(href || url, ''));
+        return '\x00MDLINK' + idx + '\x00';
+      });
       work = work.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
         var href = sanitizeMarkdownLinkUrl(url);
         var idx = placeholders.length;
         placeholders.push(buildProseSourceLinkHtml(href || url, label));
         return '\x00MDLINK' + idx + '\x00';
       });
-      work = work.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, '');
+      work = work.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, function (url) {
+        var href = sanitizeMarkdownLinkUrl(url);
+        var idx = placeholders.length;
+        placeholders.push(buildProseSourceLinkHtml(href || url, ''));
+        return '\x00MDLINK' + idx + '\x00';
+      });
+      work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
       work = escapeHtml(work);
       work = work.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
       placeholders.forEach(function (html, i) {

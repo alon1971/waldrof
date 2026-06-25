@@ -963,13 +963,19 @@ const FALLBACK_DOMAIN_PATTERN = /\b((?:www\.)?[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a
 const FALLBACK_MARKDOWN_LINK_PATTERN = /\[([^\]]{2,160})\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
 const FALLBACK_TITLE_URL_PATTERN = /([^\n]{4,140}?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)/gi;
 const FALLBACK_BARE_URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
+const PHASE_C_BROKEN_HTTPS_LINK_PATTERN = /(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
+const PHASE_C_SOURCE_LINK_CLASS = 'text-blue-600 underline hover:text-blue-800';
+const PHASE_C_SOURCE_LINK_LABEL = 'קישור למקור';
 
 function buildFallbackAnchorHtml(url, label) {
   const href = cleanHarvestedUrl(url);
   if (!href || isDeadPhaseCFallbackUrl(href)) return escapeHtmlForFallback(label || url);
-  const display = String(label || href).trim() || href;
-  return '<a href="' + escapeHtmlForFallback(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
-    escapeHtmlForFallback(display) + '</a>';
+  let display = String(label || '').trim();
+  if (!display || /^https?$/i.test(display) || /^HTTPS$/i.test(display)) {
+    display = PHASE_C_SOURCE_LINK_LABEL;
+  }
+  return '<a href="' + escapeHtmlForFallback(href) + '" target="_blank" rel="noopener noreferrer" class="' +
+    PHASE_C_SOURCE_LINK_CLASS + '">' + escapeHtmlForFallback(display) + '</a>';
 }
 
 function ensureDomainHref(domain) {
@@ -997,12 +1003,19 @@ function linkifyFallbackSegment(text) {
   work = work.replace(FALLBACK_MARKDOWN_LINK_PATTERN, function (full, label, url) {
     return stashLink(url, label) || full;
   });
+  work = work.replace(PHASE_C_BROKEN_HTTPS_LINK_PATTERN, function (full, url) {
+    return stashLink(url, '') || full;
+  });
+  work = work.replace(/\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (full, url) {
+    return stashLink(url, '') || full;
+  });
   work = work.replace(FALLBACK_TITLE_URL_PATTERN, function (full, label, url) {
     return stashLink(url, label) || full;
   });
   work = work.replace(FALLBACK_BARE_URL_PATTERN, function (url) {
     return stashLink(url, '') || url;
   });
+  work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
   work = work.replace(FALLBACK_DOMAIN_PATTERN, function (domain) {
     if (/^https?:\/\//i.test(domain)) return domain;
     return stashLink(domain, domain) || domain;
@@ -1777,7 +1790,9 @@ async function runPurePhaseC(body) {
           data: safeNormalizePhaseCResponse(cached.data, grade, topic),
           meta: Object.assign({
             fromCache: true,
-            source: 'topic_master_archive',
+            source: cached.meta && cached.meta.semanticMatch
+              ? (cached.meta.source || 'topic_master_semantic')
+              : 'topic_master_archive',
           }, cached.meta || {}),
         };
       } catch (cacheErr) {

@@ -13,6 +13,7 @@ const archiveDisambiguation = require('./archive-disambiguation');
 const jsonRepair = require('./json-repair');
 const archiveCoerce = require('../archive-coerce');
 const communitySemanticMatch = require('./community-semantic-match');
+const embeddings = require('./embeddings');
 const catalogTopics = require('./catalog-topics');
 const driveCatalogSync = require('./drive-catalog-sync');
 const enrichmentLinks = require('./enrichment-links');
@@ -1598,7 +1599,233 @@ function buildTopicMasterCacheBody(gradeId, gradeLabel, topic) {
   };
 }
 
-/** Lookup unified Step B→C master JSON by grade_id + normalized topic (archive fast-path). */
+const TOPIC_MASTER_SEMANTIC_MIN_SCORE = ARCHIVE_PARTIAL_MIN_SCORE;
+const TOPIC_MASTER_EMBEDDING_MIN_SCORE = 0.82;
+
+function topicMasterDisplayName(row, data, queryHint) {
+  const coerced = data || coerceCachedResultData(row && row.result_data);
+  const candidates = [];
+  function addCandidate(val) {
+    const s = String(val || '').trim();
+    if (s && candidates.indexOf(s) < 0) candidates.push(s);
+  }
+  if (row && row.topic) addCandidate(row.topic);
+  if (row && row.query_text) addCandidate(row.query_text);
+  if (coerced && coerced._topicMaster) {
+    addCandidate(coerced._topicMaster.topic);
+    addCandidate(coerced._topicMaster.topicNormalized);
+  }
+  if (!candidates.length) return '';
+
+  const hint = String(queryHint || '').trim();
+  if (hint) {
+    let best = candidates[0];
+    let bestScore = scoreTopicMasterSemanticMatch(hint, best, '');
+    candidates.forEach(function (curr) {
+      const score = scoreTopicMasterSemanticMatch(hint, curr, '');
+      if (score > bestScore + 0.0001 || (Math.abs(score - bestScore) <= 0.0001 && curr.length < best.length)) {
+        best = curr;
+        bestScore = score;
+      }
+    });
+    return best;
+  }
+
+  return candidates.reduce(function (best, curr) {
+    return curr.length > best.length ? curr : best;
+  }, candidates[0]);
+}
+
+/** Hebrew morphological + pedagogical-alias scoring for topic_master cache rows. */
+function scoreTopicMasterSemanticMatch(queryRaw, candidateTopic, candidateQueryText) {
+  let score = scoreTopicSimilarity(queryRaw, candidateTopic, candidateQueryText);
+  if (hebrewTopicMatch.sharesAllowedPedagogicalAlias(queryRaw, candidateTopic)) {
+    score = Math.max(score, 0.88);
+  }
+  if (candidateQueryText && hebrewTopicMatch.sharesAllowedPedagogicalAlias(queryRaw, candidateQueryText)) {
+    score = Math.max(score, 0.88);
+  }
+  const queryNorm = stableNormalize(queryRaw);
+  const topicNorm = stableNormalize(candidateTopic || '');
+  if (queryNorm && topicNorm && queryNorm === topicNorm) score = Math.max(score, 1);
+  return score;
+}
+
+function pickBestTopicMasterRow(rows, query) {
+  let best = null;
+  let bestScore = TOPIC_MASTER_SEMANTIC_MIN_SCORE;
+
+  (rows || []).forEach(function (row) {
+    if (!row || !row.result_data) return;
+    const data = coerceCachedResultData(row.result_data);
+    if (!data || !isTopicMasterPayload(data)) return;
+    const candidateTopic = topicMasterDisplayName(row, data, query);
+    if (!candidateTopic || isMisleadingArchiveAutoLoad(query, candidateTopic)) return;
+    const score = scoreTopicMasterSemanticMatch(query, candidateTopic, row.query_text || '');
+    if (score <= bestScore) return;
+    const candidate = { row: row, data: data, topic: candidateTopic, score: score, matchMethod: 'hebrew' };
+    if (isBetterArchiveTopicPick(candidate, best)) {
+      best = candidate;
+      bestScore = score;
+    }
+  });
+
+  return best;
+}
+
+function topicMasterEmbeddingCosine(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (!normA || !normB) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+async function pickTopicMasterByEmbeddingSimilarity(rows, query) {
+  if (!embeddings.resolveEmbeddingApiKey()) return null;
+  const viable = (rows || []).filter(function (row) {
+    const data = coerceCachedResultData(row.result_data);
+    return data && isTopicMasterPayload(data);
+  }).slice(0, 40);
+  if (!viable.length) return null;
+
+  const queryVector = await embeddings.embedText(query);
+  if (!Array.isArray(queryVector) || !queryVector.length) return null;
+
+  const labels = viable.map(function (row) {
+    return topicMasterDisplayName(row, coerceCachedResultData(row.result_data), query);
+  });
+  const vectors = await embeddings.embedTexts(labels);
+  let best = null;
+  let bestScore = TOPIC_MASTER_EMBEDDING_MIN_SCORE;
+
+  viable.forEach(function (row, index) {
+    const vector = vectors[index];
+    if (!vector) return;
+    const candidateTopic = labels[index];
+    if (!candidateTopic || isMisleadingArchiveAutoLoad(query, candidateTopic)) return;
+    const score = topicMasterEmbeddingCosine(queryVector, vector);
+    if (score <= bestScore) return;
+    const data = coerceCachedResultData(row.result_data);
+    const candidate = { row: row, data: data, topic: candidateTopic, score: score, matchMethod: 'embedding' };
+    if (isBetterArchiveTopicPick(candidate, best)) {
+      best = candidate;
+      bestScore = score;
+    }
+  });
+
+  return best;
+}
+
+async function fetchTopicMasterRowsForGrade(gradeId, topic, withTermFilter) {
+  if (!isSupabaseCacheEnabled()) return [];
+
+  const params = new URLSearchParams();
+  params.set('select', LEGACY_ROW_SELECT);
+  params.set('phase', 'eq.' + TOPIC_MASTER_PHASE);
+  params.set('grade_id', 'eq.' + gradeId);
+  params.set('order', 'hit_count.desc,created_at.desc');
+  params.set('limit', '80');
+
+  if (withTermFilter) {
+    const searchTerms = hebrewTopicMatch.expandHebrewSearchTerms(topic, 8);
+    const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 6);
+    if (uniqueTerms.length) {
+      const orParts = uniqueTerms.map(function (term) {
+        return 'topic.ilike.*' + term + '*,query_text.ilike.*' + term + '*';
+      });
+      params.set('or', '(' + orParts.join(',') + ')');
+    }
+  }
+
+  const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+function collectTopicMasterRowsForGrade(gradeId, topic) {
+  const rows = [];
+  const seen = new Set();
+  function addRows(list) {
+    (list || []).forEach(function (row) {
+      if (!row || !row.cache_key || seen.has(row.cache_key)) return;
+      seen.add(row.cache_key);
+      rows.push(row);
+    });
+  }
+
+  if (isSupabaseCacheEnabled()) {
+    return fetchTopicMasterRowsForGrade(gradeId, topic, true).then(function (filtered) {
+      addRows(filtered);
+      if (!rows.length) {
+        return fetchTopicMasterRowsForGrade(gradeId, topic, false).then(function (allRows) {
+          addRows(allRows);
+          return rows;
+        });
+      }
+      return rows;
+    });
+  }
+
+  loadFallbackStore();
+  fallbackStore.rows.forEach(function (row) {
+    if (!row || row.phase !== TOPIC_MASTER_PHASE || !row.result_data) return;
+    if (String(row.grade_id || '').trim() !== String(gradeId || '').trim()) return;
+    addRows([row]);
+  });
+  return Promise.resolve(rows);
+}
+
+/**
+ * Semantic topic_master lookup — Hebrew synonym/morphology + optional embedding vector match.
+ * Serves cached Phase C payloads when queries differ by Waldorf alias (e.g. חשבון ↔ מתמטיקה).
+ */
+async function findSemanticTopicMasterMatch(gradeId, topic) {
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr) return null;
+  if (hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topicStr)) return null;
+
+  const rows = await collectTopicMasterRowsForGrade(gid, topicStr);
+  if (!rows.length) return null;
+
+  let best = pickBestTopicMasterRow(rows, topicStr);
+  if (!best) {
+    try {
+      best = await pickTopicMasterByEmbeddingSimilarity(rows, topicStr);
+    } catch (embedErr) {
+      console.warn('[cached_results] topic_master embedding match failed:', embedErr.message || embedErr);
+    }
+  }
+  if (!best || !best.row) return null;
+
+  bumpHitCountAsync(best.row.cache_key, best.row.hit_count);
+  const payload = cloneJsonSafe(best.data) || best.data;
+  if (!payload) return null;
+
+  return {
+    data: payload,
+    meta: {
+      fromCache: true,
+      cacheKey: best.row.cache_key,
+      table: TABLE_NAME,
+      source: best.matchMethod === 'embedding' ? 'topic_master_embedding' : 'topic_master_semantic',
+      matchedTopic: best.topic,
+      similarity: best.score,
+      semanticMatch: true,
+      enhanced: isTopicMasterPayload(payload),
+    },
+  };
+}
+
+/** Lookup unified Step B→C master JSON by grade_id + exact or semantic topic (archive fast-path). */
 async function getTopicMasterCache(gradeId, topic, options) {
   const gid = String(gradeId || '').trim();
   const topicStr = String(topic || '').trim();
@@ -1606,8 +1833,16 @@ async function getTopicMasterCache(gradeId, topic, options) {
   const body = buildTopicMasterCacheBody(gid, null, topicStr);
   const opts = Object.assign({ requireEnhanced: false }, options || {});
   const cached = await getCachedResult(body, opts);
-  if (!cached || !cached.data || !isTopicMasterPayload(cached.data)) return null;
-  return cached;
+  if (cached && cached.data && isTopicMasterPayload(cached.data)) {
+    return cached;
+  }
+
+  const semantic = await findSemanticTopicMasterMatch(gid, topicStr);
+  if (semantic && semantic.data && isTopicMasterPayload(semantic.data)) {
+    return semantic;
+  }
+
+  return null;
 }
 
 /** Persist unified Step B→C master JSON under grade_id + normalized topic. */
@@ -3073,6 +3308,8 @@ module.exports = {
   getCachedResult,
   getTopicMasterCache,
   setTopicMasterCache,
+  findSemanticTopicMasterMatch,
+  scoreTopicMasterSemanticMatch,
   isTopicMasterPayload,
   buildTopicMasterCacheBody,
   getRawPerplexityCache,
