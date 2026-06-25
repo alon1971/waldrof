@@ -390,14 +390,19 @@ function buildModelParseFallback(phase, rawText, context) {
   }
 
   if (phase === 'archive_search') {
+    const paras = plain.split(/\n\n+/).filter(Boolean);
+    const chunk = function (i, len) {
+      const src = paras[i] || plain;
+      return String(src || '').slice(0, len);
+    };
     return {
       archiveSearch: {
         query: String(ctx.archiveQuery || ''),
-        intro: plain.slice(0, 1500),
-        developmental_axis: plain.slice(0, 4000),
-        core_pedagogical_emphases: '',
-        recommended_literature: '',
-        relevant_links: '',
+        intro: plain.slice(0, 120),
+        developmental_axis: chunk(0, 4000),
+        core_pedagogical_emphases: chunk(1, 3000) || chunk(0, 2000),
+        recommended_literature: chunk(2, 2000),
+        relevant_links: chunk(3, 2000),
       },
       _parseFallback: true,
     };

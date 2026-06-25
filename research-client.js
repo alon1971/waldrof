@@ -526,14 +526,19 @@
       return { pedagogyDeepDive: { title: String(ctx.activityTitle || ''), contentHtml: wrap }, _parseFallback: true };
     }
     if (phase === 'archive_search') {
+      const paras = plain.split(/\n\n+/).filter(Boolean);
+      const chunk = function (i, len) {
+        const src = paras[i] || plain;
+        return String(src || '').slice(0, len);
+      };
       return {
         archiveSearch: {
           query: String(ctx.archiveQuery || ''),
-          intro: plain.slice(0, 1500),
-          developmental_axis: plain.slice(0, 4000),
-          core_pedagogical_emphases: '',
-          recommended_literature: '',
-          relevant_links: '',
+          intro: plain.slice(0, 120),
+          developmental_axis: chunk(0, 4000),
+          core_pedagogical_emphases: chunk(1, 3000) || chunk(0, 2000),
+          recommended_literature: chunk(2, 2000),
+          relevant_links: chunk(3, 2000),
         },
         _parseFallback: true,
       };
@@ -627,6 +632,11 @@
       const q = (body.archiveQuery || '').replace(/"/g, "'");
       return buildGradeLockBlock(body) + buildLanguageBlock(body) + buildNoLatexBlock(body) +
         'GENERAL CROSS-GRADE SEARCH (חיפוש כללי).\nQuery: «' + q + '»\nScope: grades א\'–ח\'.\n' +
+        'MANDATORY JSON fields — each rich Hebrew markdown:\n' +
+        'developmental_axis: grade-by-grade כיתה א\'–ח\' breakdown (≥200 chars).\n' +
+        'core_pedagogical_emphases: inner meanings & classroom methods (≥80 chars).\n' +
+        'recommended_literature: real book/lecture titles, no URLs (≥80 chars).\n' +
+        'relevant_links: HTTPS URLs only here (≥80 chars). intro ≤40 words.\n' +
         WEB_SEARCH_PRIORITY_INSTRUCTION + JSON_ONLY_INSTRUCTION + JSON_RESPONSE_ENFORCEMENT + '\nReturn JSON only:\n' +
         '{"archiveSearch":{"query":"' + q + '","intro":"Hebrew","developmental_axis":"Hebrew markdown","core_pedagogical_emphases":"Hebrew markdown","recommended_literature":"Hebrew markdown","relevant_links":"Hebrew markdown"}}';
     }
@@ -707,8 +717,10 @@
       const s = data.archiveSearch;
       if (!s || typeof s !== 'object') return false;
       const keys = ['developmental_axis', 'core_pedagogical_emphases', 'recommended_literature', 'relevant_links'];
-      const filled = keys.filter(function (k) { return String(s[k] || '').trim().length >= 40; });
-      return filled.length >= 3;
+      const mins = { developmental_axis: 200, core_pedagogical_emphases: 80, recommended_literature: 80, relevant_links: 80 };
+      return keys.every(function (k) {
+        return String(s[k] || '').trim().length >= (mins[k] || 80);
+      });
     }
     if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
     if (phase === 'drive') return Boolean(data.driveMerge);

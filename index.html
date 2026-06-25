@@ -978,7 +978,13 @@
       font-size: var(--app-body-size) !important;
       line-height: 1.65 !important;
     }
-    #pedagogical-essence-content .pedagogical-essence-body a {
+    #archive-results .general-search-card .pedagogical-essence-body p,
+    #archive-results .general-search-card .pedagogical-essence-body li {
+      font-size: 1rem;
+      line-height: 1.65;
+    }
+    #pedagogical-essence-content .pedagogical-essence-body a,
+    #archive-results .general-search-card .pedagogical-essence-body a {
       color: var(--color-terracotta, #c45c3e);
       text-decoration: underline;
       pointer-events: auto;
@@ -10994,23 +11000,66 @@
       };
     }
 
-    function hasGeneralSearchContent(search) {
-      if (!search || typeof search !== 'object') return false;
-      const keys = ['developmental_axis', 'core_pedagogical_emphases', 'recommended_literature', 'relevant_links'];
-      const filled = keys.filter(function (k) { return String(search[k] || '').trim().length >= 40; });
-      return filled.length >= 3;
+    var GENERAL_SEARCH_FIELDS = [
+      'developmental_axis',
+      'core_pedagogical_emphases',
+      'recommended_literature',
+      'relevant_links',
+    ];
+    var GENERAL_SEARCH_I18N_KEYS = {
+      developmental_axis: 'general_search_developmental_axis',
+      core_pedagogical_emphases: 'general_search_core_emphases',
+      recommended_literature: 'general_search_literature',
+      relevant_links: 'general_search_links',
+    };
+    var GENERAL_SEARCH_MIN_FIELD_CHARS = 80;
+    var GENERAL_SEARCH_DEV_AXIS_MIN_CHARS = 200;
+
+    function generalSearchFieldMinChars(fieldKey) {
+      return fieldKey === 'developmental_axis'
+        ? GENERAL_SEARCH_DEV_AXIS_MIN_CHARS
+        : GENERAL_SEARCH_MIN_FIELD_CHARS;
     }
 
-    function bindEssenceCardToggles(container) {
-      if (!container || container._essenceToggleBound) return;
-      container._essenceToggleBound = true;
+    function generalSearchFieldHasContent(fieldKey, search) {
+      if (!search || typeof search !== 'object') return false;
+      return pedagogicalEssenceFieldPlainText(search[fieldKey]).length >= generalSearchFieldMinChars(fieldKey);
+    }
+
+    function hasGeneralSearchContent(search) {
+      if (!search || typeof search !== 'object') return false;
+      return GENERAL_SEARCH_FIELDS.every(function (k) {
+        return generalSearchFieldHasContent(k, search);
+      });
+    }
+
+    function renderGeneralSearchCard(fieldKey, search, expanded) {
+      if (!generalSearchFieldHasContent(fieldKey, search)) return '';
+      var labelKey = GENERAL_SEARCH_I18N_KEYS[fieldKey] || fieldKey;
+      var isOpen = expanded !== false;
+      return (
+        '<article class="pedagogical-essence-card general-search-card bg-white/90 rounded-2xl border border-gold/30 shadow-sm overflow-hidden min-w-0" data-field="' + escapeHtml(fieldKey) + '">' +
+        '<button type="button" class="curriculum-card-toggle general-search-card-toggle w-full px-4 py-3 flex items-center justify-between gap-3 text-dir-start bg-sage/5 border-0" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+        '<span class="font-semibold text-walnut leading-snug">' + escapeHtml(t(labelKey)) + '</span>' +
+        '<i class="fa-solid card-chevron ' + (isOpen ? 'fa-chevron-up' : 'fa-chevron-down') + ' text-sage-dark shrink-0" aria-hidden="true"></i>' +
+        '</button>' +
+        '<div class="curriculum-card-detail pedagogical-essence-detail general-search-card-body px-4 py-4 min-w-0' + (isOpen ? '' : ' hidden') + '">' +
+        renderPedagogicalEssenceFieldBody(fieldKey, search[fieldKey]) +
+        '</div></article>'
+      );
+    }
+
+    function bindGeneralSearchCardToggles(container) {
+      if (!container || container._generalSearchToggleBound) return;
+      container._generalSearchToggleBound = true;
       container.addEventListener('click', function (ev) {
-        var btn = ev.target.closest('.essence-card-toggle');
+        var btn = ev.target.closest('.general-search-card-toggle');
         if (!btn || !container.contains(btn)) return;
-        var card = btn.closest('.pedagogical-essence-card');
+        ev.preventDefault();
+        var card = btn.closest('.general-search-card');
         if (!card) return;
-        var body = card.querySelector('.essence-card-body');
-        var icon = btn.querySelector('.fa-solid');
+        var body = card.querySelector('.general-search-card-body');
+        var icon = card.querySelector('.card-chevron');
         var open = btn.getAttribute('aria-expanded') !== 'true';
         btn.setAttribute('aria-expanded', open ? 'true' : 'false');
         if (body) body.classList.toggle('hidden', !open);
@@ -11267,34 +11316,34 @@
 
       const introEl = document.getElementById('archive-intro');
       if (search.intro) {
-        introEl.textContent = search.intro;
+        introEl.innerHTML = '<p class="leading-relaxed text-sm">' + escapeHtml(search.intro) + '</p>';
         introEl.classList.remove('hidden');
       } else {
         introEl.classList.add('hidden');
-        introEl.textContent = '';
+        introEl.innerHTML = '';
       }
 
       const wrap = document.getElementById('archive-results');
-      if (!hasGeneralSearchContent(search)) {
+      const cardsHtml = GENERAL_SEARCH_FIELDS.map(function (fieldKey) {
+        return renderGeneralSearchCard(fieldKey, search, true);
+      }).filter(Boolean).join('');
+
+      if (!cardsHtml) {
         holdPageScroll(function () {
-          wrap.innerHTML = '<p class="text-sm text-walnut/60 text-center py-8">' + escapeHtml(t('archive_empty')) + '</p>';
+          wrap.innerHTML =
+            '<p class="text-sm text-walnut/60 text-center py-8">' +
+            escapeHtml(t('archive_empty')) +
+            '</p>';
         });
         syncGeneralSearchExportBar();
         return;
       }
 
-      const html = [
-        renderPedagogicalEssenceCard('developmental_axis', 'general_search_developmental_axis', search, true),
-        renderPedagogicalEssenceCard('core_pedagogical_emphases', 'general_search_core_emphases', search, true),
-        renderPedagogicalEssenceCard('recommended_literature', 'general_search_literature', search, true),
-        renderPedagogicalEssenceCard('relevant_links', 'general_search_links', search, true),
-      ].join('');
-
       holdPageScroll(function () {
-        wrap.innerHTML = html;
-        bindEssenceCardToggles(wrap);
+        wrap.innerHTML = cardsHtml;
+        bindGeneralSearchCardToggles(wrap);
       });
-      bindEssenceCardToggles(wrap);
+      bindGeneralSearchCardToggles(wrap);
       syncGeneralSearchExportBar();
       updatePedagogyExportButtonsVisibility();
     }

@@ -1723,30 +1723,37 @@ function buildUserPrompt(body) {
     return (
       buildLanguageBlock(body) +
       buildNoLatexBlock(body) +
-      'GENERAL CROSS-GRADE SEARCH (חיפוש כללי): Comprehensive multi-grade Waldorf developmental overview.\n' +
+      'GENERAL CROSS-GRADE SEARCH (חיפוש כללי): Mandatory structured JSON — NOT a single intro paragraph.\n' +
       'Search query (Hebrew or English): «' + q + '»\n' +
-      'Scope: ALL grades א\'–ח\' (ages 7–14) — trace how this topic unfolds developmentally across age stages and grades.\n' +
-      'Do NOT limit to a single grade. Map the pedagogical arc from early childhood through upper grades.\n' +
-      'Optional context — active grade: ' + (body.gradeLabel || 'none') + ', active topic: ' + (body.topic || 'none') + '\n\n' +
+      'Scope: ALL Waldorf grades א\'–ח\' (ages 7–14). Map the FULL developmental arc — never limit to one grade.\n' +
+      'Optional teacher context — active grade: ' + (body.gradeLabel || 'none') + ', active block topic: ' + (body.topic || 'none') + '\n\n' +
       WEB_SEARCH_PRIORITY_INSTRUCTION +
-      'Prioritize: Steiner GA lectures, rsarchive.org, Waldorf curriculum overviews, anthroposophic pedagogy, ' +
-      'AWSNA/IASWECE resources, Hebrew Waldorf materials when relevant.\n' +
-      'Synthesize a single rich pedagogical overview — NOT a source list, NOT per-book cards, NOT inline expansions.\n' +
-      'URLs are allowed ONLY in relevant_links field.\n' +
+      'Prioritize: Steiner GA lectures, rsarchive.org, steinerarchive.org, Waldorf curriculum overviews, ' +
+      'AWSNA/IASWECE, anthroposophic pedagogy, Hebrew Waldorf resources when relevant.\n\n' +
+      'MANDATORY FIELD REQUIREMENTS (each is a separate Hebrew markdown string inside archiveSearch):\n' +
+      '1. developmental_axis — Grade-by-grade breakdown כיתה א\' through כיתה ח\': for EACH grade explain how «' + q + '» ' +
+      'is taught in Steiner/Waldorf (age consciousness, main-lesson approach, artistic methods, building on prior grades). ' +
+      'Use clear grade headings (כיתה א\', ב\', ג\'…). Minimum ~250 Hebrew words.\n' +
+      '2. core_pedagogical_emphases — Inner spiritual/pedagogical meanings, classroom artistic methods, soul-development motives. Minimum ~150 Hebrew words.\n' +
+      '3. recommended_literature — Actual book titles, GA lectures, articles (Steiner + anthroposophic authors). Names only — NO URLs here. Minimum ~100 Hebrew words.\n' +
+      '4. relevant_links — Real HTTPS URLs to archives, Waldorf resources, practical extensions. Minimum ~80 Hebrew words.\n\n' +
+      'intro: ONE short sentence only (≤40 words) — never put the main content in intro.\n' +
+      'FORBIDDEN: sources array, per-book cards, inline expansions, collapsing all content into intro.\n' +
+      'URLs allowed ONLY in relevant_links.\n' +
       JSON_ONLY_INSTRUCTION +
       JSON_RESPONSE_ENFORCEMENT +
       '\nReturn JSON only — your reply MUST start with { and end with }:\n' +
       '{\n' +
       '  "archiveSearch": {\n' +
       '    "query": "' + q + '",\n' +
-      '    "intro": "Hebrew paragraph introducing the cross-grade overview",\n' +
-      '    "developmental_axis": "Hebrew markdown — how the topic develops across age stages and grades א\'–ח\'",\n' +
-      '    "core_pedagogical_emphases": "Hebrew markdown — central pedagogical emphases and inspiration for building the topic",\n' +
-      '    "recommended_literature": "Hebrew markdown — articles, books, Steiner writings, anthroposophic sources (names only, no URLs here)",\n' +
-      '    "relevant_links": "Hebrew markdown — external links and inspirational extensions (URLs allowed here only)"\n' +
+      '    "intro": "משפט פתיחה קצר בלבד",\n' +
+      '    "developmental_axis": "Hebrew markdown — כיתה א\'… כיתה ב\'… עד כיתה ח\'",\n' +
+      '    "core_pedagogical_emphases": "Hebrew markdown — דגשים פדגוגיים מרכזיים",\n' +
+      '    "recommended_literature": "Hebrew markdown — כותרות ספרים והרצאות",\n' +
+      '    "relevant_links": "Hebrew markdown — קישורים חיצוניים (URLs מותרים כאן בלבד)"\n' +
       '  }\n' +
       '}\n' +
-      'Each of the four content fields MUST be substantive (multiple paragraphs or rich bullet lists). Never placeholders.'
+      'ALL FOUR content fields MUST be filled with rich multi-paragraph Hebrew text. Never placeholders or dashes.'
     );
   }
 
@@ -2467,6 +2474,24 @@ function buildPerplexitySearchUserPrompt(body) {
     );
   }
 
+  if (phase === 'archive_search') {
+    const q = String(body.archiveQuery || '').trim();
+    return (
+      'GENERAL CROSS-GRADE SEARCH (חיפוש כללי) — exhaustive Waldorf/Steiner web research.\n' +
+      'Topic: «' + q + '»\n' +
+      'Scope: grades א\'–ח\' (ages 7–14) — FULL developmental arc across ALL grades.\n\n' +
+      'Research and report in Hebrew with FOUR distinct sections (for later JSON synthesis):\n' +
+      '1. developmental_axis — Grade-by-grade (כיתה א\' through ח\'): how «' + q + '» evolves in Waldorf curriculum, ' +
+      'age consciousness, main-lesson methods, artistic practice per grade.\n' +
+      '2. core_pedagogical_emphases — Spiritual/pedagogical inner meaning, classroom artistic methods, teaching motives.\n' +
+      '3. recommended_literature — Real book titles, GA numbers, lectures, articles (Steiner + anthroposophic authors).\n' +
+      '4. relevant_links — Verified HTTPS URLs to Steiner archives, Waldorf curriculum resources, practical tools.\n\n' +
+      'Each section needs multiple substantive paragraphs. Do NOT write only a generic introduction.\n' +
+      'Prioritize: rsarchive.org, Steiner GA lectures, AWSNA, IASWECE, Waldorf teacher resources.\n' +
+      'Include a numbered "Sources" section with HTTPS URLs for major claims.'
+    );
+  }
+
   if (phase === 'archive_summary') {
     const title = String(body.sourceTitle || '').trim();
     const author = String(body.sourceAuthor || '').trim();
@@ -2670,13 +2695,20 @@ const GENERAL_SEARCH_FIELDS = [
   'recommended_literature',
   'relevant_links',
 ];
+const GENERAL_SEARCH_MIN_FIELD_CHARS = 80;
+const GENERAL_SEARCH_DEV_AXIS_MIN_CHARS = 200;
+
+function generalSearchFieldMinChars(key) {
+  return key === 'developmental_axis' ? GENERAL_SEARCH_DEV_AXIS_MIN_CHARS : GENERAL_SEARCH_MIN_FIELD_CHARS;
+}
 
 function validateGeneralSearchPayload(search) {
   if (!search || typeof search !== 'object') return false;
-  const filled = GENERAL_SEARCH_FIELDS.filter(function (key) {
-    return String(search[key] || '').trim().length >= 40;
-  });
-  return filled.length >= 3;
+  for (let i = 0; i < GENERAL_SEARCH_FIELDS.length; i++) {
+    const key = GENERAL_SEARCH_FIELDS[i];
+    if (String(search[key] || '').trim().length < generalSearchFieldMinChars(key)) return false;
+  }
+  return true;
 }
 
 function normalizeGeneralSearchPayload(search, queryFallback) {
@@ -2741,6 +2773,11 @@ const JSON_RETRY_SYSTEM_SUFFIX_PHASE_C =
   'Do NOT include theory.sections or duplicate Phase B essence text. ' +
   'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
   'No ```json fences, no Hebrew/English preamble, no trailing commas.';
+const JSON_RETRY_SYSTEM_SUFFIX_ARCHIVE_SEARCH =
+  ' CRITICAL RETRY: archiveSearch MUST contain ALL FOUR fields filled with rich Hebrew markdown: ' +
+  'developmental_axis (grade-by-grade א\'–ח\', ≥200 chars), core_pedagogical_emphases (≥80 chars), ' +
+  'recommended_literature (≥80 chars), relevant_links (≥80 chars). intro ≤40 words only. ' +
+  'Do NOT put main content in intro. NO sources array. Reply raw JSON only.';
 const JSON_RETRY_SYSTEM_SUFFIX =
   JSON_RETRY_SYSTEM_SUFFIX_TOPIC;
 const GENERIC_GENERATION_ERROR = 'לא הצלחנו ליצור את התוכן הפדגוגי. נסו שוב בעוד רגע.';
@@ -2799,7 +2836,11 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
     const retrySuffix = isRetry
-      ? (phase === 'phase_c' ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
+      ? (phase === 'phase_c'
+        ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C
+        : phase === 'archive_search'
+          ? JSON_RETRY_SYSTEM_SUFFIX_ARCHIVE_SEARCH
+          : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
       : '';
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
@@ -2918,7 +2959,11 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
     const retrySuffix = isRetry && !isChatFollowup
-      ? (phase === 'phase_c' ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
+      ? (phase === 'phase_c'
+        ? JSON_RETRY_SYSTEM_SUFFIX_PHASE_C
+        : phase === 'archive_search'
+          ? JSON_RETRY_SYSTEM_SUFFIX_ARCHIVE_SEARCH
+          : JSON_RETRY_SYSTEM_SUFFIX_TOPIC)
       : '';
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
@@ -3806,7 +3851,9 @@ async function executeGenerate(body, apiKey, requestContext) {
       ? ' PHASE C — INDEPENDENT TAB («' + body.cTab + '»): Do NOT duplicate or paraphrase Phase B theory essence. Generate unique, deep tab-specific content from Perplexity research only. NO sources, bibliography, or external links in output.'
       : '') +
     (body.phase === 'archive_search'
-      ? ' GENERAL SEARCH (חיפוש כללי): Return archiveSearch with developmental_axis, core_pedagogical_emphases, recommended_literature, relevant_links — cross-grade overview א\'–ח\'. NO sources array, NO inline expansions.'
+      ? ' GENERAL SEARCH (חיפוש כללי): Return archiveSearch JSON with FOUR separate rich Hebrew markdown fields — ' +
+        'developmental_axis (grade-by-grade א\'–ח\'), core_pedagogical_emphases, recommended_literature, relevant_links. ' +
+        'intro = one short sentence only. NO sources array. NO collapsing content into intro.'
       : '') +
     (isOnDemandExpansion
       ? (isAgeExpansionRequest(body)
