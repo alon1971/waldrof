@@ -1829,6 +1829,13 @@
       text-underline-offset: 3px;
       text-decoration-thickness: 1px;
     }
+    #inspiration-content .pedagogy-suggestion-label {
+      text-decoration: none;
+    }
+    #inspiration-content .pedagogy-suggestion-label a {
+      pointer-events: auto;
+      cursor: pointer;
+    }
     .pedagogy-suggestion-label strong {
       display: block;
       margin-bottom: 0.2rem;
@@ -9162,7 +9169,7 @@
           '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
           (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
           '</div>' +
-          '<p class="font-medium text-walnut">' + buildStepBStyleSourceAnchorHtml(item.url, item.title || item.url) + '</p>' +
+          '<p class="font-medium text-walnut">' + buildInspirationTabSourceAnchorHtml(item.url, item.title || item.url) + '</p>' +
           (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '') +
           '</li>';
       });
@@ -10133,11 +10140,15 @@
         : '';
       var previewHtml = '';
       if (display.previewText) {
-        var previewRaw = String(display.previewText).trim();
-        if (isCompiledPedagogicalHtml(previewRaw)) {
-          previewHtml = '<div class="prose-ai">' + normalizeAiHtml(previewRaw, { wrap: false }) + '</div>';
+        if (item && item.type === 'inspiration') {
+          previewHtml = renderInspirationCardPreviewHtml(display.previewText);
         } else {
-          previewHtml = renderAiPreview(display.previewText);
+          var previewRaw = String(display.previewText).trim();
+          if (isCompiledPedagogicalHtml(previewRaw)) {
+            previewHtml = '<div class="prose-ai">' + normalizeAiHtml(previewRaw, { wrap: false }) + '</div>';
+          } else {
+            previewHtml = renderAiPreview(display.previewText);
+          }
         }
       }
       const btnLabel = expansionBtnLabel();
@@ -16665,6 +16676,40 @@
       ensureTheoryBibliographyEvents();
       ensurePedagogySuggestionEvents();
       restoreBibliographySummaryPanels();
+    }
+
+    function buildInspirationTabSourceAnchorHtml(url, title) {
+      var href = sanitizeMarkdownLinkUrl(url) || String(url || '').trim();
+      if (!href || !/^https?:\/\//i.test(href)) return escapeHtml(String(title || url || ''));
+      var label = humanizeSourceLinkLabel(title, href);
+      if (isDeadSourceLinkLabel(label)) label = getSourceLinkDisplayLabel('', href);
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-green-600 underline hover:text-green-800">' +
+        escapeHtml(label) + '</a>';
+    }
+
+    function upgradeInspirationTabAnchors(html) {
+      var out = String(html || '');
+      out = out.replace(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, function (_m, href, inner) {
+        return buildInspirationTabSourceAnchorHtml(href, stripHtmlText(inner));
+      });
+      out = out.replace(/\bhttps?:\/\/[^\s<>"')\]]+/gi, function (url) {
+        if (out.indexOf('href="' + url) >= 0 || out.indexOf("href='" + url) >= 0) return url;
+        return buildInspirationTabSourceAnchorHtml(url, '');
+      });
+      return out;
+    }
+
+    function formatInspirationAiMarkdown(text) {
+      return upgradeInspirationTabAnchors(formatAiMarkdown(text));
+    }
+
+    function renderInspirationCardPreviewHtml(text) {
+      if (!text) return '';
+      var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(String(text))));
+      if (looksLikeAiHtml(s) || isCompiledPedagogicalHtml(s)) {
+        return '<div class="prose-ai">' + upgradeInspirationTabAnchors(normalizeAiHtml(s, { wrap: false })) + '</div>';
+      }
+      return '<div class="prose-ai">' + formatInspirationAiMarkdown(s) + '</div>';
     }
 
     function renderInspirationBase() {
