@@ -117,7 +117,7 @@ const LANGUAGES = {
     btn_add_community:           'הוסף לקהילה',
 
     archive_title:               'ארכיון ידע אנתרופוסופי',
-    archive_desc:                'חיפוש במאגרי ידע, הרצאות רודולף שטיינר, מאמרים ומחקרים — מותאם לכיתה ולנושא שנבחרו. לכל מקור: תקציר פדגוגי מעמיק ומורחב בלבד.',
+    archive_desc:                'חיפוש במאגרי ידע, הרצאות רודולף שטיינר, מאמרים ומחקרים — מותאם לכיתה ולנושא שנבחרו. לכל מקור מוצגים מיד תקציר פדגוגי מעמיק, זוויות מעשיות ונקודות מפתח.',
     archive_search_label:        'חיפוש בארכיון',
     archive_search_ph:           'הזן מונח לחיפוש...',
     archive_search_btn:          'חפש',
@@ -750,7 +750,7 @@ const LANGUAGES = {
     btn_add_community:           'Add to Community',
 
     archive_title:               'Anthroposophical Knowledge Archive',
-    archive_desc:                'Search knowledge bases, Rudolf Steiner lectures, articles and research — tailored to the selected grade and topic. Each source: deep expanded pedagogical summary only.',
+    archive_desc:                'Search knowledge bases, Rudolf Steiner lectures, articles and research — tailored to the selected grade and topic. Each source shows a full pedagogical summary, practical angles, and key points immediately.',
     archive_search_label:        'Search Archive',
     archive_search_ph:           'Enter search term…',
     archive_search_btn:          'Search archive',

@@ -1468,6 +1468,22 @@
       font-size: var(--app-body-size);
       line-height: var(--app-body-line);
     }
+    .archive-content-block {
+      margin-top: 1rem;
+      padding: 1rem 1.15rem;
+      border-radius: 1rem;
+      border: 1px solid rgba(92, 125, 88, 0.28);
+      background: rgba(255, 255, 255, 0.78);
+      font-size: var(--app-body-size);
+      line-height: var(--app-body-line);
+    }
+    .archive-content-block p,
+    .archive-content-block li,
+    .archive-content-block ol,
+    .archive-content-block ul {
+      font-size: var(--app-body-size) !important;
+      line-height: var(--app-body-line) !important;
+    }
     .archive-summary-panel p,
     .archive-summary-panel li,
     .archive-summary-panel ol,
@@ -4674,8 +4690,8 @@
     function mapExpansionToArchiveSummary(exp, source) {
       const data = exp || {};
       return {
-        title: (source && (source.raw && source.raw.title)) || source.label || '',
-        author: (source && source.raw && source.raw.author) || '',
+        title: (source && (source.title || (source.raw && source.raw.title))) || source.label || '',
+        author: (source && (source.author || (source.raw && source.raw.author))) || '',
         summaryHtml: data.expansionHtml || '',
         summary: data.classroomImplementation || '',
         keyPoints: data.practicalSteps || [],
@@ -4683,6 +4699,69 @@
         relevance: data.parentCommunityAspects || '',
         furtherReading: data.inspirationReferences || [],
       };
+    }
+
+    function normalizeArchiveSummaryObject(raw, src) {
+      const s = raw || {};
+      const summary = {
+        title: s.title || (src && src.title) || '',
+        author: s.author || (src && src.author) || '',
+        summaryHtml: String(s.summaryHtml || '').trim(),
+        summary: String(s.summary || s.essence || '').trim(),
+        keyPoints: Array.isArray(s.keyPoints) ? s.keyPoints.filter(Boolean) : [],
+        pedagogicalAngles: Array.isArray(s.pedagogicalAngles) ? s.pedagogicalAngles.filter(Boolean) : [],
+        relevance: String(s.relevance || '').trim(),
+        furtherReading: Array.isArray(s.furtherReading) ? s.furtherReading.filter(Boolean) : [],
+      };
+      if (
+        summary.summaryHtml || summary.summary || summary.relevance ||
+        summary.keyPoints.length || summary.pedagogicalAngles.length || summary.furtherReading.length
+      ) return summary;
+      return null;
+    }
+
+    function normalizeArchiveSourceSummary(src) {
+      if (!src || typeof src !== 'object') return null;
+      if (src.archiveSummary && typeof src.archiveSummary === 'object') {
+        return normalizeArchiveSummaryObject(src.archiveSummary, src);
+      }
+      const expansion = normalizeExpansion(src.expansion);
+      if (expansion) return mapExpansionToArchiveSummary(expansion, src);
+      return null;
+    }
+
+    function buildArchiveSummaryContentHtml(summary) {
+      if (!summary) return '';
+      let html = '<h4 class="app-subhead font-bold text-burgundy mb-2 flex items-center gap-2">' +
+        '<i class="fa-solid fa-feather-pointed text-sage"></i> ' + escapeHtml(t('theory_bib_summary_title')) + '</h4>';
+      if (summary.summaryHtml) {
+        html += ensureAiHtml(summary.summaryHtml);
+      } else if (summary.summary) {
+        html += '<p class="leading-relaxed">' + escapeHtml(summary.summary) + '</p>';
+      }
+      if (summary.relevance) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_relevance')) + '</h5>';
+        html += '<p class="leading-relaxed">' + escapeHtml(summary.relevance) + '</p>';
+      }
+      if (summary.keyPoints && summary.keyPoints.length) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_key_points')) + '</h5>';
+        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
+        summary.keyPoints.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
+        html += '</ul>';
+      }
+      if (summary.pedagogicalAngles && summary.pedagogicalAngles.length) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_lesson_angles')) + '</h5>';
+        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
+        summary.pedagogicalAngles.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
+        html += '</ul>';
+      }
+      if (summary.furtherReading && summary.furtherReading.length) {
+        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h5>';
+        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
+        summary.furtherReading.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
+        html += '</ul>';
+      }
+      return html;
     }
 
     function buildExpansionContentHtml(exp) {
@@ -9567,24 +9646,6 @@
       });
     }
 
-    async function fetchAnthroArchiveSummary(source) {
-      return invokeWaldorfResearch({
-        phase: 'archive_summary',
-        sourceTitle: source.title,
-        sourceAuthor: source.author,
-        sourceType: source.type,
-        sourceYear: source.year,
-        sourceDescription: source.description,
-        gradeLabel: appState.gradeLabel,
-        topic: appState.topic,
-        noUrlsInstruction: getNoUrlsInstruction(),
-        noLatexInstruction: getNoLatexInstruction(),
-        summaryDepthInstruction: isEnglish()
-          ? 'Produce an exceptionally broad, deep pedagogical summary. Text only — no URLs or links.'
-          : 'הפק תקציר פדגוגי רחב ומעמיק במיוחד. טקסט בלבד — ללא קישורים או URLs.',
-      });
-    }
-
     async function fetchBibliographyDeepSummary(source, signal, options) {
       const opts = options || {};
       const raw = source.raw || {};
@@ -11069,12 +11130,6 @@
       return exportToWord(docData, isEnglish() ? 'en' : 'he');
     }
 
-    function isArchiveSummaryPanelOpen(sourceId) {
-      const panel = document.getElementById('archive-sum-' + sourceId);
-      return !!(panel && !panel.classList.contains('hidden') && panel.innerHTML.trim() &&
-        !panel.querySelector('.fa-spinner'));
-    }
-
     function normalizeArchiveSourceType(type) {
       const raw = String(type || '').toLowerCase().trim();
       if (raw === 'lecture' || raw === 'הרצאה' || raw === 'vortrag' || raw === 'talk' || raw === 'speech' || raw === 'ga') {
@@ -11114,7 +11169,6 @@
       const card = document.querySelector('.archive-source-card[data-source-id="' + sourceId + '"]');
       if (!card) return null;
 
-      const expansionOpen = !!(appState.archivePanelsOpen[sourceId] || isArchiveSummaryPanelOpen(sourceId));
       const cached = appState.archiveSummaries[sourceId] || null;
       const cachedData = (cached && cached.archiveSummary) || cached || {};
 
@@ -11122,29 +11176,21 @@
         title: src.title || '',
         author: src.author || '',
         description: src.description || '',
-        expansionOpen: expansionOpen,
-        summaryHtml: '',
-        summaryText: '',
-        keyPoints: [],
-        pedagogicalAngles: [],
-        furtherReading: [],
+        summaryHtml: cachedData.summaryHtml || '',
+        summaryText: cachedData.summary || '',
+        keyPoints: cachedData.keyPoints || [],
+        pedagogicalAngles: cachedData.pedagogicalAngles || [],
+        furtherReading: cachedData.furtherReading || [],
+        relevance: cachedData.relevance || '',
       };
 
-      if (expansionOpen) {
-        data.summaryHtml = cachedData.summaryHtml || '';
-        data.summaryText = cachedData.summary || '';
-        data.keyPoints = cachedData.keyPoints || [];
-        data.pedagogicalAngles = cachedData.pedagogicalAngles || [];
-        data.furtherReading = cachedData.furtherReading || [];
-
-        if (!data.summaryHtml && !data.summaryText) {
-          const panel = document.getElementById('archive-sum-' + sourceId);
-          if (panel) {
-            const clone = panel.cloneNode(true);
-            const heading = clone.querySelector('h4');
-            if (heading) heading.remove();
-            data.summaryHtml = clone.innerHTML.trim();
-          }
+      if (!data.summaryHtml && !data.summaryText && !data.keyPoints.length) {
+        const block = card.querySelector('.archive-content-block');
+        if (block) {
+          const clone = block.cloneNode(true);
+          const heading = clone.querySelector('h4');
+          if (heading) heading.remove();
+          data.summaryHtml = clone.innerHTML.trim();
         }
       }
 
@@ -11158,12 +11204,21 @@
       if (data.author) parts.push('<p><strong>מרצה:</strong> ' + escapeHtml(data.author) + '</p>');
       if (data.description) parts.push('<p>' + escapeHtml(data.description) + '</p>');
 
-      if (data.expansionOpen) {
+      const hasContent = Boolean(
+        data.summaryHtml || data.summaryText || data.relevance ||
+        (data.keyPoints && data.keyPoints.length) ||
+        (data.pedagogicalAngles && data.pedagogicalAngles.length) ||
+        (data.furtherReading && data.furtherReading.length)
+      );
+      if (hasContent) {
         parts.push('<div class="expansion-block"><p><strong>── ' + escapeHtml(EXPANSION_LABEL) + ' ──</strong></p>');
         if (data.summaryHtml) {
           parts.push('<div>' + ensureAiHtml(data.summaryHtml) + '</div>');
         } else if (data.summaryText) {
           parts.push('<p>' + escapeHtml(data.summaryText) + '</p>');
+        }
+        if (data.relevance) {
+          parts.push('<h3>' + escapeHtml(t('theory_bib_relevance')) + '</h3><p>' + escapeHtml(data.relevance) + '</p>');
         }
         if (data.keyPoints && data.keyPoints.length) {
           parts.push('<h3>נקודות מפתח</h3><ul>');
@@ -11443,14 +11498,6 @@
           handleArchiveLectureExportClick(exportBtn.getAttribute('data-archive-export'));
           return;
         }
-        const summaryBtn = e.target.closest('.btn-archive-summary[data-source-id]');
-        if (summaryBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          appState.archiveActiveExportId = summaryBtn.getAttribute('data-source-id');
-          requestAnthroArchiveSummary(summaryBtn.getAttribute('data-source-id'));
-          return;
-        }
         const card = e.target.closest('.archive-source-card[data-source-id]');
         if (card) {
           appState.archiveActiveExportId = card.getAttribute('data-source-id');
@@ -11499,6 +11546,7 @@
       const resultsHtml = sources.map(function (src, idx) {
         const sid = String(src.id || ('archive-src-' + idx)).replace(/[^a-zA-Z0-9_-]/g, '-');
         const normalizedType = normalizeArchiveSourceType(src.type);
+        const summary = normalizeArchiveSourceSummary(src);
         const normalized = {
           id: sid,
           title: src.title || 'מקור ללא כותרת',
@@ -11506,11 +11554,18 @@
           type: normalizedType,
           year: src.year || '',
           description: src.description || '',
+          expansion: normalizeExpansion(src.expansion),
         };
         appState.archiveSourcesById[sid] = normalized;
+        if (summary) appState.archiveSummaries[sid] = summary;
         if (!appState.archiveActiveExportId && isArchiveLectureSource(normalized)) {
           appState.archiveActiveExportId = sid;
         }
+
+        const contentHtml = summary ? buildArchiveSummaryContentHtml(summary) : '';
+        const contentBlock = contentHtml
+          ? '<div class="archive-content-block">' + contentHtml + '</div>'
+          : '<p class="text-sm text-walnut/55 mt-4 italic">' + escapeHtml(t('theory_bib_summary_empty')) + '</p>';
 
         return '<article class="archive-source-card bg-cream/80 rounded-2xl border border-gold/30 p-4 sm:p-5 shadow-sm" data-source-id="' + escapeHtml(sid) + '">' +
           '<div class="flex flex-wrap items-start justify-between gap-2 mb-2">' +
@@ -11521,11 +11576,7 @@
           '<h3 class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(normalized.title) + '</h3>' +
           '<p class="text-sm text-terracotta font-medium mt-1"><i class="fa-solid fa-user-pen ml-1"></i>' + escapeHtml(normalized.author) + '</p>' +
           '<p class="text-sm text-walnut/85 mt-2 leading-relaxed">' + escapeHtml(normalized.description) + '</p>' +
-          '<div class="mt-4 flex flex-col sm:flex-row gap-2">' +
-          '<button type="button" class="btn-archive-summary touch-btn flex-1 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-sage hover:bg-sage-dark text-white text-sm font-medium" data-source-id="' + escapeHtml(sid) + '">' +
-          '<i class="fa-solid fa-wand-magic-sparkles"></i> ' + escapeHtml(expansionBtnLabel()) + '</button>' +
-          '</div>' +
-          '<div id="archive-sum-' + escapeHtml(sid) + '" class="archive-summary-panel inline-expand-inner hidden mt-4"></div>' +
+          contentBlock +
           '<button type="button" class="action-btn archive-lecture-export-card touch-btn" style="margin-top: 15px;" data-archive-export="' + escapeHtml(sid) + '">הפקת סיכום הרצאה לוורד 📄</button>' +
           '</article>';
       }).join('');
@@ -11533,7 +11584,7 @@
       const exportBarHtml =
         '<div id="archive-lecture-export-bar" class="archive-lecture-export-bar">' +
         '<button type="button" id="btn-export-lecture" class="action-btn" style="margin-top: 15px;">הפקת סיכום הרצאה לוורד 📄</button>' +
-        '<p class="archive-lecture-export-hint text-xs text-walnut/65">ייצוא נפרד ממסמך הפדגוגיה — כולל את ההרצאה הפעילה ותיבות ההרחבה שנפתחו</p>' +
+        '<p class="archive-lecture-export-hint text-xs text-walnut/65">ייצוא נפרד ממסמך הפדגוגיה — כולל את כל תוכן ההרצאה וההרחבה הפדגוגית</p>' +
         '</div>';
 
       holdPageScroll(function () {
@@ -11553,27 +11604,8 @@
       const panel = document.getElementById('archive-sum-' + sourceId);
       if (!panel || !summary) return;
       appState.archivePanelsOpen[sourceId] = true;
-      let html = '<h4 class="app-subhead font-bold text-burgundy mb-2 flex items-center gap-2"><i class="fa-solid fa-feather-pointed text-sage"></i> תקציר פדגוגי מעמיק</h4>';
-      if (summary.summaryHtml) {
-        html += ensureAiHtml(summary.summaryHtml);
-      }
-      if (summary.keyPoints && summary.keyPoints.length) {
-        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">נקודות מפתח</h5><ul class="list-disc mr-5 space-y-1 i18n-list">';
-        summary.keyPoints.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
-        html += '</ul>';
-      }
-      if (summary.pedagogicalAngles && summary.pedagogicalAngles.length) {
-        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">זוויות לכיתה</h5><ul class="list-disc mr-5 space-y-1 i18n-list">';
-        summary.pedagogicalAngles.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
-        html += '</ul>';
-      }
-      if (summary.furtherReading && summary.furtherReading.length) {
-        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">המשך קריאה</h5><ul class="list-disc mr-5 space-y-1 i18n-list">';
-        summary.furtherReading.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
-        html += '</ul>';
-      }
       holdPageScroll(function () {
-        panel.innerHTML = html;
+        panel.innerHTML = buildArchiveSummaryContentHtml(summary);
         panel.classList.remove('hidden');
       });
     }
@@ -11614,44 +11646,6 @@
       }
     }
 
-    async function requestAnthroArchiveSummary(sourceId) {
-      const src = appState.archiveSourcesById[sourceId];
-      if (!src) return;
-      const panel = document.getElementById('archive-sum-' + sourceId);
-      if (!panel) return;
-
-      if (!panel.classList.contains('hidden') && panel.innerHTML.trim() && !panel.querySelector('.fa-spinner')) {
-        panel.classList.add('hidden');
-        delete appState.archivePanelsOpen[sourceId];
-        return;
-      }
-
-      if (appState.archiveSummaries[sourceId]) {
-        appState.archivePanelsOpen[sourceId] = true;
-        renderAnthroArchiveSummaryPanel(sourceId, appState.archiveSummaries[sourceId]);
-        return;
-      }
-
-      const card = document.querySelector('.archive-source-card[data-source-id="' + sourceId + '"]');
-      const btn = card ? card.querySelector('.btn-archive-summary') : null;
-      if (btn) btn.disabled = true;
-      appState.archivePanelsOpen[sourceId] = true;
-      panel.classList.remove('hidden');
-      panel.innerHTML = '<p class="text-sage-dark"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('theory_bib_summary_loading')) + '</p>';
-
-      try {
-        const data = await fetchAnthroArchiveSummary(src);
-        const summary = (data && data.archiveSummary) || data;
-        appState.archiveSummaries[sourceId] = summary;
-        appState.archivePanelsOpen[sourceId] = true;
-        renderAnthroArchiveSummaryPanel(sourceId, summary);
-      } catch (e) {
-        panel.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message || String(e)) + '</p>';
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    }
-
     function initAnthroArchivePanel() {
       const hint = document.getElementById('archive-api-hint');
       if (hint) {
@@ -11663,11 +11657,6 @@
       if (appState.archiveSearch && appState.archiveQuery && q && q.value.trim() === appState.archiveQuery) {
         renderAnthroArchiveResults({ archiveSearch: appState.archiveSearch });
         setupArchiveExpansionEvents();
-        Object.keys(appState.archiveSummaries).forEach(function (sid) {
-          if (appState.archivePanelsOpen[sid]) {
-            renderAnthroArchiveSummaryPanel(sid, appState.archiveSummaries[sid]);
-          }
-        });
       }
     }
 
