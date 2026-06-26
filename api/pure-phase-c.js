@@ -298,6 +298,18 @@ function resolvePhaseCFriendlyLinkTitle(label, url) {
   return clean || '[קישור למקור פדגוגי]';
 }
 
+/** Trusted Waldorf/anthro portal roots — prefer these over deep links. */
+const PHASE_C_TRUSTED_PORTAL_ROOTS = [
+  'https://rsarchive.org/',
+  'https://www.waldorflibrary.org/',
+  'https://waldorflibrary.org/',
+  'https://antro.co.il/',
+  'https://www.antro.co.il/',
+  'https://waldorfeducation.org/',
+  'https://www.iaswece.org/',
+  'https://iaswece.org/',
+];
+
 /** Legacy structural archive URLs known to 404 — never emit as fallback links. */
 const PHASE_C_DEAD_URL_PATTERNS = [
   /harduf\.org\.il/i,
@@ -308,6 +320,7 @@ const PHASE_C_DEAD_URL_PATTERNS = [
   /ViewPage\.asp/i,
   /edupage\.org\/.*login/i,
   /google\.com\/search/i,
+  /%D7[0-9A-Fa-f]{2}/i,
 ];
 
 const PHASE_C_THEORY_URL_HINTS = /rsarchive|waldorflibrary|steiner|anthroposoph|gesamtausgabe|\bga[\d_]|lecture|archive|library|essay|article|journal|research|pdf|anthro/i;
@@ -418,16 +431,38 @@ function hasDisallowedForeignScript(text) {
   return PHASE_C_DISALLOWED_FOREIGN_SCRIPTS.test(String(text || ''));
 }
 
+function normalizeToTrustedPortalRoot(url) {
+  const clean = cleanHarvestedUrl(url);
+  if (!clean) return '';
+  try {
+    const parsed = new URL(clean);
+    const origin = (parsed.origin || '').toLowerCase();
+    for (let i = 0; i < PHASE_C_TRUSTED_PORTAL_ROOTS.length; i++) {
+      const root = PHASE_C_TRUSTED_PORTAL_ROOTS[i];
+      if (origin === new URL(root).origin.toLowerCase()) {
+        const segments = String(parsed.pathname || '').split('/').filter(Boolean);
+        if (segments.length > 2 || /%[0-9A-Fa-f]{2}/i.test(parsed.pathname || '')) {
+          return root.endsWith('/') ? root : (root + '/');
+        }
+        return clean;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return clean;
+}
+
 function isShallowReliablePhaseCUrl(url) {
   try {
     const parsed = new URL(String(url || '').trim());
     const host = String(parsed.hostname || '').replace(/^www\./i, '');
     const path = String(parsed.pathname || '');
+    if (/%[0-9A-Fa-f]{2}/i.test(path) || /%D7/i.test(path)) return false;
     const segments = path.split('/').filter(Boolean);
     if (PHASE_C_TRUSTED_ROOT_DOMAINS.test(host) || isTrustedEducationalDomain(url)) {
-      if (segments.length <= 3) return true;
-      return !/%[0-9A-Fa-f]{2}/i.test(path) && segments.length <= 5;
+      if (segments.length <= 2) return true;
+      return segments.length <= 3 && !/%[0-9A-Fa-f]{2}/i.test(path);
     }
+    if (/pinterest\.com/i.test(host)) return segments.length >= 1 && segments.length <= 4;
     return segments.length <= 1;
   } catch (e) {
     return false;
@@ -1060,7 +1095,15 @@ function applyPhaseCTextSanitizationChain(normalized) {
         return Object.assign({}, block, {
           title: sanitizePhaseCPlainProse(block.title || ''),
           items: (block.items || []).map(function (item) {
-            return typeof item === 'string' ? sanitizePhaseCStringField(item) : item;
+            if (typeof item === 'string') return sanitizePhaseCStringField(item);
+            if (item && typeof item === 'object') {
+              const next = Object.assign({}, item);
+              ['text', 'preview', 'detail', 'content', 'insight'].forEach(function (key) {
+                if (typeof next[key] === 'string') next[key] = sanitizePhaseCStringField(next[key]);
+              });
+              return next;
+            }
+            return item;
           }).filter(function (item) {
             return typeof item === 'string' ? item.trim().length >= 8 : Boolean(item);
           }),
@@ -2044,7 +2087,7 @@ function centralizePhaseCLinksToTab3(normalized, topic) {
   const seen = new Set();
 
   function pushItem(title, url) {
-    const clean = cleanHarvestedUrl(url);
+    let clean = normalizeToTrustedPortalRoot(url);
     if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
     const key = normalizeCitationUrlForMatch(clean);
     if (!key || seen.has(key)) return;
@@ -2287,18 +2330,19 @@ const PHASE_C_LANGUAGE_SOURCE_RULE = [
 const PHASE_C_EXPANSION_NARRATIVE_RULE = [
   '=== LIVE EXPANSION NARRATIVE (on-demand UI) ===',
   'When users click «הרחבה ואספקטים פרקטיים», a SEPARATE API call returns expansion text.',
-  'ABSOLUTELY FORBID repeating or duplicating the same sentence or paragraph back-to-back anywhere in expansion output.',
+  'ABSOLUTELY FORBID repeating or duplicating the same sentence, paragraph, or bullet back-to-back anywhere in expansion output — each sentence must appear at most once.',
+  'If you catch yourself restating an idea, skip the repeat and advance with new pedagogical detail instead.',
   'Expansion bodies: pure pedagogical narrative and practical classroom guidance ONLY.',
-  'STRICTLY FORBIDDEN inside expansion bodies: book titles, author names, URLs, source lists, numeric brackets like [1], and any citation markup.',
+  'STRICTLY FORBIDDEN inside expansion bodies: book titles, author names, URLs, domain names, source lists, bibliography, «guillemet» titles, square brackets, numeric brackets like [1], and any citation markup.',
   '=== END LIVE EXPANSION NARRATIVE ===',
 ].join(' ');
 
 const PHASE_C_LINKS_CENTRALIZATION_RULE = [
   '=== CENTRALIZED SOURCES (Tab 3 footer ONLY) ===',
   'ALL external HTTPS links, Pinterest boards, and bibliography URLs belong EXCLUSIVELY in relevant_links (Tab 3 «מקורות» footer).',
-  'Tabs 1–2 narrative fields: ZERO URLs, ZERO <a> anchors, ZERO link markup.',
-  'Prefer reliable TOP-LEVEL portal URLs (rsarchive.org, waldorflibrary.org, antro.co.il, awsna.org, iaswece.org) — avoid deep article paths that often 404.',
-  'Never invent or guess deep-link paths; use organization homepages or well-known archive indexes when uncertain.',
+  'Tabs 1–2 narrative fields: ZERO URLs, ZERO <a> anchors, ZERO link markup, ZERO duplicated link arrays.',
+  'Prefer reliable TOP-LEVEL portal homepages ONLY (https://rsarchive.org/, https://www.waldorflibrary.org/, https://antro.co.il/, https://waldorfeducation.org/, https://www.iaswece.org/) — NEVER emit deep article paths, encoded Hebrew paths, or guessed slugs that 404.',
+  'Never invent or guess deep-link paths; when uncertain, use the organization homepage root URL.',
   '=== END CENTRALIZED SOURCES ===',
 ].join(' ');
 
@@ -2460,8 +2504,10 @@ function normalizeTheoryBlock(parsed, grade, topic) {
           return { heading: '', content: shared.coerceText(sec), icon: 'fa-compass' };
         }
         return {
-          heading: String(sec.heading || sec.title || '').trim(),
-          content: filterGenericEntitiesFromProse(shared.coerceText(sec.content || sec.text || sec.body || sec)),
+          heading: sanitizePhaseCPlainProse(String(sec.heading || sec.title || '').trim()),
+          content: sanitizePhaseCProseField(
+            filterGenericEntitiesFromProse(shared.coerceText(sec.content || sec.text || sec.body || sec))
+          ),
           icon: String(sec.icon || 'fa-compass').trim(),
         };
       }).filter(function (sec) { return sec.heading || sec.content; }),
@@ -2576,18 +2622,11 @@ function normalizePhaseCResponse(parsed, grade, topic) {
       url: url,
     });
   });
-  const inspirationUrlSet = collectPhaseCTabUrls([pinterestLinks, pedagogicalResources]);
-  const pedagogicalFallback = relevantLinks
-    .filter(function (link) { return link && link.url && !inspirationUrlSet.has(String(link.url).trim()); })
-    .slice(0, 8)
-    .map(function (link) {
-      return { title: link.title, url: link.url, label: 'מאמר פדגוגי', source: '', snippet: '' };
-    });
   const result = {
     theory: normalizeTheoryBlock(data, grade, topic),
     inspiration: normalizeInspirationBlock(data, topic),
     pinterest_links: pinterestLinks,
-    pedagogical_resources: pedagogicalResources.length ? pedagogicalResources : pedagogicalFallback,
+    pedagogical_resources: [],
     core_emphases: filterGenericEntitiesFromProse(coreEmphases),
     key_points: keyPoints,
     recommended_reading: recommendedReading,

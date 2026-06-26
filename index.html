@@ -4706,8 +4706,24 @@
       VALID_PRODUCT_TAB_HASHES['#' + PRODUCT_TAB_HASH_ALIASES[tabId]] = tabId;
     });
 
+    function stripCorruptedUrlSegment(value) {
+      var s = String(value || '');
+      var corrupt = s.search(/(?:%3C|%3Ca|<a\s|%20href|prose-source|target\s*=)/i);
+      if (corrupt > 0) s = s.slice(0, corrupt);
+      s = s.replace(/\/+$/, '');
+      return s || '/';
+    }
+
+    function getCleanAppPathname() {
+      try {
+        return stripCorruptedUrlSegment(window.location.pathname || '/');
+      } catch (e) {
+        return '/';
+      }
+    }
+
     function sanitizeProductTabLocationHash(rawHash) {
-      var hash = String(rawHash || window.location.hash || '').trim();
+      var hash = String(rawHash != null ? rawHash : window.location.hash || '').trim();
       if (!hash) return '';
       if (VALID_PRODUCT_TAB_HASHES[hash]) return hash;
       if (/%3C|%3E|<|>|href|prose-source|target\s*=/i.test(hash)) return '';
@@ -4724,14 +4740,16 @@
       return alias ? ('#' + alias) : '';
     }
 
+    /** Build location URL — canonical tab hashes ONLY; never echo corrupted hash or pathname debris. */
     function buildProductTabLocationUrl(tabId) {
       try {
         var params = new URLSearchParams(window.location.search);
         var qs = params.toString();
-        var hash = isProductTab(tabId) ? productTabIdToHash(tabId) : sanitizeProductTabLocationHash();
-        return window.location.pathname + (qs ? '?' + qs : '') + hash;
+        var pathname = getCleanAppPathname();
+        var hash = isProductTab(tabId) ? productTabIdToHash(tabId) : '';
+        return pathname + (qs ? '?' + qs : '') + hash;
       } catch (e) {
-        return window.location.pathname + (isProductTab(tabId) ? productTabIdToHash(tabId) : '');
+        return getCleanAppPathname() + (isProductTab(tabId) ? productTabIdToHash(tabId) : '');
       }
     }
 
@@ -4747,12 +4765,31 @@
     }
 
     function repairCorruptedProductTabHash() {
+      var pathname = getCleanAppPathname();
+      var pathCorrupt = pathname !== String(window.location.pathname || '');
       var current = String(window.location.hash || '').trim();
-      if (!current) return;
-      if (sanitizeProductTabLocationHash(current)) return;
+      var hashCorrupt = Boolean(current && !sanitizeProductTabLocationHash(current));
+      if (!pathCorrupt && !hashCorrupt) return;
+      var tabId = appState.activeProductTab;
+      if (!isProductTab(tabId)) tabId = readProductTabFromLocationHash() || 'theory';
       try {
-        window.history.replaceState(null, '', buildProductTabLocationUrl(appState.activeProductTab || 'theory'));
+        window.history.replaceState(null, '', buildProductTabLocationUrl(tabId));
       } catch (e) { /* ignore */ }
+    }
+
+    function bindCorruptedNavigationGuard() {
+      document.addEventListener('click', function (e) {
+        var anchor = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+        if (!anchor) return;
+        var href = String(anchor.getAttribute('href') || '').trim();
+        if (!href || /^https?:\/\//i.test(href) || /^mailto:/i.test(href) || /^tel:/i.test(href)) return;
+        if (/^#(?:tab-theory|tab-inspiration|tab-blueprint)$/i.test(href)) return;
+        if (/[%3C<]|href\s*=|prose-source/i.test(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          repairCorruptedProductTabHash();
+        }
+      }, true);
     }
 
     async function loadRuntimeConfig() {
@@ -5143,23 +5180,19 @@
       const exp = data || {};
       let html = '';
       if (exp.classroomImplementation) {
-        html += '<p class="leading-relaxed">' + escapeHtml(exp.classroomImplementation) + '</p>';
+        html += '<p class="leading-relaxed">' + escapeHtml(stripExpansionSourceNoiseClient(exp.classroomImplementation)) + '</p>';
       }
       const steps = exp.practicalSteps || [];
       if (steps.length) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('pedagogy_steps')) + '</h4><ol class="list-decimal mr-5 space-y-2 i18n-list">';
-        steps.forEach(function (p) { html += '<li><span class="leading-relaxed">' + escapeHtml(p) + '</span></li>'; });
+        steps.forEach(function (p) {
+          html += '<li><span class="leading-relaxed">' + escapeHtml(stripExpansionSourceNoiseClient(p)) + '</span></li>';
+        });
         html += '</ol>';
       }
       if (exp.parentCommunityAspects) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_parent_community')) + '</h4>';
-        html += '<p class="leading-relaxed">' + escapeHtml(exp.parentCommunityAspects) + '</p>';
-      }
-      const refs = exp.inspirationReferences || [];
-      if (refs.length) {
-        html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h4><ul class="list-disc mr-5 space-y-1 i18n-list">';
-        refs.forEach(function (r) { html += '<li>' + escapeHtml(r) + '</li>'; });
-        html += '</ul>';
+        html += '<p class="leading-relaxed">' + escapeHtml(stripExpansionSourceNoiseClient(exp.parentCommunityAspects)) + '</p>';
       }
       return html;
     }
@@ -5175,9 +5208,21 @@
       return buildExpansionNarrativeHtml(data);
     }
 
+    function stripExpansionSourceNoiseClient(text) {
+      return String(text || '')
+        .replace(/«[^»]{2,200}»/g, '')
+        .replace(/\[[^\]]{2,200}\]/g, '')
+        .replace(/^(?:מקורות|Sources|ביבליוגרפיה)\s*:.*$/gim, '')
+        .replace(/\bhttps?:\/\/\S+/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
     function sanitizeExpansionBodyText(text) {
       return stripSequentialDuplicateSentencesClient(
-        stripNarrativeProseMarkup(sanitizePhaseCProseForRender(String(text || '')))
+        stripExpansionSourceNoiseClient(
+          stripNarrativeProseMarkup(sanitizePhaseCProseForRender(String(text || '')))
+        )
       );
     }
 
@@ -10647,9 +10692,13 @@
     function formatPerplexityRawText(text) {
       if (!text) return '<div class="prose-ai"></div>';
       var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(sanitizePhaseCProseForRender(String(text)))));
+      var narrativeOnly = isPurePhaseCMode();
       var hasMarkdownLinks = /\[[^\]]+\]\(\s*https?:\/\//i.test(s);
       if (hasMarkdownLinks || !looksLikeAiHtml(s)) {
-        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s) + '</div>';
+        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s, { narrativeOnly: narrativeOnly }) + '</div>';
+      }
+      if (narrativeOnly) {
+        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(s), { narrativeOnly: true }) + '</div>';
       }
       return '<div class="prose-ai leading-relaxed">' + ensureAiHtml(s) + '</div>';
     }
@@ -14520,17 +14569,23 @@
       return upgradeInspirationTabAnchors(html.join('\n'));
     }
 
-    function formatAiMarkdown(text) {
+    function formatAiMarkdown(text, options) {
+      options = options || {};
+      var narrativeOnly = options.narrativeOnly === true;
       if (!text) return '';
       var lines = String(text).split(/\r?\n/);
       var html = [];
       var inOl = false;
       var inUl = false;
-      var linkedUrls = collectMarkdownLinkUrls(text);
+      var linkedUrls = narrativeOnly ? {} : collectMarkdownLinkUrls(text);
 
       function closeLists() {
         if (inOl) { html.push('</ol>'); inOl = false; }
         if (inUl) { html.push('</ul>'); inUl = false; }
+      }
+
+      function inlineBody(body) {
+        return narrativeOnly ? escapeHtml(stripExpansionSourceNoiseClient(body)) : renderMarkdownInline(body);
       }
 
       lines.forEach(function (rawLine) {
@@ -14540,13 +14595,14 @@
           return;
         }
         if (isStandaloneUrlLine(trimmed)) {
-          if (Object.keys(linkedUrls).length > 0) return;
           closeLists();
+          if (narrativeOnly) return;
+          if (Object.keys(linkedUrls).length > 0) return;
           html.push('<p>' + buildProseSourceLinkHtml(trimmed, '') + '</p>');
           return;
         }
         var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
-        if (titleUrlMatch) {
+        if (titleUrlMatch && !narrativeOnly) {
           var titleUrlHref = sanitizeExternalLinkUrl(titleUrlMatch[2]);
           if (titleUrlHref) {
             closeLists();
@@ -14559,7 +14615,7 @@
           closeLists();
           var level = Math.min(headingMatch[1].length + 2, 6);
           var headingClass = level <= 4 ? ' class="app-subhead"' : '';
-          html.push('<h' + level + headingClass + '>' + renderMarkdownInline(headingMatch[2]) + '</h' + level + '>');
+          html.push('<h' + level + headingClass + '>' + inlineBody(headingMatch[2]) + '</h' + level + '>');
           return;
         }
         var olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
@@ -14570,12 +14626,14 @@
             inOl = true;
           }
           var olBody = olMatch[1];
-          var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
-          if (olTitleUrl) {
-            html.push('<li>' + buildProseSourceLinkHtml(olTitleUrl[2], olTitleUrl[1]) + '</li>');
-          } else {
-            html.push('<li>' + renderMarkdownInline(olBody) + '</li>');
+          if (!narrativeOnly) {
+            var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+            if (olTitleUrl) {
+              html.push('<li>' + buildProseSourceLinkHtml(olTitleUrl[2], olTitleUrl[1]) + '</li>');
+              return;
+            }
           }
+          html.push('<li>' + inlineBody(olBody) + '</li>');
           return;
         }
         var ulMatch = trimmed.match(/^[-*•]\s+(.+)$/);
@@ -14586,16 +14644,18 @@
             inUl = true;
           }
           var ulBody = ulMatch[1];
-          var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
-          if (ulTitleUrl) {
-            html.push('<li>' + buildProseSourceLinkHtml(ulTitleUrl[2], ulTitleUrl[1]) + '</li>');
-          } else {
-            html.push('<li>' + renderMarkdownInline(ulBody) + '</li>');
+          if (!narrativeOnly) {
+            var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+            if (ulTitleUrl) {
+              html.push('<li>' + buildProseSourceLinkHtml(ulTitleUrl[2], ulTitleUrl[1]) + '</li>');
+              return;
+            }
           }
+          html.push('<li>' + inlineBody(ulBody) + '</li>');
           return;
         }
         closeLists();
-        html.push('<p>' + renderMarkdownInline(trimmed) + '</p>');
+        html.push('<p>' + inlineBody(trimmed) + '</p>');
       });
 
       closeLists();
@@ -14726,6 +14786,8 @@
       raw = raw.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1');
       raw = raw.replace(/https?:\/\/[^\s<>"']+/gi, '');
       raw = raw.replace(/\[\d{1,3}\]/g, '');
+      raw = raw.replace(/«[^»]{2,200}»/g, '');
+      raw = raw.replace(/\[[^\]]{2,200}\]/g, '');
       raw = raw.replace(/\bclass\s*=\s*['"][^'"]*['"]/gi, '');
       raw = raw.replace(/\btarget\s*=\s*['"][^'"]*['"]/gi, '');
       raw = raw.replace(/\bhref\s*=\s*['"][^'"]*['"]/gi, '');
@@ -14736,8 +14798,12 @@
       var raw = stripNarrativeProseMarkup(String(text || '').trim());
       if (!raw) return '';
       raw = sanitizePhaseCProseForRender(raw);
+      if (isPurePhaseCMode()) {
+        raw = stripExpansionSourceNoiseClient(raw);
+      }
       if (isCompiledPedagogicalHtml(raw)) {
-        return '<div class="prose-ai leading-relaxed">' + normalizeAiHtml(raw, { wrap: false }) + '</div>';
+        var cleanHtml = stripNarrativeProseMarkup(raw);
+        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(cleanHtml), { narrativeOnly: true }) + '</div>';
       }
       return formatPerplexityRawText(raw);
     }
@@ -14934,6 +15000,10 @@
         if (!item) return;
         push(item.title || item.name, item.url || item.link || item.href);
       });
+      (source.pinterest_links || []).forEach(function (item) {
+        if (!item) return;
+        push(item.title || item.board || item.pin || 'Pinterest', item.url || item.link);
+      });
       return out;
     }
 
@@ -14948,14 +15018,38 @@
         });
       }
       var linksHtml = renderPureLinksBlock(links);
-      if (!linksHtml) return '';
+      var readingHtml = renderPureReadingTitlesBlock(view && view.recommended_reading);
+      var bib = data.theory && data.theory.bibliography;
+      var bibTitles = [];
+      if (bib) {
+        ['books', 'articles', 'websites'].forEach(function (cat) {
+          (bib[cat] || []).forEach(function (item) {
+            if (!item) return;
+            var title = String(item.title || item.name || '').trim();
+            if (title) bibTitles.push({ title: title, author: item.author || '' });
+          });
+        });
+      }
+      var bibHtml = '';
+      if (bibTitles.length) {
+        bibHtml = '<h4 class="app-subhead font-semibold text-sage-dark mt-5 mb-2"><i class="fa-solid fa-book text-gold ml-1" aria-hidden="true"></i> ' +
+          escapeHtml(isEnglish() ? 'Bibliography (titles only)' : 'ביבליוגרפיה (שמות בלבד)') + '</h4>' +
+          '<ul class="pure-card-body i18n-list">' + bibTitles.map(function (item) {
+            var author = item.author ? ' <span class="text-walnut/60">— ' + escapeHtml(item.author) + '</span>' : '';
+            return '<li><strong>' + escapeHtml(item.title) + '</strong>' + author + '</li>';
+          }).join('') + '</ul>';
+      }
+      if (!linksHtml && !readingHtml && !bibHtml) return '';
       return '<section class="phase-c-sources-footer mt-8 pt-6 border-t-2 border-gold/30 w-full bg-white/60 rounded-2xl p-5 box-border" aria-label="' + escapeHtml(t('sources_label')) + '">' +
         '<h3 class="app-subhead font-display font-bold text-burgundy mb-4"><i class="fa-solid fa-bookmark text-burgundy ml-1" aria-hidden="true"></i> ' +
         escapeHtml(t('sources_label')) + '</h3>' +
         '<p class="text-walnut/65 text-sm mb-4">' + escapeHtml(isEnglish()
           ? 'All external links, Pinterest boards, and bibliography — centralized here with reliable Waldorf/anthroposophical portals.'
           : 'כל הקישורים החיצוניים, לוחות Pinterest והביבליוגרפיה — מרוכזים כאן עם פורטלים אמינים של וולדורף/אנתרופוסופיה.') + '</p>' +
-        linksHtml + '</section>';
+        (readingHtml ? '<div class="mb-5">' + readingHtml + '</div>' : '') +
+        (linksHtml ? linksHtml : '') +
+        bibHtml +
+        '</section>';
     }
 
     function phaseCRenderReferenceColumn(view) {
@@ -15205,6 +15299,7 @@
       options = options || {};
       if (!isProductTab(id)) return;
       if (!appState.aiGeneratedPlan && !appState.purePhaseC && !hasPhaseCTopicContext()) return;
+      repairCorruptedProductTabHash();
       var scrollY = window.scrollY || window.pageYOffset || 0;
       appState.navSection = 'phase-c';
       appState.activeProductTab = id;
@@ -17590,11 +17685,14 @@
         });
         html += '</article>';
       });
-      if (bib.books.length || bib.articles.length || bib.websites.length) {
+      if (!isPurePhaseCMode() && (bib.books.length || bib.articles.length || bib.websites.length)) {
         html += renderTheoryBibliography(bib);
       }
       holdPageScroll(function () {
-        document.getElementById('theoretical-content').innerHTML = html;
+        var theoryMount = document.getElementById('theoretical-content');
+        if (!theoryMount) return;
+        theoryMount.innerHTML = '';
+        theoryMount.innerHTML = html;
       });
       ensureTheoryBibliographyEvents();
       restoreBibliographySummaryPanels();
@@ -17743,7 +17841,10 @@
         html += '</div></div>';
       }
       holdPageScroll(function () {
-        if (inspEl) inspEl.innerHTML = html;
+        if (inspEl) {
+          inspEl.innerHTML = '';
+          inspEl.innerHTML = html;
+        }
       });
       ensurePedagogySuggestionEvents();
       restorePedagogySummaryPanels();
@@ -18024,7 +18125,7 @@
         else if (parseInt(params.get('day'), 10) === dayNum) params.delete('day');
         var qs = params.toString();
         var hash = isProductTab(appState.activeProductTab) ? productTabIdToHash(appState.activeProductTab) : productTabIdToHash('curriculum');
-        var next = window.location.pathname + (qs ? '?' + qs : '') + hash;
+        var next = getCleanAppPathname() + (qs ? '?' + qs : '') + hash;
         window.history.replaceState(null, '', next);
       } catch (e) { /* ignore */ }
     }
@@ -19489,6 +19590,7 @@
 
     function bindEvents() {
       bindHeaderExplicitAuthActions();
+      bindCorruptedNavigationGuard();
       bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
