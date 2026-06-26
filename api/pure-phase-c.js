@@ -221,7 +221,29 @@ function isPinterestPhaseCUrl(url) {
   return /pinterest/i.test(String(url || ''));
 }
 
-/** Only accept real external URLs — never Hebrew prose or percent-encoded sentence paths. */
+/** Only accept real external URLs — never Hebrew prose or percent-encoded sentence paths (trusted Waldorf hosts exempt). */
+function isTrustedWaldorfUploadUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const host = String(parsed.hostname || '').replace(/^www\./i, '');
+    return PHASE_C_TRUSTED_ROOT_DOMAINS.test(host) && /wp-content\/uploads/i.test(parsed.pathname || '');
+  } catch (e) {
+    return false;
+  }
+}
+
+function hasLongPercentEncodedHebrewPath(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const pathQuery = (parsed.pathname || '') + (parsed.search || '');
+    if (!/%D7[0-9A-Fa-f]{2}/i.test(pathQuery)) return false;
+    const encodedRuns = pathQuery.match(/%D7[0-9A-Fa-f]{2}/gi);
+    return pathQuery.length > 60 || Boolean(encodedRuns && encodedRuns.length >= 3);
+  } catch (e) {
+    return false;
+  }
+}
+
 function isValidPhaseCExternalUrl(url) {
   const raw = String(url || '').trim();
   if (!raw) return false;
@@ -246,6 +268,23 @@ function isValidPhaseCExternalUrl(url) {
   } catch (e) {
     return false;
   }
+}
+
+function resolvePhaseCFriendlyLinkTitle(label, url) {
+  const href = String(url || '').trim();
+  const clean = String(label || '').trim();
+  if (clean && !/^https?:\/\//i.test(clean) && !/%D7[0-9A-Fa-f]{2}/i.test(clean)) return clean;
+  try {
+    const parsed = new URL(href);
+    const path = String(parsed.pathname || '').toLowerCase();
+    if (/\.pdf(?:$|[?#])/i.test(path) || (isTrustedWaldorfUploadUrl(href) && hasLongPercentEncodedHebrewPath(href))) {
+      return 'מסמך פדגוגי / תוכנית לימודים - קובץ PDF';
+    }
+    if (hasLongPercentEncodedHebrewPath(href)) {
+      return 'מסמך פדגוגי — קובץ';
+    }
+  } catch (e) { /* ignore */ }
+  return clean || href;
 }
 
 /** Legacy structural archive URLs known to 404 — never emit as fallback links. */
@@ -1781,21 +1820,67 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   });
 }
 
+const PHASE_C_GENERIC_OFF_TOPIC_ENTITIES = /מט"ח|מט״ח|ראמ"ה|ראמ״ה|נגבה|KidsPlus|kids\s*plus|פורטל\s+עובדי\s+הוראה|תוכנית\s+הלימודים\s+החדשה/i;
+const PHASE_C_HALLUCINATED_MEDIA_TITLE = /פודקאסט|podcast|סדרת\s+וידאו|video\s+series/i;
+
+const PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION = [
+  'FORBIDDEN: Generate conceptual or non-existent media structures such as "Podcast", "פודקאסט", "Video Series", or episodic anthologies',
+  'UNLESS every episode includes a verified working HTTPS url field pointing to a real external resource.',
+  'If you cannot provide a real, working link for EACH episode, omit the podcast key entirely and use narrative strings instead.',
+].join(' ');
+
+function filterGenericEntitiesFromProse(text) {
+  const raw = String(text || '');
+  if (!raw || !PHASE_C_GENERIC_OFF_TOPIC_ENTITIES.test(raw)) return raw;
+  return raw.split(/\n\n+/).map(function (para) {
+    const trimmed = String(para || '').trim();
+    if (!trimmed) return '';
+    if (PHASE_C_GENERIC_OFF_TOPIC_ENTITIES.test(trimmed) &&
+        !/וולדורף|שטיינר|אנתרופוסופ|waldorf|steiner|anthroposoph/i.test(trimmed)) {
+      return '';
+    }
+    return trimmed.replace(PHASE_C_GENERIC_OFF_TOPIC_ENTITIES, '').replace(/\s{2,}/g, ' ').trim();
+  }).filter(Boolean).join('\n\n').trim();
+}
+
+function inspirationEpisodeHasVerifiedLink(ep) {
+  if (!ep || typeof ep !== 'object') return false;
+  const url = String(ep.url || ep.link || ep.href || '').trim();
+  return Boolean(url && isValidPhaseCExternalUrl(url));
+}
+
+function sanitizeInspirationPodcastBlock(podcast) {
+  if (!podcast || typeof podcast !== 'object') return { title: 'תובנות', episodes: [] };
+  const episodes = Array.isArray(podcast.episodes) ? podcast.episodes : [];
+  const title = String(podcast.title || '').trim();
+  const linked = episodes.filter(inspirationEpisodeHasVerifiedLink);
+  const isConceptualMedia = PHASE_C_HALLUCINATED_MEDIA_TITLE.test(title);
+  if (episodes.length && linked.length !== episodes.length) {
+    return { title: 'תובנות', episodes: [] };
+  }
+  if (isConceptualMedia && !linked.length) {
+    return { title: 'תובנות', episodes: [] };
+  }
+  return { title: title || 'תובנות', episodes: linked };
+}
+
 const PHASE_C_SOURCE_HARVESTING_INSTRUCTION = [
   '=== SOURCE HARVESTING (STRICT — Waldorf & Anthroposophy first) ===',
   'The generated content and sources MUST heavily prioritize and center around Waldorf education (חינוך ולדורף) and Anthroposophy (אנתרופוסופיה).',
   'Prioritize scanning and returning references from trusted domains like antro.co.il, Israeli Waldorf school platforms, and anthroposophical portals.',
   'The main body of references MUST remain Waldorf-focused: Steiner archives (rsarchive.org), waldorflibrary.org, AWSNA, IASWECE, antro.co.il, Israeli Waldorf networks, and anthroposophical research libraries.',
   'Generic state-curriculum or practical mapping links (מט"ח, פורטל עובדי הוראה, משרד החינוך sheets, national curriculum spreadsheets) are capped at a MAXIMUM of 1-2 links TOTAL across the entire response — only as a minimal practical appendix, never as the primary reference set.',
+  'STRICTLY FORBIDDEN in theory body text: generic national-curriculum entities (מט"ח, ראמ"ה, נגבה, KidsPlus) unless directly tied to Waldorf/anthroposophical pedagogy.',
   '=== END SOURCE HARVESTING ===',
 ].join(' ');
 
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
+  PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?}]}} — rich theoretical background for the grade+topic),',
-  'inspiration (object: {title, global: [{title, items: [strings]}], podcast: {title, episodes: [{theme, insight}]}, narrative: [strings]} — artistic/pedagogical classroom inspiration),',
+  'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?}]}} — rich theoretical background for the grade+topic; theory body MUST focus on Waldorf and Anthroposophy only),',
+  'inspiration (object: {title, global: [{title, items: [strings]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit podcast entirely unless every episode has a verified HTTPS url, narrative: [strings]} — artistic/pedagogical classroom inspiration),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
   'pedagogical_resources (array of objects: {title, url, label, source, snippet} — live professional inspiration links for teachers),',
   'core_emphases (string: AT LEAST 3-4 comprehensive Hebrew paragraphs with a dedicated Developmental Compass block — מצפן התפתחותי / רציונל התפתחותי ומצפן למורה — covering why-this-age, inner developmental milestone, teacher attitude/rhythm, and concrete pedagogical goals; NEVER brief or truncated),',
@@ -1858,7 +1943,7 @@ function normalizePedagogicalResources(value) {
     return {
       title: String(item.title || item.name || url).trim(),
       url: url,
-      label: String(item.label || item.type || item.category || 'מאמר פדגוגי').trim(),
+      label: resolvePhaseCFriendlyLinkTitle(item.label || item.title || item.name, url),
       source: String(item.source || item.publisher || '').trim(),
       snippet: String(item.snippet || item.description || item.summary || '').trim(),
     };
@@ -1877,7 +1962,7 @@ function normalizeTheoryBlock(parsed, grade, topic) {
         }
         return {
           heading: String(sec.heading || sec.title || '').trim(),
-          content: shared.coerceText(sec.content || sec.text || sec.body || sec),
+          content: filterGenericEntitiesFromProse(shared.coerceText(sec.content || sec.text || sec.body || sec)),
           icon: String(sec.icon || 'fa-compass').trim(),
         };
       }).filter(function (sec) { return sec.heading || sec.content; }),
@@ -1905,16 +1990,17 @@ function normalizeInspirationBlock(parsed, topic) {
         items: shared.coerceList(block.items || block.points || block.ideas),
       };
     }).filter(function (block) { return block.items && block.items.length; }) : [];
-    const podcast = insp.podcast && typeof insp.podcast === 'object' ? {
+    const podcast = sanitizeInspirationPodcastBlock(insp.podcast && typeof insp.podcast === 'object' ? {
       title: String(insp.podcast.title || 'תובנות').trim(),
       episodes: Array.isArray(insp.podcast.episodes) ? insp.podcast.episodes.map(function (ep) {
         if (!ep || typeof ep !== 'object') return { theme: '', insight: shared.coerceText(ep) };
         return {
           theme: String(ep.theme || ep.title || '').trim(),
           insight: shared.coerceText(ep.insight || ep.text || ep.content),
+          url: String(ep.url || ep.link || ep.href || '').trim(),
         };
       }).filter(function (ep) { return ep.theme || ep.insight; }) : [],
-    } : { title: 'תובנות', episodes: [] };
+    } : { title: 'תובנות', episodes: [] });
     const narrative = shared.coerceList(insp.narrative);
     if (global.length || podcast.episodes.length || narrative.length) {
       return {
@@ -1983,7 +2069,14 @@ function normalizePhaseCResponse(parsed, grade, topic) {
   const relevantLinks = shared.coerceLinks(
     data.relevant_links || data.links || data.professional_links ||
     nested.relevant_links || (deepObj && deepObj.relevant_links)
-  );
+  ).map(function (link) {
+    if (!link || typeof link !== 'object') return link;
+    const url = String(link.url || link.link || link.href || '').trim();
+    return Object.assign({}, link, {
+      title: resolvePhaseCFriendlyLinkTitle(link.title || link.name, url),
+      url: url,
+    });
+  });
   const inspirationUrlSet = collectPhaseCTabUrls([pinterestLinks, pedagogicalResources]);
   const pedagogicalFallback = relevantLinks
     .filter(function (link) { return link && link.url && !inspirationUrlSet.has(String(link.url).trim()); })
@@ -1996,7 +2089,7 @@ function normalizePhaseCResponse(parsed, grade, topic) {
     inspiration: normalizeInspirationBlock(data, topic),
     pinterest_links: pinterestLinks,
     pedagogical_resources: pedagogicalResources.length ? pedagogicalResources : pedagogicalFallback,
-    core_emphases: coreEmphases,
+    core_emphases: filterGenericEntitiesFromProse(coreEmphases),
     key_points: keyPoints,
     recommended_reading: recommendedReading,
     relevant_links: relevantLinks,
@@ -2068,6 +2161,15 @@ async function runPurePhaseC(body) {
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
 
+  if (gradeId && shouldBypassTopicMasterCache(body)) {
+    try {
+      await cache.deleteTopicMasterCache(gradeId, topic);
+      console.log('[pure-phase-c] cache bypass — live Perplexity crawl for', topic);
+    } catch (purgeErr) {
+      console.warn('[pure-phase-c] topic_master cache purge failed:', purgeErr.message || purgeErr);
+    }
+  }
+
   if (gradeId && !shouldBypassTopicMasterCache(body)) {
     const cached = await cache.getTopicMasterCache(gradeId, topic);
     if (cached && cached.data) {
@@ -2103,9 +2205,11 @@ async function runPurePhaseC(body) {
     '',
     shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
     '',
+    PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
+    '',
     'Return MAXIMUM-DEPTH, classroom-ready content — ALL sections fully populated at full length, zero truncation:',
-    '- Tab 1 theory: exhaustive historical & anthroposophical foundations — 3-5 deep sections; bibliography with live HTTPS URLs on every website entry (Waldorf/anthroposophical sources first).',
-    '- Tab 2 inspiration: highly enriched artistic/creative ideas — multiple global blocks, podcast episodes, narrative threads (no URLs inside text).',
+    '- Tab 1 theory: exhaustive historical & anthroposophical foundations — 3-5 deep sections; bibliography with live HTTPS URLs on every website entry (Waldorf/anthroposophical sources first). NEVER center theory on מט"ח, ראמ"ה, נגבה, or KidsPlus.',
+    '- Tab 2 inspiration: highly enriched artistic/creative ideas — multiple global blocks and narrative threads (no URLs inside text). Omit podcast entirely unless every episode has a verified HTTPS url.',
     '- pinterest_links: 4-8 LIVE pinterest.com board or pin URLs matching grade+topic (main lesson books, form drawing, chalkboard art, student work).',
     '- pedagogical_resources: 5-10 LIVE professional teacher-facing links — prioritize antro.co.il, Israeli Waldorf platforms, Steiner archives, waldorflibrary.org (not parent school pages or ministry spreadsheets).',
     '- Tab 3 core_emphases (דגשים פדגוגיים ומהותיים): 3-4 deep paragraphs with Developmental Compass (מצפן התפתחותי) and concrete pedagogical goals.',

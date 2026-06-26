@@ -1984,10 +1984,24 @@ function buildPerplexityResearchBlock(rawPayload) {
 }
 
 async function fetchOrRunPerplexityResearch(body, logContext) {
-  const cachedRaw = await cacheDb.getRawPerplexityCache(body);
-  if (cachedRaw && String(cachedRaw.content || '').trim()) {
-    console.log('[hybrid] raw Perplexity cache HIT for', body.phase);
-    return cachedRaw;
+  const bypassCache = Boolean(
+    body && (body.skipCache || body.forceFresh || body.bypassCache || body.forceRefresh)
+  );
+  if (bypassCache) {
+    try {
+      await cacheDb.deleteRawPerplexityCache(body);
+      const expansionKey = cacheDb.buildCacheKey(body);
+      if (expansionKey) await cacheDb.deleteCachedRowByKey(expansionKey);
+      console.log('[hybrid] cache bypass — live Perplexity crawl for', body.phase);
+    } catch (purgeErr) {
+      console.warn('[hybrid] cache purge failed:', purgeErr.message || purgeErr);
+    }
+  } else {
+    const cachedRaw = await cacheDb.getRawPerplexityCache(body);
+    if (cachedRaw && String(cachedRaw.content || '').trim()) {
+      console.log('[hybrid] raw Perplexity cache HIT for', body.phase);
+      return cachedRaw;
+    }
   }
 
   const ip = (logContext && logContext.ip) || 'unknown';
@@ -2548,7 +2562,7 @@ const EMPTY_COMMUNITY_PROBE = Object.freeze({
 
 /** Cache fast path — no community folder scans or folder-brief lookups. */
 async function tryServeFromCachedResults(body, communityProbe) {
-  if (!body || body.skipCache || body.phase === 'chat_followup') return null;
+  if (!body || body.skipCache || body.bypassCache || body.forceRefresh || body.phase === 'chat_followup') return null;
   const probeMeta = communityProbe || EMPTY_COMMUNITY_PROBE;
 
   const cacheOpts = isArchiveOnlyLookup(body) ? { requireEnhanced: false } : {};
@@ -2962,6 +2976,24 @@ async function executeGenerate(body, apiKey, requestContext) {
     body.skipCache = true;
     body.forceFresh = true;
     console.log('[generate] userInitiated — cache bypass for', body.phase, body.topic || '');
+  }
+
+  if (body.bypassCache || body.forceRefresh) {
+    body.skipCache = true;
+    body.forceFresh = true;
+    if (isOnDemandExpansionPhase(body) || body.phase === 'topic_master') {
+      try {
+        await cacheDb.deleteRawPerplexityCache(body);
+        const cacheKey = cacheDb.buildCacheKey(body);
+        if (cacheKey) await cacheDb.deleteCachedRowByKey(cacheKey);
+        if (body.phase === 'topic_master' && body.gradeId) {
+          await cacheDb.deleteTopicMasterCache(body.gradeId || body.currentGrade, body.topic);
+        }
+        console.log('[generate] cache bypass — invalidated rows for', body.phase);
+      } catch (purgeErr) {
+        console.warn('[generate] cache bypass purge failed:', purgeErr.message || purgeErr);
+      }
+    }
   }
 
   if (body.phase === 'chat_followup') {

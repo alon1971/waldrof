@@ -1888,6 +1888,21 @@ function hydrateTopicMasterArchiveLinks(data) {
   return data;
 }
 
+async function deleteTopicMasterCache(gradeId, topic) {
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr) return false;
+  const body = buildTopicMasterCacheBody(gid, null, topicStr);
+  if (!body) return false;
+  const cacheKey = buildCacheKey(body);
+  if (!cacheKey) return false;
+  const deleted = await deleteCachedRowByKey(cacheKey);
+  if (deleted) {
+    console.log('[cached_results] deleted topic_master', cacheKey.slice(0, 12));
+  }
+  return deleted;
+}
+
 /** Persist unified Step B→C master JSON under grade_id + normalized topic. */
 async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
   const gid = String(gradeId || '').trim();
@@ -3338,6 +3353,7 @@ module.exports = {
   coerceCachedResultData,
   deleteCachedRowByKey,
   deleteRawPerplexityCache,
+  deleteTopicMasterCache,
   purgeCorruptedCachedRow,
   ensureJsonObjectForStorage,
   readAndValidateCachedResultData,

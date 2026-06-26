@@ -7715,9 +7715,14 @@
         return {
           theme: String(ep.theme || ep.title || '').trim(),
           insight: String(ep.insight || ep.text || ep.preview || ep.content || '').trim(),
+          url: String(ep.url || ep.link || ep.href || '').trim(),
           expansion: ep.expansion,
         };
       }).filter(function (ep) { return ep && (ep.theme || ep.insight); }) : [];
+      var sanitizedPodcast = sanitizeInspirationPodcastForView({
+        title: String(podcastSrc.title || 'תובנות').trim(),
+        episodes: episodes,
+      });
 
       var narrative = insp.narrative;
       if (typeof narrative === 'string' && narrative.trim()) narrative = [narrative];
@@ -7731,10 +7736,7 @@
       return {
         title: String(insp.title || (t('tab_inspiration') + t('tab_inspiration_suffix'))).trim(),
         global: global,
-        podcast: {
-          title: String(podcastSrc.title || 'תובנות').trim(),
-          episodes: episodes,
-        },
+        podcast: sanitizedPodcast,
         narrative: narrative,
         rawContent: String(insp.rawContent || rawFallback || '').trim() || undefined,
       };
@@ -10287,8 +10289,46 @@
         .replace(/\s+$/, '');
     }
 
+    var PHASE_C_GENERIC_OFF_TOPIC_ENTITIES = /מט"ח|מט״ח|ראמ"ה|ראמ״ה|נגבה|KidsPlus|kids\s*plus|פורטל\s+עובדי\s+הוראה|תוכנית\s+הלימודים\s+החדשה/i;
+    var PHASE_C_HALLUCINATED_MEDIA_TITLE = /פודקאסט|podcast|סדרת\s+וידאו|video\s+series/i;
+
+    function filterGenericPedagogicalEntities(text) {
+      var raw = String(text || '');
+      if (!raw || !PHASE_C_GENERIC_OFF_TOPIC_ENTITIES.test(raw)) return raw;
+      return raw.split(/\n\n+/).map(function (para) {
+        var trimmed = String(para || '').trim();
+        if (!trimmed) return '';
+        if (PHASE_C_GENERIC_OFF_TOPIC_ENTITIES.test(trimmed) &&
+            !/וולדורף|שטיינר|אנתרופוסופ|waldorf|steiner|anthroposoph/i.test(trimmed)) {
+          return '';
+        }
+        return trimmed.replace(PHASE_C_GENERIC_OFF_TOPIC_ENTITIES, '').replace(/\s{2,}/g, ' ').trim();
+      }).filter(Boolean).join('\n\n').trim();
+    }
+
+    function inspirationEpisodeHasVerifiedLink(ep) {
+      if (!ep || typeof ep !== 'object') return false;
+      var url = String(ep.url || ep.link || ep.href || '').trim();
+      return !!url && !!sanitizeExternalLinkUrl(url);
+    }
+
+    function sanitizeInspirationPodcastForView(podcast) {
+      if (!podcast || typeof podcast !== 'object') return { title: 'תובנות', episodes: [] };
+      var episodes = Array.isArray(podcast.episodes) ? podcast.episodes : [];
+      var title = String(podcast.title || '').trim();
+      var linked = episodes.filter(inspirationEpisodeHasVerifiedLink);
+      var isConceptualMedia = PHASE_C_HALLUCINATED_MEDIA_TITLE.test(title);
+      if (episodes.length && linked.length !== episodes.length) {
+        return { title: 'תובנות', episodes: [] };
+      }
+      if (isConceptualMedia && !linked.length) {
+        return { title: 'תובנות', episodes: [] };
+      }
+      return { title: title || 'תובנות', episodes: linked };
+    }
+
     function sanitizePedagogicalText(text) {
-      return stripSourcePrefixes(stripPhaseBReferenceBrackets(text));
+      return filterGenericPedagogicalEntities(stripSourcePrefixes(stripPhaseBReferenceBrackets(text)));
     }
 
     function formatPerplexityRawText(text) {
@@ -13753,6 +13793,28 @@
       return /pinterest/i.test(String(url || ''));
     }
 
+    function isTrustedWaldorfUploadUrl(url) {
+      try {
+        var parsed = new URL(String(url || '').trim());
+        var host = String(parsed.hostname || '').replace(/^www\./i, '');
+        return PHASE_C_TRUSTED_ROOT_DOMAINS.test(host) && /wp-content\/uploads/i.test(parsed.pathname || '');
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function hasLongPercentEncodedHebrewPath(url) {
+      try {
+        var parsed = new URL(String(url || '').trim());
+        var pathQuery = (parsed.pathname || '') + (parsed.search || '');
+        if (!/%D7[0-9A-Fa-f]{2}/i.test(pathQuery)) return false;
+        var encodedRuns = pathQuery.match(/%D7[0-9A-Fa-f]{2}/gi);
+        return pathQuery.length > 60 || (encodedRuns && encodedRuns.length >= 3);
+      } catch (e) {
+        return false;
+      }
+    }
+
     function isValidExternalSourceUrl(url) {
       var raw = String(url || '').trim();
       if (!raw) return false;
@@ -13931,10 +13993,36 @@
       return t('source_link_label');
     }
 
+    function resolveFriendlyLinkDisplayLabel(label, url) {
+      var href = String(url || '').trim();
+      var clean = cleanSourceLabelText(label);
+      if (clean && !/^https?:\/\//i.test(clean) && !/%D7[0-9A-Fa-f]{2}/i.test(clean) && !isDeadSourceLinkLabel(clean)) {
+        return clean;
+      }
+      if (href) {
+        try {
+          var parsed = new URL(href);
+          var path = String(parsed.pathname || '').toLowerCase();
+          if (/\.pdf(?:$|[?#])/i.test(path) || (isTrustedWaldorfUploadUrl(href) && hasLongPercentEncodedHebrewPath(href))) {
+            return isEnglish()
+              ? 'Pedagogical document / curriculum plan — PDF'
+              : 'מסמך פדגוגי / תוכנית לימודים - קובץ PDF';
+          }
+          if (hasLongPercentEncodedHebrewPath(href)) {
+            return isEnglish() ? 'Pedagogical resource — document' : 'מסמך פדגוגי — קובץ';
+          }
+        } catch (e) { /* ignore */ }
+      }
+      return humanizeSourceLinkLabel(label, url);
+    }
+
     function humanizeSourceLinkLabel(label, url) {
       var text = decodeUriComponentSafe(String(label || '').trim());
       if (!text) text = decodeUriComponentSafe(String(url || '').trim());
       if (isDeadSourceLinkLabel(text)) return getSourceLinkDisplayLabel('', url);
+      if (/^https?:\/\//i.test(text) && (hasLongPercentEncodedHebrewPath(text) || /%D7[0-9A-Fa-f]{2}/i.test(text))) {
+        return resolveFriendlyLinkDisplayLabel('', text);
+      }
       if (!/^https?:\/\//i.test(text)) return text;
       try {
         var parsed = new URL(text);
@@ -13951,8 +14039,8 @@
 
     function buildProseSourceLinkHtml(url, label) {
       var href = sanitizeProseLinkUrl(url);
-      if (!href) return escapeHtml(humanizeSourceLinkLabel(label, url));
-      var display = humanizeSourceLinkLabel(label, href);
+      if (!href) return escapeHtml(resolveFriendlyLinkDisplayLabel(label, url));
+      var display = resolveFriendlyLinkDisplayLabel(label, href);
       if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-blue-600 underline hover:text-blue-800">' +
         escapeHtml(display) + '</a>';
@@ -14584,6 +14672,7 @@
       appState.productTabsRendered = r;
       if (tabId === 'theory') {
         var theoryPanelEl = document.getElementById('theoretical-content');
+        if (theoryPanelEl) theoryPanelEl.innerHTML = '';
         var theoryDomEmpty = !theoryPanelEl || !theoryPanelEl.innerHTML.trim();
         if (!r.theory || theoryDomEmpty) {
           renderTheory();
@@ -14591,6 +14680,9 @@
         }
       } else if (tabId === 'inspiration') {
         var inspPanelEl = document.getElementById('inspiration-content');
+        var pinGalEl = document.getElementById('pinterest-gallery');
+        if (inspPanelEl) inspPanelEl.innerHTML = '';
+        if (pinGalEl) pinGalEl.innerHTML = '';
         var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
         if (!r.inspiration || inspDomEmpty) {
           renderInspirationTabPanels();
@@ -14598,6 +14690,7 @@
         }
       } else if (tabId === 'curriculum') {
         var cardsEl = document.getElementById('phase-c-structured-cards');
+        if (cardsEl) cardsEl.innerHTML = '';
         var cardsDomEmpty = !cardsEl || !cardsEl.innerHTML.trim();
         if (!r.curriculum || cardsDomEmpty) {
           renderPurePhaseCCards(resolvePurePhaseCTab3View() || appState.purePhaseC);
@@ -14729,9 +14822,12 @@
     async function refreshPurePhaseCFromCloud() {
       var topic = String(appState.topic || '').trim();
       if (!topic || !appState.grade || !appState.topicResearchCompleted) return;
+      invalidateProductTabRenders();
       var response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, null, {
         bypassCache: true,
         forceRefresh: true,
+        forceFresh: true,
+        skipCache: true,
       });
       commitPurePhaseCToStepB(topic, response.data, Object.assign({}, response.meta || {}, {
         fromCache: false,
@@ -16250,7 +16346,8 @@
     function buildStepBStyleSourceAnchorHtml(url, title) {
       var href = sanitizeProseLinkUrl(url);
       if (!href) return escapeHtml(String(title || url || ''));
-      var label = String(title || href).trim() || href;
+      var label = resolveFriendlyLinkDisplayLabel(title, href);
+      if (isDeadSourceLinkLabel(label)) label = getSourceLinkDisplayLabel('', href);
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
         escapeHtml(label) + '</a>';
     }
@@ -16975,7 +17072,7 @@
     function buildInspirationTabSourceAnchorHtml(url, title) {
       var href = sanitizeExternalLinkUrl(url);
       if (!href) return escapeHtml(String(title || url || ''));
-      var label = humanizeSourceLinkLabel(title, href);
+      var label = resolveFriendlyLinkDisplayLabel(title, href);
       if (isDeadSourceLinkLabel(label)) label = getSourceLinkDisplayLabel('', href);
       return '<a href="' + escapeHtml(href) + '" target="_blank" class="text-green-600 underline hover:text-green-800">' +
         escapeHtml(label) + '</a>';
@@ -17059,6 +17156,7 @@
       if (!d.podcast || typeof d.podcast !== 'object') {
         d.podcast = { title: 'תובנות', episodes: [] };
       }
+      d.podcast = sanitizeInspirationPodcastForView(d.podcast);
       if (!Array.isArray(d.podcast.episodes)) d.podcast.episodes = [];
       if (!Array.isArray(d.narrative)) d.narrative = [];
       let html = '<h2 class="app-page-title font-display font-bold text-burgundy mb-4">' + escapeHtml(d.title) + '</h2>' +
@@ -17090,20 +17188,28 @@
         });
         html += '</div></section>';
       });
-      html += '</div><div class="mt-4 bg-burgundy/5 rounded-xl p-5 border border-burgundy/15 w-full box-border"><h3 class="app-subhead font-bold text-burgundy mb-3"><i class="fa-solid fa-podcast ml-1"></i> ' + escapeHtml(d.podcast.title || 'תובנות') + '</h3><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">';
-      d.podcast.episodes.forEach(function (ep, ei) {
-        if (!ep) return;
-        html += renderPedagogySuggestionCard({
-          id: buildPedagogyItemId('insp', 'podcast', ei, (ep.theme || '') + (ep.insight || '')),
-          type: 'inspiration',
-          subtype: 'podcast',
-          title: ep.theme || '',
-          preview: ep.insight || '',
-          context: d.podcast.title || '',
-          expansion: normalizeExpansion(ep.expansion),
+      html += '</div>';
+      if (d.podcast.episodes.length) {
+        html += '<div class="mt-4 bg-burgundy/5 rounded-xl p-5 border border-burgundy/15 w-full box-border"><h3 class="app-subhead font-bold text-burgundy mb-3"><i class="fa-solid fa-podcast ml-1"></i> ' + escapeHtml(d.podcast.title || 'תובנות') + '</h3><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">';
+        d.podcast.episodes.forEach(function (ep, ei) {
+          if (!ep) return;
+          var epUrl = String(ep.url || ep.link || ep.href || '').trim();
+          var epPreview = String(ep.insight || '').trim();
+          if (epUrl && sanitizeExternalLinkUrl(epUrl)) {
+            epPreview = epPreview ? (epPreview + '\n\n' + epUrl) : epUrl;
+          }
+          html += renderPedagogySuggestionCard({
+            id: buildPedagogyItemId('insp', 'podcast', ei, (ep.theme || '') + (ep.insight || '')),
+            type: 'inspiration',
+            subtype: 'podcast',
+            title: ep.theme || '',
+            preview: epPreview,
+            context: d.podcast.title || '',
+            expansion: normalizeExpansion(ep.expansion),
+          });
         });
-      });
-      html += '</div></div>';
+        html += '</div></div>';
+      }
       if (d.narrative.length) {
         html += '<div class="mt-4"><h4 class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(t('pedagogy_narrative_title')) + '</h4><div class="space-y-2">';
         d.narrative.forEach(function (n, ni) {
