@@ -1057,8 +1057,48 @@
       max-width: 100%;
       box-sizing: border-box;
     }
+    .phase-c-curriculum-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    @media (min-width: 768px) {
+      .phase-c-curriculum-layout { grid-template-columns: 1.15fr 1fr; }
+    }
+    .phase-c-col {
+      background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(247,243,235,0.9));
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      border-radius: 1rem;
+      padding: 1.25rem 1.35rem;
+      box-shadow: 0 2px 12px rgba(92, 74, 58, 0.06);
+      min-height: 8rem;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .phase-c-col h3 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #8B3A3A;
+      margin: 0 0 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .phase-c-secondary-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      width: 100%;
+      margin-top: 1rem;
+    }
     @media (min-width: 768px) {
       .pure-phase-c-grid { grid-template-columns: 1fr 1fr; }
+      .phase-c-secondary-row { grid-template-columns: 1fr 1fr; }
     }
     .pure-links-grid {
       display: grid;
@@ -13996,7 +14036,8 @@
     function resolveFriendlyLinkDisplayLabel(label, url) {
       var href = String(url || '').trim();
       var clean = cleanSourceLabelText(label);
-      if (clean && !/^https?:\/\//i.test(clean) && !/%D7[0-9A-Fa-f]{2}/i.test(clean) && !isDeadSourceLinkLabel(clean)) {
+      if (clean && !/^https?:\/\//i.test(clean) && !/%[0-9A-Fa-f]{2}/i.test(clean) &&
+          !/[\u0590-\u05FF]/.test(clean) && !isDeadSourceLinkLabel(clean) && clean.length <= 120) {
         return clean;
       }
       if (href) {
@@ -14005,13 +14046,19 @@
           var path = String(parsed.pathname || '').toLowerCase();
           if (/\.pdf(?:$|[?#])/i.test(path) || (isTrustedWaldorfUploadUrl(href) && hasLongPercentEncodedHebrewPath(href))) {
             return isEnglish()
-              ? 'Pedagogical document / curriculum plan — PDF'
-              : 'מסמך פדגוגי / תוכנית לימודים - קובץ PDF';
+              ? '[Pedagogical source — PDF]'
+              : '[קישור למקור פדגוגי - PDF]';
           }
-          if (hasLongPercentEncodedHebrewPath(href)) {
-            return isEnglish() ? 'Pedagogical resource — document' : 'מסמך פדגוגי — קובץ';
+          if (hasLongPercentEncodedHebrewPath(href) || /%D7[0-9A-Fa-f]{2}/i.test(href)) {
+            return isEnglish() ? '[Pedagogical source]' : '[קישור למקור פדגוגי]';
+          }
+          if (isTrustedWaldorfUploadUrl(href)) {
+            return isEnglish() ? '[Pedagogical source]' : '[קישור למקור פדגוגי]';
           }
         } catch (e) { /* ignore */ }
+      }
+      if (/^https?:\/\//i.test(clean) || /%[0-9A-Fa-f]{2}/i.test(clean)) {
+        return isEnglish() ? '[Pedagogical source]' : '[קישור למקור פדגוגי]';
       }
       return humanizeSourceLinkLabel(label, url);
     }
@@ -14148,22 +14195,24 @@
       var placeholders = [];
       var work = String(text);
       work = work.replace(/(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, url) {
-        var href = sanitizeExternalLinkUrl(url);
+        var href = phaseCSafeExternalHref(url);
         if (!href) return _m;
         var idx = placeholders.length;
         placeholders.push(buildPhaseCTabAnchorHtml(href, ''));
         return '\x00MDLINK' + idx + '\x00';
       });
       work = work.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
-        var href = sanitizeExternalLinkUrl(url);
+        var href = phaseCSafeExternalHref(url);
         if (!href) return _m;
         var idx = placeholders.length;
         placeholders.push(buildPhaseCTabAnchorHtml(href, label));
         return '\x00MDLINK' + idx + '\x00';
       });
       work = replaceExternalHttpUrls(work, function (href) {
+        var safe = phaseCSafeExternalHref(href);
+        if (!safe) return href;
         var idx = placeholders.length;
-        placeholders.push(buildPhaseCTabAnchorHtml(href, ''));
+        placeholders.push(buildPhaseCTabAnchorHtml(safe, ''));
         return '\x00MDLINK' + idx + '\x00';
       });
       work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
@@ -14508,46 +14557,157 @@
       }).join('') + '</ul>';
     }
 
-    function renderPurePhaseCCards(data) {
+    /** Never linkify prose lines, headings, or invalid URL strings. */
+    function phaseCSafeExternalHref(raw) {
+      var href = sanitizeExternalLinkUrl(raw);
+      if (!href) return '';
+      if (/^https?:\/\//i.test(String(raw || '').trim()) === false &&
+          String(raw || '').trim().length > 200) {
+        return '';
+      }
+      return href;
+    }
+
+    function phaseCLinkLabel(label, url) {
+      return resolveFriendlyLinkDisplayLabel(label, url);
+    }
+
+    function phaseCLinkHtml(url, label) {
+      var href = phaseCSafeExternalHref(url);
+      if (!href) return escapeHtml(phaseCLinkLabel(label, url));
+      var display = phaseCLinkLabel(label, href);
+      if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-blue-600 underline hover:text-blue-800">' +
+        escapeHtml(display) + '</a>';
+    }
+
+    var _phaseCRenderToken = 0;
+
+    function phaseCBeginRender() {
+      return ++_phaseCRenderToken;
+    }
+
+    function phaseCIsStaleRender(token) {
+      return token !== _phaseCRenderToken;
+    }
+
+    function phaseCClearContainers() {
+      var targets = [
+        'phase-c-structured-cards',
+        'pedagogical-essence-content',
+        'theoretical-content',
+        'inspiration-content',
+        'pinterest-gallery',
+      ];
+      targets.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+      });
+    }
+
+    function phaseCResolveView(data) {
+      var view = normalizePedagogicalEssenceView(data);
+      if (view) return view;
+      if (!data || typeof data !== 'object') return null;
+      var fallback = {
+        core_emphases: String(data.core_emphases || '').trim(),
+        key_points: Array.isArray(data.key_points) ? data.key_points : [],
+        recommended_reading: Array.isArray(data.recommended_reading) ? data.recommended_reading : [],
+        relevant_links: Array.isArray(data.relevant_links) ? data.relevant_links : [],
+      };
+      if (!fallback.core_emphases && !fallback.key_points.length &&
+          !fallback.recommended_reading.length && !fallback.relevant_links.length) {
+        return resolvePurePhaseCTab3View();
+      }
+      return fallback;
+    }
+
+    function phaseCRenderEmphasesColumn(coreEmphases) {
+      var body = renderPureTextBlock(coreEmphases);
+      return '<section class="phase-c-col phase-c-col--emphases" aria-label="' + escapeHtml(t('phase_c_tab_core')) + '">' +
+        '<h3><i class="fa-solid fa-heart text-terracotta" aria-hidden="true"></i> ' + escapeHtml(t('phase_c_tab_core')) + '</h3>' +
+        body + '</section>';
+    }
+
+    function phaseCRenderPointsColumn(keyPoints) {
+      var items = Array.isArray(keyPoints) ? keyPoints.filter(function (item) {
+        return String(item || '').trim().length >= 8;
+      }) : [];
+      var body = items.length
+        ? '<ul class="pure-card-body i18n-list">' + items.map(function (item) {
+          return '<li>' + renderPhaseCTabMarkdownInline(String(item || '')) + '</li>';
+        }).join('') + '</ul>'
+        : '<p class="text-walnut/50 pure-card-body">—</p>';
+      return '<section class="phase-c-col phase-c-col--points" aria-label="' + escapeHtml(t('phase_c_tab_points')) + '">' +
+        '<h3><i class="fa-solid fa-list-check text-sage" aria-hidden="true"></i> ' + escapeHtml(t('phase_c_tab_points')) + '</h3>' +
+        body + '</section>';
+    }
+
+    function phaseCRenderSecondaryCards(view) {
+      var html = '';
+      var readingHtml = renderPureReadingBlock(view.recommended_reading);
+      var linksHtml = renderPureLinksBlock(view.relevant_links);
+      if (readingHtml) {
+        html += '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' +
+          escapeHtml(t('phase_c_tab_reading')) + '</h3>' + readingHtml + '</article>';
+      }
+      if (linksHtml) {
+        html += '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' +
+          escapeHtml(t('phase_c_tab_links')) + '</h3>' + linksHtml + '</article>';
+      }
+      return html ? '<div class="phase-c-secondary-row">' + html + '</div>' : '';
+    }
+
+    function phaseCRenderCurriculumTab(data) {
+      var token = phaseCBeginRender();
       var cardsEl = document.getElementById('phase-c-structured-cards');
       var emptyEl = document.getElementById('phase-c-empty');
+      var essenceEl = document.getElementById('pedagogical-essence-content');
       if (!cardsEl) return;
       cardsEl.innerHTML = '';
-      var essenceEl = document.getElementById('pedagogical-essence-content');
       if (essenceEl) {
         essenceEl.innerHTML = '';
         essenceEl.classList.add('hidden');
         essenceEl.setAttribute('aria-hidden', 'true');
       }
-      var view = normalizePedagogicalEssenceView(data) || data || resolvePurePhaseCTab3View();
+      if (phaseCIsStaleRender(token)) return;
+
+      var view = phaseCResolveView(data);
       if (!view && hasPhaseCTopicContext()) {
-        var fallbackSrc = data || appState.purePhaseC || {};
-        view = {
-          core_emphases: String(fallbackSrc.core_emphases || '').trim(),
-          key_points: Array.isArray(fallbackSrc.key_points) ? fallbackSrc.key_points : [],
-          recommended_reading: Array.isArray(fallbackSrc.recommended_reading) ? fallbackSrc.recommended_reading : [],
-          relevant_links: Array.isArray(fallbackSrc.relevant_links) ? fallbackSrc.relevant_links : [],
-        };
+        view = phaseCResolveView(appState.purePhaseC || {});
       }
       if (!view) {
         cardsEl.classList.add('hidden');
         if (emptyEl) emptyEl.classList.toggle('hidden', hasPhaseCTopicContext());
         return;
       }
+      if (phaseCIsStaleRender(token)) return;
+
       if (emptyEl) emptyEl.classList.add('hidden');
       cardsEl.classList.remove('hidden');
-      var cardsHtml =
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_tab_core')) + '</h3>' + renderPureTextBlock(view.core_emphases) + '</article>' +
-        '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_tab_points')) + '</h3>' + renderPureListBlock(view.key_points) + '</article>' +
-        (renderPureReadingBlock(view.recommended_reading)
-          ? '<article class="pure-data-card"><h3><i class="fa-solid fa-book-open text-gold"></i> ' + escapeHtml(t('phase_c_tab_reading')) + '</h3>' + renderPureReadingBlock(view.recommended_reading) + '</article>'
-          : '') +
-        (renderPureLinksBlock(view.relevant_links)
-          ? '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_tab_links')) + '</h3>' + renderPureLinksBlock(view.relevant_links) + '</article>'
-          : '');
-      cardsEl.innerHTML = cardsHtml;
+
+      var keyPoints = view.key_points.slice();
+      if (!keyPoints.length && view.core_emphases) {
+        var plain = pedagogicalEssenceFieldPlainText(view.core_emphases);
+        keyPoints = plain.split(/(?<=[.!?׃。])\s+/).map(function (s) { return s.trim(); })
+          .filter(function (s) { return s.length >= 24; }).slice(0, 6);
+      }
+
+      var layoutHtml =
+        '<div class="phase-c-curriculum-layout" dir="rtl">' +
+        phaseCRenderEmphasesColumn(view.core_emphases) +
+        phaseCRenderPointsColumn(keyPoints) +
+        '</div>' +
+        phaseCRenderSecondaryCards(view);
+
+      if (phaseCIsStaleRender(token)) return;
+      cardsEl.innerHTML = layoutHtml;
       renderMarketingBench('phase-c-marketing-mount');
       if (appState.productTabsRendered) appState.productTabsRendered.curriculum = true;
+    }
+
+    function renderPurePhaseCCards(data) {
+      phaseCRenderCurriculumTab(data);
     }
 
     function populateAiGeneratedPlanFromPurePhaseC(data) {
@@ -14583,18 +14743,11 @@
     }
 
     function clearProductPanelDom() {
-      var theoryEl = document.getElementById('theoretical-content');
-      if (theoryEl) theoryEl.innerHTML = '';
-      var inspBase = document.getElementById('inspiration-content');
-      if (inspBase) inspBase.innerHTML = '';
-      var pinGal = document.getElementById('pinterest-gallery');
-      if (pinGal) pinGal.innerHTML = '';
+      phaseCClearContainers();
+      var cards = document.getElementById('phase-c-structured-cards');
+      if (cards) cards.classList.add('hidden');
       var commMat = document.getElementById('community-materials');
       if (commMat) commMat.innerHTML = '';
-      var cards = document.getElementById('phase-c-structured-cards');
-      if (cards) { cards.innerHTML = ''; cards.classList.add('hidden'); }
-      var essence = document.getElementById('pedagogical-essence-content');
-      if (essence) essence.innerHTML = '';
       var inspSlot = document.getElementById('teacher-drive-inspiration-slot');
       if (inspSlot) { inspSlot.innerHTML = ''; inspSlot.classList.add('hidden'); }
       var currSlot = document.getElementById('teacher-drive-curriculum-slot');
@@ -14663,18 +14816,20 @@
 
     function renderProductTabContent(tabId) {
       if (!appState.aiGeneratedPlan && !appState.purePhaseC && !hasPhaseCTopicContext()) return;
+      var renderToken = phaseCBeginRender();
       try {
         ensureActivePlan();
       } catch (planErr) {
         console.warn('[waldrof] ensureActivePlan:', planErr);
       }
+      if (phaseCIsStaleRender(renderToken)) return;
       var r = appState.productTabsRendered || freshProductTabsRendered();
       appState.productTabsRendered = r;
       if (tabId === 'theory') {
         var theoryPanelEl = document.getElementById('theoretical-content');
         if (theoryPanelEl) theoryPanelEl.innerHTML = '';
-        var theoryDomEmpty = !theoryPanelEl || !theoryPanelEl.innerHTML.trim();
-        if (!r.theory || theoryDomEmpty) {
+        if (phaseCIsStaleRender(renderToken)) return;
+        if (!r.theory) {
           renderTheory();
           r.theory = true;
         }
@@ -14683,19 +14838,15 @@
         var pinGalEl = document.getElementById('pinterest-gallery');
         if (inspPanelEl) inspPanelEl.innerHTML = '';
         if (pinGalEl) pinGalEl.innerHTML = '';
-        var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
-        if (!r.inspiration || inspDomEmpty) {
+        if (phaseCIsStaleRender(renderToken)) return;
+        if (!r.inspiration) {
           renderInspirationTabPanels();
           r.inspiration = true;
         }
       } else if (tabId === 'curriculum') {
-        var cardsEl = document.getElementById('phase-c-structured-cards');
-        if (cardsEl) cardsEl.innerHTML = '';
-        var cardsDomEmpty = !cardsEl || !cardsEl.innerHTML.trim();
-        if (!r.curriculum || cardsDomEmpty) {
-          renderPurePhaseCCards(resolvePurePhaseCTab3View() || appState.purePhaseC);
-          r.curriculum = true;
-        }
+        if (phaseCIsStaleRender(renderToken)) return;
+        phaseCRenderCurriculumTab(resolvePurePhaseCTab3View() || appState.purePhaseC);
+        r.curriculum = true;
       }
       ensurePageScrollUnlocked();
     }
@@ -14823,20 +14974,22 @@
       var topic = String(appState.topic || '').trim();
       if (!topic || !appState.grade || !appState.topicResearchCompleted) return;
       invalidateProductTabRenders();
-      var response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, null, {
-        bypassCache: true,
-        forceRefresh: true,
-        forceFresh: true,
-        skipCache: true,
-      });
-      commitPurePhaseCToStepB(topic, response.data, Object.assign({}, response.meta || {}, {
-        fromCache: false,
-        statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
-          escapeHtml(isEnglish() ? 'Refreshed from live research — archive updated.' : 'רענון ממחקר חי — הארכיון עודכן.') + '</p>',
-      }));
-      invalidateProductTabRenders();
-      if (appState.activeProductTab) {
-        switchProductTab(appState.activeProductTab, { forceRemount: true });
+      setPhaseCLoadingUi(true);
+      try {
+        var response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, null, {
+          bypassCache: true,
+        });
+        commitPurePhaseCToStepB(topic, response.data, Object.assign({}, response.meta || {}, {
+          fromCache: false,
+          statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
+            escapeHtml(isEnglish() ? 'Refreshed from live research — archive updated.' : 'רענון ממחקר חי — הארכיון עודכן.') + '</p>',
+        }));
+        invalidateProductTabRenders();
+        if (appState.activeProductTab) {
+          switchProductTab(appState.activeProductTab, { forceRemount: true });
+        }
+      } finally {
+        setPhaseCLoadingUi(false);
       }
     }
 
@@ -17078,9 +17231,9 @@
         escapeHtml(label) + '</a>';
     }
 
-    /** Phase C Tab 2/3 — same verified green anchor template as inspiration resources. */
+    /** Phase C Tab 2/3 — verified anchor with friendly Hebrew labels. */
     function buildPhaseCTabAnchorHtml(url, title) {
-      return buildInspirationTabSourceAnchorHtml(url, title);
+      return phaseCLinkHtml(url, title);
     }
 
     function upgradePhaseCTabAnchors(html) {
@@ -17573,49 +17726,7 @@
     }
 
     function renderCurriculum() {
-      capturePedagogicalEssenceUiStateFromDom();
-      var essenceEl = document.getElementById('pedagogical-essence-content');
-      var essence = resolvePedagogicalEssenceForRender();
-
-      if (!essence || !PHASE_C_ESSENCE_FIELDS.some(function (fieldKey) {
-        return pedagogicalEssenceFieldHasContent(fieldKey, essence);
-      })) {
-        var emptyMsg = '<p class="text-sm text-walnut/70 bg-parchment/60 rounded-xl border border-sage/25 p-4">' +
-          escapeHtml(isEnglish()
-            ? 'No pedagogical essence fields were found.'
-            : 'לא נמצאו שדות מהות פדגוגית.') +
-          '</p>';
-        holdPageScroll(function () {
-          if (essenceEl) {
-            essenceEl.innerHTML = '';
-            essenceEl.innerHTML = emptyMsg;
-          }
-        });
-        setupThemeActionButtons();
-        return;
-      }
-
-      if (appState.aiGeneratedPlan) {
-        appState.aiGeneratedPlan.curriculum = essence;
-        delete appState.aiGeneratedPlan.days;
-        syncActivePlanFromGenerated();
-      }
-
-      var cardsHtml = PHASE_C_ESSENCE_FIELDS.map(function (fieldKey) {
-        return renderPedagogicalEssenceCard(fieldKey, essence, isPedagogicalEssenceFieldExpanded(fieldKey));
-      }).filter(Boolean).join('');
-
-      holdPageScroll(function () {
-        if (essenceEl) {
-          essenceEl.innerHTML = '';
-          essenceEl.innerHTML = cardsHtml;
-        }
-        setupThemeActionButtons();
-      });
-      bindPedagogicalEssenceCardToggles();
-      restorePedagogicalEssenceExpandedFields();
-      restorePedagogySummaryPanels();
-      setupThemeActionButtons();
+      phaseCRenderCurriculumTab(resolvePedagogicalEssenceForRender() || appState.purePhaseC);
     }
 
     function updateCommunityBadge() {

@@ -273,18 +273,28 @@ function isValidPhaseCExternalUrl(url) {
 function resolvePhaseCFriendlyLinkTitle(label, url) {
   const href = String(url || '').trim();
   const clean = String(label || '').trim();
-  if (clean && !/^https?:\/\//i.test(clean) && !/%D7[0-9A-Fa-f]{2}/i.test(clean)) return clean;
+  if (clean && !/^https?:\/\//i.test(clean) && !/%[0-9A-Fa-f]{2}/i.test(clean) &&
+      !/[\u0590-\u05FF]/.test(clean) && clean.length <= 120) {
+    return clean;
+  }
   try {
     const parsed = new URL(href);
     const path = String(parsed.pathname || '').toLowerCase();
     if (/\.pdf(?:$|[?#])/i.test(path) || (isTrustedWaldorfUploadUrl(href) && hasLongPercentEncodedHebrewPath(href))) {
-      return 'מסמך פדגוגי / תוכנית לימודים - קובץ PDF';
+      return '[קישור למקור פדגוגי - PDF]';
     }
-    if (hasLongPercentEncodedHebrewPath(href)) {
-      return 'מסמך פדגוגי — קובץ';
+    if (hasLongPercentEncodedHebrewPath(href) || /%D7[0-9A-Fa-f]{2}/i.test(href)) {
+      return '[קישור למקור פדגוגי]';
+    }
+    const host = parsed.hostname.replace(/^www\./i, '');
+    if (PHASE_C_TRUSTED_ROOT_DOMAINS.test(host)) {
+      return '[קישור למקור פדגוגי]';
     }
   } catch (e) { /* ignore */ }
-  return clean || href;
+  if (/^https?:\/\//i.test(clean) || /%[0-9A-Fa-f]{2}/i.test(clean)) {
+    return '[קישור למקור פדגוגי]';
+  }
+  return clean || '[קישור למקור פדגוגי]';
 }
 
 /** Legacy structural archive URLs known to 404 — never emit as fallback links. */
@@ -1864,6 +1874,14 @@ function sanitizeInspirationPodcastBlock(podcast) {
   return { title: title || 'תובנות', episodes: linked };
 }
 
+/** Maximum-priority Waldorf/Anthroposophy mandate — prepended to every Phase C Perplexity call. */
+const WALDORF_CORE_SYSTEM_PROMPT = [
+  'You are a senior Waldorf and Anthroposophical curriculum expert.',
+  'All generated text, background, activities, and curriculum blueprints MUST strictly adhere to Waldorf/Steiner education.',
+  'Completely forbid generic state-curriculum frameworks, and filter out entities like מט"ח, ראמ"ה, נגבה, or KidsPlus.',
+  'Only use anthroposophical pedagogical sources.',
+].join(' ');
+
 const PHASE_C_SOURCE_HARVESTING_INSTRUCTION = [
   '=== SOURCE HARVESTING (STRICT — Waldorf & Anthroposophy first) ===',
   'The generated content and sources MUST heavily prioritize and center around Waldorf education (חינוך ולדורף) and Anthroposophy (אנתרופוסופיה).',
@@ -1875,7 +1893,7 @@ const PHASE_C_SOURCE_HARVESTING_INSTRUCTION = [
 ].join(' ');
 
 const SYSTEM_PROMPT = [
-  'You are a Waldorf / anthroposophical pedagogy expert.',
+  WALDORF_CORE_SYSTEM_PROMPT,
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
@@ -2191,6 +2209,8 @@ async function runPurePhaseC(body) {
   }
 
   const userPrompt = [
+    WALDORF_CORE_SYSTEM_PROMPT,
+    '',
     'Produce Phase C pedagogical products and essence for Waldorf education.',
     'Grade: ' + grade,
     'Topic: ' + topic,
@@ -2278,6 +2298,7 @@ async function fetchHandler(request) {
 }
 
 module.exports = {
+  WALDORF_CORE_SYSTEM_PROMPT,
   legacyHandler,
   fetch: fetchHandler,
   runPurePhaseC,
