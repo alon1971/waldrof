@@ -418,12 +418,29 @@ function hasDisallowedForeignScript(text) {
   return PHASE_C_DISALLOWED_FOREIGN_SCRIPTS.test(String(text || ''));
 }
 
+function isShallowReliablePhaseCUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const host = String(parsed.hostname || '').replace(/^www\./i, '');
+    const path = String(parsed.pathname || '');
+    const segments = path.split('/').filter(Boolean);
+    if (PHASE_C_TRUSTED_ROOT_DOMAINS.test(host) || isTrustedEducationalDomain(url)) {
+      if (segments.length <= 3) return true;
+      return !/%[0-9A-Fa-f]{2}/i.test(path) && segments.length <= 5;
+    }
+    return segments.length <= 1;
+  } catch (e) {
+    return false;
+  }
+}
+
 function isDeadPhaseCFallbackUrl(url) {
   const u = String(url || '').trim();
   if (!u || !/^https?:\/\//i.test(u)) return true;
   if (isForbiddenForeignSourceUrl(u)) return true;
   if (isNonEducationalSpamUrl(u)) return true;
   if (waldorfWebSeed.isBrokenOrGuessedPedagogicalUrl(u)) return true;
+  if (!isShallowReliablePhaseCUrl(u) && !isPinterestPhaseCUrl(u)) return true;
   for (let i = 0; i < PHASE_C_DEAD_URL_PATTERNS.length; i++) {
     if (PHASE_C_DEAD_URL_PATTERNS[i].test(u)) return true;
   }
@@ -578,7 +595,7 @@ function applyLiveCitationGate(normalized, parsed, topic) {
   if (!citationSet || !citationSet.size) {
     if (hasArchivedLinkContent(normalized)) {
       normalized._liveCitations = collectPhaseCLinkUrlList(normalized, topicStr);
-      return deduplicatePhaseCTabLinks(normalized);
+      return deduplicatePhaseCTabLinks(normalized, topicStr);
     }
     normalized.recommended_reading = [];
     normalized.relevant_links = [];
@@ -622,7 +639,7 @@ function applyLiveCitationGate(normalized, parsed, topic) {
   }
 
   normalized._liveCitations = extractLiveCitationsFromParsed(parsed, topicStr);
-  return deduplicatePhaseCTabLinks(normalized);
+  return deduplicatePhaseCTabLinks(normalized, topicStr);
 }
 
 function gatherPhaseCFallbackApiResponse(parsed) {
@@ -705,93 +722,54 @@ function filterLiveNormalizedLinks(links) {
   });
 }
 
-/**
- * Distribute harvested live URLs across Phase C tabs without duplicating the same list.
- * Theory → bibliography.websites | Inspiration → pinterest + pedagogical_resources | Tab 3 → relevant_links.
- */
+/** Merge every harvested URL into Tab 3 relevant_links — never duplicate across tabs. */
 function distributePhaseCFallbackLinks(normalized, harvested, topic) {
   if (!normalized) return normalized;
   harvested = harvested || [];
+  const topicStr = String(topic || '').trim();
 
-  normalized.relevant_links = filterLiveNormalizedLinks(normalized.relevant_links);
-  normalized.pinterest_links = filterLiveNormalizedLinks(normalized.pinterest_links);
-  normalized.pedagogical_resources = filterLiveNormalizedLinks(normalized.pedagogical_resources);
   if (!normalized.theory || typeof normalized.theory !== 'object') {
     normalized.theory = { title: '', sections: [], bibliography: { books: [], articles: [], websites: [] } };
   }
   if (!normalized.theory.bibliography) {
     normalized.theory.bibliography = { books: [], articles: [], websites: [] };
   }
-  normalized.theory.bibliography.websites = filterLiveNormalizedLinks(normalized.theory.bibliography.websites);
-
-  if (!harvested.length) return normalized;
 
   const seen = new Set();
   function seenUrl(url) {
-    const u = String(url || '').trim();
-    if (!u || seen.has(u)) return true;
-    seen.add(u);
+    const key = normalizeCitationUrlForMatch(cleanHarvestedUrl(url));
+    if (!key || seen.has(key)) return true;
+    seen.add(key);
     return false;
   }
 
-  (normalized.relevant_links || []).forEach(function (item) { seenUrl(item.url); });
-  (normalized.pinterest_links || []).forEach(function (item) { seenUrl(item.url); });
-  (normalized.pedagogical_resources || []).forEach(function (item) { seenUrl(item.url); });
-  (normalized.theory.bibliography.websites || []).forEach(function (item) { seenUrl(item.url); });
+  (normalized.relevant_links || []).forEach(function (item) {
+    seenUrl(extractUrlFromLinkItem(item));
+  });
 
-  const pinterest = normalized.pinterest_links.slice();
-  const inspiration = normalized.pedagogical_resources.slice();
-  const theorySites = normalized.theory.bibliography.websites.slice();
-  const relevant = normalized.relevant_links.slice();
-
+  if (!Array.isArray(normalized.pinterest_links)) normalized.pinterest_links = [];
   harvested.forEach(function (item) {
     const url = String(item.url || '').trim();
     if (!url || seenUrl(url)) return;
     const title = String(item.title || url).trim();
     const bucket = item.bucket || classifyPhaseCFallbackUrl(url);
-
-    if (bucket === 'pinterest' && pinterest.length < 8) {
-      pinterest.push({
+    if (bucket === 'pinterest' && normalized.pinterest_links.length < 8) {
+      normalized.pinterest_links.push({
         title: title,
         url: url,
-        board: String(topic || '').trim(),
+        board: topicStr,
         pin: title,
         src: '',
       });
-      return;
     }
-    if (bucket === 'inspiration' && inspiration.length < 10) {
-      inspiration.push({
-        title: title,
-        url: url,
-        label: 'השראה מעשית',
-        source: '',
-        snippet: '',
-      });
-      return;
-    }
-    if (bucket === 'theory' && theorySites.length < 8) {
-      theorySites.push({
-        title: title,
-        author: '',
-        year: '',
-        detail: '',
-        url: url,
-        category: 'websites',
-        id: 'websites-harvest-' + theorySites.length,
-      });
-      return;
-    }
-    if (relevant.length < 8) {
-      relevant.push({ title: title, url: url });
-    }
+    if (!Array.isArray(normalized.relevant_links)) normalized.relevant_links = [];
+    normalized.relevant_links.push({
+      title: resolvePhaseCFriendlyLinkTitle(title, url),
+      url: url,
+    });
   });
 
-  normalized.pinterest_links = pinterest;
-  normalized.pedagogical_resources = inspiration;
-  normalized.theory.bibliography.websites = theorySites;
-  normalized.relevant_links = relevant;
-  return normalized;
+  return centralizePhaseCLinksToTab3(normalized, topicStr);
 }
 
 function applyPhaseCFallbackLinkHarvester(normalized, parsed, topic) {
@@ -1690,15 +1668,48 @@ function boldPedagogicalPhrases(text) {
   return out;
 }
 
+function extractLinksFromProseSegment(text, topic) {
+  const topicStr = String(topic || '').trim();
+  const extracted = [];
+  const seen = new Set();
+  function pushLink(url, label) {
+    const clean = ensureDomainHref(url);
+    if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    if (isPinterestPhaseCUrl(clean)) return;
+    const title = String(label || clean).trim() || clean;
+    if (violatesPedagogicalTopicContext(clean, title, topicStr)) return;
+    const key = normalizeCitationUrlForMatch(clean);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    extracted.push({ title: title, url: clean, bucket: classifyPhaseCFallbackUrl(clean) });
+  }
+  const raw = String(text || '');
+  let match;
+  const mdRe = new RegExp(FALLBACK_MARKDOWN_LINK_PATTERN.source, 'gi');
+  while ((match = mdRe.exec(raw)) !== null) {
+    pushLink(match[2], match[1]);
+  }
+  const titleUrlRe = new RegExp(FALLBACK_TITLE_URL_PATTERN.source, 'gi');
+  while ((match = titleUrlRe.exec(raw)) !== null) {
+    pushLink(match[2], match[1]);
+  }
+  const bareRe = new RegExp(FALLBACK_BARE_URL_PATTERN.source, 'gi');
+  while ((match = bareRe.exec(raw)) !== null) {
+    pushLink(match[0], '');
+  }
+  return extracted;
+}
+
 function formatFallbackProseChunk(text, topic) {
   const parts = String(text || '').split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
   if (!parts.length) return { html: '', links: [] };
   const allLinks = [];
   const html = parts.map(function (part) {
-    const linked = linkifyFallbackSegment(part, topic);
-    allLinks.push.apply(allLinks, linked.links || []);
-    return '<p>' + linked.html + '</p>';
-  }).join('\n');
+    allLinks.push.apply(allLinks, extractLinksFromProseSegment(part, topic));
+    const plain = sanitizePhaseCPlainProse(part);
+    if (!plain) return '';
+    return '<p>' + boldPedagogicalPhrases(plain) + '</p>';
+  }).filter(Boolean).join('\n');
   return { html: html, links: allLinks };
 }
 
@@ -2014,40 +2025,91 @@ function collectPhaseCTabUrls(lists) {
   return urls;
 }
 
-function deduplicatePhaseCTabLinks(normalized) {
-  if (!normalized) return normalized;
-  const inspirationUrls = collectPhaseCTabUrls([
-    normalized.pinterest_links,
-    normalized.pedagogical_resources,
-  ]);
-  const theoryUrls = collectPhaseCTabUrls([
-    normalized.theory && normalized.theory.bibliography && normalized.theory.bibliography.websites,
-  ]);
+function stripUrlsFromBibliographyEntry(item) {
+  if (!item || typeof item !== 'object') return item;
+  const next = Object.assign({}, item);
+  next.url = '';
+  delete next.link;
+  delete next.href;
+  return next;
+}
 
-  normalized.pedagogical_resources = filterLiveNormalizedLinks(normalized.pedagogical_resources).filter(function (item) {
-    const u = String(item.url || '').trim();
-    return u && !theoryUrls.has(u);
-  });
+/**
+ * Single sources footer for Tab 3 (הדגשים) — gather ALL external URLs here; strip from Tabs 1–2 payloads.
+ */
+function centralizePhaseCLinksToTab3(normalized, topic) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  const topicStr = String(topic || '').trim();
+  const merged = [];
+  const seen = new Set();
 
-  normalized.relevant_links = filterLiveNormalizedLinks(normalized.relevant_links).filter(function (item) {
-    const u = String(item.url || '').trim();
-    if (!u) return false;
-    if (inspirationUrls.has(u)) return false;
-    if (theoryUrls.has(u)) return false;
-    return true;
-  });
-
-  if (normalized.theory && normalized.theory.bibliography) {
-    const tab3Urls = collectPhaseCTabUrls([normalized.relevant_links]);
-    normalized.theory.bibliography.websites = filterLiveNormalizedLinks(
-      normalized.theory.bibliography.websites
-    ).filter(function (item) {
-      const u = String(item.url || '').trim();
-      return u && !inspirationUrls.has(u) && !tab3Urls.has(u);
+  function pushItem(title, url) {
+    const clean = cleanHarvestedUrl(url);
+    if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    const key = normalizeCitationUrlForMatch(clean);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push({
+      title: resolvePhaseCFriendlyLinkTitle(title, clean),
+      url: clean,
     });
   }
 
+  (normalized.relevant_links || []).forEach(function (item) {
+    if (!item) return;
+    pushItem(item.title || item.name, extractUrlFromLinkItem(item));
+  });
+  (normalized.pedagogical_resources || []).forEach(function (item) {
+    if (!item) return;
+    pushItem(item.title || item.label || item.name, extractUrlFromLinkItem(item));
+  });
+  (normalized.pinterest_links || []).forEach(function (item) {
+    if (!item) return;
+    pushItem(item.title || item.board || 'Pinterest', extractUrlFromLinkItem(item));
+  });
+  (normalized.recommended_reading || []).forEach(function (item) {
+    if (!item) return;
+    pushItem(item.title, extractUrlFromLinkItem(item));
+  });
+  const bib = normalized.theory && normalized.theory.bibliography;
+  if (bib) {
+    ['websites', 'articles', 'books'].forEach(function (cat) {
+      (bib[cat] || []).forEach(function (item) {
+        if (!item) return;
+        pushItem(item.title || item.name, extractUrlFromLinkItem(item));
+      });
+    });
+  }
+  extractLiveCitationsFromParsed(normalized, topicStr).forEach(function (url) {
+    pushItem('', url);
+  });
+
+  normalized.relevant_links = filterLiveNormalizedLinks(merged).slice(0, 12);
+  normalized.pedagogical_resources = [];
+
+  if (bib) {
+    ['books', 'articles', 'websites'].forEach(function (cat) {
+      bib[cat] = (bib[cat] || []).map(stripUrlsFromBibliographyEntry).filter(function (item) {
+        return item && String(item.title || '').trim();
+      });
+    });
+  }
+
+  normalized.recommended_reading = (normalized.recommended_reading || []).map(function (item) {
+    if (!item || typeof item !== 'object') return item;
+    const next = Object.assign({}, item);
+    next.url = '';
+    delete next.link;
+    return next;
+  }).filter(function (item) {
+    return item && String(item.title || '').trim();
+  });
+
   return normalized;
+}
+
+function deduplicatePhaseCTabLinks(normalized, topic) {
+  return centralizePhaseCLinksToTab3(normalized, topic);
 }
 
 /**
@@ -2222,12 +2284,31 @@ const PHASE_C_LANGUAGE_SOURCE_RULE = [
   'Absolutely no academic document repositories from foreign governments or universities (e.g., .ru, .su, .ua domains).',
 ].join(' ');
 
+const PHASE_C_EXPANSION_NARRATIVE_RULE = [
+  '=== LIVE EXPANSION NARRATIVE (on-demand UI) ===',
+  'When users click «הרחבה ואספקטים פרקטיים», a SEPARATE API call returns expansion text.',
+  'ABSOLUTELY FORBID repeating or duplicating the same sentence or paragraph back-to-back anywhere in expansion output.',
+  'Expansion bodies: pure pedagogical narrative and practical classroom guidance ONLY.',
+  'STRICTLY FORBIDDEN inside expansion bodies: book titles, author names, URLs, source lists, numeric brackets like [1], and any citation markup.',
+  '=== END LIVE EXPANSION NARRATIVE ===',
+].join(' ');
+
+const PHASE_C_LINKS_CENTRALIZATION_RULE = [
+  '=== CENTRALIZED SOURCES (Tab 3 footer ONLY) ===',
+  'ALL external HTTPS links, Pinterest boards, and bibliography URLs belong EXCLUSIVELY in relevant_links (Tab 3 «מקורות» footer).',
+  'Tabs 1–2 narrative fields: ZERO URLs, ZERO <a> anchors, ZERO link markup.',
+  'Prefer reliable TOP-LEVEL portal URLs (rsarchive.org, waldorflibrary.org, antro.co.il, awsna.org, iaswece.org) — avoid deep article paths that often 404.',
+  'Never invent or guess deep-link paths; use organization homepages or well-known archive indexes when uncertain.',
+  '=== END CENTRALIZED SOURCES ===',
+].join(' ');
+
 const PHASE_C_NARRATIVE_TEXT_ONLY_RULE = [
   '=== NARRATIVE TEXT ONLY (GLOBAL — ALL TABS) ===',
   'Every pedagogical narrative field (theory sections, inspiration items, core_emphases, key_points) MUST contain PEDAGOGICAL PROSE ONLY.',
   'STRICTLY FORBIDDEN inside narrative bodies: academic bracket citations [1], footnotes, raw URLs, naked domains, HTML <a> anchors, <details> blocks, or any link markup.',
   'The UI loads «הרחבה ואספקטים פרקטיים» via a separate on-demand API call — NEVER bundle expansions, workshop steps, or practical dives in this payload.',
-  'ALL external sources belong ONLY in dedicated arrays: theory.bibliography, relevant_links, pedagogical_resources (metadata), pinterest_links — never inside narrative HTML.',
+  PHASE_C_EXPANSION_NARRATIVE_RULE,
+  PHASE_C_LINKS_CENTRALIZATION_RULE,
   '=== END NARRATIVE TEXT ONLY ===',
 ].join(' ');
 
@@ -2302,7 +2383,7 @@ const SYSTEM_PROMPT = [
   'core_emphases (string: compiled pedagogical essay with MINIMUM 5-6 comprehensive Hebrew paragraphs and full Developmental Compass — prose only; NO links),',
   'key_points (array of exactly 5-6 rich strings — EACH 3-6 substantial grade-locked sentences; prose only; NEVER duplicate core_emphases),',
   'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 2-3 substantive sentences; NO urls),',
-  'relevant_links (array of 6-10 objects: {title, url} — dedicated sources footer ONLY; live Steiner archives, Waldorf Library, antro.co.il; at most 1-2 ministry links total; NEVER inside narrative fields).',
+  'relevant_links (array of 6-10 objects: {title, url} — THE ONLY place for live HTTPS links, Pinterest boards, and bibliography URLs; Tab 3 footer; prefer top-level Waldorf/anthro portals; at most 1-2 ministry links total; NEVER inside narrative fields).',
   '',
   shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
 ].join(' ');
@@ -2565,7 +2646,8 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
   }
   stampTopicMasterArchiveLinks(result, parsed || result);
   result = applyLiveCitationGate(result, parsed || result, topicStr);
-  return applyPhaseCTextSanitizationChain(result);
+  result = applyPhaseCTextSanitizationChain(result);
+  return centralizePhaseCLinksToTab3(result, topicStr);
 }
 
 function shouldBypassTopicMasterCache(body) {
@@ -2638,15 +2720,14 @@ async function runPurePhaseC(body) {
     '',
     buildPhaseCGradeTopicLockInstruction(grade, topic),
     '',
-    'Return MAXIMUM-DEPTH live-research baseline content — exhaustive essays, full-length guidelines, verified live links in dedicated arrays only, zero truncation:',
-    '- Tab 1 theory: 3-5 sections × 5-8 deep paragraphs each (prose only in sections); bibliography with live HTTPS on every website entry (Waldorf/anthroposophical first).',
+    'Return MAXIMUM-DEPTH live-research baseline content — exhaustive essays, full-length guidelines, ALL links centralized in relevant_links only, zero truncation:',
+    '- Tab 1 theory: 3-5 sections × 5-8 deep paragraphs each (prose ONLY — zero URLs, zero anchors in section HTML).',
     '- Tab 2 inspiration: 2-4 global blocks × 6-10 rich pedagogical mini-essays each (prose only — expansions load on-demand in UI).',
-    '- pinterest_links: 4-8 LIVE pinterest.com URLs matching grade+topic.',
-    '- pedagogical_resources: 5-10 LIVE links with title/url/label/source/snippet metadata ONLY — no HTML content body.',
+    '- pinterest_links: 4-8 LIVE pinterest.com URLs (also mirrored into relevant_links for Tab 3 footer).',
     '- Tab 3 core_emphases (right column): 5-6 deep paragraphs with full Developmental Compass — prose only.',
     '- Tab 3 key_points (left column): 5-6 extensive grade-locked items (3-6 sentences each) — unique prose only.',
-    '- Tab 3 recommended_reading: 5-8 entries with substantive notes (no URLs).',
-    '- Tab 3 relevant_links (מקורות footer): 6-10 live Waldorf/anthroposophical sources; NEVER inside narrative fields.',
+    '- Tab 3 recommended_reading: 5-8 entries with substantive notes (titles/authors only — NO urls).',
+    '- Tab 3 relevant_links (מקורות footer — SOLE link array): 6-10 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
   ].join('\n');
 
   const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
@@ -2743,6 +2824,7 @@ module.exports = {
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
+  centralizePhaseCLinksToTab3,
   applyLiveCitationGate,
   extractLiveCitationsFromParsed,
   buildLiveCitationUrlSet,
