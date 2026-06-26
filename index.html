@@ -5025,6 +5025,25 @@
       );
     }
 
+    function joinDistinctExpansionFragments(fragments, separator) {
+      var seen = [];
+      var kept = [];
+      (fragments || []).forEach(function (fragment) {
+        var text = String(fragment || '').trim();
+        if (!text) return;
+        var norm = String(text).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (!norm) return;
+        for (var i = 0; i < seen.length; i++) {
+          if (seen[i] === norm || (norm.length >= 24 && (seen[i].indexOf(norm) >= 0 || norm.indexOf(seen[i]) >= 0))) {
+            return; // identical or fully-contained payload already kept
+          }
+        }
+        seen.push(norm);
+        kept.push(text);
+      });
+      return kept.join(separator);
+    }
+
     function mergeCurriculumDayExpansion(row) {
       if (!row || typeof row !== 'object') return null;
       var ce = normalizeExpansion(row.contentExpansion);
@@ -5052,14 +5071,14 @@
         return true;
       });
       var merged = {
-        classroomImplementation: [ce && ce.classroomImplementation, ae && ae.classroomImplementation]
-          .filter(Boolean).join('\n\n'),
-        parentCommunityAspects: [ce && ce.parentCommunityAspects, he && he.parentCommunityAspects, ae && ae.parentCommunityAspects]
-          .filter(Boolean).join('\n\n'),
+        classroomImplementation: joinDistinctExpansionFragments(
+          [ce && ce.classroomImplementation, ae && ae.classroomImplementation], '\n\n'),
+        parentCommunityAspects: joinDistinctExpansionFragments(
+          [ce && ce.parentCommunityAspects, he && he.parentCommunityAspects, ae && ae.parentCommunityAspects], '\n\n'),
         practicalSteps: steps,
         inspirationReferences: refs,
-        expansionHtml: [ce && ce.expansionHtml, ae && ae.expansionHtml, he && he.expansionHtml]
-          .filter(Boolean).join(''),
+        expansionHtml: joinDistinctExpansionFragments(
+          [ce && ce.expansionHtml, ae && ae.expansionHtml, he && he.expansionHtml], ''),
       };
       return hasExpansionContent(merged) ? merged : null;
     }
@@ -14265,20 +14284,55 @@
       return out;
     }
 
+    function normalizeExpansionBlockKey(text) {
+      return String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
     /**
-     * Single chokepoint that guarantees an expansion body is injected exactly ONCE.
-     * Removes whole-block duplicates (legacy renderer + static hydration overlap) and
-     * collapses exact consecutive duplicate text blocks (doubled merge payloads).
+     * DOM-based, position-independent dedupe for expansion bodies. Removes any
+     * leaf block whose normalized text already appeared earlier — regardless of
+     * tag, adjacency, or wrapper nesting (the failure modes of the old regex
+     * pass) — then prunes containers left empty. This collapses doubled merge
+     * payloads (curriculum content/art/hint) and any doubled rawContent.
+     * Falls back to the input unchanged if DOM parsing is unavailable.
      */
+    function dedupeExpansionBlocksDom(html) {
+      var raw = String(html || '');
+      if (!raw.trim() || typeof document === 'undefined') return raw;
+      try {
+        var container = document.createElement('div');
+        container.innerHTML = raw;
+        var BLOCK_SEL = 'p, li, h1, h2, h3, h4, h5, h6, blockquote';
+        var seen = Object.create(null);
+        Array.prototype.slice.call(container.querySelectorAll(BLOCK_SEL)).forEach(function (block) {
+          if (block.querySelector(BLOCK_SEL)) return; // only leaf blocks carry comparable text
+          var key = normalizeExpansionBlockKey(block.textContent);
+          if (key.length < 24) return; // leave short headings/labels alone
+          if (seen[key]) {
+            if (block.parentNode) block.parentNode.removeChild(block);
+            return;
+          }
+          seen[key] = true;
+        });
+        Array.prototype.slice.call(
+          container.querySelectorAll('p, li, ul, ol, blockquote, article, div')
+        ).reverse().forEach(function (el) {
+          if (el.querySelector('img, a, iframe, svg, video, audio')) return;
+          if (normalizeExpansionBlockKey(el.textContent)) return;
+          if (el.parentNode) el.parentNode.removeChild(el);
+        });
+        return container.innerHTML;
+      } catch (e) {
+        return raw;
+      }
+    }
+
+    // Single chokepoint guaranteeing an expansion body is injected exactly ONCE:
+    // legacy whole-block pass first, then a DOM pass that removes any repeated
+    // block regardless of tag, adjacency, or wrapper nesting.
     function finalizeExpansionBodyHtml(html) {
       var out = dedupeRepeatedHtmlBlocks(String(html || ''));
-      var prevKey = '';
-      out = out.replace(/<(p|li|h[1-6]|blockquote)\b[^>]*>[\s\S]*?<\/\1>/gi, function (block) {
-        var key = stripHtmlText(block).replace(/\s+/g, ' ').trim().toLowerCase();
-        if (key && key.length >= 16 && key === prevKey) return '';
-        prevKey = key;
-        return block;
-      });
+      out = dedupeExpansionBlocksDom(out);
       return out;
     }
 
@@ -17743,7 +17797,7 @@
         });
         html += '</article>';
       });
-      if (!isPurePhaseCMode() && (bib.books.length || bib.articles.length || bib.websites.length)) {
+      if (bib.books.length || bib.articles.length || bib.websites.length) {
         html += renderTheoryBibliography(bib);
       }
       if (isPurePhaseCMode()) {
