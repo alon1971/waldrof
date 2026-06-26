@@ -5255,7 +5255,7 @@
       options = options || {};
       if (!item || !item.id) return '';
       if (options.skipIfEmbedded && previewHasEmbeddedExpansion(options.embeddedIn)) return '';
-      var bodyHtml = resolveStaticExpansionBodyHtml(item);
+      var bodyHtml = finalizeExpansionBodyHtml(resolveStaticExpansionBodyHtml(item));
       if (!bodyHtml || !String(bodyHtml).trim()) return '';
       var summaryLabel = options.summaryLabel || expansionBtnLabel();
       var extraClass = options.extraClass ? ' ' + options.extraClass : '';
@@ -10148,7 +10148,7 @@
         panel.classList.remove('hidden');
         return;
       }
-      const content = buildBibSummaryHtml(summary);
+      const content = finalizeExpansionBodyHtml(buildBibSummaryHtml(summary));
       if (!content) {
         panel.innerHTML = '';
         panel.classList.add('hidden');
@@ -11471,7 +11471,7 @@
       }
       holdPageScroll(function () {
         var src = appState.pedagogyRegistry[sourceId];
-        panel.innerHTML = '<div class="inline-expand-inner">' + buildPedagogySummaryHtml(summary, src) +
+        panel.innerHTML = '<div class="inline-expand-inner">' + finalizeExpansionBodyHtml(buildPedagogySummaryHtml(summary, src)) +
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         panel.classList.remove('hidden');
       });
@@ -14263,6 +14263,23 @@
       return out;
     }
 
+    /**
+     * Single chokepoint that guarantees an expansion body is injected exactly ONCE.
+     * Removes whole-block duplicates (legacy renderer + static hydration overlap) and
+     * collapses exact consecutive duplicate text blocks (doubled merge payloads).
+     */
+    function finalizeExpansionBodyHtml(html) {
+      var out = dedupeRepeatedHtmlBlocks(String(html || ''));
+      var prevKey = '';
+      out = out.replace(/<(p|li|h[1-6]|blockquote)\b[^>]*>[\s\S]*?<\/\1>/gi, function (block) {
+        var key = stripHtmlText(block).replace(/\s+/g, ' ').trim().toLowerCase();
+        if (key && key.length >= 16 && key === prevKey) return '';
+        prevKey = key;
+        return block;
+      });
+      return out;
+    }
+
     function isDeadSourceLinkLabel(text) {
       var cleaned = String(text || '').trim();
       return !cleaned || /^https?$/i.test(cleaned) || /^www\.?$/i.test(cleaned);
@@ -14449,10 +14466,24 @@
       return !!href && trimmed === href;
     }
 
+    /**
+     * Remove stray markdown header hashes (### / ####) that survive when header
+     * markdown is partially stripped, leaving naked symbols in readable prose.
+     * Real headers are converted to HTML earlier by the block formatters.
+     */
+    function stripStrayMarkdownHashes(text) {
+      return String(text || '')
+        .replace(/^[ \t]*#{1,6}[ \t]*$/gm, '')
+        .replace(/(^|[\s>(\[])#{1,6}(?=[ \t])/g, '$1')
+        .replace(/(^|[\s>(\[])#{2,6}(?=[^\s#])/g, '$1')
+        .replace(/[ \t]+#{1,6}(?=\s|$)/g, ' ')
+        .replace(/[ \t]{2,}/g, ' ');
+    }
+
     function renderMarkdownInline(text) {
       if (!text) return '';
       var placeholders = [];
-      var work = stripPhaseBReferenceBrackets(String(text));
+      var work = stripStrayMarkdownHashes(stripPhaseBReferenceBrackets(String(text)));
       work = work.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
         var href = sanitizeExternalLinkUrl(url);
         if (!href) return _m;
@@ -14471,7 +14502,7 @@
     function renderPhaseCTabMarkdownInline(text) {
       if (!text) return '';
       var placeholders = [];
-      var work = stripPhaseBReferenceBrackets(String(text));
+      var work = stripStrayMarkdownHashes(stripPhaseBReferenceBrackets(String(text)));
       work = work.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi, function (_m, label, url) {
         var href = phaseCSafeExternalHref(url);
         if (!href) return _m;
@@ -14521,7 +14552,11 @@
             return;
           }
         }
-        var headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (/^#{1,6}\s*$/.test(trimmed)) {
+          closeLists();
+          return;
+        }
+        var headingMatch = trimmed.match(/^(#{1,6})\s*(\S.*?)\s*#*$/);
         if (headingMatch) {
           closeLists();
           var level = Math.min(headingMatch[1].length + 2, 6);
@@ -14585,7 +14620,7 @@
       }
 
       function inlineBody(body) {
-        return narrativeOnly ? escapeHtml(stripExpansionSourceNoiseClient(body)) : renderMarkdownInline(body);
+        return narrativeOnly ? escapeHtml(stripStrayMarkdownHashes(stripExpansionSourceNoiseClient(body))) : renderMarkdownInline(body);
       }
 
       lines.forEach(function (rawLine) {
@@ -14610,7 +14645,11 @@
             return;
           }
         }
-        var headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (/^#{1,6}\s*$/.test(trimmed)) {
+          closeLists();
+          return;
+        }
+        var headingMatch = trimmed.match(/^(#{1,6})\s*(\S.*?)\s*#*$/);
         if (headingMatch) {
           closeLists();
           var level = Math.min(headingMatch[1].length + 2, 6);
@@ -17552,19 +17591,36 @@
           pushLink(item.title || item.name, item.url || item.link);
         }
       });
+      var books = theory && theory.bibliography && theory.bibliography.books;
+      (books || []).forEach(function (item) {
+        if (!item) return;
+        if (typeof item === 'object' && (item.url || item.link)) {
+          pushLink(item.title || item.name, item.url || item.link);
+        }
+      });
+      var purePool = pureData || appState.purePhaseC || {};
+      (purePool.relevant_links || []).forEach(function (item) {
+        if (!item) return;
+        if (typeof item === 'object') pushLink(item.title || item.name, item.url || item.link || item.href);
+      });
+      collectPhaseCLinkItemsClient(purePool).forEach(function (item) {
+        if (!item) return;
+        pushLink(item.title, item.url);
+      });
       return out;
     }
 
     function renderPureTheoryLiveLinksSection(theory, pureData) {
       var links = collectPureTheoryLiveLinks(theory, pureData);
-      if (!links.length) return '';
-      return '<section class="theory-bibliography-card theory-live-links-section mt-6" aria-labelledby="theory-live-links-heading">' +
-        '<h3 id="theory-live-links-heading" class="theory-bib-main-title"><i class="fa-solid fa-link text-burgundy ml-1" aria-hidden="true"></i> ' +
-        escapeHtml(t('phase_c_tab_links')) + '</h3>' +
+      var linksHtml = renderPureLinksBlock(links, { blockPinterest: true });
+      if (!linksHtml) return '';
+      return '<section class="theory-bibliography-card theory-live-links-section mt-8 pt-6 border-t-2 border-gold/30" aria-labelledby="theory-live-links-heading">' +
+        '<h3 id="theory-live-links-heading" class="theory-bib-main-title"><i class="fa-solid fa-book-bookmark text-burgundy ml-1" aria-hidden="true"></i> ' +
+        escapeHtml(isEnglish() ? 'Bibliography & external sources' : 'ביבליוגרפיה ומקורות חיצוניים') + '</h3>' +
         '<p class="text-walnut/65 mb-4">' + escapeHtml(isEnglish()
-          ? 'Live professional sources from web search — archives, essays, and deep pedagogical centers.'
-          : 'מקורות מקצועיים חיים מחיפוש רשת — ארכיונים, מאמרים ומרכזי מקור עמוקים.') + '</p>' +
-        renderPureLinksBlock(links, { blockPinterest: true }) +
+          ? 'Live, clickable professional sources validated against reliable Waldorf / pedagogical root portals to prevent 404s.'
+          : 'מקורות מקצועיים חיים וניתנים ללחיצה, מאומתים מול פורטלי שורש אמינים של וולדורף/חינוך כדי למנוע שגיאות 404.') + '</p>' +
+        linksHtml +
         '</section>';
     }
 
@@ -17687,6 +17743,9 @@
       });
       if (!isPurePhaseCMode() && (bib.books.length || bib.articles.length || bib.websites.length)) {
         html += renderTheoryBibliography(bib);
+      }
+      if (isPurePhaseCMode()) {
+        html += renderPureTheoryLiveLinksSection(d, appState.purePhaseC);
       }
       holdPageScroll(function () {
         var theoryMount = document.getElementById('theoretical-content');
@@ -17902,6 +17961,7 @@
         if (/^enrichment_links\b/i.test(t)) return false;
         return true;
       }).join('\n');
+      s = stripStrayMarkdownHashes(s);
       return s.replace(/\n{3,}/g, '\n\n').trim();
     }
 
