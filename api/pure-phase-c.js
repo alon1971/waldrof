@@ -247,6 +247,7 @@ function hasLongPercentEncodedHebrewPath(url) {
 function isValidPhaseCExternalUrl(url) {
   const raw = String(url || '').trim();
   if (!raw) return false;
+  if (isForbiddenForeignSourceUrl(raw)) return false;
   if (!/^https?:\/\//i.test(raw)) {
     if (!PHASE_C_PROVEN_BARE_DOMAIN_PATTERN.test(raw) && !PHASE_C_TRUSTED_ROOT_DOMAINS.test(raw)) {
       return false;
@@ -393,9 +394,34 @@ function cleanHarvestedUrl(raw) {
   return url;
 }
 
+function isForbiddenForeignSourceUrl(url) {
+  const u = String(url || '').trim();
+  if (!u) return true;
+  const lower = u.toLowerCase();
+  if (/\.(ru|su|ua)(?:\/|$|:)/i.test(lower)) return true;
+  if (/cyberleninka|elibrary\.ru|vestnik|valdorfsk|pedagogik/i.test(lower) && /\.ru|\.su|\.ua/i.test(lower)) {
+    return true;
+  }
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(u) ? u : 'https://' + u.replace(/^\/+/, ''));
+    const host = String(parsed.hostname || '').toLowerCase();
+    if (/\.(ru|su|ua)$/.test(host)) return true;
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
+const PHASE_C_DISALLOWED_FOREIGN_SCRIPTS = /[\u0400-\u04FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
+
+function hasDisallowedForeignScript(text) {
+  return PHASE_C_DISALLOWED_FOREIGN_SCRIPTS.test(String(text || ''));
+}
+
 function isDeadPhaseCFallbackUrl(url) {
   const u = String(url || '').trim();
   if (!u || !/^https?:\/\//i.test(u)) return true;
+  if (isForbiddenForeignSourceUrl(u)) return true;
   if (isNonEducationalSpamUrl(u)) return true;
   if (waldorfWebSeed.isBrokenOrGuessedPedagogicalUrl(u)) return true;
   for (let i = 0; i < PHASE_C_DEAD_URL_PATTERNS.length; i++) {
@@ -431,7 +457,7 @@ function extractLiveCitationsFromParsed(parsed, topic) {
   const seen = new Set();
   function pushUrl(url, snippet) {
     const clean = cleanHarvestedUrl(url);
-    if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    if (!clean || isDeadPhaseCFallbackUrl(clean) || isForbiddenForeignSourceUrl(clean)) return;
     if (violatesPedagogicalTopicContext(clean, snippet || '', topicStr)) return;
     const key = normalizeCitationUrlForMatch(clean);
     if (!key || seen.has(key)) return;
@@ -875,6 +901,203 @@ function groupParagraphsIntoChunks(paragraphs, targetCount) {
   return chunks.length ? chunks : [items.join('\n\n')];
 }
 
+function sentenceStructuralSimilarity(a, b) {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.length < 12 || b.length < 12) return a === b ? 1 : 0;
+  if (a.includes(b) || b.includes(a)) {
+    return Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  }
+  const wordsA = a.split(' ').filter(function (w) { return w.length > 2; });
+  const setB = new Set(b.split(' ').filter(function (w) { return w.length > 2; }));
+  let overlap = 0;
+  wordsA.forEach(function (w) { if (setB.has(w)) overlap++; });
+  return overlap / Math.max(wordsA.length, setB.size, 1);
+}
+
+function stripSequentialDuplicateSentences(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  return raw.split(/\n\n+/).map(function (para) {
+    const sentences = splitIntoSentences(para);
+    if (sentences.length < 2) return para.trim();
+    const out = [];
+    let prevNorm = '';
+    sentences.forEach(function (sentence) {
+      const trimmed = String(sentence || '').trim();
+      if (!trimmed) return;
+      const norm = normalizeForDedup(trimmed);
+      if (prevNorm && norm.length >= 12 && sentenceStructuralSimilarity(prevNorm, norm) >= 0.9) return;
+      out.push(trimmed);
+      prevNorm = norm;
+    });
+    return out.join(' ');
+  }).filter(Boolean).join('\n\n').trim();
+}
+
+function stripPercentEncodedUrlGarbage(text) {
+  return String(text || '')
+    .replace(/https?:\/\/[^\s<>"']*%[0-9A-Fa-f]{2}[^\s<>"']*/gi, ' ')
+    .replace(/\bhttps?:\/\/[^\s<>"']{140,}\b/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function buildPedagogicalSourceAnchorHtml(url) {
+  const clean = cleanHarvestedUrl(url);
+  if (!clean || isForbiddenForeignSourceUrl(clean) || isDeadPhaseCFallbackUrl(clean)) return '';
+  return '<a href=\'' + escapeHtmlForFallback(clean) + '\' target=\'_blank\' class=\'text-green-600 underline font-bold\'>[לחצו כאן למקור הפדגוגי]</a>';
+}
+
+function wrapNakedUrlsInPedagogicalAnchors(text) {
+  return String(text || '').replace(/https?:\/\/[^\s<>"']+/gi, function (rawUrl) {
+    const anchor = buildPedagogicalSourceAnchorHtml(rawUrl);
+    return anchor || '';
+  });
+}
+
+function sanitizePhaseCPlainProse(text) {
+  let out = stripBracketCitationMarkersInProse(String(text || ''));
+  out = stripPercentEncodedUrlGarbage(out);
+  if (hasDisallowedForeignScript(out)) {
+    out = out.split(/\n\n+/).map(function (para) {
+      return hasDisallowedForeignScript(para) && !/[\u0590-\u05FF]/.test(para) ? '' : para;
+    }).filter(Boolean).join('\n\n');
+  }
+  out = stripSequentialDuplicateSentences(out);
+  return wrapNakedUrlsInPedagogicalAnchors(out).trim();
+}
+
+function stripSequentialDuplicateHtmlBlocks(html) {
+  const blocks = String(html || '').split(/(?=<\/p>\s*|<p[\s>])/i).map(function (b) {
+    return b.trim();
+  }).filter(Boolean);
+  if (blocks.length < 2) return String(html || '');
+  const out = [];
+  let prevNorm = '';
+  blocks.forEach(function (block) {
+    const norm = normalizeForDedup(block);
+    if (!norm || norm.length < 20) {
+      out.push(block);
+      return;
+    }
+    if (prevNorm && sentenceStructuralSimilarity(prevNorm, norm) >= 0.9) return;
+    out.push(block);
+    prevNorm = norm;
+  });
+  return out.join('\n');
+}
+
+function sanitizePhaseCProseField(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  if (/<[a-z][\s\S]*>/i.test(raw)) {
+    let html = stripBracketCitationMarkersInHtml(raw);
+    html = html.replace(/https?:\/\/[^\s<>"']+/gi, function (u) {
+      const anchor = buildPedagogicalSourceAnchorHtml(u);
+      return anchor || '';
+    });
+    return stripSequentialDuplicateHtmlBlocks(html);
+  }
+  return sanitizePhaseCPlainProse(raw);
+}
+
+function isAllowedPhaseCSourceItem(item) {
+  if (!item || typeof item !== 'object') return false;
+  const url = String(item.url || item.link || item.href || '').trim();
+  if (url && (isForbiddenForeignSourceUrl(url) || isDeadPhaseCFallbackUrl(url))) return false;
+  const blob = [
+    item.title, item.name, item.note, item.author, item.snippet,
+    item.detail, item.description, item.label, item.source,
+  ].filter(Boolean).join(' ');
+  if (!blob.trim() && !url) return false;
+  if (hasDisallowedForeignScript(blob) && !/[\u0590-\u05FF]/.test(blob)) return false;
+  return true;
+}
+
+function filterAllowedPhaseCLinkList(items) {
+  return (items || []).filter(isAllowedPhaseCSourceItem);
+}
+
+function applyPhaseCTextSanitizationChain(normalized) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  if (normalized.core_emphases) {
+    normalized.core_emphases = sanitizePhaseCProseField(normalized.core_emphases);
+  }
+  if (Array.isArray(normalized.key_points)) {
+    normalized.key_points = normalized.key_points.map(function (item) {
+      return typeof item === 'string' ? sanitizePhaseCPlainProse(item) : item;
+    }).filter(function (item) {
+      if (typeof item !== 'string') return Boolean(item);
+      const plain = stripHtmlToPlainText(item).trim();
+      if (plain.length < 8) return false;
+      return !(hasDisallowedForeignScript(plain) && !/[\u0590-\u05FF]/.test(plain));
+    });
+  }
+  if (Array.isArray(normalized.recommended_reading)) {
+    normalized.recommended_reading = filterAllowedPhaseCLinkList(normalized.recommended_reading).map(function (item) {
+      return Object.assign({}, item, {
+        title: sanitizePhaseCPlainProse(item.title || ''),
+        note: sanitizePhaseCPlainProse(item.note || item.description || ''),
+      });
+    }).filter(function (item) { return item.title; });
+  }
+  normalized.relevant_links = filterAllowedPhaseCLinkList(normalized.relevant_links);
+  normalized.pedagogical_resources = filterAllowedPhaseCLinkList(normalized.pedagogical_resources);
+  if (normalized.theory && typeof normalized.theory === 'object') {
+    if (Array.isArray(normalized.theory.sections)) {
+      normalized.theory.sections = normalized.theory.sections.map(function (sec) {
+        if (!sec || typeof sec !== 'object') return sec;
+        return Object.assign({}, sec, {
+          heading: sanitizePhaseCPlainProse(sec.heading || sec.title || ''),
+          content: sanitizePhaseCProseField(sec.content || sec.text || sec.body || ''),
+        });
+      }).filter(function (sec) {
+        return sec && (sec.heading || stripHtmlToPlainText(sec.content || '').trim());
+      });
+    }
+    if (normalized.theory.bibliography) {
+      const bib = normalized.theory.bibliography;
+      ['books', 'articles', 'websites'].forEach(function (key) {
+        if (Array.isArray(bib[key])) bib[key] = filterAllowedPhaseCLinkList(bib[key]);
+      });
+    }
+  }
+  if (normalized.inspiration && typeof normalized.inspiration === 'object') {
+    if (Array.isArray(normalized.inspiration.global)) {
+      normalized.inspiration.global = normalized.inspiration.global.map(function (block) {
+        if (!block || typeof block !== 'object') return block;
+        return Object.assign({}, block, {
+          title: sanitizePhaseCPlainProse(block.title || ''),
+          items: (block.items || []).map(function (item) {
+            return typeof item === 'string' ? sanitizePhaseCPlainProse(item) : item;
+          }).filter(function (item) {
+            return typeof item === 'string' ? item.trim().length >= 8 : Boolean(item);
+          }),
+        });
+      }).filter(function (block) { return block && block.items && block.items.length; });
+    }
+    if (Array.isArray(normalized.inspiration.narrative)) {
+      normalized.inspiration.narrative = normalized.inspiration.narrative.map(function (item) {
+        return typeof item === 'string' ? sanitizePhaseCPlainProse(item) : item;
+      }).filter(function (item) {
+        return typeof item === 'string' ? item.trim().length >= 8 : Boolean(item);
+      });
+    }
+    if (normalized.inspiration.podcast && Array.isArray(normalized.inspiration.podcast.episodes)) {
+      normalized.inspiration.podcast.episodes = filterAllowedPhaseCLinkList(
+        normalized.inspiration.podcast.episodes
+      ).map(function (ep) {
+        return Object.assign({}, ep, {
+          theme: sanitizePhaseCPlainProse(ep.theme || ''),
+          insight: sanitizePhaseCPlainProse(ep.insight || ep.text || ''),
+        });
+      });
+    }
+  }
+  return normalized;
+}
+
 function normalizeForDedup(text) {
   return stripHtmlToPlainText(text)
     .toLowerCase()
@@ -897,7 +1120,7 @@ function isDuplicateText(fragment, seenKeys, minLen) {
     let overlap = 0;
     wordsA.forEach(function (w) { if (setB.has(w)) overlap++; });
     const ratio = overlap / Math.max(wordsA.length, 1);
-    if (ratio > 0.72 && overlap >= 6) return true;
+    if (ratio > 0.9 && overlap >= 6) return true;
   }
   return false;
 }
@@ -1968,9 +2191,23 @@ const PHASE_C_CRITICAL_TEXT_INSTRUCTION = [
   'Write unique content for each key.',
 ].join(' ');
 
+const PHASE_C_LANGUAGE_SOURCE_RULE = [
+  'CRITICAL LANGUAGE & SOURCE RULE: You are strictly FORBIDDEN from returning, searching, or citing sources in Russian, Arabic, or any foreign language other than Hebrew or English.',
+  'Every single referenced source, pedagogical text, or recommended tool MUST be actively available ONLY in Hebrew or English.',
+  'Absolutely no academic document repositories from foreign governments or universities (e.g., .ru, .su, .ua domains).',
+].join(' ');
+
+const PHASE_C_LINK_FORMATTING_INSTRUCTION = [
+  'Never output raw percent-encoded text lines or naked URLs in the middle of sentences.',
+  'Any recommended external source or manual material MUST be cleanly formatted inside a standard HTML anchor tag with a short Hebrew label:',
+  "<a href='URL' target='_blank' class='text-green-600 underline font-bold'>[לחצו כאן למקור הפדגוגי]</a>.",
+].join(' ');
+
 const SYSTEM_PROMPT = [
   WALDORF_CORE_SYSTEM_PROMPT,
   PHASE_C_CRITICAL_TEXT_INSTRUCTION,
+  PHASE_C_LANGUAGE_SOURCE_RULE,
+  PHASE_C_LINK_FORMATTING_INSTRUCTION,
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
@@ -2241,7 +2478,8 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
     });
   }
   stampTopicMasterArchiveLinks(result, parsed || result);
-  return applyLiveCitationGate(result, parsed || result, topicStr);
+  result = applyLiveCitationGate(result, parsed || result, topicStr);
+  return applyPhaseCTextSanitizationChain(result);
 }
 
 function shouldBypassTopicMasterCache(body) {
@@ -2305,6 +2543,10 @@ async function runPurePhaseC(body) {
     PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
     '',
     PHASE_C_CRITICAL_TEXT_INSTRUCTION,
+    '',
+    PHASE_C_LANGUAGE_SOURCE_RULE,
+    '',
+    PHASE_C_LINK_FORMATTING_INSTRUCTION,
     '',
     'Return MAXIMUM-DEPTH, classroom-ready content — ALL sections fully populated at full length, zero truncation:',
     '- Tab 1 theory: exhaustive historical & anthroposophical foundations — 3-5 deep sections; bibliography with live HTTPS URLs on every website entry (Waldorf/anthroposophical sources first). NEVER center theory on מט"ח, ראמ"ה, נגבה, or KidsPlus.',
@@ -2397,6 +2639,12 @@ module.exports = {
   dedupeTextFragments,
   stripBracketCitationMarkersInHtml,
   stripBracketCitationMarkersInProse,
+  applyPhaseCTextSanitizationChain,
+  sanitizePhaseCProseField,
+  sanitizePhaseCPlainProse,
+  stripSequentialDuplicateSentences,
+  isForbiddenForeignSourceUrl,
+  hasDisallowedForeignScript,
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
