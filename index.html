@@ -14826,20 +14826,24 @@
       var r = appState.productTabsRendered || freshProductTabsRendered();
       appState.productTabsRendered = r;
       if (tabId === 'theory') {
-        var theoryPanelEl = document.getElementById('theoretical-content');
-        if (theoryPanelEl) theoryPanelEl.innerHTML = '';
         if (phaseCIsStaleRender(renderToken)) return;
-        if (!r.theory) {
+        var theoryPanelEl = document.getElementById('theoretical-content');
+        var theoryDomEmpty = !theoryPanelEl || !theoryPanelEl.innerHTML.trim();
+        if (!r.theory || theoryDomEmpty) {
+          if (theoryPanelEl) theoryPanelEl.innerHTML = '';
+          if (phaseCIsStaleRender(renderToken)) return;
           renderTheory();
           r.theory = true;
         }
       } else if (tabId === 'inspiration') {
-        var inspPanelEl = document.getElementById('inspiration-content');
-        var pinGalEl = document.getElementById('pinterest-gallery');
-        if (inspPanelEl) inspPanelEl.innerHTML = '';
-        if (pinGalEl) pinGalEl.innerHTML = '';
         if (phaseCIsStaleRender(renderToken)) return;
-        if (!r.inspiration) {
+        var inspPanelEl = document.getElementById('inspiration-content');
+        var inspDomEmpty = !inspPanelEl || !inspPanelEl.innerHTML.trim();
+        if (!r.inspiration || inspDomEmpty) {
+          var pinGalEl = document.getElementById('pinterest-gallery');
+          if (inspPanelEl) inspPanelEl.innerHTML = '';
+          if (pinGalEl) pinGalEl.innerHTML = '';
+          if (phaseCIsStaleRender(renderToken)) return;
           renderInspirationTabPanels();
           r.inspiration = true;
         }
@@ -14854,7 +14858,17 @@
     function ensureProductTabsHydrated(forceRemount) {
       if (!appState.aiGeneratedPlan && !appState.purePhaseC && !hasPhaseCTopicContext()) return;
       var theoryEl = document.getElementById('theoretical-content');
-      var domEmpty = theoryEl && !theoryEl.innerHTML.trim();
+      var inspEl = document.getElementById('inspiration-content');
+      var activeTab = appState.activeProductTab;
+      var domEmpty = false;
+      if (activeTab === 'inspiration') {
+        domEmpty = Boolean(inspEl && !inspEl.innerHTML.trim());
+      } else if (activeTab === 'theory') {
+        domEmpty = Boolean(theoryEl && !theoryEl.innerHTML.trim());
+      } else if (activeTab === 'curriculum') {
+        var cardsEl = document.getElementById('phase-c-structured-cards');
+        domEmpty = Boolean(cardsEl && !cardsEl.innerHTML.trim());
+      }
       if (forceRemount || domEmpty) invalidateProductTabRenders();
       var activeTab = appState.activeProductTab;
       if (activeTab && isProductTab(activeTab)) {
@@ -14972,21 +14986,41 @@
 
     async function refreshPurePhaseCFromCloud() {
       var topic = String(appState.topic || '').trim();
-      if (!topic || !appState.grade || !appState.topicResearchCompleted) return;
+      if (!topic || !appState.grade) return;
+      var hasLessonData = Boolean(
+        appState.topicResearchCompleted || appState.purePhaseC || appState.aiGeneratedPlan
+      );
+      if (!hasLessonData) return;
+
+      var wasOnPhaseC = Boolean(isPhaseCView() || appState.step === 3 || appState.navSection === 'phase-c');
+      var activeTab = appState.activeProductTab;
+
+      clearPersistedLessonSnapshot();
+      appState.lessonCacheKey = '';
+      appState.lessonFromArchive = false;
+      appState._visualGallerySessionKey = '';
+      resetVisualGalleryState({ clearDom: false });
       invalidateProductTabRenders();
       setPhaseCLoadingUi(true);
       try {
         var response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, null, {
           bypassCache: true,
+          forceRefresh: true,
+          forceFresh: true,
+          skipCache: true,
         });
         commitPurePhaseCToStepB(topic, response.data, Object.assign({}, response.meta || {}, {
           fromCache: false,
+          stayOnPhaseC: wasOnPhaseC,
           statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
             escapeHtml(isEnglish() ? 'Refreshed from live research — archive updated.' : 'רענון ממחקר חי — הארכיון עודכן.') + '</p>',
         }));
         invalidateProductTabRenders();
-        if (appState.activeProductTab) {
-          switchProductTab(appState.activeProductTab, { forceRemount: true });
+        if (wasOnPhaseC) {
+          openPhaseCWorkspace({ initialTab: activeTab || 'theory', forceRemount: true });
+          if (activeTab) switchProductTab(activeTab, { forceRemount: true });
+        } else if (activeTab) {
+          switchProductTab(activeTab, { forceRemount: true });
         }
       } finally {
         setPhaseCLoadingUi(false);
@@ -15696,12 +15730,15 @@
       }
       if (navSection === 'phase-c' || step === 3) {
         if (appState.grade && appState.topic) {
+          var restoreTab = options.activeProductTab || appState.activeProductTab || 'theory';
           openPhaseCWorkspace({
-            initialTab: options.activeProductTab || appState.activeProductTab || 'theory',
-            forceRemount: false,
+            initialTab: restoreTab,
+            forceRemount: restoreTab === 'inspiration' || options.forceRemount === true,
           });
           if (appState.activeProductTab) {
-            switchProductTab(appState.activeProductTab);
+            switchProductTab(appState.activeProductTab, {
+              forceRemount: appState.activeProductTab === 'inspiration' || options.forceRemount === true,
+            });
           }
         }
         return;
@@ -16579,7 +16616,18 @@
       };
 
       resetSummarySession();
-      ensureStepBWizardView();
+      if (meta.stayOnPhaseC) {
+        appState.step = 3;
+        appState.navSection = 'phase-c';
+        showWorkspaceShell();
+        if (appState.activeProductTab && isProductTab(appState.activeProductTab)) {
+          syncProductTabButtons(appState.activeProductTab);
+          revealProductTabPanel(appState.activeProductTab);
+        }
+        syncPhaseCEmptyVisibility();
+      } else {
+        ensureStepBWizardView();
+      }
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
@@ -19247,7 +19295,9 @@
           if (!document.getElementById('panel-catalog').classList.contains('hidden')) {
             renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
           }
-          if (appState.topic && appState.grade && appState.topicResearchCompleted) {
+          if (appState.topic && appState.grade && (
+            appState.topicResearchCompleted || appState.purePhaseC || appState.aiGeneratedPlan
+          )) {
             await refreshPurePhaseCFromCloud();
           }
           showUploadStatus('עודכן', 'success');
