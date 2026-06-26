@@ -13747,16 +13747,22 @@
 
     var EXTERNAL_HTTP_URL_PATTERN = /https?:\/\/(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%[\]-]*)?/gi;
     var PROVEN_BARE_DOMAIN_PATTERN = /^(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:org|com|edu|net|il)(?:\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%[\]-]*)?$/i;
+    var PHASE_C_TRUSTED_ROOT_DOMAINS = /(?:^|\.)waldorf\.co\.il|(?:^|\.)class4\.co\.il/i;
+
+    function isPinterestUrl(url) {
+      return /pinterest/i.test(String(url || ''));
+    }
 
     function isValidExternalSourceUrl(url) {
       var raw = String(url || '').trim();
       if (!raw) return false;
       if (!/^https?:\/\//i.test(raw)) {
-        return PROVEN_BARE_DOMAIN_PATTERN.test(raw);
+        return PROVEN_BARE_DOMAIN_PATTERN.test(raw) || PHASE_C_TRUSTED_ROOT_DOMAINS.test(raw);
       }
       try {
         var parsed = new URL(raw);
         var host = String(parsed.hostname || '').replace(/^www\./i, '');
+        if (PHASE_C_TRUSTED_ROOT_DOMAINS.test(host)) return true;
         if (!host || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/i.test(host)) {
           return false;
         }
@@ -13780,11 +13786,22 @@
       var raw = String(url || '').trim();
       if (!raw) return '';
       if (!/^https?:\/\//i.test(raw)) {
-        if (!PROVEN_BARE_DOMAIN_PATTERN.test(raw)) return '';
+        if (!PROVEN_BARE_DOMAIN_PATTERN.test(raw) && !PHASE_C_TRUSTED_ROOT_DOMAINS.test(raw)) return '';
         raw = 'https://' + raw.replace(/^\/+/, '');
       }
       if (!isValidExternalSourceUrl(raw)) return '';
       return raw;
+    }
+
+    /** Prose/theory expansions — never linkify Pinterest (gallery-only). */
+    function sanitizeProseLinkUrl(url) {
+      var href = sanitizeExternalLinkUrl(url);
+      if (!href || isPinterestUrl(href)) return '';
+      return href;
+    }
+
+    function stripPinterestAnchorsFromHtml(html) {
+      return String(html || '').replace(/<a\b[^>]*href\s*=\s*["'][^"']*pinterest[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi, '$1');
     }
 
     function matchExternalHttpUrls(text) {
@@ -13933,7 +13950,7 @@
     }
 
     function buildProseSourceLinkHtml(url, label) {
-      var href = sanitizeExternalLinkUrl(url);
+      var href = sanitizeProseLinkUrl(url);
       if (!href) return escapeHtml(humanizeSourceLinkLabel(label, url));
       var display = humanizeSourceLinkLabel(label, href);
       if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
@@ -13945,7 +13962,7 @@
       var placeholders = [];
       var work = String(text || '');
       function stash(url, label) {
-        var href = sanitizeExternalLinkUrl(url);
+        var href = sanitizeProseLinkUrl(url);
         if (!href) return null;
         var idx = placeholders.length;
         placeholders.push(buildProseSourceLinkHtml(href, label || ''));
@@ -14386,10 +14403,13 @@
       }).join('') + '</ul>';
     }
 
-    function renderPureLinksBlock(items) {
+    function renderPureLinksBlock(items, options) {
+      var opts = options || {};
       var list = (Array.isArray(items) ? items : []).filter(function (item) {
         var url = String(item.url || item.link || item.href || '').trim();
-        return url && /^https?:\/\//i.test(url);
+        if (!url || !/^https?:\/\//i.test(url)) return false;
+        if (opts.blockPinterest && isPinterestUrl(url)) return false;
+        return !!sanitizeExternalLinkUrl(url);
       });
       if (!list.length) return '';
       return '<ul class="pure-card-body i18n-list pure-links-grid w-full">' + list.map(function (item) {
@@ -14423,13 +14443,12 @@
       }
       if (!view) {
         cardsEl.classList.add('hidden');
-        cardsEl.innerHTML = '';
         if (emptyEl) emptyEl.classList.toggle('hidden', hasPhaseCTopicContext());
         return;
       }
       if (emptyEl) emptyEl.classList.add('hidden');
       cardsEl.classList.remove('hidden');
-      cardsEl.innerHTML =
+      var cardsHtml =
         '<article class="pure-data-card"><h3><i class="fa-solid fa-heart text-terracotta"></i> ' + escapeHtml(t('phase_c_tab_core')) + '</h3>' + renderPureTextBlock(view.core_emphases) + '</article>' +
         '<article class="pure-data-card"><h3><i class="fa-solid fa-list-check text-sage"></i> ' + escapeHtml(t('phase_c_tab_points')) + '</h3>' + renderPureListBlock(view.key_points) + '</article>' +
         (renderPureReadingBlock(view.recommended_reading)
@@ -14438,6 +14457,7 @@
         (renderPureLinksBlock(view.relevant_links)
           ? '<article class="pure-data-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('phase_c_tab_links')) + '</h3>' + renderPureLinksBlock(view.relevant_links) + '</article>'
           : '');
+      cardsEl.innerHTML = cardsHtml;
       renderMarketingBench('phase-c-marketing-mount');
       if (appState.productTabsRendered) appState.productTabsRendered.curriculum = true;
     }
@@ -14592,9 +14612,10 @@
       var theoryEl = document.getElementById('theoretical-content');
       var domEmpty = theoryEl && !theoryEl.innerHTML.trim();
       if (forceRemount || domEmpty) invalidateProductTabRenders();
-      PRODUCT_TAB_IDS.forEach(function (tabId) {
-        renderProductTabContent(tabId);
-      });
+      var activeTab = appState.activeProductTab;
+      if (activeTab && isProductTab(activeTab)) {
+        renderProductTabContent(activeTab);
+      }
       restoreBibliographySummaryPanels();
       restorePedagogySummaryPanels();
       setupThemeActionButtons();
@@ -14688,13 +14709,39 @@
       return { data: json.data || json, meta: json.meta || null };
     }
 
-    async function fetchPurePhaseC(grade, topic, signal) {
-      var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, {
+    async function fetchPurePhaseC(grade, topic, signal, options) {
+      var opts = options || {};
+      var payload = {
         grade: grade || appState.gradeLabel || appState.grade,
         gradeId: appState.grade,
         topic: topic,
-      }, signal);
+      };
+      if (opts.bypassCache || opts.forceRefresh || opts.forceFresh || opts.skipCache) {
+        payload.bypassCache = true;
+        payload.forceRefresh = true;
+        payload.forceFresh = true;
+        payload.skipCache = true;
+      }
+      var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, payload, signal);
       return response;
+    }
+
+    async function refreshPurePhaseCFromCloud() {
+      var topic = String(appState.topic || '').trim();
+      if (!topic || !appState.grade || !appState.topicResearchCompleted) return;
+      var response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, null, {
+        bypassCache: true,
+        forceRefresh: true,
+      });
+      commitPurePhaseCToStepB(topic, response.data, Object.assign({}, response.meta || {}, {
+        fromCache: false,
+        statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
+          escapeHtml(isEnglish() ? 'Refreshed from live research — archive updated.' : 'רענון ממחקר חי — הארכיון עודכן.') + '</p>',
+      }));
+      invalidateProductTabRenders();
+      if (appState.activeProductTab) {
+        switchProductTab(appState.activeProductTab, { forceRemount: true });
+      }
     }
 
     async function fetchPureGeneralSearch(query, signal) {
@@ -16201,7 +16248,7 @@
     }
 
     function buildStepBStyleSourceAnchorHtml(url, title) {
-      var href = sanitizeExternalLinkUrl(url);
+      var href = sanitizeProseLinkUrl(url);
       if (!href) return escapeHtml(String(title || url || ''));
       var label = String(title || href).trim() || href;
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
@@ -16209,14 +16256,16 @@
     }
 
     function buildStepBSourcesSectionHtml(data) {
-      var items = collectPhaseCLinkItemsClient(data);
+      var items = collectPhaseCLinkItemsClient(data).filter(function (item) {
+        var href = sanitizeExternalLinkUrl(item.url);
+        return href && !isPinterestUrl(href);
+      });
       if (!items.length) return '';
       return '<div class="grade-insights-sources mt-4 text-walnut/80">' +
         '<p class="mb-1"><strong>' + escapeHtml(t('sources_label')) + ':</strong></p>' +
         '<ul class="list-disc mr-5 space-y-1 i18n-list">' +
         items.map(function (item) {
-          return '<li><a href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
-            escapeHtml(item.title || item.url) + '</a></li>';
+          return '<li>' + buildStepBStyleSourceAnchorHtml(item.url, item.title || item.url) + '</li>';
         }).join('') +
         '</ul></div>';
     }
@@ -16300,12 +16349,12 @@
       ensurePageScrollUnlocked();
     }
 
-    async function runPurePhaseCFromStepB(topic, runId, signal) {
+    async function runPurePhaseCFromStepB(topic, runId, signal, options) {
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
 
       try {
-        const response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, signal);
+        const response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, signal, options || {});
         if (runId !== topicResearchRunId || signal.aborted) return;
 
         const data = response.data;
@@ -16387,6 +16436,12 @@
         hideTopicGradeMismatchNotice();
       }
 
+      const forceCacheBypass = Boolean(
+        genOpts.forceRefresh || genOpts.bypassCache ||
+        appState.archiveFreshSearchPending ||
+        appState.topicResearchCompleted
+      );
+
       document.getElementById('api-hint-step2').classList.add('hidden');
       if (topicResearchAbort) topicResearchAbort.abort();
       const runId = ++topicResearchRunId;
@@ -16425,7 +16480,7 @@
         return;
       }
 
-      await runPurePhaseCFromStepB(topic, runId, signal);
+      await runPurePhaseCFromStepB(topic, runId, signal, { forceRefresh: forceCacheBypass, bypassCache: forceCacheBypass });
     }
 
     function renderPersonalList() {
@@ -16749,7 +16804,9 @@
       function pushLink(title, url) {
         var u = String(url || '').trim();
         var t = String(title || u).trim();
-        if (!u || !/^https?:\/\//i.test(u) || seen[u]) return;
+        if (!u || !/^https?:\/\//i.test(u) || isPinterestUrl(u)) return;
+        u = sanitizeExternalLinkUrl(u);
+        if (!u || seen[u]) return;
         seen[u] = true;
         out.push({ title: t, url: u });
       }
@@ -16777,7 +16834,7 @@
         '<p class="text-walnut/65 mb-4">' + escapeHtml(isEnglish()
           ? 'Live professional sources from web search — archives, essays, and deep pedagogical centers.'
           : 'מקורות מקצועיים חיים מחיפוש רשת — ארכיונים, מאמרים ומרכזי מקור עמוקים.') + '</p>' +
-        renderPureLinksBlock(links) +
+        renderPureLinksBlock(links, { blockPinterest: true }) +
         '</section>';
     }
 
@@ -16877,11 +16934,11 @@
         var sectionFingerprint = stripHtmlText(secContent).replace(/\s+/g, ' ').trim().slice(0, 360);
         if (sectionFingerprint && renderedSectionBodies[sectionFingerprint]) return;
         if (sectionFingerprint) renderedSectionBodies[sectionFingerprint] = true;
-        const secBodyHtml = dedupeRepeatedHtmlBlocks(
+        const secBodyHtml = dedupeRepeatedHtmlBlocks(stripPinterestAnchorsFromHtml(
           isCompiledPedagogicalHtml(secContent)
             ? normalizeAiHtml(secContent, { wrap: false })
             : ensureAiHtml(secContent)
-        );
+        ));
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
           '<div class="text-lg leading-relaxed prose-ai">' + secBodyHtml + '</div>';
@@ -17016,7 +17073,7 @@
           const itemUrl = (typeof it === 'object' && it) ? String(it.url || it.link || it.href || '').trim() : '';
           const itemTitle = (typeof it === 'object' && it) ? String(it.title || it.name || '').trim() : '';
           var previewPayload = String(text).trim();
-          if (itemUrl) {
+          if (itemUrl && !isPinterestUrl(itemUrl) && sanitizeExternalLinkUrl(itemUrl)) {
             var linkHtml = buildPhaseCTabAnchorHtml(itemUrl, itemTitle || itemUrl);
             previewPayload = previewPayload ? (previewPayload + '\n\n' + itemUrl) : itemUrl;
           }
@@ -18972,6 +19029,9 @@
           updateCommunityBadge();
           if (!document.getElementById('panel-catalog').classList.contains('hidden')) {
             renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+          }
+          if (appState.topic && appState.grade && appState.topicResearchCompleted) {
+            await refreshPurePhaseCFromCloud();
           }
           showUploadStatus('עודכן', 'success');
         } catch (e) { showUploadStatus(e.message, 'error'); }
