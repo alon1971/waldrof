@@ -1162,6 +1162,42 @@
     @media (min-width: 768px) {
       .phase-c-inspiration-item-grid { grid-template-columns: 1fr 1fr; }
     }
+    .pedagogy-suggestion-card--compiled {
+      display: block;
+      width: 100%;
+    }
+    .pedagogy-suggestion-card--compiled .pedagogy-deep-btn,
+    .pedagogy-suggestion-card--compiled .inline-expand-panel {
+      display: none !important;
+    }
+    .phase-c-col details,
+    .phase-c-inspiration-blocks details,
+    #pure-pedagogical-resources details,
+    #theoretical-content details {
+      margin-top: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .phase-c-col details summary,
+    .phase-c-inspiration-blocks details summary,
+    #pure-pedagogical-resources details summary,
+    #theoretical-content details summary {
+      list-style: none;
+    }
+    .phase-c-col details summary::-webkit-details-marker,
+    .phase-c-inspiration-blocks details summary::-webkit-details-marker,
+    #pure-pedagogical-resources details summary::-webkit-details-marker,
+    #theoretical-content details summary::-webkit-details-marker {
+      display: none;
+    }
+    .phase-c-sources-footer {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .phase-c-key-point {
+      list-style: none;
+      margin-bottom: 0.75rem;
+    }
     .theory-fallback-window {
       margin-bottom: 1.5rem;
     }
@@ -9123,6 +9159,7 @@
         label: label,
         source: String(item.source || item.publisher || meta.source || '').trim() || meta.source,
         snippet: snippet,
+        content: String(item.content || item.html || item.body || snippet || '').trim(),
       };
     }
 
@@ -9225,17 +9262,24 @@
       if (!mount || !resources.length) return;
       var html = '<section id="pure-pedagogical-resources" class="mt-6 bg-white/75 rounded-2xl border border-sage/25 p-5 w-full box-border">' +
         '<h3 class="app-subhead font-bold text-sage-dark mb-3"><i class="fa-solid fa-link ml-1" aria-hidden="true"></i> ' +
-        escapeHtml(t('pedagogical_resources_title')) + '</h3><ul class="space-y-3">';
+        escapeHtml(t('pedagogical_resources_title')) + '</h3><ul class="space-y-4">';
       resources.forEach(function (item) {
         var labelClass = pedagogicalResourceLabelClass(item.label || 'מאמר פדגוגי');
-        html += '<li class="rounded-xl border p-3 bg-cream/40 ' + labelClass + '">' +
-          '<div class="flex flex-wrap items-center gap-2 mb-1">' +
-          '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
-          (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
-          '</div>' +
-          '<p class="font-medium text-walnut">' + buildPhaseCTabAnchorHtml(item.url, item.title || item.url) + '</p>' +
-          (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '') +
-          '</li>';
+        var compiled = String(item.content || '').trim();
+        html += '<li class="rounded-xl border p-4 bg-cream/40 ' + labelClass + '">';
+        if (compiled && isCompiledPedagogicalHtml(compiled)) {
+          html += '<div class="prose-ai">' +
+            upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(compiled, { wrap: false }))) +
+            '</div>';
+        } else {
+          html += '<div class="flex flex-wrap items-center gap-2 mb-1">' +
+            '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
+            (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
+            '</div>' +
+            '<p class="font-medium text-walnut">' + buildPhaseCTabAnchorHtml(item.url, item.title || item.url) + '</p>' +
+            (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '');
+        }
+        html += '</li>';
       });
       html += '</ul></section>';
       mount.insertAdjacentHTML('beforeend', html);
@@ -10055,6 +10099,7 @@
         }
         const deepBtn = e.target.closest('.theory-bib-deep-btn[data-bib-id]');
         if (deepBtn) {
+          if (isPurePhaseCMode() && deepBtn.closest('#panel-theory')) return;
           e.preventDefault();
           openBibliographyDeepSummary(deepBtn.getAttribute('data-bib-id'));
         }
@@ -10077,6 +10122,7 @@
         }
         const deepBtn = e.target.closest('.pedagogy-deep-btn[data-pedagogy-id]');
         if (deepBtn && !deepBtn.disabled && deepBtn.closest('#panel-curriculum')) {
+          if (isPurePhaseCMode()) return;
           e.preventDefault();
           e.stopPropagation();
           openPedagogyDeepDive(deepBtn.getAttribute('data-pedagogy-id'), deepBtn);
@@ -11354,6 +11400,7 @@
         }
         const btn = e.target.closest('.pedagogy-deep-btn[data-pedagogy-id]');
         if (!btn || btn.disabled) return;
+        if (isPurePhaseCMode() && btn.closest('#panel-theory, #panel-inspiration, #panel-curriculum')) return;
         e.preventDefault();
         e.stopPropagation();
         openPedagogyDeepDive(btn.getAttribute('data-pedagogy-id'), btn);
@@ -14731,28 +14778,46 @@
         body + '</section>';
     }
 
+    function renderPurePhaseCCompiledCard(previewHtml) {
+      var body = renderInspirationCardPreviewHtml(previewHtml);
+      if (!body) return '';
+      return '<div class="pedagogy-suggestion-card pedagogy-suggestion-card--compiled">' +
+        '<div class="pedagogy-suggestion-text">' +
+        '<i class="fa-solid fa-lightbulb pedagogy-suggestion-icon" aria-hidden="true"></i>' +
+        '<span class="pedagogy-suggestion-label">' + body + '</span></div></div>';
+    }
+
+    function renderPurePhaseCKeyPointItem(item) {
+      var raw = sanitizePhaseCProseForRender(String(item || '')).trim();
+      if (!raw || raw.length < 8) return '';
+      if (isCompiledPedagogicalHtml(raw) || /<details[\s>]/i.test(raw)) {
+        return '<li class="phase-c-key-point">' +
+          upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false }))) +
+          '</li>';
+      }
+      return '<li>' + renderPhaseCTabMarkdownInline(raw) + '</li>';
+    }
+
+    function phaseCRenderSourcesFooter(view) {
+      var linksHtml = renderPureLinksBlock(view.relevant_links);
+      if (!linksHtml) return '';
+      return '<section class="phase-c-sources-footer mt-8 pt-6 border-t-2 border-gold/30 w-full bg-white/60 rounded-2xl p-5 box-border" aria-label="' + escapeHtml(t('sources_label')) + '">' +
+        '<h3 class="app-subhead font-display font-bold text-burgundy mb-4"><i class="fa-solid fa-bookmark text-burgundy ml-1" aria-hidden="true"></i> ' +
+        escapeHtml(t('sources_label')) + '</h3>' + linksHtml + '</section>';
+    }
+
     function phaseCRenderReferenceColumn(view) {
       var html = '';
       var keyItems = Array.isArray(view.key_points) ? view.key_points.filter(function (item) {
         return String(item || '').trim().length >= 8;
       }) : [];
       if (keyItems.length) {
-        html += '<ul class="pure-card-body i18n-list space-y-3">' + keyItems.map(function (item) {
-          var split = splitTextPreviewDetail(item);
-          var preview = '<p>' + renderPhaseCTabMarkdownInline(split.preview) + '</p>';
-          var detail = split.detail ? '<p>' + renderPhaseCTabMarkdownInline(split.detail) + '</p>' : '';
-          return '<li>' + buildReadMoreDetails(preview, detail) + '</li>';
-        }).join('') + '</ul>';
+        html += '<ul class="pure-card-body i18n-list space-y-3">' + keyItems.map(renderPurePhaseCKeyPointItem).filter(Boolean).join('') + '</ul>';
       }
       var readingHtml = renderPureReadingBlock(view.recommended_reading);
       if (readingHtml) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-5 mb-2"><i class="fa-solid fa-book-open text-gold ml-1" aria-hidden="true"></i> ' +
           escapeHtml(t('phase_c_tab_reading')) + '</h4>' + readingHtml;
-      }
-      var linksHtml = renderPureLinksBlock(view.relevant_links);
-      if (linksHtml) {
-        html += '<h4 class="app-subhead font-semibold text-sage-dark mt-5 mb-2"><i class="fa-solid fa-link text-burgundy ml-1" aria-hidden="true"></i> ' +
-          escapeHtml(t('phase_c_tab_links')) + '</h4>' + linksHtml;
       }
       if (!html) return '';
       return '<section class="phase-c-col phase-c-col--reference min-w-0 lg:col-span-5" aria-label="' + escapeHtml(t('phase_c_tab_points')) + '">' +
@@ -14792,6 +14857,7 @@
       view = dedupeTab3ViewForRender(view);
       var emphasesColumn = phaseCRenderEmphasesColumn(view.core_emphases);
       var referenceColumn = phaseCRenderReferenceColumn(view);
+      var sourcesFooter = phaseCRenderSourcesFooter(view);
 
       var layoutHtml =
         '<div class="phase-c-tab3-stack space-y-6 w-full max-w-none" dir="rtl">' +
@@ -14799,6 +14865,7 @@
         emphasesColumn +
         referenceColumn +
         '</div>' +
+        sourcesFooter +
         '</div>';
 
       if (phaseCIsStaleRender(token)) return;
@@ -17161,14 +17228,23 @@
       }
       const iconMap = { books: 'fa-book', articles: 'fa-file-lines', websites: 'fa-globe' };
       const icon = iconMap[category] || 'fa-bookmark';
+      const pureMode = isPurePhaseCMode();
       const rendered = items.map(function (item) {
         const id = item.id;
         const rawItem = item.raw || {};
         const websiteUrl = String(item.url || rawItem.url || rawItem.link || rawItem.href || '').trim();
         if (!websiteUrl || !isVerifiedLiveCitationUrlClient(websiteUrl)) return '';
         if (!hasLiveReferenceSnippetClient(rawItem)) return '';
-        appState.bibliographyRegistry[id] = item;
+        if (!pureMode) appState.bibliographyRegistry[id] = item;
         const labelHtml = buildStepBStyleSourceAnchorHtml(websiteUrl, item.label);
+        if (pureMode) {
+          return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
+            '<div class="theory-bib-item-row">' +
+            '<div class="theory-bib-source-text">' +
+            '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
+            '<span class="theory-bib-label">' + labelHtml + '</span>' +
+            '</div></div></li>';
+        }
         return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
           '<div class="theory-bib-item-row">' +
           '<div class="theory-bib-source-text">' +
@@ -17182,7 +17258,7 @@
           '</div></li>';
       }).filter(Boolean);
       if (!rendered.length) return '';
-      return '<ul class="theory-bib-list theory-bib-list--interactive">' + rendered.join('') + '</ul>';
+      return '<ul class="theory-bib-list' + (pureMode ? '' : ' theory-bib-list--interactive') + '">' + rendered.join('') + '</ul>';
     }
 
     function getRenderableBibliography(theory) {
@@ -17347,28 +17423,34 @@
             html += '<blockquote class="border-r-4 border-terracotta bg-parchment/60 rounded-l-xl px-4 py-3 mt-3 italic">«' + escapeHtml(q.text || '') + '»<footer class="text-walnut/60 mt-1">— ' + escapeHtml(q.source || '') + '</footer></blockquote>';
           });
         }
-        html += renderExpansionButtonBlock({
-          id: secId,
-          type: 'theory',
-          subtype: 'section',
-          title: secHeading,
-          preview: stripHtmlText(secContent).slice(0, 280),
-          context: d.title + ' · ' + secHeading,
-          expansion: normalizeExpansion(sec.expansion),
-        });
+        if (!isPurePhaseCMode()) {
+          html += renderExpansionButtonBlock({
+            id: secId,
+            type: 'theory',
+            subtype: 'section',
+            title: secHeading,
+            preview: stripHtmlText(secContent).slice(0, 280),
+            context: d.title + ' · ' + secHeading,
+            expansion: normalizeExpansion(sec.expansion),
+          });
+        }
         html += '</article>';
       });
       if (bib.books.length || bib.articles.length || bib.websites.length) {
         html += renderTheoryBibliography(bib);
       }
-      var liveLinkData = appState.purePhaseC || { relevant_links: [] };
-      html += renderPureTheoryLiveLinksSection(d, liveLinkData);
+      if (!isPurePhaseCMode()) {
+        var liveLinkData = appState.purePhaseC || { relevant_links: [] };
+        html += renderPureTheoryLiveLinksSection(d, liveLinkData);
+      }
       holdPageScroll(function () {
         document.getElementById('theoretical-content').innerHTML = html;
       });
-      ensureTheoryBibliographyEvents();
+      if (!isPurePhaseCMode()) {
+        ensureTheoryBibliographyEvents();
+        restoreBibliographySummaryPanels();
+      }
       ensurePedagogySuggestionEvents();
-      restoreBibliographySummaryPanels();
     }
 
     function buildInspirationTabSourceAnchorHtml(url, title) {
@@ -17457,6 +17539,7 @@
       d.podcast = sanitizeInspirationPodcastForView(d.podcast);
       if (!Array.isArray(d.podcast.episodes)) d.podcast.episodes = [];
       if (!Array.isArray(d.narrative)) d.narrative = [];
+      var useCompiledInspiration = isPurePhaseCMode();
       let html = '<h2 class="app-page-title font-display font-bold text-burgundy mb-4">' + escapeHtml(d.title) + '</h2>' +
         '<p class="text-walnut/65 mb-4 text-sm">' + escapeHtml(t('pedagogy_inspiration_hint')) + '</p>' +
         '<div class="phase-c-inspiration-blocks w-full">';
@@ -17466,14 +17549,17 @@
         html += '<section class="bg-white/75 rounded-xl p-4 sm:p-5 border border-sage/25 w-full box-border"><h3 class="app-subhead font-bold text-sage-dark mb-3">' + escapeHtml(blockTitle) + '</h3><div class="phase-c-inspiration-item-grid">';
         (b.items || []).forEach(function (it, ii) {
           const text = typeof it === 'string' ? it : (it.text || it.preview || it.detail || it.content || '');
+          var previewPayload = String(text).trim();
+          if (!previewPayload) return;
+          if (useCompiledInspiration) {
+            html += renderPurePhaseCCompiledCard(previewPayload);
+            return;
+          }
           const itemUrl = (typeof it === 'object' && it) ? String(it.url || it.link || it.href || '').trim() : '';
           const itemTitle = (typeof it === 'object' && it) ? String(it.title || it.name || '').trim() : '';
-          var previewPayload = String(text).trim();
           if (itemUrl && !isPinterestUrl(itemUrl) && sanitizeExternalLinkUrl(itemUrl)) {
-            var linkHtml = buildPhaseCTabAnchorHtml(itemUrl, itemTitle || itemUrl);
             previewPayload = previewPayload ? (previewPayload + '\n\n' + itemUrl) : itemUrl;
           }
-          if (!previewPayload) return;
           html += renderPedagogySuggestionCard({
             id: buildPedagogyItemId('insp', 'global', bi + '-' + ii, previewPayload),
             type: 'inspiration',
@@ -17491,8 +17577,13 @@
         html += '<div class="mt-4 bg-burgundy/5 rounded-xl p-5 border border-burgundy/15 w-full box-border"><h3 class="app-subhead font-bold text-burgundy mb-3"><i class="fa-solid fa-podcast ml-1"></i> ' + escapeHtml(d.podcast.title || 'תובנות') + '</h3><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">';
         d.podcast.episodes.forEach(function (ep, ei) {
           if (!ep) return;
-          var epUrl = String(ep.url || ep.link || ep.href || '').trim();
           var epPreview = String(ep.insight || '').trim();
+          if (!epPreview) return;
+          if (useCompiledInspiration) {
+            html += renderPurePhaseCCompiledCard(epPreview);
+            return;
+          }
+          var epUrl = String(ep.url || ep.link || ep.href || '').trim();
           if (epUrl && sanitizeExternalLinkUrl(epUrl)) {
             epPreview = epPreview ? (epPreview + '\n\n' + epUrl) : epUrl;
           }
@@ -17513,6 +17604,10 @@
         d.narrative.forEach(function (n, ni) {
           const text = typeof n === 'string' ? n : (n.text || n.preview || n.content || '');
           if (!String(text).trim()) return;
+          if (useCompiledInspiration) {
+            html += renderPurePhaseCCompiledCard(text);
+            return;
+          }
           html += renderPedagogySuggestionCard({
             id: buildPedagogyItemId('insp', 'narrative', ni, text),
             type: 'inspiration',
@@ -17528,8 +17623,10 @@
       holdPageScroll(function () {
         if (inspEl) inspEl.innerHTML = html;
       });
-      ensurePedagogySuggestionEvents();
-      restorePedagogySummaryPanels();
+      if (!useCompiledInspiration) {
+        ensurePedagogySuggestionEvents();
+        restorePedagogySummaryPanels();
+      }
     }
 
     function renderPinterestGallery() {
