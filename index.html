@@ -1173,21 +1173,50 @@
     .phase-c-col details,
     .phase-c-inspiration-blocks details,
     #pure-pedagogical-resources details,
-    #theoretical-content details {
+    #theoretical-content details,
+    .pedagogy-suggestion-card details,
+    .expansion-btn-block details,
+    .theory-bib-item details,
+    .curriculum-day-enrich-block details,
+    #grade-insights-body details,
+    #inspiration-content details,
+    #panel-curriculum details {
       margin-top: 0.75rem;
       margin-bottom: 0.5rem;
     }
     .phase-c-col details summary,
     .phase-c-inspiration-blocks details summary,
     #pure-pedagogical-resources details summary,
-    #theoretical-content details summary {
+    #theoretical-content details summary,
+    .pedagogy-suggestion-card details summary,
+    .expansion-btn-block details summary,
+    .theory-bib-item details summary,
+    .curriculum-day-enrich-block details summary,
+    #grade-insights-body details summary,
+    #inspiration-content details summary,
+    #panel-curriculum details summary,
+    .static-expansion-summary {
       list-style: none;
+      cursor: pointer;
     }
     .phase-c-col details summary::-webkit-details-marker,
     .phase-c-inspiration-blocks details summary::-webkit-details-marker,
     #pure-pedagogical-resources details summary::-webkit-details-marker,
-    #theoretical-content details summary::-webkit-details-marker {
+    #theoretical-content details summary::-webkit-details-marker,
+    .pedagogy-suggestion-card details summary::-webkit-details-marker,
+    .expansion-btn-block details summary::-webkit-details-marker,
+    .theory-bib-item details summary::-webkit-details-marker,
+    .curriculum-day-enrich-block details summary::-webkit-details-marker,
+    #grade-insights-body details summary::-webkit-details-marker,
+    #inspiration-content details summary::-webkit-details-marker,
+    #panel-curriculum details summary::-webkit-details-marker {
       display: none;
+    }
+    .static-expansion-block {
+      border: 1px solid rgba(92, 125, 88, 0.28);
+      border-radius: 0.75rem;
+      padding: 0.75rem 1rem;
+      background: rgba(255, 255, 255, 0.72);
     }
     .phase-c-sources-footer {
       width: 100%;
@@ -1752,7 +1781,14 @@
       font-size: var(--app-body-size) !important;
       line-height: var(--app-body-line) !important;
     }
-    .inline-expand-inner a { pointer-events: none; color: inherit; text-decoration: none; }
+    .static-expansion-body a,
+    .inline-expand-inner a {
+      pointer-events: auto;
+      color: #2d6a4f;
+      text-decoration: underline;
+    }
+    .static-expansion-body a:hover,
+    .inline-expand-inner a:hover { color: #1b4332; }
     .archive-summary-panel {
       font-size: var(--app-body-size);
       line-height: var(--app-body-line);
@@ -5074,6 +5110,44 @@
         html += '</ul>';
       }
       return html;
+    }
+
+    function previewHasEmbeddedExpansion(html) {
+      return /<details[\s>]/i.test(String(html || ''));
+    }
+
+    function hydratePedagogyItemExpansion(item) {
+      if (!item || !item.id || !item.expansion) return;
+      if (!appState.pedagogySummaries[item.id]) {
+        appState.pedagogySummaries[item.id] = { pedagogyDeepDive: mapExpansionToDeepDive(item.expansion, item) };
+      }
+    }
+
+    function resolveStaticExpansionBodyHtml(item) {
+      if (!item) return '';
+      var summary = appState.pedagogySummaries[item.id] || appState.bibliographySummaries[item.id];
+      if (summary) {
+        if (appState.bibliographySummaries[item.id]) return buildBibSummaryHtml(summary);
+        return buildPedagogySummaryHtml(summary, item);
+      }
+      if (item.expansion) {
+        if (item.category) return buildBibSummaryHtml(mapExpansionToArchiveSummary(item.expansion, item));
+        return buildExpansionContentHtml(item.expansion);
+      }
+      return '';
+    }
+
+    function renderStaticExpansionDetails(item, options) {
+      options = options || {};
+      if (!item || !item.id) return '';
+      if (options.skipIfEmbedded && previewHasEmbeddedExpansion(options.embeddedIn)) return '';
+      var bodyHtml = resolveStaticExpansionBodyHtml(item);
+      if (!bodyHtml || !String(bodyHtml).trim()) return '';
+      var summaryLabel = options.summaryLabel || expansionBtnLabel();
+      var extraClass = options.extraClass ? ' ' + options.extraClass : '';
+      return '<details class="static-expansion-block' + extraClass + '" id="static-expand-' + escapeHtml(item.id) + '" data-static-expand="' + escapeHtml(item.id) + '">' +
+        '<summary class="static-expansion-summary text-burgundy font-semibold hover:underline">' + escapeHtml(summaryLabel) + '</summary>' +
+        '<div class="static-expansion-body mt-3 prose-ai inline-expand-inner">' + bodyHtml + '</div></details>';
     }
 
     function getTheoryBibliographyPrompt() {
@@ -9320,6 +9394,7 @@
         title: title,
         preview: detail,
         context: 'grade-insights · ' + prefix,
+        expansion: normalizeExpansion(!isStr && item ? item.expansion : null),
       });
     }
 
@@ -9771,50 +9846,11 @@
       });
     }
 
-    function restoreBibliographySummaryPanels() {
-      Object.keys(appState.bibliographyRegistry).forEach(function (sid) {
-        const src = appState.bibliographyRegistry[sid];
-        if (!src) return;
-        const cacheKey = getBibliographySummaryCacheKey(src);
-        if (!summaryPanelOpenState.bib[cacheKey]) return;
-        const summary = appState.bibliographySummaries[sid];
-        const job = summaryJobsByKey[cacheKey];
-        const failedMsg = summaryFailedByKey[cacheKey];
-        if (summary) {
-          renderBibInlinePanelIfPresent(sid, summary);
-        } else if (failedMsg) {
-          renderBibInlinePanelIfPresent(sid, null, false, failedMsg);
-        } else if (job) {
-          renderBibInlinePanelIfPresent(sid, null, true);
-          setBibDeepBtnDisabled(sid, true);
-        }
-      });
-    }
+    function restoreBibliographySummaryPanels() { /* static <details> — no panel restore */ }
 
-    function restorePedagogySummaryPanels() {
-      Object.keys(appState.pedagogyRegistry).forEach(function (sid) {
-        const src = appState.pedagogyRegistry[sid];
-        if (!src) return;
-        const cacheKey = getPedagogySummaryCacheKey(src);
-        if (!summaryPanelOpenState.ped[cacheKey]) return;
-        const summary = appState.pedagogySummaries[sid];
-        const job = summaryJobsByKey[cacheKey];
-        const failedMsg = summaryFailedByKey[cacheKey];
-        if (summary) {
-          renderPedagogyInlinePanelIfPresent(sid, summary);
-        } else if (failedMsg) {
-          renderPedagogyInlinePanelIfPresent(sid, null, false, failedMsg);
-        } else if (job) {
-          renderPedagogyInlinePanelIfPresent(sid, null, true);
-          setPedDeepBtnDisabled(sid, true);
-        }
-      });
-    }
+    function restorePedagogySummaryPanels() { /* static <details> — no panel restore */ }
 
-    function restoreAllSummaryPanels() {
-      restoreBibliographySummaryPanels();
-      restorePedagogySummaryPanels();
-    }
+    function restoreAllSummaryPanels() { /* static <details> — no panel restore */ }
 
     function collapseBibInline(sourceId) {
       const source = appState.bibliographyRegistry[sourceId];
@@ -9838,14 +9874,12 @@
 
     function abortAllInlineExpansions() {
       Object.keys(summaryJobsByKey).forEach(function (key) {
-        const job = summaryJobsByKey[key];
+        var job = summaryJobsByKey[key];
         if (job && job.controller) job.controller.abort();
         delete summaryJobsByKey[key];
       });
       summaryPanelOpenState.bib = {};
       summaryPanelOpenState.ped = {};
-      document.querySelectorAll('.inline-expand-panel').forEach(function (p) { p.classList.add('hidden'); });
-      document.querySelectorAll('.theory-bib-deep-btn, .pedagogy-deep-btn').forEach(function (b) { b.disabled = false; });
     }
 
     function startBibliographySummaryJob(sourceId) {
@@ -10067,44 +10101,9 @@
       startJob(sourceId).catch(function () { /* error handled in job */ });
     }
 
-    function openBibliographyDeepSummary(sourceId) {
-      openOnDemandExpansion(sourceId, null, {
-        getSource: function (sid) { return appState.bibliographyRegistry[sid]; },
-        getPanel: function (sid) { return getBibExpandPanel(sid); },
-        getCacheKey: getBibliographySummaryCacheKey,
-        getSummary: function (sid) { return appState.bibliographySummaries[sid]; },
-        mapInlineSummary: function (source) {
-          return mapExpansionToArchiveSummary(source.expansion, source);
-        },
-        setSummary: function (sid, summary) { appState.bibliographySummaries[sid] = summary; },
-        renderPanel: renderBibInlinePanel,
-        startJob: startBibliographySummaryJob,
-        panelState: summaryPanelOpenState.bib,
-        collapse: collapseBibInline,
-      });
-    }
+    function openBibliographyDeepSummary() { /* static <details> — expansion pre-rendered at hydration */ }
 
-    function ensureTheoryBibliographyEvents() {
-      if (theoryBibEventsBound) return;
-      const container = document.getElementById('theoretical-content');
-      if (!container) return;
-      theoryBibEventsBound = true;
-      container.addEventListener('click', function (e) {
-        if (e.target.closest('a[href^="http"]')) return;
-        const collapseBtn = e.target.closest('[data-bib-collapse]');
-        if (collapseBtn) {
-          e.preventDefault();
-          collapseBibInline(collapseBtn.getAttribute('data-bib-collapse'));
-          return;
-        }
-        const deepBtn = e.target.closest('.theory-bib-deep-btn[data-bib-id]');
-        if (deepBtn) {
-          if (isPurePhaseCMode() && deepBtn.closest('#panel-theory')) return;
-          e.preventDefault();
-          openBibliographyDeepSummary(deepBtn.getAttribute('data-bib-id'));
-        }
-      });
-    }
+    function ensureTheoryBibliographyEvents() { /* static <details> — no click handlers */ }
 
     function setupPhase3ActionButtons() {
       const container = document.getElementById('panel-curriculum');
@@ -10113,21 +10112,6 @@
         container.removeEventListener('click', phase3CurriculumClickHandler);
       }
       phase3CurriculumClickHandler = function (e) {
-        const collapseBtn = e.target.closest('[data-ped-collapse]');
-        if (collapseBtn && collapseBtn.closest('#panel-curriculum')) {
-          e.preventDefault();
-          e.stopPropagation();
-          collapsePedagogyInline(collapseBtn.getAttribute('data-ped-collapse'), collapseBtn);
-          return;
-        }
-        const deepBtn = e.target.closest('.pedagogy-deep-btn[data-pedagogy-id]');
-        if (deepBtn && !deepBtn.disabled && deepBtn.closest('#panel-curriculum')) {
-          if (isPurePhaseCMode()) return;
-          e.preventDefault();
-          e.stopPropagation();
-          openPedagogyDeepDive(deepBtn.getAttribute('data-pedagogy-id'), deepBtn);
-          return;
-        }
         const cardToggle = e.target.closest('.curriculum-card-toggle');
         if (cardToggle && cardToggle.closest('#panel-curriculum')) {
           e.preventDefault();
@@ -10150,11 +10134,9 @@
           var card = cardToggle.closest('.curriculum-card');
           var dayIndex = card ? parseInt(card.getAttribute('data-i'), 10) : NaN;
           if (!isNaN(dayIndex)) toggleCurriculumDayExpanded(dayIndex);
-          return;
         }
       };
       container.addEventListener('click', phase3CurriculumClickHandler);
-      ensurePedagogySuggestionEvents();
     }
 
     function ensureCurriculumExpansionEvents() {
@@ -10174,16 +10156,15 @@
 
     function registerPedagogyItem(item) {
       appState.pedagogyRegistry[item.id] = item;
+      hydratePedagogyItemExpansion(item);
       return item;
     }
 
     function renderExpansionButtonBlock(item) {
       registerPedagogyItem(item);
-      const btnLabel = expansionBtnLabel();
-      return '<div class="expansion-btn-block mt-3">' +
-        '<button type="button" class="pedagogy-deep-btn expansion-practical-btn" data-pedagogy-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(btnLabel) + '">' +
-        escapeHtml(btnLabel) + '</button>' +
-        '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel hidden" aria-live="polite"></div></div>';
+      var detailsHtml = renderStaticExpansionDetails(item);
+      if (!detailsHtml) return '';
+      return '<div class="expansion-btn-block mt-3">' + detailsHtml + '</div>';
     }
 
     function normalizePedagogyDisplayText(text) {
@@ -10261,17 +10242,18 @@
           }
         }
       }
-      const btnLabel = expansionBtnLabel();
+      var expansionHtml = renderStaticExpansionDetails(item, {
+        skipIfEmbedded: true,
+        embeddedIn: display.previewText,
+      });
       return '<div class="pedagogy-suggestion-card" data-pedagogy-card="' + escapeHtml(item.id) + '">' +
         '<div class="pedagogy-suggestion-text">' +
         '<i class="fa-solid fa-lightbulb pedagogy-suggestion-icon" aria-hidden="true"></i>' +
         '<span class="pedagogy-suggestion-label">' + titleHtml +
         (titleHtml && previewHtml ? '<br>' : '') + previewHtml + '</span>' +
         '</div>' +
-        '<button type="button" class="pedagogy-deep-btn expansion-practical-btn" data-pedagogy-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(btnLabel) + '">' +
-        escapeHtml(btnLabel) +
-        '</button>' +
-        '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel hidden" aria-live="polite"></div></div>';
+        expansionHtml +
+        '</div>';
     }
 
     async function fetchCurriculumDayEnrichment(source, signal) {
@@ -10722,14 +10704,19 @@
     }
 
     // ---------- Pedagogical summary Word export (client-side HTML → .doc Blob) ----------
+    function getStaticExpansionElement(sourceId) {
+      if (!sourceId) return null;
+      return document.getElementById('static-expand-' + sourceId) ||
+        document.querySelector('details[data-static-expand="' + sourceId + '"]');
+    }
+
     function isPedagogyPanelOpen(sourceId) {
-      const panel = document.getElementById('ped-expand-' + sourceId);
-      return !!(panel && !panel.classList.contains('hidden'));
+      var el = getStaticExpansionElement(sourceId);
+      return !!(el && el.open);
     }
 
     function isBibliographyPanelOpen(sourceId) {
-      const panel = document.getElementById('bib-expand-' + sourceId);
-      return !!(panel && !panel.classList.contains('hidden'));
+      return isPedagogyPanelOpen(sourceId);
     }
 
     function htmlContentToParagraphs(html) {
@@ -10772,27 +10759,27 @@
       return sections.filter(function (sec) { return sec.paragraphs && sec.paragraphs.length; });
     }
 
-    function domPanelToSections(panelId, allowHidden) {
-      const panel = document.getElementById(panelId);
-      if (!panel) return [];
-      if (!allowHidden && panel.classList.contains('hidden')) return [];
-      const inner = panel.querySelector('.inline-expand-inner');
+    function domStaticExpansionToSections(sourceId, allowHidden) {
+      var el = getStaticExpansionElement(sourceId);
+      if (!el) return [];
+      if (!allowHidden && !el.open) return [];
+      var inner = el.querySelector('.static-expansion-body');
       if (!inner) return [];
-      const clone = inner.cloneNode(true);
-      const closeBtn = clone.querySelector('.inline-expand-close');
-      if (closeBtn) closeBtn.remove();
-      const paragraphs = htmlContentToParagraphs(clone.innerHTML);
+      var paragraphs = htmlContentToParagraphs(inner.innerHTML);
       return paragraphs.length ? [{ title: '', paragraphs: paragraphs }] : [];
+    }
+
+    function domPanelToSections(panelId, allowHidden) {
+      var sourceId = String(panelId || '').replace(/^(ped|bib)-expand-/, '');
+      return domStaticExpansionToSections(sourceId, allowHidden);
     }
 
     function wasPedagogyExpansionEngaged(sourceId) {
       if (isPedagogyPanelOpen(sourceId)) return true;
       if (appState.pedagogySummaries[sourceId]) return true;
-      const source = appState.pedagogyRegistry[sourceId];
-      if (!source) return false;
-      const cacheKey = getPedagogySummaryCacheKey(source);
-      if (summaryPanelOpenState.ped[cacheKey]) return true;
-      return domPanelToSections('ped-expand-' + sourceId, true).length > 0;
+      var source = appState.pedagogyRegistry[sourceId];
+      if (source && source.expansion) return true;
+      return domStaticExpansionToSections(sourceId, true).length > 0;
     }
 
     function hasPedagogyExpansionContent(sourceId) {
@@ -10810,11 +10797,9 @@
     function wasBibliographyExpansionEngaged(sourceId) {
       if (isBibliographyPanelOpen(sourceId)) return true;
       if (appState.bibliographySummaries[sourceId]) return true;
-      const source = appState.bibliographyRegistry[sourceId];
-      if (!source) return false;
-      const cacheKey = getBibliographySummaryCacheKey(source);
-      if (summaryPanelOpenState.bib[cacheKey]) return true;
-      return domPanelToSections('bib-expand-' + sourceId, true).length > 0;
+      var source = appState.bibliographyRegistry[sourceId];
+      if (source && source.expansion) return true;
+      return domStaticExpansionToSections(sourceId, true).length > 0;
     }
 
     function shouldIncludeBibliographyExpansion(sourceId) {
@@ -10830,7 +10815,7 @@
         const raw = (summary && summary.pedagogyDeepDive) || (summary && summary.archiveSummary) || summary || {};
         return expansionDataToSections(pedagogyDeepDiveToExpansion(raw));
       }
-      return domPanelToSections('ped-expand-' + sourceId, allowHiddenDom);
+      return domStaticExpansionToSections(sourceId, allowHiddenDom);
     }
 
     function getBibliographyExpansionSections(sourceId, allowHiddenDom) {
@@ -10845,7 +10830,7 @@
           inspirationReferences: data.pedagogicalAngles || data.furtherReading || [],
         });
       }
-      return domPanelToSections('bib-expand-' + sourceId, allowHiddenDom);
+      return domStaticExpansionToSections(sourceId, allowHiddenDom);
     }
 
     function mapGradeIdeasForExport(items, prefix) {
@@ -11369,44 +11354,9 @@
       });
     }
 
-    function openPedagogyDeepDive(sourceId, triggerEl) {
-      openOnDemandExpansion(sourceId, triggerEl, {
-        getSource: function (sid, el) { return ensurePedagogySourceRegistered(sid); },
-        getPanel: function (sid, el) { return getPedExpandPanel(sid, el); },
-        getCacheKey: getPedagogySummaryCacheKey,
-        getSummary: function (sid) { return appState.pedagogySummaries[sid]; },
-        mapInlineSummary: function (source) {
-          if (source && source.expansion) return mapExpansionToDeepDive(source.expansion, source);
-          return null;
-        },
-        setSummary: function (sid, summary) { appState.pedagogySummaries[sid] = summary; },
-        renderPanel: renderPedagogyInlinePanel,
-        startJob: startPedagogySummaryJob,
-        panelState: summaryPanelOpenState.ped,
-        collapse: collapsePedagogyInline,
-      });
-    }
+    function openPedagogyDeepDive() { /* static <details> — expansion pre-rendered at hydration */ }
 
-    function ensurePedagogySuggestionEvents() {
-      if (pedagogyEventsBound) return;
-      pedagogyEventsBound = true;
-      document.addEventListener('click', function (e) {
-        if (e.target.closest('a[href^="http"]')) return;
-        const collapseBtn = e.target.closest('[data-ped-collapse]');
-        if (collapseBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          collapsePedagogyInline(collapseBtn.getAttribute('data-ped-collapse'), collapseBtn);
-          return;
-        }
-        const btn = e.target.closest('.pedagogy-deep-btn[data-pedagogy-id]');
-        if (!btn || btn.disabled) return;
-        if (isPurePhaseCMode() && btn.closest('#panel-theory, #panel-inspiration, #panel-curriculum')) return;
-        e.preventDefault();
-        e.stopPropagation();
-        openPedagogyDeepDive(btn.getAttribute('data-pedagogy-id'), btn);
-      });
-    }
+    function ensurePedagogySuggestionEvents() { /* static <details> — no click handlers */ }
 
     function renderWebResearchResult() {
       const wr = appState.webResearch;
@@ -15049,8 +14999,6 @@
       if (activeTab && isProductTab(activeTab)) {
         renderProductTabContent(activeTab);
       }
-      restoreBibliographySummaryPanels();
-      restorePedagogySummaryPanels();
       setupThemeActionButtons();
     }
 
@@ -17214,7 +17162,6 @@
         '</div>';
       currSlot.classList.remove('hidden');
       setupPhase3ActionButtons();
-      restorePedagogySummaryPanels();
     }
 
     function renderPersonalInWorkspace() {
@@ -17252,17 +17199,15 @@
             '<span class="theory-bib-label">' + labelHtml + '</span>' +
             '</div></div></li>';
         }
+        var expansionHtml = renderStaticExpansionDetails(item);
         return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
           '<div class="theory-bib-item-row">' +
           '<div class="theory-bib-source-text">' +
           '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
           '<span class="theory-bib-label">' + labelHtml + '</span>' +
-          '</div>' +
-          '<button type="button" class="theory-bib-deep-btn expansion-practical-btn" data-bib-id="' + escapeHtml(id) + '">' +
-          escapeHtml(expansionBtnLabel()) +
-          '</button>' +
-          '<div id="bib-expand-' + escapeHtml(id) + '" class="inline-expand-panel hidden" aria-live="polite"></div>' +
-          '</div></li>';
+          '</div></div>' +
+          expansionHtml +
+          '</li>';
       }).filter(Boolean);
       if (!rendered.length) return '';
       return '<ul class="theory-bib-list' + (pureMode ? '' : ' theory-bib-list--interactive') + '">' + rendered.join('') + '</ul>';
@@ -17453,11 +17398,6 @@
       holdPageScroll(function () {
         document.getElementById('theoretical-content').innerHTML = html;
       });
-      if (!isPurePhaseCMode()) {
-        ensureTheoryBibliographyEvents();
-        restoreBibliographySummaryPanels();
-      }
-      ensurePedagogySuggestionEvents();
     }
 
     function buildInspirationTabSourceAnchorHtml(url, title) {
@@ -17630,10 +17570,6 @@
       holdPageScroll(function () {
         if (inspEl) inspEl.innerHTML = html;
       });
-      if (!useCompiledInspiration) {
-        ensurePedagogySuggestionEvents();
-        restorePedagogySummaryPanels();
-      }
     }
 
     function renderPinterestGallery() {
@@ -17747,10 +17683,12 @@
       registerPedagogyItem(item);
       const btnLabel = curriculumDayEnrichBtnLabel();
       const blockMt = layout === 'table' ? '' : ' mt-2';
-      return '<div class="curriculum-day-enrich-block' + blockMt + '">' +
-        '<button type="button" class="pedagogy-deep-btn curriculum-day-enrich-btn" data-pedagogy-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(btnLabel) + '">' +
-        escapeHtml(btnLabel) + '</button>' +
-        '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel curriculum-day-enrich-panel hidden" aria-live="polite"></div></div>';
+      var expansionHtml = renderStaticExpansionDetails(item, {
+        summaryLabel: btnLabel,
+        extraClass: 'curriculum-day-enrich-panel',
+      });
+      if (!expansionHtml) return '';
+      return '<div class="curriculum-day-enrich-block' + blockMt + '">' + expansionHtml + '</div>';
     }
 
     function curriculumHintHtml(row) {
