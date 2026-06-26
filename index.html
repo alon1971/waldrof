@@ -10549,13 +10549,14 @@
       var normA = normalizeTextForTab3Dedup(a);
       var normB = normalizeTextForTab3Dedup(b);
       if (!normA || !normB) return false;
-      if (normA.length < 24 || normB.length < 24) return normA === normB;
-      if (normA.includes(normB) || normB.includes(normA)) return true;
+      if (normA.length < 48 || normB.length < 48) return normA === normB;
+      if (normA === normB) return true;
+      if (normA.length > 200 && normB.length > 200 && (normA.includes(normB) || normB.includes(normA))) return true;
       var wordsA = normA.split(' ').filter(function (w) { return w.length > 3; });
       var setB = new Set(normB.split(' ').filter(function (w) { return w.length > 3; }));
       var overlap = 0;
       wordsA.forEach(function (w) { if (setB.has(w)) overlap++; });
-      return overlap >= 6 && overlap / Math.max(wordsA.length, 1) > 0.9;
+      return overlap >= 14 && overlap / Math.max(wordsA.length, 1) > 0.97;
     }
 
     function dedupeTab3ViewForRender(view) {
@@ -14645,12 +14646,15 @@
     }
 
     function renderPureTextBlock(text) {
-      var raw = sanitizePhaseCProseForRender(String(text || '')).trim();
+      var raw = String(text || '').trim();
       if (!raw) return '<p class="text-walnut/50">—</p>';
       if (isCompiledPedagogicalHtml(raw)) {
+        raw = stripPhaseBReferenceBrackets(raw);
+        raw = stripPercentEncodedUrlGarbageClient(raw);
         return '<div class="pure-card-body prose-ai">' +
           upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false }))) + '</div>';
       }
+      raw = sanitizePhaseCProseForRender(raw).trim();
       return '<div class="pure-card-body">' +
         upgradePhaseCTabAnchors(formatPerplexityRawText(raw)) + '</div>';
     }
@@ -14727,7 +14731,7 @@
       if (!href) return escapeHtml(phaseCLinkLabel(label, url));
       var display = phaseCLinkLabel(label, href);
       if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
-      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-blue-600 underline hover:text-blue-800">' +
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-green-700 underline font-bold hover:text-green-800">' +
         escapeHtml(display) + '</a>';
     }
 
@@ -14788,13 +14792,16 @@
     }
 
     function renderPurePhaseCKeyPointItem(item) {
-      var raw = sanitizePhaseCProseForRender(String(item || '')).trim();
+      var raw = String(item || '').trim();
       if (!raw || raw.length < 8) return '';
       if (isCompiledPedagogicalHtml(raw) || /<details[\s>]/i.test(raw)) {
+        raw = stripPhaseBReferenceBrackets(raw);
+        raw = stripPercentEncodedUrlGarbageClient(raw);
         return '<li class="phase-c-key-point">' +
           upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false }))) +
           '</li>';
       }
+      raw = sanitizePhaseCProseForRender(raw).trim();
       return '<li>' + renderPhaseCTabMarkdownInline(raw) + '</li>';
     }
 
