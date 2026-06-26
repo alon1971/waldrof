@@ -1166,10 +1166,6 @@
       display: block;
       width: 100%;
     }
-    .pedagogy-suggestion-card--compiled .pedagogy-deep-btn,
-    .pedagogy-suggestion-card--compiled .inline-expand-panel {
-      display: none !important;
-    }
     .phase-c-col details,
     .phase-c-inspiration-blocks details,
     #pure-pedagogical-resources details,
@@ -5053,7 +5049,7 @@
       let html = '<h4 class="app-subhead font-bold text-burgundy mb-2 flex items-center gap-2">' +
         '<i class="fa-solid fa-feather-pointed text-sage"></i> ' + escapeHtml(t('theory_bib_summary_title')) + '</h4>';
       if (summary.summaryHtml) {
-        html += ensureAiHtml(summary.summaryHtml);
+        html += renderNarrativeProseBlock(summary.summaryHtml);
       } else if (summary.summary) {
         html += '<p class="leading-relaxed">' + escapeHtml(summary.summary) + '</p>';
       }
@@ -5082,34 +5078,40 @@
       return html;
     }
 
-    function buildExpansionContentHtml(exp) {
-      const data = exp || {};
-      if (data._perplexityRaw && data.expansionHtml) {
-        return buildPerplexityExpansionHtml({ rawContent: data.expansionHtml, citations: data.inspirationReferences });
-      }
+    function buildExpansionNarrativeHtml(data) {
+      const exp = data || {};
       let html = '';
-      if (data.expansionHtml) {
-        html += ensureAiHtml(data.expansionHtml);
-      } else if (data.classroomImplementation) {
-        html += '<p class="leading-relaxed">' + escapeHtml(data.classroomImplementation) + '</p>';
+      if (exp.classroomImplementation) {
+        html += '<p class="leading-relaxed">' + escapeHtml(exp.classroomImplementation) + '</p>';
       }
-      const steps = data.practicalSteps || [];
+      const steps = exp.practicalSteps || [];
       if (steps.length) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('pedagogy_steps')) + '</h4><ol class="list-decimal mr-5 space-y-2 i18n-list">';
         steps.forEach(function (p) { html += '<li><span class="leading-relaxed">' + escapeHtml(p) + '</span></li>'; });
         html += '</ol>';
       }
-      if (data.parentCommunityAspects) {
+      if (exp.parentCommunityAspects) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_parent_community')) + '</h4>';
-        html += '<p class="leading-relaxed">' + escapeHtml(data.parentCommunityAspects) + '</p>';
+        html += '<p class="leading-relaxed">' + escapeHtml(exp.parentCommunityAspects) + '</p>';
       }
-      const refs = data.inspirationReferences || [];
+      const refs = exp.inspirationReferences || [];
       if (refs.length) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h4><ul class="list-disc mr-5 space-y-1 i18n-list">';
         refs.forEach(function (r) { html += '<li>' + escapeHtml(r) + '</li>'; });
         html += '</ul>';
       }
       return html;
+    }
+
+    function buildExpansionContentHtml(exp) {
+      const data = pedagogyDeepDiveToExpansion(exp) || exp || {};
+      if (data._perplexityRaw && data.expansionHtml) {
+        return renderNarrativeProseBlock(data.expansionHtml);
+      }
+      if (data.expansionHtml) {
+        return renderNarrativeProseBlock(data.expansionHtml);
+      }
+      return buildExpansionNarrativeHtml(data);
     }
 
     function previewHasEmbeddedExpansion(html) {
@@ -9339,21 +9341,14 @@
         escapeHtml(t('pedagogical_resources_title')) + '</h3><ul class="space-y-4">';
       resources.forEach(function (item) {
         var labelClass = pedagogicalResourceLabelClass(item.label || 'מאמר פדגוגי');
-        var compiled = String(item.content || '').trim();
-        html += '<li class="rounded-xl border p-4 bg-cream/40 ' + labelClass + '">';
-        if (compiled && isCompiledPedagogicalHtml(compiled)) {
-          html += '<div class="prose-ai">' +
-            upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(compiled, { wrap: false }))) +
-            '</div>';
-        } else {
-          html += '<div class="flex flex-wrap items-center gap-2 mb-1">' +
-            '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
-            (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
-            '</div>' +
-            '<p class="font-medium text-walnut">' + buildPhaseCTabAnchorHtml(item.url, item.title || item.url) + '</p>' +
-            (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '');
-        }
-        html += '</li>';
+        html += '<li class="rounded-xl border p-4 bg-cream/40 ' + labelClass + '">' +
+          '<div class="flex flex-wrap items-center gap-2 mb-1">' +
+          '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full border">' + escapeHtml(item.label || 'מאמר פדגוגי') + '</span>' +
+          (item.source ? '<span class="text-xs text-walnut/55">' + escapeHtml(item.source) + '</span>' : '') +
+          '</div>' +
+          '<p class="font-medium text-walnut">' + buildPhaseCTabAnchorHtml(item.url, item.title || item.url) + '</p>' +
+          (item.snippet ? '<p class="text-sm text-walnut/70 mt-1">' + escapeHtml(item.snippet) + '</p>' : '') +
+          '</li>';
       });
       html += '</ul></section>';
       mount.insertAdjacentHTML('beforeend', html);
@@ -9846,11 +9841,34 @@
       });
     }
 
-    function restoreBibliographySummaryPanels() { /* static <details> — no panel restore */ }
+    function restoreBibliographySummaryPanels() {
+      Object.keys(summaryPanelOpenState.bib).forEach(function (cacheKey) {
+        if (!summaryPanelOpenState.bib[cacheKey]) return;
+        Object.keys(appState.bibliographyRegistry).forEach(function (sid) {
+          const src = appState.bibliographyRegistry[sid];
+          if (!src || getBibliographySummaryCacheKey(src) !== cacheKey) return;
+          const summary = appState.bibliographySummaries[sid];
+          if (summary) renderBibInlinePanelIfPresent(sid, summary);
+        });
+      });
+    }
 
-    function restorePedagogySummaryPanels() { /* static <details> — no panel restore */ }
+    function restorePedagogySummaryPanels() {
+      Object.keys(summaryPanelOpenState.ped).forEach(function (cacheKey) {
+        if (!summaryPanelOpenState.ped[cacheKey]) return;
+        Object.keys(appState.pedagogyRegistry).forEach(function (sid) {
+          const src = appState.pedagogyRegistry[sid];
+          if (!src || getPedagogySummaryCacheKey(src) !== cacheKey) return;
+          const summary = appState.pedagogySummaries[sid];
+          if (summary) renderPedagogyInlinePanelIfPresent(sid, summary);
+        });
+      });
+    }
 
-    function restoreAllSummaryPanels() { /* static <details> — no panel restore */ }
+    function restoreAllSummaryPanels() {
+      restoreBibliographySummaryPanels();
+      restorePedagogySummaryPanels();
+    }
 
     function collapseBibInline(sourceId) {
       const source = appState.bibliographyRegistry[sourceId];
@@ -9997,7 +10015,7 @@
       const data = (summary && summary.archiveSummary) || summary || {};
       let html = '';
       if (data.summaryHtml) {
-        html += ensureAiHtml(data.summaryHtml);
+        html += renderNarrativeProseBlock(data.summaryHtml);
       } else if (data.summary) {
         html += '<p class="leading-relaxed">' + escapeHtml(data.summary) + '</p>';
       }
@@ -10101,9 +10119,26 @@
       startJob(sourceId).catch(function () { /* error handled in job */ });
     }
 
-    function openBibliographyDeepSummary() { /* static <details> — expansion pre-rendered at hydration */ }
+    function openBibliographyDeepSummary(sourceId) {
+      openOnDemandExpansion(sourceId, null, {
+        getSource: function (sid) { return appState.bibliographyRegistry[sid]; },
+        getPanel: function (sid) { return getBibExpandPanel(sid); },
+        getCacheKey: getBibliographySummaryCacheKey,
+        getSummary: function (sid) { return appState.bibliographySummaries[sid]; },
+        mapInlineSummary: function (source) {
+          return mapExpansionToArchiveSummary(source.expansion, source);
+        },
+        setSummary: function (sid, summary) { appState.bibliographySummaries[sid] = summary; },
+        renderPanel: renderBibInlinePanel,
+        startJob: startBibliographySummaryJob,
+        panelState: summaryPanelOpenState.bib,
+        collapse: collapseBibInline,
+      });
+    }
 
-    function ensureTheoryBibliographyEvents() { /* static <details> — no click handlers */ }
+    function ensureTheoryBibliographyEvents() {
+      ensurePedagogySuggestionEvents();
+    }
 
     function setupPhase3ActionButtons() {
       const container = document.getElementById('panel-curriculum');
@@ -10162,9 +10197,11 @@
 
     function renderExpansionButtonBlock(item) {
       registerPedagogyItem(item);
-      var detailsHtml = renderStaticExpansionDetails(item);
-      if (!detailsHtml) return '';
-      return '<div class="expansion-btn-block mt-3">' + detailsHtml + '</div>';
+      const btnLabel = expansionBtnLabel();
+      return '<div class="expansion-btn-block mt-3">' +
+        '<button type="button" class="pedagogy-deep-btn pedagogy-deep-btn--inline expansion-practical-btn" data-pedagogy-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(btnLabel) + '">' +
+        escapeHtml(btnLabel) + '</button>' +
+        '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel hidden" aria-live="polite"></div></div>';
     }
 
     function normalizePedagogyDisplayText(text) {
@@ -10242,10 +10279,7 @@
           }
         }
       }
-      var expansionHtml = renderStaticExpansionDetails(item, {
-        skipIfEmbedded: true,
-        embeddedIn: display.previewText,
-      });
+      var expansionHtml = renderExpansionButtonBlock(item);
       return '<div class="pedagogy-suggestion-card" data-pedagogy-card="' + escapeHtml(item.id) + '">' +
         '<div class="pedagogy-suggestion-text">' +
         '<i class="fa-solid fa-lightbulb pedagogy-suggestion-icon" aria-hidden="true"></i>' +
@@ -10609,18 +10643,9 @@
 
     function buildPerplexityExpansionHtml(dive) {
       const data = dive || {};
-      const rawContent = String(data.rawContent || '').trim();
-      if (!rawContent) return '';
-      let html = formatPerplexityRawText(rawContent);
-      const citations = Array.isArray(data.citations) ? data.citations.filter(Boolean) : [];
-      if (citations.length) {
-        html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h4><ul class="list-disc mr-5 space-y-1 i18n-list">';
-        citations.forEach(function (url) {
-          html += '<li>' + buildProseSourceLinkHtml(url, '') + '</li>';
-        });
-        html += '</ul>';
-      }
-      return html;
+      const rawContent = String(data.rawContent || data.summaryHtml || '').trim();
+      if (!rawContent) return buildExpansionNarrativeHtml(pedagogyDeepDiveToExpansion(data));
+      return renderNarrativeProseBlock(rawContent);
     }
 
     function pedagogyDeepDiveToExpansion(data) {
@@ -10704,19 +10729,14 @@
     }
 
     // ---------- Pedagogical summary Word export (client-side HTML → .doc Blob) ----------
-    function getStaticExpansionElement(sourceId) {
-      if (!sourceId) return null;
-      return document.getElementById('static-expand-' + sourceId) ||
-        document.querySelector('details[data-static-expand="' + sourceId + '"]');
-    }
-
     function isPedagogyPanelOpen(sourceId) {
-      var el = getStaticExpansionElement(sourceId);
-      return !!(el && el.open);
+      const panel = document.getElementById('ped-expand-' + sourceId);
+      return !!(panel && !panel.classList.contains('hidden'));
     }
 
     function isBibliographyPanelOpen(sourceId) {
-      return isPedagogyPanelOpen(sourceId);
+      const panel = document.getElementById('bib-expand-' + sourceId);
+      return !!(panel && !panel.classList.contains('hidden'));
     }
 
     function htmlContentToParagraphs(html) {
@@ -10771,7 +10791,13 @@
 
     function domPanelToSections(panelId, allowHidden) {
       var sourceId = String(panelId || '').replace(/^(ped|bib)-expand-/, '');
-      return domStaticExpansionToSections(sourceId, allowHidden);
+      var panel = document.getElementById('ped-expand-' + sourceId) || document.getElementById('bib-expand-' + sourceId);
+      if (!panel) return [];
+      if (!allowHidden && panel.classList.contains('hidden')) return [];
+      var inner = panel.querySelector('.inline-expand-inner');
+      if (!inner) return [];
+      var paragraphs = htmlContentToParagraphs(inner.innerHTML);
+      return paragraphs.length ? [{ title: '', paragraphs: paragraphs }] : [];
     }
 
     function wasPedagogyExpansionEngaged(sourceId) {
@@ -10779,7 +10805,7 @@
       if (appState.pedagogySummaries[sourceId]) return true;
       var source = appState.pedagogyRegistry[sourceId];
       if (source && source.expansion) return true;
-      return domStaticExpansionToSections(sourceId, true).length > 0;
+      return domPanelToSections('ped-expand-' + sourceId, true).length > 0;
     }
 
     function hasPedagogyExpansionContent(sourceId) {
@@ -10799,7 +10825,7 @@
       if (appState.bibliographySummaries[sourceId]) return true;
       var source = appState.bibliographyRegistry[sourceId];
       if (source && source.expansion) return true;
-      return domStaticExpansionToSections(sourceId, true).length > 0;
+      return domPanelToSections('bib-expand-' + sourceId, true).length > 0;
     }
 
     function shouldIncludeBibliographyExpansion(sourceId) {
@@ -10815,7 +10841,7 @@
         const raw = (summary && summary.pedagogyDeepDive) || (summary && summary.archiveSummary) || summary || {};
         return expansionDataToSections(pedagogyDeepDiveToExpansion(raw));
       }
-      return domStaticExpansionToSections(sourceId, allowHiddenDom);
+      return domPanelToSections(sourceId, allowHiddenDom);
     }
 
     function getBibliographyExpansionSections(sourceId, allowHiddenDom) {
@@ -10830,7 +10856,7 @@
           inspirationReferences: data.pedagogicalAngles || data.furtherReading || [],
         });
       }
-      return domStaticExpansionToSections(sourceId, allowHiddenDom);
+      return domPanelToSections(sourceId, allowHiddenDom);
     }
 
     function mapGradeIdeasForExport(items, prefix) {
@@ -11354,9 +11380,60 @@
       });
     }
 
-    function openPedagogyDeepDive() { /* static <details> — expansion pre-rendered at hydration */ }
+    function openPedagogyDeepDive(sourceId, triggerEl) {
+      var src = ensurePedagogySourceRegistered(sourceId) || appState.pedagogyRegistry[sourceId];
+      if (src && src.type === 'curriculum' && src.day != null) {
+        var dayIndex = parseInt(src.day, 10) - 1;
+        if (!isNaN(dayIndex) && dayIndex >= 0 && !isCurriculumDayExpanded(dayIndex)) {
+          toggleCurriculumDayExpanded(dayIndex);
+        }
+      }
+      openOnDemandExpansion(sourceId, triggerEl, {
+        getSource: ensurePedagogySourceRegistered,
+        getPanel: getPedExpandPanel,
+        getCacheKey: getPedagogySummaryCacheKey,
+        getSummary: function (sid) { return appState.pedagogySummaries[sid]; },
+        mapInlineSummary: function (source) {
+          return { pedagogyDeepDive: mapExpansionToDeepDive(source.expansion, source) };
+        },
+        setSummary: function (sid, summary) { appState.pedagogySummaries[sid] = summary; },
+        renderPanel: renderPedagogyInlinePanel,
+        startJob: startPedagogySummaryJob,
+        panelState: summaryPanelOpenState.ped,
+        collapse: collapsePedagogyInline,
+      });
+    }
 
-    function ensurePedagogySuggestionEvents() { /* static <details> — no click handlers */ }
+    var pedagogySuggestionEventsBound = false;
+    function ensurePedagogySuggestionEvents() {
+      if (pedagogySuggestionEventsBound) return;
+      pedagogySuggestionEventsBound = true;
+      document.addEventListener('click', function (e) {
+        var pedBtn = e.target.closest('.pedagogy-deep-btn[data-pedagogy-id]');
+        if (pedBtn) {
+          e.preventDefault();
+          openPedagogyDeepDive(pedBtn.getAttribute('data-pedagogy-id'), pedBtn);
+          return;
+        }
+        var pedClose = e.target.closest('[data-ped-collapse]');
+        if (pedClose) {
+          e.preventDefault();
+          collapsePedagogyInline(pedClose.getAttribute('data-ped-collapse'), pedClose);
+          return;
+        }
+        var bibBtn = e.target.closest('.theory-bib-deep-btn[data-bib-id]');
+        if (bibBtn) {
+          e.preventDefault();
+          openBibliographyDeepSummary(bibBtn.getAttribute('data-bib-id'));
+          return;
+        }
+        var bibClose = e.target.closest('[data-bib-collapse]');
+        if (bibClose) {
+          e.preventDefault();
+          collapseBibInline(bibClose.getAttribute('data-bib-collapse'));
+        }
+      });
+    }
 
     function renderWebResearchResult() {
       const wr = appState.webResearch;
@@ -14595,18 +14672,32 @@
       });
     }
 
+    function stripNarrativeProseMarkup(text) {
+      var raw = String(text || '');
+      raw = raw.replace(/<details[\s\S]*?<\/details>/gi, '');
+      raw = raw.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1');
+      raw = raw.replace(/https?:\/\/[^\s<>"']+/gi, '');
+      raw = raw.replace(/\[\d{1,3}\]/g, '');
+      raw = raw.replace(/\bclass\s*=\s*['"][^'"]*['"]/gi, '');
+      raw = raw.replace(/\btarget\s*=\s*['"][^'"]*['"]/gi, '');
+      raw = raw.replace(/\bhref\s*=\s*['"][^'"]*['"]/gi, '');
+      return raw.trim();
+    }
+
+    function renderNarrativeProseBlock(text) {
+      var raw = stripNarrativeProseMarkup(String(text || '').trim());
+      if (!raw) return '';
+      raw = sanitizePhaseCProseForRender(raw);
+      if (isCompiledPedagogicalHtml(raw)) {
+        return '<div class="prose-ai leading-relaxed">' + normalizeAiHtml(raw, { wrap: false }) + '</div>';
+      }
+      return formatPerplexityRawText(raw);
+    }
+
     function renderPureTextBlock(text) {
       var raw = String(text || '').trim();
       if (!raw) return '<p class="text-walnut/50">—</p>';
-      if (isCompiledPedagogicalHtml(raw)) {
-        raw = stripPhaseBReferenceBrackets(raw);
-        raw = stripPercentEncodedUrlGarbageClient(raw);
-        return '<div class="pure-card-body prose-ai">' +
-          upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false }))) + '</div>';
-      }
-      raw = sanitizePhaseCProseForRender(raw).trim();
-      return '<div class="pure-card-body">' +
-        upgradePhaseCTabAnchors(formatPerplexityRawText(raw)) + '</div>';
+      return '<div class="pure-card-body">' + renderNarrativeProseBlock(raw) + '</div>';
     }
 
     function renderPureListBlock(items) {
@@ -14741,18 +14832,21 @@
         '<span class="pedagogy-suggestion-label">' + body + '</span></div></div>';
     }
 
-    function renderPurePhaseCKeyPointItem(item) {
+    function renderPurePhaseCKeyPointItem(item, index) {
       var raw = String(item || '').trim();
       if (!raw || raw.length < 8) return '';
-      if (isCompiledPedagogicalHtml(raw) || /<details[\s>]/i.test(raw)) {
-        raw = stripPhaseBReferenceBrackets(raw);
-        raw = stripPercentEncodedUrlGarbageClient(raw);
-        return '<li class="phase-c-key-point">' +
-          upgradePhaseCTabAnchors(dedupeRepeatedHtmlBlocks(normalizeAiHtml(raw, { wrap: false }))) +
-          '</li>';
-      }
-      raw = sanitizePhaseCProseForRender(raw).trim();
-      return '<li>' + renderPhaseCTabMarkdownInline(raw) + '</li>';
+      var preview = stripHtmlText(raw).slice(0, 280);
+      var id = buildPedagogyItemId('phasec', 'keypt', index, preview);
+      var bodyHtml = '<li class="phase-c-key-point">' + renderNarrativeProseBlock(raw) + '</li>';
+      return '<div class="phase-c-key-point-card space-y-2">' + bodyHtml +
+        renderExpansionButtonBlock({
+          id: id,
+          type: 'inspiration',
+          subtype: 'phasec-key',
+          title: 'נקודה ' + (index + 1),
+          preview: preview,
+          context: (appState.topic || '') + ' · key_points',
+        }) + '</div>';
     }
 
     function phaseCRenderSourcesFooter(view) {
@@ -14769,7 +14863,9 @@
         return String(item || '').trim().length >= 8;
       }) : [];
       if (keyItems.length) {
-        html += '<ul class="pure-card-body i18n-list space-y-3">' + keyItems.map(renderPurePhaseCKeyPointItem).filter(Boolean).join('') + '</ul>';
+        html += '<ul class="pure-card-body i18n-list space-y-3">' + keyItems.map(function (item, index) {
+          return renderPurePhaseCKeyPointItem(item, index);
+        }).filter(Boolean).join('') + '</ul>';
       }
       var readingHtml = renderPureReadingBlock(view.recommended_reading);
       if (readingHtml) {
@@ -14827,6 +14923,8 @@
 
       if (phaseCIsStaleRender(token)) return;
       cardsEl.innerHTML = layoutHtml;
+      ensurePedagogySuggestionEvents();
+      restorePedagogySummaryPanels();
       renderMarketingBench('phase-c-marketing-mount');
       if (appState.productTabsRendered) appState.productTabsRendered.curriculum = true;
     }
@@ -17182,35 +17280,29 @@
       }
       const iconMap = { books: 'fa-book', articles: 'fa-file-lines', websites: 'fa-globe' };
       const icon = iconMap[category] || 'fa-bookmark';
-      const pureMode = isPurePhaseCMode();
       const rendered = items.map(function (item) {
         const id = item.id;
         const rawItem = item.raw || {};
         const websiteUrl = String(item.url || rawItem.url || rawItem.link || rawItem.href || '').trim();
         if (!websiteUrl || !isVerifiedLiveCitationUrlClient(websiteUrl)) return '';
         if (!hasLiveReferenceSnippetClient(rawItem)) return '';
-        if (!pureMode) appState.bibliographyRegistry[id] = item;
+        appState.bibliographyRegistry[id] = item;
         const labelHtml = buildStepBStyleSourceAnchorHtml(websiteUrl, item.label);
-        if (pureMode) {
-          return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
-            '<div class="theory-bib-item-row">' +
-            '<div class="theory-bib-source-text">' +
-            '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
-            '<span class="theory-bib-label">' + labelHtml + '</span>' +
-            '</div></div></li>';
-        }
-        var expansionHtml = renderStaticExpansionDetails(item);
+        const btnLabel = expansionBtnLabel();
         return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
           '<div class="theory-bib-item-row">' +
           '<div class="theory-bib-source-text">' +
           '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
           '<span class="theory-bib-label">' + labelHtml + '</span>' +
-          '</div></div>' +
-          expansionHtml +
+          '</div>' +
+          '<button type="button" class="theory-bib-deep-btn" data-bib-id="' + escapeHtml(id) + '" title="' + escapeHtml(btnLabel) + '">' +
+          escapeHtml(btnLabel) + '</button>' +
+          '</div>' +
+          '<div id="bib-expand-' + escapeHtml(id) + '" class="inline-expand-panel hidden" aria-live="polite"></div>' +
           '</li>';
       }).filter(Boolean);
       if (!rendered.length) return '';
-      return '<ul class="theory-bib-list' + (pureMode ? '' : ' theory-bib-list--interactive') + '">' + rendered.join('') + '</ul>';
+      return '<ul class="theory-bib-list theory-bib-list--interactive">' + rendered.join('') + '</ul>';
     }
 
     function getRenderableBibliography(theory) {
@@ -17361,43 +17453,38 @@
         var sectionFingerprint = stripHtmlText(secContent).replace(/\s+/g, ' ').trim().slice(0, 360);
         if (sectionFingerprint && renderedSectionBodies[sectionFingerprint]) return;
         if (sectionFingerprint) renderedSectionBodies[sectionFingerprint] = true;
-        const secBodyHtml = dedupeRepeatedHtmlBlocks(stripPinterestAnchorsFromHtml(
-          isCompiledPedagogicalHtml(secContent)
-            ? normalizeAiHtml(secContent, { wrap: false })
-            : ensureAiHtml(secContent)
-        ));
+        const secBodyHtml = renderNarrativeProseBlock(secContent);
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
-          '<div class="text-lg leading-relaxed prose-ai">' + secBodyHtml + '</div>';
+          '<div class="text-lg leading-relaxed">' + secBodyHtml + '</div>';
         if (sec.quotes && Array.isArray(sec.quotes)) {
           sec.quotes.forEach(function (q) {
             if (!q) return;
             html += '<blockquote class="border-r-4 border-terracotta bg-parchment/60 rounded-l-xl px-4 py-3 mt-3 italic">«' + escapeHtml(q.text || '') + '»<footer class="text-walnut/60 mt-1">— ' + escapeHtml(q.source || '') + '</footer></blockquote>';
           });
         }
-        if (!isPurePhaseCMode()) {
-          html += renderExpansionButtonBlock({
-            id: secId,
-            type: 'theory',
-            subtype: 'section',
-            title: secHeading,
-            preview: stripHtmlText(secContent).slice(0, 280),
-            context: d.title + ' · ' + secHeading,
-            expansion: normalizeExpansion(sec.expansion),
-          });
-        }
+        html += renderExpansionButtonBlock({
+          id: secId,
+          type: 'theory',
+          subtype: 'section',
+          title: secHeading,
+          preview: stripHtmlText(secContent).slice(0, 280),
+          context: d.title + ' · ' + secHeading,
+          expansion: normalizeExpansion(sec.expansion),
+        });
         html += '</article>';
       });
       if (bib.books.length || bib.articles.length || bib.websites.length) {
         html += renderTheoryBibliography(bib);
       }
-      if (!isPurePhaseCMode()) {
-        var liveLinkData = appState.purePhaseC || { relevant_links: [] };
-        html += renderPureTheoryLiveLinksSection(d, liveLinkData);
-      }
+      var liveLinkData = appState.purePhaseC || { relevant_links: [] };
+      html += renderPureTheoryLiveLinksSection(d, liveLinkData);
       holdPageScroll(function () {
         document.getElementById('theoretical-content').innerHTML = html;
       });
+      ensureTheoryBibliographyEvents();
+      restoreBibliographySummaryPanels();
+      ensurePedagogySuggestionEvents();
     }
 
     function buildInspirationTabSourceAnchorHtml(url, title) {
@@ -17432,11 +17519,7 @@
 
     function renderInspirationCardPreviewHtml(text) {
       if (!text) return '';
-      var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(String(text))));
-      if (looksLikeAiHtml(s) || isCompiledPedagogicalHtml(s)) {
-        return '<div class="prose-ai">' + upgradeInspirationTabAnchors(normalizeAiHtml(s, { wrap: false })) + '</div>';
-      }
-      return '<div class="prose-ai">' + formatInspirationAiMarkdown(s) + '</div>';
+      return renderNarrativeProseBlock(text);
     }
 
     function renderInspirationBase() {
@@ -17486,7 +17569,6 @@
       d.podcast = sanitizeInspirationPodcastForView(d.podcast);
       if (!Array.isArray(d.podcast.episodes)) d.podcast.episodes = [];
       if (!Array.isArray(d.narrative)) d.narrative = [];
-      var useCompiledInspiration = isPurePhaseCMode();
       let html = '<h2 class="app-page-title font-display font-bold text-burgundy mb-4">' + escapeHtml(d.title) + '</h2>' +
         '<p class="text-walnut/65 mb-4 text-sm">' + escapeHtml(t('pedagogy_inspiration_hint')) + '</p>' +
         '<div class="phase-c-inspiration-blocks w-full">';
@@ -17498,15 +17580,6 @@
           const text = typeof it === 'string' ? it : (it.text || it.preview || it.detail || it.content || '');
           var previewPayload = String(text).trim();
           if (!previewPayload) return;
-          if (useCompiledInspiration) {
-            html += renderPurePhaseCCompiledCard(previewPayload);
-            return;
-          }
-          const itemUrl = (typeof it === 'object' && it) ? String(it.url || it.link || it.href || '').trim() : '';
-          const itemTitle = (typeof it === 'object' && it) ? String(it.title || it.name || '').trim() : '';
-          if (itemUrl && !isPinterestUrl(itemUrl) && sanitizeExternalLinkUrl(itemUrl)) {
-            previewPayload = previewPayload ? (previewPayload + '\n\n' + itemUrl) : itemUrl;
-          }
           html += renderPedagogySuggestionCard({
             id: buildPedagogyItemId('insp', 'global', bi + '-' + ii, previewPayload),
             type: 'inspiration',
@@ -17526,14 +17599,6 @@
           if (!ep) return;
           var epPreview = String(ep.insight || '').trim();
           if (!epPreview) return;
-          if (useCompiledInspiration) {
-            html += renderPurePhaseCCompiledCard(epPreview);
-            return;
-          }
-          var epUrl = String(ep.url || ep.link || ep.href || '').trim();
-          if (epUrl && sanitizeExternalLinkUrl(epUrl)) {
-            epPreview = epPreview ? (epPreview + '\n\n' + epUrl) : epUrl;
-          }
           html += renderPedagogySuggestionCard({
             id: buildPedagogyItemId('insp', 'podcast', ei, (ep.theme || '') + (ep.insight || '')),
             type: 'inspiration',
@@ -17551,10 +17616,6 @@
         d.narrative.forEach(function (n, ni) {
           const text = typeof n === 'string' ? n : (n.text || n.preview || n.content || '');
           if (!String(text).trim()) return;
-          if (useCompiledInspiration) {
-            html += renderPurePhaseCCompiledCard(text);
-            return;
-          }
           html += renderPedagogySuggestionCard({
             id: buildPedagogyItemId('insp', 'narrative', ni, text),
             type: 'inspiration',
@@ -17570,6 +17631,8 @@
       holdPageScroll(function () {
         if (inspEl) inspEl.innerHTML = html;
       });
+      ensurePedagogySuggestionEvents();
+      restorePedagogySummaryPanels();
     }
 
     function renderPinterestGallery() {

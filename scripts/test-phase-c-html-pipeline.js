@@ -1,5 +1,5 @@
 /**
- * Smoke test: Phase C HTML pipeline must preserve <details> tags and anchor markup.
+ * Smoke test: Phase C narrative fields must be prose-only — no <details>, anchors, or leaked attributes.
  */
 const phaseC = require('../api/pure-phase-c');
 
@@ -10,6 +10,8 @@ const SAMPLE_HTML = [
   "<div class='mt-3 text-gray-800'><p>שלבי יישום מעשיים בכיתה עם ציור צורות ותנועה.</p></div>",
   '</details>',
   "<a href='https://waldorflibrary.org/articles/math' target='_blank' class='text-green-700 underline font-bold'>[ספריית וולדורף]</a>",
+  'https://rsarchive.org/example',
+  'ראו מקור [2] לעומק נוסף.',
 ].join('');
 
 function assert(condition, message) {
@@ -29,11 +31,16 @@ const normalized = phaseC.normalizePhaseCResponse({
 const sanitized = phaseC.applyPhaseCTextSanitizationChain(normalized);
 const deduped = phaseC.deduplicateTab3Fields(sanitized, 'כיתה א׳', 'מתמטיקה');
 
+const core = String(deduped.core_emphases || '');
 const keyHtml = String(deduped.key_points[0] || '');
-assert(/<details[\s>]/i.test(deduped.core_emphases), 'core_emphases lost <details>');
-assert(/<\/details>/i.test(deduped.core_emphases), 'core_emphases lost </details>');
-assert(/text-green-700/i.test(deduped.core_emphases), 'anchor class missing from core_emphases');
-assert(deduped.key_points.length, 'key_points emptied');
-assert(/<details[\s>]/i.test(keyHtml) || keyHtml.length > 80, 'key_points stripped HTML or depth');
 
-console.log('OK: Phase C HTML pipeline preserves details tags and anchors.');
+assert(!/<details[\s>]/i.test(core), 'core_emphases must not contain <details>');
+assert(!/text-green-700/i.test(core), 'leaked anchor class in core_emphases');
+assert(!/target\s*=/i.test(core), 'leaked target= attribute in core_emphases');
+assert(!/\[2\]/.test(core), 'citation bracket in core_emphases');
+assert(!/https?:\/\//i.test(core), 'raw URL in core_emphases');
+assert(deduped.key_points.length, 'key_points emptied');
+assert(!/<details[\s>]/i.test(keyHtml), 'key_points must not contain <details>');
+assert(keyHtml.length > 40, 'key_points stripped too aggressively');
+
+console.log('OK: Phase C narrative pipeline strips links, details, and citation markup.');

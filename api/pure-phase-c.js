@@ -943,18 +943,27 @@ function stripPercentEncodedUrlGarbage(text) {
     .trim();
 }
 
-function buildPedagogicalSourceAnchorHtml(url, title) {
-  const clean = cleanHarvestedUrl(url);
-  if (!clean || isForbiddenForeignSourceUrl(clean) || isDeadPhaseCFallbackUrl(clean)) return '';
-  const label = String(title || '').trim() || 'לחצו כאן למקור הפדגוגי';
-  return '<a href=\'' + escapeHtmlForFallback(clean) + '\' target=\'_blank\' class=\'text-green-700 underline font-bold\'>[' + escapeHtmlForFallback(label) + ']</a>';
+/** Strip URLs and link markup from narrative prose — links belong in dedicated arrays only. */
+function stripNakedUrlsFromProse(text) {
+  let out = String(text || '');
+  out = out.replace(/<details[\s\S]*?<\/details>/gi, '');
+  out = out.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1');
+  out = out.replace(/https?:\/\/[^\s<>"']+/gi, ' ');
+  out = out.replace(/\bclass\s*=\s*['"][^'"]*['"]/gi, ' ');
+  out = out.replace(/\btarget\s*=\s*['"][^'"]*['"]/gi, ' ');
+  out = out.replace(/\bhref\s*=\s*['"][^'"]*['"]/gi, ' ');
+  return out.replace(/\s{2,}/g, ' ').trim();
 }
 
-function wrapNakedUrlsInPedagogicalAnchors(text) {
-  return String(text || '').replace(/https?:\/\/[^\s<>"']+/gi, function (rawUrl) {
-    const anchor = buildPedagogicalSourceAnchorHtml(rawUrl, '');
-    return anchor || '';
-  });
+function stripPedagogicalNarrativeMarkup(html) {
+  let out = stripBracketCitationMarkersInHtml(String(html || ''));
+  out = out.replace(/<details[\s\S]*?<\/details>/gi, '');
+  out = out.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1');
+  out = out.replace(/https?:\/\/[^\s<>"']+/gi, '');
+  out = out.replace(/\bclass\s*=\s*['"][^'"]*['"]/gi, '');
+  out = out.replace(/\btarget\s*=\s*['"][^'"]*['"]/gi, '');
+  out = out.replace(/\bhref\s*=\s*['"][^'"]*['"]/gi, '');
+  return out.trim();
 }
 
 function sanitizePhaseCStringField(value) {
@@ -973,7 +982,7 @@ function sanitizePhaseCPlainProse(text) {
     }).filter(Boolean).join('\n\n');
   }
   out = stripSequentialDuplicateSentences(out);
-  return wrapNakedUrlsInPedagogicalAnchors(out).trim();
+  return stripNakedUrlsFromProse(out).trim();
 }
 
 function stripSequentialDuplicateHtmlBlocks(html) {
@@ -1000,12 +1009,7 @@ function sanitizePhaseCProseField(text) {
   const raw = String(text || '').trim();
   if (!raw) return '';
   if (/<[a-z][\s\S]*>/i.test(raw)) {
-    let html = stripBracketCitationMarkersInHtml(raw);
-    html = html.replace(/https?:\/\/[^\s<>"']+/gi, function (u) {
-      const anchor = buildPedagogicalSourceAnchorHtml(u);
-      return anchor || '';
-    });
-    return stripSequentialDuplicateHtmlBlocks(html);
+    return stripSequentialDuplicateHtmlBlocks(stripPedagogicalNarrativeMarkup(raw));
   }
   return sanitizePhaseCPlainProse(raw);
 }
@@ -2218,44 +2222,38 @@ const PHASE_C_LANGUAGE_SOURCE_RULE = [
   'Absolutely no academic document repositories from foreign governments or universities (e.g., .ru, .su, .ua domains).',
 ].join(' ');
 
-const PHASE_C_LINK_FORMATTING_INSTRUCTION = [
-  'Never output raw percent-encoded text lines or naked URLs in the middle of sentences.',
-  'Any book, article, video, or external source MUST use a clean HTML anchor with a friendly Hebrew title:',
-  "<a href='URL' target='_blank' class='text-green-700 underline font-bold'>[שם המאמר/הספר]</a>.",
-  'Replace [שם המאמר/הספר] with the actual source name — never display the raw URL as link text.',
-].join(' ');
-
-const PHASE_C_DETAILS_EXPANSION_TEMPLATE = [
-  'After writing the full visible pedagogical essay for each section, you MAY tuck extra-long practical workshop steps inside:',
-  "<details class='border p-4 rounded mb-2'><summary class='cursor-pointer text-green-700 font-bold hover:underline'>הרחבה ואספקטים פרקטיים</summary><div class='mt-3 text-gray-800'>extended practical steps here</div></details>.",
-  'The visible text BEFORE each <details> block must already be substantive — never hide the entire essay inside collapsed sections only.',
-  'The UI toggles <details> natively — no second API call.',
+const PHASE_C_NARRATIVE_TEXT_ONLY_RULE = [
+  '=== NARRATIVE TEXT ONLY (GLOBAL — ALL TABS) ===',
+  'Every pedagogical narrative field (theory sections, inspiration items, core_emphases, key_points) MUST contain PEDAGOGICAL PROSE ONLY.',
+  'STRICTLY FORBIDDEN inside narrative bodies: academic bracket citations [1], footnotes, raw URLs, naked domains, HTML <a> anchors, <details> blocks, or any link markup.',
+  'The UI loads «הרחבה ואספקטים פרקטיים» via a separate on-demand API call — NEVER bundle expansions, workshop steps, or practical dives in this payload.',
+  'ALL external sources belong ONLY in dedicated arrays: theory.bibliography, relevant_links, pedagogical_resources (metadata), pinterest_links — never inside narrative HTML.',
+  '=== END NARRATIVE TEXT ONLY ===',
 ].join(' ');
 
 const PHASE_C_ESSAY_DEPTH_REQUIREMENTS = [
   '=== MAXIMUM ESSAY DEPTH (MANDATORY — full live-research curriculum quality) ===',
   'Write EXTENSIVE, comprehensive, academic-yet-practical Waldorf curriculum essays — NOT summaries, NOT thin bullets, NOT stubs.',
   'Use the FULL output token budget across ALL tabs. Never sacrifice length for brevity.',
-  'Tab 1 theory: 3-5 sections; EACH section = 5-8 deep HTML paragraphs (professional teacher reference quality) with live anchor links to Steiner/Waldorf sources.',
-  'Tab 2 inspiration: 2-4 global blocks with 6-10 items each; every item = rich HTML mini-essay (visible paragraphs + optional <details> for extended workshop steps).',
-  'Tab 2 pedagogical_resources: each content = multi-paragraph HTML synthesis from the live source with bundled <details> expansion.',
-  'Tab 3 core_emphases: MINIMUM 5-6 long HTML paragraphs including full Developmental Compass (מצפן התפתחותי) — a complete teacher reference essay.',
-  'Tab 3 key_points: exactly 5-6 items; EACH = 3-6 unique sentences of grade-specific lesson architecture (or a short essay paragraph) — never one-liners.',
-  'Tab 3 recommended_reading: 5-8 entries with substantive 2-3 sentence notes each.',
-  'Tab 3 relevant_links: 6-10 verified live HTTPS URLs with descriptive Hebrew titles.',
+  'Tab 1 theory: 3-5 sections; EACH section = 5-8 deep paragraphs (plain HTML: <p>, <strong>, <ul>/<li> only — NO links in section content).',
+  'Tab 2 inspiration: 2-4 global blocks with 6-10 items each; every item = rich pedagogical mini-essay (plain text/HTML prose only — Peter Selg, classroom arts, movement).',
+  'Tab 2 pedagogical_resources: title, url, label, source, snippet ONLY — no content HTML body.',
+  'Tab 3 core_emphases: MINIMUM 5-6 long paragraphs including full Developmental Compass (מצפן התפתחותי) — prose only.',
+  'Tab 3 key_points: exactly 5-6 items; EACH = 3-6 unique sentences of grade-specific lesson architecture — prose only.',
+  'Tab 3 recommended_reading: 5-8 entries with substantive 2-3 sentence notes each (no URLs).',
+  'Tab 3 relevant_links: 6-10 verified live HTTPS URLs with descriptive Hebrew titles — dedicated footer array ONLY.',
   '=== END ESSAY DEPTH ===',
 ].join(' ');
 
-const PHASE_C_UPFRONT_PRERENDER_INSTRUCTION = [
-  '=== UPFRONT PRE-RENDERING (single response — all expansions bundled, zero on-demand fetch) ===',
-  'Return a FULLY COMPILED, maximally deep pedagogical response in one pass.',
-  'ABSOLUTE RULE: No sequential text repetition across theory, inspiration, core_emphases, key_points, or item strings.',
+const PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION = [
+  '=== ON-DEMAND LIVE EXPANSIONS (UI architecture) ===',
+  'This response is the BASELINE synthesis only. The frontend triggers separate Perplexity research when users click expansion buttons.',
+  'Do NOT include expansion, contentExpansion, pedagogical_deep_dive, or <details> blocks anywhere.',
+  PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
   PHASE_C_ESSAY_DEPTH_REQUIREMENTS,
-  PHASE_C_DETAILS_EXPANSION_TEMPLATE,
-  'Tab 2 (השראה): structured resource blocks (Peter Selg, waldorflibrary.org, antro.co.il, classroom arts, movement) as rich HTML with live anchor links.',
-  'Tab 3 (הדגשים): balanced layout — core_emphases (right, 7 cols) = deepest pedagogical essay; key_points (left, 5 cols) = extensive grade-locked reference bullets; relevant_links = dedicated sources footer ONLY.',
-  'Support BOTH Hebrew and English high-quality Waldorf/Anthroposophical sources.',
-  '=== END UPFRONT PRE-RENDERING ===',
+  'Tab 2 (השראה): structured suggestion cards as plain pedagogical previews — platform links live in pedagogical_resources / pinterest_links only.',
+  'Tab 3 (הדגשים): dual-column — core_emphases (right) = deepest essay; key_points (left) = grade-locked reference bullets; relevant_links = sources footer ONLY.',
+  '=== END ON-DEMAND EXPANSIONS ===',
 ].join(' ');
 
 function extractPhaseCGradeNumber(grade) {
@@ -2290,20 +2288,20 @@ function buildPhaseCGradeTopicLockInstruction(grade, topic) {
 
 const SYSTEM_PROMPT = [
   WALDORF_CORE_SYSTEM_PROMPT,
-  PHASE_C_UPFRONT_PRERENDER_INSTRUCTION,
+  PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION,
   PHASE_C_CRITICAL_TEXT_INSTRUCTION,
   PHASE_C_LANGUAGE_SOURCE_RULE,
-  PHASE_C_LINK_FORMATTING_INSTRUCTION,
+  PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?, author?, note?}]}} — exhaustive theoretical background; EACH section content = 5-8 deep compiled HTML paragraphs with live anchor links; Waldorf/Anthroposophy only; NEVER embed bibliography inside section HTML),',
-  'inspiration (object: {title, global: [{title, items: [rich HTML mini-essays — visible depth + optional <details> for workshop steps]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit unless every episode has verified HTTPS url, narrative: [HTML essay strings]} — vivid artistic/pedagogical classroom inspiration; NO bare URLs in prose),',
+  'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?, author?, note?}]}} — exhaustive theoretical background; EACH section content = 5-8 deep paragraphs using ONLY <p>, <strong>, <ul>/<li>; NO links or citations in section HTML; bibliography holds all sources),',
+  'inspiration (object: {title, global: [{title, items: [rich pedagogical mini-essays — plain prose/HTML without links]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit unless every episode has verified HTTPS url, narrative: [essay strings]} — vivid classroom inspiration; NO bare URLs in item prose),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
-  'pedagogical_resources (array of objects: {title, url, label, source, content} — content = multi-paragraph compiled HTML with live anchors + bundled <details> expansion),',
-  'core_emphases (string: compiled HTML essay with MINIMUM 5-6 comprehensive Hebrew paragraphs and full Developmental Compass — מצפן התפתחותי; NEVER brief summaries or link-only lists),',
-  'key_points (array of exactly 5-6 rich HTML strings — EACH 3-6 substantial grade-locked sentences on lesson architecture; NEVER one-liners; NEVER duplicate core_emphases; NEVER wrong-grade concepts),',
-  'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 2-3 substantive sentences; NEVER an empty array),',
+  'pedagogical_resources (array of objects: {title, url, label, source, snippet} — metadata and short snippet ONLY; NO content HTML body),',
+  'core_emphases (string: compiled pedagogical essay with MINIMUM 5-6 comprehensive Hebrew paragraphs and full Developmental Compass — prose only; NO links),',
+  'key_points (array of exactly 5-6 rich strings — EACH 3-6 substantial grade-locked sentences; prose only; NEVER duplicate core_emphases),',
+  'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 2-3 substantive sentences; NO urls),',
   'relevant_links (array of 6-10 objects: {title, url} — dedicated sources footer ONLY; live Steiner archives, Waldorf Library, antro.co.il; at most 1-2 ministry links total; NEVER inside narrative fields).',
   '',
   shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
@@ -2359,14 +2357,13 @@ function normalizePedagogicalResources(value) {
     const url = String(item.url || item.link || item.href || '').trim();
     if (!url || !/^https?:\/\//i.test(url) || /pinterest/i.test(url)) return null;
     const content = String(item.content || item.html || item.body || '').trim();
-    const snippet = String(item.snippet || item.description || item.summary || '').trim();
+    const snippet = String(item.snippet || item.description || item.summary || content || '').trim();
     return {
       title: String(item.title || item.name || url).trim(),
       url: url,
       label: resolvePhaseCFriendlyLinkTitle(item.label || item.title || item.name, url),
       source: String(item.source || item.publisher || '').trim(),
-      snippet: snippet,
-      content: content || snippet,
+      snippet: stripPedagogicalNarrativeMarkup(snippet).slice(0, 400),
     };
   }).filter(Boolean);
 }
@@ -2635,20 +2632,20 @@ async function runPurePhaseC(body) {
     '',
     PHASE_C_LANGUAGE_SOURCE_RULE,
     '',
-    PHASE_C_LINK_FORMATTING_INSTRUCTION,
+    PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
     '',
-    PHASE_C_UPFRONT_PRERENDER_INSTRUCTION,
+    PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION,
     '',
     buildPhaseCGradeTopicLockInstruction(grade, topic),
     '',
-    'Return MAXIMUM-DEPTH live-research content — exhaustive essays, full-length guidelines, verified live links, zero truncation:',
-    '- Tab 1 theory: 3-5 sections × 5-8 deep HTML paragraphs each; bibliography with live HTTPS on every website entry (Waldorf/anthroposophical first).',
-    '- Tab 2 inspiration: 2-4 global blocks × 6-10 rich HTML mini-essays each with optional <details> workshop expansions; no bare URLs in prose.',
+    'Return MAXIMUM-DEPTH live-research baseline content — exhaustive essays, full-length guidelines, verified live links in dedicated arrays only, zero truncation:',
+    '- Tab 1 theory: 3-5 sections × 5-8 deep paragraphs each (prose only in sections); bibliography with live HTTPS on every website entry (Waldorf/anthroposophical first).',
+    '- Tab 2 inspiration: 2-4 global blocks × 6-10 rich pedagogical mini-essays each (prose only — expansions load on-demand in UI).',
     '- pinterest_links: 4-8 LIVE pinterest.com URLs matching grade+topic.',
-    '- pedagogical_resources: 5-10 LIVE links with multi-paragraph content HTML (visible essay + <details> expansion).',
-    '- Tab 3 core_emphases (right column): 5-6 deep HTML paragraphs with full Developmental Compass — complete teacher reference essay.',
-    '- Tab 3 key_points (left column): 5-6 extensive grade-locked HTML items (3-6 sentences each) — unique, never wrong-grade concepts like הלידה השנייה in Grade 1.',
-    '- Tab 3 recommended_reading: 5-8 entries with substantive notes.',
+    '- pedagogical_resources: 5-10 LIVE links with title/url/label/source/snippet metadata ONLY — no HTML content body.',
+    '- Tab 3 core_emphases (right column): 5-6 deep paragraphs with full Developmental Compass — prose only.',
+    '- Tab 3 key_points (left column): 5-6 extensive grade-locked items (3-6 sentences each) — unique prose only.',
+    '- Tab 3 recommended_reading: 5-8 entries with substantive notes (no URLs).',
     '- Tab 3 relevant_links (מקורות footer): 6-10 live Waldorf/anthroposophical sources; NEVER inside narrative fields.',
   ].join('\n');
 
@@ -2713,9 +2710,9 @@ async function fetchHandler(request) {
 
 module.exports = {
   WALDORF_CORE_SYSTEM_PROMPT,
-  PHASE_C_UPFRONT_PRERENDER_INSTRUCTION,
+  PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION,
+  PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
   PHASE_C_ESSAY_DEPTH_REQUIREMENTS,
-  PHASE_C_DETAILS_EXPANSION_TEMPLATE,
   buildPhaseCGradeTopicLockInstruction,
   extractPhaseCGradeNumber,
   legacyHandler,
