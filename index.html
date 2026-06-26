@@ -5126,10 +5126,70 @@
         summaryHtml: data.expansionHtml || '',
         summary: data.classroomImplementation || '',
         keyPoints: data.practicalSteps || [],
-        pedagogicalAngles: data.inspirationReferences || [],
         relevance: data.parentCommunityAspects || '',
-        furtherReading: data.inspirationReferences || [],
       };
+    }
+
+    function collectInspirationRefsFromExpansion(exp) {
+      var norm = normalizeExpansion(exp);
+      if (!norm || !Array.isArray(norm.inspirationReferences)) return [];
+      return norm.inspirationReferences.map(function (ref) {
+        return String(ref || '').trim();
+      }).filter(Boolean);
+    }
+
+    function collectInspirationRefsFromTheory(theory) {
+      var refs = [];
+      var seen = Object.create(null);
+      function pushRef(ref) {
+        var s = String(ref || '').trim();
+        if (!s) return;
+        var key = s.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        refs.push(s);
+      }
+      (theory && theory.sections || []).forEach(function (sec) {
+        collectInspirationRefsFromExpansion(sec && sec.expansion).forEach(pushRef);
+      });
+      var bib = (theory && theory.bibliography) || {};
+      ['books', 'articles', 'websites'].forEach(function (cat) {
+        (bib[cat] || []).forEach(function (item) {
+          if (!item || typeof item !== 'object') return;
+          collectInspirationRefsFromExpansion(item.expansion).forEach(pushRef);
+        });
+      });
+      return refs;
+    }
+
+    function mergeInspirationRefsIntoBibliography(bib, refs) {
+      var out = {
+        books: (bib && bib.books || []).slice(),
+        articles: (bib && bib.articles || []).slice(),
+        websites: (bib && bib.websites || []).slice(),
+      };
+      var seen = Object.create(null);
+      function markItem(item) {
+        if (!item || !item.label) return;
+        seen[String(item.label).replace(/\s+/g, ' ').trim().toLowerCase()] = true;
+      }
+      out.books.forEach(markItem);
+      out.articles.forEach(markItem);
+      out.websites.forEach(markItem);
+      (refs || []).forEach(function (ref, idx) {
+        var label = String(ref || '').trim();
+        if (!label) return;
+        var key = label.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        var item = normalizeBibliographyItem(
+          { title: label, lang: /[\u0590-\u05FF]/.test(label) ? 'he' : 'en' },
+          'articles',
+          out.articles.length + idx
+        );
+        if (item && item.label) out.articles.push(item);
+      });
+      return out;
     }
 
     function normalizeArchiveSummaryObject(raw, src) {
@@ -5180,18 +5240,6 @@
         summary.keyPoints.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
         html += '</ul>';
       }
-      if (summary.pedagogicalAngles && summary.pedagogicalAngles.length) {
-        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_lesson_angles')) + '</h5>';
-        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
-        summary.pedagogicalAngles.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
-        html += '</ul>';
-      }
-      if (summary.furtherReading && summary.furtherReading.length) {
-        html += '<h5 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_inspiration_refs')) + '</h5>';
-        html += '<ul class="list-disc mr-5 space-y-1 i18n-list">';
-        summary.furtherReading.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
-        html += '</ul>';
-      }
       return html;
     }
 
@@ -5219,10 +5267,10 @@
     function buildExpansionContentHtml(exp) {
       const data = pedagogyDeepDiveToExpansion(exp) || exp || {};
       if (data._perplexityRaw && data.expansionHtml) {
-        return renderNarrativeProseBlock(sanitizeExpansionBodyText(data.expansionHtml));
+        return renderNarrativeProseBlock(data.expansionHtml, { expansionBody: true });
       }
       if (data.expansionHtml) {
-        return renderNarrativeProseBlock(sanitizeExpansionBodyText(data.expansionHtml));
+        return renderNarrativeProseBlock(data.expansionHtml, { expansionBody: true });
       }
       return buildExpansionNarrativeHtml(data);
     }
@@ -5238,11 +5286,9 @@
     }
 
     function sanitizeExpansionBodyText(text) {
-      return stripSequentialDuplicateSentencesClient(
-        stripExpansionSourceNoiseClient(
-          stripStrayMarkdownHashes(
-            stripNarrativeProseMarkup(sanitizePhaseCProseForRender(String(text || '')))
-          )
+      return stripExpansionSourceNoiseClient(
+        stripStrayMarkdownHashes(
+          stripNarrativeProseMarkup(String(text || ''))
         )
       );
     }
@@ -8613,11 +8659,8 @@
         return sortBibliographyItems((list || []).map(function (item, idx) {
           return normalizeBibliographyItem(item, category, idx);
         }).filter(function (i) {
-          if (!i || !i.label) return false;
-          var raw = i.raw || {};
-          var sourceUrl = String(i.url || raw.url || raw.link || raw.href || '').trim();
-          if (!sourceUrl || !isVerifiedLiveCitationUrlClient(sourceUrl)) return false;
-          return hasLiveReferenceSnippetClient(raw);
+          if (!i || !String(i.label || '').trim()) return false;
+          return String(i.label).trim().length >= 2;
         }));
       }
       var normalized = {
@@ -8655,11 +8698,14 @@
         sec.content = ensureAiHtml(sec.content || '');
         if (sec.quotes && !Array.isArray(sec.quotes)) sec.quotes = [];
       });
-      plan.theory.bibliography = normalizeBibliography(
-        extractBibliographyFromPlan(plan) || plan.theory.bibliography,
-        appState.grade,
-        topic,
-        appState.webResearch
+      plan.theory.bibliography = mergeInspirationRefsIntoBibliography(
+        normalizeBibliography(
+          extractBibliographyFromPlan(plan) || plan.theory.bibliography,
+          appState.grade,
+          topic,
+          appState.webResearch
+        ),
+        collectInspirationRefsFromTheory(plan.theory)
       );
       if (!plan.inspiration) {
         plan.inspiration = { title: '', global: [], podcast: { title: '', episodes: [] }, narrative: [] };
@@ -10136,11 +10182,6 @@
         data.keyPoints.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
         html += '</ul>';
       }
-      if (data.pedagogicalAngles && data.pedagogicalAngles.length) {
-        html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_lesson_angles')) + '</h4><ul class="list-disc mr-5 space-y-1 i18n-list">';
-        data.pedagogicalAngles.forEach(function (p) { html += '<li>' + escapeHtml(p) + '</li>'; });
-        html += '</ul>';
-      }
       const relevance = data.relevance || data.pedagogicalRelevance;
       if (relevance) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('theory_bib_relevance')) + '</h4>';
@@ -10710,9 +10751,12 @@
       return next;
     }
 
-    function formatPerplexityRawText(text) {
+    function formatPerplexityRawText(text, options) {
+      options = options || {};
       if (!text) return '<div class="prose-ai"></div>';
-      var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(sanitizePhaseCProseForRender(String(text)))));
+      var s = options.prepared
+        ? cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(text)))
+        : cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(sanitizePhaseCProseForRender(String(text)))));
       var narrativeOnly = isPurePhaseCMode();
       var hasMarkdownLinks = /\[[^\]]+\]\(\s*https?:\/\//i.test(s);
       if (hasMarkdownLinks || !looksLikeAiHtml(s)) {
@@ -10729,11 +10773,12 @@
     }
 
     /** Render pre-compiled HTML as-is for innerHTML; only escape plain-text/markdown payloads. */
-    function renderCompiledPedagogicalHtml(text) {
+    function renderCompiledPedagogicalHtml(text, options) {
+      options = options || {};
       var raw = String(text || '').trim();
       if (!raw) return '';
-      if (isCompiledPedagogicalHtml(raw)) return raw;
-      return formatPerplexityRawText(raw);
+      if (isCompiledPedagogicalHtml(raw)) return ensureAiHtml(raw, { wrap: false });
+      return formatPerplexityRawText(raw, { prepared: options.prepared === true });
     }
 
     function injectStepBWebResearchHtml(html) {
@@ -10762,7 +10807,7 @@
       const data = dive || {};
       const rawContent = String(data.rawContent || data.summaryHtml || '').trim();
       if (!rawContent) return buildExpansionNarrativeHtml(pedagogyDeepDiveToExpansion(data));
-      return renderNarrativeProseBlock(sanitizeExpansionBodyText(rawContent));
+      return renderNarrativeProseBlock(rawContent, { expansionBody: true });
     }
 
     function pedagogyDeepDiveToExpansion(data) {
@@ -14889,18 +14934,28 @@
       return raw.trim();
     }
 
-    function renderNarrativeProseBlock(text) {
-      var raw = stripStrayMarkdownHashes(stripNarrativeProseMarkup(String(text || '').trim()));
+    function renderNarrativeProseBlock(text, options) {
+      options = options || {};
+      var raw = String(text || '').trim();
       if (!raw) return '';
-      raw = sanitizePhaseCProseForRender(raw);
+      if (options.expansionBody) {
+        raw = sanitizeExpansionBodyText(raw);
+        if (!raw) return '';
+        if (isCompiledPedagogicalHtml(raw)) {
+          return '<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>';
+        }
+        return formatPerplexityRawText(raw, { prepared: true });
+      }
+      raw = stripStrayMarkdownHashes(stripNarrativeProseMarkup(raw));
+      if (!raw) return '';
+      raw = sanitizePedagogicalText(sanitizePhaseCProseForRender(raw));
       if (isPurePhaseCMode()) {
         raw = stripExpansionSourceNoiseClient(raw);
       }
       if (isCompiledPedagogicalHtml(raw)) {
-        var cleanHtml = stripNarrativeProseMarkup(raw);
-        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(cleanHtml), { narrativeOnly: true }) + '</div>';
+        return '<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>';
       }
-      return formatPerplexityRawText(raw);
+      return formatPerplexityRawText(raw, { prepared: true });
     }
 
     function renderPureTextBlock(text) {
@@ -17570,45 +17625,48 @@
       if (!items || !items.length) {
         return '';
       }
-      if (isPurePhaseCMode()) {
-        const iconMap = { books: 'fa-book', articles: 'fa-file-lines', websites: 'fa-globe' };
-        const icon = iconMap[category] || 'fa-bookmark';
-        const rendered = items.map(function (item) {
-          if (!item || !item.label) return '';
-          return '<li class="theory-bib-item theory-bib-item--text-only">' +
-            '<div class="theory-bib-source-text">' +
-            '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
-            '<span class="theory-bib-label">' + escapeHtml(item.label) + '</span>' +
-            '</div></li>';
-        }).filter(Boolean);
-        if (!rendered.length) return '';
-        return '<ul class="theory-bib-list">' + rendered.join('') + '</ul>';
-      }
       const iconMap = { books: 'fa-book', articles: 'fa-file-lines', websites: 'fa-globe' };
       const icon = iconMap[category] || 'fa-bookmark';
+      const btnLabel = expansionBtnLabel();
       const rendered = items.map(function (item) {
+        if (!item || !item.label) return '';
         const id = item.id;
         const rawItem = item.raw || {};
-        const websiteUrl = String(item.url || rawItem.url || rawItem.link || rawItem.href || '').trim();
-        if (!websiteUrl || !isVerifiedLiveCitationUrlClient(websiteUrl)) return '';
-        if (!hasLiveReferenceSnippetClient(rawItem)) return '';
         appState.bibliographyRegistry[id] = item;
-        const labelHtml = buildStepBStyleSourceAnchorHtml(websiteUrl, item.label);
-        const btnLabel = expansionBtnLabel();
-        return '<li class="theory-bib-item" data-bib-item="' + escapeHtml(id) + '">' +
+        const websiteUrl = String(item.url || rawItem.url || rawItem.link || rawItem.href || '').trim();
+        const hasVerifiedUrl = websiteUrl && isVerifiedLiveCitationUrlClient(websiteUrl);
+        const labelHtml = hasVerifiedUrl
+          ? buildStepBStyleSourceAnchorHtml(websiteUrl, item.label)
+          : escapeHtml(item.label);
+        const hasInlineExpansion = !!(item.expansion || appState.bibliographySummaries[id]);
+        if (!hasVerifiedUrl && !hasInlineExpansion) {
+          return '<li class="theory-bib-item theory-bib-item--text-only" data-bib-item="' + escapeHtml(id) + '">' +
+            '<div class="theory-bib-source-text">' +
+            '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
+            '<span class="theory-bib-label">' + labelHtml + '</span>' +
+            '</div></li>';
+        }
+        return '<li class="theory-bib-item' + (hasVerifiedUrl ? '' : ' theory-bib-item--text-only') + '" data-bib-item="' + escapeHtml(id) + '">' +
           '<div class="theory-bib-item-row">' +
           '<div class="theory-bib-source-text">' +
           '<i class="fa-solid ' + icon + ' theory-bib-icon" aria-hidden="true"></i>' +
           '<span class="theory-bib-label">' + labelHtml + '</span>' +
           '</div>' +
-          '<button type="button" class="theory-bib-deep-btn" data-bib-id="' + escapeHtml(id) + '" title="' + escapeHtml(btnLabel) + '">' +
-          escapeHtml(btnLabel) + '</button>' +
+          (hasInlineExpansion
+            ? '<button type="button" class="theory-bib-deep-btn" data-bib-id="' + escapeHtml(id) + '" title="' + escapeHtml(btnLabel) + '">' +
+              escapeHtml(btnLabel) + '</button>'
+            : '') +
           '</div>' +
-          '<div id="bib-expand-' + escapeHtml(id) + '" class="inline-expand-panel hidden" aria-live="polite"></div>' +
+          (hasInlineExpansion
+            ? '<div id="bib-expand-' + escapeHtml(id) + '" class="inline-expand-panel hidden" aria-live="polite"></div>'
+            : '') +
           '</li>';
       }).filter(Boolean);
       if (!rendered.length) return '';
-      return '<ul class="theory-bib-list theory-bib-list--interactive">' + rendered.join('') + '</ul>';
+      const listClass = rendered.some(function (row) {
+        return row.indexOf('theory-bib-deep-btn') >= 0;
+      }) ? ' theory-bib-list--interactive' : '';
+      return '<ul class="theory-bib-list' + listClass + '">' + rendered.join('') + '</ul>';
     }
 
     function getRenderableBibliography(theory) {
@@ -17752,18 +17810,22 @@
         }
         d.sections = [];
       }
-      const bib = getRenderableBibliography(d);
+      const rawBibPayload = coerceBibliographyRaw(extractBibliographyFromPlan({ theory: d }) || d.bibliography);
+      var bib = getRenderableBibliography(d);
+      bib = mergeInspirationRefsIntoBibliography(bib, collectInspirationRefsFromTheory(d));
+      if (isBibliographyEmpty(bib) && !isBibliographyEmpty(rawBibPayload)) {
+        bib = mergeInspirationRefsIntoBibliography(
+          normalizeBibliography(rawBibPayload, appState.grade, appState.topic, appState.webResearch),
+          collectInspirationRefsFromTheory(d)
+        );
+      }
       d.bibliography = bib;
-      var renderedSectionBodies = Object.create(null);
       let html = '<div class="mb-6"><h2 class="app-page-title font-display font-bold text-burgundy">' + escapeHtml(d.title) + '</h2>' +
         '<p class="text-sage-dark mt-1">' + escapeHtml(appState.gradeLabel) + ' · ' + escapeHtml(appState.topic) + '</p></div>';
       d.sections.forEach(function (sec, i) {
         if (!sec || typeof sec !== 'object') {
           var secText = String(sec || '').trim();
           if (!secText) return;
-          var looseKey = stripHtmlText(secText).replace(/\s+/g, ' ').trim().slice(0, 360);
-          if (looseKey && renderedSectionBodies[looseKey]) return;
-          if (looseKey) renderedSectionBodies[looseKey] = true;
           html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6">' +
             '<div class="text-lg leading-relaxed prose-ai">' + formatPerplexityRawText(secText) + '</div></article>';
           return;
@@ -17773,9 +17835,6 @@
         const secIcon = sec.icon || 'fa-compass';
         const secHeading = sec.heading || sec.title || '';
         const secContent = sec.content || sec.text || sec.body || '';
-        var sectionFingerprint = stripHtmlText(secContent).replace(/\s+/g, ' ').trim().slice(0, 360);
-        if (sectionFingerprint && renderedSectionBodies[sectionFingerprint]) return;
-        if (sectionFingerprint) renderedSectionBodies[sectionFingerprint] = true;
         const secBodyHtml = renderNarrativeProseBlock(secContent);
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
@@ -17797,8 +17856,11 @@
         });
         html += '</article>';
       });
-      if (bib.books.length || bib.articles.length || bib.websites.length) {
-        html += renderTheoryBibliography(bib);
+      const footerBib = bib.books.length || bib.articles.length || bib.websites.length
+        ? bib
+        : normalizeBibliography(rawBibPayload, appState.grade, appState.topic, appState.webResearch);
+      if (footerBib.books.length || footerBib.articles.length || footerBib.websites.length) {
+        html += renderTheoryBibliography(footerBib);
       }
       if (isPurePhaseCMode()) {
         html += renderPureTheoryLiveLinksSection(d, appState.purePhaseC);
