@@ -5221,7 +5221,9 @@
     function sanitizeExpansionBodyText(text) {
       return stripSequentialDuplicateSentencesClient(
         stripExpansionSourceNoiseClient(
-          stripNarrativeProseMarkup(sanitizePhaseCProseForRender(String(text || '')))
+          stripStrayMarkdownHashes(
+            stripNarrativeProseMarkup(sanitizePhaseCProseForRender(String(text || '')))
+          )
         )
       );
     }
@@ -14834,7 +14836,7 @@
     }
 
     function renderNarrativeProseBlock(text) {
-      var raw = stripNarrativeProseMarkup(String(text || '').trim());
+      var raw = stripStrayMarkdownHashes(stripNarrativeProseMarkup(String(text || '').trim()));
       if (!raw) return '';
       raw = sanitizePhaseCProseForRender(raw);
       if (isPurePhaseCMode()) {
