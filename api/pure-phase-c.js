@@ -922,6 +922,84 @@ function dedupeTextFragments(fragments, seenKeys) {
   return out;
 }
 
+function buildDistinctKeyPointsFromEssay(essay, paragraphs, grade, topic) {
+  const seen = new Set();
+  const coreText = stripHtmlToPlainText(essay);
+  if (coreText) markTextSeen(coreText, seen);
+  const sentences = splitIntoSentences(coreText).filter(function (sentence) {
+    return !isDuplicateText(sentence, seen, 30);
+  });
+  if (sentences.length >= 4) {
+    return dedupeTextFragments(sentences, seen).slice(0, 6);
+  }
+  const grouped = buildKeyPointsFromEssay(coreText, paragraphs || paragraphsFromSterileEssay(coreText));
+  const distinct = dedupeTextFragments(grouped, seen);
+  if (distinct.length) return distinct.slice(0, 6);
+  const defaults = buildGradeDefaultCoreEmphasesParagraphs(grade, topic);
+  return dedupeTextFragments(
+    defaults.map(function (paragraph) {
+      return paragraph.split(/(?<=[.!?׃。])\s+/).slice(0, 2).join(' ').trim() || paragraph;
+    }),
+    seen
+  ).slice(0, 6);
+}
+
+function deduplicateTab3Fields(normalized, grade, topic) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  const seen = new Set();
+  const coreText = stripHtmlToPlainText(normalized.core_emphases || '');
+  if (coreText) markTextSeen(coreText, seen);
+  let keyPoints = Array.isArray(normalized.key_points) ? normalized.key_points.slice() : [];
+  keyPoints = dedupeTextFragments(
+    keyPoints.map(function (item) { return stripHtmlToPlainText(String(item || '')); }).filter(Boolean),
+    seen
+  );
+  if (!keyPoints.length && coreText) {
+    keyPoints = buildDistinctKeyPointsFromEssay(
+      coreText,
+      paragraphsFromSterileEssay(coreText),
+      grade,
+      topic
+    );
+  }
+  normalized.key_points = keyPoints;
+  return normalized;
+}
+
+function collectPhaseCCitationSourcesForLinkify(normalized, parsed, topic) {
+  const items = collectPhaseCLinkItemsForDisplay(normalized, topic);
+  const out = [];
+  const seen = new Set();
+  function pushUrl(url) {
+    const clean = cleanHarvestedUrl(url);
+    if (!clean || seen.has(clean)) return;
+    seen.add(clean);
+    out.push(clean);
+  }
+  extractLiveCitationsFromParsed(parsed || normalized, topic).forEach(pushUrl);
+  items.forEach(function (item) { pushUrl(item.url); });
+  return out;
+}
+
+function buildPhaseCCitationBadgeHtml(num) {
+  const label = '[' + num + ']';
+  const anchorId = 'phase-c-source-' + num;
+  return '<a href="#' + escapeHtmlForFallback(anchorId) + '" class="phase-c-cite-badge text-green-600 font-bold mx-0.5" data-cite="' +
+    escapeHtmlForFallback(String(num)) + '">' + label + '</a>';
+}
+
+function linkifyCitationMarkersInProse(text) {
+  return String(text || '').replace(/\[(\d{1,2})\]/g, function (_match, num) {
+    return buildPhaseCCitationBadgeHtml(num);
+  });
+}
+
+function linkifyCitationMarkersInHtml(html) {
+  return String(html || '').replace(/\[(\d{1,2})\]/g, function (_match, num) {
+    return buildPhaseCCitationBadgeHtml(num);
+  });
+}
+
 const FALLBACK_PEDAGOGY_KEYWORDS = /מצפן|התפתחות|גיל\s|מורה|פדגוג|דימוי|נפש|רוח|סמכות|עצמאות|מרד|developmental|compass|teacher|authority|rebellion/i;
 const FALLBACK_THEORY_KEYWORDS = /היסטור|מהפכ|אנתרופוסופ|שטיינר|steiner|רקע|תקופה|anthroposoph|revolution|history|lecture|ga\s*\d/i;
 const FALLBACK_INSPIRATION_KEYWORDS = /כיתה|שיעור|פעילות|תנועה|אמנות|חווי|יישום|דוגמ|יציר|drawing|art|classroom|practical|inspiration|creative/i;
@@ -1277,12 +1355,13 @@ function collectPhaseCLinkItemsForDisplay(normalized, topic) {
 function buildPhaseCFallbackSourcesSectionHtml(normalized, topic) {
   const links = collectPhaseCLinkItemsForDisplay(normalized, topic);
   if (!links.length) return '';
-  const items = links.map(function (item) {
-    return '<li>' + buildFallbackAnchorHtml(item.url, item.title) + '</li>';
+  const items = links.map(function (item, index) {
+    const num = index + 1;
+    return '<li id="phase-c-source-' + num + '">' + buildFallbackAnchorHtml(item.url, item.title) + '</li>';
   }).join('');
-  return '<div class="grade-insights-sources mt-4 text-walnut/80">' +
+  return '<div id="phase-c-sources" class="grade-insights-sources mt-4 text-walnut/80">' +
     '<p class="mb-1"><strong>מקורות:</strong></p>' +
-    '<ul class="list-disc mr-5 space-y-1 i18n-list">' + items + '</ul></div>';
+    '<ol class="list-decimal mr-5 space-y-1 i18n-list">' + items + '</ol></div>';
 }
 
 function ensureDomainHref(domain) {
@@ -1340,6 +1419,8 @@ function linkifyFallbackSegment(text, topic) {
   placeholders.forEach(function (html, index) {
     work = work.split('\x00FLINK' + index + '\x00').join(html);
   });
+
+  work = linkifyCitationMarkersInProse(work);
 
   return { html: work, links: extracted };
 }
@@ -1445,11 +1526,11 @@ function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, topic) {
   chunks = chunks.filter(function (c) { return String(c || '').trim().length > 8; }).slice(0, 3);
 
   const duplicatePayload = fallbackEssay || source.join('\n\n') || chunks.join('\n\n');
+  const gradeDefaults = buildGradeDefaultCoreEmphasesParagraphs(grade, topicStr);
   while (chunks.length < 3) {
-    const donor = chunks[chunks.length - 1] || duplicatePayload ||
-      buildGradeDefaultCoreEmphasesParagraphs(grade, '')[chunks.length] ||
-      buildGradeDefaultCoreEmphasesParagraphs(grade, '')[0];
-    chunks.push(donor);
+    const fallbackChunk = gradeDefaults[chunks.length] || gradeDefaults[0] || '';
+    if (!fallbackChunk) break;
+    chunks.push(fallbackChunk);
   }
 
   const allLinks = [];
@@ -1486,7 +1567,7 @@ function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, topic) {
     const defaults = buildGradeDefaultCoreEmphasesParagraphs(grade, topicStr);
     return buildCoreEmphasesFallbackHtml(defaults, defaults.join('\n\n'), grade, topicStr);
   }
-  return { html: html, links: allLinks };
+  return { html: linkifyCitationMarkersInHtml(html), links: allLinks };
 }
 
 function splitInspirationFallbackItems(paragraphs, essay) {
@@ -1579,7 +1660,7 @@ function ensurePhaseCTab3Population(normalized, opts) {
     normalized.core_emphases = emergency.html;
   }
 
-  return normalized;
+  return deduplicateTab3Fields(normalized, grade, topic);
 }
 
 function duplicateRichPayloadAcrossFallbackTabs(normalized, essay, grade, topic) {
@@ -2113,7 +2194,7 @@ function normalizePhaseCResponse(parsed, grade, topic) {
     relevant_links: relevantLinks,
   };
   ensureRecommendedReading(result, coreEmphases, grade, topic, parsed);
-  return applyLiveCitationGate(result, parsed, topic);
+  return deduplicateTab3Fields(applyLiveCitationGate(result, parsed, topic), grade, topic);
 }
 
 function resolveGradeId(body) {
@@ -2313,7 +2394,11 @@ module.exports = {
   buildTheoryFallbackSections,
   buildCoreEmphasesFallbackHtml,
   partitionFallbackEssay,
+  deduplicateTab3Fields,
+  buildDistinctKeyPointsFromEssay,
   dedupeTextFragments,
+  linkifyCitationMarkersInHtml,
+  linkifyCitationMarkersInProse,
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
