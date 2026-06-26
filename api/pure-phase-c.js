@@ -1781,8 +1781,18 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   });
 }
 
+const PHASE_C_SOURCE_HARVESTING_INSTRUCTION = [
+  '=== SOURCE HARVESTING (STRICT — Waldorf & Anthroposophy first) ===',
+  'The generated content and sources MUST heavily prioritize and center around Waldorf education (חינוך ולדורף) and Anthroposophy (אנתרופוסופיה).',
+  'Prioritize scanning and returning references from trusted domains like antro.co.il, Israeli Waldorf school platforms, and anthroposophical portals.',
+  'The main body of references MUST remain Waldorf-focused: Steiner archives (rsarchive.org), waldorflibrary.org, AWSNA, IASWECE, antro.co.il, Israeli Waldorf networks, and anthroposophical research libraries.',
+  'Generic state-curriculum or practical mapping links (מט"ח, פורטל עובדי הוראה, משרד החינוך sheets, national curriculum spreadsheets) are capped at a MAXIMUM of 1-2 links TOTAL across the entire response — only as a minimal practical appendix, never as the primary reference set.',
+  '=== END SOURCE HARVESTING ===',
+].join(' ');
+
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
+  PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?}]}} — rich theoretical background for the grade+topic),',
   'inspiration (object: {title, global: [{title, items: [strings]}], podcast: {title, episodes: [{theme, insight}]}, narrative: [strings]} — artistic/pedagogical classroom inspiration),',
@@ -1791,7 +1801,7 @@ const SYSTEM_PROMPT = [
   'core_emphases (string: AT LEAST 3-4 comprehensive Hebrew paragraphs with a dedicated Developmental Compass block — מצפן התפתחותי / רציונל התפתחותי ומצפן למורה — covering why-this-age, inner developmental milestone, teacher attitude/rhythm, and concrete pedagogical goals; NEVER brief or truncated),',
   'key_points (array of exactly 5-6 substantial Hebrew strings — each 2-4 sentences on lesson-block dynamics, transitions, or core concepts; NOT terse one-liners; NEVER empty),',
   'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it is relevant; NEVER an empty array),',
-  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays; NEVER an empty array).',
+  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, antro.co.il, Israeli Waldorf platforms, anthroposophical portals; at most 1-2 ministry/מט"ח mapping links total; NEVER an empty array).',
   '',
   shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
 ].join(' ');
@@ -2089,17 +2099,19 @@ async function runPurePhaseC(body) {
     '',
     shared.PROFESSIONAL_LINKS_INSTRUCTION,
     '',
+    PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
+    '',
     shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
     '',
     'Return MAXIMUM-DEPTH, classroom-ready content — ALL sections fully populated at full length, zero truncation:',
-    '- Tab 1 theory: exhaustive historical & anthroposophical foundations — 3-5 deep sections; bibliography with live HTTPS URLs on every website entry.',
+    '- Tab 1 theory: exhaustive historical & anthroposophical foundations — 3-5 deep sections; bibliography with live HTTPS URLs on every website entry (Waldorf/anthroposophical sources first).',
     '- Tab 2 inspiration: highly enriched artistic/creative ideas — multiple global blocks, podcast episodes, narrative threads (no URLs inside text).',
     '- pinterest_links: 4-8 LIVE pinterest.com board or pin URLs matching grade+topic (main lesson books, form drawing, chalkboard art, student work).',
-    '- pedagogical_resources: 5-10 LIVE professional teacher-facing links (articles, archives, deep sources — not parent school pages).',
+    '- pedagogical_resources: 5-10 LIVE professional teacher-facing links — prioritize antro.co.il, Israeli Waldorf platforms, Steiner archives, waldorflibrary.org (not parent school pages or ministry spreadsheets).',
     '- Tab 3 core_emphases (דגשים פדגוגיים ומהותיים): 3-4 deep paragraphs with Developmental Compass (מצפן התפתחותי) and concrete pedagogical goals.',
     '- Tab 3 key_points (נקודות מרכזיות): 5-6 substantial bullets on lesson architecture.',
     '- Tab 3 recommended_reading (ספרות מומלצת): 5-8 entries with contextual notes — MUST NOT be empty.',
-    '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live professional sources — MUST NOT be empty.',
+    '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live Waldorf/anthroposophical sources (antro.co.il, Steiner archives, Israeli Waldorf networks); at most 1-2 מט"ח/משרד החינוך mapping links total — MUST NOT be empty.',
   ].join('\n');
 
   const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
