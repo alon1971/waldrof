@@ -981,23 +981,12 @@ function collectPhaseCCitationSourcesForLinkify(normalized, parsed, topic) {
   return out;
 }
 
-function buildPhaseCCitationBadgeHtml(num) {
-  const label = '[' + num + ']';
-  const anchorId = 'phase-c-source-' + num;
-  return '<a href="#' + escapeHtmlForFallback(anchorId) + '" class="phase-c-cite-badge text-green-600 font-bold mx-0.5" data-cite="' +
-    escapeHtmlForFallback(String(num)) + '">' + label + '</a>';
+function stripBracketCitationMarkersInProse(text) {
+  return String(text || '').replace(/\[\d{1,3}\]/g, '');
 }
 
-function linkifyCitationMarkersInProse(text) {
-  return String(text || '').replace(/\[(\d{1,2})\]/g, function (_match, num) {
-    return buildPhaseCCitationBadgeHtml(num);
-  });
-}
-
-function linkifyCitationMarkersInHtml(html) {
-  return String(html || '').replace(/\[(\d{1,2})\]/g, function (_match, num) {
-    return buildPhaseCCitationBadgeHtml(num);
-  });
+function stripBracketCitationMarkersInHtml(html) {
+  return String(html || '').replace(/\[\d{1,3}\]/g, '');
 }
 
 const FALLBACK_PEDAGOGY_KEYWORDS = /מצפן|התפתחות|גיל\s|מורה|פדגוג|דימוי|נפש|רוח|סמכות|עצמאות|מרד|developmental|compass|teacher|authority|rebellion/i;
@@ -1420,7 +1409,7 @@ function linkifyFallbackSegment(text, topic) {
     work = work.split('\x00FLINK' + index + '\x00').join(html);
   });
 
-  work = linkifyCitationMarkersInProse(work);
+  work = stripBracketCitationMarkersInProse(work);
 
   return { html: work, links: extracted };
 }
@@ -1567,7 +1556,7 @@ function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, topic) {
     const defaults = buildGradeDefaultCoreEmphasesParagraphs(grade, topicStr);
     return buildCoreEmphasesFallbackHtml(defaults, defaults.join('\n\n'), grade, topicStr);
   }
-  return { html: linkifyCitationMarkersInHtml(html), links: allLinks };
+  return { html: stripBracketCitationMarkersInHtml(html), links: allLinks };
 }
 
 function splitInspirationFallbackItems(paragraphs, essay) {
@@ -1973,8 +1962,15 @@ const PHASE_C_SOURCE_HARVESTING_INSTRUCTION = [
   '=== END SOURCE HARVESTING ===',
 ].join(' ');
 
+const PHASE_C_CRITICAL_TEXT_INSTRUCTION = [
+  'CRITICAL TEXT INSTRUCTION: Do NOT include any academic bracketed citation numbers or footnotes (e.g., [1], [2], [7]) anywhere in the text.',
+  'Absolutely FORBID repeating or duplicating the same paragraphs or sentences across different JSON fields.',
+  'Write unique content for each key.',
+].join(' ');
+
 const SYSTEM_PROMPT = [
   WALDORF_CORE_SYSTEM_PROMPT,
+  PHASE_C_CRITICAL_TEXT_INSTRUCTION,
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
@@ -2308,13 +2304,15 @@ async function runPurePhaseC(body) {
     '',
     PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
     '',
+    PHASE_C_CRITICAL_TEXT_INSTRUCTION,
+    '',
     'Return MAXIMUM-DEPTH, classroom-ready content — ALL sections fully populated at full length, zero truncation:',
     '- Tab 1 theory: exhaustive historical & anthroposophical foundations — 3-5 deep sections; bibliography with live HTTPS URLs on every website entry (Waldorf/anthroposophical sources first). NEVER center theory on מט"ח, ראמ"ה, נגבה, or KidsPlus.',
     '- Tab 2 inspiration: highly enriched artistic/creative ideas — multiple global blocks and narrative threads (no URLs inside text). Omit podcast entirely unless every episode has a verified HTTPS url.',
     '- pinterest_links: 4-8 LIVE pinterest.com board or pin URLs matching grade+topic (main lesson books, form drawing, chalkboard art, student work).',
     '- pedagogical_resources: 5-10 LIVE professional teacher-facing links — prioritize antro.co.il, Israeli Waldorf platforms, Steiner archives, waldorflibrary.org (not parent school pages or ministry spreadsheets).',
     '- Tab 3 core_emphases (דגשים פדגוגיים ומהותיים): 3-4 deep paragraphs with Developmental Compass (מצפן התפתחותי) and concrete pedagogical goals.',
-    '- Tab 3 key_points (נקודות מרכזיות): 5-6 substantial bullets on lesson architecture.',
+    '- Tab 3 key_points (נקודות להתייחסות): 5-6 substantial bullets on lesson architecture — each unique, never duplicated from core_emphases.',
     '- Tab 3 recommended_reading (ספרות מומלצת): 5-8 entries with contextual notes — MUST NOT be empty.',
     '- Tab 3 relevant_links (קישורים רלוונטיים): 6-8 live Waldorf/anthroposophical sources (antro.co.il, Steiner archives, Israeli Waldorf networks); at most 1-2 מט"ח/משרד החינוך mapping links total — MUST NOT be empty.',
   ].join('\n');
@@ -2397,8 +2395,8 @@ module.exports = {
   deduplicateTab3Fields,
   buildDistinctKeyPointsFromEssay,
   dedupeTextFragments,
-  linkifyCitationMarkersInHtml,
-  linkifyCitationMarkersInProse,
+  stripBracketCitationMarkersInHtml,
+  stripBracketCitationMarkersInProse,
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
