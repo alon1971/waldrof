@@ -1928,7 +1928,8 @@
     }
     .phase-c-unified-export-btn:active { transform: scale(0.98); }
     .phase-c-unified-export-btn:disabled { opacity: 0.55; cursor: wait; }
-    .phase-c-unified-export-btn.hidden { display: none !important; }
+    /* Always visible — never gated on content render lifecycle */
+    .phase-c-unified-export-btn.hidden { display: inline-flex !important; }
     .pedagogy-export-btn--nav {
       padding: 0.55rem 1rem;
       font-size: 13px;
@@ -4456,7 +4457,7 @@
       <section id="panel-narrative" class="tab-panel product-tab-panel hidden" role="region" aria-labelledby="phase-c-unified-heading" hidden>
         <div class="phase-c-unified-header mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 id="phase-c-unified-heading" class="app-page-title font-display font-bold text-burgundy m-0" data-i18n="tab_narrative">מידע והשראה</h2>
-          <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn hidden" dir="rtl" data-unified-topic-export aria-label="הורד למסמך וורד">
+          <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export aria-label="הורד למסמך וורד">
             <i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true"></i>
             <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
           </button>
@@ -11774,10 +11775,24 @@
     }
 
     function buildSecureWordBlob(bodyHtml, langCode) {
-      const lang = langCode || (isEnglish() ? 'en' : 'he');
-      const dir = lang === 'en' ? 'ltr' : 'rtl';
-      const containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
-      const htmlContent =
+      // Locked typography: Hebrew RTL, Arial, 12pt, 1.5 line spacing.
+      // Fully defensive — never throws and always yields a valid .doc blob,
+      // even when bodyHtml is empty/undefined.
+      var lang = 'he';
+      try {
+        lang = langCode || (isEnglish() ? 'en' : 'he');
+      } catch (langErr) {
+        lang = 'he';
+      }
+      var dir = lang === 'en' ? 'ltr' : 'rtl';
+      var safeBody = '';
+      try {
+        safeBody = bodyHtml == null ? '' : String(bodyHtml);
+      } catch (bodyErr) {
+        safeBody = '';
+      }
+      var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
+      var htmlContent =
         '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
         '<head>\n' +
         '  <meta charset="utf-8">\n' +
@@ -11786,10 +11801,14 @@
         '  </style>\n' +
         '</head>\n' +
         '<body dir="' + dir + '" style="' + containerStyle + '">\n' +
-        (bodyHtml || '') +
+        safeBody +
         '\n</body>\n' +
         '</html>';
-      return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+      try {
+        return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+      } catch (blobErr) {
+        return new Blob([htmlContent], { type: 'application/msword' });
+      }
     }
 
     function buildWordRtlBlob(bodyHtml, langCode) {
@@ -11857,14 +11876,11 @@
     }
 
     function bindGeneralSearchExportButton() {
+      // Click handling is via document-level delegation (ensureGeneralSearchWordExportDelegation),
+      // so freshly re-rendered result markup is always live. Here we just ensure the button is enabled.
       var btn = document.getElementById('btn-general-search-export-word');
-      if (!btn || btn.dataset.bound) return;
-      btn.dataset.bound = '1';
-      btn.disabled = false;
-      btn.addEventListener('click', function (e) {
-        e.preventDefault();
-        downloadGeneralSearchDocx();
-      });
+      if (btn) btn.disabled = false;
+      ensureGeneralSearchWordExportDelegation();
     }
 
     function ensureChatWordExportDelegation() {
@@ -11894,6 +11910,20 @@
         e.preventDefault();
         e.stopPropagation();
         downloadUnifiedTopicDocx();
+      }, true);
+    }
+
+    function ensureGeneralSearchWordExportDelegation() {
+      if (document.documentElement.dataset.generalSearchWordExportBound) return;
+      document.documentElement.dataset.generalSearchWordExportBound = '1';
+      document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest
+          ? e.target.closest('#btn-general-search-export-word')
+          : null;
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        downloadGeneralSearchDocx();
       }, true);
     }
 
@@ -11960,10 +11990,12 @@
     }
 
     function updatePhaseCExportButtons() {
-      var show = canShowPedagogyExport();
+      // The unified-view Word button is permanent and lifecycle-independent: it is
+      // always visible and enabled the moment the narrative panel is shown, never
+      // gated on content rendering. Empty-state is handled safely on click.
       var panelBtn = document.getElementById('btn-phase-c-export-word');
       if (panelBtn) {
-        panelBtn.classList.toggle('hidden', !show);
+        panelBtn.classList.remove('hidden');
         panelBtn.disabled = false;
       }
     }
@@ -14877,7 +14909,7 @@
       }
       if (!href || !/^https?:\/\//i.test(href) || isExpansionLowQualitySourceUrl(href)) return '';
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline">' +
-        escapeHtml(isEnglish() ? 'Source link' : 'קישור למקור') + '</a>';
+        escapeHtml(isEnglish() ? '[source]' : '[מקור]') + '</a>';
     }
 
     function linkifyExpansionBracketReferences(text) {
@@ -15755,16 +15787,56 @@
       return Boolean(extractPhaseCUnifiedRichText(data || appState.purePhaseC));
     }
 
+    /**
+     * Convert dead reference brackets in raw prose ([6], [10], [GA 294], …) into
+     * markdown-link form [מקור](url) BEFORE markdown formatting, so they survive
+     * stripPhaseBReferenceBrackets and render as live blue source links.
+     * Numeric brackets map by index into the live Perplexity citation list; textual
+     * refs (GA volumes, etc.) are linked only when a citation URL loosely matches —
+     * otherwise the original bracket text is preserved verbatim (no fabricated links).
+     */
+    function phaseCLinkifyReferenceBracketsToMarkdown(text) {
+      var s = String(text || '');
+      if (!s) return s;
+      var citations = getLiveCitationList();
+      var sourceLabel = isEnglish() ? 'source' : 'מקור';
+      s = s.replace(/\[\s*(\d{1,3})\s*\](?!\()/g, function (m, num) {
+        var idx = parseInt(num, 10) - 1;
+        if (idx < 0 || idx >= citations.length) return m;
+        var href = sanitizeExternalLinkUrl(citations[idx]);
+        if (!href) return m;
+        return '[' + sourceLabel + '](' + href + ')';
+      });
+      if (citations.length) {
+        s = s.replace(/\[\s*([A-Za-z\u0590-\u05FF][^\]\n]{0,38})\s*\](?!\()/g, function (m, inner) {
+          var norm = String(inner || '').toLowerCase().replace(/[\s._-]+/g, '');
+          if (!norm) return m;
+          for (var i = 0; i < citations.length; i++) {
+            var cu = String(citations[i] || '').toLowerCase().replace(/[\s._-]+/g, '');
+            if (cu.indexOf(norm) >= 0) {
+              var href = sanitizeExternalLinkUrl(citations[i]);
+              if (href) return '[' + sourceLabel + '](' + href + ')';
+            }
+          }
+          return m;
+        });
+      }
+      return s;
+    }
+
     function renderPhaseCUnifiedRichBodyHtml(rawText) {
       if (!rawText) return '';
       var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(rawText)));
       var html;
       if (isCompiledPedagogicalHtml(s)) {
         html = '<div class="prose-ai leading-relaxed">' + ensureAiHtml(s, { wrap: false }) + '</div>';
-      } else if (/\[[^\]]+\]\(\s*https?:\/\//i.test(s) || !looksLikeAiHtml(s)) {
-        html = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s, { narrativeOnly: false }) + '</div>';
       } else {
-        html = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(s), { narrativeOnly: false }) + '</div>';
+        s = phaseCLinkifyReferenceBracketsToMarkdown(s);
+        if (/\[[^\]]+\]\(\s*https?:\/\//i.test(s) || !looksLikeAiHtml(s)) {
+          html = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s, { narrativeOnly: false }) + '</div>';
+        } else {
+          html = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(s), { narrativeOnly: false }) + '</div>';
+        }
       }
       return linkifyExpansionHtml(html);
     }
@@ -15803,6 +15875,9 @@
           if (href) pushLink(item.title || item.name, href);
         });
       }
+      getLiveCitationList().forEach(function (url) {
+        pushLink(resolveFriendlyLinkDisplayLabel('', url), url);
+      });
       return out;
     }
 
@@ -15973,6 +16048,7 @@
       if (!panel) return;
       panel.classList.remove('hidden');
       panel.removeAttribute('hidden');
+      updatePhaseCExportButtons();
     }
 
     function resetProductTabsNeutral() {
@@ -16206,7 +16282,9 @@
       if (appState.grade && appState.topic) {
         switchProductTab(initialTab, options);
       } else {
+        revealProductTabPanel('narrative');
         syncPhaseCEmptyVisibility();
+        updatePhaseCExportButtons();
       }
       renderStepProgress();
       updateWorkspaceChrome();
@@ -20731,6 +20809,8 @@
       // later binding error in this function (listeners attach to document).
       ensureTopicWordExportDelegation();
       ensureChatWordExportDelegation();
+      ensureGeneralSearchWordExportDelegation();
+      updatePhaseCExportButtons();
       bindHeaderExplicitAuthActions();
       bindCorruptedNavigationGuard();
       bindWorkspaceBreadcrumbNav();

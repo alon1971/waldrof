@@ -1004,7 +1004,7 @@ function stripNakedUrlsFromProse(text) {
 }
 
 function stripPedagogicalNarrativeMarkup(html) {
-  let out = stripBracketCitationMarkersInHtml(String(html || ''));
+  let out = String(html || '');
   out = out.replace(/<details[\s\S]*?<\/details>/gi, '');
   out = out.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1');
   out = out.replace(/https?:\/\/[^\s<>"']+/gi, '');
@@ -1022,7 +1022,7 @@ function sanitizePhaseCStringField(value) {
 }
 
 function sanitizePhaseCPlainProse(text) {
-  let out = stripBracketCitationMarkersInProse(String(text || ''));
+  let out = String(text || '');
   out = stripPercentEncodedUrlGarbage(out);
   if (hasDisallowedForeignScript(out)) {
     out = out.split(/\n\n+/).map(function (para) {
@@ -1338,12 +1338,14 @@ function collectPhaseCCitationSourcesForLinkify(normalized, parsed, topic) {
   return out;
 }
 
+/** @deprecated Pass-through — citation brackets [N] are preserved for client-side linkification. */
 function stripBracketCitationMarkersInProse(text) {
-  return String(text || '').replace(/\[\d{1,3}\]/g, '');
+  return String(text || '');
 }
 
+/** @deprecated Pass-through — citation brackets [N] are preserved for client-side linkification. */
 function stripBracketCitationMarkersInHtml(html) {
-  return String(html || '').replace(/\[\d{1,3}\]/g, '');
+  return String(html || '');
 }
 
 const FALLBACK_PEDAGOGY_KEYWORDS = /מצפן|התפתחות|גיל\s|מורה|פדגוג|דימוי|נפש|רוח|סמכות|עצמאות|מרד|developmental|compass|teacher|authority|rebellion/i;
@@ -1766,8 +1768,6 @@ function linkifyFallbackSegment(text, topic) {
     work = work.split('\x00FLINK' + index + '\x00').join(html);
   });
 
-  work = stripBracketCitationMarkersInProse(work);
-
   return { html: work, links: extracted };
 }
 
@@ -1946,7 +1946,7 @@ function buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, topic) {
     const defaults = buildGradeDefaultCoreEmphasesParagraphs(grade, topicStr);
     return buildCoreEmphasesFallbackHtml(defaults, defaults.join('\n\n'), grade, topicStr);
   }
-  return { html: stripBracketCitationMarkersInHtml(html), links: allLinks };
+  return { html: html, links: allLinks };
 }
 
 function splitInspirationFallbackItems(paragraphs, essay) {
@@ -2412,7 +2412,8 @@ const PHASE_C_SOURCE_HARVESTING_INSTRUCTION = [
 ].join(' ');
 
 const PHASE_C_CRITICAL_TEXT_INSTRUCTION = [
-  'CRITICAL TEXT INSTRUCTION: Do NOT include any academic bracketed citation numbers or footnotes (e.g., [1], [2], [7]) anywhere in the text.',
+  'CRITICAL TEXT INSTRUCTION: Include numbered Perplexity source markers inline (e.g., [1], [2], [7]) after substantive claims — these map to live citation URLs on the client and become clickable source links.',
+  'Do NOT embed raw URLs, naked domains, or HTML <a> anchors inside narrative prose fields — use [N] markers only.',
   'Absolutely FORBID repeating or duplicating the same paragraphs or sentences across different JSON fields.',
   'Write unique content for each key.',
 ].join(' ');
@@ -2448,7 +2449,8 @@ const PHASE_C_LINKS_CENTRALIZATION_RULE = [
 const PHASE_C_NARRATIVE_TEXT_ONLY_RULE = [
   '=== NARRATIVE TEXT ONLY (GLOBAL — ALL TABS) ===',
   'Every pedagogical narrative field (theory sections, inspiration items, core_emphases, key_points) MUST contain PEDAGOGICAL PROSE ONLY.',
-  'STRICTLY FORBIDDEN inside narrative bodies: academic bracket citations [1], footnotes, raw URLs, naked domains, HTML <a> anchors, <details> blocks, or any link markup.',
+  'REQUIRED inside narrative bodies: numbered Perplexity source markers [1], [2], [3] after claims — the client converts these to live clickable source links.',
+  'STRICTLY FORBIDDEN inside narrative bodies: raw URLs, naked domains, HTML <a> anchors, <details> blocks, or any link markup (use [N] markers instead).',
   'The UI loads «הרחבה ואספקטים פרקטיים» via a separate on-demand API call — NEVER bundle expansions, workshop steps, or practical dives in this payload.',
   PHASE_C_EXPANSION_NARRATIVE_RULE,
   PHASE_C_LINKS_CENTRALIZATION_RULE,
@@ -2456,16 +2458,27 @@ const PHASE_C_NARRATIVE_TEXT_ONLY_RULE = [
 ].join(' ');
 
 const PHASE_C_ESSAY_DEPTH_REQUIREMENTS = [
-  '=== MAXIMUM ESSAY DEPTH (MANDATORY — full live-research curriculum quality) ===',
-  'Write EXTENSIVE, comprehensive, academic-yet-practical Waldorf curriculum essays — NOT summaries, NOT thin bullets, NOT stubs.',
-  'Use the FULL output token budget across ALL tabs. Never sacrifice length for brevity.',
-  'Narrative tab — theory: 3-5 sections; EACH section = 5-8 deep paragraphs (plain HTML: <p>, <strong>, <ul>/<li> only — NO links in section content).',
-  'Narrative tab — inspiration: 2-4 global blocks with 6-10 items each; every item = rich pedagogical mini-essay (plain text/HTML prose only — Peter Selg, classroom arts, movement).',
-  'Resources tab — pedagogical_resources: title, url, label, source, snippet ONLY — no content HTML body.',
-  'Narrative tab — core_emphases: MINIMUM 5-6 long paragraphs including full Developmental Compass (מצפן התפתחותי) — prose only.',
-  'Narrative tab — key_points: exactly 5-6 items; EACH = 3-6 unique sentences of grade-specific lesson architecture — prose only.',
-  'Resources tab — recommended_reading: 5-8 entries with substantive 2-3 sentence notes each (no URLs).',
-  'Resources tab — relevant_links: 6-10 verified live HTTPS URLs with descriptive Hebrew titles — dedicated links array ONLY.',
+  '=== MAXIMUM ESSAY DEPTH (MANDATORY — exhaustive teacher manual, NOT a summary) ===',
+  'ABSOLUTE DIRECTIVE: DO NOT SUMMARIZE. DO NOT abbreviate. DO NOT write thin bullets, stubs, or overviews.',
+  'You are writing a MASSIVE, COMPREHENSIVE, MULTI-SECTION teaching manual for a single Waldorf teacher — book-chapter length, not an abstract.',
+  'Spend the ENTIRE output token budget. Longer is better. If you feel you are getting close to "enough", keep going with new concrete detail.',
+  'The manual MUST cover ALL of the following dimensions in depth — never skip a dimension:',
+  '  1) Exhaustive pedagogical & anthroposophical background (the spiritual-scientific WHY behind teaching this topic at this grade).',
+  '  2) Structural developmental axis for the grade (the soul-spiritual developmental stage, the Developmental Compass מצפן התפתחותי, what is awakening in the child, why NOW).',
+  '  3) Concrete, day-by-day lesson plans and main-lesson block architecture (rhythm of the day, opening, recall, main work, artistic deepening, closing — with real classroom sequences).',
+  '  4) Storytelling ideas (specific tales, legends, biographies, imaginative narratives with motifs and how to tell them).',
+  '  5) Blackboard drawing inspirations (chalk-drawing motifs, colors, composition, sequence — described vividly enough to reproduce).',
+  '  6) Seminar paper findings (insights drawn from Waldorf seminar papers / עבודות סמינריון and teacher-training research on this exact topic+grade).',
+  '  7) Every PDF / source text structure you can surface — extract and paraphrase the substantive pedagogical content (chapter structure, key arguments, practical recipes) of any Waldorf PDFs, archives, or seminar texts you find.',
+  'Field-by-field MINIMUMS (these are floors, not ceilings — exceed them):',
+  'theory: 4-6 sections; EACH section = 6-10 deep paragraphs (plain HTML: <p>, <strong>, <ul>/<li> only — NO links in section content).',
+  'inspiration: 3-4 global blocks with 8-12 items each; every item = a rich multi-sentence pedagogical mini-essay (storytelling, recitation, painting, movement, blackboard art — concrete and actionable).',
+  'core_emphases: MINIMUM 6-8 long paragraphs including the FULL Developmental Compass (מצפן התפתחותי) and the structural developmental axis — prose only.',
+  'key_points: 6-8 items; EACH = 4-7 unique sentences of grade-specific lesson architecture, storytelling, and blackboard-drawing direction — prose only, never duplicating core_emphases.',
+  'pedagogical_resources: title, url, label, source, AND a substantive multi-sentence snippet that PARAPHRASES the real content of the PDF/source — never an empty stub.',
+  'recommended_reading: 6-8 entries with substantive 2-4 sentence notes each (no URLs).',
+  'relevant_links: 6-12 verified live HTTPS URLs with descriptive Hebrew titles — dedicated links array ONLY.',
+  'It is FORBIDDEN to return a short or generic answer. A shallow payload is a failed payload.',
   '=== END ESSAY DEPTH ===',
 ].join(' ');
 
@@ -2519,14 +2532,14 @@ const SYSTEM_PROMPT = [
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?, author?, note?}]}} — exhaustive theoretical background; EACH section content = 5-8 deep paragraphs using ONLY <p>, <strong>, <ul>/<li>; NO links or citations in section HTML; bibliography holds all sources),',
-  'inspiration (object: {title, global: [{title, items: [rich pedagogical mini-essays — plain prose/HTML without links]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit unless every episode has verified HTTPS url, narrative: [essay strings]} — vivid classroom inspiration; NO bare URLs in item prose),',
+  'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?, author?, note?}]}} — exhaustive book-length theoretical background; 4-6 sections; EACH section content = 6-10 deep paragraphs using ONLY <p>, <strong>, <ul>/<li>; cover anthroposophical background, developmental axis, concrete lesson plans, storytelling, blackboard drawings, and seminar-paper findings; NO links or citations in section HTML; bibliography holds all sources),',
+  'inspiration (object: {title, global: [{title, items: [rich multi-sentence pedagogical mini-essays — storytelling, recitation, painting, movement, blackboard art — plain prose/HTML without links]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit unless every episode has verified HTTPS url, narrative: [essay strings]} — vivid concrete classroom inspiration; 3-4 blocks × 8-12 items; NO bare URLs in item prose),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
-  'pedagogical_resources (array of objects: {title, url, label, source, snippet} — metadata and short snippet ONLY; NO content HTML body),',
-  'core_emphases (string: compiled pedagogical essay with MINIMUM 5-6 comprehensive Hebrew paragraphs and full Developmental Compass — prose only; NO links),',
-  'key_points (array of exactly 5-6 rich strings — EACH 3-6 substantial grade-locked sentences; prose only; NEVER duplicate core_emphases),',
-  'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 2-3 substantive sentences; NO urls),',
-  'relevant_links (array of 6-10 objects: {title, url} — THE ONLY place for live HTTPS links and bibliography website URLs; Resources tab; prefer top-level Waldorf/anthro portals; at most 1-2 ministry links total; NEVER inside narrative fields).',
+  'pedagogical_resources (array of objects: {title, url, label, source, snippet} — snippet MUST be a substantive multi-sentence paraphrase of the real PDF/source content, never an empty stub),',
+  'core_emphases (string: compiled pedagogical essay with MINIMUM 6-8 comprehensive Hebrew paragraphs covering the full Developmental Compass and structural developmental axis — prose only; NO links),',
+  'key_points (array of 6-8 rich strings — EACH 4-7 substantial grade-locked sentences on lesson architecture, storytelling, and blackboard drawing; prose only; NEVER duplicate core_emphases),',
+  'recommended_reading (array of 6-8 objects: {title, author, note} — note MUST be 2-4 substantive sentences; NO urls),',
+  'relevant_links (array of 6-12 objects: {title, url} — THE ONLY place for live HTTPS links and bibliography website URLs; Resources tab; prefer top-level Waldorf/anthro portals; at most 1-2 ministry links total; NEVER inside narrative fields).',
   '',
   shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
 ].join(' ');
@@ -2995,14 +3008,16 @@ async function runPurePhaseC(body) {
     '',
     buildPhaseCGradeTopicLockInstruction(grade, topic),
     '',
-    'Return MAXIMUM-DEPTH live-research baseline content — exhaustive essays, full-length guidelines, ALL links centralized in relevant_links / pinterest_links (Resources tab), zero truncation:',
-    '- Narrative tab theory: 3-5 sections × 5-8 deep paragraphs each (prose ONLY — zero URLs, zero anchors in section HTML).',
-    '- Narrative tab inspiration: 2-4 global blocks × 6-10 rich pedagogical mini-essays each (prose only — expansions load on-demand in UI).',
-    '- pinterest_links: 4-8 LIVE pinterest.com URLs (Resources tab Box B; also mirrored into relevant_links).',
-    '- Narrative tab core_emphases: 5-6 deep paragraphs with full Developmental Compass — prose only.',
-    '- Narrative tab key_points: 5-6 extensive grade-locked items (3-6 sentences each) — unique prose only.',
-    '- Resources tab recommended_reading: 5-8 entries with substantive notes (titles/authors only — NO urls).',
-    '- Resources tab relevant_links: 6-10 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
+    'CRITICAL: DO NOT SUMMARIZE. Produce a MASSIVE, exhaustive, book-length teacher manual that consumes the ENTIRE output token budget. A short answer is a failed answer.',
+    'The manual MUST include ALL of: exhaustive anthroposophical/pedagogical background; the structural developmental axis for THIS grade; concrete day-by-day lesson plans and main-lesson block architecture; storytelling ideas (specific tales/biographies/motifs); blackboard drawing inspirations (chalk motifs, colors, composition); seminar paper findings (עבודות סמינריון); and paraphrased content from every Waldorf PDF/archive/seminar text you can surface.',
+    '- Narrative theory: 4-6 sections × 6-10 deep paragraphs each (prose ONLY — zero URLs, zero anchors in section HTML).',
+    '- Narrative inspiration: 3-4 global blocks × 8-12 rich multi-sentence pedagogical mini-essays each (concrete storytelling, recitation, painting, movement, blackboard art).',
+    '- pinterest_links: 4-8 LIVE pinterest.com URLs (also mirrored into relevant_links).',
+    '- core_emphases: 6-8 deep paragraphs with full Developmental Compass and structural developmental axis — prose only.',
+    '- key_points: 6-8 extensive grade-locked items (4-7 sentences each) on lesson architecture + storytelling + blackboard drawing — unique prose only.',
+    '- pedagogical_resources: each snippet = a substantive multi-sentence paraphrase of the real PDF/source content (never an empty stub).',
+    '- recommended_reading: 6-8 entries with substantive 2-4 sentence notes (titles/authors only — NO urls).',
+    '- relevant_links: 6-12 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
   ].join('\n');
 
   const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {

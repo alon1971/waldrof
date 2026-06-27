@@ -9,9 +9,13 @@ const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 /** Stable factual web-search model for hybrid routing (Perplexity → Gemini). */
 const PERPLEXITY_SEARCH_MODEL = 'sonar';
 const PERPLEXITY_MODEL = 'sonar-pro';
-/** sonar-pro allows up to 8k completion tokens; default was unset (API truncates early). */
-const PERPLEXITY_MAX_OUTPUT_TOKENS_PRO = 8000;
-const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 4000;
+/**
+ * Perplexity accepts max_tokens up to 128000 (API schema). sonar-pro's effective
+ * completion output is model-bound (~8k), but we no longer impose a lower ceiling
+ * of our own so the model emits the fullest possible book-length teacher manual.
+ */
+const PERPLEXITY_MAX_OUTPUT_TOKENS_PRO = 16000;
+const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 6000;
 const REQUEST_TIMEOUT_MS = 180000;
 
 function normalizeApiKey(apiKey) {
