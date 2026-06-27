@@ -5250,9 +5250,14 @@
       const data = pedagogyDeepDiveToExpansion(exp) || exp || {};
       const narrativeBlob = String(data.expansionHtml || data.summaryHtml || data.rawContent || '').trim();
       if (narrativeBlob) {
-        return finalizeExpansionBodyHtml(
-          renderNarrativeProseBlock(narrativeBlob, { expansionBody: true })
-        );
+        var rendered = renderNarrativeProseBlock(narrativeBlob, { expansionBody: true });
+        if (!String(rendered || '').trim() || stripHtmlText(rendered).trim().length < 12) {
+          rendered = buildExpansionNarrativeHtml(data);
+        }
+        if (!String(rendered || '').trim()) {
+          rendered = renderCompiledPedagogicalHtml(narrativeBlob, { prepared: true });
+        }
+        return finalizeExpansionBodyHtml(rendered);
       }
       return finalizeExpansionBodyHtml(buildExpansionNarrativeHtml(data));
     }
@@ -5260,14 +5265,9 @@
     function stripExpansionSourceNoiseClient(text) {
       return stripSequentialDuplicateSentencesClient(
         String(text || '')
-          .replace(/<(?:ul|ol)[^>]*>[\s\S]*?<\/(?:ul|ol)>/gi, function (block) {
-            return /מקור|source|bibliograph|קריאה|reading|ספר|book|מאמר|article|הפניה|reference/i.test(block) ? '' : block;
-          })
-          .replace(/«[^»]{2,200}»/g, '')
-          .replace(/\[[^\]]{2,200}\]/g, '')
-          .replace(/\[\d{1,3}\]/g, '')
           .replace(/^(?:מקורות|Sources|ביבליוגרפיה|המלצות\s+לקריאה|Recommended\s+Reading|Further\s+Reading|inspirationReferences)\s*:.*$/gim, '')
           .replace(/(?:^|\n)(?:ספרים?\s+מומלצים?|מאמרים?\s+מומלצים?|אתרים?\s+מומלצים?).*$/gim, '')
+          .replace(/\[\d{1,3}\]/g, '')
           .replace(/\bhttps?:\/\/\S+/gi, '')
           .replace(/\bwww\.\S+/gi, '')
           .replace(/\s{2,}/g, ' ')
@@ -5276,9 +5276,18 @@
     }
 
     function sanitizeExpansionBodyText(text) {
+      var raw = String(text || '');
+      if (/<[a-z][\s\S]*>/i.test(raw)) {
+        return stripExpansionSourceNoiseClient(
+          raw
+            .replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1')
+            .replace(/https?:\/\/[^\s<>"']+/gi, '')
+            .replace(/\[\d{1,3}\]/g, '')
+        );
+      }
       return stripExpansionSourceNoiseClient(
         stripStrayMarkdownHashes(
-          stripNarrativeProseMarkup(String(text || ''))
+          stripNarrativeProseMarkup(raw)
         )
       );
     }
@@ -10660,6 +10669,18 @@
       return isWaldorfAnthroposophySourceClient(item);
     }
 
+    /** Payload bibliography / recommended_reading — show title+author even without keyword hits. */
+    function passesPhaseCBoxALiteratureFilter(item) {
+      if (!item || typeof item !== 'object') return false;
+      var title = String(item.title || item.name || '').trim();
+      if (!title) return false;
+      var url = String(item.url || item.link || item.href || '').trim();
+      if (url && isForbiddenForeignSourceUrlClient(url)) return false;
+      var blob = [item.title, item.name, item.note, item.author, item.description].filter(Boolean).join(' ');
+      if (hasDisallowedForeignScriptClient(blob) && !/[\u0590-\u05FF]/.test(blob)) return false;
+      return isHebrewOrEnglishSourceTextClient(blob || title, item.lang);
+    }
+
     function splitIntoSentencesClient(text) {
       return String(text || '').split(/(?<=[.!?׃。])\s+/).map(function (s) {
         return s.trim();
@@ -15299,7 +15320,7 @@
         var t = String(title || '').trim();
         if (!t) return;
         var candidate = { title: t, author: String(author || '').trim(), note: String(note || '').trim(), lang: lang };
-        if (!passesPhaseCBoxASourceFilter(candidate)) return;
+        if (!passesPhaseCBoxALiteratureFilter(candidate)) return;
         var key = t.toLowerCase();
         if (seen[key]) return;
         seen[key] = true;

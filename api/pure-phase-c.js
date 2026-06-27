@@ -594,7 +594,7 @@ function filterBibliographyByLiveCitations(bib, citationSet, topic) {
   function filterList(list, requireUrl) {
     return (list || []).filter(function (item) {
       if (!item || typeof item !== 'object' || !item.title) return false;
-      if (!isAllowedPhaseCSourceItem(item)) return false;
+      if (!isPayloadLiteratureSourceItem(item)) return false;
       const url = String(item.url || item.link || item.href || '').trim();
       if (!url) return !requireUrl;
       if (!citationSet || !citationSet.size) return false;
@@ -602,7 +602,7 @@ function filterBibliographyByLiveCitations(bib, citationSet, topic) {
       if (isPinterestPhaseCUrl(url)) return false;
       const snippet = String(item.note || item.detail || item.description || item.snippet || item.summary || item.title || '').trim();
       if (violatesPedagogicalTopicContext(url, snippet, topicStr)) return false;
-      return hasLiveReferenceSnippet(item);
+      return requireUrl ? hasLiveReferenceSnippet(item) : true;
     });
   }
   return {
@@ -616,10 +616,10 @@ function filterRecommendedReadingByLiveCitations(reading, citationSet, topic) {
   const topicStr = String(topic || '').trim();
   return (reading || []).filter(function (item) {
     if (!item || !item.title) return false;
-    if (!isAllowedPhaseCSourceItem(item)) return false;
-    if (!hasLiveReferenceSnippet(item)) return false;
+    if (!isPayloadLiteratureSourceItem(item)) return false;
     const url = String(item.url || item.link || item.href || '').trim();
     if (!url) return true;
+    if (!hasLiveReferenceSnippet(item)) return false;
     if (!citationSet || !citationSet.size) return false;
     if (!isVerifiedLiveCitationUrl(url, citationSet)) return false;
     if (isPinterestPhaseCUrl(url)) return false;
@@ -1084,6 +1084,21 @@ function isAllowedPhaseCSourceItem(item) {
   return true;
 }
 
+/** Master-payload literature (recommended_reading / theory.bibliography) — title fallback without keyword gate. */
+function isPayloadLiteratureSourceItem(item) {
+  if (!item || typeof item !== 'object') return false;
+  const title = String(item.title || item.name || '').trim();
+  if (!title) return false;
+  const url = String(item.url || item.link || item.href || '').trim();
+  if (url && (isForbiddenForeignSourceUrl(url) || isDeadPhaseCFallbackUrl(url))) return false;
+  const blob = [
+    item.title, item.name, item.note, item.author, item.snippet,
+    item.detail, item.description, item.label, item.source,
+  ].filter(Boolean).join(' ');
+  if (hasDisallowedForeignScript(blob) && !/[\u0590-\u05FF]/.test(blob)) return false;
+  return isHebrewOrEnglishSourceText(blob || title, item.lang);
+}
+
 function filterAllowedPhaseCLinkList(items) {
   return (items || []).filter(isAllowedPhaseCSourceItem);
 }
@@ -1104,7 +1119,7 @@ function applyPhaseCTextSanitizationChain(normalized) {
     });
   }
   if (Array.isArray(normalized.recommended_reading)) {
-    normalized.recommended_reading = filterAllowedPhaseCLinkList(normalized.recommended_reading).map(function (item) {
+    normalized.recommended_reading = normalized.recommended_reading.filter(isPayloadLiteratureSourceItem).map(function (item) {
       return Object.assign({}, item, {
         title: sanitizePhaseCPlainProse(item.title || ''),
         note: sanitizePhaseCPlainProse(item.note || item.description || ''),
@@ -1128,7 +1143,7 @@ function applyPhaseCTextSanitizationChain(normalized) {
     if (normalized.theory.bibliography) {
       const bib = normalized.theory.bibliography;
       ['books', 'articles', 'websites'].forEach(function (key) {
-        if (Array.isArray(bib[key])) bib[key] = filterAllowedPhaseCLinkList(bib[key]);
+        if (Array.isArray(bib[key])) bib[key] = bib[key].filter(isPayloadLiteratureSourceItem);
       });
     }
   }
@@ -2179,7 +2194,7 @@ function centralizePhaseCLinksToResourcesTab(normalized, topic) {
   if (bib) {
     ['books', 'articles', 'websites'].forEach(function (cat) {
       bib[cat] = (bib[cat] || []).map(stripUrlsFromBibliographyEntry).filter(function (item) {
-        return item && String(item.title || '').trim() && isAllowedPhaseCSourceItem(item);
+        return item && String(item.title || '').trim() && isPayloadLiteratureSourceItem(item);
       });
     });
   }
@@ -2191,7 +2206,7 @@ function centralizePhaseCLinksToResourcesTab(normalized, topic) {
     delete next.link;
     return next;
   }).filter(function (item) {
-    return item && String(item.title || '').trim() && isAllowedPhaseCSourceItem(item);
+    return item && String(item.title || '').trim() && isPayloadLiteratureSourceItem(item);
   });
 
   return normalized;
@@ -2917,6 +2932,7 @@ module.exports = {
   isHebrewOrEnglishSourceText,
   isWaldorfAnthroposophyRelevant,
   isAllowedPhaseCSourceItem,
+  isPayloadLiteratureSourceItem,
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
