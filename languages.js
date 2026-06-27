@@ -53,6 +53,8 @@ const LANGUAGES = {
     general_search_section_emphases: 'דגשים פדגוגיים מרכזיים',
     general_search_section_literature: 'ספרות מומלצת',
     general_search_section_links: 'קישורים רלוונטיים',
+    general_search_export_word:  'הורד למסמך וורד',
+    general_search_export_empty: 'אין תוצאות חיפוש לייצוא',
 
     marketing_bench_title:       'מחלקת שיווק לליווי החינוכי (סודי)',
     marketing_btn_facebook:      'הפק פוסט לפייסבוק',
@@ -439,6 +441,7 @@ const LANGUAGES = {
     export_doc_web_connections:  'חיבור לגיל',
     export_doc_no_topic:         'ללא נושא',
     export_doc_need_grade:       'יש לבחור כיתה לפני הפקת המסמך',
+    export_doc_need_phase:       'אין תוכן נושא מובנה לייצוא — השלימו מחקר נושא בשלב ג׳',
     export_doc_error:            'שגיאה בהפקת המסמך',
     export_doc_generating:       'מפיק מסמך...',
 
@@ -696,6 +699,8 @@ const LANGUAGES = {
     general_search_section_emphases: 'Core pedagogical emphases',
     general_search_section_literature: 'Recommended literature',
     general_search_section_links: 'Relevant links',
+    general_search_export_word:  'Download Word document',
+    general_search_export_empty: 'No search results to export',
 
     marketing_bench_title:       'Educational marketing desk (confidential)',
     marketing_btn_facebook:      'Create Facebook post',
@@ -1078,6 +1083,7 @@ const LANGUAGES = {
     export_doc_web_connections:  'Age connections',
     export_doc_no_topic:         'no topic',
     export_doc_need_grade:       'Select a grade before exporting the document',
+    export_doc_need_phase:       'No structured topic content to export — complete Step C topic research first',
     export_doc_error:            'Document export failed',
     export_doc_generating:       'Generating document...',
 
