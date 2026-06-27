@@ -14476,6 +14476,36 @@
       return true;
     }
 
+    function buildExpansionBracketLinkHtml(url, label) {
+      var href = sanitizeProseLinkUrl(url);
+      if (!href) href = sanitizeExternalLinkUrl(url);
+      if (!href || isExpansionLowQualitySourceUrl(href)) return '';
+      var display = String(label || '').trim();
+      if (!display || isDeadSourceLinkLabel(display)) {
+        display = isEnglish() ? 'Source link' : 'קישור למקור';
+      }
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline font-medium">' +
+        escapeHtml(display) + '</a>';
+    }
+
+    function linkifyExpansionBracketReferences(text) {
+      var work = String(text || '');
+      if (!work.trim()) return work;
+      work = work.replace(/\[([^\]]*)\]\(\s*([^)\s]+)\s*\)/gi, function (_m, label, url) {
+        var link = buildExpansionBracketLinkHtml(url, label);
+        return link || _m;
+      });
+      work = work.replace(/\[\s*((?:https?:\/\/|www\.)[^\]\s<>"']+)\s*\]/gi, function (_m, url) {
+        var link = buildExpansionBracketLinkHtml(url, '');
+        return link || _m;
+      });
+      work = work.replace(/((?:https?:\/\/|www\.)[^\s<>"']+)\s*\[\s*\]/gi, function (_m, url) {
+        var link = buildExpansionBracketLinkHtml(url, '');
+        return link || _m;
+      });
+      return work;
+    }
+
     function linkifyExpansionHtml(html) {
       var raw = String(html || '');
       if (!raw.trim()) return raw;
@@ -14485,13 +14515,14 @@
         preserved.push(match);
         return '\x00EALINK' + idx + '\x00';
       });
+      work = linkifyExpansionBracketReferences(work);
       work = work.replace(EXTERNAL_HTTP_URL_PATTERN, function (url) {
         if (isExpansionLowQualitySourceUrl(url)) return url;
         var href = sanitizeProseLinkUrl(url);
         if (!href) return url;
         var display = resolveFriendlyLinkDisplayLabel('', href);
-        if (isDeadSourceLinkLabel(display)) display = href;
-        return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline">' +
+        if (isDeadSourceLinkLabel(display)) display = isEnglish() ? 'Source link' : 'קישור למקור';
+        return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline font-medium">' +
           escapeHtml(display) + '</a>';
       });
       preserved.forEach(function (tag, index) {
@@ -14544,6 +14575,13 @@
           if (el.querySelector('img, a, iframe, svg, video, audio')) return;
           if (normalizeExpansionBlockKey(el.textContent)) return;
           if (el.parentNode) el.parentNode.removeChild(el);
+        });
+        Array.prototype.slice.call(container.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote, span, div')).forEach(function (el) {
+          if (el.querySelector('a[href]')) return;
+          var html = el.innerHTML;
+          if (!html || !/\[[^\]]*\]/.test(html)) return;
+          var linked = linkifyExpansionBracketReferences(html);
+          if (linked !== html) el.innerHTML = linked;
         });
         return linkifyExpansionHtml(container.innerHTML);
       } catch (e) {
@@ -15592,6 +15630,19 @@
       return out;
     }
 
+    function ensureAbsoluteLiteratureHref(url) {
+      var raw = String(url || '').trim();
+      if (!raw) return '';
+      if (/^https?:\/\//i.test(raw)) return raw;
+      if (/^(?:www\.)?google\.com\/search\b/i.test(raw)) {
+        return 'https://www.' + raw.replace(/^\/+/, '').replace(/^www\./i, 'google.com');
+      }
+      if (/^\/search\?/i.test(raw)) {
+        return 'https://www.google.com' + raw;
+      }
+      return sanitizeExternalLinkUrl(raw);
+    }
+
     function buildLiteratureSearchUrl(item) {
       var label = [item && item.title, item && item.author].filter(function (p) {
         return String(p || '').trim();
@@ -15616,9 +15667,13 @@
       var title = String(item.title || '').trim();
       var author = String(item.author || '').trim();
       var label = title + (author ? ' - ' + author : '');
-      var directUrl = sanitizeExternalLinkUrl(item.url);
+      var rawUrl = String(item.url || item.link || item.href || '').trim();
+      var directUrl = ensureAbsoluteLiteratureHref(rawUrl);
       var href = directUrl || buildLiteratureSearchUrl(item);
-      if (!href) return '<strong>' + escapeHtml(label) + '</strong>';
+      if (href && !/^https:\/\//i.test(href)) {
+        href = ensureAbsoluteLiteratureHref(href) || buildLiteratureSearchUrl(item);
+      }
+      if (!href || !/^https:\/\//i.test(href)) return '<strong>' + escapeHtml(label) + '</strong>';
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
         escapeHtml(label) + '</a>';
     }
@@ -20563,10 +20618,31 @@
       });
     }
 
+    function bindTopicStepBreadcrumbGlobalNav() {
+      if (document.documentElement.dataset.topicCrumbGlobalBound) return;
+      document.documentElement.dataset.topicCrumbGlobalBound = '1';
+      function onTopicStepNavClick(e) {
+        var trigger = e.target.closest('#ws-crumb-topic, #header-compact-edit-topic');
+        if (!trigger) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!canNavigateToStep(2)) return;
+        if (isWorkspaceOpen()) {
+          navigateBackToPhaseB();
+        } else {
+          goToStep(2, false);
+        }
+      }
+      document.addEventListener('click', onTopicStepNavClick, true);
+      var header = document.getElementById('app-site-chrome');
+      if (header) header.addEventListener('click', onTopicStepNavClick, true);
+    }
+
     function bindEvents() {
       bindHeaderExplicitAuthActions();
       bindCorruptedNavigationGuard();
       bindWorkspaceBreadcrumbNav();
+      bindTopicStepBreadcrumbGlobalNav();
       bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
