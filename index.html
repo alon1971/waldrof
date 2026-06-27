@@ -5246,20 +5246,41 @@
       return html;
     }
 
+    function expansionBodyHasVisibleText(html) {
+      return stripHtmlText(String(html || '')).trim().length >= 12;
+    }
+
+    function renderRawExpansionFallback(narrativeBlob) {
+      var raw = String(narrativeBlob || '').trim();
+      if (!raw) return '';
+      if (/<[a-z][\s\S]*>/i.test(raw)) {
+        return '<div class="prose-ai leading-relaxed">' + raw + '</div>';
+      }
+      return formatPerplexityRawText(raw, { prepared: true });
+    }
+
     function buildExpansionContentHtml(exp) {
       const data = pedagogyDeepDiveToExpansion(exp) || exp || {};
       const narrativeBlob = String(data.expansionHtml || data.summaryHtml || data.rawContent || '').trim();
+      const structuredHtml = buildExpansionNarrativeHtml(data);
       if (narrativeBlob) {
         var rendered = renderNarrativeProseBlock(narrativeBlob, { expansionBody: true });
-        if (!String(rendered || '').trim() || stripHtmlText(rendered).trim().length < 12) {
-          rendered = buildExpansionNarrativeHtml(data);
+        if (!expansionBodyHasVisibleText(rendered)) {
+          rendered = structuredHtml;
         }
-        if (!String(rendered || '').trim()) {
+        if (!expansionBodyHasVisibleText(rendered)) {
           rendered = renderCompiledPedagogicalHtml(narrativeBlob, { prepared: true });
         }
-        return finalizeExpansionBodyHtml(rendered);
+        if (!expansionBodyHasVisibleText(rendered)) {
+          rendered = renderRawExpansionFallback(narrativeBlob);
+        }
+        var finalized = finalizeExpansionBodyHtml(rendered);
+        if (!expansionBodyHasVisibleText(finalized)) {
+          finalized = finalizeExpansionBodyHtml(renderRawExpansionFallback(narrativeBlob));
+        }
+        if (expansionBodyHasVisibleText(finalized)) return finalized;
       }
-      return finalizeExpansionBodyHtml(buildExpansionNarrativeHtml(data));
+      return finalizeExpansionBodyHtml(structuredHtml);
     }
 
     function stripExpansionSourceNoiseClient(text) {
@@ -5527,6 +5548,7 @@
       archiveSuggestionPending: false,
       archiveRejectedSearch: null,
       archiveFreshSearchPending: false,
+      archiveMergePending: null,
       archiveRejectedSuggestions: [],
       topicCommunityMatches: [],
       isSubmitting: false,
@@ -5609,6 +5631,7 @@
         archiveSuggestionPending: false,
         archiveRejectedSearch: null,
         archiveFreshSearchPending: false,
+        archiveMergePending: null,
         archiveRejectedSuggestions: [],
         topicCommunityMatches: [],
         communityCache: [],
@@ -5899,6 +5922,7 @@
 
     function clearArchiveClarificationState() {
       appState.archiveSuggestionPending = false;
+      appState.archiveMergePending = null;
       hideTopicArchiveSuggestionBanner();
       hideTopicGradeMismatchNotice();
       if (typeof LessonChatSidebar !== 'undefined' && typeof LessonChatSidebar.clearArchiveSuggestionState === 'function') {
@@ -6068,23 +6092,33 @@
       topicArchiveSuggestionHandlers = null;
     }
 
-    function showTopicArchiveSuggestionBanner(match, handlers) {
+    function showTopicArchivePromptBanner(config) {
       const panel = document.getElementById('topic-archive-suggestion');
       const textEl = document.getElementById('topic-archive-suggestion-text');
       const yesBtn = document.getElementById('topic-archive-suggest-yes');
       const noBtn = document.getElementById('topic-archive-suggest-no');
-      if (!panel || !textEl || !match || !match.suggestedTopic) return;
-      topicArchiveSuggestionHandlers = handlers || null;
-      textEl.textContent = t('archive_suggest_prompt', { topic: match.suggestedTopic });
+      if (!panel || !textEl || !config) return;
+      topicArchiveSuggestionHandlers = config.handlers || null;
+      textEl.textContent = config.promptText || '';
       if (yesBtn) {
-        yesBtn.textContent = t('archive_suggest_yes');
+        yesBtn.textContent = config.yesText || t('archive_suggest_yes');
         yesBtn.disabled = false;
       }
       if (noBtn) {
-        noBtn.textContent = t('archive_suggest_no');
+        noBtn.textContent = config.noText || t('archive_suggest_no');
         noBtn.disabled = false;
       }
       panel.classList.remove('hidden');
+    }
+
+    function showTopicArchiveSuggestionBanner(match, handlers) {
+      if (!match || !match.suggestedTopic) return;
+      showTopicArchivePromptBanner({
+        promptText: t('archive_suggest_prompt', { topic: match.suggestedTopic }),
+        yesText: t('archive_suggest_yes'),
+        noText: t('archive_suggest_no'),
+        handlers: handlers || null,
+      });
     }
 
     function normalizeArchiveSearchTopic(topic) {
@@ -10864,23 +10898,16 @@
       const rawContent = String(data.rawContent || '').trim();
       const summaryHtml = String(data.summaryHtml || data.contentHtml || '').trim();
       const narrativeBlob = rawContent || summaryHtml;
-      if (narrativeBlob) {
-        return {
-          classroomImplementation: '',
-          parentCommunityAspects: '',
-          practicalSteps: [],
-          inspirationReferences: [],
-          expansionHtml: narrativeBlob,
-          _perplexityRaw: Boolean(rawContent),
-        };
-      }
-      return {
+      const structured = {
         classroomImplementation: data.classroomImplementation || data.essence || data.summary || '',
         parentCommunityAspects: data.parentCommunityAspects || data.pedagogicalContext || data.relevance || '',
         practicalSteps: data.practicalSteps || data.keyPoints || [],
         inspirationReferences: [],
-        expansionHtml: '',
+        expansionHtml: narrativeBlob || '',
+        _perplexityRaw: Boolean(rawContent),
       };
+      if (narrativeBlob) return structured;
+      return Object.assign(structured, { expansionHtml: '' });
     }
 
     function buildEnrichmentLinksHtml(data) {
@@ -10922,8 +10949,13 @@
         return buildEnrichmentLinksHtml(summary);
       }
       const raw = (summary && summary.pedagogyDeepDive) || (summary && summary.archiveSummary) || summary || {};
-      const expansionHtml = buildExpansionContentHtml(pedagogyDeepDiveToExpansion(raw));
-      if (expansionHtml) return expansionHtml;
+      const expansionData = pedagogyDeepDiveToExpansion(raw);
+      const expansionHtml = buildExpansionContentHtml(expansionData);
+      if (expansionBodyHasVisibleText(expansionHtml)) return expansionHtml;
+      if (source && source.expansion) {
+        const inlineHtml = buildExpansionContentHtml(source.expansion);
+        if (expansionBodyHasVisibleText(inlineHtml)) return inlineHtml;
+      }
       return '<p class="text-walnut/70">' + escapeHtml(t('pedagogy_summary_empty')) + '</p>';
     }
 
@@ -14410,8 +14442,13 @@
     // legacy whole-block pass first, then a DOM pass that removes any repeated
     // block regardless of tag, adjacency, or wrapper nesting.
     function finalizeExpansionBodyHtml(html) {
-      var out = dedupeRepeatedHtmlBlocks(String(html || ''));
+      var input = String(html || '');
+      if (!input.trim()) return '';
+      var out = dedupeRepeatedHtmlBlocks(input);
       out = dedupeExpansionBlocksDom(out);
+      if (!expansionBodyHasVisibleText(out) && expansionBodyHasVisibleText(input)) {
+        return input;
+      }
       return out;
     }
 
@@ -15316,10 +15353,16 @@
       var source = data || appState.purePhaseC || {};
       var seen = Object.create(null);
       var out = [];
-      function pushItem(title, author, note, lang) {
+      function pushItem(title, author, note, lang, sourceKind) {
         var t = String(title || '').trim();
         if (!t) return;
-        var candidate = { title: t, author: String(author || '').trim(), note: String(note || '').trim(), lang: lang };
+        var candidate = {
+          title: t,
+          author: String(author || '').trim(),
+          note: String(note || '').trim(),
+          lang: lang,
+          sourceKind: sourceKind || 'reading',
+        };
         if (!passesPhaseCBoxALiteratureFilter(candidate)) return;
         var key = t.toLowerCase();
         if (seen[key]) return;
@@ -15328,14 +15371,14 @@
       }
       (source.recommended_reading || []).forEach(function (item) {
         if (!item) return;
-        pushItem(item.title || item.name, item.author, item.note || item.description, item.lang);
+        pushItem(item.title || item.name, item.author, item.note || item.description, item.lang, 'reading');
       });
       var bib = source.theory && source.theory.bibliography;
       if (bib) {
         ['books', 'articles'].forEach(function (cat) {
           (bib[cat] || []).forEach(function (item) {
             if (!item) return;
-            pushItem(item.title || item.name, item.author, item.note, item.lang);
+            pushItem(item.title || item.name, item.author, item.note, item.lang, cat === 'articles' ? 'article' : 'book');
           });
         });
       }
@@ -15367,6 +15410,19 @@
       return out;
     }
 
+    function buildLiteratureSearchUrl(item) {
+      var parts = [item && item.title, item && item.author].filter(function (p) {
+        return String(p || '').trim();
+      });
+      var q = parts.join(' ').trim();
+      if (!q) return '';
+      var isArticle = item && (item.kind === 'article' || item.sourceKind === 'article');
+      if (isArticle) {
+        return 'https://scholar.google.com/scholar?q=' + encodeURIComponent(q);
+      }
+      return buildSourceSearchUrl(q);
+    }
+
     function phaseCRenderResourcesReadingList(items) {
       var list = (Array.isArray(items) ? items : []).filter(function (item) {
         return item && String(item.title || '').trim();
@@ -15375,7 +15431,11 @@
       return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
         var author = item.author ? ' <span class="text-walnut/60">— ' + escapeHtml(item.author) + '</span>' : '';
         var note = String(item.note || '').trim();
-        var head = '<strong>' + escapeHtml(item.title) + '</strong>' + author;
+        var searchUrl = buildLiteratureSearchUrl(item);
+        var head = searchUrl
+          ? '<a href="' + escapeHtml(searchUrl) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link"><strong>' +
+            escapeHtml(item.title) + '</strong></a>' + author
+          : '<strong>' + escapeHtml(item.title) + '</strong>' + author;
         if (note.length > 40) {
           return '<li>' + buildReadMoreDetails('<div>' + head + '</div>',
             '<p>' + escapeHtml(note) + '</p>') + '</li>';
@@ -15765,6 +15825,10 @@
         payload.forceFresh = true;
         payload.skipCache = true;
       }
+      if (opts.mergeWithHistoric && opts.historicPayload) {
+        payload.mergeWithHistoric = true;
+        payload.historicPayload = opts.historicPayload;
+      }
       var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, payload, signal);
       return response;
     }
@@ -16063,14 +16127,16 @@
     }
 
     function navigateCompactHeaderToGrade() {
+      rememberNavScrollPosition(getNavScrollKey());
       goToStep(1, false);
-      scrollToStepAAndFocus({ expandHeader: true, scrollToTopFirst: true, behavior: 'smooth' });
+      restoreNavScrollPosition('step-1');
     }
 
     function navigateCompactHeaderToTopic() {
       if (!canNavigateToStep(2)) return;
+      rememberNavScrollPosition(getNavScrollKey());
       goToStep(2, false);
-      scrollToStepBAndFocus({ expandHeader: true, behavior: 'smooth', focusField: false });
+      restoreNavScrollPosition('step-2');
     }
 
     function setHeaderCompact(compact) {
@@ -16476,12 +16542,28 @@
 
     function resetWizardStepViewToPhaseA(options) {
       options = options || {};
+      appState.grade = null;
+      appState.gradeLabel = null;
+      appState.gradeResearch = null;
       appState.step = 1;
       appState.navSection = 'wizard';
       appState.activeProductTab = null;
       catalogState.view = 'grades';
       catalogState.gradeId = null;
       catalogState.topic = null;
+      var gradeSel = document.getElementById('grade-select');
+      if (gradeSel) {
+        gradeSel.value = '';
+        gradeSel.selectedIndex = 0;
+      }
+      var btnGrade = document.getElementById('btn-grade-submit');
+      if (btnGrade) btnGrade.disabled = true;
+      var insightsPanel = document.getElementById('grade-insights-panel');
+      if (insightsPanel) insightsPanel.classList.add('hidden');
+      var insightsBody = document.getElementById('grade-insights-body');
+      if (insightsBody) insightsBody.innerHTML = '';
+      var gradeCommunity = document.getElementById('grade-community-list');
+      if (gradeCommunity) gradeCommunity.innerHTML = '';
       restoreWizardStepView(1, 'wizard', options);
       renderStepProgress();
       updateWorkspaceChrome();
@@ -16569,7 +16651,6 @@
       var snapshot = readPersistedLessonSnapshot();
 
       if (shouldResetWizardStepViewOnLoad(options)) {
-        hydrateWizardFormFieldsFromSaved(saved, snapshot);
         resetWizardStepViewToPhaseA(options);
         return;
       }
@@ -16700,6 +16781,34 @@
       scrollToSectionStart(anchor, behavior);
     }
 
+    var navScrollMemory = Object.create(null);
+
+    function getNavScrollKey() {
+      if (isGeneralSearchView()) return 'general-search';
+      if (isPhaseCView() || (isWorkspaceOpen() && appState.navSection !== 'community')) return 'phase-c';
+      if (appState.navSection === 'community') return 'community';
+      return 'step-' + String(appState.step || 1);
+    }
+
+    function rememberNavScrollPosition(key) {
+      var k = key || getNavScrollKey();
+      navScrollMemory[k] = capturePageScrollY();
+    }
+
+    function restoreNavScrollPosition(key) {
+      var k = key || getNavScrollKey();
+      var y = typeof navScrollMemory[k] === 'number' ? navScrollMemory[k] : 0;
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          restorePageScrollY(y);
+        });
+      });
+    }
+
+    function applyForwardNavScroll() {
+      resetMainViewScroll();
+    }
+
     function resetMainViewScroll() {
       var opts = { top: 0, left: 0, behavior: 'instant' };
       try {
@@ -16795,9 +16904,16 @@
         e.stopPropagation();
       }
       if (!canNavigateToStep(n)) return;
+      var fromStep = appState.step;
+      var fromKey = getNavScrollKey();
+      rememberNavScrollPosition(fromKey);
       if (n === 2) {
         goToStep(2, false);
-        scrollToStepBAndFocus({ behavior: 'smooth', focusField: !hasLessonReady() });
+        if (n > fromStep) {
+          applyForwardNavScroll();
+        } else {
+          restoreNavScrollPosition('step-2');
+        }
         return;
       }
       if (n === 3) {
@@ -16806,12 +16922,13 @@
           goToStep(2, 'smooth');
           return;
         }
+        applyForwardNavScroll();
         openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'narrative' });
         return;
       }
       if (n === 1) {
         goToStep(1, false);
-        scrollToStepAAndFocus({ behavior: 'smooth' });
+        restoreNavScrollPosition('step-1');
         return;
       }
       goToStep(n, 'smooth');
@@ -16872,6 +16989,12 @@
     }
 
     function goToStep(n, scrollBehavior) {
+      var fromStep = appState.step;
+      var fromKey = getNavScrollKey();
+      var movingForward = n > fromStep;
+      var movingBackward = n < fromStep;
+      rememberNavScrollPosition(fromKey);
+
       appState.step = n;
       appState.navSection = 'wizard';
       hideGeneralSearchView();
@@ -16891,7 +17014,11 @@
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
-      if (scrollBehavior === true || scrollBehavior === 'smooth' || scrollBehavior === 'auto') {
+      if (movingForward) {
+        applyForwardNavScroll();
+      } else if (movingBackward) {
+        restoreNavScrollPosition('step-' + n);
+      } else if (scrollBehavior === true || scrollBehavior === 'smooth' || scrollBehavior === 'auto') {
         scrollToWizardStep(n, scrollBehavior);
       }
       persistActiveStep();
@@ -17175,11 +17302,143 @@
         gradeId: match.gradeId,
         gradeLabel: match.gradeLabel || null,
         item: match.item || null,
+        archiveSource: match.archiveSource || null,
+        historicPayload: match.historicPayload || null,
+        resultData: match.resultData || null,
       };
     }
 
     function focusStepBTopicInput() {
       scrollToStepBAndFocus({ behavior: 'smooth' });
+    }
+
+    function applyTopicMasterArchivePayload(topic, match) {
+      var payload = match.historicPayload || (match.resultData && match.resultData.purePhaseC) || null;
+      if (!payload) return Promise.resolve(false);
+      appState.archiveSuggestionPending = false;
+      appState.archiveFreshSearchPending = false;
+      appState.archiveRejectedSearch = null;
+      appState.archiveMergePending = null;
+      hideTopicArchiveSuggestionBanner();
+      commitPurePhaseCToStepB(topic, payload, {
+        fromCache: true,
+        cacheKey: match.cacheKey || '',
+        statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
+          escapeHtml(isEnglish() ? 'Loaded from archive — review the topic summary, then open Step C when ready.' : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.') + '</p>',
+      });
+      if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+      setTopicResearchLoadingUi(false);
+      var archiveBtn = document.getElementById('btn-topic-research');
+      if (archiveBtn) {
+        archiveBtn.disabled = false;
+        updateTopicResearchButton();
+      }
+      topicResearchAbort = null;
+      return Promise.resolve(true);
+    }
+
+    function resolveArchiveHistoricPayload(match) {
+      if (!match) return null;
+      if (match.historicPayload && typeof match.historicPayload === 'object') return match.historicPayload;
+      if (match.resultData && match.resultData.purePhaseC) return match.resultData.purePhaseC;
+      return null;
+    }
+
+    async function loadArchiveHistoricPayload(match) {
+      var cached = resolveArchiveHistoricPayload(match);
+      if (cached) return cached;
+      if (!match || !match.cacheKey) return null;
+      var item = await reloadArchiveLessonItem(match.cacheKey);
+      if (item && item.resultData) {
+        if (item.resultData.purePhaseC) return item.resultData.purePhaseC;
+        try {
+          var normalized = coerceArchiveLessonResultData(item.resultData);
+          if (normalized && normalized.purePhaseC) return normalized.purePhaseC;
+        } catch (e) { /* ignore */ }
+      }
+      return null;
+    }
+
+    function presentArchiveMergePrompt(topic, match) {
+      appState.archiveMergePending = {
+        topic: topic,
+        match: match,
+        historicPayload: resolveArchiveHistoricPayload(match),
+      };
+      ensureStepBWizardView();
+      document.getElementById('workspace').classList.add('hidden');
+      document.getElementById('wizard').classList.remove('hidden');
+      setTopicResearchLoadingUi(false);
+      var btn = document.getElementById('btn-topic-research');
+      if (btn) {
+        btn.disabled = false;
+        updateTopicResearchButton();
+      }
+      topicResearchAbort = null;
+
+      const onMerge = function () {
+        appState.archiveMergePending = null;
+        hideTopicArchiveSuggestionBanner();
+        loadArchiveHistoricPayload(match).then(function (historicPayload) {
+          if (!historicPayload) {
+            return runFreshArchiveBypassResearch(topic);
+          }
+          return runArchiveMergeResearch(topic, historicPayload);
+        }).catch(function (err) {
+          alert(err.message || String(err));
+        });
+      };
+
+      const onFreshOnly = function () {
+        appState.archiveMergePending = null;
+        hideTopicArchiveSuggestionBanner();
+        runFreshArchiveBypassResearch(topic).catch(function (err) {
+          alert(err.message || String(err));
+        });
+      };
+
+      showTopicArchivePromptBanner({
+        promptText: t('archive_merge_prompt'),
+        yesText: t('archive_merge_yes'),
+        noText: t('archive_merge_no'),
+        handlers: { onConfirm: onMerge, onReject: onFreshOnly },
+      });
+    }
+
+    async function runArchiveMergeResearch(topic, historicPayload) {
+      if (topicResearchAbort) topicResearchAbort.abort();
+      const runId = ++topicResearchRunId;
+      topicResearchAbort = new AbortController();
+      const signal = topicResearchAbort.signal;
+      setTopicResearchLoadingUi(true);
+      var btn = document.getElementById('btn-topic-research');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_loading_archive')) + '</span>';
+      }
+      await runPurePhaseCFromStepB(topic, runId, signal, {
+        bypassCache: true,
+        forceRefresh: true,
+        mergeWithHistoric: true,
+        historicPayload: historicPayload,
+      });
+    }
+
+    async function runFreshArchiveBypassResearch(topic) {
+      if (topicResearchAbort) topicResearchAbort.abort();
+      const runId = ++topicResearchRunId;
+      topicResearchAbort = new AbortController();
+      const signal = topicResearchAbort.signal;
+      setTopicResearchLoadingUi(true);
+      var btn = document.getElementById('btn-topic-research');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_loading_archive')) + '</span>';
+      }
+      await runPurePhaseCFromStepB(topic, runId, signal, {
+        bypassCache: true,
+        forceRefresh: true,
+      });
     }
 
     function presentArchivePartialMatch(topic, archiveMatch) {
@@ -17197,6 +17456,10 @@
       }
 
       if (match.matchType === 'exact') {
+        if (match.archiveSource === 'topic_master' || (match.resultData && match.resultData.purePhaseC) || match.historicPayload) {
+          applyTopicMasterArchivePayload(topic, match);
+          return true;
+        }
         applyArchiveTopicMatch(match, { closeChat: false, userQuery: topic }).catch(function (err) {
           alert(err.message || String(err));
         });
@@ -17226,6 +17489,21 @@
         appState.archiveRejectedSearch = null;
         hideTopicArchiveSuggestionBanner();
         if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.setDisplayMode('bubble');
+        if (match.archiveSource === 'topic_master' || match.historicPayload || (match.resultData && match.resultData.purePhaseC)) {
+          loadArchiveHistoricPayload(match).then(function (payload) {
+            if (payload) {
+              return applyTopicMasterArchivePayload(topic, Object.assign({}, match, { historicPayload: payload }));
+            }
+            return reloadArchiveLessonItem(match.cacheKey).then(function (item) {
+              return applyLessonPlanFromHistory(item, { userQuery: topic });
+            });
+          }).then(function () {
+            if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+          }).catch(function (err) {
+            alert(err.message || String(err));
+          });
+          return;
+        }
         reloadArchiveLessonItem(match.cacheKey).then(function (item) {
           return applyLessonPlanFromHistory(item, { userQuery: topic });
         }).then(function () {
@@ -17247,6 +17525,10 @@
         if (rejectBtn) {
           rejectBtn.disabled = false;
           updateTopicResearchButton();
+        }
+        if (resolveArchiveHistoricPayload(match) || match.cacheKey) {
+          presentArchiveMergePrompt(topic, match);
+          return;
         }
         if (typeof LessonChatSidebar !== 'undefined') {
           LessonChatSidebar.showArchiveRefineHint({
@@ -17567,6 +17849,32 @@
         btn.disabled = false;
         updateTopicResearchButton();
         return;
+      }
+
+      if (!forceCacheBypass && !shouldForceLiveArchiveBypass(topic, currentGrade)) {
+        let archiveMatch = null;
+        try {
+          archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+        } catch (probeErr) {
+          console.warn('[archive-probe] topic search failed:', probeErr);
+        }
+        if (runId !== topicResearchRunId || signal.aborted) {
+          setTopicResearchLoadingUi(false);
+          btn.disabled = false;
+          updateTopicResearchButton();
+          return;
+        }
+        if (archiveMatch && archiveMatch.matchType === 'grade_mismatch') {
+          setTopicResearchLoadingUi(false);
+          btn.disabled = false;
+          updateTopicResearchButton();
+          topicResearchAbort = null;
+          presentGradeMismatchNotice(archiveMatch.gradeMismatch);
+          return;
+        }
+        if (presentArchivePartialMatch(topic, archiveMatch)) {
+          return;
+        }
       }
 
       await runPurePhaseCFromStepB(topic, runId, signal, { forceRefresh: forceCacheBypass, bypassCache: forceCacheBypass });
@@ -19851,6 +20159,7 @@
         e.preventDefault();
         e.stopPropagation();
       }
+      rememberNavScrollPosition('step-1');
       syncStepBChrome();
       goToStep(2, false);
       renderTopicCommunitySlot();
@@ -19858,7 +20167,7 @@
       if (step2 && step2.classList.contains('hidden')) {
         revealStepBQuietly();
       }
-      scrollToStepBAndFocus({ behavior: 'smooth', preCompactHeader: true });
+      applyForwardNavScroll();
     }
 
     function isPrimaryEnter(e) {

@@ -1320,6 +1320,70 @@ async function findCanonicalGradeArchiveSuggestion(gradeId, topic) {
 }
 
 /**
+ * Semantic topic_master suggestion before a live Perplexity crawl.
+ * Returns exact hits (same normalized topic) or partial semantic alias matches.
+ */
+async function findTopicMasterArchiveSuggestion(gradeId, topic) {
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr) return null;
+  if (hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topicStr)) return null;
+
+  const exactBody = buildTopicMasterCacheBody(gid, null, topicStr);
+  const exactCached = await getCachedResult(exactBody, { requireEnhanced: false });
+  if (exactCached && exactCached.data && isTopicMasterPayload(exactCached.data)) {
+    hydrateTopicMasterArchiveLinks(exactCached.data);
+    return {
+      matchType: 'exact',
+      similarity: 1,
+      cacheKey: exactCached.meta.cacheKey,
+      topic: topicStr,
+      suggestedTopic: topicStr,
+      requestedTopic: topicStr,
+      gradeId: gid,
+      resultData: { purePhaseC: exactCached.data },
+      archiveSource: 'topic_master',
+    };
+  }
+
+  const semantic = await findSemanticTopicMasterMatch(gid, topicStr);
+  if (!semantic || !semantic.data || !isTopicMasterPayload(semantic.data)) return null;
+
+  const matchedTopic = String(semantic.meta && semantic.meta.matchedTopic || topicStr).trim();
+  const queryNorm = stableNormalize(topicStr);
+  const matchedNorm = stableNormalize(matchedTopic);
+  const similarity = semantic.meta && semantic.meta.similarity != null ? semantic.meta.similarity : 1;
+
+  if (queryNorm && matchedNorm && queryNorm === matchedNorm) {
+    return {
+      matchType: 'exact',
+      similarity: similarity,
+      cacheKey: semantic.meta.cacheKey,
+      topic: matchedTopic,
+      suggestedTopic: matchedTopic,
+      requestedTopic: topicStr,
+      gradeId: gid,
+      resultData: { purePhaseC: semantic.data },
+      archiveSource: 'topic_master',
+    };
+  }
+
+  if (isMisleadingArchiveAutoLoad(topicStr, matchedTopic)) return null;
+
+  return {
+    matchType: 'partial',
+    similarity: similarity,
+    cacheKey: semantic.meta.cacheKey,
+    topic: matchedTopic,
+    suggestedTopic: matchedTopic,
+    requestedTopic: topicStr,
+    gradeId: gid,
+    historicPayload: semantic.data,
+    archiveSource: 'topic_master',
+  };
+}
+
+/**
  * Find an exact or partial community-archive topic match before a live API search.
  * Exact matches include full resultData; partial matches return metadata only.
  */
@@ -1392,6 +1456,9 @@ async function findArchiveTopicSuggestion(options) {
     console.log('[cached_results] definitive Waldorf skill block — exact archive only, skipping disambiguation:', topic);
     return null;
   }
+
+  const topicMasterSuggestion = await findTopicMasterArchiveSuggestion(gradeId, topic);
+  if (topicMasterSuggestion) return topicMasterSuggestion;
 
   const canonicalSuggestion = await findCanonicalGradeArchiveSuggestion(gradeId, topic);
   if (canonicalSuggestion) return canonicalSuggestion;

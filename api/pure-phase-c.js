@@ -2763,6 +2763,45 @@ function shouldBypassTopicMasterCache(body) {
   return Boolean(body.forceFresh || body.skipCache || body.bypassCache || body.forceRefresh);
 }
 
+const TOPIC_MASTER_MERGE_SYSTEM_PROMPT = [
+  'You are a senior Waldorf pedagogical editor merging two Phase C master documents.',
+  'Return ONE valid JSON object matching the Phase C schema (theory, inspiration, core_emphases, key_points, recommended_reading, relevant_links, pinterest_links).',
+  'Preserve EVERY unique pedagogical insight, example, and developmental nuance from BOTH the historic archive and the fresh live research.',
+  'Integrate additively — dedupe only verbatim repeats. Never truncate essays or key_points.',
+  'Keep pedagogical prose in Hebrew unless the topic itself is in another language.',
+  'Centralize ALL HTTPS links in relevant_links / recommended_reading only — zero URLs inside narrative HTML fields.',
+].join('\n');
+
+function buildTopicMasterMergeUserPrompt(historic, fresh, grade, topic) {
+  return [
+    'Merge HISTORIC archived Waldorf lesson master with FRESH live Perplexity research into ONE comprehensive master document.',
+    'Grade: ' + grade,
+    'Topic: ' + topic,
+    '',
+    'HISTORIC JSON:',
+    JSON.stringify(historic || {}),
+    '',
+    'FRESH JSON:',
+    JSON.stringify(fresh || {}),
+  ].join('\n');
+}
+
+async function mergeTopicMasterPayloads(historic, fresh, grade, topic) {
+  const modelResult = await callPhaseCPerplexitySafe(
+    TOPIC_MASTER_MERGE_SYSTEM_PROMPT,
+    buildTopicMasterMergeUserPrompt(historic, fresh, grade, topic),
+    {
+      phase: 'topic_master',
+      grade: grade,
+      gradeLabel: grade,
+      topic: topic,
+      temperature: 0.25,
+      max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    }
+  );
+  return modelResult.parsed;
+}
+
 async function runPurePhaseC(body) {
   const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
@@ -2846,8 +2885,18 @@ async function runPurePhaseC(body) {
     max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
   });
   const parsed = modelResult.parsed;
-  const normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+  let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
   stampTopicMasterArchiveLinks(normalized, parsed);
+
+  if (body.mergeWithHistoric && body.historicPayload && typeof body.historicPayload === 'object') {
+    try {
+      const mergedParsed = await mergeTopicMasterPayloads(body.historicPayload, normalized, grade, topic);
+      normalized = safeNormalizePhaseCResponse(mergedParsed, grade, topic);
+      stampTopicMasterArchiveLinks(normalized, mergedParsed);
+    } catch (mergeErr) {
+      console.warn('[pure-phase-c] topic_master merge failed — returning fresh payload:', mergeErr.message || mergeErr);
+    }
+  }
 
   if (gradeId) {
     cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
@@ -2859,8 +2908,9 @@ async function runPurePhaseC(body) {
     data: normalized,
     meta: {
       fromCache: false,
-      source: modelResult.parseFallback ? 'perplexity-pure-fallback' : 'perplexity-pure',
+      source: body.mergeWithHistoric ? 'topic_master_merge' : (modelResult.parseFallback ? 'perplexity-pure-fallback' : 'perplexity-pure'),
       parseFallback: Boolean(modelResult.parseFallback),
+      merged: Boolean(body.mergeWithHistoric && body.historicPayload),
     },
   };
 }
