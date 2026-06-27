@@ -2233,6 +2233,7 @@ function centralizePhaseCLinksToResourcesTab(normalized, topic) {
     const next = Object.assign({}, item);
     next.url = '';
     delete next.link;
+    delete next.href;
     return next;
   }).filter(function (item) {
     return item && String(item.title || '').trim() && isPayloadLiteratureSourceItem(item);
@@ -2797,7 +2798,35 @@ function buildLiteratureSearchUrl(item, grade) {
   } else {
     suffix = isHebrew ? ' +ולדורף +אנתרופוסופיה' : ' +waldorf +anthroposophy';
   }
-  return 'https://www.google.com/search?q=' + encodeURIComponent(label + suffix);
+  return ensureAbsoluteGoogleSearchHref('', label + suffix);
+}
+
+const GOOGLE_SEARCH_ABSOLUTE_PREFIX = 'https://www.google.com/search?q=';
+
+/** Force literature links to absolute Google search URLs (prevents Render 404 on relative /search paths). */
+function ensureAbsoluteGoogleSearchHref(href, queryFallback) {
+  const raw = String(href || '').trim();
+  if (raw) {
+    if (/^https:\/\/www\.google\.com\/search\?q=/i.test(raw)) return raw;
+    if (/^https?:\/\//i.test(raw) && /google\.com\/search\?q=/i.test(raw)) {
+      try {
+        const parsed = new URL(raw);
+        const q = parsed.searchParams.get('q');
+        if (q) return GOOGLE_SEARCH_ABSOLUTE_PREFIX + encodeURIComponent(q);
+      } catch (e) { /* ignore */ }
+    }
+    if (/^(?:www\.)?google\.com\/search\?/i.test(raw)) {
+      return 'https://www.' + raw.replace(/^\/+/, '').replace(/^www\./i, 'google.com');
+    }
+    if (/^\/search\?/i.test(raw)) {
+      return 'https://www.google.com' + raw;
+    }
+    if (/^search\?/i.test(raw)) {
+      return 'https://www.google.com/' + raw;
+    }
+  }
+  const q = String(queryFallback || '').trim();
+  return q ? GOOGLE_SEARCH_ABSOLUTE_PREFIX + encodeURIComponent(q) : '';
 }
 
 function resolveGradeId(body) {

@@ -453,6 +453,16 @@
     }
   }
 
+  function clearGradeMismatchNotice() {
+    state.messages = state.messages.filter(function (m) {
+      return !(m && m.gradeMismatch);
+    });
+    if (!state.messages.length) {
+      state.messages = [buildGreetingMessage()];
+    }
+    renderMessages();
+  }
+
   function showGradeMismatchNotice(options) {
     options = options || {};
     var mismatch = options.mismatch || null;
@@ -1319,6 +1329,7 @@
     },
     hasPendingArchiveSuggestion: hasUnresolvedArchiveSuggestion,
     clearArchiveSuggestionState: clearArchiveSuggestionState,
+    clearGradeMismatchNotice: clearGradeMismatchNotice,
     showArchiveTopicSuggestion: showArchiveTopicSuggestion,
     showArchiveRefineHint: showArchiveRefineHint,
     showGradeMismatchNotice: showGradeMismatchNotice,

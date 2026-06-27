@@ -5990,9 +5990,20 @@
     function hideTopicGradeMismatchNotice() {
       const panel = document.getElementById('topic-grade-mismatch');
       const actions = document.getElementById('topic-grade-mismatch-actions');
+      const textEl = document.getElementById('topic-grade-mismatch-text');
+      const out = document.getElementById('web-research-result');
       if (panel) panel.classList.add('hidden');
       if (actions) actions.classList.add('hidden');
+      if (textEl) textEl.textContent = '';
+      if (out) {
+        out.classList.add('hidden');
+        out.innerHTML = '';
+      }
       appState.pendingGradeMismatch = null;
+      if (typeof LessonChatSidebar !== 'undefined' &&
+          typeof LessonChatSidebar.clearGradeMismatchNotice === 'function') {
+        LessonChatSidebar.clearGradeMismatchNotice();
+      }
     }
 
     function showTopicGradeMismatchNotice(mismatch, options) {
@@ -6096,7 +6107,9 @@
 
     function hideTopicArchiveSuggestionBanner() {
       const panel = document.getElementById('topic-archive-suggestion');
+      const textEl = document.getElementById('topic-archive-suggestion-text');
       if (panel) panel.classList.add('hidden');
+      if (textEl) textEl.textContent = '';
       topicArchiveSuggestionHandlers = null;
     }
 
@@ -11991,13 +12004,15 @@
 
     function probeArchiveTopicMatchLocal(topic, gradeId) {
       if (typeof WaldorfSearchHistory === 'undefined' || typeof WaldorfSearchHistory.getItems !== 'function') return null;
-      const localMismatch = checkTopicGradeMismatch(topic, gradeId);
-      if (localMismatch) {
-        return {
-          matchType: 'grade_mismatch',
-          gradeMismatch: localMismatch,
-          message: gradeMismatchMessage(localMismatch),
-        };
+      if (!appState.pedagogicalScopeOverride) {
+        const localMismatch = checkTopicGradeMismatch(topic, gradeId);
+        if (localMismatch) {
+          return {
+            matchType: 'grade_mismatch',
+            gradeMismatch: localMismatch,
+            message: gradeMismatchMessage(localMismatch),
+          };
+        }
       }
       const bypassSemantic = typeof WaldorfHebrewTopicMatch !== 'undefined' &&
         typeof WaldorfHebrewTopicMatch.shouldBypassSemanticArchiveSuggestion === 'function' &&
@@ -12119,7 +12134,7 @@
         }
         if (res.ok && !json.error) {
           const data = json.data || json;
-          if (data && data.gradeMismatch) {
+          if (data && data.gradeMismatch && !appState.pedagogicalScopeOverride) {
             return { matchType: 'grade_mismatch', gradeMismatch: data.gradeMismatch, message: data.message || null };
           }
           if (data && data.match) return filterArchiveProbeMatch(data.match);
@@ -14500,12 +14515,14 @@
     function buildExpansionBracketLinkHtml(url, label) {
       var href = sanitizeProseLinkUrl(url);
       if (!href) href = sanitizeExternalLinkUrl(url);
+      if (!href) href = resolveOfficialSourceUrl(label);
+      if (!href) href = buildSourceSearchUrl(label || appState.topic || '');
       if (!href || isExpansionLowQualitySourceUrl(href)) return '';
       var display = String(label || '').trim();
       if (!display || isDeadSourceLinkLabel(display)) {
         display = isEnglish() ? 'Source link' : 'קישור למקור';
       }
-      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline font-medium">' +
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline">' +
         escapeHtml(display) + '</a>';
     }
 
@@ -14522,6 +14539,14 @@
       });
       work = work.replace(/((?:https?:\/\/|www\.)[^\s<>"']+)\s*\[\s*\]/gi, function (_m, url) {
         var link = buildExpansionBracketLinkHtml(url, '');
+        return link || _m;
+      });
+      work = work.replace(/\[\s*([^\]]*?)\s*\](?!\()/gi, function (_m, inner) {
+        var label = String(inner || '').trim();
+        if (/^https?:\/\//i.test(label) || /^www\./i.test(label)) {
+          return buildExpansionBracketLinkHtml(label, '') || _m;
+        }
+        var link = buildExpansionBracketLinkHtml('', label);
         return link || _m;
       });
       return work;
@@ -15702,19 +15727,14 @@
     }
 
     function buildLiteratureAnchorHtml(item, options) {
-      options = options || {};
       var title = String(item.title || '').trim();
       var author = String(item.author || '').trim();
       var label = title + (author ? ' - ' + author : '');
-      var searchHref = buildLiteratureSearchUrl(item);
-      var rawUrl = String(item.url || item.link || item.href || '').trim();
-      var href = (options.forceSearch || shouldForceLiteratureSearchHref(rawUrl))
-        ? searchHref
-        : (ensureAbsoluteLiteratureHref(rawUrl) || searchHref);
-      if (href && !/^https:\/\//i.test(href)) {
-        href = ensureAbsoluteLiteratureHref(href) || searchHref;
+      if (!label) return '';
+      var href = buildLiteratureSearchUrl(item);
+      if (!href || !/^https:\/\/www\.google\.com\/search\?q=/i.test(href)) {
+        href = 'https://www.google.com/search?q=' + encodeURIComponent(label);
       }
-      if (!href || !/^https:\/\//i.test(href)) return '<strong>' + escapeHtml(label) + '</strong>';
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
         escapeHtml(label) + '</a>';
     }
@@ -17836,10 +17856,12 @@
     }
 
     function presentArchivePartialMatch(topic, archiveMatch) {
-      const gradeMismatch = checkTopicGradeMismatch(topic, appState.grade);
-      if (gradeMismatch) {
-        presentGradeMismatchNotice(gradeMismatch);
-        return true;
+      if (!appState.pedagogicalScopeOverride) {
+        const gradeMismatch = checkTopicGradeMismatch(topic, appState.grade);
+        if (gradeMismatch) {
+          presentGradeMismatchNotice(gradeMismatch);
+          return true;
+        }
       }
 
       const match = normalizeArchiveSuggestionMatch(archiveMatch);
@@ -18177,8 +18199,13 @@
     }
 
     function proceedDespiteGradeMismatch() {
+      appState.pedagogicalScopeOverride = true;
       hideTopicGradeMismatchNotice();
-      generateLesson({ scopeOverride: true });
+      generateLesson({
+        scopeOverride: true,
+        bypassCache: true,
+        forceRefresh: true,
+      });
     }
 
     function refineTopicAfterGradeMismatch() {
@@ -18256,7 +18283,10 @@
         return;
       }
 
-      if (!forceCacheBypass && !shouldForceLiveArchiveBypass(topic, currentGrade)) {
+      const skipArchiveProbe = Boolean(
+        genOpts.scopeOverride || forceCacheBypass || shouldForceLiveArchiveBypass(topic, currentGrade)
+      );
+      if (!skipArchiveProbe) {
         let archiveMatch = null;
         try {
           archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
@@ -18269,7 +18299,7 @@
           updateTopicResearchButton();
           return;
         }
-        if (archiveMatch && archiveMatch.matchType === 'grade_mismatch') {
+        if (archiveMatch && archiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
           setTopicResearchLoadingUi(false);
           btn.disabled = false;
           updateTopicResearchButton();
@@ -20837,17 +20867,25 @@
       if (topicArchiveYes) {
         topicArchiveYes.addEventListener('click', function () {
           if (!topicArchiveSuggestionHandlers || typeof topicArchiveSuggestionHandlers.onConfirm !== 'function') return;
-          topicArchiveYes.disabled = true;
-          if (topicArchiveNo) topicArchiveNo.disabled = true;
-          topicArchiveSuggestionHandlers.onConfirm();
+          var onConfirm = topicArchiveSuggestionHandlers.onConfirm;
+          hideTopicArchiveSuggestionBanner();
+          if (typeof LessonChatSidebar !== 'undefined' &&
+              typeof LessonChatSidebar.clearArchiveSuggestionState === 'function') {
+            LessonChatSidebar.clearArchiveSuggestionState();
+          }
+          onConfirm();
         });
       }
       if (topicArchiveNo) {
         topicArchiveNo.addEventListener('click', function () {
           if (!topicArchiveSuggestionHandlers || typeof topicArchiveSuggestionHandlers.onReject !== 'function') return;
-          if (topicArchiveYes) topicArchiveYes.disabled = true;
-          topicArchiveNo.disabled = true;
-          topicArchiveSuggestionHandlers.onReject();
+          var onReject = topicArchiveSuggestionHandlers.onReject;
+          hideTopicArchiveSuggestionBanner();
+          if (typeof LessonChatSidebar !== 'undefined' &&
+              typeof LessonChatSidebar.clearArchiveSuggestionState === 'function') {
+            LessonChatSidebar.clearArchiveSuggestionState();
+          }
+          onReject();
         });
       }
       bindWizardNavClick(document.getElementById('btn-topic-research'), function () {
@@ -20857,11 +20895,13 @@
       var topicGradeMismatchRefine = document.getElementById('topic-grade-mismatch-refine');
       if (topicGradeMismatchProceed) {
         topicGradeMismatchProceed.addEventListener('click', function () {
+          hideTopicGradeMismatchNotice();
           proceedDespiteGradeMismatch();
         });
       }
       if (topicGradeMismatchRefine) {
         topicGradeMismatchRefine.addEventListener('click', function () {
+          hideTopicGradeMismatchNotice();
           refineTopicAfterGradeMismatch();
         });
       }
