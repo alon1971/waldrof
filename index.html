@@ -6639,19 +6639,21 @@
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
 
-      holdPageScroll(function () {
-        try {
-          renderWebResearchResult();
-        } catch (renderErr) {
-          console.error('[waldrof] renderWebResearchResult failed:', renderErr);
-        }
-      });
+      try {
+        renderWebResearchResult();
+      } catch (renderErr) {
+        console.error('[waldrof] renderWebResearchResult failed:', renderErr);
+      }
       updateTopicResearchButton();
       updatePedagogyExportButtonsVisibility();
       ensurePedagogySuggestionEvents();
       nudgeGoogleTranslate();
       persistActiveStep();
       ensurePageScrollUnlocked();
+      if (appState.productTabsRendered) appState.productTabsRendered.resources = false;
+      runAfterLayout(function () {
+        scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
+      });
       return true;
     }
 
@@ -10881,14 +10883,12 @@
       if (!out) return;
       var content = String(html || '').trim();
       if (!content) content = '<p class="text-walnut/70">—</p>';
-      holdPageScroll(function () {
-        out.innerHTML = content;
-        out.classList.remove('hidden');
-        ensurePedagogySuggestionEvents();
-        updatePedagogyExportButtonsVisibility();
-        checkAndShowCommunityTopicAlert();
-        nudgeGoogleTranslate();
-      });
+      out.innerHTML = content;
+      out.classList.remove('hidden');
+      ensurePedagogySuggestionEvents();
+      updatePedagogyExportButtonsVisibility();
+      checkAndShowCommunityTopicAlert();
+      nudgeGoogleTranslate();
     }
 
     function buildPhaseBEssenceHtml(dive) {
@@ -12502,14 +12502,12 @@
       appState.navSection = 'wizard';
       ensureStepBWizardView();
       if (appState.webResearch) {
-        holdPageScroll(function () {
-          renderWebResearchResult();
-          if (typeof onReady === 'function') {
-            runAfterLayout(function () {
-              runAfterLayout(onReady);
-            });
-          }
-        });
+        renderWebResearchResult();
+        if (typeof onReady === 'function') {
+          runAfterLayout(function () {
+            runAfterLayout(onReady);
+          });
+        }
       } else if (typeof onReady === 'function') {
         runAfterLayout(function () {
           runAfterLayout(onReady);
@@ -15663,15 +15661,35 @@
       return 'https://www.google.com/search?q=' + encodeURIComponent(label + waldorfSuffix);
     }
 
-    function buildLiteratureAnchorHtml(item) {
+    function shouldForceLiteratureSearchHref(url) {
+      var raw = String(url || '').trim();
+      if (!raw) return true;
+      if (!/^https:\/\//i.test(raw)) return true;
+      if (/google\.com\/search/i.test(raw)) return true;
+      return !sanitizeExternalLinkUrl(raw);
+    }
+
+    /** Strip legacy archive URLs so Tab 2 Box A always rebuilds client-side search links. */
+    function hydratePhaseCLiteratureItems(items) {
+      return (Array.isArray(items) ? items : []).map(function (item) {
+        var norm = normalizePhaseCResourceItem(item);
+        if (!norm || !String(norm.title || '').trim()) return null;
+        return Object.assign({}, norm, { url: '', link: '', href: '' });
+      }).filter(Boolean);
+    }
+
+    function buildLiteratureAnchorHtml(item, options) {
+      options = options || {};
       var title = String(item.title || '').trim();
       var author = String(item.author || '').trim();
       var label = title + (author ? ' - ' + author : '');
+      var searchHref = buildLiteratureSearchUrl(item);
       var rawUrl = String(item.url || item.link || item.href || '').trim();
-      var directUrl = ensureAbsoluteLiteratureHref(rawUrl);
-      var href = directUrl || buildLiteratureSearchUrl(item);
+      var href = (options.forceSearch || shouldForceLiteratureSearchHref(rawUrl))
+        ? searchHref
+        : (ensureAbsoluteLiteratureHref(rawUrl) || searchHref);
       if (href && !/^https:\/\//i.test(href)) {
-        href = ensureAbsoluteLiteratureHref(href) || buildLiteratureSearchUrl(item);
+        href = ensureAbsoluteLiteratureHref(href) || searchHref;
       }
       if (!href || !/^https:\/\//i.test(href)) return '<strong>' + escapeHtml(label) + '</strong>';
       return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
@@ -15679,13 +15697,13 @@
     }
 
     function phaseCRenderResourcesReadingList(items) {
-      var list = (Array.isArray(items) ? items : []).filter(function (item) {
+      var list = hydratePhaseCLiteratureItems(items).filter(function (item) {
         return item && String(item.title || '').trim();
       });
       if (!list.length) return '';
       return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
         var note = String(item.note || '').trim();
-        var head = buildLiteratureAnchorHtml(item);
+        var head = buildLiteratureAnchorHtml(item, { forceSearch: true });
         if (note.length > 40) {
           return '<li>' + buildReadMoreDetails('<div>' + head + '</div>',
             '<p>' + escapeHtml(note) + '</p>') + '</li>';
@@ -15771,7 +15789,7 @@
       if (phaseCIsStaleRender(token)) return;
 
       var payload = phaseCResourcesMasterPayload(data || appState.purePhaseC);
-      var literature = collectPhaseCResourcesLiterature(payload);
+      var literature = hydratePhaseCLiteratureItems(collectPhaseCResourcesLiterature(payload));
       var links = collectPhaseCResourcesLinks(payload);
       var readingHtml = phaseCRenderResourcesReadingList(literature);
       var linksHtml = renderPureLinksBlock(links, { blockPinterest: true });
@@ -15954,7 +15972,7 @@
           (readingBoxEl && !readingBoxEl.innerHTML.trim()) &&
           (pinGalEl && !pinGalEl.innerHTML.trim())
         );
-        if (!r.resources || resourcesDomEmpty) {
+        if (!r.resources || resourcesDomEmpty || appState.lessonFromArchive) {
           if (phaseCIsStaleRender(renderToken)) return;
           phaseCRenderResourcesTab(appState.purePhaseC);
           r.resources = true;
@@ -16414,7 +16432,7 @@
       hideGeneralSearchView();
       resetProductTabsNeutral();
       restoreStepBTopicResultsView(function () {
-        restoreNavScrollPosition('step-2');
+        scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
       });
     }
 
@@ -16627,6 +16645,59 @@
         document.getElementById('step-b-wrapper');
     }
 
+    /** Scroll the wizard to Step B results — fresh research, archive row, or history reload. */
+    function scrollToWizardTopicViewport(options) {
+      options = options || {};
+      ensureStepBWizardView();
+      var behavior = options.behavior == null ? 'smooth' : options.behavior;
+      var shouldFocus = options.focusField === true;
+      var topicInput = document.getElementById('topic-input');
+      beginProgrammaticScroll();
+      var finish = function () {
+        endProgrammaticScroll();
+        if (shouldFocus && topicInput) {
+          try {
+            topicInput.focus({ preventScroll: true });
+          } catch (e) {
+            topicInput.focus();
+          }
+          if (options.selectField !== false) topicInput.select();
+          highlightWizardField(topicInput);
+        }
+        if (typeof options.onDone === 'function') options.onDone();
+      };
+      runAfterLayout(function () {
+        if (options.preCompactHeader !== false && !options.expandHeader) {
+          var siteChrome = document.getElementById('app-site-chrome');
+          if (siteChrome && !siteChrome.classList.contains('header-compact')) {
+            setHeaderCompact(true);
+          }
+        }
+        runAfterLayout(function () {
+          syncProductTabsStickyLayout(true);
+          var resultsEl = document.getElementById('web-research-result');
+          var anchor = null;
+          if (resultsEl && !resultsEl.classList.contains('hidden') && String(resultsEl.innerHTML || '').trim()) {
+            anchor = resultsEl;
+          }
+          if (!anchor) anchor = document.getElementById('step-b-container') || getStepBScrollAnchor();
+          if (!anchor) anchor = document.getElementById('app-main');
+          if (!anchor) {
+            finish();
+            return;
+          }
+          var scrollBehavior = (behavior === false || behavior === 'none') ? 'auto' :
+            ((behavior === 'auto' || behavior === 'instant') ? 'auto' : (behavior || 'smooth'));
+          scrollElementIntoViewWithChrome(anchor, scrollBehavior, 'start');
+          if (scrollBehavior === 'smooth') {
+            runAfterSmoothScroll(finish);
+          } else {
+            finish();
+          }
+        });
+      });
+    }
+
     function runAfterLayout(fn) {
       requestAnimationFrame(function () {
         requestAnimationFrame(fn);
@@ -16693,45 +16764,8 @@
 
     function scrollToStepBAndFocus(options) {
       options = options || {};
-      ensureStepBWizardView();
-      var topicInput = document.getElementById('topic-input');
-      var anchor = document.getElementById('step-b-container') || getStepBScrollAnchor();
-      if (!anchor) return;
       if (options.expandHeader) setHeaderCompact(false);
-      var behavior = options.behavior == null ? 'smooth' : options.behavior;
-      var preCompact = options.preCompactHeader !== false && !options.expandHeader;
-      var shouldFocus = options.focusField !== false;
-      beginProgrammaticScroll();
-      var finishFocus = function () {
-        endProgrammaticScroll();
-        if (!shouldFocus || !topicInput) return;
-        try {
-          topicInput.focus({ preventScroll: true });
-        } catch (e) {
-          topicInput.focus();
-        }
-        if (options.selectField !== false) topicInput.select();
-        highlightWizardField(topicInput);
-      };
-      runAfterLayout(function () {
-        if (preCompact) {
-          var siteChrome = document.getElementById('app-site-chrome');
-          if (siteChrome && !siteChrome.classList.contains('header-compact')) {
-            setHeaderCompact(true);
-          }
-        }
-        runAfterLayout(function () {
-          syncProductTabsStickyLayout(true);
-          var scrollBehavior = (behavior === false || behavior === 'none') ? 'auto' :
-            ((behavior === 'auto' || behavior === 'instant') ? 'auto' : (behavior || 'smooth'));
-          scrollElementIntoViewWithChrome(anchor, scrollBehavior, 'start');
-          if (scrollBehavior === 'smooth') {
-            runAfterSmoothScroll(finishFocus);
-          } else {
-            finishFocus();
-          }
-        });
-      });
+      scrollToWizardTopicViewport(options);
     }
 
     function scrollElementIntoViewWithChrome(el, behavior, block) {
@@ -17304,9 +17338,24 @@
 
       var effectiveFromStep = fromNavSection === 'phase-c' ? 3 : fromStep;
       if (n > effectiveFromStep) {
-        applyForwardNavScroll();
+        if (n === 2) {
+          runAfterLayout(function () {
+            scrollToWizardTopicViewport({
+              behavior: scrollBehavior === 'auto' ? 'auto' : 'smooth',
+              focusField: false,
+            });
+          });
+        } else {
+          applyForwardNavScroll();
+        }
       } else if (n < effectiveFromStep) {
-        restoreNavScrollPosition('step-' + n);
+        if (n === 2 && fromNavSection === 'phase-c') {
+          runAfterLayout(function () {
+            scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
+          });
+        } else {
+          restoreNavScrollPosition('step-' + n);
+        }
       } else if (scrollBehavior === true || scrollBehavior === 'smooth' || scrollBehavior === 'auto') {
         scrollToWizardStep(n, scrollBehavior);
       }
@@ -18013,6 +18062,10 @@
       nudgeGoogleTranslate();
       persistActiveStep();
       ensurePageScrollUnlocked();
+      if (appState.productTabsRendered) appState.productTabsRendered.resources = false;
+      runAfterLayout(function () {
+        scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
+      });
     }
 
     async function runPurePhaseCFromStepB(topic, runId, signal, options) {
@@ -20461,6 +20514,9 @@
       if (step2 && step2.classList.contains('hidden')) {
         revealStepBQuietly();
       }
+      runAfterLayout(function () {
+        scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
+      });
     }
 
     function isPrimaryEnter(e) {
