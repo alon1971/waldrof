@@ -848,14 +848,16 @@
   }
 
   function bindChatExportButton(btn) {
-    if (!btn || btn.dataset.chatExportBound) return;
-    btn.dataset.chatExportBound = '1';
+    if (!btn) return;
     btn.disabled = false;
-    btn.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
+    btn.type = 'button';
+    btn.onclick = function (e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       downloadChatMessagesDoc();
-    });
+    };
   }
 
   function resetChatConversation() {
@@ -1346,6 +1348,7 @@
     init: init,
     isReady: function () { return chatInitialized; },
     updateVisibility: updateVisibility,
+    downloadChatExport: downloadChatMessagesDoc,
     buildResearchContext: buildResearchContext,
     restoreSession: restoreSession,
     persistSession: persistSession,

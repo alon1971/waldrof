@@ -105,6 +105,7 @@ const LANGUAGES = {
     breadcrumb_aria:             'נתיב מסע פדגוגי',
 
     tab_narrative:               'מידע והשראה',
+    phase_c_extra_links:         'קישורים נוספים',
     tab_resources:               'המלצות לקריאה וקישורים',
     tab_theory:                  'רקע תיאורטי',
     tab_theory_suffix:           ' ומקורות (מידע)',
@@ -751,6 +752,7 @@ const LANGUAGES = {
     breadcrumb_aria:             'Pedagogical journey path',
 
     tab_narrative:               'Information & Inspiration',
+    phase_c_extra_links:         'Additional Links',
     tab_resources:               'Reading Recommendations & Links',
     tab_theory:                  'Theoretical Background',
     tab_theory_suffix:           ' & Sources (info)',
