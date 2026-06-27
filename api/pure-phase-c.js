@@ -576,6 +576,7 @@ function filterLinkItemsByLiveCitations(items, citationSet, options) {
   if (!citationSet || !citationSet.size) return [];
   return (items || []).filter(function (item) {
     if (!item || typeof item !== 'object') return false;
+    if (!isAllowedPhaseCSourceItem(item)) return false;
     const url = String(item.url || item.link || item.href || '').trim();
     if (!url || !isVerifiedLiveCitationUrl(url, citationSet)) return false;
     if (opts.blockPinterest && isPinterestPhaseCUrl(url)) return false;
@@ -590,11 +591,14 @@ function filterLinkItemsByLiveCitations(items, citationSet, options) {
 function filterBibliographyByLiveCitations(bib, citationSet, topic) {
   const data = bib && typeof bib === 'object' ? bib : {};
   const topicStr = String(topic || '').trim();
-  function filterList(list) {
+  function filterList(list, requireUrl) {
     return (list || []).filter(function (item) {
       if (!item || typeof item !== 'object' || !item.title) return false;
+      if (!isAllowedPhaseCSourceItem(item)) return false;
       const url = String(item.url || item.link || item.href || '').trim();
-      if (!url || !isVerifiedLiveCitationUrl(url, citationSet)) return false;
+      if (!url) return !requireUrl;
+      if (!citationSet || !citationSet.size) return false;
+      if (!isVerifiedLiveCitationUrl(url, citationSet)) return false;
       if (isPinterestPhaseCUrl(url)) return false;
       const snippet = String(item.note || item.detail || item.description || item.snippet || item.summary || item.title || '').trim();
       if (violatesPedagogicalTopicContext(url, snippet, topicStr)) return false;
@@ -602,20 +606,22 @@ function filterBibliographyByLiveCitations(bib, citationSet, topic) {
     });
   }
   return {
-    books: filterList(data.books),
-    articles: filterList(data.articles),
-    websites: filterList(data.websites),
+    books: filterList(data.books, false),
+    articles: filterList(data.articles, false),
+    websites: filterList(data.websites, true),
   };
 }
 
 function filterRecommendedReadingByLiveCitations(reading, citationSet, topic) {
-  if (!citationSet || !citationSet.size) return [];
   const topicStr = String(topic || '').trim();
   return (reading || []).filter(function (item) {
     if (!item || !item.title) return false;
+    if (!isAllowedPhaseCSourceItem(item)) return false;
     if (!hasLiveReferenceSnippet(item)) return false;
     const url = String(item.url || item.link || item.href || '').trim();
-    if (!url || !isVerifiedLiveCitationUrl(url, citationSet)) return false;
+    if (!url) return true;
+    if (!citationSet || !citationSet.size) return false;
+    if (!isVerifiedLiveCitationUrl(url, citationSet)) return false;
     if (isPinterestPhaseCUrl(url)) return false;
     const snippet = String(item.note || item.detail || item.description || item.snippet || item.summary || item.title || '').trim();
     return !violatesPedagogicalTopicContext(url, snippet, topicStr);
@@ -1027,6 +1033,43 @@ function sanitizePhaseCProseField(text) {
   return sanitizePhaseCPlainProse(raw);
 }
 
+/** Waldorf / Anthroposophy relevance — required for every Box A source. */
+const PHASE_C_WALDORF_ANTHRO_KEYWORDS = /וולדורף|ולדורף|שטיינר|סטיינר|אנתרופוסופ|anthroposoph|waldorf|steiner|rsarchive|waldorflibrary|awsna|iaswece|gesamtausgabe|\bga[\s\-_]?\d|main[\-_]?lesson|form[\-_]?draw|antro\.co|educationpace|harduf|humani|eldo|salut|כ\.ע\.ל|כ"ע|selg|kovacs|finser|staley|spiritual\s*science/i;
+
+/** Generic national-curriculum / non-Waldorf education hosts — reject unless Waldorf keyword also present. */
+const PHASE_C_GENERIC_EDUCATION_BLOCKLIST = /education\.gov\.il|khanacademy|khan-academy|matific|kidsplus|kids\s*plus|מט"ח|מט״ח|ראמ"ה|ראמ״ה|נגבה|mofet\.macam|teachers\.org\.il|משרד\s*החינוך|national\s*curriculum|common\s*core|edutopia|teacherpayteachers|tpt\.com|greatschools|education\.com|scholastic\.com/i;
+
+const PHASE_C_NON_HE_EN_SCRIPTS = /[\u0400-\u04FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0370-\u03FF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/;
+
+function isHebrewOrEnglishSourceText(text, lang) {
+  const code = String(lang || '').trim().toLowerCase();
+  if (code === 'he' || code === 'en') return true;
+  if (code && code !== 'he' && code !== 'en') return false;
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/[\u0590-\u05FF]/.test(s)) return true;
+  if (PHASE_C_NON_HE_EN_SCRIPTS.test(s)) return false;
+  return /[a-zA-Z]/.test(s);
+}
+
+function isWaldorfAnthroposophyRelevant(item) {
+  if (!item || typeof item !== 'object') return false;
+  const url = String(item.url || item.link || item.href || '').trim();
+  const blob = [
+    item.title, item.name, item.note, item.author, item.snippet,
+    item.detail, item.description, item.label, item.source, url,
+  ].filter(Boolean).join(' ');
+  const hasWaldorf = PHASE_C_WALDORF_ANTHRO_KEYWORDS.test(blob) || isTrustedEducationalDomain(url);
+  if (!hasWaldorf) return false;
+  const genericHit = PHASE_C_GENERIC_EDUCATION_BLOCKLIST.test(blob) ||
+    PHASE_C_GENERIC_OFF_TOPIC_ENTITIES.test(blob);
+  if (genericHit && !PHASE_C_WALDORF_ANTHRO_KEYWORDS.test(blob)) return false;
+  if (genericHit && url && PHASE_C_GENERIC_EDUCATION_BLOCKLIST.test(url) && !isTrustedEducationalDomain(url)) {
+    return false;
+  }
+  return true;
+}
+
 function isAllowedPhaseCSourceItem(item) {
   if (!item || typeof item !== 'object') return false;
   const url = String(item.url || item.link || item.href || '').trim();
@@ -1036,7 +1079,8 @@ function isAllowedPhaseCSourceItem(item) {
     item.detail, item.description, item.label, item.source,
   ].filter(Boolean).join(' ');
   if (!blob.trim() && !url) return false;
-  if (hasDisallowedForeignScript(blob) && !/[\u0590-\u05FF]/.test(blob)) return false;
+  if (!isHebrewOrEnglishSourceText(blob, item.lang)) return false;
+  if (!isWaldorfAnthroposophyRelevant(item)) return false;
   return true;
 }
 
@@ -2089,11 +2133,13 @@ function centralizePhaseCLinksToResourcesTab(normalized, topic) {
   function pushItem(title, url) {
     let clean = normalizeToTrustedPortalRoot(url);
     if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    const candidate = { title: String(title || clean).trim(), url: clean };
+    if (!isAllowedPhaseCSourceItem(candidate)) return;
     const key = normalizeCitationUrlForMatch(clean);
     if (!key || seen.has(key)) return;
     seen.add(key);
     merged.push({
-      title: resolvePhaseCFriendlyLinkTitle(title, clean),
+      title: resolvePhaseCFriendlyLinkTitle(candidate.title, clean),
       url: clean,
     });
   }
@@ -2133,7 +2179,7 @@ function centralizePhaseCLinksToResourcesTab(normalized, topic) {
   if (bib) {
     ['books', 'articles', 'websites'].forEach(function (cat) {
       bib[cat] = (bib[cat] || []).map(stripUrlsFromBibliographyEntry).filter(function (item) {
-        return item && String(item.title || '').trim();
+        return item && String(item.title || '').trim() && isAllowedPhaseCSourceItem(item);
       });
     });
   }
@@ -2145,7 +2191,7 @@ function centralizePhaseCLinksToResourcesTab(normalized, topic) {
     delete next.link;
     return next;
   }).filter(function (item) {
-    return item && String(item.title || '').trim();
+    return item && String(item.title || '').trim() && isAllowedPhaseCSourceItem(item);
   });
 
   return normalized;
@@ -2339,13 +2385,16 @@ const PHASE_C_EXPANSION_NARRATIVE_RULE = [
   'If you catch yourself restating an idea, skip the repeat and advance with new pedagogical detail instead.',
   'Expansion bodies: pure pedagogical narrative and practical classroom guidance ONLY.',
   'STRICTLY FORBIDDEN inside expansion bodies: book titles, author names, URLs, domain names, source lists, bibliography, «guillemet» titles, square brackets, numeric brackets like [1], and any citation markup.',
+  'ABSOLUTELY FORBID JSON keys inspirationReferences, citations, materialsNeeded, furtherReading, bibliography, recommended_reading, or relevant_links in expansion payloads — omit them entirely.',
   '=== END LIVE EXPANSION NARRATIVE ===',
 ].join(' ');
 
 const PHASE_C_LINKS_CENTRALIZATION_RULE = [
-  '=== CENTRALIZED SOURCES (Resources tab ONLY — «המלצות לקריאה וקישורים») ===',
-  'ALL external HTTPS links, Pinterest boards, and bibliography URLs belong EXCLUSIVELY in relevant_links and pinterest_links (Resources tab).',
-  'Narrative tab fields (theory, inspiration, core_emphases, key_points): ZERO URLs, ZERO <a> anchors, ZERO link markup, ZERO book lists, ZERO bibliography.',
+  '=== CENTRALIZED SOURCES (Resources tab Box A ONLY — «המלצות לקריאה וקישורים») ===',
+  'ALL external HTTPS links, recommended literature, and bibliography metadata belong EXCLUSIVELY in recommended_reading and relevant_links (Resources tab Box A).',
+  'Narrative tab and expansion panels: ZERO URLs, ZERO <a> anchors, ZERO link markup, ZERO book lists, ZERO bibliography.',
+  'STRICT CONTENT FILTER: include ONLY sources explicitly related to Waldorf pedagogy or Anthroposophy — discard generic education sites (מט"ח, משרד החינוך, Khan Academy, Matific, etc.).',
+  'LANGUAGE FILTER: retain ONLY sources written in Hebrew or English — discard all other languages.',
   'Prefer reliable TOP-LEVEL portal homepages ONLY (https://rsarchive.org/, https://www.waldorflibrary.org/, https://antro.co.il/, https://waldorfeducation.org/, https://www.iaswece.org/) — NEVER emit deep article paths, encoded Hebrew paths, or guessed slugs that 404.',
   'Never invent or guess deep-link paths; when uncertain, use the organization homepage root URL.',
   '=== END CENTRALIZED SOURCES ===',
@@ -2865,6 +2914,9 @@ module.exports = {
   stripSequentialDuplicateSentences,
   isForbiddenForeignSourceUrl,
   hasDisallowedForeignScript,
+  isHebrewOrEnglishSourceText,
+  isWaldorfAnthroposophyRelevant,
+  isAllowedPhaseCSourceItem,
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,

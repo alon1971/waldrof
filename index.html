@@ -4933,14 +4933,16 @@
       if (isEnglish()) {
         return (
           'INLINE EXPANSION (MANDATORY): Include a complete "expansion" object on every expandable UI item in this response. ' +
-          'Shape: classroomImplementation, parentCommunityAspects, practicalSteps[], inspirationReferences[], expansionHtml. ' +
+          'Shape: classroomImplementation, parentCommunityAspects, practicalSteps[], expansionHtml. ' +
+          'NEVER include inspirationReferences, citations, bibliography, or source lists inside expansions. ' +
           'Curriculum days: contentExpansion, artExpansion, hintExpansion (same shape). ' +
           'The «Practical expansion & aspects» button toggles pre-generated content — no second API call.'
         );
       }
       return (
         'הרחבה מוטמעת (חובה): כלול אובייקט "expansion" מלא על כל פריט עם כפתור הרחבה בתשובה זו. ' +
-        'מבנה: classroomImplementation, parentCommunityAspects, practicalSteps[], inspirationReferences[], expansionHtml. ' +
+        'מבנה: classroomImplementation, parentCommunityAspects, practicalSteps[], expansionHtml. ' +
+        'לעולם אל תכלול inspirationReferences, citations, ביבליוגרפיה או רשימות מקורות בתוך הרחבות. ' +
         'ימי תכנון: contentExpansion, artExpansion, hintExpansion (אותו מבנה). ' +
         'כפתור «הרחבה ואספקטים פרקטיים» מציג/מסתיר תוכן שכבר נוצר — ללא קריאת API נוספת.'
       );
@@ -4962,8 +4964,8 @@
     function getOnDemandExpansionInstruction(scope) {
       const isAge = scope === 'age';
       const noRepeatRule = isEnglish()
-        ? 'ABSOLUTELY FORBID repeating or duplicating the same sentence or paragraph back-to-back. Inside the expansion body output pure pedagogical narrative and practical guidance ONLY — no book titles, no URLs, no source lists, no brackets like [1]. '
-        : 'אסור בהחלט לחזור על אותו משפט או פסקה פעמיים ברצף. בתוך גוף ההרחבה — טקסט פדגוגי ומעשי בלבד; ללא שמות ספרים, ללא URLs, ללא רשימות מקורות, ללא סוגריים מספריים כמו [1]. ';
+        ? 'ABSOLUTELY FORBID repeating or duplicating the same sentence or paragraph back-to-back. Inside the expansion body output pure pedagogical narrative and practical guidance ONLY — no book titles, no URLs, no source lists, no brackets like [1]. NEVER include inspirationReferences, citations, bibliography, or reading lists in the JSON. '
+        : 'אסור בהחלט לחזור על אותו משפט או פסקה פעמיים ברצף. בתוך גוף ההרחבה — טקסט פדגוגי ומעשי בלבד; ללא שמות ספרים, ללא URLs, ללא רשימות מקורות, ללא סוגריים מספריים כמו [1]. לעולם אל תכלול inspirationReferences, citations, ביבליוגרפיה או רשימות קריאה ב-JSON. ';
       if (isEnglish()) {
         return (
           getNoUrlsInstruction() + ' ' + getNoLatexInstruction() + ' ' + noRepeatRule +
@@ -4973,8 +4975,7 @@
           'classroomImplementation (1–2 paragraphs on practical in-class implementation), ' +
           'parentCommunityAspects (paragraph on parents/community when relevant), ' +
           'practicalSteps (4–8 concrete teacher steps), ' +
-          'inspirationReferences (3–6 named books, articles, or known Waldorf projects — NO URLs), ' +
-          'optional summaryHtml (prose only — no links, no citations). Grade-locked to currentGrade only.'
+          'optional summaryHtml (prose only — no links, no citations, no sources). Grade-locked to currentGrade only.'
         );
       }
       return (
@@ -4985,8 +4986,7 @@
         'classroomImplementation (1–2 פסקאות יישום מעשי בכיתה), ' +
         'parentCommunityAspects (פסקה על הורים/קהילה כשרלוונטי), ' +
         'practicalSteps (4–8 שלבים קונקרטיים למורה), ' +
-        'inspirationReferences (3–6 הפניות לספרים, מאמרים או פרויקטים ולדורפיים מוכרים — ללא URLs), ' +
-        'summaryHtml אופציונלי (פרוזה בלבד — ללא קישורים וללא ציטוטים). אך ורק ל-currentGrade.'
+        'summaryHtml אופציונלי (פרוזה בלבד — ללא קישורים, ללא ציטוטים, ללא מקורות). אך ורק ל-currentGrade.'
       );
     }
 
@@ -5006,9 +5006,8 @@
           'classroomImplementation (2–3 paragraphs: theoretical depth + practical main-lesson flow for this day), ' +
           'parentCommunityAspects (paragraph on parents/community when relevant), ' +
           'practicalSteps (4–8 concrete teacher steps for this day), ' +
-          'inspirationReferences (3–6 named Waldorf books/articles/projects — NO URLs, NO Pinterest phrases), ' +
-          'optional summaryHtml (clean Hebrew pedagogical HTML — no links, no code blocks). ' +
-          'STRICT: text-only Waldorf pedagogy — never return enrichment_links, gallery pins, or search queries.'
+          'optional summaryHtml (clean Hebrew pedagogical HTML — no links, no citations, no sources). ' +
+          'STRICT: narrative-only Waldorf pedagogy — never return inspirationReferences, enrichment_links, gallery pins, or search queries.'
         );
       }
       return (
@@ -5017,9 +5016,8 @@
         'classroomImplementation (2–3 פסקאות: עומק תיאורטי + זרימת שיעור מעשית ליום זה), ' +
         'parentCommunityAspects (פסקה על הורים/קהילה כשרלוונטי), ' +
         'practicalSteps (4–8 שלבים קונקרטיים למורה ליום זה), ' +
-        'inspirationReferences (3–6 הפניות לספרים/מאמרים/פרויקטים ולדורפיים — ללא URLs וללא ביטויי Pinterest), ' +
-        'summaryHtml אופציונלי (HTML פדגוגי נקי בעברית — ללא קישורים וללא בלוקי קוד). ' +
-        'קשיח: טקסט פדגוגי בלבד — לעולם אל תחזיר enrichment_links, gallery או שאילתות חיפוש.'
+        'summaryHtml אופציונלי (HTML פדגוגי נקי בעברית — ללא קישורים, ללא מקורות). ' +
+        'קשיח: טקסט פדגוגי בלבד — לעולם אל תחזיר inspirationReferences, enrichment_links, gallery או שאילתות חיפוש.'
       );
     }
 
@@ -5048,11 +5046,9 @@
       var ae = normalizeExpansion(row.artExpansion);
       var he = normalizeExpansion(row.hintExpansion);
       var steps = [];
-      var refs = [];
       [ce, ae, he].forEach(function (exp) {
         if (!exp) return;
         if (exp.practicalSteps && exp.practicalSteps.length) steps = steps.concat(exp.practicalSteps);
-        if (exp.inspirationReferences && exp.inspirationReferences.length) refs = refs.concat(exp.inspirationReferences);
       });
       var seenStep = {};
       steps = steps.filter(function (s) {
@@ -5061,20 +5057,13 @@
         seenStep[key] = true;
         return true;
       });
-      var seenRef = {};
-      refs = refs.filter(function (r) {
-        var key = String(r || '').trim();
-        if (!key || seenRef[key]) return false;
-        seenRef[key] = true;
-        return true;
-      });
       var merged = {
         classroomImplementation: joinDistinctExpansionFragments(
           [ce && ce.classroomImplementation, ae && ae.classroomImplementation], '\n\n'),
         parentCommunityAspects: joinDistinctExpansionFragments(
           [ce && ce.parentCommunityAspects, he && he.parentCommunityAspects, ae && ae.parentCommunityAspects], '\n\n'),
         practicalSteps: steps,
-        inspirationReferences: refs,
+        inspirationReferences: [],
         expansionHtml: joinDistinctExpansionFragments(
           [ce && ce.expansionHtml, ae && ae.expansionHtml, he && he.expansionHtml], ''),
       };
@@ -5087,8 +5076,8 @@
         practicalSteps: Array.isArray(raw.practicalSteps) ? raw.practicalSteps.filter(Boolean) : [],
         classroomImplementation: String(raw.classroomImplementation || raw.classroom || '').trim(),
         parentCommunityAspects: String(raw.parentCommunityAspects || raw.parentAspects || '').trim(),
-        inspirationReferences: Array.isArray(raw.inspirationReferences) ? raw.inspirationReferences.filter(Boolean) : [],
-        expansionHtml: String(raw.expansionHtml || '').trim(),
+        inspirationReferences: [],
+        expansionHtml: String(raw.expansionHtml || raw.summaryHtml || '').trim(),
       };
       return hasExpansionContent(exp) ? exp : null;
     }
@@ -5099,8 +5088,7 @@
         exp.expansionHtml ||
         exp.classroomImplementation ||
         exp.parentCommunityAspects ||
-        (exp.practicalSteps && exp.practicalSteps.length) ||
-        (exp.inspirationReferences && exp.inspirationReferences.length)
+        (exp.practicalSteps && exp.practicalSteps.length)
       );
     }
 
@@ -5111,7 +5099,7 @@
         essence: data.classroomImplementation || '',
         pedagogicalContext: data.parentCommunityAspects || '',
         practicalSteps: data.practicalSteps || [],
-        materialsNeeded: data.inspirationReferences || [],
+        materialsNeeded: [],
         summaryHtml: data.expansionHtml || '',
       };
     }
@@ -5129,11 +5117,7 @@
     }
 
     function collectInspirationRefsFromExpansion(exp) {
-      var norm = normalizeExpansion(exp);
-      if (!norm || !Array.isArray(norm.inspirationReferences)) return [];
-      return norm.inspirationReferences.map(function (ref) {
-        return String(ref || '').trim();
-      }).filter(Boolean);
+      return [];
     }
 
     function collectInspirationRefsFromTheory(theory) {
@@ -5264,23 +5248,31 @@
 
     function buildExpansionContentHtml(exp) {
       const data = pedagogyDeepDiveToExpansion(exp) || exp || {};
-      if (data._perplexityRaw && data.expansionHtml) {
-        return renderNarrativeProseBlock(data.expansionHtml, { expansionBody: true });
+      const narrativeBlob = String(data.expansionHtml || data.summaryHtml || data.rawContent || '').trim();
+      if (narrativeBlob) {
+        return finalizeExpansionBodyHtml(
+          renderNarrativeProseBlock(narrativeBlob, { expansionBody: true })
+        );
       }
-      if (data.expansionHtml) {
-        return renderNarrativeProseBlock(data.expansionHtml, { expansionBody: true });
-      }
-      return buildExpansionNarrativeHtml(data);
+      return finalizeExpansionBodyHtml(buildExpansionNarrativeHtml(data));
     }
 
     function stripExpansionSourceNoiseClient(text) {
-      return String(text || '')
-        .replace(/«[^»]{2,200}»/g, '')
-        .replace(/\[[^\]]{2,200}\]/g, '')
-        .replace(/^(?:מקורות|Sources|ביבליוגרפיה)\s*:.*$/gim, '')
-        .replace(/\bhttps?:\/\/\S+/gi, '')
-        .replace(/\s{2,}/g, ' ')
-        .trim();
+      return stripSequentialDuplicateSentencesClient(
+        String(text || '')
+          .replace(/<(?:ul|ol)[^>]*>[\s\S]*?<\/(?:ul|ol)>/gi, function (block) {
+            return /מקור|source|bibliograph|קריאה|reading|ספר|book|מאמר|article|הפניה|reference/i.test(block) ? '' : block;
+          })
+          .replace(/«[^»]{2,200}»/g, '')
+          .replace(/\[[^\]]{2,200}\]/g, '')
+          .replace(/\[\d{1,3}\]/g, '')
+          .replace(/^(?:מקורות|Sources|ביבליוגרפיה|המלצות\s+לקריאה|Recommended\s+Reading|Further\s+Reading|inspirationReferences)\s*:.*$/gim, '')
+          .replace(/(?:^|\n)(?:ספרים?\s+מומלצים?|מאמרים?\s+מומלצים?|אתרים?\s+מומלצים?).*$/gim, '')
+          .replace(/\bhttps?:\/\/\S+/gi, '')
+          .replace(/\bwww\.\S+/gi, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim()
+      );
     }
 
     function sanitizeExpansionBodyText(text) {
@@ -7791,10 +7783,6 @@
         return String(step || '').trim().length >= PHASE_C_CURRICULUM_MIN_STEP_CHARS_CLIENT;
       });
       if (steps.length < PHASE_C_CURRICULUM_MIN_PRACTICAL_STEPS_CLIENT) return false;
-      var refs = (exp.inspirationReferences || []).filter(function (ref) {
-        return String(ref || '').trim().length > 0;
-      });
-      if (refs.length < PHASE_C_CURRICULUM_MIN_INSPIRATION_REFS_CLIENT) return false;
       return true;
     }
 
@@ -10628,6 +10616,50 @@
       return /[\u0400-\u04FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(String(text || ''));
     }
 
+    var PHASE_C_WALDORF_ANTHRO_KEYWORDS_CLIENT = /וולדורף|ולדורף|שטיינר|סטיינר|אנתרופוסופ|anthroposoph|waldorf|steiner|rsarchive|waldorflibrary|awsna|iaswece|gesamtausgabe|\bga[\s\-_]?\d|main[\-_]?lesson|form[\-_]?draw|antro\.co|educationpace|harduf|humani|eldo|salut|כ\.ע\.ל|כ"ע|selg|kovacs|finser|staley|spiritual\s*science/i;
+    var PHASE_C_GENERIC_EDUCATION_BLOCKLIST_CLIENT = /education\.gov\.il|khanacademy|khan-academy|matific|kidsplus|kids\s*plus|מט"ח|מט״ח|ראמ"ה|ראמ״ה|נגבה|mofet\.macam|teachers\.org\.il|משרד\s*החינוך|national\s*curriculum|common\s*core|edutopia|teacherpayteachers|tpt\.com|greatschools|education\.com|scholastic\.com/i;
+    var PHASE_C_NON_HE_EN_SCRIPTS_CLIENT = /[\u0400-\u04FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0370-\u03FF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/;
+
+    function isHebrewOrEnglishSourceTextClient(text, lang) {
+      var code = String(lang || '').trim().toLowerCase();
+      if (code === 'he' || code === 'en') return true;
+      if (code && code !== 'he' && code !== 'en') return false;
+      var s = String(text || '').trim();
+      if (!s) return false;
+      if (/[\u0590-\u05FF]/.test(s)) return true;
+      if (PHASE_C_NON_HE_EN_SCRIPTS_CLIENT.test(s)) return false;
+      return /[a-zA-Z]/.test(s);
+    }
+
+    function isWaldorfAnthroposophySourceClient(item) {
+      if (!item || typeof item !== 'object') return false;
+      var url = String(item.url || item.link || item.href || '').trim();
+      var blob = [
+        item.title, item.name, item.note, item.author, item.snippet,
+        item.detail, item.description, item.label, item.source, url,
+      ].filter(Boolean).join(' ');
+      if (!blob.trim() && !url) return false;
+      if (!isHebrewOrEnglishSourceTextClient(blob, item.lang)) return false;
+      var hasWaldorf = PHASE_C_WALDORF_ANTHRO_KEYWORDS_CLIENT.test(blob) ||
+        (url && isWaldorfPedagogicalResourceUrl(url));
+      if (!hasWaldorf) return false;
+      var genericHit = PHASE_C_GENERIC_EDUCATION_BLOCKLIST_CLIENT.test(blob) ||
+        PHASE_C_GENERIC_OFF_TOPIC_ENTITIES.test(blob);
+      if (genericHit && !PHASE_C_WALDORF_ANTHRO_KEYWORDS_CLIENT.test(blob)) return false;
+      if (genericHit && url && PHASE_C_GENERIC_EDUCATION_BLOCKLIST_CLIENT.test(url) &&
+          !isWaldorfPedagogicalResourceUrl(url)) {
+        return false;
+      }
+      return true;
+    }
+
+    function passesPhaseCBoxASourceFilter(item) {
+      if (!item || typeof item !== 'object') return false;
+      var url = String(item.url || item.link || item.href || '').trim();
+      if (url && isForbiddenForeignSourceUrlClient(url)) return false;
+      return isWaldorfAnthroposophySourceClient(item);
+    }
+
     function splitIntoSentencesClient(text) {
       return String(text || '').split(/(?<=[.!?׃。])\s+/).map(function (s) {
         return s.trim();
@@ -10802,31 +10834,31 @@
     }
 
     function buildPerplexityExpansionHtml(dive) {
-      const data = dive || {};
-      const rawContent = String(data.rawContent || data.summaryHtml || '').trim();
-      if (!rawContent) return buildExpansionNarrativeHtml(pedagogyDeepDiveToExpansion(data));
-      return renderNarrativeProseBlock(rawContent, { expansionBody: true });
+      const data = pedagogyDeepDiveToExpansion(dive) || {};
+      return buildExpansionContentHtml(data);
     }
 
     function pedagogyDeepDiveToExpansion(data) {
       if (!data) return null;
       const rawContent = String(data.rawContent || '').trim();
-      if (rawContent) {
+      const summaryHtml = String(data.summaryHtml || data.contentHtml || '').trim();
+      const narrativeBlob = rawContent || summaryHtml;
+      if (narrativeBlob) {
         return {
           classroomImplementation: '',
           parentCommunityAspects: '',
           practicalSteps: [],
-          inspirationReferences: Array.isArray(data.citations) ? data.citations : [],
-          expansionHtml: rawContent,
-          _perplexityRaw: true,
+          inspirationReferences: [],
+          expansionHtml: narrativeBlob,
+          _perplexityRaw: Boolean(rawContent),
         };
       }
       return {
         classroomImplementation: data.classroomImplementation || data.essence || data.summary || '',
         parentCommunityAspects: data.parentCommunityAspects || data.pedagogicalContext || data.relevance || '',
         practicalSteps: data.practicalSteps || data.keyPoints || [],
-        inspirationReferences: data.inspirationReferences || data.materialsNeeded || data.pedagogicalAngles || [],
-        expansionHtml: data.summaryHtml || data.contentHtml || '',
+        inspirationReferences: [],
+        expansionHtml: '',
       };
     }
 
@@ -10865,24 +10897,10 @@
     }
 
     function buildPedagogySummaryHtml(summary, source) {
-      if (source && source.type === 'curriculum') {
-        const raw = (summary && summary.pedagogyDeepDive) || (summary && summary.archiveSummary) || summary || {};
-        if (String(raw.rawContent || '').trim()) {
-          const html = buildPerplexityExpansionHtml(raw);
-          if (html) return html;
-        }
-        const expansionHtml = buildExpansionContentHtml(pedagogyDeepDiveToExpansion(raw));
-        if (expansionHtml) return expansionHtml;
-        return '<p class="text-walnut/70">' + escapeHtml(t('pedagogy_summary_empty')) + '</p>';
-      }
       if (summary && summary.enrichment_links) {
         return buildEnrichmentLinksHtml(summary);
       }
       const raw = (summary && summary.pedagogyDeepDive) || (summary && summary.archiveSummary) || summary || {};
-      if (String(raw.rawContent || '').trim()) {
-        const html = buildPerplexityExpansionHtml(raw);
-        if (html) return html;
-      }
       const expansionHtml = buildExpansionContentHtml(pedagogyDeepDiveToExpansion(raw));
       if (expansionHtml) return expansionHtml;
       return '<p class="text-walnut/70">' + escapeHtml(t('pedagogy_summary_empty')) + '</p>';
@@ -10932,9 +10950,6 @@
       }
       if (exp.parentCommunityAspects) {
         sections.push({ title: t('expansion_parent_community'), paragraphs: [exp.parentCommunityAspects] });
-      }
-      if (exp.inspirationReferences && exp.inspirationReferences.length) {
-        sections.push({ title: t('expansion_inspiration_refs'), paragraphs: exp.inspirationReferences });
       }
       return sections.filter(function (sec) { return sec.paragraphs && sec.paragraphs.length; });
     }
@@ -11013,7 +11028,7 @@
           classroomImplementation: data.summary || '',
           practicalSteps: data.keyPoints || [],
           parentCommunityAspects: data.relevance || data.pedagogicalRelevance || '',
-          inspirationReferences: data.pedagogicalAngles || data.furtherReading || [],
+          inspirationReferences: [],
         });
       }
       return domPanelToSections(sourceId, allowHiddenDom);
@@ -14938,6 +14953,7 @@
       if (!raw) return '';
       if (options.expansionBody) {
         raw = sanitizeExpansionBodyText(raw);
+        raw = stripSequentialDuplicateSentencesClient(raw);
         if (!raw) return '';
         if (isCompiledPedagogicalHtml(raw)) {
           return '<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>';
@@ -15019,7 +15035,7 @@
       var list = (Array.isArray(items) ? items : []).filter(function (item) {
         var url = String(item.url || item.link || item.href || '').trim();
         if (!url || !/^https?:\/\//i.test(url)) return false;
-        if (isForbiddenForeignSourceUrlClient(url)) return false;
+        if (!passesPhaseCBoxASourceFilter(item)) return false;
         if (opts.blockPinterest && isPinterestUrl(url)) return false;
         return !!sanitizeExternalLinkUrl(url);
       });
@@ -15279,24 +15295,26 @@
       var source = data || appState.purePhaseC || {};
       var seen = Object.create(null);
       var out = [];
-      function pushItem(title, author, note) {
+      function pushItem(title, author, note, lang) {
         var t = String(title || '').trim();
         if (!t) return;
+        var candidate = { title: t, author: String(author || '').trim(), note: String(note || '').trim(), lang: lang };
+        if (!passesPhaseCBoxASourceFilter(candidate)) return;
         var key = t.toLowerCase();
         if (seen[key]) return;
         seen[key] = true;
-        out.push({ title: t, author: String(author || '').trim(), note: String(note || '').trim() });
+        out.push(candidate);
       }
       (source.recommended_reading || []).forEach(function (item) {
         if (!item) return;
-        pushItem(item.title || item.name, item.author, item.note || item.description);
+        pushItem(item.title || item.name, item.author, item.note || item.description, item.lang);
       });
       var bib = source.theory && source.theory.bibliography;
       if (bib) {
         ['books', 'articles'].forEach(function (cat) {
           (bib[cat] || []).forEach(function (item) {
             if (!item) return;
-            pushItem(item.title || item.name, item.author, item.note);
+            pushItem(item.title || item.name, item.author, item.note, item.lang);
           });
         });
       }
@@ -15307,21 +15325,23 @@
       var source = data || appState.purePhaseC || {};
       var seen = Object.create(null);
       var out = [];
-      function pushLink(title, url) {
+      function pushLink(title, url, lang) {
         var href = sanitizeExternalLinkUrl(url);
         if (!href || isPinterestUrl(href)) return;
+        var candidate = { title: String(title || href).trim(), url: href, lang: lang };
+        if (!passesPhaseCBoxASourceFilter(candidate)) return;
         var key = href.toLowerCase();
         if (seen[key]) return;
         seen[key] = true;
-        out.push({ title: String(title || href).trim(), url: href });
+        out.push(candidate);
       }
       collectPhaseCLinkItemsClient(source).forEach(function (item) {
         if (!item || !item.url || isPinterestUrl(item.url)) return;
-        pushLink(item.title, item.url);
+        pushLink(item.title, item.url, item.lang);
       });
       (source.relevant_links || []).forEach(function (item) {
         if (!item) return;
-        pushLink(item.title || item.name, item.url || item.link || item.href);
+        pushLink(item.title || item.name, item.url || item.link || item.href, item.lang);
       });
       return out;
     }
