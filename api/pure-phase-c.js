@@ -757,7 +757,7 @@ function filterLiveNormalizedLinks(links) {
   });
 }
 
-/** Merge every harvested URL into Tab 3 relevant_links — never duplicate across tabs. */
+/** Merge every harvested URL into resources-tab relevant_links — never duplicate into narrative fields. */
 function distributePhaseCFallbackLinks(normalized, harvested, topic) {
   if (!normalized) return normalized;
   harvested = harvested || [];
@@ -804,7 +804,7 @@ function distributePhaseCFallbackLinks(normalized, harvested, topic) {
     });
   });
 
-  return centralizePhaseCLinksToTab3(normalized, topicStr);
+  return centralizePhaseCLinksToResourcesTab(normalized, topicStr);
 }
 
 function applyPhaseCFallbackLinkHarvester(normalized, parsed, topic) {
@@ -2078,9 +2078,9 @@ function stripUrlsFromBibliographyEntry(item) {
 }
 
 /**
- * Single sources footer for Tab 3 (הדגשים) — gather ALL external URLs here; strip from Tabs 1–2 payloads.
+ * Resources tab (המלצות לקריאה וקישורים) — gather ALL external URLs here; strip from narrative-tab payloads.
  */
-function centralizePhaseCLinksToTab3(normalized, topic) {
+function centralizePhaseCLinksToResourcesTab(normalized, topic) {
   if (!normalized || typeof normalized !== 'object') return normalized;
   const topicStr = String(topic || '').trim();
   const merged = [];
@@ -2152,7 +2152,12 @@ function centralizePhaseCLinksToTab3(normalized, topic) {
 }
 
 function deduplicatePhaseCTabLinks(normalized, topic) {
-  return centralizePhaseCLinksToTab3(normalized, topic);
+  return centralizePhaseCLinksToResourcesTab(normalized, topic);
+}
+
+/** @deprecated alias — use centralizePhaseCLinksToResourcesTab */
+function centralizePhaseCLinksToTab3(normalized, topic) {
+  return centralizePhaseCLinksToResourcesTab(normalized, topic);
 }
 
 /**
@@ -2338,9 +2343,9 @@ const PHASE_C_EXPANSION_NARRATIVE_RULE = [
 ].join(' ');
 
 const PHASE_C_LINKS_CENTRALIZATION_RULE = [
-  '=== CENTRALIZED SOURCES (Tab 3 footer ONLY) ===',
-  'ALL external HTTPS links, Pinterest boards, and bibliography URLs belong EXCLUSIVELY in relevant_links (Tab 3 «מקורות» footer).',
-  'Tabs 1–2 narrative fields: ZERO URLs, ZERO <a> anchors, ZERO link markup, ZERO duplicated link arrays.',
+  '=== CENTRALIZED SOURCES (Resources tab ONLY — «המלצות לקריאה וקישורים») ===',
+  'ALL external HTTPS links, Pinterest boards, and bibliography URLs belong EXCLUSIVELY in relevant_links and pinterest_links (Resources tab).',
+  'Narrative tab fields (theory, inspiration, core_emphases, key_points): ZERO URLs, ZERO <a> anchors, ZERO link markup, ZERO book lists, ZERO bibliography.',
   'Prefer reliable TOP-LEVEL portal homepages ONLY (https://rsarchive.org/, https://www.waldorflibrary.org/, https://antro.co.il/, https://waldorfeducation.org/, https://www.iaswece.org/) — NEVER emit deep article paths, encoded Hebrew paths, or guessed slugs that 404.',
   'Never invent or guess deep-link paths; when uncertain, use the organization homepage root URL.',
   '=== END CENTRALIZED SOURCES ===',
@@ -2360,13 +2365,13 @@ const PHASE_C_ESSAY_DEPTH_REQUIREMENTS = [
   '=== MAXIMUM ESSAY DEPTH (MANDATORY — full live-research curriculum quality) ===',
   'Write EXTENSIVE, comprehensive, academic-yet-practical Waldorf curriculum essays — NOT summaries, NOT thin bullets, NOT stubs.',
   'Use the FULL output token budget across ALL tabs. Never sacrifice length for brevity.',
-  'Tab 1 theory: 3-5 sections; EACH section = 5-8 deep paragraphs (plain HTML: <p>, <strong>, <ul>/<li> only — NO links in section content).',
-  'Tab 2 inspiration: 2-4 global blocks with 6-10 items each; every item = rich pedagogical mini-essay (plain text/HTML prose only — Peter Selg, classroom arts, movement).',
-  'Tab 2 pedagogical_resources: title, url, label, source, snippet ONLY — no content HTML body.',
-  'Tab 3 core_emphases: MINIMUM 5-6 long paragraphs including full Developmental Compass (מצפן התפתחותי) — prose only.',
-  'Tab 3 key_points: exactly 5-6 items; EACH = 3-6 unique sentences of grade-specific lesson architecture — prose only.',
-  'Tab 3 recommended_reading: 5-8 entries with substantive 2-3 sentence notes each (no URLs).',
-  'Tab 3 relevant_links: 6-10 verified live HTTPS URLs with descriptive Hebrew titles — dedicated footer array ONLY.',
+  'Narrative tab — theory: 3-5 sections; EACH section = 5-8 deep paragraphs (plain HTML: <p>, <strong>, <ul>/<li> only — NO links in section content).',
+  'Narrative tab — inspiration: 2-4 global blocks with 6-10 items each; every item = rich pedagogical mini-essay (plain text/HTML prose only — Peter Selg, classroom arts, movement).',
+  'Resources tab — pedagogical_resources: title, url, label, source, snippet ONLY — no content HTML body.',
+  'Narrative tab — core_emphases: MINIMUM 5-6 long paragraphs including full Developmental Compass (מצפן התפתחותי) — prose only.',
+  'Narrative tab — key_points: exactly 5-6 items; EACH = 3-6 unique sentences of grade-specific lesson architecture — prose only.',
+  'Resources tab — recommended_reading: 5-8 entries with substantive 2-3 sentence notes each (no URLs).',
+  'Resources tab — relevant_links: 6-10 verified live HTTPS URLs with descriptive Hebrew titles — dedicated links array ONLY.',
   '=== END ESSAY DEPTH ===',
 ].join(' ');
 
@@ -2376,8 +2381,8 @@ const PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION = [
   'Do NOT include expansion, contentExpansion, pedagogical_deep_dive, or <details> blocks anywhere.',
   PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
   PHASE_C_ESSAY_DEPTH_REQUIREMENTS,
-  'Tab 2 (השראה): structured suggestion cards as plain pedagogical previews — platform links live in pedagogical_resources / pinterest_links only.',
-  'Tab 3 (הדגשים): dual-column — core_emphases (right) = deepest essay; key_points (left) = grade-locked reference bullets; relevant_links = sources footer ONLY.',
+  'Narrative tab (מידע והשראה): theory sections, inspiration suggestion cards, core_emphases essay, key_points — plain pedagogical previews only; ZERO links and ZERO bibliography.',
+  'Resources tab (המלצות לקריאה וקישורים): recommended_reading + relevant_links + pinterest_links ONLY — all live URLs and literature metadata live here.',
   '=== END ON-DEMAND EXPANSIONS ===',
 ].join(' ');
 
@@ -2427,7 +2432,7 @@ const SYSTEM_PROMPT = [
   'core_emphases (string: compiled pedagogical essay with MINIMUM 5-6 comprehensive Hebrew paragraphs and full Developmental Compass — prose only; NO links),',
   'key_points (array of exactly 5-6 rich strings — EACH 3-6 substantial grade-locked sentences; prose only; NEVER duplicate core_emphases),',
   'recommended_reading (array of 5-8 objects: {title, author, note} — note MUST be 2-3 substantive sentences; NO urls),',
-  'relevant_links (array of 6-10 objects: {title, url} — THE ONLY place for live HTTPS links, Pinterest boards, and bibliography URLs; Tab 3 footer; prefer top-level Waldorf/anthro portals; at most 1-2 ministry links total; NEVER inside narrative fields).',
+  'relevant_links (array of 6-10 objects: {title, url} — THE ONLY place for live HTTPS links and bibliography website URLs; Resources tab; prefer top-level Waldorf/anthro portals; at most 1-2 ministry links total; NEVER inside narrative fields).',
   '',
   shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
 ].join(' ');
@@ -2686,7 +2691,7 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
   stampTopicMasterArchiveLinks(result, parsed || result);
   result = applyLiveCitationGate(result, parsed || result, topicStr);
   result = applyPhaseCTextSanitizationChain(result);
-  return centralizePhaseCLinksToTab3(result, topicStr);
+  return centralizePhaseCLinksToResourcesTab(result, topicStr);
 }
 
 function shouldBypassTopicMasterCache(body) {
@@ -2759,14 +2764,14 @@ async function runPurePhaseC(body) {
     '',
     buildPhaseCGradeTopicLockInstruction(grade, topic),
     '',
-    'Return MAXIMUM-DEPTH live-research baseline content — exhaustive essays, full-length guidelines, ALL links centralized in relevant_links only, zero truncation:',
-    '- Tab 1 theory: 3-5 sections × 5-8 deep paragraphs each (prose ONLY — zero URLs, zero anchors in section HTML).',
-    '- Tab 2 inspiration: 2-4 global blocks × 6-10 rich pedagogical mini-essays each (prose only — expansions load on-demand in UI).',
-    '- pinterest_links: 4-8 LIVE pinterest.com URLs (also mirrored into relevant_links for Tab 3 footer).',
-    '- Tab 3 core_emphases (right column): 5-6 deep paragraphs with full Developmental Compass — prose only.',
-    '- Tab 3 key_points (left column): 5-6 extensive grade-locked items (3-6 sentences each) — unique prose only.',
-    '- Tab 3 recommended_reading: 5-8 entries with substantive notes (titles/authors only — NO urls).',
-    '- Tab 3 relevant_links (מקורות footer — SOLE link array): 6-10 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
+    'Return MAXIMUM-DEPTH live-research baseline content — exhaustive essays, full-length guidelines, ALL links centralized in relevant_links / pinterest_links (Resources tab), zero truncation:',
+    '- Narrative tab theory: 3-5 sections × 5-8 deep paragraphs each (prose ONLY — zero URLs, zero anchors in section HTML).',
+    '- Narrative tab inspiration: 2-4 global blocks × 6-10 rich pedagogical mini-essays each (prose only — expansions load on-demand in UI).',
+    '- pinterest_links: 4-8 LIVE pinterest.com URLs (Resources tab Box B; also mirrored into relevant_links).',
+    '- Narrative tab core_emphases: 5-6 deep paragraphs with full Developmental Compass — prose only.',
+    '- Narrative tab key_points: 5-6 extensive grade-locked items (3-6 sentences each) — unique prose only.',
+    '- Resources tab recommended_reading: 5-8 entries with substantive notes (titles/authors only — NO urls).',
+    '- Resources tab relevant_links: 6-10 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
   ].join('\n');
 
   const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
@@ -2863,6 +2868,7 @@ module.exports = {
   linkifyFallbackSegment,
   ensureRecommendedReading,
   deduplicatePhaseCTabLinks,
+  centralizePhaseCLinksToResourcesTab,
   centralizePhaseCLinksToTab3,
   applyLiveCitationGate,
   extractLiveCitationsFromParsed,

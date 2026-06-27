@@ -102,6 +102,8 @@ const LANGUAGES = {
     crumb_community:             'מאגר קהילתי',
     breadcrumb_aria:             'נתיב מסע פדגוגי',
 
+    tab_narrative:               'מידע והשראה',
+    tab_resources:               'המלצות לקריאה וקישורים',
     tab_theory:                  'רקע תיאורטי',
     tab_theory_suffix:           ' ומקורות (מידע)',
     tab_inspiration:             'השראה פדגוגית',
@@ -740,6 +742,8 @@ const LANGUAGES = {
     crumb_community:             'Community Database',
     breadcrumb_aria:             'Pedagogical journey path',
 
+    tab_narrative:               'Information & Inspiration',
+    tab_resources:               'Reading Recommendations & Links',
     tab_theory:                  'Theoretical Background',
     tab_theory_suffix:           ' & Sources (info)',
     tab_inspiration:             'Pedagogical Inspiration',
