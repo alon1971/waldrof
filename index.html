@@ -5264,19 +5264,26 @@
 
     function buildExpansionContentHtml(exp) {
       var data = pedagogyDeepDiveToExpansion(exp) || exp || {};
+      var html = '';
       var narrativeBlob = String(
         data.expansionHtml || data.summaryHtml || data.rawContent ||
         data.content || data.text || data.body || data.summary || ''
       ).trim();
       if (narrativeBlob) {
-        return renderExpansionPayloadOnce(narrativeBlob);
+        html = renderExpansionPayloadOnce(narrativeBlob);
+      } else {
+        var structuredHtml = buildExpansionNarrativeHtml(data);
+        if (expansionBodyHasVisibleText(structuredHtml)) html = structuredHtml;
+        else if (exp && typeof exp === 'string' && exp.trim()) html = renderExpansionPayloadOnce(exp);
       }
-      var structuredHtml = buildExpansionNarrativeHtml(data);
-      if (expansionBodyHasVisibleText(structuredHtml)) return structuredHtml;
-      if (exp && typeof exp === 'string' && exp.trim()) {
-        return renderExpansionPayloadOnce(exp);
-      }
-      return '';
+      return html ? dedupeExpansionBlocksDom(html) : '';
+    }
+
+    function applyExpansionDomDedupe(containerEl) {
+      if (!containerEl) return;
+      var inner = containerEl.querySelector('.inline-expand-inner') || containerEl;
+      if (!inner || !inner.innerHTML) return;
+      inner.innerHTML = dedupeExpansionBlocksDom(inner.innerHTML);
     }
 
     function stripExpansionSourceNoiseClient(text) {
@@ -10246,6 +10253,7 @@
       holdPageScroll(function () {
         panel.innerHTML = '<div class="inline-expand-inner">' + content +
           '<button type="button" class="inline-expand-close" data-bib-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
+        applyExpansionDomDedupe(panel);
         panel.classList.remove('hidden');
       });
     }
@@ -11606,6 +11614,7 @@
         var src = appState.pedagogyRegistry[sourceId];
         panel.innerHTML = '<div class="inline-expand-inner">' + buildPedagogySummaryHtml(summary, src) +
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
+        applyExpansionDomDedupe(panel);
         panel.classList.remove('hidden');
       });
     }
@@ -15388,6 +15397,7 @@
 
     function collectPhaseCResourcesLiterature(data) {
       var source = phaseCResourcesMasterPayload(data);
+      var plan = appState.aiGeneratedPlan || {};
       var seen = Object.create(null);
       var out = [];
       function pushItem(item, sourceKind) {
@@ -15399,13 +15409,37 @@
         seen[key] = true;
         out.push(norm);
       }
-      (source.recommended_reading || []).forEach(function (item) { pushItem(item, 'reading'); });
-      var bib = source.theory && source.theory.bibliography;
-      if (bib) {
+      function pushBibliography(bib) {
+        if (!bib) return;
         (bib.books || []).forEach(function (item) { pushItem(item, 'book'); });
         (bib.articles || []).forEach(function (item) { pushItem(item, 'article'); });
         (bib.websites || []).forEach(function (item) { pushItem(item, 'website'); });
       }
+      (source.recommended_reading || []).forEach(function (item) { pushItem(item, 'reading'); });
+      pushBibliography(source.theory && source.theory.bibliography);
+      pushBibliography(extractBibliographyFromPlan(Object.assign({}, plan, source)));
+      pushBibliography(coerceBibliographyRaw(source.sources || plan.sources));
+      function pushReferenceList(list, sourceKind) {
+        (list || []).forEach(function (item) {
+          if (!item) return;
+          if (typeof item === 'string') pushItem({ title: item }, sourceKind || 'reading');
+          else pushItem(item, sourceKind || item.kind || item.type || 'reading');
+        });
+      }
+      pushReferenceList(source.inspirationReferences, 'reading');
+      pushReferenceList(plan.inspirationReferences, 'reading');
+      if (source.inspiration && source.inspiration.references) {
+        pushReferenceList(source.inspiration.references, 'reading');
+      }
+      (source.pedagogical_resources || []).forEach(function (item) {
+        if (!item) return;
+        var title = String(item.title || item.name || item.label || '').trim();
+        if (!title) return;
+        var url = String(item.url || item.link || item.href || '').trim();
+        if (!url || item.author || item.publisher || item.year || item.chapter) {
+          pushItem(item, 'reading');
+        }
+      });
       return out;
     }
 
@@ -15450,7 +15484,10 @@
         return String(p || '').trim();
       }).join(' ').trim();
       if (!label) return '';
-      return 'https://www.google.com/search?q=' + encodeURIComponent(label);
+      var waldorfSuffix = /[\u0590-\u05FF]/.test(label)
+        ? ' +ולדורף +אנתרופוסופיה'
+        : ' +waldorf +anthroposophy';
+      return 'https://www.google.com/search?q=' + encodeURIComponent(label + waldorfSuffix);
     }
 
     function buildLiteratureAnchorHtml(item) {
@@ -16168,7 +16205,19 @@
 
     function navigateCompactHeaderToTopic() {
       if (!canNavigateToStep(2)) return;
+      if (isWorkspaceOpen()) {
+        navigateBackToPhaseB();
+        return;
+      }
       goToStep(2, false);
+    }
+
+    function navigateBackToPhaseB() {
+      rememberNavScrollPosition(getNavScrollKey());
+      hideGeneralSearchView();
+      resetProductTabsNeutral();
+      restoreStepBTopicResultsView();
+      restoreNavScrollPosition('step-2');
     }
 
     function setHeaderCompact(compact) {
@@ -16966,6 +17015,10 @@
         rememberNavScrollPosition(getNavScrollKey());
         applyForwardNavScroll();
         openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'narrative' });
+        return;
+      }
+      if (n === 2 && isWorkspaceOpen()) {
+        navigateBackToPhaseB();
         return;
       }
       goToStep(n, false);
@@ -20376,7 +20429,8 @@
       }
       bindWizardNavClick(document.getElementById('ws-crumb-grade'), function () { if (appState.grade) onStepNavClick(1); });
       bindWizardNavClick(document.getElementById('ws-crumb-topic'), function () {
-        onStepNavClick(2);
+        if (!canNavigateToStep(2)) return;
+        navigateBackToPhaseB();
       });
       bindWizardNavClick(document.getElementById('header-compact-edit-grade'), navigateCompactHeaderToGrade);
       bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
