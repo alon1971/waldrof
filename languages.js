@@ -106,6 +106,9 @@ const LANGUAGES = {
 
     tab_narrative:               'מידע והשראה',
     phase_c_extra_links:         'קישורים נוספים',
+    phase_c_section_theory:      'מקורות וידע פדגוגי',
+    phase_c_section_inspiration: 'עולמות השראה וסיפור',
+    phase_c_section_deepening:   'נקודות להעמקה והרחבות',
     tab_resources:               'המלצות לקריאה וקישורים',
     tab_theory:                  'רקע תיאורטי',
     tab_theory_suffix:           ' ומקורות (מידע)',
@@ -753,6 +756,9 @@ const LANGUAGES = {
 
     tab_narrative:               'Information & Inspiration',
     phase_c_extra_links:         'Additional Links',
+    phase_c_section_theory:      'Pedagogical Sources & Knowledge',
+    phase_c_section_inspiration: 'Storytelling & Inspiration Worlds',
+    phase_c_section_deepening:   'Deepening Points & Class Exercises',
     tab_resources:               'Reading Recommendations & Links',
     tab_theory:                  'Theoretical Background',
     tab_theory_suffix:           ' & Sources (info)',
