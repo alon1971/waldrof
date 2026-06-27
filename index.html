@@ -11883,8 +11883,29 @@
       }, true);
     }
 
+    function ensureTopicWordExportDelegation() {
+      if (document.documentElement.dataset.topicWordExportBound) return;
+      document.documentElement.dataset.topicWordExportBound = '1';
+      document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest
+          ? e.target.closest('[data-unified-topic-export], [data-pedagogy-export]')
+          : null;
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        downloadUnifiedTopicDocx();
+      }, true);
+    }
+
     async function downloadUnifiedTopicDocx() {
-      var html = collectUnifiedTopicExportHtml();
+      var html;
+      try {
+        html = collectUnifiedTopicExportHtml();
+      } catch (collectErr) {
+        console.error('Unified topic export collect failed:', collectErr);
+        alert(t('export_doc_error') + ': ' + (collectErr.message || String(collectErr)));
+        return;
+      }
       if (!html || !html.trim()) {
         alert(t('export_doc_need_phase'));
         return;
@@ -20706,6 +20727,10 @@
     }
 
     function bindEvents() {
+      // Word-export click delegation is registered first so it survives any
+      // later binding error in this function (listeners attach to document).
+      ensureTopicWordExportDelegation();
+      ensureChatWordExportDelegation();
       bindHeaderExplicitAuthActions();
       bindCorruptedNavigationGuard();
       bindWorkspaceBreadcrumbNav();
@@ -20828,27 +20853,8 @@
       bindWizardNavClick(document.getElementById('btn-topic-research-cancel'), cancelTopicResearch);
       bindWizardNavClick(document.getElementById('btn-new-research'), function () { startNewResearch(); });
 
-      document.querySelectorAll('[data-pedagogy-export]').forEach(function (btn) {
-        if (btn.dataset.pedagogyExportBound) return;
-        btn.dataset.pedagogyExportBound = '1';
-        btn.disabled = false;
-        btn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          downloadUnifiedTopicDocx();
-        });
-      });
-      document.querySelectorAll('[data-unified-topic-export]').forEach(function (btn) {
-        if (btn.dataset.unifiedTopicExportBound) return;
-        btn.dataset.unifiedTopicExportBound = '1';
-        btn.disabled = false;
-        btn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          downloadUnifiedTopicDocx();
-        });
-      });
-      ensureChatWordExportDelegation();
+      // Topic/pedagogy/chat Word-export clicks are handled via document-level
+      // delegation (registered at the top of bindEvents) — no per-button binding.
 
       bindWizardNavClick(document.getElementById('btn-restart'), function () { startNewResearch(); });
 
