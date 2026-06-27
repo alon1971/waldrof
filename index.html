@@ -660,8 +660,9 @@
       color: #fff;
     }
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
-    .ws-crumb-link { color: #5C7D58; font-weight: 600; cursor: pointer; }
+    .ws-crumb-link { color: #5C7D58; font-weight: 600; cursor: pointer; pointer-events: auto; }
     .ws-crumb-link:hover { text-decoration: underline; }
+    #ws-breadcrumb button { pointer-events: auto; }
     .step-pill.step-pill-archive {
       opacity: 1 !important;
       border-color: rgba(201, 169, 98, 0.65);
@@ -5254,12 +5255,15 @@
     function renderExpansionPayloadOnce(blob) {
       var raw = String(blob || '').trim();
       if (!raw) return '';
+      var html = '';
       if (/<[a-z][\s\S]*>/i.test(raw)) {
-        return '<div class="prose-ai leading-relaxed">' + ensureAiHtml(raw, { wrap: false }) + '</div>';
+        html = '<div class="prose-ai leading-relaxed">' + ensureAiHtml(raw, { wrap: false }) + '</div>';
+      } else {
+        var formatted = formatPerplexityRawText(raw, { prepared: true });
+        if (expansionBodyHasVisibleText(formatted)) html = formatted;
+        else html = '<p class="leading-relaxed">' + escapeHtml(raw) + '</p>';
       }
-      var formatted = formatPerplexityRawText(raw, { prepared: true });
-      if (expansionBodyHasVisibleText(formatted)) return formatted;
-      return '<p class="leading-relaxed">' + escapeHtml(raw) + '</p>';
+      return linkifyExpansionHtml(html);
     }
 
     function buildExpansionContentHtml(exp) {
@@ -5273,7 +5277,7 @@
         html = renderExpansionPayloadOnce(narrativeBlob);
       } else {
         var structuredHtml = buildExpansionNarrativeHtml(data);
-        if (expansionBodyHasVisibleText(structuredHtml)) html = structuredHtml;
+        if (expansionBodyHasVisibleText(structuredHtml)) html = linkifyExpansionHtml(structuredHtml);
         else if (exp && typeof exp === 'string' && exp.trim()) html = renderExpansionPayloadOnce(exp);
       }
       return html ? dedupeExpansionBlocksDom(html) : '';
@@ -12493,12 +12497,23 @@
       return Boolean(appState.grade && resolveLessonTopic() && hasStructuredLessonPlan());
     }
 
-    function restoreStepBTopicResultsView() {
+    function restoreStepBTopicResultsView(onReady) {
       appState.step = 2;
       appState.navSection = 'wizard';
       ensureStepBWizardView();
       if (appState.webResearch) {
-        holdPageScroll(function () { renderWebResearchResult(); });
+        holdPageScroll(function () {
+          renderWebResearchResult();
+          if (typeof onReady === 'function') {
+            runAfterLayout(function () {
+              runAfterLayout(onReady);
+            });
+          }
+        });
+      } else if (typeof onReady === 'function') {
+        runAfterLayout(function () {
+          runAfterLayout(onReady);
+        });
       }
       renderStepProgress();
       updateWorkspaceChrome();
@@ -14409,6 +14424,82 @@
       return String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
     }
 
+    var EXPANSION_SOCIAL_NOISE_URL_PATTERN = /facebook\.com|fb\.com|instagram\.com|instagr\.am/i;
+    var EXPANSION_FORUM_NOISE_URL_PATTERN = /(?:^|[/.@])(?:forums?|forum\.|community\.|discourse\.|tapatalk|ipboard|vbulletin|phpbb|xfn\.)/i;
+    var EXPANSION_YOUNGER_GRADE_MARKERS = /(?:\b(?:preschool|pre[\-\s]?school|kindergarten|nursery|early[\-\s]childhood|before\s+grade\s*1|pre[\-\s]?grade\s*1)\b|(?:^|[\s,.(])(?:גן(?:\s+ילדים)?|טרום[\-\s]?כיתתי|לפני\s+כיתה\s*א|כיתה\s*א(?:['׳]|(?:\s|$)))(?:[\s,.(]|$)|(?:^|[\s,.(])grades?\s*1(?:[\s,.(]|$)|\bfirst\s+grade\b|fairy[\-\s]?tale\s+consciousness|qualities\s+of\s+(?:the\s+)?numbers|(?:^|[\s,.(])גיל\s*(?:3|4|5|6|7)\b)/i;
+
+    function isExpansionLowQualitySourceUrl(url) {
+      var u = String(url || '').trim().toLowerCase();
+      if (!u) return false;
+      if (EXPANSION_SOCIAL_NOISE_URL_PATTERN.test(u)) return true;
+      if (EXPANSION_FORUM_NOISE_URL_PATTERN.test(u)) return true;
+      return false;
+    }
+
+    function getCurrentGradeNumberClient() {
+      var m = String(appState.grade || '').match(/[1-8]/);
+      return m ? parseInt(m[0], 10) : 0;
+    }
+
+    function isExpansionOffGradeForCurrentGrade(text) {
+      var gradeNum = getCurrentGradeNumberClient();
+      if (!gradeNum || gradeNum < 4) return false;
+      return EXPANSION_YOUNGER_GRADE_MARKERS.test(String(text || ''));
+    }
+
+    function expansionBlockHasAnchors(block) {
+      return !!(block && block.querySelector && block.querySelector('a[href]'));
+    }
+
+    function shouldDropExpansionBlock(block) {
+      if (!block) return false;
+      var text = String(block.textContent || '');
+      if (isExpansionOffGradeForCurrentGrade(text)) return true;
+      var anchors = block.querySelectorAll ? block.querySelectorAll('a[href]') : [];
+      for (var i = 0; i < anchors.length; i++) {
+        if (isExpansionLowQualitySourceUrl(anchors[i].getAttribute('href'))) return true;
+      }
+      var urls = matchExternalHttpUrls(text);
+      for (var j = 0; j < urls.length; j++) {
+        if (isExpansionLowQualitySourceUrl(urls[j])) return true;
+      }
+      return false;
+    }
+
+    function passesExpansionLiteratureFilter(item) {
+      if (!item) return false;
+      var url = String(item.url || item.link || item.href || '').trim();
+      if (url && isExpansionLowQualitySourceUrl(url)) return false;
+      var blob = [item.title, item.name, item.note, item.author, item.description, item.snippet, url]
+        .filter(Boolean).join(' ');
+      if (isExpansionOffGradeForCurrentGrade(blob)) return false;
+      return true;
+    }
+
+    function linkifyExpansionHtml(html) {
+      var raw = String(html || '');
+      if (!raw.trim()) return raw;
+      var preserved = [];
+      var work = raw.replace(/<a\b[\s\S]*?<\/a>/gi, function (match) {
+        var idx = preserved.length;
+        preserved.push(match);
+        return '\x00EALINK' + idx + '\x00';
+      });
+      work = work.replace(EXTERNAL_HTTP_URL_PATTERN, function (url) {
+        if (isExpansionLowQualitySourceUrl(url)) return url;
+        var href = sanitizeProseLinkUrl(url);
+        if (!href) return url;
+        var display = resolveFriendlyLinkDisplayLabel('', href);
+        if (isDeadSourceLinkLabel(display)) display = href;
+        return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline">' +
+          escapeHtml(display) + '</a>';
+      });
+      preserved.forEach(function (tag, index) {
+        work = work.split('\x00EALINK' + index + '\x00').join(tag);
+      });
+      return work;
+    }
+
     /**
      * DOM-based, position-independent dedupe for expansion bodies. Removes any
      * leaf block whose normalized text already appeared earlier — regardless of
@@ -14419,7 +14510,7 @@
      */
     function dedupeExpansionBlocksDom(html) {
       var raw = String(html || '');
-      if (!raw.trim() || typeof document === 'undefined') return raw;
+      if (!raw.trim() || typeof document === 'undefined') return linkifyExpansionHtml(raw);
       try {
         var container = document.createElement('div');
         container.innerHTML = raw;
@@ -14427,13 +14518,25 @@
         var seen = Object.create(null);
         Array.prototype.slice.call(container.querySelectorAll(BLOCK_SEL)).forEach(function (block) {
           if (block.querySelector(BLOCK_SEL)) return; // only leaf blocks carry comparable text
-          var key = normalizeExpansionBlockKey(block.textContent);
-          if (key.length < 24) return; // leave short headings/labels alone
-          if (seen[key]) {
+          if (shouldDropExpansionBlock(block)) {
             if (block.parentNode) block.parentNode.removeChild(block);
             return;
           }
-          seen[key] = true;
+          var key = normalizeExpansionBlockKey(block.textContent);
+          if (key.length < 24) return; // leave short headings/labels alone
+          if (seen[key]) {
+            var prev = seen[key];
+            var blockHasA = expansionBlockHasAnchors(block);
+            var prevHasA = expansionBlockHasAnchors(prev);
+            if (blockHasA && !prevHasA) {
+              if (prev.parentNode) prev.parentNode.removeChild(prev);
+              seen[key] = block;
+              return;
+            }
+            if (block.parentNode) block.parentNode.removeChild(block);
+            return;
+          }
+          seen[key] = block;
         });
         Array.prototype.slice.call(
           container.querySelectorAll('p, li, ul, ol, blockquote, article, div')
@@ -14442,9 +14545,9 @@
           if (normalizeExpansionBlockKey(el.textContent)) return;
           if (el.parentNode) el.parentNode.removeChild(el);
         });
-        return container.innerHTML;
+        return linkifyExpansionHtml(container.innerHTML);
       } catch (e) {
-        return raw;
+        return linkifyExpansionHtml(raw);
       }
     }
 
@@ -15402,7 +15505,7 @@
       var out = [];
       function pushItem(item, sourceKind) {
         var norm = normalizePhaseCResourceItem(item);
-        if (!norm) return;
+        if (!norm || !passesExpansionLiteratureFilter(norm)) return;
         norm.sourceKind = sourceKind || norm.sourceKind || 'reading';
         var key = (norm.title + '|' + norm.author).toLowerCase();
         if (seen[key]) return;
@@ -15451,6 +15554,7 @@
         var href = sanitizeExternalLinkUrl(url);
         if (!href || isPinterestUrl(href)) return;
         if (isForbiddenForeignSourceUrlClient(href)) return;
+        if (isExpansionLowQualitySourceUrl(href)) return;
         var key = href.toLowerCase();
         if (seen[key]) return;
         seen[key] = true;
@@ -16072,7 +16176,12 @@
         if (!el) return;
         const active = isWorkspaceOpen() && appState.navSection === c.section;
         el.classList.toggle('ws-crumb-active', active);
-        el.classList.toggle('ws-crumb-link', !active);
+        if (c.id === 'ws-crumb-community') {
+          el.classList.toggle('ws-crumb-link', !active);
+        } else {
+          el.classList.add('ws-crumb-link');
+          el.removeAttribute('disabled');
+        }
       });
     }
 
@@ -16216,8 +16325,9 @@
       rememberNavScrollPosition(getNavScrollKey());
       hideGeneralSearchView();
       resetProductTabsNeutral();
-      restoreStepBTopicResultsView();
-      restoreNavScrollPosition('step-2');
+      restoreStepBTopicResultsView(function () {
+        restoreNavScrollPosition('step-2');
+      });
     }
 
     function setHeaderCompact(compact) {
@@ -20388,9 +20498,36 @@
       }
     }
 
+    function bindWorkspaceBreadcrumbNav() {
+      var nav = document.getElementById('ws-breadcrumb');
+      if (!nav || nav.dataset.navBound) return;
+      nav.dataset.navBound = '1';
+      nav.addEventListener('click', function (e) {
+        if (e.target.closest('#ws-crumb-grade')) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (appState.grade) onStepNavClick(1);
+          return;
+        }
+        if (e.target.closest('#ws-crumb-topic')) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!canNavigateToStep(2)) return;
+          navigateBackToPhaseB();
+          return;
+        }
+        if (e.target.closest('#ws-crumb-community')) {
+          e.preventDefault();
+          e.stopPropagation();
+          openCommunityRepo();
+        }
+      });
+    }
+
     function bindEvents() {
       bindHeaderExplicitAuthActions();
       bindCorruptedNavigationGuard();
+      bindWorkspaceBreadcrumbNav();
       bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
