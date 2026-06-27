@@ -5247,40 +5247,36 @@
     }
 
     function expansionBodyHasVisibleText(html) {
-      return stripHtmlText(String(html || '')).trim().length >= 12;
+      return stripHtmlText(String(html || '')).trim().length > 0;
     }
 
-    function renderRawExpansionFallback(narrativeBlob) {
-      var raw = String(narrativeBlob || '').trim();
+    /** Render server expansion payload once — no sanitize/dedupe passes that can zero-out valid text. */
+    function renderExpansionPayloadOnce(blob) {
+      var raw = String(blob || '').trim();
       if (!raw) return '';
       if (/<[a-z][\s\S]*>/i.test(raw)) {
-        return '<div class="prose-ai leading-relaxed">' + raw + '</div>';
+        return '<div class="prose-ai leading-relaxed">' + ensureAiHtml(raw, { wrap: false }) + '</div>';
       }
-      return formatPerplexityRawText(raw, { prepared: true });
+      var formatted = formatPerplexityRawText(raw, { prepared: true });
+      if (expansionBodyHasVisibleText(formatted)) return formatted;
+      return '<p class="leading-relaxed">' + escapeHtml(raw) + '</p>';
     }
 
     function buildExpansionContentHtml(exp) {
-      const data = pedagogyDeepDiveToExpansion(exp) || exp || {};
-      const narrativeBlob = String(data.expansionHtml || data.summaryHtml || data.rawContent || '').trim();
-      const structuredHtml = buildExpansionNarrativeHtml(data);
+      var data = pedagogyDeepDiveToExpansion(exp) || exp || {};
+      var narrativeBlob = String(
+        data.expansionHtml || data.summaryHtml || data.rawContent ||
+        data.content || data.text || data.body || data.summary || ''
+      ).trim();
       if (narrativeBlob) {
-        var rendered = renderNarrativeProseBlock(narrativeBlob, { expansionBody: true });
-        if (!expansionBodyHasVisibleText(rendered)) {
-          rendered = structuredHtml;
-        }
-        if (!expansionBodyHasVisibleText(rendered)) {
-          rendered = renderCompiledPedagogicalHtml(narrativeBlob, { prepared: true });
-        }
-        if (!expansionBodyHasVisibleText(rendered)) {
-          rendered = renderRawExpansionFallback(narrativeBlob);
-        }
-        var finalized = finalizeExpansionBodyHtml(rendered);
-        if (!expansionBodyHasVisibleText(finalized)) {
-          finalized = finalizeExpansionBodyHtml(renderRawExpansionFallback(narrativeBlob));
-        }
-        if (expansionBodyHasVisibleText(finalized)) return finalized;
+        return renderExpansionPayloadOnce(narrativeBlob);
       }
-      return finalizeExpansionBodyHtml(structuredHtml);
+      var structuredHtml = buildExpansionNarrativeHtml(data);
+      if (expansionBodyHasVisibleText(structuredHtml)) return structuredHtml;
+      if (exp && typeof exp === 'string' && exp.trim()) {
+        return renderExpansionPayloadOnce(exp);
+      }
+      return '';
     }
 
     function stripExpansionSourceNoiseClient(text) {
@@ -5342,8 +5338,8 @@
       options = options || {};
       if (!item || !item.id) return '';
       if (options.skipIfEmbedded && previewHasEmbeddedExpansion(options.embeddedIn)) return '';
-      var bodyHtml = finalizeExpansionBodyHtml(resolveStaticExpansionBodyHtml(item));
-      if (!bodyHtml || !String(bodyHtml).trim()) return '';
+      var bodyHtml = resolveStaticExpansionBodyHtml(item);
+      if (!bodyHtml || !expansionBodyHasVisibleText(bodyHtml)) return '';
       var summaryLabel = options.summaryLabel || expansionBtnLabel();
       var extraClass = options.extraClass ? ' ' + options.extraClass : '';
       return '<details class="static-expansion-block' + extraClass + '" id="static-expand-' + escapeHtml(item.id) + '" data-static-expand="' + escapeHtml(item.id) + '">' +
@@ -7937,11 +7933,13 @@
 
     function hasExpansionResponseContent(data) {
       var dive = (data && data.pedagogyDeepDive) || (data && data.archiveSummary) || data;
-      if (!dive || typeof dive !== 'object') return false;
+      if (!dive) return false;
+      if (typeof dive === 'string' && dive.trim()) return true;
+      if (typeof dive !== 'object') return false;
       return Boolean(
-        String(dive.rawContent || '').trim() ||
-        String(dive.summaryHtml || '').trim() ||
-        String(dive.contentHtml || '').trim() ||
+        String(dive.rawContent || dive.content || dive.text || dive.body || '').trim() ||
+        String(dive.summaryHtml || dive.contentHtml || '').trim() ||
+        (typeof dive.summary === 'string' && dive.summary.trim()) ||
         String(dive.classroomImplementation || '').trim() ||
         String(dive.essence || '').trim() ||
         (Array.isArray(dive.practicalSteps) && dive.practicalSteps.length) ||
@@ -10202,7 +10200,7 @@
       const data = (summary && summary.archiveSummary) || summary || {};
       let html = '';
       if (data.summaryHtml) {
-        html += renderNarrativeProseBlock(data.summaryHtml);
+        html += renderExpansionPayloadOnce(data.summaryHtml);
       } else if (data.summary) {
         html += '<p class="leading-relaxed">' + escapeHtml(data.summary) + '</p>';
       }
@@ -10239,8 +10237,8 @@
         panel.classList.remove('hidden');
         return;
       }
-      const content = finalizeExpansionBodyHtml(buildBibSummaryHtml(summary));
-      if (!content) {
+      const content = buildBibSummaryHtml(summary);
+      if (!expansionBodyHasVisibleText(content)) {
         panel.innerHTML = '';
         panel.classList.add('hidden');
         return;
@@ -10895,19 +10893,22 @@
 
     function pedagogyDeepDiveToExpansion(data) {
       if (!data) return null;
-      const rawContent = String(data.rawContent || '').trim();
-      const summaryHtml = String(data.summaryHtml || data.contentHtml || '').trim();
-      const narrativeBlob = rawContent || summaryHtml;
-      const structured = {
-        classroomImplementation: data.classroomImplementation || data.essence || data.summary || '',
-        parentCommunityAspects: data.parentCommunityAspects || data.pedagogicalContext || data.relevance || '',
+      if (typeof data === 'string') {
+        return { classroomImplementation: '', parentCommunityAspects: '', practicalSteps: [], inspirationReferences: [], expansionHtml: data.trim() };
+      }
+      var rawContent = String(data.rawContent || data.content || data.text || data.body || '').trim();
+      var summaryHtml = String(data.summaryHtml || data.contentHtml || data.summary || '').trim();
+      var narrativeBlob = rawContent || summaryHtml;
+      return {
+        classroomImplementation: data.classroomImplementation || data.essence || (typeof data.summary === 'string' && !summaryHtml ? data.summary : '') || '',
+        parentCommunityAspects: data.parentCommunityAspects || data.pedagogicalContext || data.relevance || data.pedagogicalRelevance || '',
         practicalSteps: data.practicalSteps || data.keyPoints || [],
         inspirationReferences: [],
         expansionHtml: narrativeBlob || '',
+        summaryHtml: summaryHtml,
+        rawContent: rawContent,
         _perplexityRaw: Boolean(rawContent),
       };
-      if (narrativeBlob) return structured;
-      return Object.assign(structured, { expansionHtml: '' });
     }
 
     function buildEnrichmentLinksHtml(data) {
@@ -11603,7 +11604,7 @@
       }
       holdPageScroll(function () {
         var src = appState.pedagogyRegistry[sourceId];
-        panel.innerHTML = '<div class="inline-expand-inner">' + finalizeExpansionBodyHtml(buildPedagogySummaryHtml(summary, src)) +
+        panel.innerHTML = '<div class="inline-expand-inner">' + buildPedagogySummaryHtml(summary, src) +
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         panel.classList.remove('hidden');
       });
@@ -14438,18 +14439,9 @@
       }
     }
 
-    // Single chokepoint guaranteeing an expansion body is injected exactly ONCE:
-    // legacy whole-block pass first, then a DOM pass that removes any repeated
-    // block regardless of tag, adjacency, or wrapper nesting.
+    /** Legacy dedupe chokepoint — skipped for live expansion panels (render once, never wipe). */
     function finalizeExpansionBodyHtml(html) {
-      var input = String(html || '');
-      if (!input.trim()) return '';
-      var out = dedupeRepeatedHtmlBlocks(input);
-      out = dedupeExpansionBlocksDom(out);
-      if (!expansionBodyHasVisibleText(out) && expansionBodyHasVisibleText(input)) {
-        return input;
-      }
-      return out;
+      return String(html || '');
     }
 
     function isDeadSourceLinkLabel(text) {
@@ -15349,78 +15341,127 @@
         }) + '</div>';
     }
 
-    function collectPhaseCResourcesLiterature(data) {
+    function phaseCResourcesMasterPayload(data) {
       var source = data || appState.purePhaseC || {};
+      var plan = appState.aiGeneratedPlan || {};
+      var merged = Object.assign({}, source);
+      if (plan.theory && typeof plan.theory === 'object') {
+        merged.theory = Object.assign({}, plan.theory, source.theory || {});
+        if (plan.theory.bibliography || (source.theory && source.theory.bibliography)) {
+          var planBib = plan.theory.bibliography || { books: [], articles: [], websites: [] };
+          var srcBib = (source.theory && source.theory.bibliography) || { books: [], articles: [], websites: [] };
+          merged.theory.bibliography = {
+            books: (srcBib.books && srcBib.books.length ? srcBib.books : planBib.books) || [],
+            articles: (srcBib.articles && srcBib.articles.length ? srcBib.articles : planBib.articles) || [],
+            websites: (srcBib.websites && srcBib.websites.length ? srcBib.websites : planBib.websites) || [],
+          };
+        }
+      }
+      if (!merged.recommended_reading || !merged.recommended_reading.length) {
+        merged.recommended_reading = Array.isArray(plan.recommended_reading) ? plan.recommended_reading.slice()
+          : (Array.isArray(plan.curriculum && plan.curriculum.recommended_reading) ? plan.curriculum.recommended_reading.slice() : merged.recommended_reading || []);
+      }
+      if (!merged.relevant_links || !merged.relevant_links.length) {
+        merged.relevant_links = Array.isArray(plan.relevant_links) ? plan.relevant_links.slice()
+          : (Array.isArray(plan.curriculum && plan.curriculum.relevant_links) ? plan.curriculum.relevant_links.slice() : merged.relevant_links || []);
+      }
+      return merged;
+    }
+
+    function normalizePhaseCResourceItem(item) {
+      if (!item) return null;
+      if (typeof item === 'string') {
+        var s = String(item).trim();
+        return s ? { title: s, author: '', note: '' } : null;
+      }
+      var title = String(item.title || item.name || item.label || '').trim();
+      if (!title) return null;
+      return {
+        title: title,
+        author: String(item.author || item.publisher || '').trim(),
+        note: String(item.note || item.description || item.detail || item.snippet || '').trim(),
+        lang: item.lang,
+        sourceKind: item.sourceKind || item.kind || 'reading',
+        url: String(item.url || item.link || item.href || '').trim(),
+      };
+    }
+
+    function collectPhaseCResourcesLiterature(data) {
+      var source = phaseCResourcesMasterPayload(data);
       var seen = Object.create(null);
       var out = [];
-      function pushItem(title, author, note, lang, sourceKind) {
-        var t = String(title || '').trim();
-        if (!t) return;
-        var candidate = {
-          title: t,
-          author: String(author || '').trim(),
-          note: String(note || '').trim(),
-          lang: lang,
-          sourceKind: sourceKind || 'reading',
-        };
-        if (!passesPhaseCBoxALiteratureFilter(candidate)) return;
-        var key = t.toLowerCase();
+      function pushItem(item, sourceKind) {
+        var norm = normalizePhaseCResourceItem(item);
+        if (!norm) return;
+        norm.sourceKind = sourceKind || norm.sourceKind || 'reading';
+        var key = (norm.title + '|' + norm.author).toLowerCase();
         if (seen[key]) return;
         seen[key] = true;
-        out.push(candidate);
+        out.push(norm);
       }
-      (source.recommended_reading || []).forEach(function (item) {
-        if (!item) return;
-        pushItem(item.title || item.name, item.author, item.note || item.description, item.lang, 'reading');
-      });
+      (source.recommended_reading || []).forEach(function (item) { pushItem(item, 'reading'); });
       var bib = source.theory && source.theory.bibliography;
       if (bib) {
-        ['books', 'articles'].forEach(function (cat) {
-          (bib[cat] || []).forEach(function (item) {
-            if (!item) return;
-            pushItem(item.title || item.name, item.author, item.note, item.lang, cat === 'articles' ? 'article' : 'book');
-          });
-        });
+        (bib.books || []).forEach(function (item) { pushItem(item, 'book'); });
+        (bib.articles || []).forEach(function (item) { pushItem(item, 'article'); });
+        (bib.websites || []).forEach(function (item) { pushItem(item, 'website'); });
       }
       return out;
     }
 
     function collectPhaseCResourcesLinks(data) {
-      var source = data || appState.purePhaseC || {};
+      var source = phaseCResourcesMasterPayload(data);
       var seen = Object.create(null);
       var out = [];
-      function pushLink(title, url, lang) {
+      function pushLink(title, url) {
         var href = sanitizeExternalLinkUrl(url);
         if (!href || isPinterestUrl(href)) return;
-        var candidate = { title: String(title || href).trim(), url: href, lang: lang };
-        if (!passesPhaseCBoxASourceFilter(candidate)) return;
+        if (isForbiddenForeignSourceUrlClient(href)) return;
         var key = href.toLowerCase();
         if (seen[key]) return;
         seen[key] = true;
-        out.push(candidate);
+        out.push({ title: String(title || href).trim(), url: href });
       }
       collectPhaseCLinkItemsClient(source).forEach(function (item) {
         if (!item || !item.url || isPinterestUrl(item.url)) return;
-        pushLink(item.title, item.url, item.lang);
+        pushLink(item.title, item.url);
       });
       (source.relevant_links || []).forEach(function (item) {
         if (!item) return;
-        pushLink(item.title || item.name, item.url || item.link || item.href, item.lang);
+        pushLink(item.title || item.name, item.url || item.link || item.href);
       });
+      (source.pedagogical_resources || []).forEach(function (item) {
+        if (!item) return;
+        pushLink(item.title || item.name || item.label, item.url || item.link || item.href);
+      });
+      var bib = source.theory && source.theory.bibliography;
+      if (bib && Array.isArray(bib.websites)) {
+        bib.websites.forEach(function (item) {
+          if (!item) return;
+          var href = item.url || item.link || item.href;
+          if (href) pushLink(item.title || item.name, href);
+        });
+      }
       return out;
     }
 
     function buildLiteratureSearchUrl(item) {
-      var parts = [item && item.title, item && item.author].filter(function (p) {
+      var label = [item && item.title, item && item.author].filter(function (p) {
         return String(p || '').trim();
-      });
-      var q = parts.join(' ').trim();
-      if (!q) return '';
-      var isArticle = item && (item.kind === 'article' || item.sourceKind === 'article');
-      if (isArticle) {
-        return 'https://scholar.google.com/scholar?q=' + encodeURIComponent(q);
-      }
-      return buildSourceSearchUrl(q);
+      }).join(' ').trim();
+      if (!label) return '';
+      return 'https://www.google.com/search?q=' + encodeURIComponent(label);
+    }
+
+    function buildLiteratureAnchorHtml(item) {
+      var title = String(item.title || '').trim();
+      var author = String(item.author || '').trim();
+      var label = title + (author ? ' - ' + author : '');
+      var directUrl = sanitizeExternalLinkUrl(item.url);
+      var href = directUrl || buildLiteratureSearchUrl(item);
+      if (!href) return '<strong>' + escapeHtml(label) + '</strong>';
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link">' +
+        escapeHtml(label) + '</a>';
     }
 
     function phaseCRenderResourcesReadingList(items) {
@@ -15429,13 +15470,8 @@
       });
       if (!list.length) return '';
       return '<ul class="pure-card-body i18n-list">' + list.map(function (item) {
-        var author = item.author ? ' <span class="text-walnut/60">— ' + escapeHtml(item.author) + '</span>' : '';
         var note = String(item.note || '').trim();
-        var searchUrl = buildLiteratureSearchUrl(item);
-        var head = searchUrl
-          ? '<a href="' + escapeHtml(searchUrl) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link"><strong>' +
-            escapeHtml(item.title) + '</strong></a>' + author
-          : '<strong>' + escapeHtml(item.title) + '</strong>' + author;
+        var head = buildLiteratureAnchorHtml(item);
         if (note.length > 40) {
           return '<li>' + buildReadMoreDetails('<div>' + head + '</div>',
             '<p>' + escapeHtml(note) + '</p>') + '</li>';
@@ -15520,7 +15556,7 @@
       boxEl.classList.add('hidden');
       if (phaseCIsStaleRender(token)) return;
 
-      var payload = data || appState.purePhaseC || {};
+      var payload = phaseCResourcesMasterPayload(data || appState.purePhaseC);
       var literature = collectPhaseCResourcesLiterature(payload);
       var links = collectPhaseCResourcesLinks(payload);
       var readingHtml = phaseCRenderResourcesReadingList(literature);
@@ -16127,16 +16163,12 @@
     }
 
     function navigateCompactHeaderToGrade() {
-      rememberNavScrollPosition(getNavScrollKey());
       goToStep(1, false);
-      restoreNavScrollPosition('step-1');
     }
 
     function navigateCompactHeaderToTopic() {
       if (!canNavigateToStep(2)) return;
-      rememberNavScrollPosition(getNavScrollKey());
       goToStep(2, false);
-      restoreNavScrollPosition('step-2');
     }
 
     function setHeaderCompact(compact) {
@@ -16798,11 +16830,31 @@
     function restoreNavScrollPosition(key) {
       var k = key || getNavScrollKey();
       var y = typeof navScrollMemory[k] === 'number' ? navScrollMemory[k] : 0;
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          restorePageScrollY(y);
+      runAfterLayout(function () {
+        runAfterLayout(function () {
+          try {
+            window.scrollTo({ top: y, left: 0, behavior: 'auto' });
+          } catch (e1) {
+            window.scrollTo(0, y);
+          }
+          if (document.documentElement) document.documentElement.scrollTop = y;
+          if (document.body) document.body.scrollTop = y;
+          var appMain = document.getElementById('app-main');
+          if (appMain) appMain.scrollTop = y;
         });
       });
+    }
+
+    function applyWizardNavScroll(fromStep, toStep, fromSection) {
+      var fromKey = fromSection || getNavScrollKey();
+      rememberNavScrollPosition(fromKey);
+      if (toStep > fromStep) {
+        applyForwardNavScroll();
+        return;
+      }
+      if (toStep < fromStep) {
+        restoreNavScrollPosition('step-' + toStep);
+      }
     }
 
     function applyForwardNavScroll() {
@@ -16904,34 +16956,19 @@
         e.stopPropagation();
       }
       if (!canNavigateToStep(n)) return;
-      var fromStep = appState.step;
-      var fromKey = getNavScrollKey();
-      rememberNavScrollPosition(fromKey);
-      if (n === 2) {
-        goToStep(2, false);
-        if (n > fromStep) {
-          applyForwardNavScroll();
-        } else {
-          restoreNavScrollPosition('step-2');
-        }
-        return;
-      }
+      var fromStep = appState.navSection === 'phase-c' ? 3 : appState.step;
       if (n === 3) {
         if (!appState.grade || !appState.topic) return;
         if (!appState.purePhaseC && !appState.aiGeneratedPlan) {
-          goToStep(2, 'smooth');
+          goToStep(2, false);
           return;
         }
+        rememberNavScrollPosition(getNavScrollKey());
         applyForwardNavScroll();
         openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'narrative' });
         return;
       }
-      if (n === 1) {
-        goToStep(1, false);
-        restoreNavScrollPosition('step-1');
-        return;
-      }
-      goToStep(n, 'smooth');
+      goToStep(n, false);
     }
 
     function showWorkspaceShell() {
@@ -16990,9 +17027,8 @@
 
     function goToStep(n, scrollBehavior) {
       var fromStep = appState.step;
+      var fromNavSection = appState.navSection;
       var fromKey = getNavScrollKey();
-      var movingForward = n > fromStep;
-      var movingBackward = n < fromStep;
       rememberNavScrollPosition(fromKey);
 
       appState.step = n;
@@ -17014,9 +17050,11 @@
       renderStepProgress();
       updateWorkspaceChrome();
       updateNewResearchBarVisibility();
-      if (movingForward) {
+
+      var effectiveFromStep = fromNavSection === 'phase-c' ? 3 : fromStep;
+      if (n > effectiveFromStep) {
         applyForwardNavScroll();
-      } else if (movingBackward) {
+      } else if (n < effectiveFromStep) {
         restoreNavScrollPosition('step-' + n);
       } else if (scrollBehavior === true || scrollBehavior === 'smooth' || scrollBehavior === 'auto') {
         scrollToWizardStep(n, scrollBehavior);
@@ -20159,7 +20197,6 @@
         e.preventDefault();
         e.stopPropagation();
       }
-      rememberNavScrollPosition('step-1');
       syncStepBChrome();
       goToStep(2, false);
       renderTopicCommunitySlot();
@@ -20167,7 +20204,6 @@
       if (step2 && step2.classList.contains('hidden')) {
         revealStepBQuietly();
       }
-      applyForwardNavScroll();
     }
 
     function isPrimaryEnter(e) {
@@ -20338,9 +20374,9 @@
           schedulePersistActiveStep();
         });
       }
-      bindWizardNavClick(document.getElementById('ws-crumb-grade'), function () { if (appState.grade) goToStep(1, 'smooth'); });
+      bindWizardNavClick(document.getElementById('ws-crumb-grade'), function () { if (appState.grade) onStepNavClick(1); });
       bindWizardNavClick(document.getElementById('ws-crumb-topic'), function () {
-        goToStep(2, 'smooth');
+        onStepNavClick(2);
       });
       bindWizardNavClick(document.getElementById('header-compact-edit-grade'), navigateCompactHeaderToGrade);
       bindWizardNavClick(document.getElementById('header-compact-edit-topic'), navigateCompactHeaderToTopic);
