@@ -11426,14 +11426,17 @@
       if (topicTitle) docP(t('export_doc_topic_line', { topic: topicTitle }));
 
       var richBody = document.getElementById('phase-c-rich-body');
-      var mainHtml = richBody && richBody.innerHTML.trim() ? richBody.innerHTML : '';
-      if (!mainHtml) {
-        var unifiedRaw = extractPhaseCUnifiedRichText(appState.purePhaseC);
-        if (unifiedRaw) mainHtml = renderPhaseCUnifiedRichBodyHtml(unifiedRaw);
-      }
-      if (mainHtml) {
+      var unifiedRaw = extractPhaseCUnifiedRichText(appState.purePhaseC);
+      if (unifiedRaw) {
         docH2(t('tab_narrative'));
-        docHtmlBlock(mainHtml);
+        sanitizePhaseCUnifiedProse(unifiedRaw).split(/\n\n+/).forEach(function (para) {
+          docP(para);
+        });
+      } else if (richBody && richBody.innerHTML.trim()) {
+        docH2(t('tab_narrative'));
+        stripHtmlText(richBody.innerHTML).split(/\n\n+/).forEach(function (para) {
+          docP(para);
+        });
       }
 
       var unifiedRoot = document.getElementById('phase-c-unified-root') || document.getElementById('panel-narrative');
@@ -11775,22 +11778,9 @@
     }
 
     function buildSecureWordBlob(bodyHtml, langCode) {
-      // Locked typography: Hebrew RTL, Arial, 12pt, 1.5 line spacing.
-      // Fully defensive — never throws and always yields a valid .doc blob,
-      // even when bodyHtml is empty/undefined.
-      var lang = 'he';
-      try {
-        lang = langCode || (isEnglish() ? 'en' : 'he');
-      } catch (langErr) {
-        lang = 'he';
-      }
+      var lang = langCode || (isEnglish() ? 'en' : 'he');
       var dir = lang === 'en' ? 'ltr' : 'rtl';
-      var safeBody = '';
-      try {
-        safeBody = bodyHtml == null ? '' : String(bodyHtml);
-      } catch (bodyErr) {
-        safeBody = '';
-      }
+      var safeBody = bodyHtml == null ? '' : String(bodyHtml);
       var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
       var htmlContent =
         '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
@@ -11804,11 +11794,7 @@
         safeBody +
         '\n</body>\n' +
         '</html>';
-      try {
-        return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
-      } catch (blobErr) {
-        return new Blob([htmlContent], { type: 'application/msword' });
-      }
+      return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
     }
 
     function buildWordRtlBlob(bodyHtml, langCode) {
@@ -11904,13 +11890,25 @@
       document.documentElement.dataset.topicWordExportBound = '1';
       document.addEventListener('click', function (e) {
         var btn = e.target && e.target.closest
-          ? e.target.closest('[data-unified-topic-export], [data-pedagogy-export]')
+          ? e.target.closest('[data-unified-topic-export]')
           : null;
         if (!btn || btn.disabled) return;
         e.preventDefault();
-        e.stopPropagation();
         downloadUnifiedTopicDocx();
-      }, true);
+      });
+    }
+
+    function ensurePedagogyWordExportDelegation() {
+      if (document.documentElement.dataset.pedagogyWordExportBound) return;
+      document.documentElement.dataset.pedagogyWordExportBound = '1';
+      document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest
+          ? e.target.closest('[data-pedagogy-export]')
+          : null;
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        downloadUnifiedTopicDocx();
+      });
     }
 
     function ensureGeneralSearchWordExportDelegation() {
@@ -11928,13 +11926,10 @@
     }
 
     async function downloadUnifiedTopicDocx() {
-      var html;
-      try {
-        html = collectUnifiedTopicExportHtml();
-      } catch (collectErr) {
-        console.error('Unified topic export collect failed:', collectErr);
-        alert(t('export_doc_error') + ': ' + (collectErr.message || String(collectErr)));
-        return;
+      var html = collectUnifiedTopicExportHtml();
+      if (!html || !html.trim()) {
+        var preview = collectPedagogySummaryDocumentData();
+        if (preview) html = buildPedagogyExportHtml(preview);
       }
       if (!html || !html.trim()) {
         alert(t('export_doc_need_phase'));
@@ -11945,14 +11940,13 @@
       } catch (err) {
         return;
       }
-      var btns = document.querySelectorAll('[data-unified-topic-export], [data-pedagogy-export]');
-      btns.forEach(function (b) {
-        b.disabled = true;
-        var label = b.querySelector('.phase-c-unified-export-label') || b.querySelector('[data-i18n]');
-        if (label) label.textContent = t('export_doc_generating');
-      });
+      var btn = document.getElementById('btn-phase-c-export-word');
+      var label = btn ? btn.querySelector('.phase-c-unified-export-label') : null;
+      var navBtns = document.querySelectorAll('[data-pedagogy-export]');
+      if (btn) btn.disabled = true;
+      navBtns.forEach(function (b) { b.disabled = true; });
+      if (label) label.textContent = t('export_doc_generating');
       try {
-        queueCommunityLessonSync();
         var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
         var filename = buildPedagogyDocxFilename();
         var url = URL.createObjectURL(blob);
@@ -11969,13 +11963,9 @@
         console.error('Unified topic DOC export failed:', err);
         alert(t('export_doc_error') + ': ' + (err.message || String(err)));
       } finally {
-        btns.forEach(function (b) {
-          b.disabled = false;
-          var unifiedLabel = b.querySelector('.phase-c-unified-export-label');
-          if (unifiedLabel) unifiedLabel.textContent = t('general_search_export_word');
-          var navLabel = b.querySelector('[data-i18n="btn_export_pedagogy_doc"]');
-          if (navLabel) navLabel.textContent = t('btn_export_pedagogy_doc');
-        });
+        if (btn) btn.disabled = false;
+        navBtns.forEach(function (b) { b.disabled = false; });
+        if (label) label.textContent = t('general_search_export_word');
       }
     }
 
@@ -11990,13 +11980,11 @@
     }
 
     function updatePhaseCExportButtons() {
-      // The unified-view Word button is permanent and lifecycle-independent: it is
-      // always visible and enabled the moment the narrative panel is shown, never
-      // gated on content rendering. Empty-state is handled safely on click.
       var panelBtn = document.getElementById('btn-phase-c-export-word');
       if (panelBtn) {
         panelBtn.classList.remove('hidden');
         panelBtn.disabled = false;
+        panelBtn.type = 'button';
       }
     }
 
@@ -15787,58 +15775,20 @@
       return Boolean(extractPhaseCUnifiedRichText(data || appState.purePhaseC));
     }
 
-    /**
-     * Convert dead reference brackets in raw prose ([6], [10], [GA 294], …) into
-     * markdown-link form [מקור](url) BEFORE markdown formatting, so they survive
-     * stripPhaseBReferenceBrackets and render as live blue source links.
-     * Numeric brackets map by index into the live Perplexity citation list; textual
-     * refs (GA volumes, etc.) are linked only when a citation URL loosely matches —
-     * otherwise the original bracket text is preserved verbatim (no fabricated links).
-     */
-    function phaseCLinkifyReferenceBracketsToMarkdown(text) {
+    function sanitizePhaseCUnifiedProse(text) {
       var s = String(text || '');
-      if (!s) return s;
-      var citations = getLiveCitationList();
-      var sourceLabel = isEnglish() ? 'source' : 'מקור';
-      s = s.replace(/\[\s*(\d{1,3})\s*\](?!\()/g, function (m, num) {
-        var idx = parseInt(num, 10) - 1;
-        if (idx < 0 || idx >= citations.length) return m;
-        var href = sanitizeExternalLinkUrl(citations[idx]);
-        if (!href) return m;
-        return '[' + sourceLabel + '](' + href + ')';
-      });
-      if (citations.length) {
-        s = s.replace(/\[\s*([A-Za-z\u0590-\u05FF][^\]\n]{0,38})\s*\](?!\()/g, function (m, inner) {
-          var norm = String(inner || '').toLowerCase().replace(/[\s._-]+/g, '');
-          if (!norm) return m;
-          for (var i = 0; i < citations.length; i++) {
-            var cu = String(citations[i] || '').toLowerCase().replace(/[\s._-]+/g, '');
-            if (cu.indexOf(norm) >= 0) {
-              var href = sanitizeExternalLinkUrl(citations[i]);
-              if (href) return '[' + sourceLabel + '](' + href + ')';
-            }
-          }
-          return m;
-        });
-      }
-      return s;
+      s = s.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1');
+      s = s.replace(/https?:\/\/[^\s<>"']+/gi, '');
+      s = s.replace(/<[^>]+>/g, ' ');
+      return sanitizePhaseCProseForRender(stripExpansionSourceNoiseClient(s));
     }
 
     function renderPhaseCUnifiedRichBodyHtml(rawText) {
       if (!rawText) return '';
       var s = cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(rawText)));
-      var html;
-      if (isCompiledPedagogicalHtml(s)) {
-        html = '<div class="prose-ai leading-relaxed">' + ensureAiHtml(s, { wrap: false }) + '</div>';
-      } else {
-        s = phaseCLinkifyReferenceBracketsToMarkdown(s);
-        if (/\[[^\]]+\]\(\s*https?:\/\//i.test(s) || !looksLikeAiHtml(s)) {
-          html = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s, { narrativeOnly: false }) + '</div>';
-        } else {
-          html = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(s), { narrativeOnly: false }) + '</div>';
-        }
-      }
-      return linkifyExpansionHtml(html);
+      s = sanitizePhaseCUnifiedProse(s);
+      if (!s.trim()) return '';
+      return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s, { narrativeOnly: true }) + '</div>';
     }
 
     function collectPhaseCResourcesLinks(data) {
@@ -20808,6 +20758,7 @@
       // Word-export click delegation is registered first so it survives any
       // later binding error in this function (listeners attach to document).
       ensureTopicWordExportDelegation();
+      ensurePedagogyWordExportDelegation();
       ensureChatWordExportDelegation();
       ensureGeneralSearchWordExportDelegation();
       updatePhaseCExportButtons();
