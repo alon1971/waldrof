@@ -217,6 +217,21 @@ function violatesPedagogicalTopicContext(url, snippet, topic) {
   return isOffTopicMathExcellenceContent(blob);
 }
 
+function violatesPhaseCGradeLock(url, snippet, grade, topic) {
+  const gradeMatch = String(grade || '').match(/[1-8]/);
+  const gradeNum = gradeMatch ? parseInt(gradeMatch[0], 10) : null;
+  const blob = [url, snippet, topic].filter(Boolean).join(' ');
+  if (gradeNum && gradeNum >= 4 && PHASE_C_EARLY_CHILDHOOD_MARKERS.test(blob)) return true;
+  return violatesPedagogicalTopicContext(url, snippet, topic);
+}
+
+function isSocialOrForumNoiseUrl(url) {
+  const u = String(url || '').trim().toLowerCase();
+  if (!u) return false;
+  if (PHASE_C_SOCIAL_NOISE_URL_PATTERN.test(u)) return true;
+  return PHASE_C_FORUM_NOISE_URL_PATTERN.test(u);
+}
+
 function isPinterestPhaseCUrl(url) {
   return /pinterest/i.test(String(url || ''));
 }
@@ -342,6 +357,11 @@ const PHASE_C_AD_NETWORK_DOMAINS = /(?:^|\.)(?:doubleclick|googlesyndication|ads
 /** Raw social network homepages (no educational path). */
 const PHASE_C_GENERIC_SOCIAL_HOSTS = /^(?:www\.)?(?:facebook|instagram|tiktok|twitter|x)\.com$/i;
 
+/** Block social and forum noise from Resources-tab links. */
+const PHASE_C_SOCIAL_NOISE_URL_PATTERN = /facebook\.com|fb\.com|instagram\.com|instagr\.am|tiktok\.com/i;
+const PHASE_C_FORUM_NOISE_URL_PATTERN = /(?:^|[/.@])(?:forums?|forum\.|community\.|discourse\.|tapatalk|ipboard|vbulletin|phpbb|xfn\.)/i;
+const PHASE_C_EARLY_CHILDHOOD_MARKERS = /(?:\b(?:preschool|pre[\-\s]?school|kindergarten|nursery|early[\-\s]childhood|before\s+grade\s*1|pre[\-\s]?grade\s*1)\b|(?:^|[\s,.(])(?:גן(?:\s+ילדים)?|טרום[\-\s]?כיתתי|לפני\s+כיתה\s*א|כיתה\s*א(?:['׳]|(?:\s|$)))(?:[\s,.(]|$)|(?:^|[\s,.(])grades?\s*1(?:[\s,.(]|$)|\bfirst\s+grade\b|fairy[\-\s]?tale\s+consciousness|qualities\s+of\s+(?:the\s+)?numbers|(?:^|[\s,.(])גיל\s*(?:3|4|5|6|7)\b)/i;
+
 function urlHasEducationalKeyword(url) {
   return PHASE_C_EDUCATIONAL_PATH_KEYWORDS.test(String(url || ''));
 }
@@ -390,6 +410,7 @@ function isGenericSocialRootUrl(url) {
 function isNonEducationalSpamUrl(url) {
   const u = String(url || '').trim();
   if (!u) return true;
+  if (isSocialOrForumNoiseUrl(u)) return true;
   if (isTrustedEducationalDomain(u)) return false;
   if (isSpamCommerceOrAdUrl(u)) return true;
   if (isGenericSocialRootUrl(u)) return true;
@@ -573,6 +594,7 @@ function hasLiveReferenceSnippet(item) {
 function filterLinkItemsByLiveCitations(items, citationSet, options) {
   const opts = options || {};
   const topic = String(opts.topic || '').trim();
+  const grade = String(opts.grade || '').trim();
   if (!citationSet || !citationSet.size) return [];
   return (items || []).filter(function (item) {
     if (!item || typeof item !== 'object') return false;
@@ -581,16 +603,17 @@ function filterLinkItemsByLiveCitations(items, citationSet, options) {
     if (!url || !isVerifiedLiveCitationUrl(url, citationSet)) return false;
     if (opts.blockPinterest && isPinterestPhaseCUrl(url)) return false;
     const snippet = String(item.note || item.detail || item.description || item.snippet || item.summary || item.title || '').trim();
-    if (violatesPedagogicalTopicContext(url, snippet, topic)) return false;
+    if (violatesPhaseCGradeLock(url, snippet, grade, topic)) return false;
     if (opts.requireSnippet && !hasLiveReferenceSnippet(item)) return false;
     const title = String(item.title || item.name || '').trim();
     return Boolean(title || url);
   });
 }
 
-function filterBibliographyByLiveCitations(bib, citationSet, topic) {
+function filterBibliographyByLiveCitations(bib, citationSet, topic, grade) {
   const data = bib && typeof bib === 'object' ? bib : {};
   const topicStr = String(topic || '').trim();
+  const gradeStr = String(grade || '').trim();
   function filterList(list, requireUrl) {
     return (list || []).filter(function (item) {
       if (!item || typeof item !== 'object' || !item.title) return false;
@@ -601,7 +624,7 @@ function filterBibliographyByLiveCitations(bib, citationSet, topic) {
       if (!isVerifiedLiveCitationUrl(url, citationSet)) return false;
       if (isPinterestPhaseCUrl(url)) return false;
       const snippet = String(item.note || item.detail || item.description || item.snippet || item.summary || item.title || '').trim();
-      if (violatesPedagogicalTopicContext(url, snippet, topicStr)) return false;
+      if (violatesPhaseCGradeLock(url, snippet, gradeStr, topicStr)) return false;
       return requireUrl ? hasLiveReferenceSnippet(item) : true;
     });
   }
@@ -628,9 +651,14 @@ function filterRecommendedReadingByLiveCitations(reading, citationSet, topic) {
   });
 }
 
-function applyLiveCitationGate(normalized, parsed, topic) {
+function applyLiveCitationGate(normalized, parsed, topic, grade) {
   if (!normalized || typeof normalized !== 'object') return normalized;
   const topicStr = String(topic || (normalized._topicMaster && normalized._topicMaster.topic) || '').trim();
+  const gradeStr = String(
+    grade ||
+    (normalized._topicMaster && (normalized._topicMaster.gradeId || normalized._topicMaster.gradeLabel)) ||
+    ''
+  ).trim();
   stampTopicMasterArchiveLinks(normalized, parsed || normalized);
   const citationSet = buildLiveCitationUrlSet(parsed || normalized, topicStr);
   if (!citationSet || !citationSet.size) {
@@ -650,19 +678,20 @@ function applyLiveCitationGate(normalized, parsed, topic) {
 
   normalized.relevant_links = filterLinkItemsByLiveCitations(normalized.relevant_links, citationSet, {
     topic: topicStr,
+    grade: gradeStr,
     blockPinterest: true,
   });
   normalized.pinterest_links = filterLinkItemsByLiveCitations(
     filterLiveNormalizedLinks(normalized.pinterest_links),
     citationSet,
-    { topic: topicStr }
+    { topic: topicStr, grade: gradeStr }
   ).filter(function (item) {
     return item && item.url && /pinterest/i.test(item.url);
   });
   normalized.pedagogical_resources = filterLinkItemsByLiveCitations(
     filterLiveNormalizedLinks(normalized.pedagogical_resources),
     citationSet,
-    { requireSnippet: true, topic: topicStr, blockPinterest: true }
+    { requireSnippet: true, topic: topicStr, grade: gradeStr, blockPinterest: true }
   );
   normalized.recommended_reading = filterRecommendedReadingByLiveCitations(
     normalized.recommended_reading,
@@ -671,7 +700,7 @@ function applyLiveCitationGate(normalized, parsed, topic) {
   );
 
   if (normalized.theory && normalized.theory.bibliography) {
-    const filtered = filterBibliographyByLiveCitations(normalized.theory.bibliography, citationSet, topicStr);
+    const filtered = filterBibliographyByLiveCitations(normalized.theory.bibliography, citationSet, topicStr, gradeStr);
     filtered.websites = (filtered.websites || []).filter(function (item) {
       const url = String(item && item.url || '').trim();
       return url && !isPinterestPhaseCUrl(url);
@@ -2003,7 +2032,7 @@ function ensurePhaseCTab3Population(normalized, opts) {
   }
 
   ensureRecommendedReading(normalized, payloadEssay, grade, topic, parsed);
-  applyLiveCitationGate(normalized, parsed, topic);
+  applyLiveCitationGate(normalized, parsed, topic, grade);
 
   if (tab3FieldPlainLen(normalized.core_emphases) < PHASE_C_TAB3_MIN_PLAIN_CHARS) {
     const emergency = buildCoreEmphasesFallbackHtml(defaultParagraphs, defaultParagraphs.join('\n\n'), grade, topic);
@@ -2309,7 +2338,7 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   mergeExtractedLinksIntoNormalized(normalized, [theoryResult.links, coreResult.links], topicStr);
   applyPhaseCFallbackLinkHarvester(normalized, parsed, topicStr);
   ensureRecommendedReading(normalized, coreEssay || richEssay, gradeStr, topicStr, parsed);
-  applyLiveCitationGate(normalized, parsed, topicStr);
+  applyLiveCitationGate(normalized, parsed, topicStr, gradeStr);
 
   return ensurePhaseCTab3Population(normalized, {
     essay: richEssay,
@@ -2702,7 +2731,73 @@ function normalizePhaseCResponse(parsed, grade, topic) {
     relevant_links: relevantLinks,
   };
   ensureRecommendedReading(result, coreEmphases, grade, topic, parsed);
-  return deduplicateTab3Fields(applyLiveCitationGate(result, parsed, topic), grade, topic);
+  return deduplicateTab3Fields(applyLiveCitationGate(result, parsed, topic, grade), grade, topic);
+}
+
+function emptyTopicMasterBibliography() {
+  return { books: [], articles: [], websites: [] };
+}
+
+/** Strict server-side adapter for legacy topic_master rows — prevents undefined theory/bibliography crashes. */
+function adaptTopicMasterPayload(payload, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  if (!payload || typeof payload !== 'object') {
+    return {
+      theory: { title: '', sections: [], bibliography: emptyTopicMasterBibliography() },
+      resources: {},
+      recommended_reading: [],
+      relevant_links: [],
+      pedagogical_resources: [],
+      pinterest_links: [],
+      key_points: [],
+      core_emphases: '',
+    };
+  }
+  if (!payload.theory || typeof payload.theory !== 'object') {
+    payload.theory = { title: '', sections: [], bibliography: emptyTopicMasterBibliography() };
+  } else {
+    if (!Array.isArray(payload.theory.sections)) payload.theory.sections = [];
+    if (!payload.theory.bibliography || typeof payload.theory.bibliography !== 'object') {
+      payload.theory.bibliography = emptyTopicMasterBibliography();
+    } else {
+      payload.theory.bibliography = normalizeBibliography(payload.theory.bibliography);
+    }
+  }
+  if (!payload.resources || typeof payload.resources !== 'object') {
+    payload.resources = {};
+  }
+  if (!Array.isArray(payload.recommended_reading)) payload.recommended_reading = [];
+  if (!Array.isArray(payload.relevant_links)) payload.relevant_links = [];
+  if (!Array.isArray(payload.pedagogical_resources)) payload.pedagogical_resources = [];
+  if (!Array.isArray(payload.pinterest_links)) payload.pinterest_links = [];
+  if (!Array.isArray(payload.key_points)) payload.key_points = [];
+  if (payload.core_emphases == null) payload.core_emphases = '';
+  if (opts.grade || opts.topic) {
+    payload._topicMaster = Object.assign({}, payload._topicMaster || {}, {
+      gradeId: String(opts.gradeId || opts.grade || payload._topicMaster && payload._topicMaster.gradeId || '').trim(),
+      gradeLabel: String(opts.gradeLabel || opts.grade || payload._topicMaster && payload._topicMaster.gradeLabel || '').trim(),
+      topic: String(opts.topic || payload._topicMaster && payload._topicMaster.topic || '').trim(),
+    });
+  }
+  return payload;
+}
+
+function buildLiteratureSearchUrl(item, grade) {
+  const title = String((item && item.title) || (item && item.name) || '').trim();
+  const author = String((item && item.author) || (item && item.publisher) || '').trim();
+  const label = [title, author].filter(Boolean).join(' ').trim();
+  if (!label) return '';
+  const gradeLabel = String(grade || '').trim();
+  const isHebrew = /[\u0590-\u05FF]/.test(label);
+  let suffix;
+  if (gradeLabel) {
+    suffix = isHebrew
+      ? ' +"חינוך ולדורף ' + gradeLabel + '"'
+      : ' +"waldorf anthroposophy ' + gradeLabel + '"';
+  } else {
+    suffix = isHebrew ? ' +ולדורף +אנתרופוסופיה' : ' +waldorf +anthroposophy';
+  }
+  return 'https://www.google.com/search?q=' + encodeURIComponent(label + suffix);
 }
 
 function resolveGradeId(body) {
@@ -2715,6 +2810,7 @@ function resolveGradeId(body) {
 
 function safeNormalizePhaseCResponse(parsed, grade, topic) {
   const topicStr = String(topic || 'נושא').trim();
+  adaptTopicMasterPayload(parsed, { grade: grade, gradeLabel: grade, topic: topicStr });
   if (parsed && typeof parsed === 'object') {
     stampTopicMasterArchiveLinks(parsed, parsed);
   }
@@ -2753,7 +2849,7 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
     });
   }
   stampTopicMasterArchiveLinks(result, parsed || result);
-  result = applyLiveCitationGate(result, parsed || result, topicStr);
+  result = applyLiveCitationGate(result, parsed || result, topicStr, grade);
   result = applyPhaseCTextSanitizationChain(result);
   return centralizePhaseCLinksToResourcesTab(result, topicStr);
 }
@@ -2787,6 +2883,8 @@ function buildTopicMasterMergeUserPrompt(historic, fresh, grade, topic) {
 }
 
 async function mergeTopicMasterPayloads(historic, fresh, grade, topic) {
+  adaptTopicMasterPayload(historic, { grade: grade, gradeLabel: grade, topic: topic });
+  adaptTopicMasterPayload(fresh, { grade: grade, gradeLabel: grade, topic: topic });
   const modelResult = await callPhaseCPerplexitySafe(
     TOPIC_MASTER_MERGE_SYSTEM_PROMPT,
     buildTopicMasterMergeUserPrompt(historic, fresh, grade, topic),
@@ -2822,6 +2920,7 @@ async function runPurePhaseC(body) {
     const cached = await cache.getTopicMasterCache(gradeId, topic);
     if (cached && cached.data) {
       try {
+        adaptTopicMasterPayload(cached.data, { gradeId: gradeId, grade: grade, gradeLabel: grade, topic: topic });
         stampTopicMasterArchiveLinks(cached.data, cached.data);
         return {
           data: safeNormalizePhaseCResponse(cached.data, grade, topic),
@@ -2889,6 +2988,7 @@ async function runPurePhaseC(body) {
   stampTopicMasterArchiveLinks(normalized, parsed);
 
   if (body.mergeWithHistoric && body.historicPayload && typeof body.historicPayload === 'object') {
+    adaptTopicMasterPayload(body.historicPayload, { gradeId: gradeId, grade: grade, gradeLabel: grade, topic: topic });
     try {
       const mergedParsed = await mergeTopicMasterPayloads(body.historicPayload, normalized, grade, topic);
       normalized = safeNormalizePhaseCResponse(mergedParsed, grade, topic);
@@ -2958,6 +3058,10 @@ module.exports = {
   fetch: fetchHandler,
   runPurePhaseC,
   normalizePhaseCResponse,
+  adaptTopicMasterPayload,
+  buildLiteratureSearchUrl,
+  violatesPhaseCGradeLock,
+  isSocialOrForumNoiseUrl,
   safeNormalizePhaseCResponse,
   sterilizePhaseCFallbackText,
   gatherPhaseCFallbackSourceText,

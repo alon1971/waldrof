@@ -137,6 +137,9 @@ async function executeSearchHistory(req) {
         gradeId: match.gradeId,
         gradeLabel: match.gradeLabel || null,
         item: item,
+        archiveSource: match.archiveSource || null,
+        historicPayload: match.historicPayload || null,
+        resultData: match.resultData || null,
       },
     };
   }

@@ -15457,25 +15457,34 @@
       var source = data || appState.purePhaseC || {};
       var plan = appState.aiGeneratedPlan || {};
       var merged = Object.assign({}, source);
+      var emptyBib = { books: [], articles: [], websites: [] };
       if (plan.theory && typeof plan.theory === 'object') {
         merged.theory = Object.assign({}, plan.theory, source.theory || {});
-        if (plan.theory.bibliography || (source.theory && source.theory.bibliography)) {
-          var planBib = plan.theory.bibliography || { books: [], articles: [], websites: [] };
-          var srcBib = (source.theory && source.theory.bibliography) || { books: [], articles: [], websites: [] };
-          merged.theory.bibliography = {
-            books: (srcBib.books && srcBib.books.length ? srcBib.books : planBib.books) || [],
-            articles: (srcBib.articles && srcBib.articles.length ? srcBib.articles : planBib.articles) || [],
-            websites: (srcBib.websites && srcBib.websites.length ? srcBib.websites : planBib.websites) || [],
-          };
-        }
+      } else if (source.theory && typeof source.theory === 'object') {
+        merged.theory = Object.assign({}, source.theory);
+      } else {
+        merged.theory = { title: '', sections: [], bibliography: emptyBib };
       }
-      if (!merged.recommended_reading || !merged.recommended_reading.length) {
+      if (!merged.theory.bibliography || typeof merged.theory.bibliography !== 'object') {
+        merged.theory.bibliography = emptyBib;
+      } else {
+        var planBib = plan.theory && plan.theory.bibliography ? plan.theory.bibliography : emptyBib;
+        var srcBib = (source.theory && source.theory.bibliography) || emptyBib;
+        merged.theory.bibliography = {
+          books: (srcBib.books && srcBib.books.length ? srcBib.books : planBib.books) || [],
+          articles: (srcBib.articles && srcBib.articles.length ? srcBib.articles : planBib.articles) || [],
+          websites: (srcBib.websites && srcBib.websites.length ? srcBib.websites : planBib.websites) || [],
+        };
+      }
+      if (!Array.isArray(merged.recommended_reading)) merged.recommended_reading = [];
+      if (!Array.isArray(merged.relevant_links)) merged.relevant_links = [];
+      if (!merged.recommended_reading.length) {
         merged.recommended_reading = Array.isArray(plan.recommended_reading) ? plan.recommended_reading.slice()
-          : (Array.isArray(plan.curriculum && plan.curriculum.recommended_reading) ? plan.curriculum.recommended_reading.slice() : merged.recommended_reading || []);
+          : (Array.isArray(plan.curriculum && plan.curriculum.recommended_reading) ? plan.curriculum.recommended_reading.slice() : merged.recommended_reading.slice());
       }
-      if (!merged.relevant_links || !merged.relevant_links.length) {
+      if (!merged.relevant_links.length) {
         merged.relevant_links = Array.isArray(plan.relevant_links) ? plan.relevant_links.slice()
-          : (Array.isArray(plan.curriculum && plan.curriculum.relevant_links) ? plan.curriculum.relevant_links.slice() : merged.relevant_links || []);
+          : (Array.isArray(plan.curriculum && plan.curriculum.relevant_links) ? plan.curriculum.relevant_links.slice() : merged.relevant_links.slice());
       }
       return merged;
     }
@@ -15588,9 +15597,18 @@
         return String(p || '').trim();
       }).join(' ').trim();
       if (!label) return '';
-      var waldorfSuffix = /[\u0590-\u05FF]/.test(label)
-        ? ' +ולדורף +אנתרופוסופיה'
-        : ' +waldorf +anthroposophy';
+      var gradeLabel = String(appState.gradeLabel || appState.grade || '').trim();
+      var isHebrew = /[\u0590-\u05FF]/.test(label) || !isEnglish();
+      var waldorfSuffix;
+      if (gradeLabel) {
+        waldorfSuffix = isHebrew
+          ? ' +"חינוך ולדורף ' + gradeLabel + '"'
+          : ' +"waldorf anthroposophy ' + gradeLabel + '"';
+      } else {
+        waldorfSuffix = isHebrew
+          ? ' +ולדורף +אנתרופוסופיה'
+          : ' +waldorf +anthroposophy';
+      }
       return 'https://www.google.com/search?q=' + encodeURIComponent(label + waldorfSuffix);
     }
 
@@ -15757,7 +15775,22 @@
         title: topic,
         topic: topic,
         gradeLabel: gradeLabel,
-        theory: data.theory || null,
+        theory: (function () {
+          var theory = data.theory && typeof data.theory === 'object'
+            ? Object.assign({}, data.theory)
+            : { title: '', sections: [], bibliography: { books: [], articles: [], websites: [] } };
+          if (!Array.isArray(theory.sections)) theory.sections = [];
+          if (!theory.bibliography || typeof theory.bibliography !== 'object') {
+            theory.bibliography = { books: [], articles: [], websites: [] };
+          } else {
+            theory.bibliography = {
+              books: Array.isArray(theory.bibliography.books) ? theory.bibliography.books : [],
+              articles: Array.isArray(theory.bibliography.articles) ? theory.bibliography.articles : [],
+              websites: Array.isArray(theory.bibliography.websites) ? theory.bibliography.websites : [],
+            };
+          }
+          return theory;
+        })(),
         inspiration: data.inspiration || null,
         curriculum: tab3,
       };
@@ -17716,28 +17749,34 @@
 
       const onReject = function () {
         recordArchiveSuggestionRejection(match, topic);
+        appState.archiveSuggestionPending = false;
+        appState.archiveFreshSearchPending = true;
+        hideTopicArchiveSuggestionBanner();
         topicResearchRunId += 1;
         if (topicResearchAbort) {
           topicResearchAbort.abort();
           topicResearchAbort = null;
         }
-        setTopicResearchLoadingUi(false);
+        setTopicResearchLoadingUi(true);
         const rejectBtn = document.getElementById('btn-topic-research');
         if (rejectBtn) {
-          rejectBtn.disabled = false;
-          updateTopicResearchButton();
+          rejectBtn.disabled = true;
+          rejectBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' +
+            escapeHtml(t('topic_research_loading_archive')) + '</span>';
         }
-        if (resolveArchiveHistoricPayload(match) || match.cacheKey) {
-          presentArchiveMergePrompt(topic, match);
-          return;
-        }
-        if (typeof LessonChatSidebar !== 'undefined') {
-          LessonChatSidebar.showArchiveRefineHint({
-            onAfterShow: focusStepBTopicInput,
-          });
-        } else {
-          focusStepBTopicInput();
-        }
+        loadArchiveHistoricPayload(match).then(function (historicPayload) {
+          if (!historicPayload) {
+            return runFreshArchiveBypassResearch(topic);
+          }
+          return runArchiveMergeResearch(topic, historicPayload);
+        }).catch(function (err) {
+          setTopicResearchLoadingUi(false);
+          if (rejectBtn) {
+            rejectBtn.disabled = false;
+            updateTopicResearchButton();
+          }
+          alert(err.message || String(err));
+        });
       };
 
       showTopicArchiveSuggestionBanner(match, { onConfirm: onConfirm, onReject: onReject });

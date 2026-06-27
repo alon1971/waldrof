@@ -1348,6 +1348,7 @@ async function findTopicMasterArchiveSuggestion(gradeId, topic) {
 
   const semantic = await findSemanticTopicMasterMatch(gid, topicStr);
   if (!semantic || !semantic.data || !isTopicMasterPayload(semantic.data)) return null;
+  hydrateTopicMasterArchiveLinks(semantic.data);
 
   const matchedTopic = String(semantic.meta && semantic.meta.matchedTopic || topicStr).trim();
   const queryNorm = stableNormalize(topicStr);
@@ -1920,6 +1921,14 @@ function hydrateTopicMasterArchiveLinks(data) {
   if (!data || typeof data !== 'object') return data;
   try {
     const phaseC = require('./pure-phase-c');
+    if (phaseC && typeof phaseC.adaptTopicMasterPayload === 'function') {
+      phaseC.adaptTopicMasterPayload(data, {
+        gradeId: data._topicMaster && data._topicMaster.gradeId,
+        grade: data._topicMaster && (data._topicMaster.gradeLabel || data._topicMaster.gradeId),
+        gradeLabel: data._topicMaster && data._topicMaster.gradeLabel,
+        topic: data._topicMaster && data._topicMaster.topic,
+      });
+    }
     if (phaseC && typeof phaseC.stampTopicMasterArchiveLinks === 'function') {
       phaseC.stampTopicMasterArchiveLinks(data, data);
     }
@@ -1977,6 +1986,19 @@ async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
   if (!gid || !topicStr || !masterData) return null;
   const safe = ensureJsonObjectForStorage(masterData);
   if (!safe) return null;
+  try {
+    const phaseC = require('./pure-phase-c');
+    if (phaseC && typeof phaseC.adaptTopicMasterPayload === 'function') {
+      phaseC.adaptTopicMasterPayload(safe, {
+        gradeId: gid,
+        grade: gradeLabel || gid,
+        gradeLabel: gradeLabel || gid,
+        topic: topicStr,
+      });
+    }
+  } catch (adaptErr) {
+    console.warn('[cached_results] topic_master adapt before save failed:', adaptErr.message || adaptErr);
+  }
   safe._topicMaster = {
     version: 1,
     generatedAt: new Date().toISOString(),
@@ -3434,6 +3456,7 @@ module.exports = {
   getCachedResult,
   getTopicMasterCache,
   setTopicMasterCache,
+  hydrateTopicMasterArchiveLinks,
   findSemanticTopicMasterMatch,
   scoreTopicMasterSemanticMatch,
   isTopicMasterPayload,
