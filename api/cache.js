@@ -23,6 +23,8 @@ const TABLE_NAME = 'cached_results';
 const RAW_PERPLEXITY_PHASE = 'perplexity_raw';
 /** Unified Step B→C master payload (theory + inspiration + pedagogy + live links) keyed by grade_id + topic. */
 const TOPIC_MASTER_PHASE = 'topic_master';
+/** Multi-grade general search payload keyed by exact query string. */
+const GENERAL_SEARCH_PHASE = 'general_search';
 const HYBRID_GENERATED_VERSION = '2025-06-hybrid-v1';
 
 function resolveFallbackPath() {
@@ -159,6 +161,12 @@ function buildCacheKey(body) {
     const topic = normalizeTopicQuery(body.topic ?? '');
     if (!gradeId || !topic) return null;
     return hashString([TOPIC_MASTER_PHASE, gradeId, topic].join('|'));
+  }
+
+  if (body.phase === GENERAL_SEARCH_PHASE || body.phase === 'pure_general_search') {
+    const query = normalizeGeneralSearchQuery(body.query ?? body.topic ?? body.q ?? '');
+    if (!query) return null;
+    return hashString([GENERAL_SEARCH_PHASE, query].join('|'));
   }
 
   const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
@@ -594,6 +602,9 @@ function isValidCachedPayload(phase, data) {
   }
   if (phase === 'grade') return Boolean(normalizeGradeResultForCache(data));
   if (phase === TOPIC_MASTER_PHASE) return isTopicMasterPayload(data);
+  if (phase === GENERAL_SEARCH_PHASE || phase === 'pure_general_search') {
+    return isGeneralSearchPayload(data);
+  }
   if (phase === 'topic') {
     const bp = data.blockPlan;
     if (bp && typeof bp === 'object' && String(bp.rawContent || '').trim()) return true;
@@ -1658,6 +1669,30 @@ function isTopicMasterPayload(data) {
   return Boolean(hasTheory && hasPedagogy);
 }
 
+function normalizeGeneralSearchQuery(raw) {
+  return String(raw || '').trim().replace(/\s+/g, ' ');
+}
+
+function isGeneralSearchPayload(data) {
+  if (!data || typeof data !== 'object') return false;
+  return Boolean(
+    String(data.developmental_axis || '').trim() ||
+    String(data.core_pedagogical_emphases || '').trim() ||
+    (Array.isArray(data.recommended_literature) && data.recommended_literature.length) ||
+    (Array.isArray(data.relevant_links) && data.relevant_links.length)
+  );
+}
+
+function buildGeneralSearchCacheBody(query) {
+  const q = normalizeGeneralSearchQuery(query);
+  return {
+    phase: GENERAL_SEARCH_PHASE,
+    query: q,
+    topic: q,
+    archiveQuery: q,
+  };
+}
+
 function buildTopicMasterCacheBody(gradeId, gradeLabel, topic) {
   return {
     phase: TOPIC_MASTER_PHASE,
@@ -2007,6 +2042,60 @@ async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
     topicNormalized: normalizeTopicQuery(topicStr) || topicStr,
   };
   const body = buildTopicMasterCacheBody(gid, gradeLabel, topicStr);
+  return setCachedResult(body, safe);
+}
+
+async function getGeneralSearchCache(query, options) {
+  const q = normalizeGeneralSearchQuery(query);
+  if (!q) return null;
+  const opts = options && typeof options === 'object' ? options : {};
+  if (opts.skipCache) return null;
+
+  const body = buildGeneralSearchCacheBody(q);
+  const cached = await getCachedResult(body, { requireEnhanced: false });
+  if (cached && cached.data && isGeneralSearchPayload(cached.data)) {
+    return cached;
+  }
+
+  if (!isSupabaseCacheEnabled()) return null;
+
+  try {
+    const exactQuery = encodeURIComponent(q);
+    const res = await supabaseRequest(
+      '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
+      '&query_text=eq.' + exactQuery + '&select=cache_key,result_data,hit_count&limit=1',
+      { method: 'GET' }
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length || !rows[0].result_data) return null;
+    const data = coerceCachedResultData(rows[0].result_data);
+    if (!isGeneralSearchPayload(data)) return null;
+    bumpHitCountAsync(rows[0].cache_key, rows[0].hit_count);
+    return {
+      data: cloneJsonSafe(data),
+      meta: {
+        fromCache: true,
+        cacheKey: rows[0].cache_key,
+        table: TABLE_NAME,
+        source: 'general_search_exact',
+      },
+    };
+  } catch (lookupErr) {
+    console.warn('[cached_results] general_search exact lookup failed:', lookupErr.message || lookupErr);
+    return null;
+  }
+}
+
+async function setGeneralSearchCache(query, payload) {
+  const q = normalizeGeneralSearchQuery(query);
+  if (!q || !payload) return null;
+  const safe = ensureJsonObjectForStorage(Object.assign({}, payload, {
+    query: q,
+    cachedAt: new Date().toISOString(),
+  }));
+  if (!safe || !isGeneralSearchPayload(safe)) return null;
+  const body = buildGeneralSearchCacheBody(q);
   return setCachedResult(body, safe);
 }
 
@@ -3456,6 +3545,11 @@ module.exports = {
   getCachedResult,
   getTopicMasterCache,
   setTopicMasterCache,
+  getGeneralSearchCache,
+  setGeneralSearchCache,
+  buildGeneralSearchCacheBody,
+  normalizeGeneralSearchQuery,
+  isGeneralSearchPayload,
   hydrateTopicMasterArchiveLinks,
   findSemanticTopicMasterMatch,
   scoreTopicMasterSemanticMatch,

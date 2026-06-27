@@ -1,8 +1,9 @@
 /**
- * POST /api/pure-general-search — isolated multi-grade search via Perplexity (no cache).
+ * POST /api/pure-general-search — multi-grade search via Perplexity with Supabase cache.
  * Body: { query }
  */
 const shared = require('./pure-api-shared');
+const cache = require('./cache');
 
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
@@ -27,6 +28,23 @@ async function runPureGeneralSearch(body) {
   const query = String(body.query || body.topic || body.q || '').trim();
   if (!query) throw shared.badRequest('query is required');
 
+  const bypassCache = Boolean(
+    body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache
+  );
+
+  if (!bypassCache) {
+    const cached = await cache.getGeneralSearchCache(query);
+    if (cached && cached.data) {
+      return {
+        data: normalizeGeneralSearchResponse(cached.data),
+        meta: Object.assign({
+          fromCache: true,
+          source: 'general_search_cache',
+        }, cached.meta || {}),
+      };
+    }
+  }
+
   const userPrompt = [
     'General Waldorf pedagogy search across elementary grades (1-8).',
     'Query: ' + query,
@@ -49,10 +67,20 @@ async function runPureGeneralSearch(body) {
     phase: 'general_search',
     query: query,
   });
-  return normalizeGeneralSearchResponse(parsed);
+  const normalized = normalizeGeneralSearchResponse(parsed);
+
+  await cache.setGeneralSearchCache(query, normalized);
+
+  return {
+    data: normalized,
+    meta: { fromCache: false, source: 'perplexity-pure' },
+  };
 }
 
-const legacyHandler = shared.createLegacyPostHandler(runPureGeneralSearch);
+const legacyHandler = shared.createLegacyPostHandler(async function (body) {
+  const result = await runPureGeneralSearch(body || {});
+  return result.data;
+});
 
 async function fetchHandler(request) {
   const headers = new Headers(shared.CORS_HEADERS);
@@ -69,11 +97,15 @@ async function fetchHandler(request) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400, headers: headers });
   }
   try {
-    const data = await runPureGeneralSearch(body || {});
-    return Response.json({ ok: true, data: data, meta: { fromCache: false, source: 'perplexity-pure' } }, { status: 200, headers: headers });
+    const result = await runPureGeneralSearch(body || {});
+    return Response.json({
+      ok: true,
+      data: result.data,
+      meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
+    }, { status: 200, headers: headers });
   } catch (err) {
     const statusCode = err && err.statusCode ? err.statusCode : 500;
-    return Response.json({ error: err.message || String(err) }, { status: statusCode, headers: headers });
+    return Response.json({ error: err.message || String(err) }, { status: 500, headers: headers });
   }
 }
 

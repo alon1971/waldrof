@@ -5563,6 +5563,7 @@
       generalSearchResult: null,
       activeProductTab: null,
       productTabsRendered: { narrative: false, resources: false },
+      wizardTopicNavReady: false,
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -8619,6 +8620,28 @@
         document.documentElement.style.removeProperty('overflow-y');
       }
       if (programmaticScrollGuard > 0) programmaticScrollGuard = 0;
+    }
+
+    /** Unblock Step 2 ("נושא") wizard nav immediately after grade/Phase C layout completes. */
+    function enableWizardTopicStepNavigation() {
+      appState.wizardTopicNavReady = true;
+      ensurePageScrollUnlocked();
+      ['ws-crumb-topic', 'header-compact-edit-topic'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = false;
+        el.removeAttribute('disabled');
+        el.removeAttribute('aria-disabled');
+        el.classList.add('ws-crumb-link');
+        el.style.pointerEvents = 'auto';
+      });
+      document.querySelectorAll('#step-progress [data-step-nav="2"]').forEach(function (btn) {
+        btn.disabled = false;
+        btn.removeAttribute('disabled');
+        btn.style.pointerEvents = 'auto';
+      });
+      renderStepProgress();
+      updateHeaderCompactNav();
     }
 
     function getLiveCitationUrlSet() {
@@ -15815,6 +15838,9 @@
       syncVisualGalleryOnLessonContextChange();
       renderPinterestGallery();
       if (appState.productTabsRendered) appState.productTabsRendered.resources = true;
+      runAfterLayout(function () {
+        enableWizardTopicStepNavigation();
+      });
     }
 
     /** @deprecated — use phaseCRenderNarrativeTab */
@@ -15826,19 +15852,54 @@
       phaseCRenderNarrativeTab(data);
     }
 
+    /** Ensure archived / partial Phase C payloads have safe empty structures before render. */
+    function ensurePhaseCMasterShape(raw) {
+      var data = raw && typeof raw === 'object' ? Object.assign({}, raw) : {};
+      var emptyBib = { books: [], articles: [], websites: [] };
+      if (!data.theory || typeof data.theory !== 'object') {
+        data.theory = { title: '', sections: [], bibliography: Object.assign({}, emptyBib) };
+      } else {
+        data.theory = Object.assign({}, data.theory);
+        if (!Array.isArray(data.theory.sections)) data.theory.sections = [];
+        if (!data.theory.bibliography || typeof data.theory.bibliography !== 'object') {
+          data.theory.bibliography = Object.assign({}, emptyBib);
+        } else {
+          data.theory.bibliography = {
+            books: Array.isArray(data.theory.bibliography.books) ? data.theory.bibliography.books : [],
+            articles: Array.isArray(data.theory.bibliography.articles) ? data.theory.bibliography.articles : [],
+            websites: Array.isArray(data.theory.bibliography.websites) ? data.theory.bibliography.websites : [],
+          };
+        }
+      }
+      if (!data.inspiration || typeof data.inspiration !== 'object') {
+        data.inspiration = { global: [], rawContent: '' };
+      } else {
+        data.inspiration = Object.assign({}, data.inspiration);
+        if (!Array.isArray(data.inspiration.global)) data.inspiration.global = [];
+      }
+      if (!Array.isArray(data.pinterest_links)) data.pinterest_links = [];
+      if (!Array.isArray(data.pedagogical_resources)) data.pedagogical_resources = [];
+      if (!Array.isArray(data.recommended_reading)) data.recommended_reading = [];
+      if (!Array.isArray(data.relevant_links)) data.relevant_links = [];
+      if (!Array.isArray(data.key_points)) data.key_points = [];
+      if (data.core_emphases == null) data.core_emphases = '';
+      return data;
+    }
+
     function populateAiGeneratedPlanFromPurePhaseC(data) {
       if (!data) return;
       var topic = appState.topic || '';
       var gradeLabel = appState.gradeLabel || '';
-      var tab3 = normalizePedagogicalEssenceView(data) || {
-        core_emphases: String(data.core_emphases || '').trim(),
-        key_points: Array.isArray(data.key_points) ? data.key_points : [],
-        recommended_reading: Array.isArray(data.recommended_reading) ? data.recommended_reading : [],
-        relevant_links: Array.isArray(data.relevant_links) ? data.relevant_links : [],
+      var shaped = ensurePhaseCMasterShape(data);
+      var tab3 = normalizePedagogicalEssenceView(shaped) || {
+        core_emphases: String(shaped.core_emphases || '').trim(),
+        key_points: shaped.key_points.slice(),
+        recommended_reading: shaped.recommended_reading.slice(),
+        relevant_links: shaped.relevant_links.slice(),
       };
-      appState.purePhaseC = Object.assign({}, data, tab3);
-      if (Array.isArray(data._liveCitations) && data._liveCitations.length) {
-        appState.purePhaseC._liveCitations = data._liveCitations.slice();
+      appState.purePhaseC = Object.assign({}, shaped, tab3);
+      if (Array.isArray(shaped._liveCitations) && shaped._liveCitations.length) {
+        appState.purePhaseC._liveCitations = shaped._liveCitations.slice();
       } else {
         appState.purePhaseC._liveCitations = collectPhaseCLinkItemsClient(appState.purePhaseC).map(function (item) {
           return item.url;
@@ -15848,23 +15909,8 @@
         title: topic,
         topic: topic,
         gradeLabel: gradeLabel,
-        theory: (function () {
-          var theory = data.theory && typeof data.theory === 'object'
-            ? Object.assign({}, data.theory)
-            : { title: '', sections: [], bibliography: { books: [], articles: [], websites: [] } };
-          if (!Array.isArray(theory.sections)) theory.sections = [];
-          if (!theory.bibliography || typeof theory.bibliography !== 'object') {
-            theory.bibliography = { books: [], articles: [], websites: [] };
-          } else {
-            theory.bibliography = {
-              books: Array.isArray(theory.bibliography.books) ? theory.bibliography.books : [],
-              articles: Array.isArray(theory.bibliography.articles) ? theory.bibliography.articles : [],
-              websites: Array.isArray(theory.bibliography.websites) ? theory.bibliography.websites : [],
-            };
-          }
-          return theory;
-        })(),
-        inspiration: data.inspiration || null,
+        theory: Object.assign({}, shaped.theory),
+        inspiration: Object.assign({}, shaped.inspiration),
         curriculum: tab3,
       };
       syncActivePlanFromGenerated();
@@ -17183,6 +17229,7 @@
     }
 
     function prepareGradeResearchView() {
+      appState.wizardTopicNavReady = false;
       appState.step = 1;
       appState.navSection = 'wizard';
       document.getElementById('workspace').classList.add('hidden');
@@ -17215,6 +17262,7 @@
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
+      enableWizardTopicStepNavigation();
     }
 
     function ensureStepBWizardView() {
@@ -17358,6 +17406,13 @@
         }
       } else if (scrollBehavior === true || scrollBehavior === 'smooth' || scrollBehavior === 'auto') {
         scrollToWizardStep(n, scrollBehavior);
+      } else if (n === 2 && appState.grade && appState.wizardTopicNavReady) {
+        runAfterLayout(function () {
+          scrollToWizardTopicViewport({
+            behavior: scrollBehavior === 'auto' ? 'auto' : 'smooth',
+            focusField: false,
+          });
+        });
       }
       persistActiveStep();
     }
@@ -17547,6 +17602,7 @@
         await communityPromise;
         revealStepBQuietly();
         runAfterLayout(function () {
+          enableWizardTopicStepNavigation();
           runAfterLayout(scrollToGradeResults);
         });
       }
@@ -18064,6 +18120,7 @@
       ensurePageScrollUnlocked();
       if (appState.productTabsRendered) appState.productTabsRendered.resources = false;
       runAfterLayout(function () {
+        enableWizardTopicStepNavigation();
         scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
       });
     }
@@ -20441,6 +20498,7 @@
         archiveFreshSearchPending: false,
         archiveRejectedSuggestions: [],
         topicCommunityMatches: [],
+        wizardTopicNavReady: false,
       });
       appState.purePhaseC = null;
       appState.generalSearchResult = null;
