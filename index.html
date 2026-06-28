@@ -11963,6 +11963,38 @@
       return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
     }
 
+    /**
+     * Foolproof, browser-restriction-friendly download trigger.
+     * Primary path: open the blob URL directly via window.open(url, '_blank') — the
+     * browser hands a .doc blob straight to its official download manager. Only if a
+     * popup blocker returns null do we fall back to the classic hidden-anchor click,
+     * so the download can never silently fail. Exposed globally so the sticky button
+     * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
+     */
+    function triggerWordBlobDownload(blob, filename) {
+      if (!blob) return false;
+      var url = URL.createObjectURL(blob);
+      var opened = null;
+      try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
+      if (!opened) {
+        try {
+          var link = document.createElement('a');
+          link.href = url;
+          link.download = filename || 'document.doc';
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (anchorErr) {
+          console.error('[word-export] anchor fallback failed', anchorErr);
+        }
+      }
+      // Keep the object URL alive long enough for the new tab / download manager.
+      setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+      return true;
+    }
+    window.triggerWordBlobDownload = triggerWordBlobDownload;
+
     function buildWordRtlBlob(bodyHtml, langCode) {
       return buildSecureWordBlob(bodyHtml, langCode);
     }
@@ -12309,14 +12341,8 @@
           });
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-          var url = URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = url;
-          a.download = isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+          // Direct download via window.open (with anchor fallback) — see helper.
+          triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc');
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
         } finally {
           if (exportBtn) exportBtn.disabled = false;
@@ -12463,17 +12489,10 @@
           // 3b. Dynamic filename (topic/grade based), always a .doc.
           var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.doc';
           try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          // 3c. Hidden anchor → click → cleanup. Runs synchronously inside the click
-          //     handler so the user-gesture context is preserved for the download.
-          var url = URL.createObjectURL(blob);
-          var link = document.createElement('a');
-          link.href = url;
-          link.download = filename;
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+          // 3c. Direct download: open the blob URL in a new tab so the browser's
+          //     official download manager handles it (bypasses programmatic-click
+          //     restrictions). Falls back to an anchor only if a popup blocker hits.
+          triggerWordBlobDownload(blob, filename);
           // Fire-and-forget usage tracking — must never block or break the download.
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
         } finally {
