@@ -811,6 +811,14 @@
       try {
         deps.assertWordDownloadAllowed();
       } catch (err) {
+        // Auth/paywall gate already shows its own modal; surface it too so the
+        // button never silently looks "dead" when a limit/auth check blocks it.
+        if (err && err.code === 'WORD_DOWNLOAD_LIMIT') {
+          if (typeof window !== 'undefined' && typeof window.showAppToast === 'function') {
+            window.showAppToast(err.message || (deps.t('word_download_limit_exceeded') || deps.t('export_doc_error')), 'error');
+          }
+          return;
+        }
         return;
       }
     }
@@ -823,11 +831,25 @@
     if (panelLabel) panelLabel.textContent = deps.t('export_doc_generating') || 'מפיק מסמך...';
     if (fsLabel) fsLabel.textContent = deps.t('export_doc_generating') || 'מפיק מסמך...';
     try {
+      // Compile the Blob, with an inline fallback so a missing/blank blob can never
+      // silently abort the physical download.
       var blob = buildChatWordBlob(persistable);
-      var link = document.createElement('a');
+      if (!blob) {
+        var dir = deps.isEnglish() ? 'ltr' : 'rtl';
+        var fbBody = buildChatWordBodyHtml(persistable);
+        var fbHtml =
+          '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+          '<head><meta charset="utf-8"></head>' +
+          '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
+          fbBody + '</body></html>';
+        blob = new Blob(['\ufeff' + fbHtml], { type: 'application/msword' });
+      }
+      // Hidden anchor → click → cleanup (the actual browser download trigger).
       var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
       link.href = url;
       link.download = deps.isEnglish() ? 'pedagogy_chat_summary.doc' : 'סיכום_שיחה_עוזר_פדגוגי.doc';
+      link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
