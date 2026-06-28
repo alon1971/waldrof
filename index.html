@@ -1897,9 +1897,17 @@
       .action-btn--card { width: 100%; }
     }
     .phase-c-unified-header {
+      position: sticky;
+      top: 0;
+      z-index: 9999;
+      background: #F7F3EB;
+      background: rgba(247, 243, 235, 0.97);
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
       border-bottom: 1px solid rgba(201, 169, 98, 0.28);
-      padding-bottom: 0.85rem;
-      margin-bottom: 1rem;
+      padding: 0.85rem 0.25rem;
+      margin: 0 0 1rem 0;
+      pointer-events: auto !important;
     }
     .phase-c-unified-export-btn {
       display: inline-flex;
@@ -15038,6 +15046,12 @@
         preserved.push(match);
         return '\x00EALINK' + idx + '\x00';
       });
+      // Safety net: real anchors are now placeholders, so any remaining anchor tags
+      // or attribute fragments here are LEAKED text — strip them so they never show
+      // up as raw "target=..."/"class=..." strings inside the prose.
+      work = work.replace(/&lt;\s*\/?\s*a\b[\s\S]*?&gt;/gi, '');
+      work = work.replace(/<\/?a\b[^>]*>/gi, '');
+      work = work.replace(/\s*(?:target|rel|class|style|href)\s*=\s*(?:&quot;[\s\S]*?&quot;|"[^"]*"|'[^']*')/gi, '');
       work = linkifyExpansionBracketReferences(work);
       work = work.replace(EXTERNAL_HTTP_URL_PATTERN, function (url) {
         if (isExpansionLowQualitySourceUrl(url)) return url;
