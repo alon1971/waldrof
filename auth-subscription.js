@@ -1750,6 +1750,7 @@
   }
 
   var CONTACT_EMAIL = 'waldorfplanner@gmail.com';
+  var MAKE_CONTACT_WEBHOOK_URL = 'https://hook.eu1.make.com/YOUR_MAKE_WEBHOOK_HERE';
 
   function splitDisplayName(displayName) {
     var parts = String(displayName || '').trim().split(/\s+/).filter(Boolean);
@@ -1792,13 +1793,13 @@
     }
   }
 
-  function openMailtoLink(mailto) {
-    var a = document.createElement('a');
-    a.href = mailto;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  function showContactToast(message, type) {
+    if (typeof global.showAppToast === 'function') {
+      global.showAppToast(message, type);
+      return;
+    }
+    if (type === 'error') console.error('[Contact]', message);
+    else console.log('[Contact]', message);
   }
 
   function bindContactOwnerLinks() {
@@ -1825,6 +1826,7 @@
     var emailEl = document.getElementById('contact-email');
     var phoneEl = document.getElementById('contact-phone');
     var messageEl = document.getElementById('contact-message');
+    var submitBtn = document.getElementById('contact-form-submit');
     var firstName = firstEl ? String(firstEl.value || '').trim() : '';
     var lastName = lastEl ? String(lastEl.value || '').trim() : '';
     var email = emailEl ? String(emailEl.value || '').trim() : '';
@@ -1838,25 +1840,49 @@
       else if (messageEl && !message) messageEl.focus();
       return;
     }
-    var fullName = [firstName, lastName].filter(Boolean).join(' ');
-    var subject = t('contact_email_subject', { name: fullName });
-    var bodyLines = [
-      t('contact_email_line_name', { name: fullName }),
-      t('contact_email_line_email', { email: email }),
-    ];
-    if (phone) bodyLines.push(t('contact_email_line_phone', { phone: phone }));
-    if (message) {
-      bodyLines.push('');
-      bodyLines.push(t('contact_email_line_message'));
-      bodyLines.push(message);
+    if (submitBtn && submitBtn.disabled) return;
+
+    var defaultBtnText = submitBtn ? String(submitBtn.textContent || t('contact_submit') || 'שליחה').trim() : 'שליחה';
+
+    function setSubmitting(loading) {
+      if (!submitBtn) return;
+      submitBtn.disabled = loading;
+      submitBtn.textContent = loading ? 'שולח...' : defaultBtnText;
     }
-    var mailto = 'mailto:' + CONTACT_EMAIL
-      + '?subject=' + encodeURIComponent(subject)
-      + '&body=' + encodeURIComponent(bodyLines.join('\n'));
-    openMailtoLink(mailto);
-    setTimeout(function () {
-      hideContactModal();
-    }, 250);
+
+    setSubmitting(true);
+
+    fetch(MAKE_CONTACT_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firstName: firstName,
+        lastName: lastName,
+        email: email,
+        phone: phone,
+        message: message,
+      }),
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('Contact webhook failed: ' + res.status);
+        return res.text().catch(function () { return ''; });
+      })
+      .then(function () {
+        showContactToast('ההודעה נשלחה בהצלחה!');
+        if (firstEl) firstEl.value = '';
+        if (lastEl) lastEl.value = '';
+        if (emailEl) emailEl.value = '';
+        if (phoneEl) phoneEl.value = '';
+        if (messageEl) messageEl.value = '';
+        setSubmitting(false);
+        setTimeout(function () {
+          hideContactModal();
+        }, 1500);
+      })
+      .catch(function () {
+        setSubmitting(false);
+        showContactToast('שליחת ההודעה נכשלה. נסו שוב.', 'error');
+      });
   }
 
   function confirmCancelSubscription() {
