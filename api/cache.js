@@ -397,6 +397,102 @@ async function deleteCachedRowByKey(cacheKey) {
   return deleted;
 }
 
+function normalizeArchiveLinkUrl(url) {
+  return String(url || '').trim().toLowerCase().replace(/\/+$/, '');
+}
+
+function archiveLinkItemMatchesUrl(item, targetNorm) {
+  if (item == null || !targetNorm) return false;
+  if (typeof item === 'string') return normalizeArchiveLinkUrl(item) === targetNorm;
+  if (typeof item !== 'object') return false;
+  const keys = ['url', 'link', 'href', 'readUrl', 'src', 'pinUrl'];
+  for (let i = 0; i < keys.length; i++) {
+    const value = item[keys[i]];
+    if (value && normalizeArchiveLinkUrl(value) === targetNorm) return true;
+  }
+  return false;
+}
+
+function removeMatchingUrlsFromArchivePayload(value, targetNorm, depth) {
+  if (value == null || !targetNorm) return false;
+  if ((depth || 0) > 14) return false;
+  const nextDepth = (depth || 0) + 1;
+  let changed = false;
+  if (Array.isArray(value)) {
+    for (let i = value.length - 1; i >= 0; i--) {
+      if (archiveLinkItemMatchesUrl(value[i], targetNorm)) {
+        value.splice(i, 1);
+        changed = true;
+      } else if (value[i] && typeof value[i] === 'object') {
+        if (removeMatchingUrlsFromArchivePayload(value[i], targetNorm, nextDepth)) changed = true;
+      }
+    }
+    return changed;
+  }
+  if (typeof value === 'object') {
+    Object.keys(value).forEach(function (key) {
+      if (removeMatchingUrlsFromArchivePayload(value[key], targetNorm, nextDepth)) changed = true;
+    });
+  }
+  return changed;
+}
+
+/**
+ * Remove a broken/irrelevant link URL from a cached archive row (admin curation).
+ */
+async function removeArchiveLinkFromCache(cacheKey, url) {
+  const key = String(cacheKey || '').trim();
+  const targetNorm = normalizeArchiveLinkUrl(url);
+  if (!key || !targetNorm) return { removed: false, cacheKey: key || null };
+
+  const row = await fetchCachedRowByKey(key);
+  if (!row || row.result_data == null) return { removed: false, cacheKey: key };
+
+  let data = coerceCachedResultData(row.result_data);
+  if (!data || typeof data !== 'object') return { removed: false, cacheKey: key };
+
+  data = cloneJsonSafe(data);
+  if (!data) return { removed: false, cacheKey: key };
+
+  const changed = removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
+  if (!changed) return { removed: false, cacheKey: key };
+
+  const safeResultData = sanitizeForJsonStorage(data);
+  if (!safeResultData) return { removed: false, cacheKey: key };
+
+  let saved = false;
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const patchRes = await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?cache_key=eq.' + encodeURIComponent(key),
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: safeJsonStringify({ result_data: safeResultData }),
+        }
+      );
+      if (patchRes.ok) saved = true;
+      else {
+        const errText = await patchRes.text();
+        console.warn('[cached_results] archive link delete PATCH error', patchRes.status, errText.slice(0, 200));
+      }
+    } catch (err) {
+      console.warn('[cached_results] archive link delete PATCH failed:', err.message || err);
+    }
+  }
+
+  loadFallbackStore();
+  if (fallbackStore.rows.has(key)) {
+    const existing = fallbackStore.rows.get(key);
+    existing.result_data = safeResultData;
+    fallbackStore.rows.set(key, existing);
+    persistFallbackStore();
+    saved = true;
+  }
+
+  return { removed: saved, cacheKey: key };
+}
+
 async function deleteRawPerplexityCache(body) {
   const rawBody = buildRawPerplexityCacheBody(body);
   if (!rawBody) return false;
@@ -3673,6 +3769,7 @@ module.exports = {
   deleteRawPerplexityCache,
   deleteTopicMasterCache,
   deleteTopicProseArchive,
+  removeArchiveLinkFromCache,
   TOPIC_PROSE_ARCHIVE_PHASES,
   purgeCorruptedCachedRow,
   ensureJsonObjectForStorage,

@@ -1675,6 +1675,29 @@
     }
     .catalog-material-btn:hover { background: #F7F3EB; border-color: rgba(92, 125, 88, 0.55); }
     .catalog-material-btn--delete:hover { border-color: rgba(139, 58, 58, 0.55); color: #8B3A3A; }
+    .archive-admin-delete-btn {
+      flex-shrink: 0;
+      border: 1px solid rgba(139, 58, 58, 0.25);
+      background: rgba(255, 255, 255, 0.95);
+      color: #8B3A3A;
+      border-radius: 0.5rem;
+      padding: 0.15rem 0.45rem;
+      font-size: 0.85rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .archive-admin-delete-btn:hover { background: rgba(139, 58, 58, 0.08); border-color: rgba(139, 58, 58, 0.45); }
+    .archive-link-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .archive-link-row > a { flex: 1; min-width: 0; }
+    .archive-pinterest-item { position: relative; }
+    .archive-pinterest-item .archive-admin-delete-btn {
+      position: absolute;
+      top: 0.35rem;
+      left: 0.35rem;
+      z-index: 2;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+    }
+    .archive-material-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
     .catalog-material-text {
       display: flex;
       flex-direction: column;
@@ -11361,9 +11384,10 @@
         pinterest.forEach(function (p) {
           const url = String((p && p.url) || '').trim();
           const title = String((p && (p.title || p.query || p.pin)) || '').trim() || url;
-          html += '<li>' + (url
+          const deleteBtn = (isArchiveAdminUser() && url) ? buildArchiveAdminDeleteBtn({ url: url }) : '';
+          html += '<li class="archive-link-row">' + (url
             ? '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(title) + '</a>'
-            : escapeHtml(title)) + '</li>';
+            : escapeHtml(title)) + deleteBtn + '</li>';
         });
         html += '</ul>';
       }
@@ -11374,7 +11398,8 @@
           const url = String((a && a.url) || '').trim();
           const title = String((a && (a.title || a.label)) || '').trim() || url;
           if (!url) return;
-          html += '<li><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(title) + '</a></li>';
+          const deleteBtn = isArchiveAdminUser() ? buildArchiveAdminDeleteBtn({ url: url }) : '';
+          html += '<li class="archive-link-row"><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(title) + '</a>' + deleteBtn + '</li>';
         });
         html += '</ul>';
       }
@@ -11742,6 +11767,40 @@
       return merged;
     }
 
+    function mergeWebResearchForExport(wr, domWr) {
+      var merged = { summary: '', highlights: [], connections: [] };
+      if (wr && typeof wr === 'object') {
+        merged.summary = String(wr.summary || wr.rawContent || '').trim();
+        merged.highlights = (wr.highlights || []).map(function (h, index) {
+          if (typeof h === 'string') {
+            return { text: h, sourceId: buildPedagogyItemId('web', 'highlight', index, h) };
+          }
+          var text = String((h && (h.text || h.highlight)) || '').trim();
+          if (!text) return null;
+          return {
+            text: text,
+            sourceId: (h && h.sourceId) || buildPedagogyItemId('web', 'highlight', index, text),
+          };
+        }).filter(Boolean);
+        merged.connections = (wr.connections || []).map(function (c) {
+          return String(c || '').trim();
+        }).filter(Boolean);
+      }
+      if (!domWr) return merged.summary || merged.highlights.length || merged.connections.length ? merged : null;
+      if (!merged.summary && domWr.summary) merged.summary = domWr.summary;
+      if (!merged.highlights.length && domWr.highlights.length) merged.highlights = domWr.highlights;
+      if (!merged.connections.length && domWr.connections.length) merged.connections = domWr.connections;
+      if (!merged.summary && !merged.highlights.length && !merged.connections.length) return null;
+      return merged;
+    }
+
+    function gradeInsightsHasExportContent(gi) {
+      return Boolean(gi && (
+        gi.part1Html || gi.part1Bullets.length || gi.part2Html || gi.part2Ideas.length ||
+        gi.part3Html || gi.part3Ideas.length || gi.globalCurricula.length || gi.typicalBlocks.length
+      ));
+    }
+
     function collectUnifiedTopicExportHtml() {
       var parts = [];
       var g = GRADES.find(function (x) { return x.id === appState.grade; });
@@ -11817,7 +11876,8 @@
             if (!item) return;
             var title = String(item.title || item.name || '').trim();
             var url = String(item.url || '').trim();
-            docP('• ' + (title || url) + (url ? ' (' + url + ')' : ''));
+            var linkLine = buildWordExportLinkLine(title, url);
+            if (linkLine) parts.push(linkLine);
           });
         }
       }
@@ -11829,15 +11889,32 @@
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
       const stepC = collectStepCPlanData();
       var unifiedRaw = extractPhaseCUnifiedRichText(appState.purePhaseC);
-      if (!stepC && !unifiedRaw) return null;
+      var gi = appState.gradeResearch && appState.gradeResearch.gradeInsights;
+      var gradeInsights = gi
+        ? mergeGradeInsightsForExport(gi, extractGradeInsightsFromDom())
+        : extractGradeInsightsFromDom();
+      var webResearch = mergeWebResearchForExport(appState.webResearch, extractWebResearchFromDom());
+      var hasGrade = gradeInsightsHasExportContent(gradeInsights);
+      var hasWeb = Boolean(webResearch && (webResearch.summary || webResearch.highlights.length || webResearch.connections.length));
+      var hasPhaseCDom = Boolean(
+        (document.getElementById('theoretical-content') || {}).innerHTML &&
+        String((document.getElementById('theoretical-content') || {}).innerHTML).trim()
+      ) || Boolean(
+        (document.getElementById('inspiration-content') || {}).innerHTML &&
+        String((document.getElementById('inspiration-content') || {}).innerHTML).trim()
+      ) || Boolean(
+        (document.getElementById('pedagogical-essence-content') || {}).innerHTML &&
+        String((document.getElementById('pedagogical-essence-content') || {}).innerHTML).trim()
+      );
+      if (!stepC && !unifiedRaw && !hasGrade && !hasWeb && !hasPhaseCDom) return null;
       return {
         title: t('export_doc_main_title'),
         gradeLabel: appState.gradeLabel || '',
         gradeAge: g ? g.age : '',
         topic: (appState.topic || '').trim(),
-        gradeInsights: null,
-        webResearch: null,
-        stepC: stepC || { unified: { rawContent: unifiedRaw } },
+        gradeInsights: hasGrade ? gradeInsights : null,
+        webResearch: hasWeb ? webResearch : null,
+        stepC: stepC || (unifiedRaw ? { unified: { rawContent: unifiedRaw } } : null),
       };
     }
 
@@ -11885,7 +11962,8 @@
         if (!item) return;
         var title = String(item.title || item.name || '').trim();
         var url = String(item.url || item.link || item.href || '').trim();
-        docP('• ' + (title || url) + (url ? ' (' + url + ')' : ''));
+        var linkLine = buildWordExportLinkLine(title, url);
+        if (linkLine) parts.push(linkLine);
       });
       return parts.join('\n');
     }
@@ -11903,6 +11981,145 @@
       const grade = sanitizeDocxFilename(appState.gradeLabel || t('crumb_grade'));
       const topic = sanitizeDocxFilename(appState.topic || t('export_doc_no_topic'));
       return t('export_doc_filename', { grade: grade, topic: topic }).replace(/\.docx$/i, '.doc');
+    }
+
+    /** Export-only href resolver — keeps valid http(s) URLs for Word hyperlinks even when path/query is percent-encoded Hebrew. */
+    function wordExportResolveHref(url) {
+      var raw = String(url || '').trim();
+      if (!raw) return '';
+      if (!/^https?:\/\//i.test(raw)) {
+        if (PROVEN_BARE_DOMAIN_PATTERN.test(raw) || PHASE_C_TRUSTED_ROOT_DOMAINS.test(raw)) {
+          raw = 'https://' + raw.replace(/^\/+/, '');
+        } else {
+          return '';
+        }
+      }
+      try {
+        var parsed = new URL(raw);
+        if (!parsed.hostname) return '';
+        return parsed.href;
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function buildWordExportLinkHtml(label, url) {
+      var href = wordExportResolveHref(url);
+      var display = resolveFriendlyLinkDisplayLabel(label, href || url);
+      if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
+      if (!href) return escapeHtml(display);
+      return '<a href="' + escapeHtml(href) + '">' + escapeHtml(display) + '</a>';
+    }
+
+    function buildWordExportLinkLine(title, url) {
+      var line = buildWordExportLinkHtml(title, url);
+      return line ? '<p>• ' + line + '</p>' : '';
+    }
+
+    var WORD_EXPORT_UI_NOISE_PATTERNS = [
+      /חיבור Supabase נדרש[^\n<]*/g,
+      /Supabase connection required[^\n<]*/gi,
+      /טוען תובנות\.{0,3}/g,
+      /Loading insights\.{0,3}/gi,
+      /מחפש בארכיון[^\n<]*/g,
+    ];
+
+    function stripWordExportUiNoise(text) {
+      var out = String(text || '');
+      WORD_EXPORT_UI_NOISE_PATTERNS.forEach(function (re) {
+        out = out.replace(re, '');
+      });
+      return out.replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    function wordExportLinkifyPlainText(text) {
+      var work = String(text || '');
+      work = work.replace(new RegExp(MARKDOWN_LINK_PATTERN.source, 'g'), function (_m, label, url) {
+        var html = buildWordExportLinkHtml(label, url);
+        return html || escapeHtml(resolveFriendlyLinkDisplayLabel(label, url));
+      });
+      work = work.replace(/https?:\/\/[^\s<>"']+/gi, function (url) {
+        if (url.length < 48 && !/%D7[0-9A-Fa-f]{2}/i.test(url)) return url;
+        var html = buildWordExportLinkHtml('', url);
+        return html || escapeHtml(resolveFriendlyLinkDisplayLabel('', url));
+      });
+      return work;
+    }
+
+    function prepareWordExportHtml(html) {
+      var out = stripWordExportUiNoise(String(html || ''));
+      if (!out.trim()) return out;
+
+      out = out.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, function (_m, attrs, inner) {
+        var hrefMatch = attrs.match(/href\s*=\s*["']([^"']+)["']/i);
+        var href = hrefMatch ? wordExportResolveHref(hrefMatch[1]) : '';
+        var innerText = stripHtmlText(inner).trim();
+        if (!href) return innerText ? escapeHtml(innerText) : '';
+        var looksLikeRawHref = !innerText ||
+          innerText === hrefMatch[1] ||
+          /^https?:\/\//i.test(innerText) ||
+          /%D7[0-9A-Fa-f]{2}/i.test(innerText) ||
+          (innerText.length > 80 && /%[0-9A-Fa-f]{2}/i.test(innerText));
+        var display = looksLikeRawHref
+          ? resolveFriendlyLinkDisplayLabel('', href)
+          : resolveFriendlyLinkDisplayLabel(innerText, href);
+        if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
+        return '<a href="' + escapeHtml(href) + '">' + escapeHtml(display) + '</a>';
+      });
+
+      var tagPlaceholders = [];
+      out = out.replace(/<[^>]+>/g, function (tag) {
+        var idx = tagPlaceholders.length;
+        tagPlaceholders.push(tag);
+        return '\x00WTAG' + idx + '\x00';
+      });
+      out = wordExportLinkifyPlainText(out);
+      tagPlaceholders.forEach(function (tag, i) {
+        out = out.split('\x00WTAG' + i + '\x00').join(tag);
+      });
+
+      if (typeof linkifyExpansionHtml === 'function') {
+        out = linkifyExpansionHtml(out);
+      }
+      return out;
+    }
+
+    function pedagogyExportHasPhaseC(html) {
+      return /export_doc_section_theory|export_doc_section_inspiration|export_doc_section_curriculum|phase_c_section_theory|phase_c_section_inspiration|phase_c_section_deepening/i.test(String(html || ''));
+    }
+
+    function buildMergedWordExportHtml() {
+      var sections = [];
+      try {
+        var pedData = collectPedagogySummaryDocumentData();
+        if (pedData) {
+          var pedHtml = buildPedagogyExportHtml(pedData);
+          if (pedHtml && pedHtml.trim()) sections.push(pedHtml.trim());
+        }
+      } catch (pedErr) {
+        console.error('[word-export] pedagogy collector failed', pedErr);
+      }
+      try {
+        var unified = collectUnifiedTopicExportHtml();
+        if (unified && unified.trim()) {
+          if (!sections.length) {
+            sections.push(unified.trim());
+          } else if (!pedagogyExportHasPhaseC(sections.join('\n'))) {
+            sections.push(unified.trim());
+          }
+        }
+      } catch (unifiedErr) {
+        console.error('[word-export] unified collector failed', unifiedErr);
+      }
+      if (!sections.length) {
+        try {
+          var scraped = scrapeVisibleViewportExportHtml();
+          if (scraped && scraped.trim()) sections.push(scraped.trim());
+        } catch (scrapeErr) {
+          console.error('[word-export] scrape fallback failed', scrapeErr);
+        }
+      }
+      return sections.join('\n');
     }
 
     function buildPedagogyExportHtml(docData) {
@@ -12098,7 +12315,8 @@
               if (!item) return;
               var title = String(item.title || item.name || '').trim();
               var url = String(item.url || item.link || item.href || '').trim();
-              docP('• ' + (title || url) + (url ? ' (' + url + ')' : ''));
+              var linkLine = buildWordExportLinkLine(title, url);
+              if (linkLine) parts.push(linkLine);
             });
             return;
           }
@@ -12120,7 +12338,8 @@
             if (!item) return;
             var title = String(item.title || item.name || '').trim();
             var url = String(item.url || '').trim();
-            docP('• ' + (title || url) + (url ? ' (' + url + ')' : ''));
+            var linkLine = buildWordExportLinkLine(title, url);
+            if (linkLine) parts.push(linkLine);
           });
         }
       }
@@ -12131,7 +12350,7 @@
     function buildSecureWordBlob(bodyHtml, langCode) {
       var lang = langCode || (isEnglish() ? 'en' : 'he');
       var dir = lang === 'en' ? 'ltr' : 'rtl';
-      var safeBody = bodyHtml == null ? '' : String(bodyHtml);
+      var safeBody = prepareWordExportHtml(bodyHtml == null ? '' : String(bodyHtml));
       var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
       var htmlContent =
         '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
@@ -12359,6 +12578,9 @@
         '.inline-expand-trigger', '[data-pedagogy-toggle]',
         '.phase-c-unified-export-btn', '.lesson-chat-export-btn', '.lesson-chat-bubble-export-btn',
         '.lesson-chat-bubble-export-wrap', '.pedagogy-export-btn', '#global-word-export-bar',
+        '#grade-research-loading', '#topic-research-loading',
+        '#api-hint-step1', '#api-hint-step2',
+        '[role="status"][aria-busy="true"]', '.inline-expand-loading',
       ].join(', ')).forEach(function (el) {
         if (el && el.parentNode) el.parentNode.removeChild(el);
       });
@@ -12435,7 +12657,11 @@
         return gotContent ? parts.join('\n') : '';
       }
 
-      appendScraped(document.getElementById('grade-insights-panel'), t('grade_insights_default') || 'תמונת גיל');
+      var gradeLoading = document.getElementById('grade-research-loading');
+      var gradeInsightsReady = !(gradeLoading && !gradeLoading.classList.contains('hidden'));
+      if (gradeInsightsReady) {
+        appendScraped(document.getElementById('grade-insights-panel'), t('grade_insights_default') || 'תמונת גיל');
+      }
       appendScraped(document.getElementById('web-research-result'), t('pedagogical_resources_title') || 'מחקר נושא');
       if (!gotContent) {
         var wizard = document.getElementById('wizard');
@@ -12597,25 +12823,12 @@
       var label = btn ? btn.querySelector('.phase-c-unified-export-label') : null;
       var navBtns = document.querySelectorAll('[data-pedagogy-export]');
       try {
-        // ---- 1) Gather content — fully fault-isolated & layout-agnostic ----
-        // Each collector runs in its own try/catch so a failure in one (e.g. when
-        // prose/link formatting changes the DOM) never aborts the whole export.
+        // ---- 1) Gather content — merge Class + Topic + Pedagogical sections ----
         var html = '';
-        var collectors = [
-          function () { return scrapeVisibleViewportExportHtml(); },
-          function () { return collectUnifiedTopicExportHtml(); },
-          function () {
-            var preview = collectPedagogySummaryDocumentData();
-            return preview ? buildPedagogyExportHtml(preview) : '';
-          }
-        ];
-        for (var ci = 0; ci < collectors.length && !html.trim(); ci++) {
-          try {
-            var out = collectors[ci]();
-            if (out && String(out).trim()) html = String(out);
-          } catch (cErr) {
-            console.error('[word-export] collector #' + ci + ' failed (continuing)', cErr);
-          }
+        try {
+          html = buildMergedWordExportHtml() || '';
+        } catch (mergeErr) {
+          console.error('[word-export] merged collector failed (continuing)', mergeErr);
         }
 
         // Universal last-resort fallback: grab the raw HTML of the currently visible
@@ -12934,8 +13147,13 @@
       const linkHtml = item.fileUrl
         ? '<a href="' + escapeHtml(item.fileUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-sm font-medium text-sage-dark hover:text-burgundy mt-2"><i class="' + communityLinkIconClass(item) + '"></i> ' + linkLabel + '</a>'
         : '<span class="text-xs text-walnut/50 mt-2 block">אין קובץ מצורף</span>';
+      const materialId = normalizeMaterialUuid(item.id || resolveCommunityMaterialId(item) || '');
+      const deleteBtn = materialId ? buildArchiveAdminDeleteBtn({ materialId: materialId }) : '';
       return '<article class="bg-cream/90 rounded-xl border border-sage/25 p-4 shadow-sm">' +
-        '<div class="catalog-material-text text-dir-start">' + buildCatalogMaterialMetadataHtml(item) + '</div>' +
+        '<div class="archive-material-row-head">' +
+        '<div class="catalog-material-text text-dir-start flex-1 min-w-0">' + buildCatalogMaterialMetadataHtml(item) + '</div>' +
+        deleteBtn +
+        '</div>' +
         linkHtml + '</article>';
     }
 
@@ -13804,6 +14022,180 @@
 
     const COMMUNITY_ADMIN_EMAILS = ['alon1971@gmail.com'];
     const COMMUNITY_ADMIN_NAMES = ['alon yerushalmy', 'אלון ירושלמי'];
+    const ARCHIVE_DELETE_CONFIRM = 'האם אתה בטוח שברצונך למחוק חומר זה לצמיתות מהארכיון?';
+
+    function isArchiveAdminUser() {
+      if (typeof WaldorfAuth === 'undefined') return false;
+      const profile = WaldorfAuth.getContributorProfile && WaldorfAuth.getContributorProfile();
+      if (profile) {
+        const email = String(profile.email || '').toLowerCase().trim();
+        if (email && COMMUNITY_ADMIN_EMAILS.indexOf(email) >= 0) return true;
+        const name = String(profile.name || profile.displayName || '').toLowerCase().trim();
+        if (name && COMMUNITY_ADMIN_NAMES.indexOf(name) >= 0) return true;
+      }
+      if (typeof WaldorfAuth.getIdentityEmail === 'function') {
+        const identityEmail = String(WaldorfAuth.getIdentityEmail() || '').toLowerCase().trim();
+        if (identityEmail && COMMUNITY_ADMIN_EMAILS.indexOf(identityEmail) >= 0) return true;
+      }
+      const authState = typeof WaldorfAuth.getState === 'function' ? WaldorfAuth.getState() : null;
+      if (authState && authState.user && COMMUNITY_ADMIN_EMAILS.indexOf(String(authState.user.email || '').toLowerCase().trim()) >= 0) {
+        return true;
+      }
+      const displayName = WaldorfAuth.getUserDisplayName
+        ? String(WaldorfAuth.getUserDisplayName() || '').toLowerCase().trim()
+        : '';
+      return displayName && COMMUNITY_ADMIN_NAMES.indexOf(displayName) >= 0;
+    }
+
+    function buildArchiveAdminDeleteBtn(attrs) {
+      if (!isArchiveAdminUser()) return '';
+      attrs = attrs || {};
+      var parts = ['type="button"', 'class="archive-admin-delete-btn"', 'title="מחק מהארכיון"', 'aria-label="מחק מהארכיון"'];
+      if (attrs.materialId) {
+        parts.push('data-material-id="' + escapeHtml(String(attrs.materialId)) + '"');
+      }
+      if (attrs.url) {
+        parts.push('data-archive-url="' + escapeHtml(String(attrs.url)) + '"');
+      }
+      return '<button ' + parts.join(' ') + '>🗑️</button>';
+    }
+
+    function normalizeArchiveLinkUrlClient(url) {
+      return String(url || '').trim().toLowerCase().replace(/\/+$/, '');
+    }
+
+    function removeArchiveListItemFromDom(triggerEl) {
+      if (!triggerEl) return;
+      var row = triggerEl.closest('li, .catalog-material-row, article.bg-cream, .community-found-alert__item, .archive-pinterest-item');
+      if (row) {
+        row.remove();
+        return;
+      }
+      var pinCard = triggerEl.closest('.pin-card');
+      if (pinCard && pinCard.parentElement) pinCard.parentElement.remove();
+    }
+
+    function purgeArchiveUrlFromClientState(url) {
+      var targetNorm = normalizeArchiveLinkUrlClient(url);
+      if (!targetNorm) return;
+      function stripLinkArray(arr) {
+        if (!Array.isArray(arr)) return;
+        for (var i = arr.length - 1; i >= 0; i--) {
+          var item = arr[i];
+          var itemUrl = typeof item === 'string'
+            ? item
+            : (item && (item.url || item.link || item.href || item.src || item.pinUrl));
+          if (normalizeArchiveLinkUrlClient(itemUrl) === targetNorm) arr.splice(i, 1);
+        }
+      }
+      function walkPayload(payload) {
+        if (!payload || typeof payload !== 'object') return;
+        stripLinkArray(payload.relevant_links);
+        stripLinkArray(payload.pedagogical_resources);
+        stripLinkArray(payload.gallery);
+        if (payload.enrichment_links && typeof payload.enrichment_links === 'object') {
+          stripLinkArray(payload.enrichment_links.pinterest_links);
+          stripLinkArray(payload.enrichment_links.article_links);
+        }
+        if (payload.blockPlan && typeof payload.blockPlan === 'object') {
+          walkPayload(payload.blockPlan);
+        }
+        if (payload.theory && payload.theory.bibliography && Array.isArray(payload.theory.bibliography.websites)) {
+          stripLinkArray(payload.theory.bibliography.websites);
+        }
+      }
+      walkPayload(appState.purePhaseC);
+      walkPayload(appState.aiGeneratedPlan);
+      walkPayload(appState.generalSearchResult);
+      stripLinkArray(appState.visualGallery);
+      stripLinkArray(appState.pedagogicalResources);
+    }
+
+    async function deleteArchiveLinkAdmin(url, triggerEl) {
+      if (!isArchiveAdminUser()) return;
+      if (!confirm(ARCHIVE_DELETE_CONFIRM)) return;
+      var cacheKey = String(appState.lessonCacheKey || '').trim();
+      if (!cacheKey) {
+        alert('לא נמצא מזהה ארכיון — טענו את הנושא מהארכיון תחילה.');
+        return;
+      }
+      if (triggerEl) triggerEl.disabled = true;
+      try {
+        var headers = { 'Content-Type': 'application/json' };
+        if (typeof WaldorfAuth !== 'undefined') {
+          var token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+          var identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function' ? WaldorfAuth.getIdentityEmail() : '';
+          if (identityEmail) headers['X-User-Email'] = identityEmail;
+        }
+        var res = await fetch('/api/search-history', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ action: 'delete_archive_link', cacheKey: cacheKey, url: url }),
+        });
+        var bodyText = await res.text();
+        var json = {};
+        try { json = bodyText ? JSON.parse(bodyText) : {}; } catch (parseErr) { json = {}; }
+        if (!res.ok || json.error) {
+          throw new Error((json && json.error) || bodyText || ('שגיאת שרת (' + res.status + ')'));
+        }
+        purgeArchiveUrlFromClientState(url);
+        removeArchiveListItemFromDom(triggerEl);
+      } catch (err) {
+        alert('מחיקת הקישור מהארכיון נכשלה: ' + (err && err.message ? err.message : String(err)));
+        if (triggerEl) triggerEl.disabled = false;
+      }
+    }
+
+    async function deleteArchiveMaterialAdmin(materialId, triggerEl) {
+      if (!isArchiveAdminUser()) return;
+      if (!confirm(ARCHIVE_DELETE_CONFIRM)) return;
+      if (window.catalogDeleteInFlight) return;
+      window.catalogDeleteInFlight = true;
+      if (triggerEl) triggerEl.disabled = true;
+      try {
+        await deleteCommunityMaterialRecord(materialId);
+        var pk = normalizeMaterialUuid(resolveCommunityMaterialId(materialId) || String(materialId || '').trim());
+        if (pk) {
+          appState.communityCache = appState.communityCache.filter(function (m) {
+            var rowPk = normalizeMaterialUuid(m.id || m.dbId || resolveCommunityMaterialId(m) || '');
+            return rowPk !== pk;
+          });
+          appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+          try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
+        }
+        removeArchiveListItemFromDom(triggerEl);
+        updateCommunityBadge();
+        if (catalogState.view === 'materials') {
+          await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, { skipCommunityReload: true });
+        }
+        if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
+        renderCommunityMaterials();
+      } catch (err) {
+        alert('מחיקת החומר מהארכיון נכשלה: ' + (err && err.message ? err.message : String(err)));
+        if (triggerEl) triggerEl.disabled = false;
+      } finally {
+        window.catalogDeleteInFlight = false;
+      }
+    }
+
+    function bindArchiveAdminDeleteEvents() {
+      if (document.body.dataset.archiveAdminDeleteBound === '1') return;
+      document.body.dataset.archiveAdminDeleteBound = '1';
+      document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('.archive-admin-delete-btn') : null;
+        if (!btn || !isArchiveAdminUser()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var materialId = btn.getAttribute('data-material-id');
+        var url = btn.getAttribute('data-archive-url');
+        if (materialId) {
+          deleteArchiveMaterialAdmin(materialId, btn);
+        } else if (url) {
+          deleteArchiveLinkAdmin(url, btn);
+        }
+      });
+    }
 
     function isCommunityAdminUser() {
       if (typeof WaldorfAuth === 'undefined') return false;
@@ -14686,8 +15078,13 @@
         const gradeId = resolveCommunityMatchGradeId(match);
         const gradeLabel = String(match.gradeLabel || getGradeLabelById(gradeId) || '').trim();
         const fileUrl = resolveCommunityMatchFileUrl(match);
+        const materialId = normalizeMaterialUuid(match.id || match.materialId || resolveCommunityMaterialId(match) || '');
+        const deleteBtn = materialId ? buildArchiveAdminDeleteBtn({ materialId: materialId }) : '';
         html += '<div class="community-found-alert__item">' +
-          '<span class="community-found-alert__item-title">' + titleHtml + '</span>' +
+          '<div class="community-found-alert__item-head archive-material-row-head">' +
+          '<span class="community-found-alert__item-title flex-1 min-w-0">' + titleHtml + '</span>' +
+          deleteBtn +
+          '</div>' +
           '<div class="community-found-alert__actions">';
         if (fileUrl) {
           html += '<a href="' + escapeHtml(fileUrl) + '" target="_blank" rel="noopener" ' +
@@ -15640,10 +16037,15 @@
     }
 
     function buildSimpleMarkdownLinkHtml(label, url) {
-      var href = sanitizeExternalLinkUrl(url);
-      if (!href) return '';
+      var href = sanitizeExternalLinkUrl(url) || wordExportResolveHref(url);
+      if (!href) {
+        var friendlyOnly = resolveFriendlyLinkDisplayLabel(label, url);
+        return friendlyOnly ? escapeHtml(friendlyOnly) : '';
+      }
+      var display = resolveFriendlyLinkDisplayLabel(label, href);
+      if (isDeadSourceLinkLabel(display)) display = formatMarkdownLinkDisplay(label);
       return '<a href="' + escapeHtml(href) + '" target="_blank" class="text-blue-600 underline">' +
-        escapeHtml(formatMarkdownLinkDisplay(label)) + '</a>';
+        escapeHtml(display) + '</a>';
     }
 
     function replaceMarkdownLinksInText(text) {
@@ -16769,6 +17171,7 @@
 
     function renderPureLinksBlock(items, options) {
       var opts = options || {};
+      var showDelete = opts.showAdminDelete !== false && isArchiveAdminUser();
       var list = (Array.isArray(items) ? items : []).filter(function (item) {
         var url = String(item.url || item.link || item.href || '').trim();
         if (!url || !/^https?:\/\//i.test(url)) return false;
@@ -16788,8 +17191,9 @@
         if (!href) return '<li>' + escapeHtml(title) + '</li>';
         var display = phaseCLinkLabel(title, href);
         if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
-        return '<li><a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="' + linkClass + '">' +
-          escapeHtml(display) + '</a></li>';
+        var deleteBtn = showDelete ? buildArchiveAdminDeleteBtn({ url: href }) : '';
+        return '<li class="archive-link-row"><a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="' + linkClass + '">' +
+          escapeHtml(display) + '</a>' + deleteBtn + '</li>';
       }).join('') + '</ul>';
     }
 
@@ -17021,6 +17425,7 @@
       var linksHtml = renderPureLinksBlock(links, {
         blockPinterest: true,
         linkClass: 'text-blue-600 underline hover:text-blue-800',
+        showAdminDelete: true,
       });
       if (linksHtml) {
         listEl.innerHTML = linksHtml;
@@ -17296,7 +17701,7 @@
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + renderPureTextBlock(data.developmental_axis) + '</article>' +
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + renderPureTextBlock(data.core_pedagogical_emphases) + '</article>' +
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-book text-gold"></i> ' + escapeHtml(t('general_search_section_literature')) + '</h3>' + renderPureReadingBlock(data.recommended_literature) + '</article>' +
-        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links) + '</article>' +
+        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links, { showAdminDelete: true }) + '</article>' +
         '</div>' +
         '<div class="lesson-chat-export-bar mt-4" dir="rtl">' +
           '<button type="button" id="btn-general-search-export-word" class="lesson-chat-export-btn" dir="rtl">' +
@@ -20361,6 +20766,7 @@
       }
       holdPageScroll(function () {
         const topic = appState.topic || '';
+        const showDelete = isArchiveAdminUser();
         const cardsHtml = appState.visualGallery.map(function (p) {
           const pinUrl = resolvePinterestUrl(p, topic);
           const board = p.board ? '<span class="inline-block text-[10px] bg-burgundy/10 text-burgundy px-2 py-0.5 rounded-full mb-1">' + escapeHtml(p.board) + '</span>' : '';
@@ -20371,14 +20777,17 @@
             '<div class="p-2.5 text-xs">' + board +
             '<p class="font-medium text-walnut group-hover:text-terracotta leading-snug">' + escapeHtml(p.title) + '</p>' +
             '</div>';
+          const deleteBtn = (showDelete && pinUrl) ? buildArchiveAdminDeleteBtn({ url: pinUrl }) : '';
           if (!pinUrl) {
-            return '<div class="pin-card block rounded-xl overflow-hidden border border-gold/25 bg-white shadow-sm hover:shadow-md group">' +
-              cardInner + '</div>';
+            return '<div class="archive-pinterest-item">' + deleteBtn +
+              '<div class="pin-card block rounded-xl overflow-hidden border border-gold/25 bg-white shadow-sm hover:shadow-md group">' +
+              cardInner + '</div></div>';
           }
-          return '<a href="' + escapeHtml(pinUrl) + '" target="_blank" rel="noopener noreferrer" ' +
+          return '<div class="archive-pinterest-item">' + deleteBtn +
+            '<a href="' + escapeHtml(pinUrl) + '" target="_blank" rel="noopener noreferrer" ' +
             'class="pin-card block rounded-xl overflow-hidden border border-gold/25 bg-white shadow-sm hover:shadow-md group" ' +
             'style="cursor: pointer;" title="' + escapeHtml(p.title) + '">' +
-            cardInner + '</a>';
+            cardInner + '</a></div>';
         }).join('');
         galEl.innerHTML = cardsHtml;
       });
@@ -21536,9 +21945,13 @@
       const manageBtns = file.canManage
         ? '<div class="catalog-material-actions">' +
           '<button type="button" class="catalog-material-btn catalog-material-edit" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_edit_material')) + '" aria-label="' + escapeHtml(t('catalog_edit_material')) + '" onclick="window.editCommunityMaterial(this.getAttribute(\'data-id\'))">✏️</button>' +
-          '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '" onclick="window.deleteCommunityMaterial(this.getAttribute(\'data-id\'))">🗑️</button>' +
+          (isArchiveAdminUser()
+            ? '<button type="button" class="archive-admin-delete-btn catalog-material-delete" data-material-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>'
+            : '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '" onclick="window.deleteCommunityMaterial(this.getAttribute(\'data-id\'))">🗑️</button>') +
           '</div>'
-        : '';
+        : (isArchiveAdminUser()
+          ? '<div class="catalog-material-actions">' + buildArchiveAdminDeleteBtn({ materialId: materialId }) + '</div>'
+          : '');
       return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '">' +
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">' +
         '<div class="min-w-0 flex-1 catalog-material-text text-dir-start">' +
@@ -21680,7 +22093,7 @@
         console.warn('[community] delete skipped: missing material id');
         return;
       }
-      if (!confirm('האם אתה בטוח שברצונך למחוק חומר זה?')) return;
+      if (!confirm(isArchiveAdminUser() ? ARCHIVE_DELETE_CONFIRM : 'האם אתה בטוח שברצונך למחוק חומר זה?')) return;
       if (window.catalogDeleteInFlight) return;
       window.catalogDeleteInFlight = true;
 
@@ -22150,6 +22563,7 @@
       bindWorkspaceBreadcrumbNav();
       bindTopicStepBreadcrumbGlobalNav();
       bindCatalogMaterialActions(document.getElementById('panel-catalog'));
+      bindArchiveAdminDeleteEvents();
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
         if (!btn || btn.disabled) return;

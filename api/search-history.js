@@ -5,6 +5,7 @@ const cacheDb = require('./cache');
 const knowledgeIngest = require('./knowledge-ingest');
 const authContext = require('./auth-context');
 const env = require('./env');
+const subscription = require('./subscription');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -62,6 +63,17 @@ async function verifySupabaseToken(token) {
     email: user.email || '',
     name: meta.full_name || meta.name || (user.email ? user.email.split('@')[0] : ''),
   };
+}
+
+async function resolveArchiveAdmin(req, body) {
+  const verified = await authContext.resolveVerifiedUser(req, body);
+  const email = verified && verified.email ? verified.email : '';
+  if (!subscription.isProUserEmail(email)) {
+    const err = new Error('פעולה זו מותרת למנהל הארכיון בלבד');
+    err.statusCode = 403;
+    throw err;
+  }
+  return verified;
 }
 
 async function resolveTeacher(req, body) {
@@ -172,6 +184,29 @@ async function executeSearchHistory(req) {
       query: probe.query || query,
       matchMethod: probe.matchMethod || 'none',
       folderBrief: probe.folderBrief || null,
+    };
+  }
+
+  if (action === 'delete_archive_link') {
+    await resolveArchiveAdmin(req, body);
+    const cacheKey = String((body && body.cacheKey) || '').trim();
+    const url = String((body && body.url) || '').trim();
+    if (!cacheKey || !url) {
+      const err = new Error('חסרים מזהה ארכיון או קישור למחיקה');
+      err.statusCode = 400;
+      throw err;
+    }
+    const result = await cacheDb.removeArchiveLinkFromCache(cacheKey, url);
+    if (!result || !result.removed) {
+      const err = new Error('הקישור לא נמצא בארכיון או שהמחיקה נכשלה');
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      ok: true,
+      action: 'delete_archive_link',
+      cacheKey: cacheKey,
+      url: url,
     };
   }
 
