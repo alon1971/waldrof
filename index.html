@@ -4023,7 +4023,7 @@
        (Overview / Topic Edit / מידע והשראה) and while scrolling. Keeps the original
        id (#btn-phase-c-export-word) so all existing JS wiring keeps working. -->
   <div id="global-word-export-bar" dir="rtl">
-    <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" onclick="downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד">
+    <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export aria-label="הורד למסמך וורד">
       <i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true" style="pointer-events: none;"></i>
       <span class="phase-c-unified-export-label" data-i18n="general_search_export_word" style="pointer-events: none;">הורד למסמך וורד</span>
     </button>
@@ -11583,7 +11583,7 @@
       }
       function docHtmlBlock(html) {
         if (!html || !String(html).trim()) return;
-        parts.push('<div class="ai-block" dir="rtl">' + prepareExportHtmlFragment(html) + '</div>');
+        parts.push('<div class="ai-block" dir="rtl">' + ensureAiHtml(html) + '</div>');
       }
 
       var topicTitle = (appState.topic || '').trim();
@@ -12076,7 +12076,19 @@
     }
 
     function ensureTopicWordExportDelegation() {
-      /* #btn-phase-c-export-word uses native onclick="downloadUnifiedTopicDocx()" — no delegation needed. */
+      if (document.documentElement.dataset.topicWordExportBound) return;
+      document.documentElement.dataset.topicWordExportBound = '1';
+      document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest
+          ? e.target.closest('#btn-phase-c-export-word, [data-unified-topic-export]')
+          : null;
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof downloadUnifiedTopicDocx === 'function') {
+          downloadUnifiedTopicDocx();
+        }
+      }, true);
     }
 
     function ensurePedagogyWordExportDelegation() {
@@ -12135,14 +12147,7 @@
     }
     window.showAppToast = showAppToast;
 
-    function resolveActiveExportPhase() {
-      if (isGeneralSearchView()) return 'general-search';
-      if (isPhaseCView() || (isWorkspaceOpen() && appState.navSection === 'phase-c')) return 'phase-c';
-      var step = appState.step || 1;
-      if (step >= 2) return 'phase-b';
-      return 'phase-a';
-    }
-
+    /** Clone a visible DOM node for Word export — strips UI chrome, keeps prose structure. */
     function cloneDomForWordExport(rootEl) {
       if (!rootEl) return null;
       var clone = rootEl.cloneNode(true);
@@ -12150,7 +12155,7 @@
         'button', 'script', 'style',
         '.inline-expand-trigger', '[data-pedagogy-toggle]',
         '.phase-c-unified-export-btn', '.lesson-chat-export-btn', '.lesson-chat-bubble-export-btn',
-        '.lesson-chat-bubble-export-wrap', '.pedagogy-export-btn',
+        '.lesson-chat-bubble-export-wrap', '.pedagogy-export-btn', '#global-word-export-bar',
       ].join(', ')).forEach(function (el) {
         if (el && el.parentNode) el.parentNode.removeChild(el);
       });
@@ -12163,151 +12168,88 @@
       return clone;
     }
 
-    function prepareExportHtmlFragment(html) {
-      if (!html || !String(html).trim()) return '';
-      var s = String(html).trim();
-      if (typeof document !== 'undefined') {
-        try {
-          var tmp = document.createElement('div');
-          tmp.innerHTML = s;
-          tmp.querySelectorAll('button, script, style, .lesson-chat-bubble-export-wrap').forEach(function (el) {
-            if (el.parentNode) el.parentNode.removeChild(el);
-          });
-          s = tmp.innerHTML;
-        } catch (prepErr) { /* keep raw */ }
-      }
-      return s;
+    function isElementVisibleForExport(el) {
+      if (!el) return false;
+      if (el.classList && el.classList.contains('hidden')) return false;
+      if (el.hasAttribute && el.hasAttribute('hidden')) return false;
+      return Boolean((el.textContent || '').trim());
     }
 
-    function collectPhaseAExportHtml() {
-      try {
-        var panel = document.getElementById('grade-insights-panel');
-        var insightsBody = document.getElementById('grade-insights-body');
-        if (!panel || panel.classList.contains('hidden') || !insightsBody) return '';
-        var clone = cloneDomForWordExport(insightsBody);
-        var bodyHtml = (clone ? clone.innerHTML : insightsBody.innerHTML || '').trim();
-        if (!bodyHtml || (insightsBody.textContent || '').trim().length < 10) return '';
-        var parts = [];
-        var g = GRADES.find(function (x) { return x.id === appState.grade; });
-        parts.push('<h1>' + escapeHtml(t('grade_insights_default') || 'תמונת גיל') + '</h1>');
+    /**
+     * Scrape whatever pedagogical content is currently rendered on screen —
+     * active tab pane, wizard step, grade insights, or web research block.
+     */
+    function scrapeVisibleViewportExportHtml() {
+      var parts = [];
+      var g = GRADES.find(function (x) { return x.id === appState.grade; });
+      var topicTitle = (appState.topic || '').trim();
+      var gotContent = false;
+
+      function pushHeader() {
+        if (parts.length) return;
+        parts.push('<h1>' + escapeHtml(topicTitle || appState.gradeLabel || t('tab_narrative')) + '</h1>');
         if (appState.gradeLabel) {
           parts.push('<p>' + escapeHtml(t('export_doc_grade_line', { grade: appState.gradeLabel, age: g ? g.age : '' })) + '</p>');
         }
-        parts.push('<div class="ai-block" dir="rtl">' + prepareExportHtmlFragment(bodyHtml) + '</div>');
-        return parts.join('\n');
-      } catch (paErr) {
-        console.error('[word-export] Phase A collect failed', paErr);
-        return '';
-      }
-    }
-
-    // Fallback exporter: when Phase C content is not yet generated, capture whatever
-    // Phase B ("תמונת גיל" / age-picture) content is currently visible on screen so
-    // the global Word button still produces a meaningful document on Tabs 1 & 2.
-    function collectPhaseBExportHtml() {
-      try {
-        var insightsBody = document.getElementById('grade-insights-body');
-        if (!insightsBody) return '';
-        var clone = cloneDomForWordExport(insightsBody);
-        var bodyHtml = (clone ? clone.innerHTML : insightsBody.innerHTML || '').trim();
-        if (!bodyHtml || (insightsBody.textContent || '').trim().length < 20) return '';
-        var parts = [];
-        var g = GRADES.find(function (x) { return x.id === appState.grade; });
-        parts.push('<h1>' + escapeHtml(t('grade_insights_default') || 'תמונת גיל') + '</h1>');
-        if (appState.gradeLabel) {
-          parts.push('<p>' + escapeHtml(t('export_doc_grade_line', { grade: appState.gradeLabel, age: g ? g.age : '' })) + '</p>');
-        }
-        var topicTitle = (appState.topic || '').trim();
         if (topicTitle) {
           parts.push('<p>' + escapeHtml(t('export_doc_topic_line', { topic: topicTitle })) + '</p>');
         }
-        parts.push('<div class="ai-block" dir="rtl">' + prepareExportHtmlFragment(bodyHtml) + '</div>');
-        return parts.join('\n');
-      } catch (pbErr) {
-        console.error('[word-export] Phase B fallback collect failed', pbErr);
-        return '';
       }
-    }
 
-    function collectPhaseBFullExportHtml() {
-      var html = collectPhaseBExportHtml() || '';
-      try {
-        var webResult = document.getElementById('web-research-result');
-        if (webResult && !webResult.classList.contains('hidden') && webResult.innerHTML.trim()) {
-          var webClone = cloneDomForWordExport(webResult);
-          var webHtml = (webClone ? webClone.innerHTML : webResult.innerHTML || '').trim();
-          if (webHtml && (webResult.textContent || '').trim().length >= 10) {
-            if (!html) {
-              var g = GRADES.find(function (x) { return x.id === appState.grade; });
-              var topicTitle = (appState.topic || '').trim();
-              html = '<h1>' + escapeHtml(topicTitle || t('step_nav_b')) + '</h1>';
-              if (appState.gradeLabel) {
-                html += '<p>' + escapeHtml(t('export_doc_grade_line', { grade: appState.gradeLabel, age: g ? g.age : '' })) + '</p>';
-              }
-              if (topicTitle) {
-                html += '<p>' + escapeHtml(t('export_doc_topic_line', { topic: topicTitle })) + '</p>';
-              }
-            }
-            html += '\n<h2>' + escapeHtml(t('pedagogical_resources_title') || 'מחקר נושא') + '</h2>';
-            html += '<div class="ai-block" dir="rtl">' + prepareExportHtmlFragment(webHtml) + '</div>';
-          }
+      function appendScraped(el, sectionTitle) {
+        if (!isElementVisibleForExport(el)) return false;
+        var clone = cloneDomForWordExport(el);
+        var inner = (clone ? clone.innerHTML : el.innerHTML || '').trim();
+        if (!inner || (el.textContent || '').trim().length < 8) return false;
+        pushHeader();
+        if (sectionTitle) parts.push('<h2>' + escapeHtml(sectionTitle) + '</h2>');
+        parts.push('<div class="ai-block" dir="rtl">' + inner + '</div>');
+        gotContent = true;
+        return true;
+      }
+
+      if (isGeneralSearchView()) {
+        var gsPayload = collectGeneralSearchDocumentData();
+        if (gsPayload) {
+          var gsHtml = buildGeneralSearchExportHtml(gsPayload);
+          if (gsHtml && gsHtml.trim()) return gsHtml;
         }
-      } catch (webErr) {
-        console.error('[word-export] Phase B web-research collect failed', webErr);
+        appendScraped(document.getElementById('general-search-view'), '');
+        return gotContent ? parts.join('\n') : '';
       }
-      return html;
-    }
 
-    function collectPhaseCVisibleExportHtml() {
-      try {
-        var html = collectUnifiedTopicExportHtml() || '';
-        if (html.trim()) return html;
-        var roots = ['phase-c-unified-root', 'panel-narrative'];
-        for (var i = 0; i < roots.length; i++) {
-          var root = document.getElementById(roots[i]);
-          if (!root) continue;
-          var clone = cloneDomForWordExport(root);
-          var bodyHtml = (clone ? clone.innerHTML : root.innerHTML || '').trim();
-          if (!bodyHtml || (root.textContent || '').trim().length < 20) continue;
-          var parts = [];
-          var g = GRADES.find(function (x) { return x.id === appState.grade; });
-          var topicTitle = (appState.topic || '').trim();
-          parts.push('<h1>' + escapeHtml(topicTitle || t('tab_narrative')) + '</h1>');
-          if (appState.gradeLabel) {
-            parts.push('<p>' + escapeHtml(t('export_doc_grade_line', { grade: appState.gradeLabel, age: g ? g.age : '' })) + '</p>');
-          }
-          if (topicTitle) parts.push('<p>' + escapeHtml(t('export_doc_topic_line', { topic: topicTitle })) + '</p>');
-          parts.push('<div class="ai-block" dir="rtl">' + prepareExportHtmlFragment(bodyHtml) + '</div>');
-          return parts.join('\n');
+      if (isWorkspaceOpen() && appState.navSection === 'phase-c') {
+        var structured = collectUnifiedTopicExportHtml();
+        if (structured && structured.trim()) return structured;
+        var panels = document.querySelectorAll('#workspace .product-tab-panel:not(.hidden):not([hidden])');
+        for (var pi = 0; pi < panels.length; pi++) {
+          appendScraped(panels[pi], '');
         }
-      } catch (pcErr) {
-        console.error('[word-export] Phase C visible collect failed', pcErr);
+        if (!gotContent) {
+          appendScraped(document.getElementById('phase-c-unified-root'), '');
+          appendScraped(document.getElementById('panel-narrative'), '');
+        }
+        return gotContent ? parts.join('\n') : '';
       }
-      return '';
-    }
 
-    function collectActiveTabExportHtml() {
-      var phase = resolveActiveExportPhase();
-      if (phase === 'general-search') {
-        var payload = collectGeneralSearchDocumentData();
-        return payload ? (buildGeneralSearchExportHtml(payload) || '') : '';
+      appendScraped(document.getElementById('grade-insights-panel'), t('grade_insights_default') || 'תמונת גיל');
+      appendScraped(document.getElementById('web-research-result'), t('pedagogical_resources_title') || 'מחקר נושא');
+      if (!gotContent) {
+        var wizard = document.getElementById('wizard');
+        if (wizard && !wizard.classList.contains('hidden')) {
+          appendScraped(document.getElementById('step-' + (appState.step || 1)), '');
+        }
       }
-      if (phase === 'phase-c') {
-        return collectPhaseCVisibleExportHtml() || '';
-      }
-      if (phase === 'phase-b') {
-        return collectPhaseBFullExportHtml() || collectPhaseAExportHtml() || '';
-      }
-      return collectPhaseAExportHtml() || '';
+      return gotContent ? parts.join('\n') : '';
     }
 
     function buildChatBubbleWordExportButton(bubbleId) {
       var id = String(bubbleId || '').trim();
       if (!id) return '';
       var label = isEnglish() ? 'Download Word' : 'הורד למסמך וורד';
-      var safeId = escapeHtml(id).replace(/'/g, '&#39;');
+      var safeId = escapeHtml(id);
       return '<div class="lesson-chat-bubble-export-wrap" dir="rtl">' +
-        '<button type="button" class="lesson-chat-bubble-export-btn" data-chat-bubble-export-id="' + safeId + '" onclick="downloadChatBubbleDocx(\'' + safeId + '\')" aria-label="' + escapeHtml(label) + '">' +
+        '<button type="button" class="lesson-chat-bubble-export-btn" data-chat-bubble-export-id="' + safeId + '" aria-label="' + escapeHtml(label) + '">' +
         '<i class="fa-solid fa-file-word" aria-hidden="true"></i>' +
         '<span>' + escapeHtml(label) + '</span></button></div>';
     }
@@ -12333,18 +12275,16 @@
     }
 
     function ensureChatBubbleExportButtons() {
-      ['lesson-chat-messages'].forEach(function (listId) {
-        var list = document.getElementById(listId);
-        if (!list) return;
-        list.querySelectorAll('.lesson-chat-bubble--assistant').forEach(function (bubble) {
-          if (bubble.querySelector('[data-chat-bubble-export-id]')) return;
-          var body = bubble.querySelector('.lesson-chat-bubble-body');
-          if (!body || !(body.textContent || '').trim()) return;
-          var bubbleId = 'cb-r-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
-          var wrap = document.createElement('div');
-          wrap.innerHTML = buildChatBubbleWordExportButton(bubbleId);
-          if (wrap.firstChild) bubble.appendChild(wrap.firstChild);
-        });
+      var list = document.getElementById('lesson-chat-messages');
+      if (!list) return;
+      list.querySelectorAll('.lesson-chat-bubble--assistant').forEach(function (bubble) {
+        if (bubble.querySelector('[data-chat-bubble-export-id]')) return;
+        var body = bubble.querySelector('.lesson-chat-bubble-body');
+        if (!body || !(body.textContent || '').trim()) return;
+        var bubbleId = 'cb-r-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+        var wrap = document.createElement('div');
+        wrap.innerHTML = buildChatBubbleWordExportButton(bubbleId);
+        if (wrap.firstChild) bubble.appendChild(wrap.firstChild);
       });
     }
 
@@ -12353,21 +12293,15 @@
       document.documentElement.dataset.chatBubbleExportObserved = '1';
       var list = document.getElementById('lesson-chat-messages');
       if (!list || typeof MutationObserver === 'undefined') return;
-      var observer = new MutationObserver(function () {
-        ensureChatBubbleExportButtons();
-      });
-      observer.observe(list, { childList: true, subtree: true });
+      new MutationObserver(function () { ensureChatBubbleExportButtons(); })
+        .observe(list, { childList: true, subtree: true });
       ensureChatBubbleExportButtons();
     }
 
     async function downloadChatBubbleDocx(bubbleId) {
       try {
         var id = String(bubbleId || '').trim();
-        if (!id) {
-          showAppToast(isEnglish() ? 'No chat content to export' : 'אין תוכן בבועה זו לייצוא', 'error');
-          return;
-        }
-        var exportBtn = document.querySelector('[data-chat-bubble-export-id="' + id + '"]');
+        var exportBtn = id ? document.querySelector('[data-chat-bubble-export-id="' + id + '"]') : null;
         var bubble = exportBtn ? exportBtn.closest('.lesson-chat-bubble') : null;
         var contentEl = bubble ? bubble.querySelector('.lesson-chat-bubble-body') : null;
         if (!contentEl || !(contentEl.textContent || '').trim()) {
@@ -12382,13 +12316,12 @@
           clone.querySelectorAll('.lesson-chat-bubble-export-wrap, button, script').forEach(function (el) {
             if (el.parentNode) el.parentNode.removeChild(el);
           });
-          var html = '<div dir="rtl">' + prepareExportHtmlFragment(clone.innerHTML) + '</div>';
+          var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-          var filename = isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc';
           var url = URL.createObjectURL(blob);
           var a = document.createElement('a');
           a.href = url;
-          a.download = filename;
+          a.download = isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc';
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -12404,15 +12337,20 @@
     }
     window.downloadChatBubbleDocx = downloadChatBubbleDocx;
 
+    var unifiedWordExportInFlight = false;
+
     async function downloadUnifiedTopicDocx() {
-      // Fully defensive: this is invoked from a native inline onclick, where any
-      // thrown error would otherwise die silently and look like a "dead" button.
-      // Every failure path now surfaces a visible message instead.
+      if (unifiedWordExportInFlight) return;
+      unifiedWordExportInFlight = true;
       try {
         var html = '';
-        try { html = collectActiveTabExportHtml() || ''; }
-        catch (collectErr) { console.error('[word-export] collect failed', collectErr); }
-
+        try {
+          html = scrapeVisibleViewportExportHtml() || collectUnifiedTopicExportHtml() || '';
+        } catch (collectErr) {
+          console.error('[word-export] collect failed', collectErr);
+          showAppToast(t('export_doc_error') + ': ' + (collectErr.message || String(collectErr)), 'error');
+          return;
+        }
         if (!html.trim()) {
           try {
             var preview = collectPedagogySummaryDocumentData();
@@ -12420,14 +12358,9 @@
           } catch (fallbackErr) { console.error('[word-export] fallback collect failed', fallbackErr); }
         }
         if (!html.trim()) {
-          html = collectPhaseCVisibleExportHtml() || collectPhaseBFullExportHtml() || collectPhaseAExportHtml() || '';
-        }
-        if (!html.trim()) {
           showAppToast(t('export_doc_need_content'));
           return;
         }
-
-        // Subscription/limit gate shows its own auth/paywall modal when it blocks.
         try { assertWordDownloadForExport(); }
         catch (gateErr) { if (gateErr && gateErr.code === 'WORD_DOWNLOAD_LIMIT') return; }
 
@@ -12449,16 +12382,18 @@
           a.click();
           document.body.removeChild(a);
           setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
-          Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+          await trackWordDownloadAfterExport();
+        } catch (err) {
+          if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
+          console.error('Unified topic DOC export failed:', err);
+          showAppToast(t('export_doc_error') + ': ' + (err.message || String(err)), 'error');
         } finally {
           if (btn) btn.disabled = false;
           navBtns.forEach(function (b) { b.disabled = false; });
           if (label) label.textContent = t('general_search_export_word');
         }
-      } catch (err) {
-        console.error('Unified topic DOC export failed:', err);
-        var msg = (typeof t === 'function' ? t('export_doc_error') : 'Export failed');
-        showAppToast(msg + ': ' + (err && err.message ? err.message : String(err)), 'error');
+      } finally {
+        unifiedWordExportInFlight = false;
       }
     }
     window.downloadUnifiedTopicDocx = downloadUnifiedTopicDocx;
@@ -12485,8 +12420,13 @@
       panelBtn.classList.remove('hidden');
       panelBtn.disabled = false;
       panelBtn.type = 'button';
-      if (!panelBtn.getAttribute('onclick')) {
-        panelBtn.setAttribute('onclick', 'downloadUnifiedTopicDocx()');
+      if (!panelBtn.dataset.exportBound) {
+        panelBtn.dataset.exportBound = '1';
+        panelBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          downloadUnifiedTopicDocx();
+        });
       }
     }
 
@@ -15475,12 +15415,7 @@
       return work;
     }
 
-    /**
-     * Final prose pass: linkify leaked markdown/URL fragments while preserving
-     * interactive UI (buttons, SVG icons, onclick handlers such as downloadChatBubbleDocx).
-     */
-    function finalizeProseHtml(html, options) {
-      options = options || {};
+    function linkifyExpansionHtml(html) {
       var raw = String(html || '');
       if (!raw.trim()) return raw;
       var ui = preserveInteractiveHtmlBlocks(raw);
@@ -15505,12 +15440,18 @@
       preserved.forEach(function (tag, index) {
         work = work.split('\x00EALINK' + index + '\x00').join(tag);
       });
-      work = convertResidualCitationLinks(work);
       return restoreInteractiveHtmlBlocks(work, ui.preserved);
     }
 
-    function linkifyExpansionHtml(html) {
-      return finalizeProseHtml(html);
+    /**
+     * Chat/prose-only final pass — never applied to page UI markup.
+     */
+    function finalizeProseHtml(html, options) {
+      options = options || {};
+      var raw = String(html || '');
+      if (!raw.trim()) return raw;
+      var cleaned = linkifyExpansionHtml(raw);
+      return convertResidualCitationLinks(cleaned);
     }
 
     /**
