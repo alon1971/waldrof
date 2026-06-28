@@ -446,6 +446,7 @@ const LANGUAGES = {
     export_doc_no_topic:         'ללא נושא',
     export_doc_need_grade:       'יש לבחור כיתה לפני הפקת המסמך',
     export_doc_need_phase:       'אין תוכן נושא מובנה לייצוא — השלימו מחקר נושא בשלב ג׳',
+    export_doc_need_content:     'אנא בחר כיתה והצג תמונת גיל או תוצרים תחילה.',
     export_doc_error:            'שגיאה בהפקת המסמך',
     export_doc_generating:       'מפיק מסמך...',
 
@@ -1092,6 +1093,7 @@ const LANGUAGES = {
     export_doc_no_topic:         'no topic',
     export_doc_need_grade:       'Select a grade before exporting the document',
     export_doc_need_phase:       'No structured topic content to export — complete Step C topic research first',
+    export_doc_need_content:     'Please select a grade and display an age picture or results first.',
     export_doc_error:            'Document export failed',
     export_doc_generating:       'Generating document...',
 
