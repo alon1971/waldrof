@@ -1909,6 +1909,25 @@
       margin: 0 0 1rem 0;
       pointer-events: auto !important;
     }
+    /* Global, always-visible Word export button (body-level, outside every tab panel).
+       Fixed so it persists across all tabs and while scrolling. The chat FAB lives on
+       the left edge, so this is pinned to the top-right to avoid any overlap. */
+    #global-word-export-bar {
+      position: fixed;
+      top: 92px;
+      right: 12px;
+      z-index: 100000;
+      pointer-events: auto !important;
+    }
+    #global-word-export-bar .phase-c-unified-export-btn {
+      box-shadow: 0 6px 20px rgba(92, 125, 88, 0.28);
+    }
+    /* Hide it while the auth overlay is up so it never floats over the login screen. */
+    body.auth-locked #global-word-export-bar,
+    body.auth-required #global-word-export-bar { display: none !important; }
+    @media (max-width: 640px) {
+      #global-word-export-bar { top: auto; bottom: 16px; right: 12px; }
+    }
     .phase-c-unified-export-btn {
       display: inline-flex;
       align-items: center;
@@ -3944,6 +3963,17 @@
 </head>
 <body class="app-typography bg-cream text-walnut min-h-screen waldorf-pattern pb-[env(safe-area-inset-bottom)] lesson-chat-mode-bubble">
 
+  <!-- GLOBAL Word export button — rendered at <body> level, OUTSIDE every tab panel,
+       so it is present in the DOM from page load and stays visible across all tabs
+       (Overview / Topic Edit / מידע והשראה) and while scrolling. Keeps the original
+       id (#btn-phase-c-export-word) so all existing JS wiring keeps working. -->
+  <div id="global-word-export-bar" dir="rtl">
+    <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" onclick="downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד">
+      <i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true" style="pointer-events: none;"></i>
+      <span class="phase-c-unified-export-label" data-i18n="general_search_export_word" style="pointer-events: none;">הורד למסמך וורד</span>
+    </button>
+  </div>
+
   <!-- Auth overlay (login / signup) -->
   <div id="auth-overlay" class="hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="auth-card-title">
     <div id="auth-card" class="auth-card">
@@ -4469,10 +4499,8 @@
       <section id="panel-narrative" class="tab-panel product-tab-panel hidden" role="region" aria-labelledby="phase-c-unified-heading" hidden>
         <div class="phase-c-unified-header mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 id="phase-c-unified-heading" class="app-page-title font-display font-bold text-burgundy m-0" data-i18n="tab_narrative">מידע והשראה</h2>
-          <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" onclick="downloadUnifiedTopicDocx()" style="position: relative; z-index: 9999 !important; pointer-events: auto !important; cursor: pointer !important;" aria-label="הורד למסמך וורד">
-            <i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true" style="pointer-events: none;"></i>
-            <span class="phase-c-unified-export-label" data-i18n="general_search_export_word" style="pointer-events: none;">הורד למסמך וורד</span>
-          </button>
+          <!-- Word export button moved to the global #global-word-export-bar (body level)
+               so it is visible across ALL tabs from page load, not only here. -->
         </div>
         <div id="phase-c-empty" class="text-sm text-walnut/65 py-6 text-center hidden" data-i18n="phase_c_empty">טענו נושא בשלב ב׳ כדי לראות את תוצרי שלב ג׳.</div>
         <div id="phase-c-unified-root" class="phase-c-unified-root w-full box-border hidden" dir="rtl">
