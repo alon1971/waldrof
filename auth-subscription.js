@@ -1792,15 +1792,21 @@
     }
   }
 
+  function openMailtoLink(mailto) {
+    var a = document.createElement('a');
+    a.href = mailto;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
   function bindContactOwnerLinks() {
     var emailLink = document.getElementById('contact-owner-email-link');
     if (emailLink) {
       emailLink.setAttribute('href', 'mailto:' + CONTACT_EMAIL);
       emailLink.addEventListener('click', function (e) {
         e.stopPropagation();
-        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-        e.preventDefault();
-        window.location.href = 'mailto:' + CONTACT_EMAIL;
       });
     }
     var phoneLink = document.getElementById('contact-owner-phone-link');
@@ -1847,8 +1853,10 @@
     var mailto = 'mailto:' + CONTACT_EMAIL
       + '?subject=' + encodeURIComponent(subject)
       + '&body=' + encodeURIComponent(bodyLines.join('\n'));
-    hideContactModal();
-    window.location.href = mailto;
+    openMailtoLink(mailto);
+    setTimeout(function () {
+      hideContactModal();
+    }, 250);
   }
 
   function confirmCancelSubscription() {
