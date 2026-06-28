@@ -165,6 +165,8 @@ function isStripeCheckoutEnabled() {
   return Boolean(cleanKey(process.env.STRIPE_SECRET_KEY));
 }
 
+const { TRIAL_LIFETIME_SEARCH_LIMIT } = require('./tier-limits');
+
 function getPublicClientConfig() {
   return {
     supabaseUrl: getSupabaseUrl(),
@@ -182,6 +184,8 @@ function getPublicClientConfig() {
     apiSubscription: '/api/subscription',
     apiBillingCheckout: '/api/billing/checkout',
     stripeCheckoutEnabled: isStripeCheckoutEnabled(),
+    /** Mirrors api/tier-limits.js — revert to 3 after beta testing. */
+    trialSearchLimit: TRIAL_LIFETIME_SEARCH_LIMIT,
   };
 }
 

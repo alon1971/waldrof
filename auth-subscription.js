@@ -23,10 +23,31 @@
     expert: 'pro',
   };
 
+  /** Server override from GET /api/config (applied after page load). */
+  var trialSearchLimitFromServer = null;
+
+  /**
+   * Free-tier lifetime search cap — must stay in sync with api/tier-limits.js
+   * and window.__WALDROF_TRIAL_SEARCH_LIMIT__ in index.html.
+   * BETA default: 20. Production default: 3.
+   */
+  function resolveTrialLifetimeSearchLimit() {
+    if (trialSearchLimitFromServer != null) return trialSearchLimitFromServer;
+    if (global.__WALDROF_TRIAL_SEARCH_LIMIT__ != null) {
+      var fromHtml = Number(global.__WALDROF_TRIAL_SEARCH_LIMIT__);
+      if (Number.isFinite(fromHtml) && fromHtml > 0) return Math.floor(fromHtml);
+    }
+    if (global.__WALDROF_RUNTIME_CONFIG__ && global.__WALDROF_RUNTIME_CONFIG__.trialSearchLimit != null) {
+      var fromRuntime = Number(global.__WALDROF_RUNTIME_CONFIG__.trialSearchLimit);
+      if (Number.isFinite(fromRuntime) && fromRuntime > 0) return Math.floor(fromRuntime);
+    }
+    return 20; // BETA fallback — revert to 3 after beta testing
+  }
+
   var TIERS = {
     trial: {
       id: 'trial',
-      lifetimeLimit: 3,
+      lifetimeLimit: resolveTrialLifetimeSearchLimit(),
       wordDownloadLimit: 5,
       wordDownloadPeriod: 'monthly',
       monthlyLimit: null,
@@ -69,7 +90,7 @@
     expiresAt: null,
     usagePeriod: 'lifetime',
     searchesUsed: null,
-    searchLimit: 3,
+    searchLimit: resolveTrialLifetimeSearchLimit(),
     wordDownloadsUsed: 0,
     wordDownloadLimit: 5,
   };
@@ -81,6 +102,16 @@
     if (!cfg || typeof cfg !== 'object') return;
     if (cfg.stripeCheckoutEnabled != null) stripeCheckoutEnabled = Boolean(cfg.stripeCheckoutEnabled);
     if (cfg.apiBillingCheckout) billingCheckoutUrl = String(cfg.apiBillingCheckout);
+    if (cfg.trialSearchLimit != null) {
+      var n = Number(cfg.trialSearchLimit);
+      if (Number.isFinite(n) && n > 0) {
+        trialSearchLimitFromServer = Math.floor(n);
+        TIERS.trial.lifetimeLimit = trialSearchLimitFromServer;
+        if (normalizeTierId(authState.tier) === 'trial' && authState.searchLimit != null) {
+          authState.searchLimit = trialSearchLimitFromServer;
+        }
+      }
+    }
   }
 
   if (global.__WALDROF_RUNTIME_CONFIG__) {
@@ -837,6 +868,9 @@
     var tier = getTierConfig(tierId || authState.tier);
     if (authState.searchLimit != null && normalizeTierId(tierId || authState.tier) === normalizeTierId(authState.tier)) {
       return authState.searchLimit;
+    }
+    if (normalizeTierId(tierId || authState.tier) === 'trial') {
+      return resolveTrialLifetimeSearchLimit();
     }
     if (tier.lifetimeLimit != null) return tier.lifetimeLimit;
     return tier.monthlyLimit;

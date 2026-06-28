@@ -1275,6 +1275,81 @@
       cursor: pointer;
     }
     .marketing-bench-btn:hover { background: rgba(139, 58, 58, 0.06); }
+    .marketing-bench-btn:disabled { opacity: 0.55; cursor: wait; }
+    .marketing-bench-output {
+      margin-top: 1rem;
+      padding: 1rem 1.1rem;
+      border-radius: 0.85rem;
+      border: 1px solid rgba(139, 58, 58, 0.2);
+      background: #fff;
+    }
+    .marketing-bench-output__title {
+      margin: 0 0 0.65rem;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #8B3A3A;
+    }
+    .marketing-bench-output__body {
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.65;
+      color: #5C4A3A;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 16rem;
+      overflow-y: auto;
+    }
+    .marketing-bench-output__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    .marketing-bench-copy-btn,
+    .marketing-bench-open-modal-btn {
+      border: 1px solid rgba(139, 58, 58, 0.28);
+      background: rgba(139, 58, 58, 0.06);
+      color: #8B3A3A;
+      border-radius: 0.65rem;
+      padding: 0.45rem 0.8rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .marketing-bench-copy-btn:hover,
+    .marketing-bench-open-modal-btn:hover { background: rgba(139, 58, 58, 0.12); }
+    .marketing-bench-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.88rem;
+      color: #8B3A3A;
+    }
+    #phase-c-marketing-mount:not(.marketing-admin-visible),
+    #general-search-marketing-mount:not(.marketing-admin-visible) {
+      display: none !important;
+    }
+    #marketing-output-modal .app-modal-panel { max-width: 42rem; }
+    #marketing-output-modal .marketing-modal-body {
+      margin-top: 0.5rem;
+      padding: 1rem 1.1rem;
+      border-radius: 0.85rem;
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      background: rgba(255, 255, 255, 0.92);
+      font-size: 0.95rem;
+      line-height: 1.7;
+      color: #5C4A3A;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: min(58vh, 28rem);
+      overflow-y: auto;
+    }
+    #marketing-output-modal .marketing-modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
     #general-search-view .general-search-results { margin-top: 1.25rem; }
     #btn-nav-general-search.active {
       border-color: rgba(139, 58, 58, 0.45);
@@ -4265,6 +4340,22 @@
     </div>
   </div>
 
+  <!-- Marketing output (admin-only; panel injected only for authorized identity) -->
+  <div id="marketing-output-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="marketing-output-modal-title">
+    <div id="marketing-output-modal-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel">
+      <button type="button" id="marketing-output-modal-close" class="app-modal-close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+      <h4 id="marketing-output-modal-title" class="font-display font-bold text-burgundy text-lg"></h4>
+      <div id="marketing-output-modal-body" class="marketing-modal-body"></div>
+      <div class="marketing-modal-actions">
+        <button type="button" id="marketing-output-copy-btn" class="marketing-bench-copy-btn">
+          <i class="fa-regular fa-copy icon-inline"></i>
+          <span id="marketing-output-copy-label">העתק ללוח</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="app-site-chrome" class="app-site-chrome">
   <header class="border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="max-w-6xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5">
@@ -4778,7 +4869,9 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <script src="auth-subscription.js?v=20260621b"></script>
+  <!-- BETA: free-tier lifetime search cap (production default: 3). Revert to 3 after beta testing. -->
+  <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 20;</script>
+  <script src="auth-subscription.js?v=20260628a"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
   <script src="hebrew-topic-match.js?v=20250622a"></script>
@@ -16181,27 +16274,345 @@
       return el && !el.classList.contains('hidden');
     }
 
-    function getAuthUserEmail() {
-      if (typeof WaldorfAuth === 'undefined') return '';
-      var state = typeof WaldorfAuth.getState === 'function' ? WaldorfAuth.getState() : null;
-      if (state && state.user && state.user.email) return String(state.user.email).trim();
-      var profile = typeof WaldorfAuth.getContributorProfile === 'function' ? WaldorfAuth.getContributorProfile() : null;
-      return profile && profile.email ? String(profile.email).trim() : '';
+    const MARKETING_ADMIN_EMAILS = ['alon1971@gmail.com'];
+    const MARKETING_ADMIN_NAMES = ['alon yerushalmy', 'אלון ירושלמי', 'אלוני ירושלמי'];
+    var marketingGenerationAbort = null;
+    var marketingOutputTextCache = '';
+
+    function normalizeMarketingAdminName(value) {
+      return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
     }
 
     function isAlonMarketingUser() {
-      return getAuthUserEmail() === 'alon1971@gmail.com';
+      if (typeof WaldorfAuth === 'undefined') return false;
+      var seenEmails = Object.create(null);
+      function emailIsAdmin(raw) {
+        var email = String(raw || '').toLowerCase().trim();
+        if (!email || seenEmails[email]) return false;
+        seenEmails[email] = true;
+        return MARKETING_ADMIN_EMAILS.indexOf(email) >= 0;
+      }
+      if (typeof WaldorfAuth.getIdentityEmail === 'function' && emailIsAdmin(WaldorfAuth.getIdentityEmail())) {
+        return true;
+      }
+      var authState = typeof WaldorfAuth.getState === 'function' ? WaldorfAuth.getState() : null;
+      if (authState && authState.user && emailIsAdmin(authState.user.email)) return true;
+      var profile = typeof WaldorfAuth.getContributorProfile === 'function'
+        ? WaldorfAuth.getContributorProfile()
+        : null;
+      if (profile && emailIsAdmin(profile.email)) return true;
+
+      var seenNames = Object.create(null);
+      function nameIsAdmin(raw) {
+        var name = normalizeMarketingAdminName(raw);
+        if (!name || seenNames[name]) return false;
+        seenNames[name] = true;
+        return MARKETING_ADMIN_NAMES.indexOf(name) >= 0;
+      }
+      if (profile) {
+        if (nameIsAdmin(profile.name)) return true;
+        if (nameIsAdmin(profile.displayName)) return true;
+      }
+      if (typeof WaldorfAuth.getUserDisplayName === 'function' && nameIsAdmin(WaldorfAuth.getUserDisplayName())) {
+        return true;
+      }
+      return false;
+    }
+
+    function hideMarketingMount(mount) {
+      if (!mount) return;
+      mount.innerHTML = '';
+      mount.classList.remove('marketing-admin-visible');
+      mount.classList.add('hidden');
+      mount.setAttribute('hidden', '');
+      mount.setAttribute('aria-hidden', 'true');
+      delete mount.dataset.marketingRendered;
+    }
+
+    function ensureMarketingModalBindings() {
+      if (document.documentElement.dataset.marketingModalBound) return;
+      document.documentElement.dataset.marketingModalBound = '1';
+      var modal = document.getElementById('marketing-output-modal');
+      var closeBtn = document.getElementById('marketing-output-modal-close');
+      var backdrop = document.getElementById('marketing-output-modal-backdrop');
+      var copyBtn = document.getElementById('marketing-output-copy-btn');
+      function closeMarketingOutputModal() {
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('marketing-modal-open');
+      }
+      if (closeBtn) closeBtn.addEventListener('click', closeMarketingOutputModal);
+      if (backdrop) backdrop.addEventListener('click', closeMarketingOutputModal);
+      if (copyBtn) copyBtn.addEventListener('click', function () { copyMarketingOutputText(); });
+      document.addEventListener('keydown', function (evt) {
+        if (evt.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeMarketingOutputModal();
+      });
+    }
+
+    function openMarketingOutputModal(title, text) {
+      ensureMarketingModalBindings();
+      var modal = document.getElementById('marketing-output-modal');
+      var titleEl = document.getElementById('marketing-output-modal-title');
+      var bodyEl = document.getElementById('marketing-output-modal-body');
+      var copyLabel = document.getElementById('marketing-output-copy-label');
+      if (!modal || !bodyEl) return;
+      marketingOutputTextCache = String(text || '').trim();
+      if (titleEl) titleEl.textContent = String(title || '').trim();
+      bodyEl.textContent = marketingOutputTextCache;
+      if (copyLabel) {
+        copyLabel.textContent = isEnglish() ? 'Copy to clipboard' : 'העתק ללוח';
+      }
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('marketing-modal-open');
+    }
+
+    function copyMarketingOutputText(sourceText) {
+      var text = String(sourceText != null ? sourceText : marketingOutputTextCache || '').trim();
+      if (!text) {
+        showAppToast(isEnglish() ? 'Nothing to copy yet' : 'אין טקסט להעתקה', 'error');
+        return;
+      }
+      function onCopied() {
+        showAppToast(isEnglish() ? 'Copied to clipboard' : 'הועתק ללוח', 'success');
+      }
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(onCopied).catch(function () {
+          fallbackCopyMarketingText(text, onCopied);
+        });
+        return;
+      }
+      fallbackCopyMarketingText(text, onCopied);
+    }
+
+    function fallbackCopyMarketingText(text, onCopied) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        if (typeof onCopied === 'function') onCopied();
+      } catch (e) {
+        showAppToast(isEnglish() ? 'Copy failed — select text manually' : 'ההעתקה נכשלה — סמנו את הטקסט ידנית', 'error');
+      } finally {
+        if (ta.parentNode) ta.parentNode.removeChild(ta);
+      }
+    }
+
+    function collectMarketingPedagogicalContext() {
+      var g = GRADES.find(function (x) { return x.id === appState.grade; });
+      var gsInput = document.getElementById('general-search-input');
+      var gsQuery = gsInput ? String(gsInput.value || '').trim() : '';
+      var ctx = {
+        gradeLabel: appState.gradeLabel || (g ? getGradeLabelById(g.id) : ''),
+        gradeId: appState.grade || '',
+        age: (g ? g.age : '') || '',
+        topic: resolveLessonTopic() || gsQuery || '',
+        phaseA: '',
+        phaseB: '',
+        phaseC: '',
+        source: 'lesson',
+      };
+
+      var gr = appState.gradeResearch;
+      if (gr) {
+        var gi = gr.gradeInsights || gr;
+        if (String(gi.rawContent || '').trim()) {
+          ctx.phaseA = stripHtmlText(gi.rawContent);
+        } else {
+          var aParts = [];
+          aParts.push(stripHtmlText(gi.part1AgePictureHtml || gi.archivesSynthesisHtml || ''));
+          (gi.part1DevelopmentBullets || gi.developmentBullets || []).forEach(function (b) { aParts.push(String(b || '')); });
+          aParts.push(stripHtmlText(gi.part2ClassroomIdeasHtml || ''));
+          (gi.part2ClassroomIdeas || []).forEach(function (b) { aParts.push(String(b || '')); });
+          aParts.push(stripHtmlText(gi.part3CommunityExpansionsHtml || ''));
+          ctx.phaseA = aParts.filter(Boolean).join('\n');
+        }
+      }
+
+      var wr = appState.webResearch;
+      if (wr) {
+        ctx.phaseB = stripHtmlText(String(wr.rawContent || wr.summary || ''));
+      }
+      if (!ctx.phaseB && appState.purePhaseC) {
+        ctx.phaseB = buildStepBSummaryFromPurePhaseC(appState.purePhaseC);
+      }
+
+      if (appState.purePhaseC) {
+        ctx.phaseC = stripHtmlText(extractPhaseCUnifiedRichText(appState.purePhaseC));
+      }
+
+      if (isGeneralSearchView() && appState.generalSearchResult) {
+        ctx.source = 'general-search';
+        if (!ctx.topic) ctx.topic = gsQuery;
+        var gs = appState.generalSearchResult;
+        if (!ctx.phaseA && gs.developmental_axis) ctx.phaseA = String(gs.developmental_axis || '');
+        if (!ctx.phaseB && gs.core_pedagogical_emphases) ctx.phaseB = String(gs.core_pedagogical_emphases || '');
+        var gsParts = [];
+        (gs.recommended_literature || []).forEach(function (item) {
+          if (item && item.title) gsParts.push(item.title + (item.author ? ' — ' + item.author : ''));
+        });
+        (gs.relevant_links || []).forEach(function (item) {
+          gsParts.push(typeof item === 'string' ? item : String((item && (item.title || item.url)) || ''));
+        });
+        if (gsParts.length) ctx.phaseC = gsParts.join('\n');
+      }
+
+      ctx.phaseA = ctx.phaseA.slice(0, 5000);
+      ctx.phaseB = ctx.phaseB.slice(0, 5000);
+      ctx.phaseC = ctx.phaseC.slice(0, 8000);
+      return ctx;
+    }
+
+    function buildMarketingUserMessage(action, ctx) {
+      var actionPrompts = {
+        facebook: isEnglish()
+          ? 'Write an engaging, warm, and professional Facebook post tailored for educational communities or parents about this curriculum topic. Use a conversational tone, one clear hook, and a gentle call to connect — no hashtags spam, no URLs.'
+          : 'כתוב פוסט מ engaging, חם ומקצועי לפייסבוק, המותאם לקהילות חינוכיות או להורים, על נושא התקופה הפדגוגי. טון שיחה, פתיח מושך, וקריאה עדינה ליצירת קשר — בלי הצפת האשטגים ובלי קישורים.',
+        principal: isEnglish()
+          ? 'Draft a formal, compelling B2B proposal email to a school principal, offering consulting and pedagogical guidance based on this topic\'s narrative. Include subject line, greeting, value proposition, and a professional closing signature placeholder.'
+          : 'נסח מייל B2B רשמי ומשכנע למנהל/ת בית ספר, המציע/ה ליווי וייעוץ פדגוגי על בסיס הנרטיב של הנושא. כלול שורת נושא, פתיח, הצעת ערך, וסיום מקצועי עם מקום לחתימה.',
+        parents: isEnglish()
+          ? 'Create beautiful, clear, and comforting explanatory text for a parental flyer that explains the pedagogical depth of what their children are experiencing in this block. Warm, reassuring, jargon-light, suitable for print.'
+          : 'כתוב טקסט יפה, ברור ומרגיע לפלייר להורים, המסביר את העומק הפדגוגי של מה שהילדים חווים בתקופה זו. חם, מרגיע, ללא ז\'רגון מיותר, מתאים להדפסה.',
+      };
+      var task = actionPrompts[action] || actionPrompts.facebook;
+      var contextBlock = [
+        isEnglish() ? '=== Pedagogical context ===' : '=== הקשר פדגוגי ===',
+        (isEnglish() ? 'Class / grade: ' : 'כיתה: ') + (ctx.gradeLabel || '—') +
+          (ctx.age ? (' · ' + (isEnglish() ? 'Age: ' : 'גיל: ') + ctx.age) : ''),
+        (isEnglish() ? 'Topic: ' : 'נושא: ') + (ctx.topic || '—'),
+        '',
+        '--- ' + (isEnglish() ? 'Phase A (age picture / grade insights)' : 'שלב א\' (תמונת גיל)') + ' ---',
+        ctx.phaseA || (isEnglish() ? '(not available)' : '(לא זמין)'),
+        '',
+        '--- ' + (isEnglish() ? 'Phase B (topic narrative)' : 'שלב ב\' (נרטיב נושא)') + ' ---',
+        ctx.phaseB || (isEnglish() ? '(not available)' : '(לא זמין)'),
+        '',
+        '--- ' + (isEnglish() ? 'Phase C (pedagogical depth / products)' : 'שלב ג\' (עומק פדגוגי / תוצרים)') + ' ---',
+        ctx.phaseC || (isEnglish() ? '(not available)' : '(לא זמין)'),
+      ].join('\n');
+      return task + '\n\n' + contextBlock + '\n\n' +
+        (isEnglish()
+          ? 'Output only the final marketing text itself — no meta commentary, no JSON.'
+          : 'החזר/י רק את טקסט השיווק הסופי — ללא הסברים על התהליך וללא JSON.');
+    }
+
+    function extractMarketingAnswer(result) {
+      var data = (result && result.chatReply) ? result : (result && result.data) || result || {};
+      var reply = data.chatReply || {};
+      var answer = reply.answer || stripHtmlText(reply.answerHtml) || String(reply.answerHtml || '').trim();
+      answer = stripHtmlText(answer).trim();
+      if (!answer && typeof reply.text === 'string') answer = stripHtmlText(reply.text).trim();
+      return answer;
+    }
+
+    function setMarketingBenchOutput(mount, title, text, options) {
+      options = options || {};
+      var output = mount && mount.querySelector('[data-marketing-output]');
+      if (!output) return;
+      var titleEl = output.querySelector('[data-marketing-output-title]');
+      var bodyEl = output.querySelector('[data-marketing-output-body]');
+      if (titleEl) titleEl.textContent = title || '';
+      if (bodyEl) {
+        if (options.loading) {
+          bodyEl.innerHTML = '<span class="marketing-bench-loading"><i class="fa-solid fa-spinner fa-spin"></i> ' +
+            escapeHtml(isEnglish() ? 'Generating marketing copy…' : 'מייצר/ת תוכן שיווקי…') + '</span>';
+        } else {
+          bodyEl.textContent = String(text || '').trim();
+        }
+      }
+      output.classList.remove('hidden');
+      marketingOutputTextCache = options.loading ? '' : String(text || '').trim();
+    }
+
+    async function runMarketingGeneration(action, mount) {
+      if (!isAlonMarketingUser()) {
+        console.warn('[waldrof] marketing generation blocked — unauthorized user');
+        if (mount) hideMarketingMount(mount);
+        return;
+      }
+      if (!isResearchAvailable()) {
+        alert(isEnglish()
+          ? 'AI generation requires a backend (/api/generate) or direct Perplexity key.'
+          : 'יצירת AI דורשת שרת (/api/generate) או מפתח Perplexity ישיר.');
+        return;
+      }
+
+      var ctx = collectMarketingPedagogicalContext();
+      if (!ctx.topic && !ctx.phaseA && !ctx.phaseB && !ctx.phaseC) {
+        alert(isEnglish()
+          ? 'Load grade/topic lesson content or run a general search before generating marketing copy.'
+          : 'טענו תוכן שיעור (כיתה/נושא) או הריצו חיפוש כללי לפני יצירת תוכן שיווקי.');
+        return;
+      }
+
+      var actionTitles = {
+        facebook: t('marketing_btn_facebook'),
+        principal: t('marketing_btn_principal'),
+        parents: t('marketing_btn_parents'),
+      };
+      var title = actionTitles[action] || t('marketing_bench_title');
+
+      if (marketingGenerationAbort) marketingGenerationAbort.abort();
+      marketingGenerationAbort = new AbortController();
+      var signal = marketingGenerationAbort.signal;
+
+      mount.querySelectorAll('.marketing-bench-btn').forEach(function (btn) { btn.disabled = true; });
+      setMarketingBenchOutput(mount, title, '', { loading: true });
+
+      try {
+        var result = await invokeWaldorfResearch({
+          phase: 'chat_followup',
+          skipCache: true,
+          chatStrictIsolation: true,
+          userMessage: buildMarketingUserMessage(action, ctx),
+          gradeId: ctx.gradeId || appState.grade || null,
+          gradeLabel: ctx.gradeLabel || appState.gradeLabel || '',
+          topic: ctx.topic,
+          age: ctx.age || '',
+        }, { signal: signal });
+        if (!isAlonMarketingUser()) return;
+        var answer = extractMarketingAnswer(result);
+        if (!answer) throw new Error(isEnglish() ? 'Empty AI response' : 'תשובת AI ריקה');
+        setMarketingBenchOutput(mount, title, answer);
+        openMarketingOutputModal(title, answer);
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        if (isRateLimitError(err)) return;
+        var msg = err && err.message ? err.message : String(err);
+        setMarketingBenchOutput(mount, title, msg);
+        alert((isEnglish() ? 'Marketing generation failed: ' : 'יצירת השיווק נכשלה: ') + msg);
+      } finally {
+        mount.querySelectorAll('.marketing-bench-btn').forEach(function (btn) { btn.disabled = false; });
+        if (marketingGenerationAbort && marketingGenerationAbort.signal === signal) marketingGenerationAbort = null;
+      }
     }
 
     function renderMarketingBench(mountId) {
       var mount = document.getElementById(mountId);
       if (!mount) return;
       if (!isAlonMarketingUser()) {
-        mount.innerHTML = '';
-        mount.classList.add('hidden');
+        hideMarketingMount(mount);
         return;
       }
+      if (mount.dataset.marketingRendered === '1' && mount.querySelector('.marketing-bench')) {
+        mount.classList.add('marketing-admin-visible');
+        mount.classList.remove('hidden');
+        mount.removeAttribute('hidden');
+        mount.setAttribute('aria-hidden', 'false');
+        return;
+      }
+      ensureMarketingModalBindings();
+      mount.classList.add('marketing-admin-visible');
       mount.classList.remove('hidden');
+      mount.removeAttribute('hidden');
+      mount.setAttribute('aria-hidden', 'false');
       mount.innerHTML =
         '<div class="marketing-bench" role="region" aria-label="' + escapeHtml(t('marketing_bench_title')) + '">' +
         '<h4>' + escapeHtml(t('marketing_bench_title')) + '</h4>' +
@@ -16209,15 +16620,51 @@
         '<button type="button" class="marketing-bench-btn" data-marketing-action="facebook">' + escapeHtml(t('marketing_btn_facebook')) + '</button>' +
         '<button type="button" class="marketing-bench-btn" data-marketing-action="principal">' + escapeHtml(t('marketing_btn_principal')) + '</button>' +
         '<button type="button" class="marketing-bench-btn" data-marketing-action="parents">' + escapeHtml(t('marketing_btn_parents')) + '</button>' +
-        '</div></div>';
+        '</div>' +
+        '<div class="marketing-bench-output hidden" data-marketing-output>' +
+        '<p class="marketing-bench-output__title" data-marketing-output-title"></p>' +
+        '<pre class="marketing-bench-output__body" data-marketing-output-body></pre>' +
+        '<div class="marketing-bench-output__actions">' +
+        '<button type="button" class="marketing-bench-copy-btn" data-marketing-copy>' +
+        '<i class="fa-regular fa-copy icon-inline"></i> ' + escapeHtml(isEnglish() ? 'Copy to clipboard' : 'העתק ללוח') +
+        '</button>' +
+        '<button type="button" class="marketing-bench-open-modal-btn" data-marketing-open-modal>' +
+        '<i class="fa-solid fa-up-right-from-square icon-inline"></i> ' + escapeHtml(isEnglish() ? 'Open full view' : 'פתיחה במסך מלא') +
+        '</button>' +
+        '</div></div></div>';
+      mount.dataset.marketingRendered = '1';
       mount.querySelectorAll('[data-marketing-action]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-          var action = btn.getAttribute('data-marketing-action');
-          alert(isEnglish()
-            ? 'Marketing action "' + action + '" — coming soon.'
-            : 'פעולת שיווק "' + action + '" — בקרוב.');
+          if (!isAlonMarketingUser()) {
+            hideMarketingMount(mount);
+            return;
+          }
+          runMarketingGeneration(btn.getAttribute('data-marketing-action'), mount);
         });
       });
+      var copyBtn = mount.querySelector('[data-marketing-copy]');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function () {
+          var bodyEl = mount.querySelector('[data-marketing-output-body]');
+          copyMarketingOutputText(bodyEl ? bodyEl.textContent : marketingOutputTextCache);
+        });
+      }
+      var openModalBtn = mount.querySelector('[data-marketing-open-modal]');
+      if (openModalBtn) {
+        openModalBtn.addEventListener('click', function () {
+          var titleEl = mount.querySelector('[data-marketing-output-title]');
+          var bodyEl = mount.querySelector('[data-marketing-output-body]');
+          openMarketingOutputModal(
+            titleEl ? titleEl.textContent : t('marketing_bench_title'),
+            bodyEl ? bodyEl.textContent : marketingOutputTextCache
+          );
+        });
+      }
+    }
+
+    function refreshMarketingBenchVisibility() {
+      renderMarketingBench('phase-c-marketing-mount');
+      renderMarketingBench('general-search-marketing-mount');
     }
 
     function stripNarrativeProseMarkup(text) {
@@ -21926,6 +22373,7 @@
             try { resetWizardSessionState(); } catch (e) { console.warn('[waldrof] logout resetWizardSessionState:', e); }
             try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] logout resetWizardOnPageLoad:', e); }
             try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] logout resetCommunityClientStateOnReload:', e); }
+            try { refreshMarketingBenchVisibility(); } catch (e) { console.warn('[waldrof] logout refreshMarketingBenchVisibility:', e); }
             if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.invalidate === 'function') {
               try { WaldorfSearchHistory.invalidate(); } catch (e) { /* ignore */ }
             }
@@ -21961,6 +22409,7 @@
         var didSessionScrollReset = false;
         WaldorfAuth.subscribe(function (authState) {
           updateClearTopicProseButtonVisibility();
+          refreshMarketingBenchVisibility();
           if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
           if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {

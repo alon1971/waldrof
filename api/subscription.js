@@ -8,6 +8,7 @@
 const env = require('./env');
 const cacheDb = require('./cache');
 const authContext = require('./auth-context');
+const { TRIAL_LIFETIME_SEARCH_LIMIT } = require('./tier-limits');
 
 const TABLE = 'user_subscriptions';
 const LOG_PREFIX = '[subscription]';
@@ -28,7 +29,7 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
 ];
 
 const TIER_LIMITS = {
-  trial: { lifetime: 3, monthly: null, wordDownloads: 5, wordDownloadsMonthly: true },
+  trial: { lifetime: TRIAL_LIFETIME_SEARCH_LIMIT, monthly: null, wordDownloads: 5, wordDownloadsMonthly: true },
   standard: { lifetime: null, monthly: 300, wordDownloads: null },
   pro: { lifetime: null, monthly: 300, wordDownloads: null },
 };
