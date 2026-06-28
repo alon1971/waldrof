@@ -4988,6 +4988,8 @@
     const summaryJobsByKey = {};
     const summaryFailedByKey = {};
     const summaryPanelOpenState = { bib: {}, ped: {} };
+    /** Tracks open <details> static expansions across re-renders (Phase B/C embedded content). */
+    const staticExpansionOpenState = {};
     const EXPANSION_REQUEST_TIMEOUT_MS = 130000;
     const CURRICULUM_REQUEST_TIMEOUT_MS = 60000;
     var archiveCurriculumHealInFlight = null;
@@ -5040,6 +5042,7 @@
       Object.keys(summaryFailedByKey).forEach(function (key) { delete summaryFailedByKey[key]; });
       summaryPanelOpenState.bib = {};
       summaryPanelOpenState.ped = {};
+      Object.keys(staticExpansionOpenState).forEach(function (key) { delete staticExpansionOpenState[key]; });
       appState.bibliographySummaries = {};
       appState.pedagogySummaries = {};
     }
@@ -5499,9 +5502,80 @@
       if (!bodyHtml || !expansionBodyHasVisibleText(bodyHtml)) return '';
       var summaryLabel = options.summaryLabel || expansionBtnLabel();
       var extraClass = options.extraClass ? ' ' + options.extraClass : '';
-      return '<details class="static-expansion-block' + extraClass + '" id="static-expand-' + escapeHtml(item.id) + '" data-static-expand="' + escapeHtml(item.id) + '">' +
+      var openAttr = staticExpansionOpenState[item.id] ? ' open' : '';
+      return '<details class="static-expansion-block' + extraClass + '" id="static-expand-' + escapeHtml(item.id) + '" data-static-expand="' + escapeHtml(item.id) + '"' + openAttr + '>' +
         '<summary class="static-expansion-summary text-burgundy font-semibold hover:underline">' + escapeHtml(summaryLabel) + '</summary>' +
         '<div class="static-expansion-body mt-3 prose-ai inline-expand-inner">' + bodyHtml + '</div></details>';
+    }
+
+    function getStaticExpansionElement(sourceId) {
+      if (!sourceId) return null;
+      return document.getElementById('static-expand-' + sourceId) ||
+        document.querySelector('[data-static-expand="' + sourceId + '"]');
+    }
+
+    function trackStaticExpansionOpenState(sourceId, isOpen) {
+      if (!sourceId) return;
+      if (isOpen) staticExpansionOpenState[sourceId] = true;
+      else delete staticExpansionOpenState[sourceId];
+    }
+
+    function restoreStaticExpansionOpenState() {
+      Object.keys(staticExpansionOpenState).forEach(function (sourceId) {
+        if (!staticExpansionOpenState[sourceId]) return;
+        var el = getStaticExpansionElement(sourceId);
+        if (el && !el.open) el.open = true;
+      });
+    }
+
+    function getPedagogySummaryForCacheKey(cacheKey) {
+      var keys = Object.keys(appState.pedagogyRegistry);
+      for (var i = 0; i < keys.length; i++) {
+        var sid = keys[i];
+        var src = appState.pedagogyRegistry[sid];
+        if (!src || getPedagogySummaryCacheKey(src) !== cacheKey) continue;
+        var summary = appState.pedagogySummaries[sid];
+        if (summary) return summary;
+      }
+      return null;
+    }
+
+    function resolveOpenSummaryPanelRenderArgs(kind, cacheKey, sourceId) {
+      if (summaryJobsByKey[cacheKey]) return { loading: true };
+      var failedMsg = summaryFailedByKey[cacheKey];
+      if (failedMsg) return { errorMsg: failedMsg };
+      var summary = kind === 'bib'
+        ? appState.bibliographySummaries[sourceId]
+        : (appState.pedagogySummaries[sourceId] || getPedagogySummaryForCacheKey(cacheKey));
+      if (summary) return { summary: summary };
+      return null;
+    }
+
+    function restoreBibliographyPanelBySourceId(sourceId) {
+      var source = appState.bibliographyRegistry[sourceId];
+      if (!source) return;
+      var cacheKey = getBibliographySummaryCacheKey(source);
+      if (!summaryPanelOpenState.bib[cacheKey]) return;
+      var args = resolveOpenSummaryPanelRenderArgs('bib', cacheKey, sourceId);
+      if (!args) return;
+      if (args.loading) setBibDeepBtnDisabled(sourceId, true);
+      renderBibInlinePanelIfPresent(sourceId, args.summary || null, !!args.loading, args.errorMsg);
+    }
+
+    function restorePedagogyPanelBySourceId(sourceId) {
+      var source = appState.pedagogyRegistry[sourceId];
+      if (!source) return;
+      var cacheKey = getPedagogySummaryCacheKey(source);
+      if (!summaryPanelOpenState.ped[cacheKey]) return;
+      var args = resolveOpenSummaryPanelRenderArgs('ped', cacheKey, sourceId);
+      if (!args) return;
+      if (args.loading) setPedDeepBtnDisabled(sourceId, true);
+      renderPedagogyInlinePanelIfPresent(sourceId, args.summary || null, !!args.loading, args.errorMsg);
+    }
+
+    function restoreAllExpansionUiState() {
+      restoreAllSummaryPanels();
+      restoreStaticExpansionOpenState();
     }
 
     function getTheoryBibliographyPrompt() {
@@ -5710,6 +5784,14 @@
       activeProductTab: null,
       productTabsRendered: { narrative: false, resources: false },
       wizardTopicNavReady: false,
+      /** Live handles for expansion panel UI state (see summaryPanelOpenState / staticExpansionOpenState). */
+      expansionUi: null,
+    };
+    appState.expansionUi = {
+      panelOpenState: summaryPanelOpenState,
+      staticOpenState: staticExpansionOpenState,
+      jobsByKey: summaryJobsByKey,
+      failedByKey: summaryFailedByKey,
     };
 
     const catalogState = { view: 'grades', gradeId: null, topic: null };
@@ -9860,6 +9942,7 @@
           );
         });
         ensurePedagogySuggestionEvents();
+        restoreAllExpansionUiState();
         updatePedagogyExportButtonsVisibility();
         nudgeGoogleTranslate();
         syncLessonChatFabLayout();
@@ -9903,6 +9986,7 @@
         document.getElementById('grade-insights-body').innerHTML = html;
       });
       ensurePedagogySuggestionEvents();
+      restoreAllExpansionUiState();
       updatePedagogyExportButtonsVisibility();
       nudgeGoogleTranslate();
       syncLessonChatFabLayout();
@@ -10262,8 +10346,7 @@
         Object.keys(appState.bibliographyRegistry).forEach(function (sid) {
           const src = appState.bibliographyRegistry[sid];
           if (!src || getBibliographySummaryCacheKey(src) !== cacheKey) return;
-          const summary = appState.bibliographySummaries[sid];
-          if (summary) renderBibInlinePanelIfPresent(sid, summary);
+          restoreBibliographyPanelBySourceId(sid);
         });
       });
     }
@@ -10274,8 +10357,7 @@
         Object.keys(appState.pedagogyRegistry).forEach(function (sid) {
           const src = appState.pedagogyRegistry[sid];
           if (!src || getPedagogySummaryCacheKey(src) !== cacheKey) return;
-          const summary = appState.pedagogySummaries[sid];
-          if (summary) renderPedagogyInlinePanelIfPresent(sid, summary);
+          restorePedagogyPanelBySourceId(sid);
         });
       });
     }
@@ -10399,7 +10481,12 @@
             : 'מחקר ההרחבה לא החזיר תוכן. נסו שוב.');
         }
         const summary = (data && data.pedagogyDeepDive) ? data : ((data && data.archiveSummary) ? data : data);
-        appState.pedagogySummaries[sourceId] = summary;
+        Object.keys(appState.pedagogyRegistry).forEach(function (sid) {
+          const src = appState.pedagogyRegistry[sid];
+          if (src && getPedagogySummaryCacheKey(src) === cacheKey) {
+            appState.pedagogySummaries[sid] = summary;
+          }
+        });
         refreshPedagogyPanelsForCacheKey(cacheKey, summary);
         return summary;
       }).catch(function (e) {
@@ -11128,6 +11215,7 @@
       out.innerHTML = content;
       out.classList.remove('hidden');
       ensurePedagogySuggestionEvents();
+      restoreAllExpansionUiState();
       updatePedagogyExportButtonsVisibility();
       checkAndShowCommunityTopicAlert();
       nudgeGoogleTranslate();
@@ -12612,6 +12700,14 @@
     function ensurePedagogySuggestionEvents() {
       if (pedagogySuggestionEventsBound) return;
       pedagogySuggestionEventsBound = true;
+      document.addEventListener('toggle', function (e) {
+        var details = e.target;
+        if (!details || details.tagName !== 'DETAILS') return;
+        if (!details.classList.contains('static-expansion-block') && !details.hasAttribute('data-static-expand')) return;
+        var sourceId = details.getAttribute('data-static-expand') ||
+          String(details.id || '').replace(/^static-expand-/, '');
+        trackStaticExpansionOpenState(sourceId, details.open);
+      }, true);
       document.addEventListener('click', function (e) {
         var pedBtn = e.target.closest('.pedagogy-deep-btn[data-pedagogy-id]');
         if (pedBtn) {
@@ -16423,6 +16519,7 @@
         }
       }
       el.innerHTML = html;
+      restoreAllExpansionUiState();
     }
 
     function collectPhaseCResourcesLinks(data) {
@@ -16528,6 +16625,7 @@
       setupPhase3ActionButtons();
       bindPedagogicalEssenceCardToggles();
       restorePedagogySummaryPanels();
+      restoreStaticExpansionOpenState();
       renderMarketingBench('phase-c-marketing-mount');
       if (appState.productTabsRendered) appState.productTabsRendered.unified = true;
       updatePhaseCExportButtons();
@@ -16722,6 +16820,7 @@
       if (appState.aiGeneratedPlan || appState.purePhaseC) {
         ensureProductTabsHydrated(options.forceRemount === true);
       }
+      restoreAllExpansionUiState();
       setupThemeActionButtons();
       updateWorkspaceChrome();
       updatePedagogyExportButtonsVisibility();
@@ -19558,6 +19657,7 @@
       });
       ensureTheoryBibliographyEvents();
       restoreBibliographySummaryPanels();
+      restoreStaticExpansionOpenState();
       ensurePedagogySuggestionEvents();
     }
 
@@ -19709,7 +19809,7 @@
         }
       });
       ensurePedagogySuggestionEvents();
-      restorePedagogySummaryPanels();
+      restoreAllExpansionUiState();
     }
 
     function renderPinterestGallery() {
