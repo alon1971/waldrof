@@ -994,7 +994,7 @@
         align-items: stretch;
       }
       #btn-restart { width: 100%; justify-content: center; }
-      #btn-clear-topic-prose-server { width: 100%; justify-content: center; }
+      #btn-clear-topic-prose-server.server-cache-admin-visible { width: 100%; justify-content: center; }
       .catalog-open-upload {
         display: flex;
         width: 100%;
@@ -1014,6 +1014,13 @@
         font-size: 1.35rem !important;
         line-height: 1.3;
       }
+    }
+    /* Server cache wipe — never visible unless injected for verified admin identity */
+    #btn-clear-topic-prose-server {
+      display: none !important;
+    }
+    #btn-clear-topic-prose-server.server-cache-admin-visible:not(.hidden) {
+      display: inline-flex !important;
     }
     @media (max-width: 767px) {
       .step-pill { min-height: 44px; padding: 0.625rem 0.75rem; font-size: var(--app-body-size) !important; }
@@ -4510,9 +4517,6 @@
           <span class="text-walnut/40 mx-0.5" aria-hidden="true">|</span>
           <button type="button" id="ws-crumb-community" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_community">מאגר קהילתי</button>
         </nav>
-        <button type="button" id="btn-clear-topic-prose-server" class="touch-btn text-sm bg-terracotta/10 text-terracotta border border-terracotta/30 px-3 py-2 rounded-lg hover:bg-terracotta/15 shrink-0 hidden" title="מחיקת שלבי ב׳ ו-ג׳ מהשרת הגלובלי">
-          <i class="fa-solid fa-trash-can icon-inline"></i> <span>מחק שלבים ב׳–ג׳ מהשרת</span>
-        </button>
         <button type="button" id="btn-restart" class="touch-btn text-sm bg-burgundy/10 text-burgundy border border-burgundy/25 px-3 py-2 rounded-lg hover:bg-burgundy/15 shrink-0">
           <i class="fa-solid fa-rotate-right icon-inline"></i> <span data-i18n="btn_restart">מחקר חדש</span>
         </button>
@@ -17287,16 +17291,100 @@
       updateClearTopicProseButtonVisibility();
     }
 
-    function updateClearTopicProseButtonVisibility() {
+    const SERVER_CACHE_ADMIN_EMAILS = ['alon1971@gmail.com'];
+    const SERVER_CACHE_ADMIN_NAMES = ['alon yerushalmy', 'אלון ירושלמי', 'אלוני ירושלמי'];
+
+    function normalizeServerCacheAdminName(value) {
+      return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    function isServerCacheAdminUser() {
+      if (typeof WaldorfAuth === 'undefined') return false;
+      var seenEmails = Object.create(null);
+      function emailIsAdmin(raw) {
+        var email = String(raw || '').toLowerCase().trim();
+        if (!email || seenEmails[email]) return false;
+        seenEmails[email] = true;
+        return SERVER_CACHE_ADMIN_EMAILS.indexOf(email) >= 0;
+      }
+      if (typeof WaldorfAuth.getIdentityEmail === 'function' && emailIsAdmin(WaldorfAuth.getIdentityEmail())) {
+        return true;
+      }
+      var authState = typeof WaldorfAuth.getState === 'function' ? WaldorfAuth.getState() : null;
+      if (authState && authState.user && emailIsAdmin(authState.user.email)) return true;
+      var profile = typeof WaldorfAuth.getContributorProfile === 'function'
+        ? WaldorfAuth.getContributorProfile()
+        : null;
+      if (profile && emailIsAdmin(profile.email)) return true;
+
+      var seenNames = Object.create(null);
+      function nameIsAdmin(raw) {
+        var name = normalizeServerCacheAdminName(raw);
+        if (!name || seenNames[name]) return false;
+        seenNames[name] = true;
+        return SERVER_CACHE_ADMIN_NAMES.indexOf(name) >= 0;
+      }
+      if (profile) {
+        if (nameIsAdmin(profile.name)) return true;
+        if (nameIsAdmin(profile.displayName)) return true;
+      }
+      if (typeof WaldorfAuth.getUserDisplayName === 'function' && nameIsAdmin(WaldorfAuth.getUserDisplayName())) {
+        return true;
+      }
+      return false;
+    }
+
+    function removeServerCacheAdminButton() {
       var btn = document.getElementById('btn-clear-topic-prose-server');
+      if (btn) btn.remove();
+    }
+
+    function ensureServerCacheAdminButton() {
+      if (!isServerCacheAdminUser()) {
+        removeServerCacheAdminButton();
+        return null;
+      }
+      var btn = document.getElementById('btn-clear-topic-prose-server');
+      if (btn) return btn;
+      var restartBtn = document.getElementById('btn-restart');
+      if (!restartBtn || !restartBtn.parentNode) return null;
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'btn-clear-topic-prose-server';
+      btn.className = 'touch-btn text-sm bg-terracotta/10 text-terracotta border border-terracotta/30 px-3 py-2 rounded-lg hover:bg-terracotta/15 shrink-0 hidden server-cache-admin-visible';
+      btn.title = 'מחיקת שלבי ב׳ ו-ג׳ מהשרת הגלובלי';
+      btn.setAttribute('aria-hidden', 'true');
+      btn.tabIndex = -1;
+      btn.innerHTML = '<i class="fa-solid fa-trash-can icon-inline"></i> <span>מחק שלבים ב׳–ג׳ מהשרת</span>';
+      restartBtn.parentNode.insertBefore(btn, restartBtn);
+      bindWizardNavClick(btn, function () {
+        clearTopicProseArchiveFromServer();
+      });
+      return btn;
+    }
+
+    function updateClearTopicProseButtonVisibility() {
+      if (!isServerCacheAdminUser()) {
+        removeServerCacheAdminButton();
+        return;
+      }
+      var btn = ensureServerCacheAdminButton();
       if (!btn) return;
       var topic = String(appState.topic || '').trim();
       var hasTopicContext = Boolean(appState.grade && topic);
-      btn.classList.toggle('hidden', !hasTopicContext);
+      var show = hasTopicContext;
+      btn.classList.toggle('hidden', !show);
+      btn.classList.toggle('server-cache-admin-visible', true);
+      btn.setAttribute('aria-hidden', show ? 'false' : 'true');
+      btn.tabIndex = show ? 0 : -1;
       btn.disabled = Boolean(btn.dataset.clearing === '1');
     }
 
     async function clearTopicProseArchiveFromServer() {
+      if (!isServerCacheAdminUser()) {
+        console.warn('[waldrof] clear_topic_prose blocked — unauthorized user');
+        return;
+      }
       var topic = String(appState.topic || document.getElementById('topic-input') && document.getElementById('topic-input').value || '').trim();
       var gradeId = appState.grade;
       if (!topic || !gradeId) {
@@ -21736,9 +21824,7 @@
       // delegation (registered at the top of bindEvents) — no per-button binding.
 
       bindWizardNavClick(document.getElementById('btn-restart'), function () { startNewResearch(); });
-      bindWizardNavClick(document.getElementById('btn-clear-topic-prose-server'), function () {
-        clearTopicProseArchiveFromServer();
-      });
+      updateClearTopicProseButtonVisibility();
 
       initGlobalEnterNavigation();
       ensurePedagogySuggestionEvents();
@@ -21874,6 +21960,7 @@
       if (typeof WaldorfAuth !== 'undefined') {
         var didSessionScrollReset = false;
         WaldorfAuth.subscribe(function (authState) {
+          updateClearTopicProseButtonVisibility();
           if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
           if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
