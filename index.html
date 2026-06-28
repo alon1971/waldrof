@@ -12321,34 +12321,108 @@
 
     var unifiedWordExportInFlight = false;
 
+    // Build a small title block (topic + grade) for exported documents.
+    function buildExportHeadingHtml() {
+      var parts = [];
+      try {
+        var g = GRADES.find(function (x) { return x.id === appState.grade; });
+        var topicTitle = (appState.topic || '').trim();
+        parts.push('<h1>' + escapeHtml(topicTitle || appState.gradeLabel || t('tab_narrative')) + '</h1>');
+        if (appState.gradeLabel) {
+          parts.push('<p>' + escapeHtml(t('export_doc_grade_line', { grade: appState.gradeLabel, age: g ? g.age : '' })) + '</p>');
+        }
+      } catch (headErr) { /* heading is best-effort only */ }
+      return parts.join('\n');
+    }
+
+    /**
+     * Layout-agnostic: return whatever content container is currently rendered on
+     * screen, regardless of which tab/view is active. Pure DOM inspection — it makes
+     * NO assumptions about inner element shapes, link formats, or class names that
+     * the prose/citation formatters might change, so it can never crash the export.
+     */
+    function findActiveExportContainer() {
+      function visible(el) {
+        if (!el) return false;
+        if (el.classList && el.classList.contains('hidden')) return false;
+        if (el.hasAttribute && el.hasAttribute('hidden')) return false;
+        if (el.offsetParent === null && (!el.getClientRects || el.getClientRects().length === 0)) return false;
+        return (el.textContent || '').replace(/\s+/g, ' ').trim().length >= 12;
+      }
+      // Richest structured roots first, then broad view containers.
+      var ids = [
+        'phase-c-unified-root', 'phase-c-narrative-root', 'panel-narrative',
+        'grade-insights-body', 'grade-insights-panel',
+        'web-research-result', 'general-search-results', 'general-search-view'
+      ];
+      for (var i = 0; i < ids.length; i++) {
+        var el = document.getElementById(ids[i]);
+        if (visible(el)) return el;
+      }
+      var panels = document.querySelectorAll('#workspace .product-tab-panel, .tab-panel');
+      for (var j = 0; j < panels.length; j++) {
+        if (visible(panels[j])) return panels[j];
+      }
+      try {
+        var step = document.getElementById('step-' + (appState && appState.step ? appState.step : 1));
+        if (visible(step)) return step;
+      } catch (stepErr) { /* ignore */ }
+      return null;
+    }
+
     async function downloadUnifiedTopicDocx() {
       if (unifiedWordExportInFlight) return;
       unifiedWordExportInFlight = true;
+      var btn = document.getElementById('btn-phase-c-export-word');
+      var label = btn ? btn.querySelector('.phase-c-unified-export-label') : null;
+      var navBtns = document.querySelectorAll('[data-pedagogy-export]');
       try {
+        // ---- 1) Gather content — fully fault-isolated & layout-agnostic ----
+        // Each collector runs in its own try/catch so a failure in one (e.g. when
+        // prose/link formatting changes the DOM) never aborts the whole export.
         var html = '';
-        try {
-          html = scrapeVisibleViewportExportHtml() || collectUnifiedTopicExportHtml() || '';
-        } catch (collectErr) {
-          console.error('[word-export] collect failed', collectErr);
-          showAppToast(t('export_doc_error') + ': ' + (collectErr.message || String(collectErr)), 'error');
-          return;
+        var collectors = [
+          function () { return scrapeVisibleViewportExportHtml(); },
+          function () { return collectUnifiedTopicExportHtml(); },
+          function () {
+            var preview = collectPedagogySummaryDocumentData();
+            return preview ? buildPedagogyExportHtml(preview) : '';
+          }
+        ];
+        for (var ci = 0; ci < collectors.length && !html.trim(); ci++) {
+          try {
+            var out = collectors[ci]();
+            if (out && String(out).trim()) html = String(out);
+          } catch (cErr) {
+            console.error('[word-export] collector #' + ci + ' failed (continuing)', cErr);
+          }
         }
+
+        // Universal last-resort fallback: grab the raw HTML of the currently visible
+        // container. No dependency on specific tags/links, so it always yields a doc.
         if (!html.trim()) {
           try {
-            var preview = collectPedagogySummaryDocumentData();
-            if (preview) html = buildPedagogyExportHtml(preview) || '';
-          } catch (fallbackErr) { console.error('[word-export] fallback collect failed', fallbackErr); }
+            var activeEl = findActiveExportContainer();
+            if (activeEl) {
+              var clone = cloneDomForWordExport(activeEl) || activeEl;
+              var inner = ((clone && clone.innerHTML) || '').trim();
+              if (inner) html = buildExportHeadingHtml() + '<div class="ai-block" dir="rtl">' + inner + '</div>';
+            }
+          } catch (scrapeErr) {
+            console.error('[word-export] active-container fallback failed', scrapeErr);
+          }
         }
+
         if (!html.trim()) {
           showAppToast(t('export_doc_need_content'));
           return;
         }
+
+        // ---- 2) Paywall / download-limit gate (shows its own modal) ----
         try { assertWordDownloadForExport(); }
         catch (gateErr) { if (gateErr && gateErr.code === 'WORD_DOWNLOAD_LIMIT') return; }
 
-        var btn = document.getElementById('btn-phase-c-export-word');
-        var label = btn ? btn.querySelector('.phase-c-unified-export-label') : null;
-        var navBtns = document.querySelectorAll('[data-pedagogy-export]');
+        // ---- 3) Build the .doc and trigger the browser download ----
         if (btn) btn.disabled = true;
         navBtns.forEach(function (b) { b.disabled = true; });
         if (label) label.textContent = t('export_doc_generating');
@@ -12364,16 +12438,19 @@
           a.click();
           document.body.removeChild(a);
           setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
-          await trackWordDownloadAfterExport();
-        } catch (err) {
-          if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
-          console.error('Unified topic DOC export failed:', err);
-          showAppToast(t('export_doc_error') + ': ' + (err.message || String(err)), 'error');
+          // Fire-and-forget usage tracking — must never block or break the download.
+          Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
         } finally {
           if (btn) btn.disabled = false;
           navBtns.forEach(function (b) { b.disabled = false; });
           if (label) label.textContent = t('general_search_export_word');
         }
+      } catch (err) {
+        // Absolute safety net: surface every failure as a toast, never freeze the UI.
+        console.error('Unified topic DOC export failed:', err);
+        try {
+          showAppToast((t('export_doc_error') || 'Export failed') + ': ' + (err && err.message ? err.message : String(err)), 'error');
+        } catch (toastErr) { /* ignore */ }
       } finally {
         unifiedWordExportInFlight = false;
       }
