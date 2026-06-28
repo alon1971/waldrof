@@ -1750,7 +1750,7 @@
   }
 
   var CONTACT_EMAIL = 'waldorfplanner@gmail.com';
-  var MAKE_CONTACT_WEBHOOK_URL = 'https://hook.eu1.make.com/YOUR_MAKE_WEBHOOK_HERE';
+  var MAKE_CONTACT_WEBHOOK_URL = 'https://hook.eu1.make.com/6ttquerf5d1ethsvbrih0h5o3yex22zu';
 
   function splitDisplayName(displayName) {
     var parts = String(displayName || '').trim().split(/\s+/).filter(Boolean);
@@ -1787,6 +1787,11 @@
 
   function hideContactModal() {
     var el = document.getElementById('contact-modal');
+    var submitBtn = document.getElementById('contact-form-submit');
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = t('contact_submit') || 'שליחה';
+    }
     if (el) {
       el.classList.add('hidden');
       el.setAttribute('aria-hidden', 'true');
@@ -1874,7 +1879,6 @@
         if (emailEl) emailEl.value = '';
         if (phoneEl) phoneEl.value = '';
         if (messageEl) messageEl.value = '';
-        setSubmitting(false);
         setTimeout(function () {
           hideContactModal();
         }, 1500);
