@@ -994,6 +994,7 @@
         align-items: stretch;
       }
       #btn-restart { width: 100%; justify-content: center; }
+      #btn-clear-topic-prose-server { width: 100%; justify-content: center; }
       .catalog-open-upload {
         display: flex;
         width: 100%;
@@ -4509,6 +4510,9 @@
           <span class="text-walnut/40 mx-0.5" aria-hidden="true">|</span>
           <button type="button" id="ws-crumb-community" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_community">מאגר קהילתי</button>
         </nav>
+        <button type="button" id="btn-clear-topic-prose-server" class="touch-btn text-sm bg-terracotta/10 text-terracotta border border-terracotta/30 px-3 py-2 rounded-lg hover:bg-terracotta/15 shrink-0 hidden" title="מחיקת שלבי ב׳ ו-ג׳ מהשרת הגלובלי">
+          <i class="fa-solid fa-trash-can icon-inline"></i> <span>מחק שלבים ב׳–ג׳ מהשרת</span>
+        </button>
         <button type="button" id="btn-restart" class="touch-btn text-sm bg-burgundy/10 text-burgundy border border-burgundy/25 px-3 py-2 rounded-lg hover:bg-burgundy/15 shrink-0">
           <i class="fa-solid fa-rotate-right icon-inline"></i> <span data-i18n="btn_restart">מחקר חדש</span>
         </button>
@@ -17162,6 +17166,88 @@
       requestAnimationFrame(syncProductTabsStickyLayout);
       renderWorkspaceBreadcrumb();
       updateTopNavButtons();
+      updateClearTopicProseButtonVisibility();
+    }
+
+    function updateClearTopicProseButtonVisibility() {
+      var btn = document.getElementById('btn-clear-topic-prose-server');
+      if (!btn) return;
+      var topic = String(appState.topic || '').trim();
+      var hasTopicContext = Boolean(appState.grade && topic);
+      btn.classList.toggle('hidden', !hasTopicContext);
+      btn.disabled = Boolean(btn.dataset.clearing === '1');
+    }
+
+    async function clearTopicProseArchiveFromServer() {
+      var topic = String(appState.topic || document.getElementById('topic-input') && document.getElementById('topic-input').value || '').trim();
+      var gradeId = appState.grade;
+      if (!topic || !gradeId) {
+        alert(isEnglish()
+          ? 'Select a grade and topic before clearing server archive.'
+          : 'בחרו כיתה ונושא לפני מחיקת הארכיון מהשרת.');
+        return;
+      }
+      if (!confirm('האם אתה בטוח שברצונך למחוק את שלבי ב\' ו-ג\' מהשרת עבור כל המורים?')) return;
+
+      var btn = document.getElementById('btn-clear-topic-prose-server');
+      if (btn) {
+        btn.dataset.clearing = '1';
+        btn.disabled = true;
+      }
+
+      try {
+        var response = await invokePureApi(AI_GENERATE_ENDPOINT, {
+          phase: 'clear_topic_prose',
+          userInitiated: true,
+          gradeId: gradeId,
+          currentGrade: gradeId,
+          gradeLabel: appState.gradeLabel || '',
+          topic: topic,
+        });
+        var deletedCount = response && response.data && typeof response.data.deleted === 'number'
+          ? response.data.deleted
+          : 0;
+
+        clearPersistedLessonSnapshot();
+        appState.purePhaseC = null;
+        appState.webResearch = null;
+        appState.topicResearchCompleted = false;
+        appState.aiGeneratedPlan = null;
+        appState.activePlan = null;
+        appState.lessonCacheKey = '';
+        appState.lessonFromArchive = false;
+        appState._visualGallerySessionKey = '';
+        resetVisualGalleryState();
+        resetSummarySession();
+        resetArchiveSearchFlowState();
+        invalidateProductTabRenders();
+        phaseCClearContainers();
+
+        var webResult = document.getElementById('web-research-result');
+        if (webResult) { webResult.classList.add('hidden'); webResult.innerHTML = ''; }
+        var topicSlot = document.getElementById('topic-community-slot');
+        if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
+        var theoryEl = document.getElementById('theoretical-content');
+        if (theoryEl) phaseCWipeContainer(theoryEl);
+        var inspEl = document.getElementById('inspiration-content');
+        if (inspEl) phaseCWipeContainer(inspEl);
+
+        updateTopicResearchButton();
+        updateWorkspaceChrome();
+        renderStepProgress();
+
+        alert(isEnglish()
+          ? ('Server archive cleared for all teachers (' + deletedCount + ' record(s) removed). Step A grade data was preserved. You can regenerate Steps B and C.')
+          : ('הארכיון נמחק מהשרת עבור כל המורים (' + deletedCount + ' רשומות). שלב א\' (כיתה) נשמר. ניתן להריץ מחדש את שלבים ב\' ו-ג\'.'));
+      } catch (err) {
+        alert((isEnglish() ? 'Server delete failed: ' : 'מחיקה מהשרת נכשלה: ') + (err && err.message ? err.message : String(err)));
+      } finally {
+        if (btn) {
+          delete btn.dataset.clearing;
+          btn.disabled = false;
+        }
+        updateClearTopicProseButtonVisibility();
+      }
     }
 
     function renderStepProgress() {
@@ -21531,6 +21617,9 @@
       // delegation (registered at the top of bindEvents) — no per-button binding.
 
       bindWizardNavClick(document.getElementById('btn-restart'), function () { startNewResearch(); });
+      bindWizardNavClick(document.getElementById('btn-clear-topic-prose-server'), function () {
+        clearTopicProseArchiveFromServer();
+      });
 
       initGlobalEnterNavigation();
       ensurePedagogySuggestionEvents();

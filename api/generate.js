@@ -597,6 +597,10 @@ function isDecoupledGenerationPhase(body) {
   return phase === 'grade' || phase === 'topic';
 }
 
+function isClearTopicProsePhase(body) {
+  return Boolean(body && body.phase === 'clear_topic_prose');
+}
+
 function stripCurriculumFromTopicPayload(data) {
   if (!data || typeof data !== 'object') return data;
   let cloned;
@@ -2745,8 +2749,9 @@ async function handleGeneratePost(parsedBody, requestContext) {
     cacheDb.normalizeGradeCacheRequest(parsedBody);
   }
   const archiveOnlyLookup = isArchiveOnlyLookup(parsedBody);
+  const clearTopicProse = isClearTopicProsePhase(parsedBody);
   const apiKey = resolveApiKey(parsedBody);
-  if (!apiKey && !archiveOnlyLookup && !isGeminiEnrichmentPhase(parsedBody)) {
+  if (!apiKey && !archiveOnlyLookup && !isGeminiEnrichmentPhase(parsedBody) && !clearTopicProse) {
     const err = new Error(missingKeyError(parsedBody));
     err.statusCode = 500;
     throw err;
@@ -2776,7 +2781,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
     console.log('[generate] PRO user — rate limits bypassed for', proEmail);
   }
 
-  if (typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
+  if (!clearTopicProse && typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
     try {
       const cacheWillHit = await probeWouldServeFromCache(parsedBody);
       if (!cacheWillHit) {
@@ -2799,6 +2804,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
     !result.meta.fromCache &&
     !result.meta.communityRouted &&
     !result.meta.needsArchiveConfirmation &&
+    !clearTopicProse &&
     (result.data != null || result.meta.asyncAccepted);
 
   if (billable && typeof subscriptionApi.recordLiveSearchFromRequest === 'function') {
@@ -2910,6 +2916,33 @@ async function executeGenerate(body, apiKey, requestContext) {
     throw err;
   }
   normalizeRequestPhase(body);
+
+  if (isClearTopicProsePhase(body)) {
+    const gradeId = String(body.gradeId || body.currentGrade || '').trim();
+    const topic = String(body.topic || '').trim();
+    if (!gradeId || !topic) {
+      const err = new Error('clear_topic_prose requires gradeId and topic');
+      err.statusCode = 400;
+      throw err;
+    }
+    const wipeResult = await cacheDb.deleteTopicProseArchive(gradeId, topic, {
+      gradeLabel: body.gradeLabel || body.grade || '',
+    });
+    return {
+      data: {
+        ok: true,
+        deleted: wipeResult.deleted,
+        deletedKeys: wipeResult.deletedKeys || [],
+        preservedGrade: wipeResult.preservedGrade !== false,
+      },
+      meta: {
+        source: 'clear_topic_prose',
+        fromCache: false,
+        gradeId: gradeId,
+        topic: topic,
+      },
+    };
+  }
   pedagogicalScope.normalizePedagogicalScopeOverride(body);
   if (body.phase === 'pedagogy_deep_dive') {
     normalizeExpansionRequest(body);
@@ -3318,7 +3351,7 @@ async function legacyHandler(req, res) {
   }
 
   const apiKey = resolveApiKey(body);
-  if (!apiKey && !isArchiveOnlyLookup(body) && !isGeminiEnrichmentPhase(body)) {
+  if (!apiKey && !isArchiveOnlyLookup(body) && !isGeminiEnrichmentPhase(body) && !isClearTopicProsePhase(body)) {
     return sendJson(res, 500, { error: missingKeyError(body) });
   }
 
@@ -3363,7 +3396,7 @@ async function fetchHandler(request) {
   }
 
   const apiKey = resolveApiKey(body);
-  if (!apiKey && !isArchiveOnlyLookup(body) && !isGeminiEnrichmentPhase(body)) {
+  if (!apiKey && !isArchiveOnlyLookup(body) && !isGeminiEnrichmentPhase(body) && !isClearTopicProsePhase(body)) {
     return Response.json({ error: missingKeyError(body) }, { status: 500, headers });
   }
 

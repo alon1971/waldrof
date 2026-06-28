@@ -2014,6 +2014,146 @@ async function deleteTopicMasterCache(gradeId, topic) {
   return deleted;
 }
 
+/** Phases holding Step B/C prose — grade (Step A) is intentionally excluded. */
+const TOPIC_PROSE_ARCHIVE_PHASES = [
+  'topic',
+  TOPIC_MASTER_PHASE,
+  RAW_PERPLEXITY_PHASE,
+  'pedagogy_deep_dive',
+  'archive_summary',
+];
+
+function topicProseRowMatchesTarget(row, topic) {
+  const topicStr = String(topic || '').trim();
+  if (!row || !topicStr) return false;
+  const rowTopic = String(row.topic || '').trim();
+  const rowQuery = String(row.query_text || '').trim();
+  if (rowTopic === topicStr || rowQuery === topicStr) return true;
+  const norm = normalizeTopicQuery(topicStr);
+  if (norm && (rowTopic === norm || rowQuery === norm)) return true;
+  return false;
+}
+
+async function fetchTopicProseArchiveRows(gradeId, topic) {
+  if (!isSupabaseCacheEnabled()) return [];
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr) return [];
+
+  const params = new URLSearchParams();
+  params.set('select', 'cache_key,phase,grade_id,topic,query_text');
+  params.set('grade_id', 'eq.' + gid);
+  params.set('phase', 'in.(' + TOPIC_PROSE_ARCHIVE_PHASES.join(',') + ')');
+  params.set('order', 'created_at.desc');
+  params.set('limit', '120');
+
+  const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), { method: 'GET' });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(function (row) {
+    return row && row.phase !== 'grade' && topicProseRowMatchesTarget(row, topicStr);
+  });
+}
+
+function collectTopicProseCacheKeys(gradeId, topic, options) {
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  const keys = new Set();
+  if (!gid || !topicStr) return keys;
+
+  const opts = options && typeof options === 'object' ? options : {};
+  const gradeLabel = opts.gradeLabel || '';
+
+  const topicBody = buildTopicCacheBody({
+    gradeId: gid,
+    currentGrade: gid,
+    topic: topicStr,
+    gradeLabel: gradeLabel,
+  });
+  if (topicBody) {
+    const key = buildCacheKey(topicBody);
+    if (key) keys.add(key);
+  }
+
+  const masterBody = buildTopicMasterCacheBody(gid, gradeLabel, topicStr);
+  if (masterBody) {
+    const key = buildCacheKey(masterBody);
+    if (key) keys.add(key);
+  }
+
+  const rawBody = buildRawPerplexityCacheBody({
+    phase: 'topic',
+    gradeId: gid,
+    currentGrade: gid,
+    topic: topicStr,
+    gradeLabel: gradeLabel,
+  });
+  if (rawBody) {
+    const key = buildCacheKey(rawBody);
+    if (key) keys.add(key);
+  }
+
+  ['pedagogy_deep_dive', 'archive_summary'].forEach(function (phase) {
+    const expBody = {
+      phase: phase,
+      gradeId: gid,
+      currentGrade: gid,
+      topic: topicStr,
+      gradeLabel: gradeLabel,
+      expansionScope: 'topic',
+    };
+    const key = buildCacheKey(expBody);
+    if (key) keys.add(key);
+  });
+
+  return keys;
+}
+
+/**
+ * Delete global archived Step B + Step C prose for a grade/topic pair.
+ * Preserves grade (Step A) cached_results rows.
+ */
+async function deleteTopicProseArchive(gradeId, topic, options) {
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr) {
+    return { deleted: 0, deletedKeys: [], preservedGrade: true };
+  }
+
+  const keysToDelete = collectTopicProseCacheKeys(gid, topicStr, options);
+
+  try {
+    const rows = await fetchTopicProseArchiveRows(gid, topicStr);
+    rows.forEach(function (row) {
+      if (row && row.cache_key && row.phase !== 'grade') {
+        keysToDelete.add(row.cache_key);
+      }
+    });
+  } catch (sweepErr) {
+    console.warn('[cached_results] topic prose archive sweep failed:', sweepErr.message || sweepErr);
+  }
+
+  const deletedKeys = [];
+  for (const key of keysToDelete) {
+    const ok = await deleteCachedRowByKey(key);
+    if (ok) deletedKeys.push(key);
+  }
+
+  if (deletedKeys.length) {
+    console.log(
+      '[cached_results] deleteTopicProseArchive',
+      gid,
+      topicStr.slice(0, 40),
+      'removed',
+      deletedKeys.length,
+      'key(s)'
+    );
+  }
+
+  return { deleted: deletedKeys.length, deletedKeys: deletedKeys, preservedGrade: true };
+}
+
 /** Persist unified Step B→C master JSON under grade_id + normalized topic. */
 async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
   const gid = String(gradeId || '').trim();
@@ -3532,6 +3672,8 @@ module.exports = {
   deleteCachedRowByKey,
   deleteRawPerplexityCache,
   deleteTopicMasterCache,
+  deleteTopicProseArchive,
+  TOPIC_PROSE_ARCHIVE_PHASES,
   purgeCorruptedCachedRow,
   ensureJsonObjectForStorage,
   readAndValidateCachedResultData,
