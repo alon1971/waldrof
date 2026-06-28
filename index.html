@@ -4457,7 +4457,7 @@
       <section id="panel-narrative" class="tab-panel product-tab-panel hidden" role="region" aria-labelledby="phase-c-unified-heading" hidden>
         <div class="phase-c-unified-header mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 id="phase-c-unified-heading" class="app-page-title font-display font-bold text-burgundy m-0" data-i18n="tab_narrative">מידע והשראה</h2>
-          <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export aria-label="הורד למסמך וורד">
+          <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" onclick="downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד">
             <i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true"></i>
             <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
           </button>
@@ -5344,7 +5344,6 @@
         String(text || '')
           .replace(/^(?:מקורות|Sources|ביבליוגרפיה|המלצות\s+לקריאה|Recommended\s+Reading|Further\s+Reading|inspirationReferences)\s*:.*$/gim, '')
           .replace(/(?:^|\n)(?:ספרים?\s+מומלצים?|מאמרים?\s+מומלצים?|אתרים?\s+מומלצים?).*$/gim, '')
-          .replace(/\[\d{1,3}\]/g, '')
           .replace(/\bhttps?:\/\/\S+/gi, '')
           .replace(/\bwww\.\S+/gi, '')
           .replace(/\s{2,}/g, ' ')
@@ -5359,7 +5358,6 @@
           raw
             .replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1')
             .replace(/https?:\/\/[^\s<>"']+/gi, '')
-            .replace(/\[\d{1,3}\]/g, '')
         );
       }
       return stripExpansionSourceNoiseClient(
@@ -8723,8 +8721,10 @@
         }
       });
       var set = Object.create(null);
-      citations.forEach(function (url) {
-        var clean = String(url || '').trim();
+      citations.forEach(function (entry) {
+        var clean = typeof entry === 'string'
+          ? String(entry || '').trim()
+          : String((entry && (entry.url || entry.link || entry.href)) || '').trim();
         if (!clean || !/^https?:\/\//i.test(clean)) return;
         try {
           var parsed = new URL(clean);
@@ -8746,8 +8746,10 @@
       }
       var seen = Object.create(null);
       var out = [];
-      citations.forEach(function (url) {
-        var clean = String(url || '').trim();
+      citations.forEach(function (entry) {
+        var clean = typeof entry === 'string'
+          ? String(entry || '').trim()
+          : String((entry && (entry.url || entry.link || entry.href)) || '').trim();
         if (!clean || !/^https?:\/\//i.test(clean) || seen[clean]) return;
         seen[clean] = true;
         out.push(clean);
@@ -10759,6 +10761,11 @@
       return String(text || '').replace(/\[\d{1,3}\]/g, '').replace(/[^\S\n]{2,}/g, ' ').trim();
     }
 
+    /** Phase C narrative — preserve [N] markers for client-side Perplexity citation linkify. */
+    function preservePhaseCCitationMarkers(text) {
+      return String(text || '').replace(/[^\S\n]{2,}/g, ' ').trim();
+    }
+
     function phaseCWipeContainer(container) {
       if (!container) return;
       container.innerHTML = '';
@@ -10886,7 +10893,7 @@
     }
 
     function sanitizePhaseCProseForRender(text) {
-      var out = stripPhaseBReferenceBrackets(String(text || ''));
+      var out = preservePhaseCCitationMarkers(String(text || ''));
       out = stripPercentEncodedUrlGarbageClient(out);
       if (hasDisallowedForeignScriptClient(out)) {
         out = out.split(/\n\n+/).map(function (para) {
@@ -10967,12 +10974,17 @@
       var narrativeOnly = isPurePhaseCMode();
       var hasMarkdownLinks = /\[[^\]]+\]\(\s*https?:\/\//i.test(s);
       if (hasMarkdownLinks || !looksLikeAiHtml(s)) {
-        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s, { narrativeOnly: narrativeOnly }) + '</div>';
+        var markdownHtml = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(s, { narrativeOnly: narrativeOnly }) + '</div>';
+        if (isPurePhaseCMode()) markdownHtml = linkifyExpansionHtml(markdownHtml);
+        return markdownHtml;
       }
       if (narrativeOnly) {
-        return '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(s), { narrativeOnly: true }) + '</div>';
+        var narrativeHtml = '<div class="prose-ai leading-relaxed">' + formatAiMarkdown(stripHtmlText(s), { narrativeOnly: true }) + '</div>';
+        return linkifyExpansionHtml(narrativeHtml);
       }
-      return '<div class="prose-ai leading-relaxed">' + ensureAiHtml(s) + '</div>';
+      var rendered = '<div class="prose-ai leading-relaxed">' + ensureAiHtml(s) + '</div>';
+      if (isPurePhaseCMode()) rendered = linkifyExpansionHtml(rendered);
+      return rendered;
     }
 
     function isCompiledPedagogicalHtml(text) {
@@ -11920,16 +11932,7 @@
     }
 
     function ensureTopicWordExportDelegation() {
-      if (document.documentElement.dataset.topicWordExportBound) return;
-      document.documentElement.dataset.topicWordExportBound = '1';
-      document.addEventListener('click', function (e) {
-        var btn = e.target && e.target.closest
-          ? e.target.closest('[data-unified-topic-export]')
-          : null;
-        if (!btn || btn.disabled) return;
-        e.preventDefault();
-        downloadUnifiedTopicDocx();
-      });
+      /* #btn-phase-c-export-word uses native onclick="downloadUnifiedTopicDocx()" — no delegation needed. */
     }
 
     function ensurePedagogyWordExportDelegation() {
@@ -11960,48 +11963,64 @@
     }
 
     async function downloadUnifiedTopicDocx() {
-      var html = collectUnifiedTopicExportHtml();
-      if (!html || !html.trim()) {
-        var preview = collectPedagogySummaryDocumentData();
-        if (preview) html = buildPedagogyExportHtml(preview);
-      }
-      if (!html || !html.trim()) {
-        alert(t('export_doc_need_phase'));
-        return;
-      }
+      // Fully defensive: this is invoked from a native inline onclick, where any
+      // thrown error would otherwise die silently and look like a "dead" button.
+      // Every failure path now surfaces a visible message instead.
       try {
-        assertWordDownloadForExport();
+        var html = '';
+        try { html = collectUnifiedTopicExportHtml() || ''; }
+        catch (collectErr) { console.error('[word-export] collect failed', collectErr); }
+
+        if (!html.trim()) {
+          try {
+            var preview = collectPedagogySummaryDocumentData();
+            if (preview) html = buildPedagogyExportHtml(preview) || '';
+          } catch (fallbackErr) { console.error('[word-export] fallback collect failed', fallbackErr); }
+        }
+        if (!html.trim()) {
+          var richBody = document.getElementById('phase-c-rich-body');
+          if (richBody && richBody.innerHTML.trim()) html = '<div dir="rtl">' + richBody.innerHTML + '</div>';
+        }
+        if (!html.trim()) {
+          alert(t('export_doc_need_phase'));
+          return;
+        }
+
+        // Subscription/limit gate shows its own auth/paywall modal when it blocks.
+        try { assertWordDownloadForExport(); }
+        catch (gateErr) { if (gateErr && gateErr.code === 'WORD_DOWNLOAD_LIMIT') return; }
+
+        var btn = document.getElementById('btn-phase-c-export-word');
+        var label = btn ? btn.querySelector('.phase-c-unified-export-label') : null;
+        var navBtns = document.querySelectorAll('[data-pedagogy-export]');
+        if (btn) btn.disabled = true;
+        navBtns.forEach(function (b) { b.disabled = true; });
+        if (label) label.textContent = t('export_doc_generating');
+        try {
+          var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
+          var filename = 'waldorf-topic.doc';
+          try { filename = buildPedagogyDocxFilename() || filename; } catch (fnErr) {}
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+          Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+        } finally {
+          if (btn) btn.disabled = false;
+          navBtns.forEach(function (b) { b.disabled = false; });
+          if (label) label.textContent = t('general_search_export_word');
+        }
       } catch (err) {
-        return;
-      }
-      var btn = document.getElementById('btn-phase-c-export-word');
-      var label = btn ? btn.querySelector('.phase-c-unified-export-label') : null;
-      var navBtns = document.querySelectorAll('[data-pedagogy-export]');
-      if (btn) btn.disabled = true;
-      navBtns.forEach(function (b) { b.disabled = true; });
-      if (label) label.textContent = t('export_doc_generating');
-      try {
-        var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-        var filename = buildPedagogyDocxFilename();
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
-        await trackWordDownloadAfterExport();
-      } catch (err) {
-        if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
         console.error('Unified topic DOC export failed:', err);
-        alert(t('export_doc_error') + ': ' + (err.message || String(err)));
-      } finally {
-        if (btn) btn.disabled = false;
-        navBtns.forEach(function (b) { b.disabled = false; });
-        if (label) label.textContent = t('general_search_export_word');
+        var msg = (typeof t === 'function' ? t('export_doc_error') : 'Export failed');
+        alert(msg + ': ' + (err && err.message ? err.message : String(err)));
       }
     }
+    window.downloadUnifiedTopicDocx = downloadUnifiedTopicDocx;
 
     async function downloadPedagogySummaryDocx() {
       return downloadUnifiedTopicDocx();
@@ -12025,13 +12044,8 @@
       panelBtn.classList.remove('hidden');
       panelBtn.disabled = false;
       panelBtn.type = 'button';
-      if (!panelBtn.dataset.exportBound) {
-        panelBtn.dataset.exportBound = '1';
-        panelBtn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          downloadUnifiedTopicDocx();
-        });
+      if (!panelBtn.getAttribute('onclick')) {
+        panelBtn.setAttribute('onclick', 'downloadUnifiedTopicDocx()');
       }
     }
 
@@ -15406,7 +15420,10 @@
       }
 
       function inlineBody(body) {
-        return narrativeOnly ? escapeHtml(stripStrayMarkdownHashes(stripExpansionSourceNoiseClient(body))) : renderMarkdownInline(body);
+        if (narrativeOnly) {
+          return escapeHtml(stripStrayMarkdownHashes(String(body || '')));
+        }
+        return renderMarkdownInline(body);
       }
 
       lines.forEach(function (rawLine) {
@@ -15639,9 +15656,12 @@
         raw = stripExpansionSourceNoiseClient(raw);
       }
       if (isCompiledPedagogicalHtml(raw)) {
-        return '<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>';
+        var html = '<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>';
+      } else {
+        html = formatPerplexityRawText(raw, { prepared: true });
       }
-      return formatPerplexityRawText(raw, { prepared: true });
+      if (isPurePhaseCMode() && html) html = linkifyExpansionHtml(html);
+      return html;
     }
 
     function renderPureTextBlock(text) {
@@ -15707,16 +15727,24 @@
       var list = (Array.isArray(items) ? items : []).filter(function (item) {
         var url = String(item.url || item.link || item.href || '').trim();
         if (!url || !/^https?:\/\//i.test(url)) return false;
-        if (!passesPhaseCBoxASourceFilter(item)) return false;
         if (opts.blockPinterest && isPinterestUrl(url)) return false;
-        return !!sanitizeExternalLinkUrl(url);
+        var href = sanitizeExternalLinkUrl(url);
+        if (!href) return false;
+        if (isVerifiedLiveCitationUrlClient(href)) return true;
+        if (!passesPhaseCBoxASourceFilter(item)) return false;
+        return true;
       });
       if (!list.length) return '';
+      var linkClass = opts.linkClass || 'prose-source-link text-green-700 underline font-bold hover:text-green-800';
       return '<ul class="pure-card-body i18n-list pure-links-grid w-full">' + list.map(function (item) {
         var url = String(item.url || item.link || item.href || '').trim();
         var title = String(item.title || item.name || url).trim();
-        if (!url) return '<li>' + escapeHtml(title) + '</li>';
-        return '<li>' + buildPhaseCTabAnchorHtml(url, title) + '</li>';
+        var href = sanitizeExternalLinkUrl(url);
+        if (!href) return '<li>' + escapeHtml(title) + '</li>';
+        var display = phaseCLinkLabel(title, href);
+        if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
+        return '<li><a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="' + linkClass + '">' +
+          escapeHtml(display) + '</a></li>';
       }).join('') + '</ul>';
     }
 
@@ -15933,8 +15961,8 @@
           if (href) pushLink(item.title || item.name, href);
         });
       }
-      getLiveCitationList().forEach(function (url) {
-        pushLink(resolveFriendlyLinkDisplayLabel('', url), url);
+      getLiveCitationList().forEach(function (url, idx) {
+        pushLink(resolveFriendlyLinkDisplayLabel('', url) || ('מקור ' + (idx + 1)), url);
       });
       return out;
     }
@@ -15944,7 +15972,10 @@
       if (!listEl) return;
       phaseCWipeContainer(listEl);
       var links = collectPhaseCResourcesLinks(data);
-      var linksHtml = renderPureLinksBlock(links, { blockPinterest: true });
+      var linksHtml = renderPureLinksBlock(links, {
+        blockPinterest: true,
+        linkClass: 'text-blue-600 underline hover:text-blue-800',
+      });
       if (linksHtml) {
         listEl.innerHTML = linksHtml;
       } else {
@@ -18123,6 +18154,7 @@
       walk(data.pedagogical_resources);
       walk(data.recommended_reading);
       walk(data.pinterest_links);
+      walk(data._liveCitations);
       var bib = data.theory && data.theory.bibliography;
       if (bib) {
         walk(bib.websites);
