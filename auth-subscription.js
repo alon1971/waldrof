@@ -1749,7 +1749,6 @@
     }
   }
 
-  var CONTACT_EMAIL = 'waldorfplanner@gmail.com';
   var MAKE_CONTACT_WEBHOOK_URL = 'https://hook.eu1.make.com/6ttquerf5d1ethsvbrih0h5o3yex22zu';
 
   function splitDisplayName(displayName) {
@@ -1808,13 +1807,6 @@
   }
 
   function bindContactOwnerLinks() {
-    var emailLink = document.getElementById('contact-owner-email-link');
-    if (emailLink) {
-      emailLink.setAttribute('href', 'mailto:' + CONTACT_EMAIL);
-      emailLink.addEventListener('click', function (e) {
-        e.stopPropagation();
-      });
-    }
     var phoneLink = document.getElementById('contact-owner-phone-link');
     if (phoneLink) {
       phoneLink.setAttribute('href', 'tel:0544548078');
