@@ -2181,8 +2181,20 @@ function isNonRetriableApiClientError(err) {
     || /invalid argument|INVALID_ARGUMENT|bad request/i.test(msg);
 }
 
+/**
+ * Network / abort / idle-timeout failures must NEVER trigger an automatic re-call to
+ * Perplexity — the original request was likely already billed and re-issuing it doubles
+ * cost and can chain into multi-minute hangs (Render 300s route timeout). Only genuine
+ * model parse/validation issues (handled separately) are allowed a single bounded retry.
+ */
+function isNetworkOrAbortError(err) {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /\baborted\b|\babort\b|timeout|fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR|חוסר תגובה|שגיאת רשת/i.test(msg);
+}
+
 function isRetriablePerplexityCallError(err) {
   if (isNonRetriableApiClientError(err)) return false;
+  if (isNetworkOrAbortError(err)) return false;
   const msg = err instanceof Error ? err.message : String(err || '');
   return !/API key|unauthorized|GEMINI_API_KEY|PERPLEXITY_API_KEY|not configured|Method not allowed/i.test(msg);
 }

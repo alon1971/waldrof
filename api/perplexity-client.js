@@ -220,6 +220,29 @@ function extractCitations(data) {
   }).filter(Boolean);
 }
 
+/**
+ * Abort / idle-timeout: the request was already in flight (and likely billed) but the
+ * upstream went silent. Retrying just doubles cost and can chain into multi-minute hangs,
+ * so these errors STOP immediately with a clean, non-retriable message.
+ */
+function isAbortOrTimeoutError(msg) {
+  return /\baborted\b|\babort\b|timeout|UND_ERR_(HEADERS_TIMEOUT|BODY_TIMEOUT|CONNECT_TIMEOUT)/i.test(String(msg || ''));
+}
+
+/**
+ * Genuine pre-request connection failure (DNS/refused/reset) where no tokens were produced.
+ * Safe to attempt the https fallback exactly once — never for aborts/timeouts.
+ */
+function isRetriableConnectionError(msg) {
+  if (isAbortOrTimeoutError(msg)) return false;
+  return /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR_SOCKET|network/i.test(String(msg || ''));
+}
+
+/** Friendly, non-retriable error for an aborted/stuck Perplexity request. */
+function abortedPerplexityError() {
+  return new Error('הקריאה ל-Perplexity הופסקה עקב חוסר תגובה (timeout). נסו שוב בעוד רגע.');
+}
+
 async function fetchPerplexityResponse(apiKey, body, useStream, onDelta) {
   const streaming = useStream !== false;
   const requestBody = Object.assign({}, body, { stream: streaming });
@@ -327,10 +350,12 @@ async function callPerplexityChatWithCitations(options) {
     };
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    const isNetwork = /fetch failed|network|timeout|abort|ECONN|ENOTFOUND|UND_ERR/i.test(msg);
-    if (!isNetwork) throw fetchErr;
+    // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
+    if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
+    // Only a genuine connection failure (no tokens produced) gets a single https fallback.
+    if (!isRetriableConnectionError(msg)) throw fetchErr;
 
-    console.warn('[perplexity] fetch failed, retrying via https:', msg);
+    console.warn('[perplexity] connection failed, single https fallback:', msg);
     try {
       const result = await httpsPerplexity(apiKey, body);
       return {
@@ -340,6 +365,7 @@ async function callPerplexityChatWithCitations(options) {
       };
     } catch (httpsErr) {
       const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
+      if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
       throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
     }
   }
@@ -375,15 +401,18 @@ async function callPerplexityChat(options) {
     return result.content;
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    const isNetwork = /fetch failed|network|timeout|abort|ECONN|ENOTFOUND|UND_ERR/i.test(msg);
-    if (!isNetwork) throw fetchErr;
+    // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
+    if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
+    // Only a genuine connection failure (no tokens produced) gets a single https fallback.
+    if (!isRetriableConnectionError(msg)) throw fetchErr;
 
-    console.warn('[perplexity] fetch failed, retrying via https:', msg);
+    console.warn('[perplexity] connection failed, single https fallback:', msg);
     try {
       const result = await httpsPerplexity(apiKey, body);
       return result.content;
     } catch (httpsErr) {
       const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
+      if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
       throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
     }
   }
@@ -413,14 +442,17 @@ async function callPerplexitySearch(options) {
     return await fetchPerplexityResponse(apiKey, body, useStream, onDelta);
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    const isNetwork = /fetch failed|network|timeout|abort|ECONN|ENOTFOUND|UND_ERR/i.test(msg);
-    if (!isNetwork) throw fetchErr;
+    // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
+    if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
+    // Only a genuine connection failure (no tokens produced) gets a single https fallback.
+    if (!isRetriableConnectionError(msg)) throw fetchErr;
 
-    console.warn('[perplexity] search fetch failed, retrying via https:', msg);
+    console.warn('[perplexity] search connection failed, single https fallback:', msg);
     try {
       return await httpsPerplexity(apiKey, body);
     } catch (httpsErr) {
       const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
+      if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
       throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
     }
   }
