@@ -513,7 +513,7 @@ const LANGUAGES = {
     tier_standard_feature_1:     'מנוי אישי למורה',
     tier_standard_feature_2:     'עד 200 חיפושים בחודש',
     tier_standard_feature_3:     'מאגר קהילתי, ארכיון ידע ועוזר פדגוגי',
-    tier_pro_feature_1:          'עד 300 חיפושים והרחבות חיים בחודש',
+    tier_pro_feature_1:          'עד 30 חיפושים והרחבות חיים בחודש',
     tier_pro_feature_2:          'הורדות Word ללא הגבלה',
     tier_pro_feature_3:          'ארכיון, מאגר קהילתי ועוזר דיגיטלי ללא הגבלה',
     tier_school_feature_1:       'חבילה מותאמת לכל צוות ההוראה',
@@ -568,7 +568,7 @@ const LANGUAGES = {
     pricing_cell_price_school_line1: 'פנו אלינו להצעת מחיר',
     pricing_cell_price_school_contact: 'אלון ירושלמי: 054-40548078',
 
-    paywall_search_message:      'רוצה להמשיך לחקור ולגלות עולמות פדגוגיים חדשים? 🌟\nהגעת למגבלת 20 החיפושים החיים במסלול החינמי. כדי להמשיך ליהנות ממחקר רשת חי, עמוק ומותאם אישית עד 300 פעמים בחודש, שדרג עכשיו למסלול הפרו!',
+    paywall_search_message:      'רוצה להמשיך לחקור ולגלות עולמות פדגוגיים חדשים? 🌟\nהגעת למגבלת 20 החיפושים החיים במסלול החינמי. כדי להמשיך ליהנות ממחקר רשת חי, עמוק ומותאם אישית עד 30 פעמים בחודש, שדרג עכשיו למסלול הפרו!',
     paywall_word_message:        'רוצים להמשיך להוריד מסמכי Word מעוצבים? 📄\nהגעתם למגבלת 5 ההורדות בחודש במסלול החינמי. כדי להוריד ללא הגבלה, שדרגו עכשיו למסלול הפרו!',
     paywall_cta:                 'שדרג לפרו',
     paywall_upgrade_loading:     'מעבד...',
@@ -589,7 +589,9 @@ const LANGUAGES = {
     pro_user_badge:              'Pro User',
 
     rate_limit_title:            'הגעתם למכסת החיפושים',
+    rate_limit_monthly_title:    'מכסת החיפושים החודשית הסתיימה',
     rate_limit_body:             'ניצלתם {used} מתוך {limit} חיפושים. שדרגו מסלול כדי להמשיך במחקר פדגוגי.',
+    rate_limit_monthly_body:     'ניצלתם את כל {limit} החיפושים החודשיים ({used}/{limit}). המונה יתאפס בתחילת החודש הבא.',
     rate_limit_exceeded:         'חרגתם ממכסת החיפושים היומית — שדרגו את המסלול',
     rate_limit_upgrade:          'צפו במסלולים ושדרגו',
     rate_limit_dismiss:          'הבנתי',
@@ -1232,7 +1234,7 @@ const LANGUAGES = {
     pricing_cell_price_school_line1: 'Contact us for a quote',
     pricing_cell_price_school_contact: 'Alon Yerushalmy: 054-40548078',
 
-    paywall_search_message:      'Want to keep exploring new pedagogical worlds? 🌟\nYou have used all 20 live searches on the free plan. Upgrade to Pro for up to 300 live, personalized web research sessions per month!',
+    paywall_search_message:      'Want to keep exploring new pedagogical worlds? 🌟\nYou have used all 20 live searches on the free plan. Upgrade to Pro for up to 30 live, personalized web research sessions per month!',
     paywall_word_message:        'Want to keep downloading formatted Word documents? 📄\nYou have reached the 5 downloads/month limit on the free plan. Upgrade to Pro for unlimited downloads!',
     paywall_cta:                 'Upgrade to Pro',
     paywall_upgrade_loading:     'Processing...',
@@ -1253,7 +1255,9 @@ const LANGUAGES = {
     pro_user_badge:              'Pro User',
 
     rate_limit_title:            'Search quota reached',
+    rate_limit_monthly_title:    'Monthly search quota used up',
     rate_limit_body:             'You have used {used} of {limit} searches. Upgrade your plan to continue.',
+    rate_limit_monthly_body:     'You have used all {limit} monthly searches ({used}/{limit}). Your counter resets at the start of next month.',
     rate_limit_exceeded:         'Daily search limit exceeded — please upgrade your plan',
     rate_limit_upgrade:          'View plans & upgrade',
     rate_limit_dismiss:          'Got it',

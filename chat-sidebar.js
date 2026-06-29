@@ -1098,7 +1098,7 @@
       }
       persistSession();
     }).catch(function (err) {
-      if (err && err.code === 'RATE_LIMIT') return;
+      if (err && (err.code === 'RATE_LIMIT' || err.code === 'RATE_LIMIT_MONTHLY')) return;
       state.messages.push({
         role: 'assistant',
         text: (err && err.message) || deps.t('chat_error_generic'),

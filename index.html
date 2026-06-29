@@ -7908,7 +7908,7 @@
     }
 
     function isRateLimitError(err) {
-      return Boolean(err && (err.code === 'RATE_LIMIT' || /מכסת החיפושים|search limit/i.test(String(err.message || ''))));
+      return Boolean(err && (err.code === 'RATE_LIMIT' || err.code === 'RATE_LIMIT_MONTHLY' || /מכסת החיפושים|search limit/i.test(String(err.message || ''))));
     }
 
     async function invokeWaldorfResearch(payload, options) {
@@ -8010,10 +8010,19 @@
         if (res.status === 429 && json && json.code === 'RATE_LIMIT') {
           if (typeof WaldorfAuth !== 'undefined') {
             if (json.usage) WaldorfAuth.applyUsageFromServer(json.usage);
-            WaldorfAuth.showPricingModal('paywall_search_message');
+            WaldorfAuth.showSearchLimitBlocked({ usage: json.usage, tier: 'trial', usagePeriod: 'lifetime' });
           }
           const limitErr = new Error(t('rate_limit_exceeded'));
           limitErr.code = 'RATE_LIMIT';
+          throw limitErr;
+        }
+        if (res.status === 429 && json && json.code === 'RATE_LIMIT_MONTHLY') {
+          if (typeof WaldorfAuth !== 'undefined') {
+            if (json.usage) WaldorfAuth.applyUsageFromServer(json.usage);
+            WaldorfAuth.showSearchLimitBlocked({ usage: json.usage, usagePeriod: 'monthly' });
+          }
+          const limitErr = new Error(t('rate_limit_monthly_title'));
+          limitErr.code = 'RATE_LIMIT_MONTHLY';
           throw limitErr;
         }
         const isGeminiClientError = res.status === 400 || res.status === 429

@@ -8,7 +8,7 @@
 const env = require('./env');
 const cacheDb = require('./cache');
 const authContext = require('./auth-context');
-const { TRIAL_LIFETIME_SEARCH_LIMIT } = require('./tier-limits');
+const { TRIAL_LIFETIME_SEARCH_LIMIT, PRO_MONTHLY_SEARCH_LIMIT } = require('./tier-limits');
 
 const TABLE = 'user_subscriptions';
 const LOG_PREFIX = '[subscription]';
@@ -27,7 +27,7 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
 const TIER_LIMITS = {
   trial: { lifetime: TRIAL_LIFETIME_SEARCH_LIMIT, monthly: null, wordDownloads: 5, wordDownloadsMonthly: true },
   standard: { lifetime: null, monthly: 300, wordDownloads: null },
-  pro: { lifetime: null, monthly: 300, wordDownloads: null },
+  pro: { lifetime: null, monthly: PRO_MONTHLY_SEARCH_LIMIT, wordDownloads: null },
 };
 
 const LEGACY_TIER_MAP = {
@@ -338,6 +338,23 @@ function effectiveTierFromRow(row) {
   return planTypeFromRow(row);
 }
 
+function buildSearchLimitError(usage) {
+  const tier = usage && usage.tier ? usage.tier : 'trial';
+  if (tier === 'trial') {
+    const err = new Error('חרגתם ממכסת ' + TRIAL_LIFETIME_SEARCH_LIMIT + ' החיפושים החינמיים — שדרגו לפרו כדי להמשיך');
+    err.statusCode = 429;
+    err.code = 'RATE_LIMIT';
+    err.usage = usage;
+    return err;
+  }
+  const limit = usage && usage.searchLimit != null ? usage.searchLimit : PRO_MONTHLY_SEARCH_LIMIT;
+  const err = new Error('מכסת ' + limit + ' החיפושים החודשית הסתיימה — המונה יתאפס בתחילת החודש הבא');
+  err.statusCode = 429;
+  err.code = 'RATE_LIMIT_MONTHLY';
+  err.usage = usage;
+  return err;
+}
+
 function buildUsagePayload(row) {
   const tier = effectiveTierFromRow(row);
   const limits = TIER_LIMITS[tier];
@@ -599,11 +616,7 @@ async function recordSearch(user, userToken) {
   });
 
   if (!usageBefore.allowed) {
-    const err = new Error('חרגתם ממכסת החיפושים — שדרגו את המסלול');
-    err.statusCode = 429;
-    err.code = 'RATE_LIMIT';
-    err.usage = usageBefore;
-    throw err;
+    throw buildSearchLimitError(usageBefore);
   }
 
   const tier = effectiveTierFromRow(row);
@@ -872,11 +885,7 @@ async function assertSearchAllowedFromRequest(req) {
   }
   const usage = buildUsagePayload(row);
   if (!usage.allowed) {
-    const err = new Error('חרגתם ממכסת החיפושים — שדרגו את המסלול');
-    err.statusCode = 429;
-    err.code = 'RATE_LIMIT';
-    err.usage = usage;
-    throw err;
+    throw buildSearchLimitError(usage);
   }
   return { allowed: true, usage: usage };
 }

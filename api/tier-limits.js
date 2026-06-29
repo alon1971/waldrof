@@ -1,11 +1,13 @@
 /**
- * Free-tier (trial) lifetime search cap — server-side source of truth.
+ * Search quota limits — server-side source of truth.
  *
- * BETA TESTING (Jun 2026): raised from 3 → 20 for friend beta cohort.
- * Revert TRIAL_LIFETIME_SEARCH_LIMIT to 3 when beta testing ends.
+ * trial: lifetime cap (never resets monthly).
+ * pro:   monthly cap (resets each calendar month).
  */
 const TRIAL_LIFETIME_SEARCH_LIMIT = 20;
+const PRO_MONTHLY_SEARCH_LIMIT = 30;
 
 module.exports = {
   TRIAL_LIFETIME_SEARCH_LIMIT,
+  PRO_MONTHLY_SEARCH_LIMIT,
 };

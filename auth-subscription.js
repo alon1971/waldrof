@@ -15,6 +15,8 @@
 
   /** Permanent PRO tier — must match api/subscription.js PRO_USERS. */
   var PRO_USERS = ['alon1971@gmail.com'];
+  /** Pro monthly search cap — must stay in sync with api/tier-limits.js */
+  var PRO_MONTHLY_SEARCH_LIMIT = 30;
   /** Google display names that map to a PRO account when email is absent from the session. */
   var PRO_DISPLAY_NAMES = ['alon yerushalmy'];
 
@@ -64,7 +66,7 @@
     },
     pro: {
       id: 'pro',
-      monthlyLimit: 300,
+      monthlyLimit: PRO_MONTHLY_SEARCH_LIMIT,
       lifetimeLimit: null,
       displayUnlimited: false,
       prices: { monthly: 49, yearly: 250 },
@@ -1567,9 +1569,9 @@
     var check = canPerformSearch();
     if (!check.allowed) {
       if (check.reason === 'auth') showAuthOverlay();
-      else showPricingModal('paywall_search_message');
+      else showSearchLimitBlocked({ tier: normalizeTierId(authState.tier), usagePeriod: authState.usagePeriod });
       var err = new Error(t('rate_limit_exceeded'));
-      err.code = 'RATE_LIMIT';
+      err.code = normalizeTierId(authState.tier) === 'trial' ? 'RATE_LIMIT' : 'RATE_LIMIT_MONTHLY';
       err.details = check;
       throw err;
     }
@@ -1700,16 +1702,37 @@
     }
   }
 
+  function showSearchLimitBlocked(opts) {
+    var o = opts || {};
+    if (o.usage) applyServerUsage(o.usage);
+    var tier = normalizeTierId(o.tier || (o.usage && o.usage.tier) || authState.tier);
+    var period = o.usagePeriod || (o.usage && o.usage.usagePeriod) || authState.usagePeriod;
+    if (tier === 'trial' || period === 'lifetime') {
+      showPricingModal('paywall_search_message');
+    } else {
+      showRateLimitModal({
+        usage: o.usage && o.usage.searchesUsed != null ? o.usage.searchesUsed : getSearchesUsed(),
+        limit: o.usage && o.usage.searchLimit != null ? o.usage.searchLimit : getEffectiveLimit(),
+        monthly: true,
+      });
+    }
+  }
+
   function showRateLimitModal(check) {
     var el = document.getElementById('rate-limit-modal');
     var msg = document.getElementById('rate-limit-message');
+    var titleEl = document.getElementById('rate-limit-title');
+    if (titleEl) {
+      titleEl.textContent = check && check.monthly
+        ? t('rate_limit_monthly_title')
+        : t('rate_limit_title');
+    }
     if (msg) {
-      var displayLimit = getDisplayLimit();
+      var displayLimit = check && check.limit != null ? check.limit : getDisplayLimit();
       var used = check && check.usage != null ? check.usage : getSearchesUsed();
-      var text = t('rate_limit_body', {
-        used: used,
-        limit: displayLimit != null ? displayLimit : getEffectiveLimit(),
-      });
+      var text = check && check.monthly
+        ? t('rate_limit_monthly_body', { used: used, limit: displayLimit != null ? displayLimit : getEffectiveLimit() })
+        : t('rate_limit_body', { used: used, limit: displayLimit != null ? displayLimit : getEffectiveLimit() });
       msg.textContent = text;
     }
     if (el) {
@@ -2539,6 +2562,8 @@
     isSupabaseConfigured: isSupabaseConfigured,
     showPricingModal: showPricingModal,
     hidePricingModal: hidePricingModal,
+    showSearchLimitBlocked: showSearchLimitBlocked,
+    showRateLimitModal: showRateLimitModal,
     showUserSettingsModal: showUserSettingsModal,
     hideUserSettingsModal: hideUserSettingsModal,
     showContactModal: showContactModal,
