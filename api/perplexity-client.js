@@ -10,7 +10,7 @@ const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 /** Stable factual web-search model for hybrid routing (Perplexity → Gemini). */
 const PERPLEXITY_SEARCH_MODEL = 'sonar';
 /** Mid-tier synthesis model — default for trial users and pro users past the monthly premium quota. */
-const PERPLEXITY_MODEL = 'sonar-reasoning';
+const PERPLEXITY_MODEL = 'sonar-reasoning-pro';
 /** Premium synthesis model — reserved for a pro user's first searches each month. */
 const PERPLEXITY_PRO_PRIMARY_MODEL = 'sonar-pro';
 /**
@@ -28,8 +28,8 @@ const modelRoutingStore = new AsyncLocalStorage();
 /**
  * Decide the synthesis model from the caller's tier + monthly search count.
  * - pro, search_count_monthly < threshold (first 3 of the month) -> premium (sonar-pro)
- * - pro, search_count_monthly >= threshold (4th onward)          -> mid-tier (sonar-reasoning)
- * - everyone else (trial/standard/unknown)                        -> mid-tier (sonar-reasoning)
+ * - pro, search_count_monthly >= threshold (4th onward)          -> mid-tier (sonar-reasoning-pro)
+ * - everyone else (trial/standard/unknown)                        -> mid-tier (sonar-reasoning-pro)
  */
 function resolveSearchModel(routing) {
   const tier = String((routing && routing.tier) || '').trim().toLowerCase();

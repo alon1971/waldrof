@@ -2815,7 +2815,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
 
   // Dynamic Perplexity model routing: decided server-side BEFORE any Perplexity call.
   // Pro users get the premium model (sonar-pro) for their first monthly searches, then the
-  // mid-tier model (sonar-reasoning); trial/standard always use the mid-tier model.
+  // mid-tier model (sonar-reasoning-pro); trial/standard always use the mid-tier model.
   const modelRouting = {
     tier: (gateUsage && gateUsage.tier) ? gateUsage.tier : 'trial',
     monthlySearchCount: (gateUsage && gateUsage.searchesUsed != null) ? gateUsage.searchesUsed : 0,

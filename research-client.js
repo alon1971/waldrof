@@ -6,7 +6,7 @@
   'use strict';
 
   const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
-  const PERPLEXITY_MODEL = 'sonar-reasoning';
+  const PERPLEXITY_MODEL = 'sonar-reasoning-pro';
 
   const NO_LATEX_BLOCK =
     '\n=== NO LaTeX / MATH MARKUP (MANDATORY) ===\n' +
