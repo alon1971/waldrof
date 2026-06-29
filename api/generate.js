@@ -2793,11 +2793,13 @@ async function handleGeneratePost(parsedBody, requestContext) {
     console.log('[generate] PRO user — rate limits bypassed for', proEmail);
   }
 
+  let gateUsage = null;
   if (!clearTopicProse && typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
     try {
       const cacheWillHit = await probeWouldServeFromCache(parsedBody);
       if (!cacheWillHit) {
-        await subscriptionApi.assertSearchAllowedFromRequest(reqShape);
+        const gate = await subscriptionApi.assertSearchAllowedFromRequest(reqShape);
+        if (gate && gate.usage) gateUsage = gate.usage;
       }
     } catch (subErr) {
       if (subErr && subErr.statusCode === 429) throw subErr;
@@ -2810,7 +2812,23 @@ async function handleGeneratePost(parsedBody, requestContext) {
       }
     }
   }
-  const result = await executeGenerate(parsedBody, apiKey, ctx);
+
+  // Dynamic Perplexity model routing: decided server-side BEFORE any Perplexity call.
+  // Pro users get the premium model (sonar-pro) for their first monthly searches, then the
+  // mid-tier model (sonar-reasoning); trial/standard always use the mid-tier model.
+  const modelRouting = {
+    tier: (gateUsage && gateUsage.tier) ? gateUsage.tier : 'trial',
+    monthlySearchCount: (gateUsage && gateUsage.searchesUsed != null) ? gateUsage.searchesUsed : 0,
+  };
+  console.log('[generate] perplexity model routing', {
+    tier: modelRouting.tier,
+    monthlySearchCount: modelRouting.monthlySearchCount,
+    model: perplexityClient.resolveSearchModel(modelRouting),
+  });
+  const result = await perplexityClient.runWithModelRouting(
+    modelRouting,
+    function () { return executeGenerate(parsedBody, apiKey, ctx); }
+  );
   const billable = result &&
     result.meta &&
     !result.meta.fromCache &&
