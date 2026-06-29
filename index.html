@@ -14887,10 +14887,36 @@
       return String(appState.lessonCacheKey || '').trim();
     }
 
+    function normalizeArchiveSourceWhitespace(str) {
+      return String(str || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function cleanupArchiveBlockSourceText(str) {
+      return String(str || '').replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+    }
+
+    /**
+     * Remove a DOM-selected snippet from the canonical archive source string without
+     * stripping Markdown or link syntax. Uses flexible whitespace matching within the block.
+     */
+    function snipArchiveSelectionFromBlockSource(source, selectionText) {
+      source = String(source || '');
+      selectionText = String(selectionText || '').trim();
+      if (!source || !selectionText) return source;
+      var parts = normalizeArchiveSourceWhitespace(selectionText).split(' ').filter(Boolean);
+      if (!parts.length) return source;
+      var escaped = parts.map(function (part) {
+        return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      });
+      var re = new RegExp(escaped.join('\\s+'));
+      var match = re.exec(source);
+      if (!match) return source;
+      return cleanupArchiveBlockSourceText(source.slice(0, match.index) + source.slice(match.index + match[0].length));
+    }
+
     function extractArchiveBlockSourceFromDom(block) {
       if (!block) return '';
-      var text = String(block.innerText || block.textContent || '').replace(/\u00a0/g, ' ');
-      return text.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+      return cleanupArchiveBlockSourceText(String(block.getAttribute('data-archive-source') || block.innerText || block.textContent || '').replace(/\u00a0/g, ' '));
     }
 
     function applyArchiveBlockEditLocally(blockPath, newText) {
@@ -15137,6 +15163,16 @@
         return;
       }
       var block = ctx.block;
+      var blockSource = String(ctx.blockSource || block.getAttribute('data-archive-source') || '').trim();
+      if (!blockSource) {
+        showArchiveToast('לא נמצא מקור ארכיון לבלוק — הפעולה בוטלה.', 'error');
+        return;
+      }
+      var newSource = snipArchiveSelectionFromBlockSource(blockSource, ctx.text);
+      if (newSource === blockSource) {
+        showArchiveToast('לא ניתן לזהות את הקטע המסומן במקור הארכיון — הפעולה בוטלה.', 'error');
+        return;
+      }
       var snapshot = block.innerHTML;
       try {
         removeArchiveSelectionRangeFromDom(ctx);
@@ -15146,7 +15182,6 @@
         showArchiveToast('שגיאה בעדכון התצוגה — הפעולה בוטלה.', 'error');
         return;
       }
-      var newSource = extractArchiveBlockSourceFromDom(block);
       try {
         await postArchiveDeleteRequest({
           action: 'set_archive_block',
@@ -19236,6 +19271,8 @@
     }
 
     var HEADER_COMPACT_SCROLL_THRESHOLD = 100;
+    /** Extra scroll offset so sticky nav + "מחקר חדש" stay visible when switching wizard tabs. */
+    var SCROLL_INTO_VIEW_EXTRA_OFFSET = 120;
     var headerCompactScrollBound = false;
 
     function getHeaderCompactContextLabel() {
@@ -19851,9 +19888,9 @@
         var visibleH = Math.max(0, vpH - chromeHeight);
         var targetY;
         if (block === 'center') {
-          targetY = absTop + (elH / 2) - chromeHeight - (visibleH / 2);
+          targetY = absTop + (elH / 2) - chromeHeight - (visibleH / 2) - (SCROLL_INTO_VIEW_EXTRA_OFFSET / 2);
         } else {
-          targetY = absTop - chromeHeight - 12;
+          targetY = absTop - chromeHeight - SCROLL_INTO_VIEW_EXTRA_OFFSET;
         }
         window.scrollTo({ top: Math.max(0, targetY), behavior: b });
       });
