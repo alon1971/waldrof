@@ -15,9 +15,6 @@ const BILLING_WRITE_COLUMNS = [
   'word_downloads_count',
   'auto_renew',
   'expires_at',
-  'stripe_customer_id',
-  'stripe_subscription_id',
-  'payment_provider',
   'updated_at',
 ];
 
@@ -202,8 +199,6 @@ async function activatePaidSubscription(options) {
   const email = opts.email;
   const planType = opts.planType || 'pro';
   const expiresAt = opts.expiresAt;
-  const stripeCustomerId = opts.stripeCustomerId || null;
-  const stripeSubscriptionId = opts.stripeSubscriptionId || null;
   const autoRenew = opts.autoRenew !== false;
 
   if (!userId) throw new Error('activatePaidSubscription requires userId');
@@ -211,9 +206,6 @@ async function activatePaidSubscription(options) {
   const subRow = await upsertSubscriptionRow(userId, {
     plan_type: planType,
     expires_at: expiresAt,
-    stripe_customer_id: stripeCustomerId,
-    stripe_subscription_id: stripeSubscriptionId,
-    payment_provider: opts.paymentProvider || 'stripe',
     auto_renew: autoRenew,
   });
 
@@ -239,7 +231,6 @@ async function downgradeExpiredSubscription(userId) {
     plan_type: 'trial',
     auto_renew: false,
     expires_at: null,
-    stripe_subscription_id: null,
   });
   await updateProfileSubscription(userId, null, {
     subscription_status: 'Trial',
@@ -251,7 +242,7 @@ async function downgradeExpiredSubscription(userId) {
 
 async function fetchAllSubscriptions() {
   const params = new URLSearchParams();
-  params.set('select', 'user_id,plan_type,auto_renew,expires_at,created_at,updated_at,stripe_subscription_id');
+  params.set('select', 'user_id,plan_type,auto_renew,expires_at,created_at,updated_at');
   params.set('order', 'updated_at.desc');
   const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), { method: 'GET' });
   return Array.isArray(rows) ? rows : [];

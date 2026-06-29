@@ -81,7 +81,6 @@ async function handlePaymentSuccessRequest(req, body) {
     planType: parsed.planType,
     expiresAt: expiresAt,
     autoRenew: true,
-    paymentProvider: 'grow',
   });
 
   log('activated', {
