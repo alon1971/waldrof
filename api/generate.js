@@ -6,7 +6,7 @@
  * Core pipeline (decoupled — Perplexity only):
  *   1. SUPABASE ARCHIVE — return cached_results immediately on hit
  *   2. LIVE WEB SEARCH (Perplexity Sonar) — raw research saved to cached_results (phase perplexity_raw)
- *   3. PERPLEXITY SYNTHESIS (sonar-pro) — structured JSON → cached_results
+ *   3. PERPLEXITY SYNTHESIS (sonar-reasoning-pro) — structured JSON → cached_results
  *   Phase B (topic / phase_b): theory essence only.
  *   On-demand expansions (pedagogy_deep_dive / archive_summary): independent Perplexity Sonar routes per button.
  *
@@ -2051,7 +2051,7 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
   return rawPayload;
 }
 
-/** Perplexity sonar-pro chat completions — structured JSON synthesis from Sonar research. */
+/** Perplexity sonar-reasoning-pro chat completions — structured JSON synthesis from Sonar research. */
 async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
   const opts = options || {};
   const systemBuilder = typeof opts.systemPrompt === 'function' ? opts.systemPrompt : waldorfSystemPrompt;
@@ -2793,13 +2793,11 @@ async function handleGeneratePost(parsedBody, requestContext) {
     console.log('[generate] PRO user — rate limits bypassed for', proEmail);
   }
 
-  let gateUsage = null;
   if (!clearTopicProse && typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
     try {
       const cacheWillHit = await probeWouldServeFromCache(parsedBody);
       if (!cacheWillHit) {
-        const gate = await subscriptionApi.assertSearchAllowedFromRequest(reqShape);
-        if (gate && gate.usage) gateUsage = gate.usage;
+        await subscriptionApi.assertSearchAllowedFromRequest(reqShape);
       }
     } catch (subErr) {
       if (subErr && subErr.statusCode === 429) throw subErr;
@@ -2812,23 +2810,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
       }
     }
   }
-
-  // Dynamic Perplexity model routing: decided server-side BEFORE any Perplexity call.
-  // Pro users get the premium model (sonar-pro) for their first monthly searches, then the
-  // mid-tier model (sonar-reasoning-pro); trial/standard always use the mid-tier model.
-  const modelRouting = {
-    tier: (gateUsage && gateUsage.tier) ? gateUsage.tier : 'trial',
-    monthlySearchCount: (gateUsage && gateUsage.searchesUsed != null) ? gateUsage.searchesUsed : 0,
-  };
-  console.log('[generate] perplexity model routing', {
-    tier: modelRouting.tier,
-    monthlySearchCount: modelRouting.monthlySearchCount,
-    model: perplexityClient.resolveSearchModel(modelRouting),
-  });
-  const result = await perplexityClient.runWithModelRouting(
-    modelRouting,
-    function () { return executeGenerate(parsedBody, apiKey, ctx); }
-  );
+  const result = await executeGenerate(parsedBody, apiKey, ctx);
   const billable = result &&
     result.meta &&
     !result.meta.fromCache &&

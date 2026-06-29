@@ -266,8 +266,18 @@
     return '';
   }
 
+  function stripReasoningTokens(text) {
+    let s = String(text || '');
+    if (!s) return s;
+    s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    const lastClose = s.toLowerCase().lastIndexOf('</think>');
+    if (lastClose >= 0) s = s.slice(lastClose + '</think>'.length);
+    s = s.replace(/<\/?think>/gi, '');
+    return s.trim();
+  }
+
   function stripMarkdownJsonFences(text) {
-    let raw = String(text || '').replace(/^\uFEFF/, '').trim();
+    let raw = stripReasoningTokens(String(text || '')).replace(/^\uFEFF/, '').trim();
     const fenced = raw.match(/```(?:json|javascript|js)?\s*([\s\S]*?)```/i);
     if (fenced) raw = fenced[1].trim();
     else {

@@ -69,7 +69,7 @@
       monthlyLimit: PRO_MONTHLY_SEARCH_LIMIT,
       lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 49, yearly: 250 },
+      prices: { monthly: 49, yearly: 350 },
       yearlySavingsKey: 'pricing_pro_yearly_deal',
     },
     school: {
@@ -1388,7 +1388,7 @@
         name: getUpgradeUserFullName(),
         phone: getUpgradeUserPhone() || '0500000000',
         plan: 'annual_pro',
-        price: 250,
+        price: 350,
       }),
     }).then(function (res) {
       return res.json().then(function (response) {

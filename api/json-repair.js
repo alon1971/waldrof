@@ -3,8 +3,28 @@
  * Strips fences, repairs common defects, and closes truncated brackets.
  */
 
+/**
+ * Remove reasoning-model scaffolding before parsing. Perplexity reasoning models
+ * (e.g. sonar-reasoning-pro) emit a <think>…</think> chain-of-thought block ahead of
+ * the JSON answer; `response_format` does NOT strip it. Because that reasoning text
+ * frequently contains { } characters, it derails bracket-based JSON extraction, so we
+ * remove it explicitly up front to keep parsing bulletproof.
+ */
+function stripReasoningTokens(text) {
+  let s = String(text || '');
+  if (!s) return s;
+  // 1) Drop fully-formed <think>…</think> blocks (case-insensitive, multi-line).
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // 2) Orphan closing tag (opener missing/trimmed): everything before it is reasoning.
+  const lastClose = s.toLowerCase().lastIndexOf('</think>');
+  if (lastClose >= 0) s = s.slice(lastClose + '</think>'.length);
+  // 3) Strip any leftover lone tags.
+  s = s.replace(/<\/?think>/gi, '');
+  return s.trim();
+}
+
 function stripMarkdownJsonFences(text) {
-  let raw = String(text || '').replace(/^\uFEFF/, '').trim();
+  let raw = stripReasoningTokens(String(text || '')).replace(/^\uFEFF/, '').trim();
   const fenced = raw.match(/```(?:json|javascript|js)?\s*([\s\S]*?)```/i);
   if (fenced) raw = fenced[1].trim();
   else {
@@ -610,6 +630,7 @@ function parseJsonFromModel(text, options) {
 }
 
 module.exports = {
+  stripReasoningTokens,
   stripMarkdownJsonFences,
   normalizeJsonSmartQuotes,
   extractJsonPayload,

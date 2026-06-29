@@ -2,58 +2,17 @@
  * Server-side Perplexity Sonar client — streaming by default to avoid ~60s proxy timeouts.
  */
 const https = require('https');
-const { AsyncLocalStorage } = require('async_hooks');
 const env = require('./env');
 const jsonRepair = require('./json-repair');
 
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 /** Stable factual web-search model for hybrid routing (Perplexity → Gemini). */
 const PERPLEXITY_SEARCH_MODEL = 'sonar';
-/** Mid-tier synthesis model — default for trial users and pro users past the monthly premium quota. */
+/** Single premium synthesis model for ALL users — quality-first, no dynamic downgrade. */
 const PERPLEXITY_MODEL = 'sonar-reasoning-pro';
-/** Premium synthesis model — reserved for a pro user's first searches each month. */
-const PERPLEXITY_PRO_PRIMARY_MODEL = 'sonar-pro';
-/**
- * Pro model routing: the first N monthly searches (search_count_monthly 0..N-1) use the
- * premium model; from search N+1 onward pro users fall back to the mid-tier model.
- */
-const PRO_PRIMARY_MODEL_SEARCH_THRESHOLD = 3;
 
 /**
- * Per-request async context carrying the dynamically routed synthesis model so every
- * downstream Perplexity synthesis call picks it up without threading it through signatures.
- */
-const modelRoutingStore = new AsyncLocalStorage();
-
-/**
- * Decide the synthesis model from the caller's tier + monthly search count.
- * - pro, search_count_monthly < threshold (first 3 of the month) -> premium (sonar-pro)
- * - pro, search_count_monthly >= threshold (4th onward)          -> mid-tier (sonar-reasoning-pro)
- * - everyone else (trial/standard/unknown)                        -> mid-tier (sonar-reasoning-pro)
- */
-function resolveSearchModel(routing) {
-  const tier = String((routing && routing.tier) || '').trim().toLowerCase();
-  const monthlyCount = Number(routing && routing.monthlySearchCount) || 0;
-  if (tier === 'pro' && monthlyCount < PRO_PRIMARY_MODEL_SEARCH_THRESHOLD) {
-    return PERPLEXITY_PRO_PRIMARY_MODEL;
-  }
-  return PERPLEXITY_MODEL;
-}
-
-/** Resolve the active routed synthesis model for the current async context (defaults to mid-tier). */
-function getRoutedSynthesisModel() {
-  const store = modelRoutingStore.getStore();
-  return (store && store.model) || PERPLEXITY_MODEL;
-}
-
-/** Run `fn` inside an async context that pins the synthesis model resolved from `routing`. */
-function runWithModelRouting(routing, fn) {
-  const model = resolveSearchModel(routing);
-  return modelRoutingStore.run({ model: model, routing: routing || null }, fn);
-}
-
-/**
- * Perplexity accepts max_tokens up to 128000 (API schema). sonar-pro's effective
+ * Perplexity accepts max_tokens up to 128000 (API schema). sonar-reasoning-pro's effective
  * completion output is model-bound (~8k), but we no longer impose a lower ceiling
  * of our own so the model emits the fullest possible book-length teacher manual.
  */
@@ -308,7 +267,7 @@ async function callPerplexityChatWithCitations(options) {
     throw new Error('PERPLEXITY_API_KEY is not configured');
   }
 
-  const model = opts.model || getRoutedSynthesisModel();
+  const model = opts.model || PERPLEXITY_MODEL;
   const defaultMaxTokens = model === PERPLEXITY_SEARCH_MODEL
     ? PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH
     : PERPLEXITY_MAX_OUTPUT_TOKENS_PRO;
@@ -357,7 +316,7 @@ async function callPerplexityChat(options) {
     throw new Error('PERPLEXITY_API_KEY is not configured');
   }
 
-  const model = opts.model || getRoutedSynthesisModel();
+  const model = opts.model || PERPLEXITY_MODEL;
   const defaultMaxTokens = model === PERPLEXITY_SEARCH_MODEL
     ? PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH
     : PERPLEXITY_MAX_OUTPUT_TOKENS_PRO;
@@ -428,16 +387,11 @@ async function callPerplexitySearch(options) {
 module.exports = {
   PERPLEXITY_URL,
   PERPLEXITY_MODEL,
-  PERPLEXITY_PRO_PRIMARY_MODEL,
   PERPLEXITY_SEARCH_MODEL,
-  PRO_PRIMARY_MODEL_SEARCH_THRESHOLD,
   PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
   PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH,
   normalizeApiKey,
   resolveApiKey,
-  resolveSearchModel,
-  getRoutedSynthesisModel,
-  runWithModelRouting,
   callPerplexityChat,
   callPerplexityChatWithCitations,
   callPerplexitySearch,
