@@ -16714,6 +16714,133 @@
       return d.innerHTML;
     }
 
+    // ---------- Global raw-URL linkifier ----------
+    // Turns any bare http(s) URL rendered as plain text into a clickable anchor
+    // (target="_blank"). DOM-based and idempotent: URLs already inside an <a> (or
+    // inside code/pre/inputs) are skipped, so existing markdown links are never
+    // double-wrapped and rendering is never broken.
+    var RAW_URL_LINKIFY_PATTERN = /https?:\/\/[^\s<>"'`\u00ab\u00bb]+/g;
+    var RAW_URL_LINKIFY_SKIP_TAGS = {
+      A: 1, CODE: 1, PRE: 1, KBD: 1, SAMP: 1, SCRIPT: 1, STYLE: 1,
+      TEXTAREA: 1, OPTION: 1, NOSCRIPT: 1,
+    };
+    var _rawUrlLinkifyBusy = false;
+
+    /** Drop trailing sentence punctuation that the URL pattern greedily swallowed. */
+    function trimTrailingUrlPunctuation(url) {
+      var u = String(url || '');
+      var match = u.match(/[)\].,;:!?\u00bb\u201d"'\u2019]+$/);
+      if (match) {
+        var tail = match[0];
+        // Keep a closing ) when the URL has a matching ( (e.g. Wikipedia article links).
+        var opens = (u.match(/\(/g) || []).length;
+        var closes = (u.match(/\)/g) || []).length;
+        if (tail.indexOf(')') >= 0 && opens >= closes) tail = tail.replace(/\)+$/, '');
+        u = u.slice(0, u.length - tail.length);
+      }
+      return u;
+    }
+
+    function linkifyRawUrlsInTextNode(node) {
+      var text = node.nodeValue;
+      if (!text || text.indexOf('http') < 0) return false;
+      RAW_URL_LINKIFY_PATTERN.lastIndex = 0;
+      var frag = document.createDocumentFragment();
+      var lastIndex = 0;
+      var match;
+      var changed = false;
+      while ((match = RAW_URL_LINKIFY_PATTERN.exec(text)) !== null) {
+        var url = trimTrailingUrlPunctuation(match[0]);
+        if (!url || !/^https?:\/\/[^\s]+\.[^\s]/i.test(url)) continue;
+        if (match.index > lastIndex) {
+          frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        var anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.textContent = url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.className = 'auto-linkified prose-source-link';
+        frag.appendChild(anchor);
+        lastIndex = match.index + url.length;
+        changed = true;
+      }
+      if (!changed) return false;
+      if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+      if (node.parentNode) node.parentNode.replaceChild(frag, node);
+      return true;
+    }
+
+    function linkifyRawUrlsInContainer(root) {
+      if (!root || _rawUrlLinkifyBusy) return;
+      if (typeof document === 'undefined' || !document.createTreeWalker) return;
+      if (root.nodeType !== 1 && root.nodeType !== 9 && root.nodeType !== 11) return;
+      _rawUrlLinkifyBusy = true;
+      try {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+          acceptNode: function (node) {
+            if (!node.nodeValue || node.nodeValue.indexOf('http') < 0) return NodeFilter.FILTER_REJECT;
+            var p = node.parentNode;
+            while (p && p.nodeType === 1) {
+              if (RAW_URL_LINKIFY_SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
+              if (p.isContentEditable) return NodeFilter.FILTER_REJECT;
+              p = p.parentNode;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+          },
+        });
+        var targets = [];
+        var current;
+        while ((current = walker.nextNode())) targets.push(current);
+        targets.forEach(linkifyRawUrlsInTextNode);
+      } catch (linkifyErr) {
+        /* never let linkifying break rendering */
+      } finally {
+        _rawUrlLinkifyBusy = false;
+      }
+    }
+    window.linkifyRawUrlsInContainer = linkifyRawUrlsInContainer;
+
+    /** Watch the whole document and auto-linkify raw URLs in any newly rendered content. */
+    function initGlobalRawUrlLinkifier() {
+      if (typeof MutationObserver === 'undefined' || !document.body) return;
+      if (window._rawUrlLinkifyObserver) return;
+      var pending = [];
+      var scheduled = false;
+      function flush() {
+        scheduled = false;
+        var nodes = pending;
+        pending = [];
+        nodes.forEach(function (node) {
+          if (node && node.nodeType === 1 && node.isConnected !== false) {
+            linkifyRawUrlsInContainer(node);
+          }
+        });
+      }
+      var observer = new MutationObserver(function (mutations) {
+        if (_rawUrlLinkifyBusy) return;
+        for (var i = 0; i < mutations.length; i++) {
+          var mut = mutations[i];
+          if (mut.type === 'characterData') {
+            if (mut.target && mut.target.parentNode) pending.push(mut.target.parentNode);
+            continue;
+          }
+          for (var j = 0; j < mut.addedNodes.length; j++) {
+            var added = mut.addedNodes[j];
+            if (added.nodeType === 1) pending.push(added);
+            else if (added.nodeType === 3 && added.parentNode) pending.push(added.parentNode);
+          }
+        }
+        if (pending.length && !scheduled) {
+          scheduled = true;
+          requestAnimationFrame(flush);
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      window._rawUrlLinkifyObserver = observer;
+      try { linkifyRawUrlsInContainer(document.body); } catch (sweepErr) { /* ignore */ }
+    }
+
     function decodeHtmlEntitiesIfNeeded(s) {
       if (!s || typeof s !== 'string') return s;
       if (/&lt;\s*\/?[a-z]/i.test(s)) {
@@ -24110,6 +24237,7 @@
     window.addEventListener('beforeunload', persistActiveStep);
     window.addEventListener('resize', syncProductTabsStickyLayout, { passive: true });
     bindHeaderCompactScroll();
+    try { initGlobalRawUrlLinkifier(); } catch (linkifyInitErr) { console.warn('[waldrof] initGlobalRawUrlLinkifier:', linkifyInitErr); }
 
     init().catch(function (err) { console.error('[waldrof] unhandled init error:', err); });
   </script>

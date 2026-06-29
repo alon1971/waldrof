@@ -92,31 +92,85 @@ function coerceLinks(value) {
   }).filter(Boolean);
 }
 
+/**
+ * Rigid system-role contract injected on EVERY model call so the reply is always raw JSON.
+ * Kept short and absolute — the lenient parser handles the rest as a safety net.
+ */
+const RIGID_JSON_SYSTEM_MANDATE = [
+  '=== OUTPUT CONTRACT (ABSOLUTE — MANDATORY) ===',
+  'Your ENTIRE reply MUST be exactly ONE valid JSON object — nothing before it and nothing after it.',
+  'NEVER wrap the JSON in Markdown code fences (no ```json, no ```), and NEVER add preamble, commentary, or notes.',
+  'The first character of your reply MUST be { and the last character MUST be }.',
+  'Inside string values escape every double quote as \\" and every newline as \\n; emit no trailing commas.',
+  'The server runs JSON.parse() on your full reply — any deviation is a fatal error.',
+  '=== END OUTPUT CONTRACT ===',
+].join(' ');
+
+/** Even stricter reminder appended to the system role on retries after a parse fallback. */
+const RIGID_JSON_RETRY_MANDATE = [
+  'CRITICAL RETRY: your previous reply could not be parsed as JSON.',
+  'Return ONLY raw, valid JSON this time — no Markdown fences, no preamble, no trailing text.',
+  'Start with { and end with }. Mentally verify JSON.parse() succeeds before you answer.',
+].join(' ');
+
+/** Compose the rigid JSON contract (always) with the caller system prompt and an optional retry reminder. */
+function buildRigidJsonSystemPrompt(systemPrompt, isRetry) {
+  return [
+    RIGID_JSON_SYSTEM_MANDATE,
+    isRetry ? RIGID_JSON_RETRY_MANDATE : '',
+    String(systemPrompt || ''),
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildParseContext(opts) {
+  return {
+    grade: opts.grade || opts.gradeLabel || '',
+    gradeLabel: opts.gradeLabel || opts.grade || '',
+    topic: opts.topic || '',
+    query: opts.query || '',
+  };
+}
+
+/**
+ * Call Perplexity and parse the reply as JSON. The rigid JSON contract is enforced in the
+ * system role on every attempt; on a parse fallback we silently retry once with an even
+ * stricter system mandate (the request stays open, so the client never sees the first miss).
+ */
 async function callPerplexityJson(systemPrompt, userPrompt, options) {
   const opts = options || {};
-  const raw = await perplexityClient.callPerplexityChat({
-    model: perplexityClient.PERPLEXITY_MODEL,
-    temperature: opts.temperature != null ? opts.temperature : 0.35,
-    max_tokens: opts.max_tokens != null
-      ? opts.max_tokens
-      : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-  });
   const phase = opts.phase || 'topic_master';
-  const result = jsonRepair.parsePureModelJson(raw, {
-    phase: phase,
-    context: {
-      grade: opts.grade || opts.gradeLabel || '',
-      gradeLabel: opts.gradeLabel || opts.grade || '',
-      topic: opts.topic || '',
-      query: opts.query || '',
-    },
-    unwrap: true,
-  });
-  return result.parsed;
+  const parseContext = buildParseContext(opts);
+  const maxAttempts = opts.maxAttempts != null ? Math.max(1, opts.maxAttempts) : 2;
+
+  let lastParsed = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const isRetry = attempt > 1;
+    const raw = await perplexityClient.callPerplexityChat({
+      model: perplexityClient.PERPLEXITY_MODEL,
+      temperature: isRetry ? 0.2 : (opts.temperature != null ? opts.temperature : 0.35),
+      max_tokens: opts.max_tokens != null
+        ? opts.max_tokens
+        : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+      messages: [
+        { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, isRetry) },
+        { role: 'user', content: userPrompt },
+      ],
+    });
+    const result = jsonRepair.parsePureModelJson(raw, {
+      phase: phase,
+      context: parseContext,
+      unwrap: true,
+    });
+    lastParsed = result.parsed;
+    if (!result.parseFallback) return result.parsed;
+    if (attempt < maxAttempts) {
+      console.warn(
+        '[pure-api] JSON parse fallback for phase', phase,
+        '— retrying with rigid JSON mandate (attempt', attempt + '/' + maxAttempts + ')'
+      );
+    }
+  }
+  return lastParsed;
 }
 
 /**
@@ -131,19 +185,14 @@ async function callPerplexityJsonSafe(systemPrompt, userPrompt, options) {
       ? opts.max_tokens
       : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, false) },
       { role: 'user', content: userPrompt },
     ],
   });
   const phase = opts.phase || 'topic_master';
   return jsonRepair.parsePureModelJson(raw, {
     phase: phase,
-    context: {
-      grade: opts.grade || opts.gradeLabel || '',
-      gradeLabel: opts.gradeLabel || opts.grade || '',
-      topic: opts.topic || '',
-      query: opts.query || '',
-    },
+    context: buildParseContext(opts),
     unwrap: true,
   });
 }
@@ -253,6 +302,9 @@ module.exports = {
   coerceLinks,
   callPerplexityJson,
   callPerplexityJsonSafe,
+  buildRigidJsonSystemPrompt,
+  RIGID_JSON_SYSTEM_MANDATE,
+  RIGID_JSON_RETRY_MANDATE,
   createLegacyPostHandler,
   badRequest,
   PROFESSIONAL_LINKS_INSTRUCTION,

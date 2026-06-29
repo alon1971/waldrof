@@ -2132,8 +2132,20 @@ const JSON_RETRY_SYSTEM_SUFFIX_TOPIC =
   'Do NOT include inspiration, curriculum, sources, bibliography, gallery, URLs, or [N] reference brackets. ' +
   'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
   'No ```json fences, no Hebrew/English preamble, no trailing commas.';
+/** Phase-agnostic rigid JSON mandate — applied on retries for non-topic phases (grade, deep dive, etc.). */
+const JSON_RETRY_SYSTEM_SUFFIX_GENERIC =
+  ' CRITICAL RETRY: Your previous reply was rejected — invalid JSON or missing required fields. ' +
+  'Return ONLY one valid JSON object matching the requested schema. ' +
+  'Reply with raw JSON only. First character MUST be { and last character MUST be }. ' +
+  'No ```json fences, no Hebrew/English preamble or postamble, no comments, no trailing commas. ' +
+  'Escape every double quote inside string values as \\". Verify JSON.parse() succeeds before you finish.';
 const JSON_RETRY_SYSTEM_SUFFIX =
   JSON_RETRY_SYSTEM_SUFFIX_TOPIC;
+
+/** Choose the rigid JSON retry mandate that fits the phase (topic keeps its schema-specific contract). */
+function jsonRetrySystemSuffixForPhase(phase) {
+  return phase === 'topic' ? JSON_RETRY_SYSTEM_SUFFIX_TOPIC : JSON_RETRY_SYSTEM_SUFFIX_GENERIC;
+}
 const GENERIC_GENERATION_ERROR = 'לא הצלחנו ליצור את התוכן הפדגוגי. נסו שוב בעוד רגע.';
 
 function isNonRetriableApiClientError(err) {
@@ -2189,7 +2201,7 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
-    const retrySuffix = isRetry ? JSON_RETRY_SYSTEM_SUFFIX_TOPIC : '';
+    const retrySuffix = isRetry ? jsonRetrySystemSuffixForPhase(phase) : '';
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
     let raw;
@@ -2294,7 +2306,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
 
   for (let attempt = 1; attempt <= MODEL_PARSE_MAX_ATTEMPTS; attempt++) {
     const isRetry = attempt > 1;
-    const retrySuffix = isRetry && !isChatFollowup ? JSON_RETRY_SYSTEM_SUFFIX_TOPIC : '';
+    const retrySuffix = isRetry && !isChatFollowup ? jsonRetrySystemSuffixForPhase(phase) : '';
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
     let raw;
