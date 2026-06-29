@@ -494,65 +494,35 @@ async function removeArchiveLinkFromCache(cacheKey, url) {
   return { removed: saved, cacheKey: key };
 }
 
-function normalizeArchiveText(text) {
+function normalizeArchiveBlockValue(text) {
   return String(text == null ? '' : text)
     .replace(/\u00a0/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function buildArchiveTextRegex(targetNorm) {
-  if (!targetNorm) return null;
-  const escaped = targetNorm
-    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .replace(/\s+/g, '[\\s\\u00a0]+');
-  try {
-    return new RegExp(escaped, 'g');
-  } catch (err) {
-    return null;
-  }
-}
-
 /**
- * Remove an exact (whitespace-normalized) text fragment from a single string value.
- * Returns { changed, value } where an emptied value signals the caller to drop the field/element.
+ * Locate every string value whose ENTIRE (whitespace-normalized) value equals the
+ * original block text and replace it with the cleaned block. This is an exact full-value
+ * match — never a substring/regex surgery — so it cannot corrupt unrelated content.
+ * Emptied array elements are spliced out; emptied object fields are set to ''.
  */
-function stripArchiveTextFromString(raw, targetNorm) {
-  const original = String(raw);
-  const norm = normalizeArchiveText(original);
-  if (!norm || !targetNorm) return { changed: false, value: original };
-  if (norm === targetNorm) return { changed: true, value: '' };
-  if (norm.indexOf(targetNorm) === -1) return { changed: false, value: original };
-  const re = buildArchiveTextRegex(targetNorm);
-  if (!re) return { changed: false, value: original };
-  const replaced = original.replace(re, ' ');
-  if (replaced === original) return { changed: false, value: original };
-  const tidy = replaced
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/ +([,.;:!?])/g, '$1')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return { changed: true, value: tidy };
-}
-
-function removeMatchingTextFromArchivePayload(value, targetNorm, depth) {
-  if (value == null || !targetNorm) return false;
-  if ((depth || 0) > 16) return false;
+function applyArchiveBlockReplacement(value, originalNorm, newText, depth) {
+  if (value == null || !originalNorm) return false;
+  if ((depth || 0) > 18) return false;
   const nextDepth = (depth || 0) + 1;
   let changed = false;
   if (Array.isArray(value)) {
     for (let i = value.length - 1; i >= 0; i--) {
       const item = value[i];
       if (typeof item === 'string') {
-        const res = stripArchiveTextFromString(item, targetNorm);
-        if (res.changed) {
-          if (!res.value) value.splice(i, 1);
-          else value[i] = res.value;
+        if (normalizeArchiveBlockValue(item) === originalNorm) {
+          if (String(newText).trim() === '') value.splice(i, 1);
+          else value[i] = newText;
           changed = true;
         }
       } else if (item && typeof item === 'object') {
-        if (removeMatchingTextFromArchivePayload(item, targetNorm, nextDepth)) changed = true;
+        if (applyArchiveBlockReplacement(item, originalNorm, newText, nextDepth)) changed = true;
       }
     }
     return changed;
@@ -561,13 +531,12 @@ function removeMatchingTextFromArchivePayload(value, targetNorm, depth) {
     Object.keys(value).forEach(function (key) {
       const child = value[key];
       if (typeof child === 'string') {
-        const res = stripArchiveTextFromString(child, targetNorm);
-        if (res.changed) {
-          value[key] = res.value;
+        if (normalizeArchiveBlockValue(child) === originalNorm) {
+          value[key] = newText;
           changed = true;
         }
       } else if (child && typeof child === 'object') {
-        if (removeMatchingTextFromArchivePayload(child, targetNorm, nextDepth)) changed = true;
+        if (applyArchiveBlockReplacement(child, originalNorm, newText, nextDepth)) changed = true;
       }
     });
   }
@@ -575,30 +544,30 @@ function removeMatchingTextFromArchivePayload(value, targetNorm, depth) {
 }
 
 /**
- * Remove a specific sentence/text fragment from a cached archive row (admin curation).
- * Strips the fragment from every string field so it no longer surfaces in future searches.
+ * Admin curation: replace a whole text block (matched by its exact original value) with a
+ * cleaned version supplied by the client. Returns { updated } — false when the original
+ * block cannot be found, so the caller can abort/restore instead of corrupting the row.
  */
-async function removeArchiveTextFromCache(cacheKey, text) {
+async function replaceArchiveBlockInCache(cacheKey, originalText, newText) {
   const key = String(cacheKey || '').trim();
-  const targetNorm = normalizeArchiveText(text);
-  if (!key || !targetNorm || targetNorm.length < 2) {
-    return { removed: false, cacheKey: key || null };
-  }
+  const originalNorm = normalizeArchiveBlockValue(originalText);
+  if (!key || !originalNorm) return { updated: false, cacheKey: key || null };
+  const safeNewText = typeof newText === 'string' ? newText : String(newText == null ? '' : newText);
 
   const row = await fetchCachedRowByKey(key);
-  if (!row || row.result_data == null) return { removed: false, cacheKey: key };
+  if (!row || row.result_data == null) return { updated: false, cacheKey: key };
 
   let data = coerceCachedResultData(row.result_data);
-  if (!data || typeof data !== 'object') return { removed: false, cacheKey: key };
+  if (!data || typeof data !== 'object') return { updated: false, cacheKey: key };
 
   data = cloneJsonSafe(data);
-  if (!data) return { removed: false, cacheKey: key };
+  if (!data) return { updated: false, cacheKey: key };
 
-  const changed = removeMatchingTextFromArchivePayload(data, targetNorm, 0);
-  if (!changed) return { removed: false, cacheKey: key };
+  const changed = applyArchiveBlockReplacement(data, originalNorm, safeNewText, 0);
+  if (!changed) return { updated: false, cacheKey: key };
 
   const safeResultData = sanitizeForJsonStorage(data);
-  if (!safeResultData) return { removed: false, cacheKey: key };
+  if (!safeResultData) return { updated: false, cacheKey: key };
 
   let saved = false;
   if (isSupabaseCacheEnabled()) {
@@ -614,10 +583,10 @@ async function removeArchiveTextFromCache(cacheKey, text) {
       if (patchRes.ok) saved = true;
       else {
         const errText = await patchRes.text();
-        console.warn('[cached_results] archive text delete PATCH error', patchRes.status, errText.slice(0, 200));
+        console.warn('[cached_results] archive block replace PATCH error', patchRes.status, errText.slice(0, 200));
       }
     } catch (err) {
-      console.warn('[cached_results] archive text delete PATCH failed:', err.message || err);
+      console.warn('[cached_results] archive block replace PATCH failed:', err.message || err);
     }
   }
 
@@ -630,7 +599,7 @@ async function removeArchiveTextFromCache(cacheKey, text) {
     saved = true;
   }
 
-  return { removed: saved, cacheKey: key };
+  return { updated: saved, cacheKey: key };
 }
 
 async function deleteRawPerplexityCache(body) {
@@ -3924,7 +3893,7 @@ module.exports = {
   deleteTopicMasterCache,
   deleteTopicProseArchive,
   removeArchiveLinkFromCache,
-  removeArchiveTextFromCache,
+  replaceArchiveBlockInCache,
   TOPIC_PROSE_ARCHIVE_PHASES,
   purgeCorruptedCachedRow,
   ensureJsonObjectForStorage,

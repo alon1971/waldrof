@@ -210,24 +210,25 @@ async function executeSearchHistory(req) {
     };
   }
 
-  if (action === 'delete_archive_text') {
+  if (action === 'replace_archive_block') {
     await resolveArchiveAdmin(req, body);
     const cacheKey = String((body && body.cacheKey) || '').trim();
-    const text = String((body && body.text) || '');
-    if (!cacheKey || !text.trim()) {
-      const err = new Error('חסרים מזהה ארכיון או טקסט למחיקה');
+    const originalText = String((body && body.originalText) || '');
+    const newText = typeof (body && body.newText) === 'string' ? body.newText : '';
+    if (!cacheKey || !originalText.trim()) {
+      const err = new Error('חסרים מזהה ארכיון או טקסט מקור למחיקה');
       err.statusCode = 400;
       throw err;
     }
-    const result = await cacheDb.removeArchiveTextFromCache(cacheKey, text);
-    if (!result || !result.removed) {
-      const err = new Error('הטקסט לא נמצא בארכיון או שהמחיקה נכשלה');
+    const result = await cacheDb.replaceArchiveBlockInCache(cacheKey, originalText, newText);
+    if (!result || !result.updated) {
+      const err = new Error('בלוק הטקסט לא נמצא בארכיון או שהעדכון נכשל');
       err.statusCode = 404;
       throw err;
     }
     return {
       ok: true,
-      action: 'delete_archive_text',
+      action: 'replace_archive_block',
       cacheKey: cacheKey,
     };
   }

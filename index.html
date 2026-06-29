@@ -1773,6 +1773,35 @@
     }
     .archive-text-delete-fab:hover { background: rgba(139, 58, 58, 0.08); border-color: rgba(139, 58, 58, 0.7); }
     .archive-text-delete-fab[disabled] { opacity: 0.6; cursor: default; }
+    .archive-editable-block { display: contents; }
+    #archive-toast-host {
+      position: fixed;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      pointer-events: none;
+      max-width: min(92vw, 28rem);
+    }
+    .archive-toast {
+      background: #2F4538;
+      color: #fff;
+      border-radius: 0.6rem;
+      padding: 0.65rem 1rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      direction: rtl;
+      text-align: center;
+    }
+    .archive-toast--show { opacity: 1; transform: translateY(0); }
+    .archive-toast--error { background: #8B3A3A; }
     .archive-material-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
     .catalog-material-text {
       display: flex;
@@ -14349,67 +14378,66 @@
     }
 
     // ---------- Admin-only granular inline text/link deletion (selection → floating 🗑️) ----------
+    // Bulletproof model: never do a risky substring-replace inside Supabase. Instead, when the
+    // admin confirms, we remove the selection from the DOM, compute the WHOLE cleaned block from
+    // its known raw source (data-archive-source), and write that whole block back to the row —
+    // matched server-side by exact full value. On ANY failure we restore the DOM and toast.
     var ARCHIVE_TEXT_DELETE_CONFIRM = 'האם אתה בטוח שברצונך למחוק את הקטע/הקישור שנבחר לצמיתות מהארכיון?';
     var ARCHIVE_TEXT_DELETE_SCOPE = '#phase-c-unified-root, #panel-narrative, #general-search-results, #panel-catalog';
     var archiveTextFabEl = null;
     var archiveTextSelectionCtx = null;
     var archiveTextSelectionTimer = null;
+    var archiveDeleteInFlight = false;
 
-    function normalizeArchiveTextClient(text) {
+    function showArchiveToast(message, type) {
+      var host = document.getElementById('archive-toast-host');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'archive-toast-host';
+        host.setAttribute('aria-live', 'assertive');
+        document.body.appendChild(host);
+      }
+      var el = document.createElement('div');
+      el.className = 'archive-toast' + (type === 'error' ? ' archive-toast--error' : '');
+      el.textContent = String(message == null ? '' : message);
+      host.appendChild(el);
+      requestAnimationFrame(function () { el.classList.add('archive-toast--show'); });
+      setTimeout(function () {
+        el.classList.remove('archive-toast--show');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 320);
+      }, 4200);
+    }
+
+    function normalizeArchiveBlockText(text) {
       return String(text == null ? '' : text).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
     }
 
-    function buildArchiveTextRegexClient(targetNorm) {
-      if (!targetNorm) return null;
-      var escaped = targetNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s\\u00a0]+');
-      try { return new RegExp(escaped, 'g'); } catch (e) { return null; }
+    /**
+     * Remove exactly the selected snippet from a block's RAW source string, preserving the
+     * rest of the field verbatim. Returns null when the snippet cannot be located (caller aborts).
+     */
+    function removeSnippetFromArchiveSource(source, snippet) {
+      var src = String(source == null ? '' : source);
+      var snipNorm = normalizeArchiveBlockText(snippet);
+      if (!snipNorm) return null;
+      var escaped = snipNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s\\u00a0]+');
+      var re;
+      try { re = new RegExp(escaped); } catch (e) { return null; }
+      if (!re.test(src)) return null;
+      var out = src.replace(re, ' ');
+      out = out
+        .replace(/\[\s*\]\([^)]*\)/g, '')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/ +([,.;:!?])/g, '$1')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      return out;
     }
 
-    function stripArchiveTextClient(raw, targetNorm) {
-      var original = String(raw);
-      var norm = normalizeArchiveTextClient(original);
-      if (!norm || !targetNorm) return { changed: false, value: original };
-      if (norm === targetNorm) return { changed: true, value: '' };
-      if (norm.indexOf(targetNorm) === -1) return { changed: false, value: original };
-      var re = buildArchiveTextRegexClient(targetNorm);
-      if (!re) return { changed: false, value: original };
-      var replaced = original.replace(re, ' ');
-      if (replaced === original) return { changed: false, value: original };
-      return { changed: true, value: replaced.replace(/[ \t]{2,}/g, ' ').replace(/ +([,.;:!?])/g, '$1').trim() };
-    }
-
-    function purgeArchiveTextFromClientState(text) {
-      var targetNorm = normalizeArchiveTextClient(text);
-      if (!targetNorm || targetNorm.length < 2) return;
-      function walk(value, depth) {
-        if (value == null || depth > 16) return;
-        if (Array.isArray(value)) {
-          for (var i = value.length - 1; i >= 0; i--) {
-            var item = value[i];
-            if (typeof item === 'string') {
-              var r = stripArchiveTextClient(item, targetNorm);
-              if (r.changed) { if (!r.value) value.splice(i, 1); else value[i] = r.value; }
-            } else if (item && typeof item === 'object') {
-              walk(item, depth + 1);
-            }
-          }
-          return;
-        }
-        if (typeof value === 'object') {
-          Object.keys(value).forEach(function (k) {
-            var child = value[k];
-            if (typeof child === 'string') {
-              var r = stripArchiveTextClient(child, targetNorm);
-              if (r.changed) value[k] = r.value;
-            } else if (child && typeof child === 'object') {
-              walk(child, depth + 1);
-            }
-          });
-        }
-      }
-      [appState.purePhaseC, appState.aiGeneratedPlan, appState.generalSearchResult].forEach(function (p) {
-        if (p) walk(p, 0);
-      });
+    function clearSelectionRanges() {
+      var sel = window.getSelection && window.getSelection();
+      if (sel && sel.removeAllRanges) sel.removeAllRanges();
     }
 
     function ensureArchiveTextFab() {
@@ -14444,6 +14472,12 @@
       var el = node.nodeType === 3 ? node.parentNode : node;
       if (!el || !el.closest) return false;
       return Boolean(el.closest(ARCHIVE_TEXT_DELETE_SCOPE));
+    }
+
+    function closestArchiveEditableBlock(node) {
+      if (!node) return null;
+      var el = node.nodeType === 3 ? node.parentNode : node;
+      return el && el.closest ? el.closest('[data-archive-source]') : null;
     }
 
     function archiveSelectionAnchorList(range) {
@@ -14481,6 +14515,10 @@
       }
       var enclosingHref = enclosingLink ? (enclosingLink.getAttribute('href') || '') : '';
       var linkOnly = Boolean(enclosingLink) && /^https?:\/\//i.test(enclosingHref);
+      var endEl = range.endContainer.nodeType === 3 ? range.endContainer.parentNode : range.endContainer;
+      var startBlock = closestArchiveEditableBlock(startEl);
+      var endBlock = closestArchiveEditableBlock(endEl);
+      var block = (startBlock && startBlock === endBlock) ? startBlock : null;
       return {
         text: text,
         rect: rect,
@@ -14489,6 +14527,8 @@
         linkUrl: linkOnly ? enclosingHref : '',
         anchorEl: linkOnly ? enclosingLink : null,
         linkUrls: linkUrls,
+        block: block,
+        blockSource: block ? String(block.getAttribute('data-archive-source') || '') : '',
       };
     }
 
@@ -14557,47 +14597,96 @@
       }
     }
 
-    function applyArchiveSelectionDomRemoval(ctx) {
+    function removeArchiveSelectionRangeFromDom(ctx) {
+      if (!ctx || !ctx.range) return;
+      var startEl = ctx.range.startContainer.nodeType === 3 ? ctx.range.startContainer.parentNode : ctx.range.startContainer;
+      ctx.range.deleteContents();
+      cleanupEmptyArchiveNode(startEl);
+    }
+
+    /**
+     * Delete a highlighted link. Reliable structured array-filter on the server — kept separate
+     * from prose so the two paths never interfere.
+     */
+    async function deleteArchiveLinkSelection(ctx, cacheKey) {
+      if (!cacheKey) { showArchiveToast('מזהה הארכיון אינו ברור — הפעולה בוטלה.', 'error'); return; }
       try {
-        if (ctx.linkOnly && ctx.anchorEl) {
-          removeArchiveListItemFromDom(ctx.anchorEl);
-        } else if (ctx.range) {
-          var startEl = ctx.range.startContainer.nodeType === 3 ? ctx.range.startContainer.parentNode : ctx.range.startContainer;
-          ctx.range.deleteContents();
-          cleanupEmptyArchiveNode(startEl);
+        await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrl });
+        purgeArchiveUrlFromClientState(ctx.linkUrl);
+        if (ctx.anchorEl) removeArchiveListItemFromDom(ctx.anchorEl);
+        clearSelectionRanges();
+        showArchiveToast('הקישור נמחק מהארכיון.');
+      } catch (err) {
+        showArchiveToast('מחיקת הקישור נכשלה: ' + (err && err.message ? err.message : ''), 'error');
+      }
+    }
+
+    /**
+     * Delete a highlighted sentence/snippet by rewriting the WHOLE owning block and upserting it
+     * back to the row. Strict: aborts if the block/row can't be identified, restores on failure.
+     */
+    async function deleteArchiveTextSelection(ctx, cacheKey) {
+      if (!ctx.block || !ctx.blockSource || !ctx.blockSource.trim()) {
+        showArchiveToast('לא ניתן לזהות את בלוק הטקסט למחיקה — הפעולה בוטלה.', 'error');
+        return;
+      }
+      if (!cacheKey) {
+        showArchiveToast('מזהה הארכיון אינו ברור — הפעולה בוטלה.', 'error');
+        return;
+      }
+      var newSource = removeSnippetFromArchiveSource(ctx.blockSource, ctx.text);
+      if (newSource === null || normalizeArchiveBlockText(newSource) === normalizeArchiveBlockText(ctx.blockSource)) {
+        showArchiveToast('הקטע שנבחר לא נמצא בבלוק המקור — הפעולה בוטלה.', 'error');
+        return;
+      }
+      var block = ctx.block;
+      var snapshot = block.innerHTML;
+      try {
+        removeArchiveSelectionRangeFromDom(ctx);
+        clearSelectionRanges();
+      } catch (domErr) {
+        block.innerHTML = snapshot;
+        showArchiveToast('שגיאה בעדכון התצוגה — הפעולה בוטלה.', 'error');
+        return;
+      }
+      try {
+        await postArchiveDeleteRequest({
+          action: 'replace_archive_block',
+          cacheKey: cacheKey,
+          originalText: ctx.blockSource,
+          newText: newSource,
+        });
+        block.setAttribute('data-archive-source', newSource);
+        for (var i = 0; i < ctx.linkUrls.length; i++) {
+          try {
+            await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrls[i] });
+            purgeArchiveUrlFromClientState(ctx.linkUrls[i]);
+          } catch (linkErr) { /* best-effort link cleanup */ }
         }
-      } catch (e) { /* ignore DOM cleanup errors */ }
-      var sel = window.getSelection && window.getSelection();
-      if (sel && sel.removeAllRanges) sel.removeAllRanges();
+        showArchiveToast('הקטע נמחק מהארכיון.');
+      } catch (serverErr) {
+        block.innerHTML = snapshot;
+        showArchiveToast('מחיקת הקטע נכשלה והטקסט שוחזר: ' + (serverErr && serverErr.message ? serverErr.message : ''), 'error');
+      }
     }
 
     async function deleteArchiveSelection(ctx) {
       if (!isArchiveAdminUser() || !ctx) return;
+      if (archiveDeleteInFlight) return;
       if (!confirm(ARCHIVE_TEXT_DELETE_CONFIRM)) return;
-      var cacheKey = String(appState.lessonCacheKey || '').trim();
-      if (!cacheKey) {
-        alert('לא נמצא מזהה ארכיון — טענו את הנושא מהארכיון תחילה.');
-        return;
-      }
+      archiveDeleteInFlight = true;
       if (archiveTextFabEl) archiveTextFabEl.disabled = true;
+      var cacheKey = String((ctx.block && ctx.block.getAttribute('data-archive-key')) || appState.lessonCacheKey || '').trim();
       try {
         if (ctx.linkOnly && ctx.linkUrl) {
-          await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrl });
-          purgeArchiveUrlFromClientState(ctx.linkUrl);
+          await deleteArchiveLinkSelection(ctx, cacheKey);
         } else {
-          await postArchiveDeleteRequest({ action: 'delete_archive_text', cacheKey: cacheKey, text: ctx.text });
-          purgeArchiveTextFromClientState(ctx.text);
-          for (var i = 0; i < ctx.linkUrls.length; i++) {
-            try {
-              await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrls[i] });
-              purgeArchiveUrlFromClientState(ctx.linkUrls[i]);
-            } catch (linkErr) { /* best-effort link cleanup */ }
-          }
+          await deleteArchiveTextSelection(ctx, cacheKey);
         }
-        applyArchiveSelectionDomRemoval(ctx);
       } catch (err) {
-        alert('מחיקת הקטע מהארכיון נכשלה: ' + (err && err.message ? err.message : String(err)));
+        showArchiveToast('אירעה שגיאה במחיקה: ' + (err && err.message ? err.message : String(err)), 'error');
       } finally {
+        archiveDeleteInFlight = false;
         hideArchiveTextDeleteFab();
       }
     }
@@ -17510,8 +17599,16 @@
       return raw.trim();
     }
 
+    function wrapArchiveEditableBlock(innerHtml, sourceText) {
+      if (!innerHtml) return innerHtml;
+      var src = String(sourceText == null ? '' : sourceText);
+      if (!src.trim()) return innerHtml;
+      return '<div class="archive-editable-block" data-archive-source="' + escapeHtml(src) + '">' + innerHtml + '</div>';
+    }
+
     function renderNarrativeProseBlock(text, options) {
       options = options || {};
+      var sourceOriginal = String(text == null ? '' : text);
       var raw = String(text || '').trim();
       if (!raw) return '';
       if (options.expansionBody) {
@@ -17519,9 +17616,9 @@
         raw = stripSequentialDuplicateSentencesClient(raw);
         if (!raw) return '';
         if (isCompiledPedagogicalHtml(raw)) {
-          return '<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>';
+          return wrapArchiveEditableBlock('<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>', sourceOriginal);
         }
-        return formatPerplexityRawText(raw, { prepared: true });
+        return wrapArchiveEditableBlock(formatPerplexityRawText(raw, { prepared: true }), sourceOriginal);
       }
       raw = stripStrayMarkdownHashes(stripNarrativeProseMarkup(raw));
       if (!raw) return '';
@@ -17535,7 +17632,7 @@
         html = formatPerplexityRawText(raw, { prepared: true });
       }
       if (isPurePhaseCMode() && html) html = linkifyExpansionHtml(html);
-      return html;
+      return wrapArchiveEditableBlock(html, sourceOriginal);
     }
 
     function renderPureTextBlock(text) {
