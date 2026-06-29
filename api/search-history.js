@@ -210,6 +210,28 @@ async function executeSearchHistory(req) {
     };
   }
 
+  if (action === 'delete_archive_text') {
+    await resolveArchiveAdmin(req, body);
+    const cacheKey = String((body && body.cacheKey) || '').trim();
+    const text = String((body && body.text) || '');
+    if (!cacheKey || !text.trim()) {
+      const err = new Error('חסרים מזהה ארכיון או טקסט למחיקה');
+      err.statusCode = 400;
+      throw err;
+    }
+    const result = await cacheDb.removeArchiveTextFromCache(cacheKey, text);
+    if (!result || !result.removed) {
+      const err = new Error('הטקסט לא נמצא בארכיון או שהמחיקה נכשלה');
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      ok: true,
+      action: 'delete_archive_text',
+      cacheKey: cacheKey,
+    };
+  }
+
   if (action === 'reload') {
     const cacheKey = String((body && body.cacheKey) || '').trim();
     if (!cacheKey) {

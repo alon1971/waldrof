@@ -1697,6 +1697,24 @@
       z-index: 2;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
     }
+    .archive-text-delete-fab {
+      position: fixed;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(139, 58, 58, 0.45);
+      background: #ffffff;
+      color: #8B3A3A;
+      border-radius: 0.5rem;
+      padding: 0.1rem 0.4rem;
+      font-size: 1rem;
+      line-height: 1.2;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    }
+    .archive-text-delete-fab:hover { background: rgba(139, 58, 58, 0.08); border-color: rgba(139, 58, 58, 0.7); }
+    .archive-text-delete-fab[disabled] { opacity: 0.6; cursor: default; }
     .archive-material-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
     .catalog-material-text {
       display: flex;
@@ -14197,6 +14215,282 @@
       });
     }
 
+    // ---------- Admin-only granular inline text/link deletion (selection → floating 🗑️) ----------
+    var ARCHIVE_TEXT_DELETE_CONFIRM = 'האם אתה בטוח שברצונך למחוק את הקטע/הקישור שנבחר לצמיתות מהארכיון?';
+    var ARCHIVE_TEXT_DELETE_SCOPE = '#phase-c-unified-root, #panel-narrative, #general-search-results, #panel-catalog';
+    var archiveTextFabEl = null;
+    var archiveTextSelectionCtx = null;
+    var archiveTextSelectionTimer = null;
+
+    function normalizeArchiveTextClient(text) {
+      return String(text == null ? '' : text).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function buildArchiveTextRegexClient(targetNorm) {
+      if (!targetNorm) return null;
+      var escaped = targetNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s\\u00a0]+');
+      try { return new RegExp(escaped, 'g'); } catch (e) { return null; }
+    }
+
+    function stripArchiveTextClient(raw, targetNorm) {
+      var original = String(raw);
+      var norm = normalizeArchiveTextClient(original);
+      if (!norm || !targetNorm) return { changed: false, value: original };
+      if (norm === targetNorm) return { changed: true, value: '' };
+      if (norm.indexOf(targetNorm) === -1) return { changed: false, value: original };
+      var re = buildArchiveTextRegexClient(targetNorm);
+      if (!re) return { changed: false, value: original };
+      var replaced = original.replace(re, ' ');
+      if (replaced === original) return { changed: false, value: original };
+      return { changed: true, value: replaced.replace(/[ \t]{2,}/g, ' ').replace(/ +([,.;:!?])/g, '$1').trim() };
+    }
+
+    function purgeArchiveTextFromClientState(text) {
+      var targetNorm = normalizeArchiveTextClient(text);
+      if (!targetNorm || targetNorm.length < 2) return;
+      function walk(value, depth) {
+        if (value == null || depth > 16) return;
+        if (Array.isArray(value)) {
+          for (var i = value.length - 1; i >= 0; i--) {
+            var item = value[i];
+            if (typeof item === 'string') {
+              var r = stripArchiveTextClient(item, targetNorm);
+              if (r.changed) { if (!r.value) value.splice(i, 1); else value[i] = r.value; }
+            } else if (item && typeof item === 'object') {
+              walk(item, depth + 1);
+            }
+          }
+          return;
+        }
+        if (typeof value === 'object') {
+          Object.keys(value).forEach(function (k) {
+            var child = value[k];
+            if (typeof child === 'string') {
+              var r = stripArchiveTextClient(child, targetNorm);
+              if (r.changed) value[k] = r.value;
+            } else if (child && typeof child === 'object') {
+              walk(child, depth + 1);
+            }
+          });
+        }
+      }
+      [appState.purePhaseC, appState.aiGeneratedPlan, appState.generalSearchResult].forEach(function (p) {
+        if (p) walk(p, 0);
+      });
+    }
+
+    function ensureArchiveTextFab() {
+      if (archiveTextFabEl) return archiveTextFabEl;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'archive-text-delete-fab';
+      btn.setAttribute('aria-label', 'מחק קטע מהארכיון');
+      btn.setAttribute('title', 'מחק קטע מהארכיון');
+      btn.textContent = '🗑️';
+      btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (archiveTextSelectionCtx) deleteArchiveSelection(archiveTextSelectionCtx);
+      });
+      document.body.appendChild(btn);
+      archiveTextFabEl = btn;
+      return btn;
+    }
+
+    function hideArchiveTextDeleteFab() {
+      archiveTextSelectionCtx = null;
+      if (archiveTextFabEl) {
+        archiveTextFabEl.style.display = 'none';
+        archiveTextFabEl.disabled = false;
+      }
+    }
+
+    function isNodeWithinArchiveScope(node) {
+      if (!node) return false;
+      var el = node.nodeType === 3 ? node.parentNode : node;
+      if (!el || !el.closest) return false;
+      return Boolean(el.closest(ARCHIVE_TEXT_DELETE_SCOPE));
+    }
+
+    function archiveSelectionAnchorList(range) {
+      var root = range.commonAncestorContainer;
+      if (root && root.nodeType === 3) root = root.parentNode;
+      if (!root || !root.querySelectorAll) return [];
+      var anchors = [];
+      var nodes = root.querySelectorAll('a[href]');
+      for (var i = 0; i < nodes.length; i++) {
+        var a = nodes[i];
+        var intersects = range.intersectsNode ? range.intersectsNode(a) : true;
+        if (intersects) anchors.push(a);
+      }
+      return anchors;
+    }
+
+    function computeArchiveSelectionContext() {
+      var sel = window.getSelection && window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+      var text = String(sel.toString() || '').trim();
+      if (text.length < 2) return null;
+      var range = sel.getRangeAt(0);
+      if (!isNodeWithinArchiveScope(range.startContainer) || !isNodeWithinArchiveScope(range.endContainer)) return null;
+      var startEl = range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer;
+      if (startEl && startEl.closest && startEl.closest('input, textarea, .archive-text-delete-fab, [contenteditable="true"]')) return null;
+      var rect = range.getBoundingClientRect();
+      if (!rect || (!rect.width && !rect.height)) return null;
+      var commonEl = range.commonAncestorContainer.nodeType === 3 ? range.commonAncestorContainer.parentNode : range.commonAncestorContainer;
+      var enclosingLink = commonEl && commonEl.closest ? commonEl.closest('a[href]') : null;
+      var anchors = archiveSelectionAnchorList(range);
+      var linkUrls = [];
+      for (var i = 0; i < anchors.length; i++) {
+        var href = anchors[i].getAttribute('href');
+        if (href && /^https?:\/\//i.test(href) && linkUrls.indexOf(href) === -1) linkUrls.push(href);
+      }
+      var enclosingHref = enclosingLink ? (enclosingLink.getAttribute('href') || '') : '';
+      var linkOnly = Boolean(enclosingLink) && /^https?:\/\//i.test(enclosingHref);
+      return {
+        text: text,
+        rect: rect,
+        range: range.cloneRange(),
+        linkOnly: linkOnly,
+        linkUrl: linkOnly ? enclosingHref : '',
+        anchorEl: linkOnly ? enclosingLink : null,
+        linkUrls: linkUrls,
+      };
+    }
+
+    function positionArchiveTextFab(btn, rect) {
+      var top = rect.top - 8;
+      var left = rect.right + 8;
+      var maxLeft = window.innerWidth - 44;
+      if (left > maxLeft) left = maxLeft;
+      if (left < 8) left = 8;
+      if (top < 8) top = rect.bottom + 8;
+      btn.style.top = Math.round(top) + 'px';
+      btn.style.left = Math.round(left) + 'px';
+    }
+
+    function refreshArchiveTextSelection() {
+      if (!isArchiveAdminUser()) { hideArchiveTextDeleteFab(); return; }
+      var ctx = computeArchiveSelectionContext();
+      if (!ctx) { hideArchiveTextDeleteFab(); return; }
+      archiveTextSelectionCtx = ctx;
+      var btn = ensureArchiveTextFab();
+      positionArchiveTextFab(btn, ctx.rect);
+      btn.style.display = 'inline-flex';
+    }
+
+    function scheduleArchiveTextSelectionCheck() {
+      if (archiveTextSelectionTimer) clearTimeout(archiveTextSelectionTimer);
+      archiveTextSelectionTimer = setTimeout(refreshArchiveTextSelection, 120);
+    }
+
+    async function postArchiveDeleteRequest(payload) {
+      var headers = { 'Content-Type': 'application/json' };
+      if (typeof WaldorfAuth !== 'undefined') {
+        var token = await WaldorfAuth.getAccessToken();
+        if (token) headers.Authorization = 'Bearer ' + token;
+        var identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function' ? WaldorfAuth.getIdentityEmail() : '';
+        if (identityEmail) headers['X-User-Email'] = identityEmail;
+      }
+      var res = await fetch('/api/search-history', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(payload),
+      });
+      var bodyText = await res.text();
+      var json = {};
+      try { json = bodyText ? JSON.parse(bodyText) : {}; } catch (e) { json = {}; }
+      if (!res.ok || json.error) {
+        throw new Error((json && json.error) || bodyText || ('שגיאת שרת (' + res.status + ')'));
+      }
+      return json;
+    }
+
+    function cleanupEmptyArchiveNode(node) {
+      var current = node;
+      var guard = 0;
+      while (current && current.nodeType === 1 && guard < 6) {
+        if (current.closest && !current.closest(ARCHIVE_TEXT_DELETE_SCOPE)) break;
+        var tag = current.tagName ? current.tagName.toLowerCase() : '';
+        if (['body', 'html', 'section'].indexOf(tag) >= 0) break;
+        var textContent = (current.textContent || '').replace(/\s+/g, '');
+        var hasMedia = current.querySelector && current.querySelector('img, iframe, video, a[href]');
+        if (textContent || hasMedia) break;
+        var parent = current.parentNode;
+        current.remove();
+        current = parent;
+        guard++;
+      }
+    }
+
+    function applyArchiveSelectionDomRemoval(ctx) {
+      try {
+        if (ctx.linkOnly && ctx.anchorEl) {
+          removeArchiveListItemFromDom(ctx.anchorEl);
+        } else if (ctx.range) {
+          var startEl = ctx.range.startContainer.nodeType === 3 ? ctx.range.startContainer.parentNode : ctx.range.startContainer;
+          ctx.range.deleteContents();
+          cleanupEmptyArchiveNode(startEl);
+        }
+      } catch (e) { /* ignore DOM cleanup errors */ }
+      var sel = window.getSelection && window.getSelection();
+      if (sel && sel.removeAllRanges) sel.removeAllRanges();
+    }
+
+    async function deleteArchiveSelection(ctx) {
+      if (!isArchiveAdminUser() || !ctx) return;
+      if (!confirm(ARCHIVE_TEXT_DELETE_CONFIRM)) return;
+      var cacheKey = String(appState.lessonCacheKey || '').trim();
+      if (!cacheKey) {
+        alert('לא נמצא מזהה ארכיון — טענו את הנושא מהארכיון תחילה.');
+        return;
+      }
+      if (archiveTextFabEl) archiveTextFabEl.disabled = true;
+      try {
+        if (ctx.linkOnly && ctx.linkUrl) {
+          await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrl });
+          purgeArchiveUrlFromClientState(ctx.linkUrl);
+        } else {
+          await postArchiveDeleteRequest({ action: 'delete_archive_text', cacheKey: cacheKey, text: ctx.text });
+          purgeArchiveTextFromClientState(ctx.text);
+          for (var i = 0; i < ctx.linkUrls.length; i++) {
+            try {
+              await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrls[i] });
+              purgeArchiveUrlFromClientState(ctx.linkUrls[i]);
+            } catch (linkErr) { /* best-effort link cleanup */ }
+          }
+        }
+        applyArchiveSelectionDomRemoval(ctx);
+      } catch (err) {
+        alert('מחיקת הקטע מהארכיון נכשלה: ' + (err && err.message ? err.message : String(err)));
+      } finally {
+        hideArchiveTextDeleteFab();
+      }
+    }
+
+    function initArchiveTextDeleteSelection() {
+      if (document.body.dataset.archiveTextDeleteBound === '1') return;
+      document.body.dataset.archiveTextDeleteBound = '1';
+      document.addEventListener('mouseup', function (e) {
+        if (archiveTextFabEl && e.target === archiveTextFabEl) return;
+        if (!isArchiveAdminUser()) { hideArchiveTextDeleteFab(); return; }
+        scheduleArchiveTextSelectionCheck();
+      });
+      document.addEventListener('selectionchange', function () {
+        if (!isArchiveAdminUser()) { hideArchiveTextDeleteFab(); return; }
+        var sel = window.getSelection && window.getSelection();
+        if (!sel || sel.isCollapsed) { hideArchiveTextDeleteFab(); return; }
+        scheduleArchiveTextSelectionCheck();
+      });
+      document.addEventListener('mousedown', function (e) {
+        if (archiveTextFabEl && e.target === archiveTextFabEl) return;
+        hideArchiveTextDeleteFab();
+      });
+      window.addEventListener('scroll', hideArchiveTextDeleteFab, true);
+      window.addEventListener('resize', hideArchiveTextDeleteFab);
+    }
+
     function isCommunityAdminUser() {
       if (typeof WaldorfAuth === 'undefined') return false;
       const profile = WaldorfAuth.getContributorProfile && WaldorfAuth.getContributorProfile();
@@ -22564,6 +22858,7 @@
       bindTopicStepBreadcrumbGlobalNav();
       bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       bindArchiveAdminDeleteEvents();
+      initArchiveTextDeleteSelection();
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
         if (!btn || btn.disabled) return;
