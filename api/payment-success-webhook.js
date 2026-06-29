@@ -29,28 +29,17 @@ function assertAuthorized(req) {
 function parsePlan(plan) {
   const raw = String(plan || 'annual_pro').trim().toLowerCase();
   let planType = 'pro';
-  let billingCycle = 'yearly';
-
-  if (raw.includes('month')) {
-    billingCycle = 'monthly';
-  } else if (raw.includes('year') || raw.includes('annual')) {
-    billingCycle = 'yearly';
-  }
 
   if (raw.includes('standard') || raw.includes('educator')) {
     planType = 'standard';
   }
 
-  return { planType: planType, billingCycle: billingCycle };
+  return { planType: planType };
 }
 
-function expiresAtFromBillingCycle(billingCycle) {
+function expiresAtOneYearFromNow() {
   const now = new Date();
-  if (billingCycle === 'monthly') {
-    now.setMonth(now.getMonth() + 1);
-  } else {
-    now.setFullYear(now.getFullYear() + 1);
-  }
+  now.setFullYear(now.getFullYear() + 1);
   return now.toISOString();
 }
 
@@ -84,13 +73,12 @@ async function handlePaymentSuccessRequest(req, body) {
   }
 
   const parsed = parsePlan(plan);
-  const expiresAt = expiresAtFromBillingCycle(parsed.billingCycle);
+  const expiresAt = expiresAtOneYearFromNow();
 
   const subRow = await billingDb.activatePaidSubscription({
     userId: userId,
     email: email,
     planType: parsed.planType,
-    billingCycle: parsed.billingCycle,
     expiresAt: expiresAt,
     autoRenew: true,
     paymentProvider: 'grow',
@@ -101,7 +89,6 @@ async function handlePaymentSuccessRequest(req, body) {
     email: email,
     plan: plan,
     planType: parsed.planType,
-    billingCycle: parsed.billingCycle,
     phone: phone || undefined,
     expiresAt: expiresAt,
   });
@@ -111,7 +98,6 @@ async function handlePaymentSuccessRequest(req, body) {
     userId: userId,
     email: email,
     planType: parsed.planType,
-    billingCycle: parsed.billingCycle,
     expiresAt: expiresAt,
     subscription: subRow,
   };
