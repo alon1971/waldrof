@@ -7671,10 +7671,65 @@
       return raw;
     }
 
+    /**
+     * Heuristic: does this body look like a Server-Sent Events stream (event:/data:/retry:
+     * frames) rather than a classic JSON document? A real JSON payload starts with { or [.
+     */
+    function looksLikeEventStream(text) {
+      var s = String(text || '');
+      if (/^[\s]*[\[{]/.test(s)) return false;
+      return /(^|\n)\s*(event:|data:|retry:|id:|:)/.test(s);
+    }
+
+    /**
+     * Decode a (possibly fully-buffered) SSE body and return the final envelope, exactly
+     * matching the buffered JSON shape ({ data, meta } or { error, code, usage }). The
+     * stream is assembled in full first; JSON is parsed only from the terminal result/error
+     * event, never from the raw "event:/data:" frames. Returns null when no event is found.
+     */
+    function extractSseEnvelopeFromText(text) {
+      var blocks = String(text || '').split(/\r?\n\r?\n/);
+      var resultPayload = null;
+      var errorEnvelope = null;
+      for (var b = 0; b < blocks.length; b++) {
+        var lines = blocks[b].split(/\r?\n/);
+        var eventName = 'message';
+        var dataParts = [];
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (!line || line.charAt(0) === ':') continue;
+          if (line.indexOf('event:') === 0) eventName = line.slice(6).trim();
+          else if (line.indexOf('data:') === 0) dataParts.push(line.slice(5).replace(/^ /, ''));
+        }
+        if (!dataParts.length) continue;
+        var parsed = null;
+        try { parsed = JSON.parse(dataParts.join('\n')); } catch (e) { parsed = null; }
+        if (!parsed) continue;
+        if (eventName === 'result') {
+          resultPayload = (parsed && parsed.payload) ? parsed.payload : parsed;
+        } else if (eventName === 'error') {
+          errorEnvelope = {
+            error: (parsed && parsed.error) || 'שגיאת שרת',
+            code: parsed && parsed.code,
+            usage: parsed && parsed.usage,
+          };
+        }
+      }
+      if (resultPayload) return resultPayload;
+      if (errorEnvelope) return errorEnvelope;
+      return null;
+    }
+
     /** Parse clean JSON from /api/generate first; lenient repair only as fallback. */
     function parseApiJsonResponse(text) {
       if (!text) throw new Error('תשובה ריקה מהשרת');
       var trimmed = String(text).replace(/^\uFEFF/, '').trim();
+      // A streamed (or proxy-buffered) SSE response must be assembled and decoded from its
+      // final event — never JSON.parse()'d as a whole, which throws "non-valid JSON".
+      if (looksLikeEventStream(trimmed)) {
+        var fromSse = extractSseEnvelopeFromText(trimmed);
+        if (fromSse) return fromSse;
+      }
       try {
         return JSON.parse(trimmed);
       } catch (directErr) {
@@ -8034,7 +8089,7 @@
       }
 
       function drainBlock(block) {
-        const lines = block.split('\n');
+        const lines = block.split(/\r?\n/);
         let eventName = 'message';
         const dataLines = [];
         for (let i = 0; i < lines.length; i++) {
@@ -8046,11 +8101,16 @@
         if (dataLines.length || eventName !== 'message') handleEvent(eventName, dataLines.join('\n'));
       }
 
+      let rawText = '';
       try {
         while (true) {
           const chunk = await reader.read();
           if (chunk.done) break;
-          buffer += decoder.decode(chunk.value, { stream: true });
+          const decoded = decoder.decode(chunk.value, { stream: true });
+          rawText += decoded;
+          // Normalize CRLF so both the blank-line frame split and per-line parsing work
+          // regardless of how a proxy rewrites the stream's newlines.
+          buffer = (buffer + decoded).replace(/\r\n/g, '\n');
           let sep;
           while ((sep = buffer.indexOf('\n\n')) >= 0) {
             const block = buffer.slice(0, sep);
@@ -8064,6 +8124,19 @@
         if (!finalEnvelope) throw new Error('שגיאת רשת בזרם הנתונים: ' + (readErr.message || readErr));
       } finally {
         endResearchStreamUi();
+      }
+
+      // Last-resort: if incremental framing missed the terminal event (unusual proxy
+      // buffering), decode the fully-assembled stream text once it is complete.
+      if (!finalEnvelope && rawText) {
+        const recovered = extractSseEnvelopeFromText(rawText);
+        if (recovered) {
+          const recoveredStatus = recovered.error ? 500 : 200;
+          finalEnvelope = {
+            res: { ok: !recovered.error, status: recoveredStatus },
+            json: recovered,
+          };
+        }
       }
 
       if (!finalEnvelope) {
