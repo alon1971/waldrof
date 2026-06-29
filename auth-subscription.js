@@ -1342,13 +1342,45 @@
     return getIdentityEmail() || '';
   }
 
+  function getUpgradeUserFullName() {
+    var name = String(getUserDisplayName() || '').trim();
+    return name || 'מנוי מרוצה';
+  }
+
+  function getUpgradeUserPhone() {
+    var user = authState.isAuthenticated ? authState.user : null;
+    if (!user) return '';
+    var meta = user.user_metadata || {};
+    var candidates = [
+      meta.phone,
+      meta.phone_number,
+      meta.mobile,
+      user.phone,
+    ];
+    if (user.identity_data) {
+      candidates.push(user.identity_data.phone);
+      candidates.push(user.identity_data.phone_number);
+    }
+    for (var i = 0; i < candidates.length; i++) {
+      var value = String(candidates[i] || '').trim();
+      if (value) return value;
+    }
+    return '';
+  }
+
   function startMakeUpgradeCheckout(userEmail) {
     var email = normalizeEmail(userEmail);
     if (!email) return Promise.reject(new Error('missing email'));
     return fetch(MAKE_UPGRADE_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, plan: 'annual_pro', price: 250 }),
+      body: JSON.stringify({
+        email: email,
+        name: getUpgradeUserFullName(),
+        phone: getUpgradeUserPhone() || '0500000000',
+        plan: 'annual_pro',
+        price: 250,
+      }),
     }).then(function (res) {
       return res.json().then(function (response) {
         if (!res.ok || !response || typeof response.url !== 'string' || !response.url) {
