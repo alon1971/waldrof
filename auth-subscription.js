@@ -1368,9 +1368,16 @@
     return '';
   }
 
-  function startMakeUpgradeCheckout(userEmail) {
+  function closeCheckoutTab(newTab) {
+    if (!newTab || typeof newTab.close !== 'function') return;
+    try { newTab.close(); } catch (e) { /* ignore */ }
+  }
+
+  function startMakeUpgradeCheckout(userEmail, newTab) {
     var email = normalizeEmail(userEmail);
     if (!email) return Promise.reject(new Error('missing email'));
+    var popupBlocked = !newTab;
+
     return fetch(MAKE_UPGRADE_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1383,12 +1390,28 @@
       }),
     }).then(function (res) {
       return res.json().then(function (response) {
-        if (!res.ok || !response || typeof response.url !== 'string' || !response.url) {
-          return Promise.reject(new Error('checkout unavailable'));
+        var checkoutUrl = response && typeof response.url === 'string' ? response.url.trim() : '';
+        if (!res.ok || !checkoutUrl) {
+          closeCheckoutTab(newTab);
+          return Promise.reject(new Error(t('paywall_upgrade_error')));
         }
-        global.open(response.url, '_blank');
+        if (popupBlocked) {
+          showContactToast(t('paywall_upgrade_popup_blocked'));
+          global.location.href = checkoutUrl;
+          return response;
+        }
+        try {
+          newTab.location.href = checkoutUrl;
+        } catch (assignErr) {
+          closeCheckoutTab(newTab);
+          showContactToast(t('paywall_upgrade_popup_blocked'));
+          global.location.href = checkoutUrl;
+        }
         return response;
       });
+    }).catch(function (err) {
+      closeCheckoutTab(newTab);
+      throw err;
     });
   }
 
@@ -1414,7 +1437,7 @@
       return;
     }
     hidePricingModal();
-    return startMakeUpgradeCheckout(userEmail);
+    return startMakeUpgradeCheckout(userEmail, null);
   }
 
   /* ── Rate limiter ────────────────────────────────────────────────────── */
@@ -2001,13 +2024,15 @@
       showAuthOverlay();
       return;
     }
+    var newTab = global.open('about:blank', '_blank');
     setPricingUpgradeButtonLoading(true);
-    startMakeUpgradeCheckout(userEmail)
+    startMakeUpgradeCheckout(userEmail, newTab)
       .then(function () {
         setPricingUpgradeButtonLoading(false);
       })
       .catch(function () {
         setPricingUpgradeButtonLoading(false);
+        showContactToast(t('paywall_upgrade_error'), 'error');
       });
   }
 
