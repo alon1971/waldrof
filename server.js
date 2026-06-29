@@ -32,6 +32,7 @@ const configApi = require('./api/config');
 const knowledgeSeed = require('./api/knowledge-seed');
 const billingCheckout = require('./api/billing-checkout');
 const billingWebhooks = require('./api/billing-webhooks');
+const paymentSuccessWebhook = require('./api/payment-success-webhook');
 const billingReport = require('./api/billing-report');
 const purePhaseCApi = require('./api/pure-phase-c');
 const pureGeneralSearchApi = require('./api/pure-general-search');
@@ -447,6 +448,35 @@ async function handleApiStripeWebhook(req, res) {
   }
 }
 
+async function handleApiPaymentSuccessWebhook(req, res) {
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, API_CORS_HEADERS);
+    return res.end();
+  }
+  if (req.method !== 'POST') {
+    writeJsonResponse(res, 405, { error: 'Method not allowed' });
+    return;
+  }
+  try {
+    const raw = await readBody(req);
+    let body = {};
+    if (raw && raw.trim()) {
+      try {
+        body = JSON.parse(raw);
+      } catch (parseErr) {
+        writeJsonResponse(res, 400, { error: 'Invalid JSON body' });
+        return;
+      }
+    }
+    const result = await paymentSuccessWebhook.handlePaymentSuccessRequest(req, body);
+    writeJsonResponse(res, 200, result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    console.error('[api/webhooks/payment-success]', status, err.message || err);
+    writeJsonResponse(res, status, { error: err.message || String(err) });
+  }
+}
+
 async function handleApiBillingReportCron(req, res) {
   try {
     const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
@@ -581,6 +611,10 @@ const server = http.createServer(async function (req, res) {
     return handleApiStripeWebhook(req, res);
   }
 
+  if (pathname === '/api/webhooks/payment-success') {
+    return handleApiPaymentSuccessWebhook(req, res);
+  }
+
   if (pathname === '/api/cron/billing-report') {
     return handleApiBillingReportCron(req, res);
   }
@@ -615,7 +649,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');

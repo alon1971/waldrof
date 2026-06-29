@@ -164,6 +164,21 @@ async function upsertSubscriptionRow(userId, patch) {
   return Array.isArray(rows) && rows.length ? rows[0] : insertRow;
 }
 
+async function updateProfileFields(userId, patch) {
+  const profilePatch = {
+    updated_at: new Date().toISOString(),
+  };
+  if (patch && patch.display_name !== undefined) profilePatch.display_name = patch.display_name;
+  if (patch && patch.email !== undefined) profilePatch.email = patch.email;
+
+  const params = new URLSearchParams();
+  params.set('id', 'eq.' + userId);
+  await supabaseRequest('/rest/v1/' + PROFILES_TABLE + '?' + params.toString(), {
+    method: 'PATCH',
+    body: JSON.stringify(profilePatch),
+  });
+}
+
 async function updateProfileSubscription(userId, email, patch) {
   const profilePatch = {
     updated_at: new Date().toISOString(),
@@ -296,4 +311,5 @@ module.exports = {
   fetchAllSubscriptions,
   fetchProfilesByIds,
   subscriptionStatusLabel,
+  updateProfileFields,
 };

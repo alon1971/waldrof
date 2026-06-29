@@ -145,6 +145,13 @@ function getCronSecret() {
   return cleanKey(process.env.CRON_SECRET || process.env.BILLING_CRON_SECRET);
 }
 
+function getPaymentWebhookSecret() {
+  return cleanKey(
+    process.env.PAYMENT_WEBHOOK_SECRET ||
+    process.env.MAKE_PAYMENT_WEBHOOK_SECRET
+  );
+}
+
 function getSmtpHost() {
   return cleanKey(process.env.SMTP_HOST || 'smtp.gmail.com');
 }
@@ -213,6 +220,7 @@ module.exports = {
   getBillingReportEmail,
   getMakeUpgradeWebhookUrl,
   getCronSecret,
+  getPaymentWebhookSecret,
   getSmtpHost,
   getSmtpPort,
   getSmtpUser,
