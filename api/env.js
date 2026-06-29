@@ -137,6 +137,10 @@ function getBillingReportEmail() {
   return cleanKey(process.env.BILLING_REPORT_EMAIL || 'Waldorfplanner@gmail.com');
 }
 
+function getMakeUpgradeWebhookUrl() {
+  return cleanUrl(process.env.MAKE_UPGRADE_WEBHOOK_URL || '');
+}
+
 function getCronSecret() {
   return cleanKey(process.env.CRON_SECRET || process.env.BILLING_CRON_SECRET);
 }
@@ -184,6 +188,7 @@ function getPublicClientConfig() {
     apiSubscription: '/api/subscription',
     apiBillingCheckout: '/api/billing/checkout',
     stripeCheckoutEnabled: isStripeCheckoutEnabled(),
+    makeUpgradeWebhookUrl: getMakeUpgradeWebhookUrl(),
     /** Mirrors api/tier-limits.js — revert to 3 after beta testing. */
     trialSearchLimit: TRIAL_LIFETIME_SEARCH_LIMIT,
   };
@@ -206,6 +211,7 @@ module.exports = {
   getBillingSuccessUrl,
   getBillingCancelUrl,
   getBillingReportEmail,
+  getMakeUpgradeWebhookUrl,
   getCronSecret,
   getSmtpHost,
   getSmtpPort,

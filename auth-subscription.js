@@ -59,7 +59,7 @@
       monthlyLimit: 300,
       lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 49, yearly: 468 },
+      prices: { monthly: 49, yearly: 250 },
       yearlySavingsKey: 'pricing_pro_yearly_deal',
     },
     pro: {
@@ -67,7 +67,7 @@
       monthlyLimit: 300,
       lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 49, yearly: 468 },
+      prices: { monthly: 49, yearly: 250 },
       yearlySavingsKey: 'pricing_pro_yearly_deal',
     },
     school: {
@@ -97,11 +97,13 @@
 
   var stripeCheckoutEnabled = false;
   var billingCheckoutUrl = '/api/billing/checkout';
+  var MAKE_UPGRADE_WEBHOOK_URL = '';
 
   function applyRuntimeBillingConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     if (cfg.stripeCheckoutEnabled != null) stripeCheckoutEnabled = Boolean(cfg.stripeCheckoutEnabled);
     if (cfg.apiBillingCheckout) billingCheckoutUrl = String(cfg.apiBillingCheckout);
+    if (cfg.makeUpgradeWebhookUrl) MAKE_UPGRADE_WEBHOOK_URL = String(cfg.makeUpgradeWebhookUrl).trim();
     if (cfg.trialSearchLimit != null) {
       var n = Number(cfg.trialSearchLimit);
       if (Number.isFinite(n) && n > 0) {
@@ -1333,6 +1335,82 @@
     });
   }
 
+  function extractGrowCheckoutUrl(payload) {
+    if (!payload) return '';
+    if (typeof payload === 'string') {
+      var trimmed = payload.trim();
+      return /^https?:\/\//i.test(trimmed) ? trimmed : '';
+    }
+    if (typeof payload !== 'object') return '';
+    var candidates = [
+      payload.url,
+      payload.checkoutUrl,
+      payload.checkout_url,
+      payload.paymentUrl,
+      payload.payment_url,
+      payload.growUrl,
+      payload.grow_url,
+      payload.link,
+      payload.data && payload.data.url,
+      payload.data && payload.data.checkoutUrl,
+      payload.data && payload.data.checkout_url,
+      payload.data && payload.data.paymentUrl,
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      if (typeof candidates[i] === 'string' && /^https?:\/\//i.test(candidates[i].trim())) {
+        return candidates[i].trim();
+      }
+    }
+    return '';
+  }
+
+  function parseMakeCheckoutResponse(text) {
+    var trimmed = String(text || '').trim();
+    if (!trimmed) return '';
+    var direct = extractGrowCheckoutUrl(trimmed);
+    if (direct) return direct;
+    try {
+      return extractGrowCheckoutUrl(JSON.parse(trimmed));
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function getUpgradeUserEmail() {
+    if (authState.isAuthenticated && authState.user && authState.user.email) {
+      return normalizeEmail(authState.user.email);
+    }
+    return getIdentityEmail() || '';
+  }
+
+  function startMakeUpgradeCheckout(userEmail) {
+    var webhookUrl = String(MAKE_UPGRADE_WEBHOOK_URL || '').trim();
+    if (!webhookUrl) {
+      return Promise.reject(new Error(t('paywall_upgrade_error_config')));
+    }
+    var email = normalizeEmail(userEmail);
+    if (!email) {
+      return Promise.reject(new Error(t('paywall_upgrade_error_no_email')));
+    }
+    return fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, plan: 'annual_pro', price: 250 }),
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        if (!res.ok) {
+          throw new Error(t('paywall_upgrade_error'));
+        }
+        var checkoutUrl = parseMakeCheckoutResponse(text);
+        if (!checkoutUrl) {
+          throw new Error(t('paywall_upgrade_error'));
+        }
+        global.location.href = checkoutUrl;
+        return { checkoutUrl: checkoutUrl };
+      });
+    });
+  }
+
   function mockUpgrade(tierId, billingCycle) {
     if (!authState.isAuthenticated) return Promise.reject(new Error(t('auth_err_sign_in_first')));
     var normalized = normalizeTierId(tierId);
@@ -1349,8 +1427,12 @@
       hidePricingModal();
       return startStripeCheckout(normalized, cycle);
     }
-    showCheckoutSoonModal(normalized, cycle);
-    return Promise.resolve({ tier: normalized, billingCycle: cycle, pendingCheckout: true });
+    var userEmail = getUpgradeUserEmail();
+    if (!userEmail) {
+      return Promise.reject(new Error(t('paywall_upgrade_error_no_email')));
+    }
+    hidePricingModal();
+    return startMakeUpgradeCheckout(userEmail);
   }
 
   /* ── Rate limiter ────────────────────────────────────────────────────── */
@@ -1916,9 +1998,33 @@
     return 'mailto:' + SUPPORT_EMAIL + '?subject=' + encodeURIComponent(t('tier_school_email_subject'));
   }
 
-  function upgradeWhatsAppUrl(prefillKey) {
-    var msg = t(prefillKey || 'paywall_whatsapp_prefill');
-    return whatsAppSupportUrl(msg);
+  function setPricingUpgradeButtonLoading(loading) {
+    var btn = document.getElementById('pricing-upgrade-btn');
+    if (!btn) return;
+    btn.disabled = loading;
+    var label = btn.querySelector('[data-i18n="paywall_cta"]') || btn.querySelector('span');
+    if (label) {
+      label.textContent = loading ? t('paywall_upgrade_loading') : t('paywall_cta');
+    }
+  }
+
+  function handlePricingUpgradeClick() {
+    if (isProUser()) return;
+    if (!authState.isAuthenticated) {
+      showAuthOverlay();
+      return;
+    }
+    var userEmail = getUpgradeUserEmail();
+    if (!userEmail) {
+      showContactToast(t('paywall_upgrade_error_no_email'), 'error');
+      return;
+    }
+    setPricingUpgradeButtonLoading(true);
+    startMakeUpgradeCheckout(userEmail)
+      .catch(function (err) {
+        showContactToast((err && err.message) || t('paywall_upgrade_error'), 'error');
+        setPricingUpgradeButtonLoading(false);
+      });
   }
 
   function renderPricingComparisonTable() {
@@ -1960,18 +2066,11 @@
       '</div>' +
       '<p class="pricing-auto-renew-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>';
 
-    var waLink = document.getElementById('pricing-upgrade-whatsapp');
-    var mailLink = document.getElementById('pricing-upgrade-email');
-    if (waLink) {
-      waLink.href = upgradeWhatsAppUrl('paywall_whatsapp_prefill');
-      waLink.setAttribute('aria-label', t('paywall_cta'));
+    var upgradeBtn = document.getElementById('pricing-upgrade-btn');
+    if (upgradeBtn) {
+      upgradeBtn.classList.toggle('hidden', isProUser());
+      setPricingUpgradeButtonLoading(false);
     }
-    if (mailLink) {
-      mailLink.href = 'mailto:' + SUPPORT_EMAIL;
-      mailLink.textContent = SUPPORT_EMAIL;
-    }
-    var phoneEl = document.getElementById('pricing-upgrade-phone');
-    if (phoneEl) phoneEl.textContent = SUPPORT_PHONE_DISPLAY;
   }
 
   function renderPricingCards() {
@@ -2220,6 +2319,9 @@
     if (pricingDismiss) pricingDismiss.addEventListener('click', hidePricingModal);
     var pricingBackdrop = document.getElementById('pricing-modal-backdrop');
     if (pricingBackdrop) pricingBackdrop.addEventListener('click', hidePricingModal);
+
+    var pricingUpgradeBtn = document.getElementById('pricing-upgrade-btn');
+    if (pricingUpgradeBtn) pricingUpgradeBtn.addEventListener('click', handlePricingUpgradeClick);
 
     var checkoutClose = document.getElementById('checkout-soon-close');
     if (checkoutClose) checkoutClose.addEventListener('click', hideCheckoutSoonModal);

@@ -570,7 +570,11 @@ const LANGUAGES = {
 
     paywall_search_message:      'רוצה להמשיך לחקור ולגלות עולמות פדגוגיים חדשים? 🌟\nהגעת למגבלת 20 החיפושים החיים במסלול החינמי. כדי להמשיך ליהנות ממחקר רשת חי, עמוק ומותאם אישית עד 300 פעמים בחודש, שדרג עכשיו למסלול הפרו!',
     paywall_word_message:        'רוצים להמשיך להוריד מסמכי Word מעוצבים? 📄\nהגעתם למגבלת 5 ההורדות בחודש במסלול החינמי. כדי להוריד ללא הגבלה, שדרגו עכשיו למסלול הפרו!',
-    paywall_cta:                 'לשדרוג מהיר בוואטסאפ/במייל',
+    paywall_cta:                 'שדרג לפרו',
+    paywall_upgrade_loading:     'מעבד...',
+    paywall_upgrade_error:       'שדרוג נכשל. נסו שוב.',
+    paywall_upgrade_error_no_email: 'נדרש אימייל לשדרוג — היכנסו לחשבון.',
+    paywall_upgrade_error_config: 'שדרוג אוטומטי לא מוגדר. פנו לתמיכה.',
     paywall_dismiss:             'חזרה לארכיון החינמי',
     paywall_whatsapp_prefill:    'שלום, אשמח לשדרג למסלול פרו ב-Waldorf Planner',
 
@@ -1229,7 +1233,11 @@ const LANGUAGES = {
 
     paywall_search_message:      'Want to keep exploring new pedagogical worlds? 🌟\nYou have used all 20 live searches on the free plan. Upgrade to Pro for up to 300 live, personalized web research sessions per month!',
     paywall_word_message:        'Want to keep downloading formatted Word documents? 📄\nYou have reached the 5 downloads/month limit on the free plan. Upgrade to Pro for unlimited downloads!',
-    paywall_cta:                 'Quick upgrade via WhatsApp / email',
+    paywall_cta:                 'Upgrade to Pro',
+    paywall_upgrade_loading:     'Processing...',
+    paywall_upgrade_error:       'Upgrade failed. Please try again.',
+    paywall_upgrade_error_no_email: 'An email is required to upgrade — please sign in.',
+    paywall_upgrade_error_config: 'Automatic upgrade is not configured. Please contact support.',
     paywall_dismiss:             'Back to the free archive',
     paywall_whatsapp_prefill:    'Hi, I would like to upgrade to Pro on Waldorf Planner',
 

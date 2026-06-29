@@ -2920,6 +2920,11 @@
       box-shadow: 0 8px 24px rgba(92, 125, 88, 0.3);
       color: #fff;
     }
+    .pricing-paywall-cta:disabled {
+      opacity: 0.65;
+      cursor: wait;
+      transform: none;
+    }
     .pricing-paywall-contact {
       font-size: 0.8rem;
       color: rgba(92, 74, 58, 0.75);
@@ -4335,15 +4340,10 @@
       <p id="pricing-modal-notice" class="pricing-modal-notice hidden" role="status" aria-live="polite"></p>
       <div id="pricing-comparison-wrap" class="pricing-comparison-wrap"></div>
       <div class="pricing-paywall-actions">
-        <a id="pricing-upgrade-whatsapp" href="#" target="_blank" rel="noopener noreferrer" class="pricing-paywall-cta">
-          <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
-          <span data-i18n="paywall_cta">לשדרוג מהיר בוואטסאפ/במייל</span>
-        </a>
-        <p class="pricing-paywall-contact">
-          <span id="pricing-upgrade-phone">054-40548078</span>
-          ·
-          <a id="pricing-upgrade-email" href="mailto:Waldorfplanner@gmail.com">Waldorfplanner@gmail.com</a>
-        </p>
+        <button type="button" id="pricing-upgrade-btn" class="pricing-paywall-cta">
+          <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
+          <span data-i18n="paywall_cta">שדרג לפרו</span>
+        </button>
         <button type="button" id="pricing-modal-dismiss" data-i18n="paywall_dismiss">חזרה לארכיון החינמי</button>
       </div>
     </div>
