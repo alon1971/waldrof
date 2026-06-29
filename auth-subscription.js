@@ -97,7 +97,7 @@
 
   var stripeCheckoutEnabled = false;
   var billingCheckoutUrl = '/api/billing/checkout';
-  var MAKE_UPGRADE_WEBHOOK_URL = '';
+  var MAKE_UPGRADE_WEBHOOK_URL = 'https://hook.eu1.make.com/atopa4q5ewidxqlwwe0e3lkyr2mzcf2g';
 
   function applyRuntimeBillingConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
@@ -1335,47 +1335,6 @@
     });
   }
 
-  function extractGrowCheckoutUrl(payload) {
-    if (!payload) return '';
-    if (typeof payload === 'string') {
-      var trimmed = payload.trim();
-      return /^https?:\/\//i.test(trimmed) ? trimmed : '';
-    }
-    if (typeof payload !== 'object') return '';
-    var candidates = [
-      payload.url,
-      payload.checkoutUrl,
-      payload.checkout_url,
-      payload.paymentUrl,
-      payload.payment_url,
-      payload.growUrl,
-      payload.grow_url,
-      payload.link,
-      payload.data && payload.data.url,
-      payload.data && payload.data.checkoutUrl,
-      payload.data && payload.data.checkout_url,
-      payload.data && payload.data.paymentUrl,
-    ];
-    for (var i = 0; i < candidates.length; i++) {
-      if (typeof candidates[i] === 'string' && /^https?:\/\//i.test(candidates[i].trim())) {
-        return candidates[i].trim();
-      }
-    }
-    return '';
-  }
-
-  function parseMakeCheckoutResponse(text) {
-    var trimmed = String(text || '').trim();
-    if (!trimmed) return '';
-    var direct = extractGrowCheckoutUrl(trimmed);
-    if (direct) return direct;
-    try {
-      return extractGrowCheckoutUrl(JSON.parse(trimmed));
-    } catch (e) {
-      return '';
-    }
-  }
-
   function getUpgradeUserEmail() {
     if (authState.isAuthenticated && authState.user && authState.user.email) {
       return normalizeEmail(authState.user.email);
@@ -1384,29 +1343,19 @@
   }
 
   function startMakeUpgradeCheckout(userEmail) {
-    var webhookUrl = String(MAKE_UPGRADE_WEBHOOK_URL || '').trim();
-    if (!webhookUrl) {
-      return Promise.reject(new Error(t('paywall_upgrade_error_config')));
-    }
     var email = normalizeEmail(userEmail);
-    if (!email) {
-      return Promise.reject(new Error(t('paywall_upgrade_error_no_email')));
-    }
-    return fetch(webhookUrl, {
+    if (!email) return Promise.reject(new Error('missing email'));
+    return fetch(MAKE_UPGRADE_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email, plan: 'annual_pro', price: 250 }),
     }).then(function (res) {
-      return res.text().then(function (text) {
-        if (!res.ok) {
-          throw new Error(t('paywall_upgrade_error'));
+      return res.json().then(function (response) {
+        if (!res.ok || !response || typeof response.url !== 'string' || !response.url) {
+          return Promise.reject(new Error('checkout unavailable'));
         }
-        var checkoutUrl = parseMakeCheckoutResponse(text);
-        if (!checkoutUrl) {
-          throw new Error(t('paywall_upgrade_error'));
-        }
-        global.location.href = checkoutUrl;
-        return { checkoutUrl: checkoutUrl };
+        global.location.href = response.url;
+        return response;
       });
     });
   }
@@ -1429,7 +1378,8 @@
     }
     var userEmail = getUpgradeUserEmail();
     if (!userEmail) {
-      return Promise.reject(new Error(t('paywall_upgrade_error_no_email')));
+      showAuthOverlay();
+      return;
     }
     hidePricingModal();
     return startMakeUpgradeCheckout(userEmail);
@@ -2016,15 +1966,13 @@
     }
     var userEmail = getUpgradeUserEmail();
     if (!userEmail) {
-      showContactToast(t('paywall_upgrade_error_no_email'), 'error');
+      showAuthOverlay();
       return;
     }
     setPricingUpgradeButtonLoading(true);
-    startMakeUpgradeCheckout(userEmail)
-      .catch(function (err) {
-        showContactToast((err && err.message) || t('paywall_upgrade_error'), 'error');
-        setPricingUpgradeButtonLoading(false);
-      });
+    startMakeUpgradeCheckout(userEmail).catch(function () {
+      setPricingUpgradeButtonLoading(false);
+    });
   }
 
   function renderPricingComparisonTable() {

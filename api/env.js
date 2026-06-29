@@ -138,7 +138,7 @@ function getBillingReportEmail() {
 }
 
 function getMakeUpgradeWebhookUrl() {
-  return cleanUrl(process.env.MAKE_UPGRADE_WEBHOOK_URL || '');
+  return cleanUrl(process.env.MAKE_UPGRADE_WEBHOOK_URL || 'https://hook.eu1.make.com/atopa4q5ewidxqlwwe0e3lkyr2mzcf2g');
 }
 
 function getCronSecret() {
