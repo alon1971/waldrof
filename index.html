@@ -6231,7 +6231,7 @@
     }
 
     /** One-time purge of Grade 1 wizard/session state after corrupted cache removal. */
-    const GRADE1_CLIENT_RESET_VERSION = '2025-06-20';
+    const GRADE1_CLIENT_RESET_VERSION = '2026-06-29';
     function purgeStaleGrade1ClientState() {
       var alreadyReset = false;
       try {
@@ -23329,6 +23329,7 @@
     async function init() {
       var pageReloaded = isHardPageReload();
       resetWizardStepViewOnThisLoad = pageReloaded;
+      try { purgeStaleGrade1ClientState(); } catch (e) { console.warn('[waldrof] purgeStaleGrade1ClientState:', e); }
       try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
       try {
       ensurePageAtTop();
