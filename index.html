@@ -7911,6 +7911,167 @@
       return Boolean(err && (err.code === 'RATE_LIMIT' || err.code === 'RATE_LIMIT_MONTHLY' || /מכסת החיפושים|search limit/i.test(String(err.message || ''))));
     }
 
+    // ---------- Live streaming research (SSE) ----------
+    // Server streams Perplexity deltas + heartbeats so long sonar-reasoning-pro
+    // generations never hit a Gateway timeout, and the user watches content flow.
+    const RESEARCH_STREAM_ENABLED = true;
+    const RESEARCH_STREAM_MAX_CHARS = 6000;
+    let researchStreamBuffer = '';
+
+    function getActiveResearchLoadingEl() {
+      const ids = ['topic-research-loading', 'grade-research-loading', 'general-search-loading', 'phase-c-loading'];
+      for (let i = 0; i < ids.length; i++) {
+        const el = document.getElementById(ids[i]);
+        if (el && !el.classList.contains('hidden')) return el;
+      }
+      return null;
+    }
+
+    function startResearchStreamUi() {
+      researchStreamBuffer = '';
+      const box = getActiveResearchLoadingEl();
+      if (!box) return;
+      let live = box.querySelector('.research-stream-live');
+      if (!live) {
+        live = document.createElement('pre');
+        live.className = 'research-stream-live';
+        live.setAttribute('dir', 'auto');
+        live.style.cssText = [
+          'margin-top:0.75rem', 'max-height:9rem', 'overflow-y:auto',
+          'white-space:pre-wrap', 'word-break:break-word', 'font-size:11px',
+          'line-height:1.5', 'opacity:0.7', 'text-align:start',
+          'background:rgba(0,0,0,0.03)', 'border-radius:0.5rem', 'padding:0.5rem',
+          'font-family:ui-monospace,SFMono-Regular,Menlo,monospace',
+        ].join(';');
+        box.appendChild(live);
+      }
+      live.textContent = '';
+      live.classList.remove('hidden');
+    }
+
+    function pushResearchStreamUi(text) {
+      if (!text) return;
+      researchStreamBuffer += text;
+      if (researchStreamBuffer.length > RESEARCH_STREAM_MAX_CHARS) {
+        researchStreamBuffer = researchStreamBuffer.slice(-RESEARCH_STREAM_MAX_CHARS);
+      }
+      const box = getActiveResearchLoadingEl();
+      if (!box) return;
+      const live = box.querySelector('.research-stream-live');
+      if (!live) return;
+      live.textContent = researchStreamBuffer;
+      live.scrollTop = live.scrollHeight;
+    }
+
+    function endResearchStreamUi() {
+      researchStreamBuffer = '';
+      ['topic-research-loading', 'grade-research-loading', 'general-search-loading', 'phase-c-loading'].forEach(function (id) {
+        const box = document.getElementById(id);
+        if (!box) return;
+        const live = box.querySelector('.research-stream-live');
+        if (live && live.parentNode) live.parentNode.removeChild(live);
+      });
+    }
+
+    /**
+     * POST to /api/generate over Server-Sent Events. Resolves to { res, json } in the
+     * SAME shape the buffered fetch path produces, so all downstream handling is shared.
+     * Falls back to buffered JSON if the server did not return an event stream.
+     */
+    async function streamServerResearch(url, fetchInit, opts) {
+      const streamInit = Object.assign({}, fetchInit);
+      streamInit.headers = Object.assign({}, fetchInit.headers || {}, {
+        Accept: 'text/event-stream',
+        // Defeat any intermediary cache so the live stream is read byte-by-byte.
+        'Cache-Control': 'no-cache',
+      });
+      // Never let the browser/SW serve or buffer this from cache — read it live.
+      streamInit.cache = 'no-store';
+
+      let res;
+      try {
+        res = await fetch(url, streamInit);
+      } catch (netErr) {
+        if (netErr && netErr.name === 'AbortError') throw netErr;
+        throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
+      }
+
+      const contentType = String((res.headers && res.headers.get && res.headers.get('content-type')) || '');
+      if (!res.body || !res.body.getReader || !/text\/event-stream/i.test(contentType)) {
+        // Server fell back to buffered JSON — parse the whole body once.
+        const bodyText = await res.text();
+        const json = parseApiJsonResponse(bodyText);
+        return { res: { ok: res.ok, status: res.status }, json: json };
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalEnvelope = null;
+      let streamStarted = false;
+
+      function handleEvent(eventName, dataStr) {
+        let data = null;
+        if (dataStr) {
+          try { data = JSON.parse(dataStr); } catch (e) { data = null; }
+        }
+        if (eventName === 'status') {
+          if (!streamStarted) { startResearchStreamUi(); streamStarted = true; }
+        } else if (eventName === 'delta') {
+          if (!streamStarted) { startResearchStreamUi(); streamStarted = true; }
+          if (data && typeof data.text === 'string') pushResearchStreamUi(data.text);
+        } else if (eventName === 'result') {
+          const status = data && data.status ? data.status : 200;
+          const payload = (data && data.payload) ? data.payload : {};
+          finalEnvelope = { res: { ok: status < 400, status: status }, json: payload };
+        } else if (eventName === 'error') {
+          const status = data && data.status ? data.status : 500;
+          finalEnvelope = {
+            res: { ok: false, status: status },
+            json: { error: (data && data.error) || 'שגיאת שרת', code: data && data.code, usage: data && data.usage },
+          };
+        }
+      }
+
+      function drainBlock(block) {
+        const lines = block.split('\n');
+        let eventName = 'message';
+        const dataLines = [];
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line || line.charAt(0) === ':') continue;
+          if (line.indexOf('event:') === 0) eventName = line.slice(6).trim();
+          else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).replace(/^ /, ''));
+        }
+        if (dataLines.length || eventName !== 'message') handleEvent(eventName, dataLines.join('\n'));
+      }
+
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          let sep;
+          while ((sep = buffer.indexOf('\n\n')) >= 0) {
+            const block = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            drainBlock(block);
+          }
+        }
+        if (buffer.trim()) drainBlock(buffer);
+      } catch (readErr) {
+        if (readErr && readErr.name === 'AbortError') throw readErr;
+        if (!finalEnvelope) throw new Error('שגיאת רשת בזרם הנתונים: ' + (readErr.message || readErr));
+      } finally {
+        endResearchStreamUi();
+      }
+
+      if (!finalEnvelope) {
+        throw new Error('השרת סגר את הזרם ללא תוצאה — נסו שוב בעוד רגע.');
+      }
+      return finalEnvelope;
+    }
+
     async function invokeWaldorfResearch(payload, options) {
       const opts = options || {};
       const researchPayload = prepareResearchPayload(payload);
@@ -7978,32 +8139,39 @@
         if (identityEmail) headers['X-User-Email'] = identityEmail;
       }
 
-      let res;
       const fetchInit = {
         method: 'POST',
         headers: headers,
         body: JSON.stringify(researchPayload),
       };
       if (opts.signal) fetchInit.signal = opts.signal;
-      try {
-        res = await fetch(researchFunctionUrl(), fetchInit);
-      } catch (netErr) {
-        if (netErr && netErr.name === 'AbortError') throw netErr;
-        throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
-      }
+
+      let res;
       let json;
-      const bodyText = await res.text();
-      try {
-        json = parseApiJsonResponse(bodyText);
-      } catch (parseErr) {
-        var parseMsg = friendlyJsonParseError(parseErr);
-        var preview = String(bodyText || '').trim().slice(0, 160);
-        if (/timeout|non-JSON|Vercel/i.test(parseMsg) === false && /^Unexpected token/i.test(parseErr && parseErr.message ? parseErr.message : '') && !/^\s*[{[]/.test(preview)) {
-          throw new Error(isEnglish()
-            ? 'Server returned a non-JSON response (often a gateway timeout). Confirm PERPLEXITY_API_KEY is set, redeploy after env changes, and allow up to 90 seconds for expansion research.'
-            : 'השרת החזיר תשובה שאינה JSON (לעיתים timeout של שרת). ודאו ש-PERPLEXITY_API_KEY מוגדר, פרסמו מחדש אחרי עדכון משתני סביבה, והמתינו עד 90 שניות לחיפוש הרחבה.');
+      if (RESEARCH_STREAM_ENABLED) {
+        const streamed = await streamServerResearch(researchFunctionUrl(), fetchInit, opts);
+        res = streamed.res;
+        json = streamed.json || {};
+      } else {
+        try {
+          res = await fetch(researchFunctionUrl(), fetchInit);
+        } catch (netErr) {
+          if (netErr && netErr.name === 'AbortError') throw netErr;
+          throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
         }
-        throw new Error(parseMsg || ('תשובה לא תקינה מהשרת (' + res.status + '): ' + preview));
+        const bodyText = await res.text();
+        try {
+          json = parseApiJsonResponse(bodyText);
+        } catch (parseErr) {
+          var parseMsg = friendlyJsonParseError(parseErr);
+          var preview = String(bodyText || '').trim().slice(0, 160);
+          if (/timeout|non-JSON|Vercel/i.test(parseMsg) === false && /^Unexpected token/i.test(parseErr && parseErr.message ? parseErr.message : '') && !/^\s*[{[]/.test(preview)) {
+            throw new Error(isEnglish()
+              ? 'Server returned a non-JSON response (often a gateway timeout). Confirm PERPLEXITY_API_KEY is set, redeploy after env changes, and allow up to 90 seconds for expansion research.'
+              : 'השרת החזיר תשובה שאינה JSON (לעיתים timeout של שרת). ודאו ש-PERPLEXITY_API_KEY מוגדר, פרסמו מחדש אחרי עדכון משתני סביבה, והמתינו עד 90 שניות לחיפוש הרחבה.');
+          }
+          throw new Error(parseMsg || ('תשובה לא תקינה מהשרת (' + res.status + '): ' + preview));
+        }
       }
       if (!res.ok || json.error) {
         const apiErrText = String(json.error || json.message || '');

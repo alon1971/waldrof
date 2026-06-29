@@ -761,13 +761,13 @@ function buildPerplexityOnDemandPayload(body, rawPayload) {
   return buildPerplexityExpansionPayload(body, rawPayload);
 }
 
-async function fetchPerplexityOnlyOnDemand(body, logContext) {
+async function fetchPerplexityOnlyOnDemand(body, logContext, streamHooks) {
   const phase = body.phase;
   const startedAt = Date.now();
   console.log('[on-demand] Perplexity-only pipeline for', phase);
   let rawPayload;
   try {
-    rawPayload = await fetchOrRunPerplexityResearch(body, logContext);
+    rawPayload = await fetchOrRunPerplexityResearch(body, logContext, streamHooks, true);
   } catch (searchErr) {
     const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
     console.error('[on-demand] Perplexity search failed for', phase, ':', msg);
@@ -1987,7 +1987,8 @@ function buildPerplexityResearchBlock(rawPayload) {
   );
 }
 
-async function fetchOrRunPerplexityResearch(body, logContext) {
+async function fetchOrRunPerplexityResearch(body, logContext, streamHooks, streamResearchDeltas) {
+  const hooks = normalizeStreamHooks(streamHooks);
   const bypassCache = Boolean(
     body && (body.skipCache || body.forceFresh || body.bypassCache || body.forceRefresh)
   );
@@ -2011,9 +2012,10 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
   const ip = (logContext && logContext.ip) || 'unknown';
   const action = (logContext && logContext.action) || buildActionLabel(body);
   logPerplexityCall(ip, action, 'Initiated');
+  hooks.onStatus('research');
 
   // SSE streaming keeps reverse proxies alive during long Sonar research (on-demand expansions often exceed 60s).
-  const usePerplexityStream = isOnDemandExpansionPhase(body) || isDecoupledGenerationPhase(body);
+  const usePerplexityStream = isOnDemandExpansionPhase(body) || isDecoupledGenerationPhase(body) || hooks.hasDelta;
 
   let searchResult;
   try {
@@ -2023,6 +2025,7 @@ async function fetchOrRunPerplexityResearch(body, logContext) {
         { role: 'user', content: finalizePerplexitySearchUserPrompt(body, buildPerplexitySearchUserPrompt(body)) },
       ],
       stream: usePerplexityStream,
+      onDelta: streamResearchDeltas ? hooks.onDelta : undefined,
     });
     logPerplexityCall(ip, action, 'Success');
   } catch (searchErr) {
@@ -2066,11 +2069,30 @@ async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
     apiKey: key,
     temperature: temperature,
     stream: opts.stream,
+    onDelta: typeof opts.onDelta === 'function' ? opts.onDelta : undefined,
     messages: [
       { role: 'system', content: systemContent },
       { role: 'user', content: userPrompt },
     ],
   });
+}
+
+/** Normalize an optional streamHooks bag so onStatus/onDelta are always safe to call. */
+function normalizeStreamHooks(streamHooks) {
+  const hooks = streamHooks && typeof streamHooks === 'object' ? streamHooks : null;
+  const onStatus = hooks && typeof hooks.onStatus === 'function' ? hooks.onStatus : null;
+  const onDelta = hooks && typeof hooks.onDelta === 'function' ? hooks.onDelta : null;
+  return {
+    onStatus: function (stage, detail) {
+      if (!onStatus) return;
+      try { onStatus(stage, detail); } catch (e) { /* hooks must never break generation */ }
+    },
+    onDelta: function (delta, content) {
+      if (!onDelta) return;
+      try { onDelta(delta, content); } catch (e) { /* hooks must never break generation */ }
+    },
+    hasDelta: Boolean(onDelta),
+  };
 }
 
 /** Extract assistant text from Perplexity / OpenAI-compatible chat completion payloads. */
@@ -2182,15 +2204,16 @@ function rethrowApiClientError(err, fallbackMessage) {
 /**
  * Core phases (grade / topic): Perplexity Sonar research → Perplexity JSON synthesis.
  */
-async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, logContext) {
+async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, logContext, streamHooks) {
   const phase = body.phase;
   const ip = (logContext && logContext.ip) || 'unknown';
   const action = (logContext && logContext.action) || buildActionLabel(body);
+  const hooks = normalizeStreamHooks(streamHooks);
   let lastRaw = '';
 
   let rawPayload;
   try {
-    rawPayload = await fetchOrRunPerplexityResearch(body, logContext);
+    rawPayload = await fetchOrRunPerplexityResearch(body, logContext, streamHooks, false);
   } catch (searchErr) {
     const msg = searchErr instanceof Error ? searchErr.message : String(searchErr);
     console.error('[perplexity] Sonar research failed for phase', phase, ':', msg);
@@ -2211,9 +2234,11 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
       }
       console.log('[perplexity] Structured synthesis for phase', phase, '(attempt', attempt + ')');
       logPerplexityCall(ip, action, 'Initiated');
+      hooks.onStatus('synthesis', { attempt: attempt });
       raw = await callPerplexity(apiKey, synthesisPrompt, extraSystem + retrySuffix, {
         temperature: isRetry ? 0.2 : 0.35,
         systemPrompt: buildPerplexitySynthesisSystemPrompt(body),
+        onDelta: hooks.onDelta,
       });
       lastRaw = raw;
       logPerplexityCall(ip, action, 'Success');
@@ -2284,16 +2309,16 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
  * On parse/validation failure, silently retries once with a stricter JSON system prompt
  * while the client request stays open (spinner remains active).
  */
-async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext) {
+async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, perplexityOptions, isChatFollowup, logContext, streamHooks) {
   if (isPedagogicalChatPhase(body)) {
     return chatApi.fetchPedagogicalChat(body, userPrompt, extraSystem);
   }
   if (isPerplexityRawExpansionPhase(body)) {
-    return fetchPerplexityOnlyOnDemand(body, logContext);
+    return fetchPerplexityOnlyOnDemand(body, logContext, streamHooks);
   }
   if (isDecoupledGenerationPhase(body)) {
     return fetchPerplexityStructuredWithRetry(
-      body, apiKey, userPrompt, extraSystem, perplexityOptions, logContext
+      body, apiKey, userPrompt, extraSystem, perplexityOptions, logContext, streamHooks
     );
   }
 
@@ -2301,6 +2326,7 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
   const baseOpts = perplexityOptions || {};
   const ip = (logContext && logContext.ip) || 'unknown';
   const action = (logContext && logContext.action) || buildActionLabel(body);
+  const hooks = normalizeStreamHooks(streamHooks);
   let lastPreview = '';
   let lastRaw = '';
 
@@ -2315,9 +2341,11 @@ async function fetchParsedModelWithRetry(body, apiKey, userPrompt, extraSystem, 
         console.warn('[generate] Silent Perplexity retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
       }
       logPerplexityCall(ip, action, 'Initiated');
+      hooks.onStatus('synthesis', { attempt: attempt });
       raw = await callPerplexity(apiKey, userPrompt, extraSystem + retrySuffix, {
         temperature: isRetry ? 0.2 : 0.35,
         systemPrompt: typeof baseOpts.systemPrompt === 'function' ? baseOpts.systemPrompt : waldorfSystemPrompt,
+        onDelta: hooks.onDelta,
       });
       lastRaw = raw;
       logPerplexityCall(ip, action, 'Success');
@@ -2734,7 +2762,7 @@ async function probeWouldServeFromCache(body) {
 }
 
 /** Core handler — used by Render (server.js) with a pre-parsed JSON body. */
-async function handleGeneratePost(parsedBody, requestContext) {
+async function handleGeneratePost(parsedBody, requestContext, streamHooks) {
   const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
 
   if (!parsedBody || typeof parsedBody !== 'object') {
@@ -2810,7 +2838,7 @@ async function handleGeneratePost(parsedBody, requestContext) {
       }
     }
   }
-  const result = await executeGenerate(parsedBody, apiKey, ctx);
+  const result = await executeGenerate(parsedBody, apiKey, ctx, streamHooks);
   const billable = result &&
     result.meta &&
     !result.meta.fromCache &&
@@ -3029,7 +3057,7 @@ async function runGradeArchiveUpgrade(body, apiKey, logContext) {
   };
 }
 
-async function executeGenerate(body, apiKey, requestContext) {
+async function executeGenerate(body, apiKey, requestContext, streamHooks) {
   if (!body || !body.phase) {
     const err = new Error('Missing phase');
     err.statusCode = 400;
@@ -3337,7 +3365,8 @@ async function executeGenerate(body, apiKey, requestContext) {
     extraSystem,
     perplexityOptions,
     isChatFollowup,
-    logContext
+    logContext,
+    streamHooks
   );
 
   if (body.phase === 'chat_followup' && data.chatReply && typeof data.chatReply === 'object') {

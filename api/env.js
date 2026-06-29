@@ -141,6 +141,14 @@ function getMakeUpgradeWebhookUrl() {
   return cleanUrl(process.env.MAKE_UPGRADE_WEBHOOK_URL || 'https://hook.eu1.make.com/atopa4q5ewidxqlwwe0e3lkyr2mzcf2g');
 }
 
+/**
+ * Fixed Grow checkout page — the single canonical Fallback/Grow upgrade route.
+ * Mirrors GROW_UPGRADE_URL in auth-subscription.js; override via Render env GROW_UPGRADE_URL.
+ */
+function getGrowUpgradeUrl() {
+  return cleanUrl(process.env.GROW_UPGRADE_URL || 'https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg');
+}
+
 function getCronSecret() {
   return cleanKey(process.env.CRON_SECRET || process.env.BILLING_CRON_SECRET);
 }
@@ -173,7 +181,16 @@ function getSmtpFrom() {
 }
 
 function isStripeCheckoutEnabled() {
-  return Boolean(cleanKey(process.env.STRIPE_SECRET_KEY));
+  // Stripe checkout is only usable when BOTH a secret key AND at least one price ID
+  // are configured. Reporting "enabled" on the secret alone makes the client route to
+  // /api/billing/checkout, which then 500s on a missing price. When prices are absent,
+  // report disabled so the client falls back to the Grow (Make) upgrade webhook.
+  const hasSecret = Boolean(cleanKey(process.env.STRIPE_SECRET_KEY));
+  const hasPrice = Boolean(
+    cleanKey(process.env.STRIPE_PRICE_PRO_MONTHLY) ||
+    cleanKey(process.env.STRIPE_PRICE_PRO_YEARLY)
+  );
+  return hasSecret && hasPrice;
 }
 
 const { TRIAL_LIFETIME_SEARCH_LIMIT } = require('./tier-limits');
@@ -196,6 +213,7 @@ function getPublicClientConfig() {
     apiBillingCheckout: '/api/billing/checkout',
     stripeCheckoutEnabled: isStripeCheckoutEnabled(),
     makeUpgradeWebhookUrl: getMakeUpgradeWebhookUrl(),
+    growUpgradeUrl: getGrowUpgradeUrl(),
     /** Mirrors api/tier-limits.js — revert to 3 after beta testing. */
     trialSearchLimit: TRIAL_LIFETIME_SEARCH_LIMIT,
   };
@@ -219,6 +237,7 @@ module.exports = {
   getBillingCancelUrl,
   getBillingReportEmail,
   getMakeUpgradeWebhookUrl,
+  getGrowUpgradeUrl,
   getCronSecret,
   getPaymentWebhookSecret,
   getSmtpHost,

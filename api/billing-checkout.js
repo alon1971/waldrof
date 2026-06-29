@@ -45,11 +45,26 @@ async function createCheckoutHandler(req, res) {
     const billingCycle = body.billingCycle === 'yearly' ? 'yearly' : 'monthly';
     const planType = subscription.normalizeTier(body.planType || body.tier || 'pro');
 
+    // Without a configured price ID a Stripe session cannot be created — signal the
+    // client to fall back to the Grow checkout instead of surfacing a raw 500.
+    if (!billingStripe.getPriceId(billingCycle)) {
+      return sendJson(res, 503, {
+        error: 'Stripe checkout is not configured for ' + billingCycle + ' billing',
+        code: 'CHECKOUT_UNAVAILABLE',
+      });
+    }
+
     let stripeCustomerId = null;
     if (billingDb.isEnabled()) {
-      const existing = await billingDb.fetchSubscriptionByUserId(user.id);
-      if (existing && existing.stripe_customer_id) {
-        stripeCustomerId = existing.stripe_customer_id;
+      try {
+        const existing = await billingDb.fetchSubscriptionByUserId(user.id);
+        if (existing && existing.stripe_customer_id) {
+          stripeCustomerId = existing.stripe_customer_id;
+        }
+      } catch (lookupErr) {
+        // Non-UUID demo/test user ids (e.g. "email:...") make the uuid column lookup
+        // fail — that must not block checkout; just create a fresh Stripe customer.
+        console.warn('[billing-checkout] subscription lookup skipped:', lookupErr.message || lookupErr);
       }
     }
 

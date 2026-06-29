@@ -98,11 +98,28 @@
   var stripeCheckoutEnabled = false;
   var billingCheckoutUrl = '/api/billing/checkout';
   var MAKE_UPGRADE_WEBHOOK_URL = 'https://hook.eu1.make.com/atopa4q5ewidxqlwwe0e3lkyr2mzcf2g';
+  /**
+   * Fixed Grow checkout page — the single, canonical Fallback/Grow upgrade route.
+   * Clicking "upgrade" navigates straight here so it always reaches a valid payment
+   * page and never fails on a dynamic webhook lookup. Keep in sync with api/env.js.
+   */
+  var GROW_UPGRADE_URL = 'https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg';
 
   function applyRuntimeBillingConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
     if (cfg.stripeCheckoutEnabled != null) stripeCheckoutEnabled = Boolean(cfg.stripeCheckoutEnabled);
     if (cfg.apiBillingCheckout) billingCheckoutUrl = String(cfg.apiBillingCheckout);
+    // Honor the server-configured Make→Grow webhook (Render env MAKE_UPGRADE_WEBHOOK_URL).
+    // Without this the client silently used the hardcoded default and ignored Render's value.
+    if (cfg.makeUpgradeWebhookUrl) {
+      var makeUrl = String(cfg.makeUpgradeWebhookUrl).trim();
+      if (/^https?:\/\//i.test(makeUrl)) MAKE_UPGRADE_WEBHOOK_URL = makeUrl;
+    }
+    // Allow Render env (GROW_UPGRADE_URL) to override the canonical Grow checkout link.
+    if (cfg.growUpgradeUrl) {
+      var growUrl = String(cfg.growUpgradeUrl).trim();
+      if (/^https?:\/\//i.test(growUrl)) GROW_UPGRADE_URL = growUrl;
+    }
     if (cfg.trialSearchLimit != null) {
       var n = Number(cfg.trialSearchLimit);
       if (Number.isFinite(n) && n > 0) {
@@ -1325,6 +1342,11 @@
         return res.text().then(function (text) {
           var json;
           try { json = text && text.trim() ? JSON.parse(text) : {}; } catch (e) { json = {}; }
+          // Stripe not usable on the server (e.g. price IDs removed) — fall back to Grow.
+          if (json && json.code === 'CHECKOUT_UNAVAILABLE') {
+            var fallbackEmail = getUpgradeUserEmail();
+            if (fallbackEmail) return startMakeUpgradeCheckout(fallbackEmail, null);
+          }
           if (!res.ok) throw new Error((json && json.error) || 'checkout error');
           var checkoutUrl = json.data && json.data.checkoutUrl;
           if (!checkoutUrl) throw new Error('checkout URL missing');
@@ -1373,51 +1395,76 @@
     try { newTab.close(); } catch (e) { /* ignore */ }
   }
 
+  /** Extract a checkout URL from a Make/Grow response — tolerant of JSON, nested JSON, or a bare URL string. */
+  function extractMakeCheckoutUrl(rawText) {
+    var text = String(rawText || '').trim();
+    if (!text) return '';
+    var parsed = null;
+    try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+    if (parsed && typeof parsed === 'object') {
+      var fromJson = String(
+        parsed.url ||
+        parsed.checkoutUrl ||
+        parsed.payment_url ||
+        parsed.paymentUrl ||
+        (parsed.data && (parsed.data.url || parsed.data.checkoutUrl || parsed.data.payment_url)) ||
+        (parsed.data && parsed.data.data && parsed.data.data.url) ||
+        ''
+      ).trim();
+      if (/^https?:\/\//i.test(fromJson)) return fromJson;
+    }
+    // Make scenarios without a JSON "Webhook response" module may return a bare URL (or text containing one).
+    if (/^https?:\/\//i.test(text)) return text;
+    var match = text.match(/https?:\/\/[^\s"'<>]+/i);
+    return match ? match[0].trim() : '';
+  }
+
+  /** Best-effort lead capture to Make — never blocks or fails the upgrade navigation. */
+  function notifyMakeUpgradeLead(email) {
+    var webhookUrl = String(MAKE_UPGRADE_WEBHOOK_URL || '').trim();
+    if (!email || !/^https?:\/\//i.test(webhookUrl)) return;
+    try {
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({
+          email: email,
+          name: getUpgradeUserFullName(),
+          phone: getUpgradeUserPhone() || '0500000000',
+          plan: 'annual_pro',
+          price: 350,
+        }),
+      }).catch(function () { /* lead capture is optional */ });
+    } catch (e) { /* lead capture is optional */ }
+  }
+
   function startMakeUpgradeCheckout(userEmail, newTab) {
     var email = normalizeEmail(userEmail);
-    if (!email) return Promise.reject(new Error('missing email'));
-    var popupBlocked = !newTab;
-
-    return fetch(MAKE_UPGRADE_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        name: getUpgradeUserFullName(),
-        phone: getUpgradeUserPhone() || '0500000000',
-        plan: 'annual_pro',
-        price: 350,
-      }),
-    }).then(function (res) {
-      return res.json().then(function (response) {
-        var checkoutUrl = String(
-          (response && response.url) ||
-          (response && response.data && response.data.url) ||
-          (response && response.data && response.data.data && response.data.data.url) ||
-          ''
-        ).trim();
-        if (!res.ok || !checkoutUrl) {
-          closeCheckoutTab(newTab);
-          return Promise.reject(new Error(t('paywall_upgrade_error')));
-        }
-        if (popupBlocked) {
-          showContactToast(t('paywall_upgrade_popup_blocked'));
-          global.location.href = checkoutUrl;
-          return response;
-        }
-        try {
-          newTab.location.href = checkoutUrl;
-        } catch (assignErr) {
-          closeCheckoutTab(newTab);
-          showContactToast(t('paywall_upgrade_popup_blocked'));
-          global.location.href = checkoutUrl;
-        }
-        return response;
-      });
-    }).catch(function (err) {
+    var checkoutUrl = String(GROW_UPGRADE_URL || '').trim();
+    // The Grow link is the single, fixed Fallback/Grow upgrade route — never derive it
+    // from a webhook response, so the click always lands on the correct payment page.
+    if (!/^https?:\/\//i.test(checkoutUrl)) {
       closeCheckoutTab(newTab);
-      throw err;
-    });
+      console.error('[upgrade] GROW_UPGRADE_URL is not configured:', checkoutUrl);
+      return Promise.reject(new Error(t('paywall_upgrade_error')));
+    }
+
+    notifyMakeUpgradeLead(email);
+
+    var popupBlocked = !newTab;
+    if (popupBlocked) {
+      global.location.href = checkoutUrl;
+      return Promise.resolve({ url: checkoutUrl });
+    }
+    try {
+      newTab.location.href = checkoutUrl;
+    } catch (assignErr) {
+      closeCheckoutTab(newTab);
+      showContactToast(t('paywall_upgrade_popup_blocked'));
+      global.location.href = checkoutUrl;
+    }
+    return Promise.resolve({ url: checkoutUrl });
   }
 
   function mockUpgrade(tierId, billingCycle) {

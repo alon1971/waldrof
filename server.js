@@ -152,6 +152,144 @@ function applyLongRunningRouteTimeout(req, res) {
   });
 }
 
+/** Detect SSE streaming requests — Accept: text/event-stream or body { stream: true }. */
+function wantsEventStream(req, parsedBody) {
+  const accept = String((req.headers && (req.headers.accept || req.headers.Accept)) || '');
+  if (/text\/event-stream/i.test(accept)) return true;
+  return Boolean(parsedBody && parsedBody.stream === true);
+}
+
+/**
+ * Streaming variant of /api/generate. Opens the response immediately and keeps the
+ * pipe alive with heartbeats + live Perplexity deltas so reverse proxies / browsers
+ * never hit an idle Gateway timeout during long sonar-reasoning-pro generations.
+ */
+async function handleApiGenerateStream(req, res, parsedBody) {
+  applyStreamingRouteTimeout(req, res);
+
+  // Disable Nagle's algorithm so each small SSE frame is pushed onto the wire
+  // immediately instead of being coalesced/buffered at the TCP layer.
+  try { if (req.socket && req.socket.setNoDelay) req.socket.setNoDelay(true); } catch (e) { /* ignore */ }
+
+  res.writeHead(200, Object.assign({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    // no-transform stops proxies from gzipping/buffering or otherwise altering the body.
+    'Cache-Control': 'no-cache, no-store, no-transform, must-revalidate',
+    Connection: 'keep-alive',
+    // Critical for Render/Nginx: never buffer this response, stream it straight through.
+    'X-Accel-Buffering': 'no',
+  }, API_CORS_HEADERS));
+
+  // Push the response headers out to the client right now (before any model latency).
+  try { if (typeof res.flushHeaders === 'function') res.flushHeaders(); } catch (e) { /* ignore */ }
+
+  // Force any buffered bytes out to the browser after every write. res.flush exists
+  // when compression middleware is active; otherwise the explicit write already
+  // flushed and this is a harmless no-op.
+  function flush() {
+    try { if (typeof res.flush === 'function') res.flush(); } catch (e) { /* ignore */ }
+  }
+
+  let closed = false;
+  function writeSse(event, dataObj) {
+    if (closed || res.writableEnded) return;
+    try {
+      res.write('event: ' + event + '\n');
+      res.write('data: ' + cacheDb.safeJsonStringify(dataObj == null ? {} : dataObj) + '\n\n');
+      flush();
+    } catch (e) { /* socket may have closed */ }
+  }
+
+  // Open immediately so the client sees bytes before any model latency.
+  try { res.write('retry: 3000\n'); res.write(': open\n\n'); flush(); } catch (e) { /* ignore */ }
+
+  const heartbeat = setInterval(function () {
+    if (closed || res.writableEnded) return;
+    try { res.write(': ping\n\n'); flush(); } catch (e) { /* ignore */ }
+  }, 12000);
+
+  function cleanup() {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+  }
+
+  req.on('close', cleanup);
+
+  const phase = parsedBody && parsedBody.phase ? parsedBody.phase : '(unknown)';
+  const generateStartedAt = Date.now();
+
+  const streamHooks = {
+    onStatus: function (stage, detail) {
+      writeSse('status', { stage: stage, detail: detail || null });
+    },
+    onDelta: function (delta) {
+      if (delta) writeSse('delta', { text: delta });
+    },
+  };
+
+  try {
+    const result = await generateApi.handleGeneratePost(parsedBody, {
+      headers: req.headers || {},
+      socket: req.socket,
+    }, streamHooks);
+
+    const payload = generateApi.buildGenerateHttpPayload
+      ? generateApi.buildGenerateHttpPayload(result)
+      : (result && result.data !== undefined
+        ? { data: result.data, meta: result.meta || { fromCache: false } }
+        : { data: result, meta: { fromCache: false } });
+    const httpStatus = generateApi.resolveGenerateHttpStatus
+      ? generateApi.resolveGenerateHttpStatus(result)
+      : 200;
+
+    console.log(
+      '[api/generate] (stream)',
+      httpStatus,
+      phase,
+      Math.round((Date.now() - generateStartedAt) / 1000) + 's',
+      payload.meta && payload.meta.fromCache ? '(cache)' : (httpStatus === 202 ? '(async)' : '(live)')
+    );
+
+    writeSse('result', { status: httpStatus, payload: payload });
+    writeSse('done', {});
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const statusCode = err && err.statusCode ? err.statusCode : 500;
+    console.error(
+      '[api/generate] (stream)',
+      statusCode,
+      phase,
+      Math.round((Date.now() - generateStartedAt) / 1000) + 's',
+      message
+    );
+    writeSse('error', {
+      status: statusCode,
+      error: message,
+      code: err && err.code ? err.code : undefined,
+      usage: err && err.usage ? err.usage : undefined,
+    });
+    writeSse('done', {});
+  } finally {
+    cleanup();
+    if (!res.writableEnded) {
+      try { res.end(); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+/** Long timeout for SSE; on timeout just close the stream (never inject a JSON 504 into SSE bytes). */
+function applyStreamingRouteTimeout(req, res) {
+  req.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
+  res.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
+  res.on('timeout', function () {
+    console.error('[api/generate] (stream) response timeout after', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
+    if (!res.writableEnded) {
+      try { res.end(); } catch (e) { /* ignore */ }
+    }
+  });
+}
+
 async function handleApiGenerate(req, res) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, API_CORS_HEADERS);
@@ -177,6 +315,10 @@ async function handleApiGenerate(req, res) {
 
   if (parsedBody && parsedBody.phase === 'grade') {
     cacheDb.normalizeGradeCacheRequest(parsedBody);
+  }
+
+  if (wantsEventStream(req, parsedBody)) {
+    return handleApiGenerateStream(req, res, parsedBody);
   }
 
   const phase = parsedBody && parsedBody.phase ? parsedBody.phase : '(unknown)';

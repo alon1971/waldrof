@@ -73,25 +73,39 @@ function httpsPostJson(url, headers, body, timeoutMs) {
   });
 }
 
-function appendStreamDelta(content, json) {
-  if (!json || typeof json !== 'object') return content;
+/** Pull the incremental text fragment out of one streamed SSE chunk (delta or full message). */
+function extractStreamDelta(json) {
+  if (!json || typeof json !== 'object') return '';
   const choice = json.choices && json.choices[0];
-  if (!choice) return content;
+  if (!choice) return '';
   const delta = choice.delta && choice.delta.content;
-  if (typeof delta === 'string' && delta) return content + delta;
+  if (typeof delta === 'string' && delta) return delta;
   const message = choice.message && choice.message.content;
-  if (typeof message === 'string' && message) return content + message;
-  return content;
+  if (typeof message === 'string' && message) return message;
+  return '';
+}
+
+function appendStreamDelta(content, json) {
+  const delta = extractStreamDelta(json);
+  return delta ? content + delta : content;
 }
 
 function parseSsePayload(payload) {
   return jsonRepair.parseSseJsonPayload(payload);
 }
 
-async function readStreamResponse(res) {
+/** Forward a streamed text fragment to an optional onDelta hook (errors never break the stream). */
+function emitStreamDelta(onDelta, delta, content) {
+  if (!delta || typeof onDelta !== 'function') return;
+  try {
+    onDelta(delta, content);
+  } catch (e) { /* never let a UI hook break the upstream read */ }
+}
+
+async function readStreamResponse(res, onDelta, onActivity) {
   if (!res.body || typeof res.body.getReader !== 'function') {
     const text = await res.text();
-    return parseSseText(text);
+    return parseSseText(text, onDelta);
   }
 
   const reader = res.body.getReader();
@@ -102,6 +116,12 @@ async function readStreamResponse(res) {
   while (true) {
     const chunk = await reader.read();
     if (chunk.done) break;
+    // Any inbound byte means the upstream is alive — keep the pipe (and the
+    // browser-facing heartbeat) from being torn down, even before the first
+    // parseable content delta arrives.
+    if (typeof onActivity === 'function') {
+      try { onActivity(); } catch (e) { /* never let keep-alive break the read */ }
+    }
     buffer += decoder.decode(chunk.value, { stream: true });
     const parts = buffer.split('\n');
     buffer = parts.pop() || '';
@@ -111,7 +131,10 @@ async function readStreamResponse(res) {
       const payload = line.slice(5).trim();
       if (!payload || payload === '[DONE]') continue;
       const parsed = parseSsePayload(payload);
-      if (parsed) content = appendStreamDelta(content, parsed);
+      if (parsed) {
+        const delta = extractStreamDelta(parsed);
+        if (delta) { content += delta; emitStreamDelta(onDelta, delta, content); }
+      }
     }
   }
 
@@ -121,7 +144,10 @@ async function readStreamResponse(res) {
       const payload = tail.slice(5).trim();
       if (payload && payload !== '[DONE]') {
         const parsed = parseSsePayload(payload);
-        if (parsed) content = appendStreamDelta(content, parsed);
+        if (parsed) {
+          const delta = extractStreamDelta(parsed);
+          if (delta) { content += delta; emitStreamDelta(onDelta, delta, content); }
+        }
       }
     }
   }
@@ -129,7 +155,7 @@ async function readStreamResponse(res) {
   return content.trim();
 }
 
-function parseSseText(text) {
+function parseSseText(text, onDelta) {
   let content = '';
   String(text || '').split('\n').forEach(function (line) {
     const trimmed = line.trim();
@@ -137,7 +163,10 @@ function parseSseText(text) {
     const payload = trimmed.slice(5).trim();
     if (!payload || payload === '[DONE]') return;
     const parsed = parseSsePayload(payload);
-    if (parsed) content = appendStreamDelta(content, parsed);
+    if (parsed) {
+      const delta = extractStreamDelta(parsed);
+      if (delta) { content += delta; emitStreamDelta(onDelta, delta, content); }
+    }
   });
   return content.trim();
 }
@@ -191,18 +220,23 @@ function extractCitations(data) {
   }).filter(Boolean);
 }
 
-async function fetchPerplexityResponse(apiKey, body, useStream) {
+async function fetchPerplexityResponse(apiKey, body, useStream, onDelta) {
   const streaming = useStream !== false;
   const requestBody = Object.assign({}, body, { stream: streaming });
   const headers = buildHeaders(apiKey, streaming);
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   let timer = null;
 
-  if (controller) {
+  // For streaming we use an IDLE timeout (reset on every token) so a long but
+  // healthy generation is never aborted; non-streaming uses a fixed total timeout.
+  function armTimer() {
+    if (!controller) return;
+    if (timer) clearTimeout(timer);
     timer = setTimeout(function () {
       try { controller.abort(); } catch (e) { /* ignore */ }
     }, REQUEST_TIMEOUT_MS);
   }
+  armTimer();
 
   try {
     const res = await fetch(PERPLEXITY_URL, {
@@ -218,7 +252,13 @@ async function fetchPerplexityResponse(apiKey, body, useStream) {
     }
 
     if (streaming) {
-      const streamed = await readStreamResponse(res);
+      const streamOnDelta = function (delta, content) {
+        armTimer();
+        if (typeof onDelta === 'function') onDelta(delta, content);
+      };
+      // Reset the idle timeout on every upstream byte, not only on content deltas,
+      // so a healthy-but-quiet research phase is never aborted mid-stream.
+      const streamed = await readStreamResponse(res, streamOnDelta, armTimer);
       if (streamed) return { content: streamed, citations: [] };
       throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
     }
@@ -328,9 +368,10 @@ async function callPerplexityChat(options) {
   };
 
   const useStream = opts.stream !== false;
+  const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
 
   try {
-    const result = await fetchPerplexityResponse(apiKey, body, useStream);
+    const result = await fetchPerplexityResponse(apiKey, body, useStream, onDelta);
     return result.content;
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
@@ -366,9 +407,10 @@ async function callPerplexitySearch(options) {
   };
 
   const useStream = opts.stream === true;
+  const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
 
   try {
-    return await fetchPerplexityResponse(apiKey, body, useStream);
+    return await fetchPerplexityResponse(apiKey, body, useStream, onDelta);
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
     const isNetwork = /fetch failed|network|timeout|abort|ECONN|ENOTFOUND|UND_ERR/i.test(msg);
