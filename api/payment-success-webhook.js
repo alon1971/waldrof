@@ -96,10 +96,6 @@ async function handlePaymentSuccessRequest(req, body) {
     paymentProvider: 'grow',
   });
 
-  if (name) {
-    await billingDb.updateProfileFields(userId, { display_name: name });
-  }
-
   log('activated', {
     userId: userId,
     email: email,

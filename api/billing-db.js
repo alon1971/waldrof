@@ -96,17 +96,10 @@ async function findUserIdByEmail(email) {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized) return null;
 
-  const params = new URLSearchParams();
-  params.set('select', 'id,email');
-  params.set('email', 'eq.' + normalized);
-  params.set('limit', '1');
-
-  const rows = await supabaseRequest('/rest/v1/' + PROFILES_TABLE + '?' + params.toString(), { method: 'GET' });
-  if (Array.isArray(rows) && rows.length) return rows[0].id;
-
-  const authRes = await fetch(getConfig().url + '/auth/v1/admin/users?email=' + encodeURIComponent(normalized), {
-    headers: authHeaders(),
-  });
+  const authRes = await fetch(
+    getConfig().url + '/auth/v1/admin/users?email=' + encodeURIComponent(normalized),
+    { headers: authHeaders() }
+  );
   const authData = await readResponse(authRes, 'auth users');
   if (authData && Array.isArray(authData.users) && authData.users.length) {
     return authData.users[0].id;
@@ -227,12 +220,7 @@ async function activatePaidSubscription(options) {
     auto_renew: autoRenew,
   });
 
-  await updateProfileSubscription(userId, email, {
-    subscription_status: subscriptionStatusLabel(planType),
-    subscription_expires_at: expiresAt,
-  });
-
-  log('activated', { userId: userId, planType: planType, expiresAt: expiresAt });
+  log('activated', { userId: userId, email: email || undefined, planType: planType, expiresAt: expiresAt });
   return subRow;
 }
 
