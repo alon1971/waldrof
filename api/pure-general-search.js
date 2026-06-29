@@ -4,6 +4,7 @@
  */
 const shared = require('./pure-api-shared');
 const cache = require('./cache');
+const authContext = require('./auth-context');
 
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
@@ -110,7 +111,51 @@ function buildStandardUserPrompt(query) {
   ].join('\n');
 }
 
-async function runPureGeneralSearch(body) {
+async function resolveArchiveUser(body, requestContext) {
+  const ctx = requestContext && typeof requestContext === 'object' ? requestContext : {};
+  const reqShape = {
+    method: 'POST',
+    headers: ctx.headers || {},
+    body: body || {},
+  };
+  try {
+    const verified = await authContext.resolveVerifiedUser(reqShape, body || {});
+    if (verified) return verified;
+  } catch (authErr) {
+    /* optional auth */
+  }
+  const fromBody = body && body.teacherUser;
+  if (fromBody && fromBody.email) {
+    return {
+      id: fromBody.id && authContext.isValidAuthUuid(fromBody.id) ? String(fromBody.id).trim() : null,
+      email: String(fromBody.email || '').trim(),
+      name: fromBody.name || fromBody.displayName || fromBody.email || '',
+    };
+  }
+  return null;
+}
+
+async function buildArchiveSaveOptions(body, requestContext, periodBlock) {
+  const verified = await resolveArchiveUser(body, requestContext);
+  return {
+    periodBlock: periodBlock,
+    teacherUser: verified || (body && body.teacherUser) || null,
+    userEmail: (verified && verified.email) || (body && body.teacherUser && body.teacherUser.email) || null,
+    userId: verified && verified.id ? verified.id : null,
+  };
+}
+
+async function persistGeneralSearchArchive(query, normalized, body, requestContext, periodBlock) {
+  const archiveOpts = await buildArchiveSaveOptions(body, requestContext, periodBlock);
+  const cacheKey = await cache.setGeneralSearchCache(query, normalized, archiveOpts);
+  const archived = Boolean(cacheKey);
+  if (!archived && cache.isSupabaseCacheEnabled()) {
+    console.warn('[cached_results] general_search archive upsert failed for query:', query.slice(0, 120));
+  }
+  return { cacheKey: cacheKey, archived: archived };
+}
+
+async function runPureGeneralSearch(body, requestContext) {
   const query = String(body.query || body.topic || body.q || '').trim();
   if (!query) throw shared.badRequest('query is required');
 
@@ -122,11 +167,16 @@ async function runPureGeneralSearch(body) {
   if (!bypassCache) {
     const cached = await cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
     if (cached && cached.data) {
+      const cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
       return {
         data: normalizeGeneralSearchResponse(cached.data, { periodBlock: periodBlock }),
         meta: Object.assign({
           fromCache: true,
           source: 'general_search_cache',
+          periodBlock: periodBlock,
+          cacheKey: cacheKey || undefined,
+          archived: true,
+          archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
         }, cached.meta || {}),
       };
     }
@@ -141,18 +191,53 @@ async function runPureGeneralSearch(body) {
   });
   const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
-  await cache.setGeneralSearchCache(query, normalized, { periodBlock: periodBlock });
+  const archiveResult = await persistGeneralSearchArchive(
+    query,
+    normalized,
+    body,
+    requestContext,
+    periodBlock
+  );
 
   return {
     data: normalized,
-    meta: { fromCache: false, source: 'perplexity-pure', periodBlock: periodBlock },
+    meta: {
+      fromCache: false,
+      source: 'perplexity-pure',
+      periodBlock: periodBlock,
+      cacheKey: archiveResult.cacheKey || undefined,
+      archived: archiveResult.archived,
+      archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+    },
   };
 }
 
-const legacyHandler = shared.createLegacyPostHandler(async function (body) {
-  const result = await runPureGeneralSearch(body || {});
-  return result.data;
-});
+const legacyHandler = async function (req, res) {
+  if (req.method === 'OPTIONS') {
+    shared.setCors(res);
+    return res.status(204).end();
+  }
+  if (req.method !== 'POST') {
+    return shared.sendJson(res, 405, { error: 'Method not allowed' });
+  }
+  const body = req.body;
+  if (!body || typeof body !== 'object') {
+    return shared.sendJson(res, 400, { error: 'Missing JSON body' });
+  }
+  try {
+    const result = await runPureGeneralSearch(body, { headers: req.headers || {} });
+    return shared.sendJson(res, 200, {
+      ok: true,
+      data: result.data,
+      meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
+    });
+  } catch (err) {
+    const statusCode = err && err.statusCode ? err.statusCode : 500;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[pure-general-search]', statusCode, message);
+    return shared.sendJson(res, statusCode, { error: message });
+  }
+};
 
 async function fetchHandler(request) {
   const headers = new Headers(shared.CORS_HEADERS);
@@ -169,7 +254,9 @@ async function fetchHandler(request) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400, headers: headers });
   }
   try {
-    const result = await runPureGeneralSearch(body || {});
+    const result = await runPureGeneralSearch(body || {}, {
+      headers: Object.fromEntries(request.headers.entries()),
+    });
     return Response.json({
       ok: true,
       data: result.data,

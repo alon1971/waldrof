@@ -807,7 +807,7 @@ function isValidCachedPayload(phase, data) {
   }
   if (phase === 'grade') return Boolean(normalizeGradeResultForCache(data));
   if (phase === TOPIC_MASTER_PHASE) return isTopicMasterPayload(data);
-  if (phase === GENERAL_SEARCH_PHASE || phase === 'pure_general_search') {
+  if (phase === GENERAL_SEARCH_PHASE || phase === 'pure_general_search' || phase === 'general_search_period') {
     return isGeneralSearchPayload(data);
   }
   if (phase === 'topic') {
@@ -1892,13 +1892,17 @@ function isGeneralSearchPayload(data) {
 function buildGeneralSearchCacheBody(query, options) {
   const q = normalizeGeneralSearchQuery(query);
   const opts = options && typeof options === 'object' ? options : {};
-  return {
+  const body = {
     phase: GENERAL_SEARCH_PHASE,
     query: q,
     topic: q,
     archiveQuery: q,
     periodBlock: Boolean(opts.periodBlock),
   };
+  if (opts.userEmail) body.userEmail = opts.userEmail;
+  if (opts.userId) body.userId = opts.userId;
+  if (opts.teacherUser) body.teacherUser = opts.teacherUser;
+  return body;
 }
 
 function buildTopicMasterCacheBody(gradeId, gradeLabel, topic) {
@@ -2452,10 +2456,30 @@ async function setGeneralSearchCache(query, payload, options) {
     query: q,
     periodBlock: periodBlock,
     cachedAt: new Date().toISOString(),
+    _generalSearchArchive: {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      query: q,
+      periodBlock: periodBlock,
+    },
   }));
   if (!safe || !isGeneralSearchPayload(safe)) return null;
-  const body = buildGeneralSearchCacheBody(q, { periodBlock: periodBlock });
-  return setCachedResult(body, safe);
+  const body = buildGeneralSearchCacheBody(q, {
+    periodBlock: periodBlock,
+    userEmail: opts.userEmail,
+    userId: opts.userId,
+    teacherUser: opts.teacherUser,
+  });
+  const cacheKey = await setCachedResult(body, safe);
+  if (cacheKey) {
+    console.log(
+      '[cached_results] SAVED general_search',
+      cacheKey.slice(0, 12),
+      periodBlock ? '(15-day block)' : '(standard)',
+      isSupabaseCacheEnabled() ? '(supabase)' : '(fallback)'
+    );
+  }
+  return cacheKey;
 }
 
 async function getCachedResult(body, options) {
@@ -3663,7 +3687,13 @@ function formatCachedArchiveAsCommunityMatch(row, query) {
   const topic = String(row.topic || '').trim();
   const gradeId = row.grade_id != null ? String(row.grade_id) : '';
   const gradeLabel = resolveGradeLabelFromId(gradeId, row.grade_label);
-  const title = topic || String(row.query_text || '').trim() || 'ארכיון מחקר';
+  let title = topic || String(row.query_text || '').trim() || 'ארכיון מחקר';
+  if (row.phase === GENERAL_SEARCH_PHASE) {
+    const data = coerceCachedResultData(row.result_data);
+    if (data && data.periodBlock) {
+      title = title + ' · תקופת לימוד 15 ימים';
+    }
+  }
   return {
     id: row.cache_key || null,
     source: 'cached_archive',
@@ -3703,7 +3733,7 @@ async function findCachedResultsGlobalMatch(query, options) {
     params.set('select', LEGACY_ROW_SELECT);
     params.set('order', 'hit_count.desc,created_at.desc');
     params.set('limit', '80');
-    params.set('phase', 'in.(topic,grade,chat_followup)');
+    params.set('phase', 'in.(topic,grade,chat_followup,general_search)');
 
     const orParts = [];
     terms.forEach(function (term) {
@@ -3872,6 +3902,20 @@ async function probeCommunityGlobalSearch(query, options) {
         result = termProbe;
         break;
       }
+    }
+  }
+
+  if (!result.count) {
+    try {
+      const archiveHits = await findCachedResultsGlobalMatch(userMessage, { limit: baseOpts.limit || 8 });
+      if (archiveHits.count > 0) {
+        result = Object.assign({}, archiveHits, {
+          query: userMessage,
+          matchMethod: archiveHits.matchMethod || 'cached_archive_global',
+        });
+      }
+    } catch (archiveErr) {
+      console.warn('[community] general_search archive probe failed:', archiveErr.message || archiveErr);
     }
   }
 
