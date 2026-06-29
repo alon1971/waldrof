@@ -1389,7 +1389,12 @@
       }),
     }).then(function (res) {
       return res.json().then(function (response) {
-        var checkoutUrl = response && typeof response.url === 'string' ? response.url.trim() : '';
+        var checkoutUrl = String(
+          (response && response.url) ||
+          (response && response.data && response.data.url) ||
+          (response && response.data && response.data.data && response.data.data.url) ||
+          ''
+        ).trim();
         if (!res.ok || !checkoutUrl) {
           closeCheckoutTab(newTab);
           return Promise.reject(new Error(t('paywall_upgrade_error')));
