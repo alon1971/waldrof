@@ -8,7 +8,7 @@ const jsonRepair = require('./json-repair');
 const PERPLEXITY_URL = 'https://api.perplexity.ai/chat/completions';
 /** Stable factual web-search model for hybrid routing (Perplexity → Gemini). */
 const PERPLEXITY_SEARCH_MODEL = 'sonar';
-const PERPLEXITY_MODEL = 'sonar-pro';
+const PERPLEXITY_MODEL = 'sonar-reasoning';
 /**
  * Perplexity accepts max_tokens up to 128000 (API schema). sonar-pro's effective
  * completion output is model-bound (~8k), but we no longer impose a lower ceiling
