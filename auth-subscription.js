@@ -103,7 +103,6 @@
     if (!cfg || typeof cfg !== 'object') return;
     if (cfg.stripeCheckoutEnabled != null) stripeCheckoutEnabled = Boolean(cfg.stripeCheckoutEnabled);
     if (cfg.apiBillingCheckout) billingCheckoutUrl = String(cfg.apiBillingCheckout);
-    if (cfg.makeUpgradeWebhookUrl) MAKE_UPGRADE_WEBHOOK_URL = String(cfg.makeUpgradeWebhookUrl).trim();
     if (cfg.trialSearchLimit != null) {
       var n = Number(cfg.trialSearchLimit);
       if (Number.isFinite(n) && n > 0) {
