@@ -408,14 +408,19 @@ function buildModelParseFallback(phase, rawText, context) {
     };
   }
 
-  if (phase === 'general_search' || phase === 'pure_general_search') {
-    return {
+  if (phase === 'general_search' || phase === 'pure_general_search' || phase === 'general_search_period') {
+    const fallback = {
       developmental_axis: plain.slice(0, 8000),
       core_pedagogical_emphases: plain.slice(0, 8000),
       recommended_literature: [],
       relevant_links: [],
       _parseFallback: true,
     };
+    if (phase === 'general_search_period') {
+      fallback.periodBlock = true;
+      fallback.curriculum = [];
+    }
+    return fallback;
   }
 
   return { rawText: plain, _parseFallback: true };

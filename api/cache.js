@@ -166,7 +166,8 @@ function buildCacheKey(body) {
   if (body.phase === GENERAL_SEARCH_PHASE || body.phase === 'pure_general_search') {
     const query = normalizeGeneralSearchQuery(body.query ?? body.topic ?? body.q ?? '');
     if (!query) return null;
-    return hashString([GENERAL_SEARCH_PHASE, query].join('|'));
+    const variant = body.periodBlock ? 'period15' : 'standard';
+    return hashString([GENERAL_SEARCH_PHASE, query, variant].join('|'));
   }
 
   const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
@@ -1914,17 +1915,20 @@ function isGeneralSearchPayload(data) {
     String(data.developmental_axis || '').trim() ||
     String(data.core_pedagogical_emphases || '').trim() ||
     (Array.isArray(data.recommended_literature) && data.recommended_literature.length) ||
-    (Array.isArray(data.relevant_links) && data.relevant_links.length)
+    (Array.isArray(data.relevant_links) && data.relevant_links.length) ||
+    (Array.isArray(data.curriculum) && data.curriculum.length)
   );
 }
 
-function buildGeneralSearchCacheBody(query) {
+function buildGeneralSearchCacheBody(query, options) {
   const q = normalizeGeneralSearchQuery(query);
+  const opts = options && typeof options === 'object' ? options : {};
   return {
     phase: GENERAL_SEARCH_PHASE,
     query: q,
     topic: q,
     archiveQuery: q,
+    periodBlock: Boolean(opts.periodBlock),
   };
 }
 
@@ -2420,15 +2424,22 @@ async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
   return setCachedResult(body, safe);
 }
 
+function generalSearchCacheVariantMatches(data, periodBlock) {
+  if (!data || typeof data !== 'object') return false;
+  return Boolean(data.periodBlock) === Boolean(periodBlock);
+}
+
 async function getGeneralSearchCache(query, options) {
   const q = normalizeGeneralSearchQuery(query);
   if (!q) return null;
   const opts = options && typeof options === 'object' ? options : {};
   if (opts.skipCache) return null;
+  const periodBlock = Boolean(opts.periodBlock);
 
-  const body = buildGeneralSearchCacheBody(q);
+  const body = buildGeneralSearchCacheBody(q, { periodBlock: periodBlock });
   const cached = await getCachedResult(body, { requireEnhanced: false });
-  if (cached && cached.data && isGeneralSearchPayload(cached.data)) {
+  if (cached && cached.data && isGeneralSearchPayload(cached.data) &&
+      generalSearchCacheVariantMatches(cached.data, periodBlock)) {
     return cached;
   }
 
@@ -2446,6 +2457,7 @@ async function getGeneralSearchCache(query, options) {
     if (!Array.isArray(rows) || !rows.length || !rows[0].result_data) return null;
     const data = coerceCachedResultData(rows[0].result_data);
     if (!isGeneralSearchPayload(data)) return null;
+    if (!generalSearchCacheVariantMatches(data, periodBlock)) return null;
     bumpHitCountAsync(rows[0].cache_key, rows[0].hit_count);
     return {
       data: cloneJsonSafe(data),
@@ -2462,15 +2474,18 @@ async function getGeneralSearchCache(query, options) {
   }
 }
 
-async function setGeneralSearchCache(query, payload) {
+async function setGeneralSearchCache(query, payload, options) {
   const q = normalizeGeneralSearchQuery(query);
   if (!q || !payload) return null;
+  const opts = options && typeof options === 'object' ? options : {};
+  const periodBlock = Boolean(opts.periodBlock || (payload && payload.periodBlock));
   const safe = ensureJsonObjectForStorage(Object.assign({}, payload, {
     query: q,
+    periodBlock: periodBlock,
     cachedAt: new Date().toISOString(),
   }));
   if (!safe || !isGeneralSearchPayload(safe)) return null;
-  const body = buildGeneralSearchCacheBody(q);
+  const body = buildGeneralSearchCacheBody(q, { periodBlock: periodBlock });
   return setCachedResult(body, safe);
 }
 

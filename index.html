@@ -1351,6 +1351,61 @@
       margin-top: 1rem;
     }
     #general-search-view .general-search-results { margin-top: 1.25rem; }
+    #general-search-period-toggle-wrap {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      margin-bottom: 0.75rem;
+      padding: 0.75rem 1rem;
+      border-radius: 0.875rem;
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      background: rgba(247, 243, 235, 0.65);
+    }
+    #general-search-period-toggle {
+      width: 1.125rem;
+      height: 1.125rem;
+      margin-top: 0.15rem;
+      accent-color: #7A9B76;
+      flex-shrink: 0;
+    }
+    #general-search-period-toggle-wrap label {
+      cursor: pointer;
+      font-size: 0.9375rem;
+      line-height: 1.45;
+      color: #5C4A3A;
+    }
+    #general-search-results .general-search-curriculum-wrap {
+      margin-top: 1.25rem;
+    }
+    #general-search-results table.general-search-curriculum-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9375rem;
+    }
+    #general-search-results table.general-search-curriculum-table th,
+    #general-search-results table.general-search-curriculum-table td {
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      padding: 0.65rem 0.75rem;
+      vertical-align: top;
+      text-align: start;
+    }
+    #general-search-results table.general-search-curriculum-table th {
+      background: rgba(122, 155, 118, 0.12);
+      color: #5C4A3A;
+      font-weight: 700;
+    }
+    #general-search-results table.general-search-curriculum-table tr.week-separator td {
+      background: rgba(139, 58, 58, 0.06);
+      font-weight: 700;
+      color: #8B3A3A;
+      border-color: rgba(139, 58, 58, 0.2);
+    }
+    #general-search-results table.general-search-curriculum-table td:first-child {
+      width: 3.5rem;
+      white-space: nowrap;
+      font-weight: 600;
+      color: #5C7D58;
+    }
     #btn-nav-general-search.active {
       border-color: rgba(139, 58, 58, 0.45);
       background: rgba(139, 58, 58, 0.08);
@@ -4768,6 +4823,10 @@
           <span data-i18n="general_search_btn">חפש</span>
         </button>
       </div>
+      <div id="general-search-period-toggle-wrap">
+        <input type="checkbox" id="general-search-period-toggle" />
+        <label for="general-search-period-toggle" data-i18n="general_search_period_toggle">בניית תוכנית תקופה מלאה (15 ימים)</label>
+      </div>
       <div id="general-search-loading" class="hidden mt-4 p-4 sm:p-5 rounded-xl bg-parchment/90 border-2 text-sm" role="status" aria-live="polite" aria-busy="true">
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
           <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
@@ -6158,6 +6217,7 @@
           topicResearchCompleted: Boolean(appState.topicResearchCompleted),
           activeProductTab: appState.activeProductTab || null,
           generalSearchQuery: generalSearchInput ? String(generalSearchInput.value || '').trim() : '',
+          generalSearchPeriodBlock: isGeneralSearchPeriodBlockEnabled(),
           catalogView: catalogState.view || 'grades',
           catalogGradeId: catalogState.gradeId || null,
           catalogTopic: catalogState.topic || null,
@@ -11993,7 +12053,70 @@
         var linkLine = buildWordExportLinkLine(title, url);
         if (linkLine) parts.push(linkLine);
       });
+      if (Array.isArray(data.curriculum) && data.curriculum.length) {
+        docH2(t('general_search_section_curriculum'));
+        var curriculumRows = padCurriculumRowsToFifteen(data.curriculum);
+        curriculumRows.forEach(function (row) {
+          if (!row) return;
+          var dayLabel = t('curriculum_day_short', { day: row.day });
+          var topicLine = String(row.topic || '').trim();
+          var contentLine = curriculumFieldPlainText(row.content).trim();
+          var artLine = curriculumFieldPlainText(row.art).trim();
+          docP(dayLabel + (topicLine ? ' — ' + topicLine : ''));
+          if (contentLine) docP(t('general_search_curriculum_col_content') + ': ' + contentLine);
+          if (artLine) docP(t('general_search_curriculum_col_art') + ': ' + artLine);
+        });
+      }
       return parts.join('\n');
+    }
+
+    function isGeneralSearchPeriodBlockEnabled() {
+      var toggle = document.getElementById('general-search-period-toggle');
+      return Boolean(toggle && toggle.checked);
+    }
+
+    function setGeneralSearchPeriodBlockEnabled(enabled) {
+      var toggle = document.getElementById('general-search-period-toggle');
+      if (toggle) toggle.checked = Boolean(enabled);
+    }
+
+    function setGeneralSearchPeriodToggleDisabled(disabled) {
+      var toggle = document.getElementById('general-search-period-toggle');
+      if (toggle) toggle.disabled = Boolean(disabled);
+    }
+
+    function renderGeneralSearchCurriculumSection(curriculum) {
+      var rows = padCurriculumRowsToFifteen(curriculum || []);
+      if (!rows.some(curriculumRowHasRenderableText)) return '';
+      var html = '<article class="pure-data-card general-search-card general-search-curriculum-wrap">' +
+        '<h3><i class="fa-solid fa-calendar-days text-terracotta"></i> ' +
+        escapeHtml(t('general_search_section_curriculum')) + '</h3>' +
+        '<div class="overflow-x-auto">' +
+        '<table class="general-search-curriculum-table" dir="rtl">' +
+        '<thead><tr>' +
+        '<th scope="col">' + escapeHtml(t('general_search_curriculum_col_day')) + '</th>' +
+        '<th scope="col">' + escapeHtml(t('general_search_curriculum_col_topic')) + '</th>' +
+        '<th scope="col">' + escapeHtml(t('general_search_curriculum_col_content')) + '</th>' +
+        '<th scope="col">' + escapeHtml(t('general_search_curriculum_col_art')) + '</th>' +
+        '</tr></thead><tbody>';
+      var lastWeek = 0;
+      rows.forEach(function (row) {
+        var week = parseInt(row.week, 10) || Math.ceil((row.day || 1) / 5);
+        if (week !== lastWeek) {
+          lastWeek = week;
+          html += '<tr class="week-separator"><td colspan="4">' +
+            escapeHtml(t('general_search_curriculum_week', { week: week })) + '</td></tr>';
+        }
+        var display = mapCurriculumRowForDisplay(row, Math.max(0, (row.day || 1) - 1));
+        html += '<tr class="day-row" data-day="' + escapeHtml(String(row.day || '')) + '">' +
+          '<td>' + escapeHtml(t('curriculum_day_short', { day: row.day })) + '</td>' +
+          '<td>' + escapeHtml(String(display.topic || '').trim()) + '</td>' +
+          '<td>' + renderCurriculumDayText(display.content, display.topic, 'content') + '</td>' +
+          '<td>' + renderCurriculumDayText(display.art, display.topic, 'art') + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table></div></article>';
+      return html;
     }
 
     function buildGeneralSearchDocFilename(query) {
@@ -18000,6 +18123,9 @@
         return;
       }
       resultsEl.classList.remove('hidden');
+      var curriculumHtml = (data.periodBlock || (data.curriculum && data.curriculum.length))
+        ? renderGeneralSearchCurriculumSection(data.curriculum)
+        : '';
       resultsEl.innerHTML =
         '<div class="pure-phase-c-grid">' +
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + renderPureTextBlock(data.developmental_axis) + '</article>' +
@@ -18007,6 +18133,7 @@
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-book text-gold"></i> ' + escapeHtml(t('general_search_section_literature')) + '</h3>' + renderPureReadingBlock(data.recommended_literature) + '</article>' +
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links, { showAdminDelete: true }) + '</article>' +
         '</div>' +
+        curriculumHtml +
         '<div class="lesson-chat-export-bar mt-4" dir="rtl">' +
           '<button type="button" id="btn-general-search-export-word" class="lesson-chat-export-btn" dir="rtl">' +
             '<i class="fa-solid fa-file-word" aria-hidden="true"></i>' +
@@ -18123,8 +18250,11 @@
       }
     }
 
-    async function fetchPureGeneralSearch(query, signal) {
-      var response = await invokePureApi(PURE_GENERAL_SEARCH_ENDPOINT, { query: query }, signal);
+    async function fetchPureGeneralSearch(query, signal, options) {
+      var opts = options || {};
+      var payload = { query: query };
+      if (opts.periodBlock) payload.periodBlock = true;
+      var response = await invokePureApi(PURE_GENERAL_SEARCH_ENDPOINT, payload, signal);
       return response.data;
     }
 
@@ -18203,11 +18333,13 @@
       var controller = new AbortController();
       generalSearchAbort = controller;
       var signal = controller.signal;
+      var periodBlock = isGeneralSearchPeriodBlockEnabled();
       setGeneralSearchLoadingUi(true);
       if (btn) btn.disabled = true;
       if (input) input.disabled = true;
+      setGeneralSearchPeriodToggleDisabled(true);
       try {
-        var data = await fetchPureGeneralSearch(query, signal);
+        var data = await fetchPureGeneralSearch(query, signal, { periodBlock: periodBlock });
         if (signal.aborted) return;
         appState.generalSearchResult = data;
         renderGeneralSearchResults(data);
@@ -18224,6 +18356,7 @@
           setGeneralSearchLoadingUi(false);
           if (btn) btn.disabled = false;
           if (input) input.disabled = false;
+          setGeneralSearchPeriodToggleDisabled(false);
         }
       }
     }
@@ -18240,6 +18373,7 @@
       setGeneralSearchLoadingUi(false);
       var btn = document.getElementById('btn-general-search-submit');
       if (btn) btn.disabled = false;
+      setGeneralSearchPeriodToggleDisabled(false);
       var input = document.getElementById('general-search-input');
       if (input) {
         input.disabled = false;
@@ -19071,6 +19205,7 @@
         openGeneralSearchView();
         var gsInput = document.getElementById('general-search-input');
         if (gsInput && options.generalSearchQuery) gsInput.value = options.generalSearchQuery;
+        setGeneralSearchPeriodBlockEnabled(Boolean(options.generalSearchPeriodBlock));
         if (appState.generalSearchResult) renderGeneralSearchResults(appState.generalSearchResult);
         return;
       }
@@ -19185,6 +19320,7 @@
       restoreWizardStepView(step, appState.navSection, Object.assign({}, options, {
         activeProductTab: saved.activeProductTab || appState.activeProductTab,
         generalSearchQuery: saved.generalSearchQuery || '',
+        generalSearchPeriodBlock: Boolean(saved.generalSearchPeriodBlock),
       }));
 
       if (options.restoreScroll && typeof saved.scrollY === 'number' && saved.scrollY > 0) {
@@ -22675,6 +22811,8 @@
       if (gsResults) { gsResults.classList.add('hidden'); gsResults.innerHTML = ''; }
       var gsInput = document.getElementById('general-search-input');
       if (gsInput) { gsInput.disabled = false; gsInput.value = ''; }
+      setGeneralSearchPeriodBlockEnabled(false);
+      setGeneralSearchPeriodToggleDisabled(false);
       setTopicResearchLoadingUi(false);
       document.getElementById('btn-topic-research').disabled = false;
       updateTopicResearchButton();
@@ -22945,6 +23083,12 @@
           }
         });
         generalSearchInput.addEventListener('input', function () {
+          schedulePersistActiveStep();
+        });
+      }
+      var generalSearchPeriodToggle = document.getElementById('general-search-period-toggle');
+      if (generalSearchPeriodToggle) {
+        generalSearchPeriodToggle.addEventListener('change', function () {
           schedulePersistActiveStep();
         });
       }

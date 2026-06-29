@@ -1,6 +1,6 @@
 /**
  * POST /api/pure-general-search — multi-grade search via Perplexity with Supabase cache.
- * Body: { query }
+ * Body: { query, periodBlock?: boolean }
  */
 const shared = require('./pure-api-shared');
 const cache = require('./cache');
@@ -14,38 +14,84 @@ const SYSTEM_PROMPT = [
   'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
 ].join(' ');
 
-function normalizeGeneralSearchResponse(parsed) {
+const PERIOD_BLOCK_SYSTEM_PROMPT = [
+  'You are a Waldorf / anthroposophical pedagogy expert specializing in main-lesson block planning.',
+  'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
+  'developmental_axis (string: 1-2 comprehensive Hebrew paragraphs on soul-spiritual developmental context for the stated grade and subject),',
+  'core_pedagogical_emphases (string: 1-2 comprehensive Hebrew paragraphs with Waldorf block rhythm, narrative arc, and teacher compass for this grade+subject),',
+  'recommended_literature (array of 3-6 objects: {title, author, note} — note MUST explain relevance to this block),',
+  'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only),',
+  'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew lesson topic), content (Hebrew main narrative/story focus, 2-4 sentences), art (Hebrew notebook/drawing/painting/handwork activity)).',
+].join(' ');
+
+function coerceCurriculumDays(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (let i = 0; i < value.length && out.length < 15; i++) {
+    const row = value[i];
+    if (!row || typeof row !== 'object') continue;
+    const day = parseInt(row.day || row.dayNumber || row.n, 10);
+    const resolvedDay = day >= 1 && day <= 15 ? day : out.length + 1;
+    const week = parseInt(row.week || row.weekNumber, 10);
+    out.push({
+      day: resolvedDay,
+      week: week >= 1 && week <= 3 ? week : Math.ceil(resolvedDay / 5),
+      topic: shared.coerceText(row.topic || row.title || row.theme || row.subject || ''),
+      content: shared.coerceText(
+        row.content || row.narrative || row.story || row.lesson || row.mainLesson || row.text || ''
+      ),
+      art: shared.coerceText(
+        row.art || row.notebook || row.artActivity || row.craft || row.handwork || row.drawing || ''
+      ),
+    });
+  }
+  return out;
+}
+
+function normalizeGeneralSearchResponse(parsed, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const periodBlock = Boolean(opts.periodBlock);
   const data = parsed && typeof parsed === 'object' ? parsed : {};
-  return {
+  const normalized = {
     developmental_axis: shared.coerceText(data.developmental_axis),
     core_pedagogical_emphases: shared.coerceText(data.core_pedagogical_emphases),
     recommended_literature: shared.coerceReadingList(data.recommended_literature),
     relevant_links: shared.coerceLinks(data.relevant_links),
   };
+  if (periodBlock) {
+    normalized.periodBlock = true;
+    normalized.curriculum = coerceCurriculumDays(data.curriculum || data.days || data.blockPlan && data.blockPlan.curriculum);
+  }
+  return normalized;
 }
 
-async function runPureGeneralSearch(body) {
-  const query = String(body.query || body.topic || body.q || '').trim();
-  if (!query) throw shared.badRequest('query is required');
+function buildPeriodBlockUserPrompt(query) {
+  return [
+    'Build a FULL Waldorf main-lesson block plan: 3 weeks × 5 school days = 15 days total.',
+    'Query (subject, topic, and/or grade — e.g. «רנסנס כיתה ז»): ' + query,
+    'Extract the target grade and block subject from the query. If grade is not explicit, infer the canonical Waldorf grade for this block topic.',
+    'Write in Hebrew unless the query is clearly in another language.',
+    '',
+    shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
+    '',
+    'Section requirements:',
+    '- developmental_axis: developmental soul-spiritual context for THIS grade and subject only.',
+    '- core_pedagogical_emphases: block arc, rhythm, artistic integration, and teacher compass.',
+    '- recommended_literature: professional sources for this block.',
+    '- relevant_links: verified professional Waldorf URLs.',
+    '',
+    'curriculum (תוכנית 15 ימים) — MANDATORY:',
+    '- EXACTLY 15 objects with day 1 through day 15.',
+    '- week 1 = days 1-5, week 2 = days 6-10, week 3 = days 11-15.',
+    '- Each day MUST include: topic (נושא השיעור), content (מוקד סיפורי/תוכן מרכזי), art (מחברת/פעילות אמנותית).',
+    '- Build a coherent narrative arc across all 15 days — opening, deepening, climax, integration.',
+    '- Align with Waldorf main-lesson rhythm: story/recitation, recall, new material, artistic work.',
+    '- Age-appropriate language and activities for the target grade.',
+  ].join('\n');
+}
 
-  const bypassCache = Boolean(
-    body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache
-  );
-
-  if (!bypassCache) {
-    const cached = await cache.getGeneralSearchCache(query);
-    if (cached && cached.data) {
-      return {
-        data: normalizeGeneralSearchResponse(cached.data),
-        meta: Object.assign({
-          fromCache: true,
-          source: 'general_search_cache',
-        }, cached.meta || {}),
-      };
-    }
-  }
-
-  const userPrompt = [
+function buildStandardUserPrompt(query) {
+  return [
     'General Waldorf pedagogy search across elementary grades (1-8).',
     'Query: ' + query,
     'Provide a structured multi-grade analysis: developmental progression, core emphases by age band,',
@@ -59,21 +105,47 @@ async function runPureGeneralSearch(body) {
     'Section requirements:',
     '- developmental_axis (ציר התפתחותי): deep multi-paragraph developmental progression across grades 1-8.',
     '- core_pedagogical_emphases (דגשים פדגוגיים מרכזיים): deep breakdown with Developmental Compass and grade-band lesson dynamics.',
-    '- recommended_literature (ספרות מומלצת): each entry with contextual note explaining coverage and relevance.',
+    '- recommended_literature: each entry with contextual note explaining coverage and relevance.',
     '- relevant_links (קישורים): 6-8 live professional sources with descriptive titles — not parent-facing school homepages.',
   ].join('\n');
+}
 
-  const parsed = await shared.callPerplexityJson(SYSTEM_PROMPT, userPrompt, {
-    phase: 'general_search',
+async function runPureGeneralSearch(body) {
+  const query = String(body.query || body.topic || body.q || '').trim();
+  if (!query) throw shared.badRequest('query is required');
+
+  const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
+  const bypassCache = Boolean(
+    body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache
+  );
+
+  if (!bypassCache) {
+    const cached = await cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
+    if (cached && cached.data) {
+      return {
+        data: normalizeGeneralSearchResponse(cached.data, { periodBlock: periodBlock }),
+        meta: Object.assign({
+          fromCache: true,
+          source: 'general_search_cache',
+        }, cached.meta || {}),
+      };
+    }
+  }
+
+  const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
+
+  const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+    phase: periodBlock ? 'general_search_period' : 'general_search',
     query: query,
   });
-  const normalized = normalizeGeneralSearchResponse(parsed);
+  const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
-  await cache.setGeneralSearchCache(query, normalized);
+  await cache.setGeneralSearchCache(query, normalized, { periodBlock: periodBlock });
 
   return {
     data: normalized,
-    meta: { fromCache: false, source: 'perplexity-pure' },
+    meta: { fromCache: false, source: 'perplexity-pure', periodBlock: periodBlock },
   };
 }
 
@@ -114,4 +186,5 @@ module.exports = {
   fetch: fetchHandler,
   runPureGeneralSearch,
   normalizeGeneralSearchResponse,
+  coerceCurriculumDays,
 };
