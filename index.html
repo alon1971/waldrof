@@ -3667,6 +3667,20 @@
     .lesson-chat-suggest-btn--no:hover { background: rgba(247, 243, 235, 0.95); }
     .lesson-chat-suggest-btn:disabled { opacity: 0.55; cursor: default; }
 
+    .archive-upgrade-query {
+      margin: 0 0 1rem;
+      max-width: 28rem;
+    }
+    .archive-upgrade-query .lesson-chat-suggest-actions {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+    .archive-upgrade-query .lesson-chat-suggest-btn {
+      width: auto;
+      min-width: 7rem;
+      flex: 1 1 auto;
+    }
+
     .lesson-chat-status {
       flex-shrink: 0;
       padding: 0.35rem 1rem;
@@ -4739,8 +4753,15 @@
     </div>
 
     <div id="phase-c-loading" class="hidden max-w-6xl mx-auto px-3 sm:px-4 mb-3 p-4 rounded-xl bg-parchment/90 border border-sage/25 text-sm text-sage-dark" role="status" aria-live="polite">
-      <i class="fa-solid fa-spinner fa-spin ml-1" aria-hidden="true"></i>
-      <span data-i18n="phase_c_loading">מפיק תוצרים ומהות פדגוגית...</span>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
+        <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
+          <i class="fa-solid fa-spinner fa-spin ml-1 text-xl text-sage" aria-hidden="true"></i>
+          <span id="phase-c-loading-text" data-i18n="phase_c_loading">מפיק תוצרים ומהות פדגוגית...</span>
+        </p>
+        <button type="button" id="btn-phase-c-upgrade-cancel" class="touch-btn shrink-0 px-5 py-3 rounded-xl w-full sm:w-auto hidden">
+          <span data-i18n="topic_research_cancel">ביטול ועריכה מחדש 🛑</span>
+        </button>
+      </div>
     </div>
 
     <div class="workspace-layout max-w-7xl mx-auto px-3 sm:px-4 w-full box-border">
@@ -6008,6 +6029,13 @@
       archiveRejectedSearch: null,
       archiveFreshSearchPending: false,
       archiveMergePending: null,
+      archiveUpgradeDismissed: {},
+      archiveUpgradeActive: false,
+      archiveUpgradeAbort: null,
+      archiveUpgradeRunId: 0,
+      gradeFromArchive: false,
+      generalSearchFromArchive: false,
+      generalSearchQuery: '',
       archiveRejectedSuggestions: [],
       topicCommunityMatches: [],
       isSubmitting: false,
@@ -6330,6 +6358,84 @@
       try { sessionStorage.setItem('waldorf_grade1_reset', GRADE1_CLIENT_RESET_VERSION); } catch (e) { /* ignore */ }
     }
 
+    /** One-time purge of grades 2–8 wizard/session state after corrupted cache removal. Grade 1 is never touched. */
+    const NON_GRADE1_CLIENT_RESET_VERSION = '2026-06-29';
+    const NON_GRADE1_IDS = ['2', '3', '4', '5', '6', '7', '8'];
+    function isNonGrade1Id(gradeId) {
+      return NON_GRADE1_IDS.indexOf(String(gradeId || '')) >= 0;
+    }
+    function purgeStaleNonGrade1ClientState() {
+      var alreadyReset = false;
+      try {
+        alreadyReset = sessionStorage.getItem('waldorf_non_grade1_reset') === NON_GRADE1_CLIENT_RESET_VERSION;
+      } catch (e) { /* ignore */ }
+      if (alreadyReset) return;
+
+      var touched = false;
+      try {
+        var raw = readWizardStorageItem(ACTIVE_STEP_STORAGE_KEY);
+        if (raw) {
+          var saved = JSON.parse(raw);
+          if (saved && isNonGrade1Id(saved.grade)) {
+            removeWizardStorageItem(ACTIVE_STEP_STORAGE_KEY);
+            touched = true;
+          }
+        }
+        var snapRaw = readWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
+        if (snapRaw) {
+          var snap = JSON.parse(snapRaw);
+          if (snap && isNonGrade1Id(snap.grade)) {
+            removeWizardStorageItem(LESSON_SNAPSHOT_STORAGE_KEY);
+            touched = true;
+          }
+        }
+      } catch (e) { /* ignore */ }
+      if (isNonGrade1Id(appState.grade)) {
+        appState.grade = null;
+        appState.gradeLabel = null;
+        appState.gradeResearch = null;
+        appState.gradeFromArchive = false;
+        appState.topic = null;
+        appState.topicResearchCompleted = false;
+        appState.webResearch = null;
+        appState.aiGeneratedPlan = null;
+        appState.lessonCacheKey = '';
+        touched = true;
+      }
+      if (isNonGrade1Id(catalogState.gradeId)) {
+        catalogState.view = 'grades';
+        catalogState.gradeId = null;
+        catalogState.topic = null;
+        touched = true;
+      }
+      if (!touched) {
+        try { sessionStorage.setItem('waldorf_non_grade1_reset', NON_GRADE1_CLIENT_RESET_VERSION); } catch (e) { /* ignore */ }
+        return;
+      }
+      if (gradeResearchAbort) {
+        gradeResearchAbort.abort();
+        gradeResearchAbort = null;
+      }
+      gradeResearchRunId += 1;
+      setGradeInsightsLoadingUi(false);
+      var insightsPanel = document.getElementById('grade-insights-panel');
+      if (insightsPanel) insightsPanel.classList.add('hidden');
+      var insightsBody = document.getElementById('grade-insights-body');
+      if (insightsBody) insightsBody.innerHTML = '';
+      var gradeCommunity = document.getElementById('grade-community-list');
+      if (gradeCommunity) gradeCommunity.innerHTML = '';
+      var hintStep1 = document.getElementById('api-hint-step1');
+      if (hintStep1) hintStep1.classList.add('hidden');
+      var gradeSel = document.getElementById('grade-select');
+      if (gradeSel && !appState.grade) {
+        gradeSel.value = '';
+        gradeSel.selectedIndex = 0;
+      }
+      var btnGrade = document.getElementById('btn-grade-submit');
+      if (btnGrade && !appState.grade) btnGrade.disabled = true;
+      try { sessionStorage.setItem('waldorf_non_grade1_reset', NON_GRADE1_CLIENT_RESET_VERSION); } catch (e) { /* ignore */ }
+    }
+
     let realtimeChannel = null;
     const MAX_FILE = 5 * 1024 * 1024;
     let gradeResearchAbort = null;
@@ -6600,6 +6706,331 @@
         yesText: t('archive_suggest_yes'),
         noText: t('archive_suggest_no'),
         handlers: handlers || null,
+      });
+    }
+
+    var archiveUpgradeEventsBound = false;
+
+    function archiveUpgradeDismissKey(scope) {
+      if (scope === 'grade') {
+        return 'grade:' + String(appState.grade || '');
+      }
+      if (scope === 'general-search') {
+        return 'gs:' + String(appState.generalSearchQuery || '').trim().toLowerCase();
+      }
+      return 'topic:' + String(appState.grade || '') + ':' + String(appState.topic || '').trim().toLowerCase();
+    }
+
+    function isArchiveUpgradeDismissed(scope) {
+      return Boolean(appState.archiveUpgradeDismissed[archiveUpgradeDismissKey(scope)]);
+    }
+
+    function dismissArchiveUpgradeQuery(scope) {
+      appState.archiveUpgradeDismissed[archiveUpgradeDismissKey(scope)] = true;
+      document.querySelectorAll('.archive-upgrade-query[data-archive-upgrade-scope="' + scope + '"]').forEach(function (node) {
+        node.remove();
+      });
+    }
+
+    function shouldShowArchiveUpgradeQuery(scope) {
+      if (appState.archiveUpgradeActive) return false;
+      if (isArchiveUpgradeDismissed(scope)) return false;
+      if (scope === 'grade') return Boolean(appState.gradeFromArchive);
+      if (scope === 'general-search') return Boolean(appState.generalSearchFromArchive);
+      return Boolean(appState.lessonFromArchive);
+    }
+
+    function buildArchiveUpgradeQueryHtml(scope) {
+      return '<div class="archive-upgrade-query lesson-chat-bubble lesson-chat-bubble--assistant" data-archive-upgrade-scope="' +
+        escapeHtml(scope) + '" role="dialog" aria-live="polite">' +
+        '<p class="lesson-chat-bubble-body m-0">' + escapeHtml(t('archive_upgrade_prompt')) + '</p>' +
+        '<div class="lesson-chat-suggest-actions">' +
+        '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--yes archive-upgrade-yes" data-archive-upgrade-scope="' +
+        escapeHtml(scope) + '">' + escapeHtml(t('archive_upgrade_yes')) + '</button>' +
+        '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--no archive-upgrade-no" data-archive-upgrade-scope="' +
+        escapeHtml(scope) + '">' + escapeHtml(t('archive_upgrade_no')) + '</button>' +
+        '</div></div>';
+    }
+
+    function mountArchiveUpgradeQuery(container, scope) {
+      if (!container || !shouldShowArchiveUpgradeQuery(scope)) return;
+      var existing = container.querySelector('.archive-upgrade-query[data-archive-upgrade-scope="' + scope + '"]');
+      if (existing) return;
+      container.insertAdjacentHTML('afterbegin', buildArchiveUpgradeQueryHtml(scope));
+    }
+
+    function removeArchiveUpgradeQueries(scope) {
+      var selector = scope
+        ? '.archive-upgrade-query[data-archive-upgrade-scope="' + scope + '"]'
+        : '.archive-upgrade-query';
+      document.querySelectorAll(selector).forEach(function (node) { node.remove(); });
+    }
+
+    function resolveTopicHistoricPayload() {
+      if (appState.purePhaseC && typeof appState.purePhaseC === 'object') {
+        return appState.purePhaseC;
+      }
+      return null;
+    }
+
+    function resolveGradeHistoricPayload() {
+      return appState.gradeResearch && typeof appState.gradeResearch === 'object'
+        ? appState.gradeResearch
+        : null;
+    }
+
+    function resolveGeneralSearchHistoricPayload() {
+      return appState.generalSearchResult && typeof appState.generalSearchResult === 'object'
+        ? appState.generalSearchResult
+        : null;
+    }
+
+    function setArchiveUpgradeLoadingUi(scope, loading) {
+      appState.archiveUpgradeActive = loading;
+      if (scope === 'grade') {
+        var gradeText = document.getElementById('grade-research-loading-text');
+        if (gradeText) {
+          gradeText.textContent = loading ? t('archive_upgrade_loading') : t('grade_insights_loading');
+        }
+        setGradeInsightsLoadingUi(loading);
+        return;
+      }
+      if (scope === 'general-search') {
+        setGeneralSearchLoadingUi(loading);
+        return;
+      }
+      if (scope === 'phase-c') {
+        var phaseText = document.getElementById('phase-c-loading-text');
+        var phaseCancel = document.getElementById('btn-phase-c-upgrade-cancel');
+        if (phaseText) {
+          phaseText.textContent = loading ? t('archive_upgrade_loading') : t('phase_c_loading');
+        }
+        if (phaseCancel) phaseCancel.classList.toggle('hidden', !loading);
+        setPhaseCLoadingUi(loading);
+        return;
+      }
+      var topicText = document.getElementById('topic-research-loading-text');
+      if (topicText) {
+        topicText.textContent = loading ? t('archive_upgrade_loading') : t('topic_research_loading_archive');
+      }
+      setTopicResearchLoadingUi(loading);
+    }
+
+    function cancelArchiveUpgrade(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      appState.archiveUpgradeRunId += 1;
+      if (appState.archiveUpgradeAbort) {
+        appState.archiveUpgradeAbort.abort();
+        appState.archiveUpgradeAbort = null;
+      }
+      appState.archiveUpgradeActive = false;
+      setArchiveUpgradeLoadingUi('step-b', false);
+      setArchiveUpgradeLoadingUi('phase-c', false);
+      setArchiveUpgradeLoadingUi('grade', false);
+      setArchiveUpgradeLoadingUi('general-search', false);
+    }
+
+    async function runTopicArchiveUpgrade(scope) {
+      var topic = String(appState.topic || '').trim();
+      var historicPayload = resolveTopicHistoricPayload();
+      if (!topic || !historicPayload) return;
+
+      dismissArchiveUpgradeQuery(scope === 'phase-c' ? 'phase-c' : 'step-b');
+      if (scope === 'phase-c') dismissArchiveUpgradeQuery('step-b');
+      else dismissArchiveUpgradeQuery('phase-c');
+
+      if (appState.archiveUpgradeAbort) appState.archiveUpgradeAbort.abort();
+      if (topicResearchAbort) topicResearchAbort.abort();
+      var runId = ++appState.archiveUpgradeRunId;
+      var controller = new AbortController();
+      appState.archiveUpgradeAbort = controller;
+      topicResearchAbort = controller;
+      setArchiveUpgradeLoadingUi(scope === 'phase-c' ? 'phase-c' : 'step-b', true);
+
+      try {
+        var response = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, controller.signal, {
+          bypassCache: true,
+          forceRefresh: true,
+          archiveUpgrade: true,
+          historicPayload: historicPayload,
+        });
+        if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted) return;
+
+        appState.lessonFromArchive = false;
+        dismissArchiveUpgradeQuery('step-b');
+        dismissArchiveUpgradeQuery('phase-c');
+        var statusMsg = isEnglish()
+          ? 'Upgraded from live research — archive updated.'
+          : 'הורחב בחיפוש חי — הארכיון עודכן.';
+        commitPurePhaseCToStepB(topic, response.data, {
+          fromCache: false,
+          stayOnPhaseC: scope === 'phase-c' || isPhaseCView(),
+          statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
+            escapeHtml(statusMsg) + '</p>',
+        });
+        invalidateProductTabRenders();
+        if (scope === 'phase-c' || isPhaseCView()) {
+          phaseCRenderUnifiedView(response.data);
+        }
+        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
+          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
+        }
+        if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+      } catch (err) {
+        if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isTopicResearchAbortError(err)) return;
+        if (isRateLimitError(err)) return;
+        alert(err.message || String(err));
+      } finally {
+        if (runId !== appState.archiveUpgradeRunId) return;
+        appState.archiveUpgradeAbort = null;
+        topicResearchAbort = null;
+        appState.archiveUpgradeActive = false;
+        setArchiveUpgradeLoadingUi('step-b', false);
+        setArchiveUpgradeLoadingUi('phase-c', false);
+      }
+    }
+
+    async function runGradeArchiveUpgrade() {
+      var historicPayload = resolveGradeHistoricPayload();
+      if (!historicPayload || !appState.grade) return;
+
+      dismissArchiveUpgradeQuery('grade');
+      if (appState.archiveUpgradeAbort) appState.archiveUpgradeAbort.abort();
+      if (gradeResearchAbort) gradeResearchAbort.abort();
+      var runId = ++appState.archiveUpgradeRunId;
+      var controller = new AbortController();
+      appState.archiveUpgradeAbort = controller;
+      gradeResearchAbort = controller;
+      setArchiveUpgradeLoadingUi('grade', true);
+
+      try {
+        var g = GRADES.find(function (x) { return x.id === appState.grade; });
+        var data = await invokeWaldorfResearch({
+          phase: 'grade',
+          gradeId: appState.grade,
+          gradeLabel: appState.gradeLabel,
+          age: g ? g.age : '',
+          currentGrade: appState.grade,
+          gradeLockInstruction: getGradeLockInstruction(),
+          gradePrompt: buildGradeInsightsPrompt(),
+          noUrlsInstruction: getNoUrlsInstruction(),
+          noLatexInstruction: getNoLatexInstruction(),
+          archiveUpgrade: true,
+          historicPayload: historicPayload,
+          bypassCache: true,
+          forceRefresh: true,
+          skipCache: true,
+        }, { signal: controller.signal });
+        if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted) return;
+
+        appState.gradeFromArchive = false;
+        appState.gradeResearch = data;
+        renderGradeInsightsPanel(appState.grade, data);
+        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
+          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
+        }
+      } catch (err) {
+        if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isGradeResearchAbortError(err)) return;
+        if (isRateLimitError(err)) return;
+        alert(err.message || String(err));
+      } finally {
+        if (runId !== appState.archiveUpgradeRunId) return;
+        appState.archiveUpgradeAbort = null;
+        gradeResearchAbort = null;
+        appState.archiveUpgradeActive = false;
+        setArchiveUpgradeLoadingUi('grade', false);
+      }
+    }
+
+    async function runGeneralSearchArchiveUpgrade() {
+      var query = String(appState.generalSearchQuery || '').trim();
+      var historicPayload = resolveGeneralSearchHistoricPayload();
+      if (!query || !historicPayload) return;
+
+      dismissArchiveUpgradeQuery('general-search');
+      if (appState.archiveUpgradeAbort) appState.archiveUpgradeAbort.abort();
+      if (generalSearchAbort) generalSearchAbort.abort();
+      var runId = ++appState.archiveUpgradeRunId;
+      var controller = new AbortController();
+      appState.archiveUpgradeAbort = controller;
+      generalSearchAbort = controller;
+      setArchiveUpgradeLoadingUi('general-search', true);
+      var btn = document.getElementById('btn-general-search-submit');
+      var input = document.getElementById('general-search-input');
+      if (btn) btn.disabled = true;
+      if (input) input.disabled = true;
+      setGeneralSearchPeriodToggleDisabled(true);
+
+      try {
+        var response = await fetchPureGeneralSearch(query, controller.signal, {
+          periodBlock: isGeneralSearchPeriodBlockEnabled(),
+          bypassCache: true,
+          forceRefresh: true,
+          archiveUpgrade: true,
+          historicPayload: historicPayload,
+        });
+        if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted) return;
+
+        appState.generalSearchFromArchive = false;
+        appState.generalSearchResult = response.data;
+        renderGeneralSearchResults(response.data);
+        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
+          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
+        }
+      } catch (err) {
+        if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isGeneralSearchAbortError(err)) return;
+        var resultsEl = document.getElementById('general-search-results');
+        if (resultsEl) {
+          resultsEl.classList.remove('hidden');
+          resultsEl.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+            escapeHtml(err.message || String(err)) + '</p>';
+        }
+      } finally {
+        if (runId !== appState.archiveUpgradeRunId) return;
+        appState.archiveUpgradeAbort = null;
+        generalSearchAbort = null;
+        appState.archiveUpgradeActive = false;
+        setArchiveUpgradeLoadingUi('general-search', false);
+        if (btn) btn.disabled = false;
+        if (input) input.disabled = false;
+        setGeneralSearchPeriodToggleDisabled(false);
+      }
+    }
+
+    function handleArchiveUpgradeYes(scope) {
+      dismissArchiveUpgradeQuery(scope);
+    }
+
+    function handleArchiveUpgradeNo(scope) {
+      if (scope === 'grade') {
+        runGradeArchiveUpgrade().catch(function (err) { alert(err.message || String(err)); });
+        return;
+      }
+      if (scope === 'general-search') {
+        runGeneralSearchArchiveUpgrade().catch(function (err) { alert(err.message || String(err)); });
+        return;
+      }
+      runTopicArchiveUpgrade(scope).catch(function (err) { alert(err.message || String(err)); });
+    }
+
+    function ensureArchiveUpgradeQueryEvents() {
+      if (archiveUpgradeEventsBound) return;
+      archiveUpgradeEventsBound = true;
+      document.addEventListener('click', function (e) {
+        var yesBtn = e.target.closest('.archive-upgrade-yes');
+        if (yesBtn) {
+          e.preventDefault();
+          handleArchiveUpgradeYes(yesBtn.getAttribute('data-archive-upgrade-scope') || 'step-b');
+          return;
+        }
+        var noBtn = e.target.closest('.archive-upgrade-no');
+        if (noBtn) {
+          e.preventDefault();
+          handleArchiveUpgradeNo(noBtn.getAttribute('data-archive-upgrade-scope') || 'step-b');
+        }
       });
     }
 
@@ -10173,6 +10604,8 @@
           document.getElementById('grade-insights-body').innerHTML = html || (
             '<p class="text-walnut/70">' + escapeHtml(t('grade_insights_empty')) + '</p>'
           );
+          ensureArchiveUpgradeQueryEvents();
+          mountArchiveUpgradeQuery(document.getElementById('grade-insights-body'), 'grade');
         });
         ensurePedagogySuggestionEvents();
         restoreAllExpansionUiState();
@@ -10217,6 +10650,8 @@
       }
       holdPageScroll(function () {
         document.getElementById('grade-insights-body').innerHTML = html;
+        ensureArchiveUpgradeQueryEvents();
+        mountArchiveUpgradeQuery(document.getElementById('grade-insights-body'), 'grade');
       });
       ensurePedagogySuggestionEvents();
       restoreAllExpansionUiState();
@@ -11447,6 +11882,8 @@
       if (!content) content = '<p class="text-walnut/70">—</p>';
       out.innerHTML = content;
       out.classList.remove('hidden');
+      ensureArchiveUpgradeQueryEvents();
+      mountArchiveUpgradeQuery(out, 'step-b');
       ensurePedagogySuggestionEvents();
       restoreAllExpansionUiState();
       updatePedagogyExportButtonsVisibility();
@@ -18005,6 +18442,8 @@
       renderMarketingBench('phase-c-marketing-mount');
       if (appState.productTabsRendered) appState.productTabsRendered.unified = true;
       updatePhaseCExportButtons();
+      ensureArchiveUpgradeQueryEvents();
+      mountArchiveUpgradeQuery(unifiedRoot, 'phase-c');
       runAfterLayout(function () {
         enableWizardTopicStepNavigation();
       });
@@ -18234,6 +18673,8 @@
           '</button>' +
         '</div>';
       bindGeneralSearchExportButton();
+      ensureArchiveUpgradeQueryEvents();
+      mountArchiveUpgradeQuery(resultsEl, 'general-search');
       renderMarketingBench('general-search-marketing-mount');
     }
 
@@ -18296,6 +18737,14 @@
         payload.mergeWithHistoric = true;
         payload.historicPayload = opts.historicPayload;
       }
+      if (opts.archiveUpgrade && opts.historicPayload) {
+        payload.archiveUpgrade = true;
+        payload.historicPayload = opts.historicPayload;
+        payload.bypassCache = true;
+        payload.forceRefresh = true;
+        payload.forceFresh = true;
+        payload.skipCache = true;
+      }
       var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, payload, signal);
       return response;
     }
@@ -18347,8 +18796,22 @@
       var opts = options || {};
       var payload = { query: query };
       if (opts.periodBlock) payload.periodBlock = true;
+      if (opts.bypassCache || opts.forceRefresh || opts.forceFresh || opts.skipCache) {
+        payload.bypassCache = true;
+        payload.forceRefresh = true;
+        payload.forceFresh = true;
+        payload.skipCache = true;
+      }
+      if (opts.archiveUpgrade && opts.historicPayload) {
+        payload.archiveUpgrade = true;
+        payload.historicPayload = opts.historicPayload;
+        payload.bypassCache = true;
+        payload.forceRefresh = true;
+        payload.forceFresh = true;
+        payload.skipCache = true;
+      }
       var response = await invokePureApi(PURE_GENERAL_SEARCH_ENDPOINT, payload, signal);
-      return response.data;
+      return response;
     }
 
     function hideGeneralSearchView() {
@@ -18432,10 +18895,12 @@
       if (input) input.disabled = true;
       setGeneralSearchPeriodToggleDisabled(true);
       try {
-        var data = await fetchPureGeneralSearch(query, signal, { periodBlock: periodBlock });
+        var response = await fetchPureGeneralSearch(query, signal, { periodBlock: periodBlock });
         if (signal.aborted) return;
-        appState.generalSearchResult = data;
-        renderGeneralSearchResults(data);
+        appState.generalSearchQuery = query;
+        appState.generalSearchFromArchive = Boolean(response.meta && response.meta.fromCache);
+        appState.generalSearchResult = response.data;
+        renderGeneralSearchResults(response.data);
       } catch (err) {
         if (isGeneralSearchAbortError(err)) return;
         var resultsEl = document.getElementById('general-search-results');
@@ -18458,6 +18923,10 @@
       if (e) {
         e.preventDefault();
         e.stopPropagation();
+      }
+      if (appState.archiveUpgradeActive) {
+        cancelArchiveUpgrade(e);
+        return;
       }
       if (generalSearchAbort) {
         generalSearchAbort.abort();
@@ -19870,6 +20339,7 @@
 
       appState.grade = grade;
       appState.gradeLabel = getGradeLabelById(grade);
+      appState.gradeFromArchive = false;
       appState.aiGeneratedPlan = null;
       appState.webResearch = null;
       appState.gradeResearch = null;
@@ -19922,6 +20392,7 @@
       try {
         const data = await fetchGradeInsightsAI(signal);
         if (runId !== gradeResearchRunId || signal.aborted) return;
+        appState.gradeFromArchive = Boolean(data._fromCache || (data._meta && data._meta.fromCache));
         appState.gradeResearch = data;
         const gi = data && data.gradeInsights;
         const hasGradeContent = gi && (
@@ -20019,6 +20490,10 @@
       if (e) {
         e.preventDefault();
         e.stopPropagation();
+      }
+      if (appState.archiveUpgradeActive) {
+        cancelArchiveUpgrade(e);
+        return;
       }
       topicResearchRunId += 1;
       if (topicResearchAbort) {
@@ -23268,6 +23743,7 @@
         });
       }
       bindWizardNavClick(document.getElementById('btn-topic-research-cancel'), cancelTopicResearch);
+      bindWizardNavClick(document.getElementById('btn-phase-c-upgrade-cancel'), cancelArchiveUpgrade);
       bindWizardNavClick(document.getElementById('btn-new-research'), function () { startNewResearch(); });
 
       // Topic/pedagogy/chat Word-export clicks are handled via document-level
@@ -23278,6 +23754,7 @@
 
       initGlobalEnterNavigation();
       ensurePedagogySuggestionEvents();
+      ensureArchiveUpgradeQueryEvents();
       setupThemeActionButtons();
 
       document.getElementById('refresh-community').addEventListener('click', async function () {
@@ -23356,7 +23833,7 @@
     async function init() {
       var pageReloaded = isHardPageReload();
       resetWizardStepViewOnThisLoad = pageReloaded;
-      try { purgeStaleGrade1ClientState(); } catch (e) { console.warn('[waldrof] purgeStaleGrade1ClientState:', e); }
+      try { purgeStaleNonGrade1ClientState(); } catch (e) { console.warn('[waldrof] purgeStaleNonGrade1ClientState:', e); }
       try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
       try {
       ensurePageAtTop();

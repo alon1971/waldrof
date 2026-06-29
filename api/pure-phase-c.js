@@ -2898,7 +2898,113 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
 
 function shouldBypassTopicMasterCache(body) {
   if (!body || typeof body !== 'object') return false;
-  return Boolean(body.forceFresh || body.skipCache || body.bypassCache || body.forceRefresh);
+  return Boolean(body.forceFresh || body.skipCache || body.bypassCache || body.forceRefresh || body.archiveUpgrade);
+}
+
+function buildArchiveUpgradeIntro(archiveText, userQuery) {
+  const text = String(archiveText || '').trim().slice(0, 16000);
+  const query = String(userQuery || '').trim();
+  return [
+    'The user is not fully satisfied with this existing archive material: ' + text + '.',
+    'Please run a live web search on the topic \'' + query + '\' and synthesize a brand-new, updated, comprehensive Waldorf pedagogical document that merges the best parts of the archive with the fresh discovery.',
+    'Return a single, cohesive response.',
+  ].join(' ');
+}
+
+function buildPhaseCGenerationUserPrompt(grade, topic) {
+  return [
+    WALDORF_CORE_SYSTEM_PROMPT,
+    '',
+    'Produce Phase C pedagogical products and essence for Waldorf education.',
+    'Grade: ' + grade,
+    'Topic: ' + topic,
+    'Focus on developmental appropriateness, soul-spiritual qualities, and practical classroom orientation.',
+    'Write pedagogical content in Hebrew unless the topic itself is in another language.',
+    '',
+    shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
+    '',
+    shared.PROFESSIONAL_LINKS_INSTRUCTION,
+    '',
+    PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
+    '',
+    shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
+    '',
+    PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
+    '',
+    PHASE_C_CRITICAL_TEXT_INSTRUCTION,
+    '',
+    PHASE_C_LANGUAGE_SOURCE_RULE,
+    '',
+    PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
+    '',
+    PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION,
+    '',
+    buildPhaseCGradeTopicLockInstruction(grade, topic),
+    '',
+    'CRITICAL: DO NOT SUMMARIZE. Produce a MASSIVE, exhaustive, book-length teacher manual that consumes the ENTIRE output token budget. A short answer is a failed answer.',
+    'The manual MUST include ALL of: exhaustive anthroposophical/pedagogical background; the structural developmental axis for THIS grade; concrete day-by-day lesson plans and main-lesson block architecture; storytelling ideas (specific tales/biographies/motifs); blackboard drawing inspirations (chalk motifs, colors, composition); seminar paper findings (עבודות סמינריון); and paraphrased content from every Waldorf PDF/archive/seminar text you can surface.',
+    '- Narrative theory: 4-6 sections × 6-10 deep paragraphs each (prose ONLY — zero URLs, zero anchors in section HTML).',
+    '- Narrative inspiration: 3-4 global blocks × 8-12 rich multi-sentence pedagogical mini-essays each (concrete storytelling, recitation, painting, movement, blackboard art).',
+    '- pinterest_links: 4-8 LIVE pinterest.com URLs (also mirrored into relevant_links).',
+    '- core_emphases: 6-8 deep paragraphs with full Developmental Compass and structural developmental axis — prose only.',
+    '- key_points: 6-8 extensive grade-locked items (4-7 sentences each) on lesson architecture + storytelling + blackboard drawing — unique prose only.',
+    '- pedagogical_resources: each snippet = a substantive multi-sentence paraphrase of the real PDF/source content (never an empty stub).',
+    '- recommended_reading: 6-8 entries with substantive 2-4 sentence notes (titles/authors only — NO urls).',
+    '- relevant_links: 6-12 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
+  ].join('\n');
+}
+
+function buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic) {
+  adaptTopicMasterPayload(historic, { grade: grade, gradeLabel: grade, topic: topic });
+  const archiveText = gatherPhaseCFallbackSourceText(historic) || JSON.stringify(historic).slice(0, 16000);
+  return buildArchiveUpgradeIntro(archiveText, topic) + '\n\n' + buildPhaseCGenerationUserPrompt(grade, topic);
+}
+
+async function runArchiveUpgradePhaseC(body) {
+  const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
+  const topic = String(body.topic || '').trim();
+  const gradeId = resolveGradeId(body);
+  const historic = body.historicPayload;
+  if (!historic || typeof historic !== 'object') {
+    throw shared.badRequest('historicPayload is required for archive upgrade');
+  }
+
+  if (gradeId) {
+    try {
+      await cache.deleteTopicMasterCache(gradeId, topic);
+      console.log('[pure-phase-c] archive upgrade — purged topic_master cache for', topic);
+    } catch (purgeErr) {
+      console.warn('[pure-phase-c] archive upgrade cache purge failed:', purgeErr.message || purgeErr);
+    }
+  }
+
+  const userPrompt = buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic);
+  const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+    phase: 'topic_master',
+    grade: grade,
+    gradeLabel: grade,
+    topic: topic,
+    max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+  });
+  const parsed = modelResult.parsed;
+  let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+  stampTopicMasterArchiveLinks(normalized, parsed);
+
+  if (gradeId) {
+    cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
+      console.warn('[pure-phase-c] archive upgrade cache save failed:', err.message || err);
+    });
+  }
+
+  return {
+    data: normalized,
+    meta: {
+      fromCache: false,
+      source: 'archive_upgrade_synthesis',
+      archiveUpgraded: true,
+      parseFallback: Boolean(modelResult.parseFallback),
+    },
+  };
 }
 
 const TOPIC_MASTER_MERGE_SYSTEM_PROMPT = [
@@ -2949,6 +3055,10 @@ async function runPurePhaseC(body) {
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
 
+  if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
+    return runArchiveUpgradePhaseC(body);
+  }
+
   if (gradeId && shouldBypassTopicMasterCache(body)) {
     try {
       await cache.deleteTopicMasterCache(gradeId, topic);
@@ -2979,46 +3089,7 @@ async function runPurePhaseC(body) {
     }
   }
 
-  const userPrompt = [
-    WALDORF_CORE_SYSTEM_PROMPT,
-    '',
-    'Produce Phase C pedagogical products and essence for Waldorf education.',
-    'Grade: ' + grade,
-    'Topic: ' + topic,
-    'Focus on developmental appropriateness, soul-spiritual qualities, and practical classroom orientation.',
-    'Write pedagogical content in Hebrew unless the topic itself is in another language.',
-    '',
-    shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
-    '',
-    shared.PROFESSIONAL_LINKS_INSTRUCTION,
-    '',
-    PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
-    '',
-    shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
-    '',
-    PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
-    '',
-    PHASE_C_CRITICAL_TEXT_INSTRUCTION,
-    '',
-    PHASE_C_LANGUAGE_SOURCE_RULE,
-    '',
-    PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
-    '',
-    PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION,
-    '',
-    buildPhaseCGradeTopicLockInstruction(grade, topic),
-    '',
-    'CRITICAL: DO NOT SUMMARIZE. Produce a MASSIVE, exhaustive, book-length teacher manual that consumes the ENTIRE output token budget. A short answer is a failed answer.',
-    'The manual MUST include ALL of: exhaustive anthroposophical/pedagogical background; the structural developmental axis for THIS grade; concrete day-by-day lesson plans and main-lesson block architecture; storytelling ideas (specific tales/biographies/motifs); blackboard drawing inspirations (chalk motifs, colors, composition); seminar paper findings (עבודות סמינריון); and paraphrased content from every Waldorf PDF/archive/seminar text you can surface.',
-    '- Narrative theory: 4-6 sections × 6-10 deep paragraphs each (prose ONLY — zero URLs, zero anchors in section HTML).',
-    '- Narrative inspiration: 3-4 global blocks × 8-12 rich multi-sentence pedagogical mini-essays each (concrete storytelling, recitation, painting, movement, blackboard art).',
-    '- pinterest_links: 4-8 LIVE pinterest.com URLs (also mirrored into relevant_links).',
-    '- core_emphases: 6-8 deep paragraphs with full Developmental Compass and structural developmental axis — prose only.',
-    '- key_points: 6-8 extensive grade-locked items (4-7 sentences each) on lesson architecture + storytelling + blackboard drawing — unique prose only.',
-    '- pedagogical_resources: each snippet = a substantive multi-sentence paraphrase of the real PDF/source content (never an empty stub).',
-    '- recommended_reading: 6-8 entries with substantive 2-4 sentence notes (titles/authors only — NO urls).',
-    '- relevant_links: 6-12 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
-  ].join('\n');
+  const userPrompt = buildPhaseCGenerationUserPrompt(grade, topic);
 
   const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
     phase: 'topic_master',

@@ -155,14 +155,88 @@ async function persistGeneralSearchArchive(query, normalized, body, requestConte
   return { cacheKey: cacheKey, archived: archived };
 }
 
+function buildGeneralSearchArchiveText(historic) {
+  if (!historic || typeof historic !== 'object') return '';
+  const parts = [];
+  if (historic.developmental_axis) parts.push(String(historic.developmental_axis));
+  if (historic.core_pedagogical_emphases) parts.push(String(historic.core_pedagogical_emphases));
+  if (Array.isArray(historic.recommended_literature) && historic.recommended_literature.length) {
+    parts.push(JSON.stringify(historic.recommended_literature));
+  }
+  if (Array.isArray(historic.relevant_links) && historic.relevant_links.length) {
+    parts.push(JSON.stringify(historic.relevant_links));
+  }
+  if (Array.isArray(historic.curriculum) && historic.curriculum.length) {
+    parts.push(JSON.stringify(historic.curriculum));
+  }
+  return parts.join('\n\n').trim().slice(0, 16000);
+}
+
+function buildArchiveUpgradeIntro(archiveText, userQuery) {
+  const text = String(archiveText || '').trim().slice(0, 16000);
+  const query = String(userQuery || '').trim();
+  return [
+    'The user is not fully satisfied with this existing archive material: ' + text + '.',
+    'Please run a live web search on the topic \'' + query + '\' and synthesize a brand-new, updated, comprehensive Waldorf pedagogical document that merges the best parts of the archive with the fresh discovery.',
+    'Return a single, cohesive response.',
+  ].join(' ');
+}
+
+async function runArchiveUpgradeGeneralSearch(body, requestContext) {
+  const query = String(body.query || body.topic || body.q || '').trim();
+  if (!query) throw shared.badRequest('query is required');
+  const historic = body.historicPayload;
+  if (!historic || typeof historic !== 'object') {
+    throw shared.badRequest('historicPayload is required for archive upgrade');
+  }
+
+  const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
+  const archiveText = buildGeneralSearchArchiveText(historic) || JSON.stringify(historic).slice(0, 16000);
+  const upgradeIntro = buildArchiveUpgradeIntro(archiveText, query);
+  const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
+  const userPrompt = upgradeIntro + '\n\n' + basePrompt;
+
+  const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+    phase: periodBlock ? 'general_search_period' : 'general_search',
+    query: query,
+  });
+  const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+
+  const archiveResult = await persistGeneralSearchArchive(
+    query,
+    normalized,
+    body,
+    requestContext,
+    periodBlock
+  );
+
+  return {
+    data: normalized,
+    meta: {
+      fromCache: false,
+      source: 'archive_upgrade_synthesis',
+      archiveUpgraded: true,
+      periodBlock: periodBlock,
+      cacheKey: archiveResult.cacheKey || undefined,
+      archived: archiveResult.archived,
+      archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+    },
+  };
+}
+
 async function runPureGeneralSearch(body, requestContext) {
   const query = String(body.query || body.topic || body.q || '').trim();
   if (!query) throw shared.badRequest('query is required');
 
   const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
   const bypassCache = Boolean(
-    body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache
+    body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade
   );
+
+  if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
+    return runArchiveUpgradeGeneralSearch(body, requestContext);
+  }
 
   if (!bypassCache) {
     const cached = await cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
