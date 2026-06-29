@@ -252,6 +252,11 @@
     return false;
   }
 
+  function hasPaidSubscription() {
+    var tier = normalizeTierId(authState.tier);
+    return tier === 'pro' || tier === 'standard';
+  }
+
   function applyProUserTierIfEligible() {
     if (!isProUser()) return;
     authState.tier = 'pro';
@@ -343,9 +348,8 @@
   }
 
   function resolveTierFromUser(user) {
-    var meta = (user && user.user_metadata) || {};
-    var tier = meta.tier || meta.subscription_tier;
-    return normalizeTierId(tier);
+    /* Tier is loaded from user_subscriptions via /api/subscription — not Auth metadata. */
+    return 'trial';
   }
 
   function formatNameFromEmail(email) {
@@ -597,22 +601,22 @@
   }
 
   function applySupabaseSession(session) {
-    if (!session || !session.user) return;
+    if (!session || !session.user) return Promise.resolve();
     var user = session.user;
     authState.isAuthenticated = true;
     authState.provider = 'supabase';
     authState.user = mapSupabaseUser(user);
-    authState.tier = resolveTierFromUser(user);
+    authState.tier = 'trial';
     if (authState.user.email) writeIdentityEmail(authState.user.email);
     else {
       var mappedPro = resolveProEmailFromUser(authState.user);
       if (mappedPro) writeIdentityEmail(mappedPro);
     }
     applyProUserTierIfEligible();
-    persistAuth();
     hideAuthOverlay();
-    refreshSubscriptionFromServer().finally(function () {
-      enrichGoogleHebrewNames(session).finally(function () {
+    return refreshSubscriptionFromServer().finally(function () {
+      persistAuth();
+      return enrichGoogleHebrewNames(session).finally(function () {
         notifyListeners();
       });
     });
@@ -790,12 +794,10 @@
           id: authState.user.id,
           email: authState.user.email || identityEmail,
           displayName: authState.user.displayName,
-          tier: isProUser() ? 'pro' : authState.tier,
         };
       } else if (identityEmail) {
         body.teacherUser = {
           email: identityEmail,
-          tier: isProUserEmail(identityEmail) ? 'pro' : 'trial',
         };
       }
       return fetch(subscriptionApiUrl(), {
@@ -845,13 +847,12 @@
       if (data.proUser || data.whitelisted) {
         applyProUserUsageFromServer(data.usage || { proUser: true });
       } else {
-        if (data.subscription && data.subscription.tier && !isProUser()) {
+        if (data.usage) applyServerUsage(data.usage);
+        else if (data.subscription && data.subscription.tier) {
           authState.tier = normalizeTierId(data.subscription.tier);
           authState.autoRenew = data.subscription.autoRenew !== false;
-          authState.billingCycle = data.subscription.billingCycle || null;
-          authState.expiresAt = data.subscription.expiresAt || (data.usage && data.usage.expiresAt) || null;
+          authState.expiresAt = data.subscription.expiresAt || null;
         }
-        if (data.usage) applyServerUsage(data.usage);
       }
       applyProUserTierIfEligible();
       persistAuth();
@@ -2135,8 +2136,8 @@
           : displayTier);
         tierEl.classList.toggle('user-tier-badge--pro-user', isProUser());
       }
-      if (upgradeBtn) upgradeBtn.classList.toggle('hidden', isProUser());
-      setSearchUsageMeterHidden(isProUser());
+      if (upgradeBtn) upgradeBtn.classList.toggle('hidden', isProUser() || hasPaidSubscription());
+      setSearchUsageMeterHidden(isProUser() || hasPaidSubscription());
       var signOutBtn = document.getElementById('btn-auth-signout');
       var settingsBtn = document.getElementById('btn-user-settings');
       if (signOutBtn) signOutBtn.classList.remove('hidden');

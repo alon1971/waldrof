@@ -21,10 +21,6 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
   'word_downloads_count',
   'auto_renew',
   'expires_at',
-  'billing_cycle',
-  'stripe_customer_id',
-  'stripe_subscription_id',
-  'payment_provider',
   'updated_at',
 ];
 
@@ -275,12 +271,11 @@ async function verifySupabaseToken(token) {
   }
   if (!user || !user.id) return null;
   const meta = user.user_metadata || {};
-  const tier = normalizeTier(meta.tier || meta.subscription_tier || meta.plan_type || 'trial');
   return {
     id: user.id,
     email: user.email || '',
     name: meta.full_name || meta.name || (user.email ? user.email.split('@')[0] : ''),
-    tier: tier,
+    tier: 'trial',
   };
 }
 
@@ -333,7 +328,7 @@ function readWordDownloadsFromRow(row, tier) {
 
 function isSubscriptionExpired(row) {
   if (!row || !row.expires_at) return false;
-  const tier = effectiveTierFromRow(row);
+  const tier = planTypeFromRow(row);
   if (tier === 'trial') return false;
   return new Date(row.expires_at).getTime() <= Date.now();
 }
@@ -370,7 +365,6 @@ function buildUsagePayload(row) {
 
   return {
     tier: tier,
-    billingCycle: row && row.billing_cycle ? row.billing_cycle : null,
     autoRenew: row.auto_renew !== false,
     expiresAt: row && row.expires_at ? row.expires_at : null,
     subscriptionExpired: expired,
@@ -565,7 +559,6 @@ async function getStatus(user, userToken) {
     action: 'status',
     subscription: {
       tier: usage.tier,
-      billingCycle: usage.billingCycle,
       autoRenew: usage.autoRenew,
       expiresAt: usage.expiresAt,
     },
@@ -750,7 +743,6 @@ async function cancelRenewal(user, userToken) {
     action: 'cancel_renewal',
     subscription: {
       tier: planTypeFromRow(updated),
-      billingCycle: updated.billing_cycle || null,
       autoRenew: false,
       expiresAt: updated.expires_at || null,
     },
