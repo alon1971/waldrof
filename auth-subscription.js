@@ -1386,7 +1386,7 @@
         if (!res.ok || !response || typeof response.url !== 'string' || !response.url) {
           return Promise.reject(new Error('checkout unavailable'));
         }
-        global.location.href = response.url;
+        global.open(response.url, '_blank');
         return response;
       });
     });
@@ -2002,9 +2002,13 @@
       return;
     }
     setPricingUpgradeButtonLoading(true);
-    startMakeUpgradeCheckout(userEmail).catch(function () {
-      setPricingUpgradeButtonLoading(false);
-    });
+    startMakeUpgradeCheckout(userEmail)
+      .then(function () {
+        setPricingUpgradeButtonLoading(false);
+      })
+      .catch(function () {
+        setPricingUpgradeButtonLoading(false);
+      });
   }
 
   function renderPricingComparisonTable() {
