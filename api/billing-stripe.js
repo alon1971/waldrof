@@ -127,7 +127,7 @@ function mrrForRow(row) {
   if (tier === 'trial') return 0;
   if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return 0;
   const cycle = row.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
-  if (cycle === 'yearly') return 468 / 12;
+  if (cycle === 'yearly') return 350 / 12;
   return 49;
 }
 

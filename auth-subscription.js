@@ -61,8 +61,7 @@
       monthlyLimit: 300,
       lifetimeLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 49, yearly: 250 },
-      yearlySavingsKey: 'pricing_pro_yearly_deal',
+      prices: { monthly: 49, yearly: 350 },
     },
     pro: {
       id: 'pro',
@@ -70,7 +69,6 @@
       lifetimeLimit: null,
       displayUnlimited: false,
       prices: { monthly: 49, yearly: 350 },
-      yearlySavingsKey: 'pricing_pro_yearly_deal',
     },
     school: {
       id: 'school',

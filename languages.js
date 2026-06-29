@@ -538,8 +538,6 @@ const LANGUAGES = {
     pricing_billing_monthly:     'חודשי',
     pricing_billing_yearly:      'שנתי',
     pricing_close:               'סגור',
-    pricing_standard_yearly_deal:'חיסכון של 100 ₪ (חודשיים במתנה!)',
-    pricing_pro_yearly_deal:     '*(חיסכון של ₪120 בשנה!)*',
     pricing_auto_renew_disclaimer:'*המנוי מתחדש אוטומטית בכל שנה, אלא אם תתקבל בקשת ביטול בתום שנת המנוי.',
 
     pricing_table_feature_col:   'תכונה / Feature',
@@ -561,10 +559,6 @@ const LANGUAGES = {
     pricing_cell_search_school:  'מותאם אישית לפי צרכי המוסד',
     pricing_cell_price_free:     '₪0',
     pricing_cell_price_pro:      '₪350 לשנה',
-    pricing_pro_monthly_line:    'חודשי: ₪49/חודש',
-    pricing_pro_monthly_yearly_equiv: '(₪588 בשנה)',
-    pricing_pro_yearly_line:     'שנתי: ₪39/חודש (₪468 מראש)',
-    pricing_pro_yearly_savings:  '*(חיסכון של ₪120 בשנה!)*',
     pricing_cell_price_school_line1: 'פנו אלינו להצעת מחיר',
     pricing_cell_price_school_contact: 'אלון ירושלמי: 054-40548078',
 
@@ -1204,8 +1198,6 @@ const LANGUAGES = {
     pricing_billing_monthly:     'Monthly',
     pricing_billing_yearly:      'Yearly',
     pricing_close:               'Close',
-    pricing_standard_yearly_deal:'Save 100 NIS (2 months free!)',
-    pricing_pro_yearly_deal:     '*(Save ₪120 per year!)*',
     pricing_auto_renew_disclaimer:'*Subscription renews automatically each year unless a cancellation request is received at the end of the subscription year.',
 
     pricing_table_feature_col:   'Feature',
@@ -1227,10 +1219,6 @@ const LANGUAGES = {
     pricing_cell_search_school:  'Custom for your institution',
     pricing_cell_price_free:     '₪0',
     pricing_cell_price_pro:      '₪350/year',
-    pricing_pro_monthly_line:    'Monthly: ₪49/month',
-    pricing_pro_monthly_yearly_equiv: '(₪588/year)',
-    pricing_pro_yearly_line:     'Yearly: ₪39/month (₪468 upfront)',
-    pricing_pro_yearly_savings:  '*(Save ₪120 per year!)*',
     pricing_cell_price_school_line1: 'Contact us for a quote',
     pricing_cell_price_school_contact: 'Alon Yerushalmy: 054-40548078',
 
