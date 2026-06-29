@@ -210,11 +210,50 @@ async function executeSearchHistory(req) {
     };
   }
 
+  if (action === 'set_archive_block') {
+    await resolveArchiveAdmin(req, body);
+    const cacheKey = String((body && body.cacheKey) || '').trim();
+    const blockPath = String((body && body.blockPath) || '').trim();
+    const newText = typeof (body && body.newText) === 'string' ? body.newText : '';
+    if (!cacheKey || !blockPath) {
+      const err = new Error('חסרים מזהה ארכיון או נתיב בלוק לעדכון');
+      err.statusCode = 400;
+      throw err;
+    }
+    const result = await cacheDb.setArchiveBlockByPath(cacheKey, blockPath, newText);
+    if (!result || !result.updated) {
+      const err = new Error('בלוק הטקסט לא נמצא בארכיון או שהעדכון נכשל');
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      ok: true,
+      action: 'set_archive_block',
+      cacheKey: cacheKey,
+      blockPath: blockPath,
+    };
+  }
+
   if (action === 'replace_archive_block') {
     await resolveArchiveAdmin(req, body);
     const cacheKey = String((body && body.cacheKey) || '').trim();
-    const originalText = String((body && body.originalText) || '');
+    const blockPath = String((body && body.blockPath) || '').trim();
     const newText = typeof (body && body.newText) === 'string' ? body.newText : '';
+    if (blockPath) {
+      const pathResult = await cacheDb.setArchiveBlockByPath(cacheKey, blockPath, newText);
+      if (!pathResult || !pathResult.updated) {
+        const err = new Error('בלוק הטקסט לא נמצא בארכיון או שהעדכון נכשל');
+        err.statusCode = 404;
+        throw err;
+      }
+      return {
+        ok: true,
+        action: 'replace_archive_block',
+        cacheKey: cacheKey,
+        blockPath: blockPath,
+      };
+    }
+    const originalText = String((body && body.originalText) || '');
     if (!cacheKey || !originalText.trim()) {
       const err = new Error('חסרים מזהה ארכיון או טקסט מקור למחיקה');
       err.statusCode = 400;

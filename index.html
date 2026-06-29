@@ -6023,6 +6023,8 @@
       pedagogySummaries: {},
       lessonCacheKey: '',
       lessonCacheMeta: null,
+      gradeCacheKey: '',
+      generalSearchCacheKey: '',
       lessonFromArchive: false,
       communityAutoSync: true,
       archiveSuggestionPending: false,
@@ -6057,6 +6059,7 @@
     const catalogState = { view: 'grades', gradeId: null, topic: null };
     const ACTIVE_STEP_STORAGE_KEY = 'waldorf_active_step';
     const LESSON_SNAPSHOT_STORAGE_KEY = 'waldorf_lesson_snapshot';
+    const SCROLL_MEMORY_STORAGE_KEY = 'waldorf_scroll_positions';
     var persistStepTimer = null;
     /** One-shot: hard refresh must reopen Step A while keeping cached form fields. */
     var resetWizardStepViewOnThisLoad = false;
@@ -6183,6 +6186,8 @@
           gradeLabel: appState.gradeLabel || null,
           topic: appState.topic || null,
           lessonCacheKey: appState.lessonCacheKey || '',
+          gradeCacheKey: appState.gradeCacheKey || '',
+          generalSearchCacheKey: appState.generalSearchCacheKey || '',
           lessonFromArchive: Boolean(appState.lessonFromArchive),
           topicResearchCompleted: Boolean(appState.topicResearchCompleted),
           snapshot: buildLessonSnapshotForSave(),
@@ -6265,8 +6270,12 @@
           topic: appState.topic || null,
           topicInput: topicInput ? String(topicInput.value || '').trim() : (appState.topic || ''),
           scrollY: window.scrollY || window.pageYOffset || 0,
+          gradeCacheKey: appState.gradeCacheKey || '',
+          generalSearchCacheKey: appState.generalSearchCacheKey || '',
           topicResearchLoading: isTopicResearchLoadingUi(),
           lessonCacheKey: appState.lessonCacheKey || '',
+          gradeCacheKey: appState.gradeCacheKey || '',
+          generalSearchCacheKey: appState.generalSearchCacheKey || '',
           topicResearchCompleted: Boolean(appState.topicResearchCompleted),
           activeProductTab: appState.activeProductTab || null,
           generalSearchQuery: generalSearchInput ? String(generalSearchInput.value || '').trim() : '',
@@ -10600,6 +10609,10 @@
           rawContent: gi.rawContent,
           citations: gi.citations,
         });
+        html = wrapArchiveEditableBlock(html, gi.rawContent, {
+          blockPath: 'gradeInsights.rawContent',
+          cacheKey: appState.gradeCacheKey,
+        });
         holdPageScroll(function () {
           document.getElementById('grade-insights-body').innerHTML = html || (
             '<p class="text-walnut/70">' + escapeHtml(t('grade_insights_empty')) + '</p>'
@@ -11891,11 +11904,16 @@
       nudgeGoogleTranslate();
     }
 
-    function buildPhaseBEssenceHtml(dive) {
+    function buildPhaseBEssenceHtml(dive, meta) {
+      meta = meta || {};
       const data = dive || {};
       const rawContent = stripPhaseBReferenceBrackets(data.rawContent || '');
       if (!rawContent) return '';
-      return renderCompiledPedagogicalHtml(rawContent);
+      var html = renderCompiledPedagogicalHtml(rawContent);
+      return wrapArchiveEditableBlock(html, rawContent, {
+        blockPath: meta.blockPath || 'webResearch.rawContent',
+        cacheKey: resolveArchiveBlockCacheKey(meta.cacheKey),
+      });
     }
 
     function buildPerplexityExpansionHtml(dive) {
@@ -13663,9 +13681,14 @@
       if (!wr) return;
       let html = '';
       if (String(wr.rawContent || '').trim()) {
-        html = buildPhaseBEssenceHtml({
-          rawContent: wr.rawContent,
-        });
+        var rawStepB = String(wr.rawContent || '').trim();
+        if (rawStepB.indexOf('archive-editable-block') >= 0) {
+          html = rawStepB;
+        } else {
+          html = buildPhaseBEssenceHtml({
+            rawContent: wr.rawContent,
+          }, { blockPath: 'webResearch.rawContent', cacheKey: appState.lessonCacheKey });
+        }
       } else if (isCompiledPedagogicalHtml(wr.summary)) {
         html = String(wr.summary || '').trim();
       } else {
@@ -14811,12 +14834,28 @@
     }
 
     // ---------- Admin-only granular inline text/link deletion (selection → floating 🗑️) ----------
-    // Bulletproof model: never do a risky substring-replace inside Supabase. Instead, when the
-    // admin confirms, we remove the selection from the DOM, compute the WHOLE cleaned block from
-    // its known raw source (data-archive-source), and write that whole block back to the row —
-    // matched server-side by exact full value. On ANY failure we restore the DOM and toast.
+    // Bulletproof model: each editable block carries data-archive-key + data-archive-block-path.
+    // On confirm we edit the DOM first, extract the WHOLE cleaned block text, and PATCH Supabase
+    // by row cache_key + JSON path — never a risky substring search in stored prose.
     var ARCHIVE_TEXT_DELETE_CONFIRM = 'האם אתה בטוח שברצונך למחוק את הקטע/הקישור שנבחר לצמיתות מהארכיון?';
-    var ARCHIVE_TEXT_DELETE_SCOPE = '#phase-c-unified-root, #panel-narrative, #general-search-results, #panel-catalog';
+    var ARCHIVE_TEXT_DELETE_SCOPE = [
+      '#step-a-container',
+      '#step-1',
+      '#grade-insights-body',
+      '#step-2',
+      '#web-research-result',
+      '#wizard',
+      '#workspace',
+      '#phase-c-unified-root',
+      '#panel-narrative',
+      '#theoretical-content',
+      '#inspiration-content',
+      '#pedagogical-essence-content',
+      '#general-search-view',
+      '#general-search-results',
+      '#panel-catalog',
+      '#archive-results',
+    ].join(', ');
     var archiveTextFabEl = null;
     var archiveTextSelectionCtx = null;
     var archiveTextSelectionTimer = null;
@@ -14841,31 +14880,56 @@
       }, 4200);
     }
 
-    function normalizeArchiveBlockText(text) {
-      return String(text == null ? '' : text).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    function resolveArchiveBlockCacheKey(explicitKey) {
+      if (explicitKey) return String(explicitKey).trim();
+      if (isGeneralSearchView()) return String(appState.generalSearchCacheKey || '').trim();
+      if (appState.navSection === 'wizard' && appState.step === 1) return String(appState.gradeCacheKey || '').trim();
+      return String(appState.lessonCacheKey || '').trim();
     }
 
-    /**
-     * Remove exactly the selected snippet from a block's RAW source string, preserving the
-     * rest of the field verbatim. Returns null when the snippet cannot be located (caller aborts).
-     */
-    function removeSnippetFromArchiveSource(source, snippet) {
-      var src = String(source == null ? '' : source);
-      var snipNorm = normalizeArchiveBlockText(snippet);
-      if (!snipNorm) return null;
-      var escaped = snipNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s\\u00a0]+');
-      var re;
-      try { re = new RegExp(escaped); } catch (e) { return null; }
-      if (!re.test(src)) return null;
-      var out = src.replace(re, ' ');
-      out = out
-        .replace(/\[\s*\]\([^)]*\)/g, '')
-        .replace(/[ \t]{2,}/g, ' ')
-        .replace(/ +([,.;:!?])/g, '$1')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-      return out;
+    function extractArchiveBlockSourceFromDom(block) {
+      if (!block) return '';
+      var text = String(block.innerText || block.textContent || '').replace(/\u00a0/g, ' ');
+      return text.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+    }
+
+    function applyArchiveBlockEditLocally(blockPath, newText) {
+      if (!blockPath) return;
+      var parts = String(blockPath).split('.');
+      var rootKey = parts[0];
+      if (rootKey === 'gradeInsights' && appState.gradeResearch && appState.gradeResearch.gradeInsights) {
+        appState.gradeResearch.gradeInsights[parts.slice(1).join('.') || 'rawContent'] = newText;
+        return;
+      }
+      if (rootKey === 'webResearch' && appState.webResearch) {
+        appState.webResearch[parts.slice(1).join('.') || 'rawContent'] = newText;
+        return;
+      }
+      if (appState.generalSearchResult && Object.prototype.hasOwnProperty.call(appState.generalSearchResult, blockPath)) {
+        appState.generalSearchResult[blockPath] = newText;
+        return;
+      }
+      if (appState.purePhaseC) {
+        var cursor = appState.purePhaseC;
+        for (var i = 0; i < parts.length - 1; i++) {
+          var seg = parts[i];
+          var arrMatch = seg.match(/^(.+)\[(\d+)\]$/);
+          if (arrMatch) {
+            cursor = cursor[arrMatch[1]];
+            cursor = cursor && cursor[parseInt(arrMatch[2], 10)];
+          } else {
+            cursor = cursor && cursor[seg];
+          }
+          if (!cursor) return;
+        }
+        var last = parts[parts.length - 1];
+        var lastArr = last.match(/^(.+)\[(\d+)\]$/);
+        if (lastArr && cursor[lastArr[1]] && Array.isArray(cursor[lastArr[1]])) {
+          cursor[lastArr[1]][parseInt(lastArr[2], 10)] = newText;
+        } else if (cursor && Object.prototype.hasOwnProperty.call(cursor, last)) {
+          cursor[last] = newText;
+        }
+      }
     }
 
     function clearSelectionRanges() {
@@ -15059,17 +15123,17 @@
      * back to the row. Strict: aborts if the block/row can't be identified, restores on failure.
      */
     async function deleteArchiveTextSelection(ctx, cacheKey) {
-      if (!ctx.block || !ctx.blockSource || !ctx.blockSource.trim()) {
+      if (!ctx.block) {
         showArchiveToast('לא ניתן לזהות את בלוק הטקסט למחיקה — הפעולה בוטלה.', 'error');
+        return;
+      }
+      var blockPath = String(ctx.block.getAttribute('data-archive-block-path') || '').trim();
+      if (!blockPath) {
+        showArchiveToast('לא ניתן לזהות את מיקום הבלוק בארכיון — הפעולה בוטלה.', 'error');
         return;
       }
       if (!cacheKey) {
         showArchiveToast('מזהה הארכיון אינו ברור — הפעולה בוטלה.', 'error');
-        return;
-      }
-      var newSource = removeSnippetFromArchiveSource(ctx.blockSource, ctx.text);
-      if (newSource === null || normalizeArchiveBlockText(newSource) === normalizeArchiveBlockText(ctx.blockSource)) {
-        showArchiveToast('הקטע שנבחר לא נמצא בבלוק המקור — הפעולה בוטלה.', 'error');
         return;
       }
       var block = ctx.block;
@@ -15082,14 +15146,16 @@
         showArchiveToast('שגיאה בעדכון התצוגה — הפעולה בוטלה.', 'error');
         return;
       }
+      var newSource = extractArchiveBlockSourceFromDom(block);
       try {
         await postArchiveDeleteRequest({
-          action: 'replace_archive_block',
+          action: 'set_archive_block',
           cacheKey: cacheKey,
-          originalText: ctx.blockSource,
+          blockPath: blockPath,
           newText: newSource,
         });
         block.setAttribute('data-archive-source', newSource);
+        applyArchiveBlockEditLocally(blockPath, newSource);
         for (var i = 0; i < ctx.linkUrls.length; i++) {
           try {
             await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrls[i] });
@@ -15109,7 +15175,11 @@
       if (!confirm(ARCHIVE_TEXT_DELETE_CONFIRM)) return;
       archiveDeleteInFlight = true;
       if (archiveTextFabEl) archiveTextFabEl.disabled = true;
-      var cacheKey = String((ctx.block && ctx.block.getAttribute('data-archive-key')) || appState.lessonCacheKey || '').trim();
+      var cacheKey = String(
+        (ctx.block && ctx.block.getAttribute('data-archive-key')) ||
+        resolveArchiveBlockCacheKey() ||
+        ''
+      ).trim();
       try {
         if (ctx.linkOnly && ctx.linkUrl) {
           await deleteArchiveLinkSelection(ctx, cacheKey);
@@ -18159,11 +18229,18 @@
       return raw.trim();
     }
 
-    function wrapArchiveEditableBlock(innerHtml, sourceText) {
+    function wrapArchiveEditableBlock(innerHtml, sourceText, meta) {
+      meta = meta || {};
       if (!innerHtml) return innerHtml;
       var src = String(sourceText == null ? '' : sourceText);
-      if (!src.trim()) return innerHtml;
-      return '<div class="archive-editable-block" data-archive-source="' + escapeHtml(src) + '">' + innerHtml + '</div>';
+      var blockPath = String(meta.blockPath || '').trim();
+      var cacheKey = resolveArchiveBlockCacheKey(meta.cacheKey);
+      if (!src.trim() && !blockPath) return innerHtml;
+      var attrs = ' class="archive-editable-block"';
+      if (src.trim()) attrs += ' data-archive-source="' + escapeHtml(src) + '"';
+      if (cacheKey) attrs += ' data-archive-key="' + escapeHtml(cacheKey) + '"';
+      if (blockPath) attrs += ' data-archive-block-path="' + escapeHtml(blockPath) + '"';
+      return '<div' + attrs + '>' + innerHtml + '</div>';
     }
 
     function renderNarrativeProseBlock(text, options) {
@@ -18176,9 +18253,9 @@
         raw = stripSequentialDuplicateSentencesClient(raw);
         if (!raw) return '';
         if (isCompiledPedagogicalHtml(raw)) {
-          return wrapArchiveEditableBlock('<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>', sourceOriginal);
+          return wrapArchiveEditableBlock('<div class="prose-ai leading-relaxed">' + renderCompiledPedagogicalHtml(raw, { prepared: true }) + '</div>', sourceOriginal, options);
         }
-        return wrapArchiveEditableBlock(formatPerplexityRawText(raw, { prepared: true }), sourceOriginal);
+        return wrapArchiveEditableBlock(formatPerplexityRawText(raw, { prepared: true }), sourceOriginal, options);
       }
       raw = stripStrayMarkdownHashes(stripNarrativeProseMarkup(raw));
       if (!raw) return '';
@@ -18192,13 +18269,14 @@
         html = formatPerplexityRawText(raw, { prepared: true });
       }
       if (isPurePhaseCMode() && html) html = linkifyExpansionHtml(html);
-      return wrapArchiveEditableBlock(html, sourceOriginal);
+      return wrapArchiveEditableBlock(html, sourceOriginal, options);
     }
 
-    function renderPureTextBlock(text) {
+    function renderPureTextBlock(text, meta) {
+      meta = meta || {};
       var raw = String(text || '').trim();
       if (!raw) return '<p class="text-walnut/50">—</p>';
-      return '<div class="pure-card-body">' + renderNarrativeProseBlock(raw) + '</div>';
+      return '<div class="pure-card-body">' + renderNarrativeProseBlock(raw, meta) + '</div>';
     }
 
     function renderPureListBlock(items) {
@@ -18419,7 +18497,10 @@
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-5 sm:p-6 border-r-4 border-r-terracotta w-full box-border">';
         html += '<h4 class="app-subhead font-display font-bold text-burgundy mb-3"><i class="fa-solid fa-compass text-sage ml-1" aria-hidden="true"></i> ' +
           escapeHtml(t('phase_c_tab_core')) + '</h4>';
-        html += '<div class="text-lg leading-relaxed">' + renderNarrativeProseBlock(core) + '</div>';
+        html += '<div class="text-lg leading-relaxed">' + renderNarrativeProseBlock(core, {
+          blockPath: 'core_emphases',
+          cacheKey: appState.lessonCacheKey,
+        }) + '</div>';
         html += renderExpansionButtonBlock({
           id: coreId,
           type: 'essence',
@@ -18787,8 +18868,8 @@
         : '';
       resultsEl.innerHTML =
         '<div class="pure-phase-c-grid">' +
-        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + renderPureTextBlock(data.developmental_axis) + '</article>' +
-        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + renderPureTextBlock(data.core_pedagogical_emphases) + '</article>' +
+        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + renderPureTextBlock(data.developmental_axis, { blockPath: 'developmental_axis', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
+        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + renderPureTextBlock(data.core_pedagogical_emphases, { blockPath: 'core_pedagogical_emphases', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-book text-gold"></i> ' + escapeHtml(t('general_search_section_literature')) + '</h3>' + renderPureReadingBlock(data.recommended_literature) + '</article>' +
         '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links, { showAdminDelete: true }) + '</article>' +
         '</div>' +
@@ -19026,6 +19107,7 @@
         if (signal.aborted) return;
         appState.generalSearchQuery = query;
         appState.generalSearchFromArchive = Boolean(response.meta && response.meta.fromCache);
+        if (response.meta && response.meta.cacheKey) appState.generalSearchCacheKey = response.meta.cacheKey;
         appState.generalSearchResult = response.data;
         renderGeneralSearchResults(response.data);
       } catch (err) {
@@ -19259,7 +19341,7 @@
       hideGeneralSearchView();
       resetProductTabsNeutral();
       restoreStepBTopicResultsView(function () {
-        scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
+        restoreNavScrollPosition('step-2');
       });
     }
 
@@ -19813,6 +19895,8 @@
         }
         if (saved.topic) appState.topic = saved.topic;
         if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
+        if (saved.gradeCacheKey) appState.gradeCacheKey = saved.gradeCacheKey;
+        if (saved.generalSearchCacheKey) appState.generalSearchCacheKey = saved.generalSearchCacheKey;
         if (typeof saved.topicResearchCompleted === 'boolean') {
           appState.topicResearchCompleted = saved.topicResearchCompleted;
         }
@@ -19896,6 +19980,7 @@
         if (gsInput && options.generalSearchQuery) gsInput.value = options.generalSearchQuery;
         setGeneralSearchPeriodBlockEnabled(Boolean(options.generalSearchPeriodBlock));
         if (appState.generalSearchResult) renderGeneralSearchResults(appState.generalSearchResult);
+        if (options.restoreScroll) restoreScrollForCurrentView({ saved: options.saved });
         return;
       }
       if (navSection === 'phase-c' || step === 3) {
@@ -19911,6 +19996,7 @@
             });
           }
         }
+        if (options.restoreScroll) restoreScrollForCurrentView({ saved: options.saved });
         return;
       }
       if (step === 2) {
@@ -19927,7 +20013,11 @@
         if (appState.webResearch) {
           holdPageScroll(function () { renderWebResearchResult(); });
         }
-        if (!options.restoreScrollY) scrollToStepB(false);
+        if (options.restoreScroll || options.restoreScrollY) {
+          restoreNavScrollPosition('step-2');
+        } else if (!options.restoreScrollY) {
+          scrollToStepB(false);
+        }
         return;
       }
       if (step === 1) {
@@ -19980,6 +20070,8 @@
         }
         if (saved.topic) appState.topic = saved.topic;
         if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
+        if (saved.gradeCacheKey) appState.gradeCacheKey = saved.gradeCacheKey;
+        if (saved.generalSearchCacheKey) appState.generalSearchCacheKey = saved.generalSearchCacheKey;
         if (typeof saved.topicResearchCompleted === 'boolean') {
           appState.topicResearchCompleted = saved.topicResearchCompleted;
         }
@@ -20010,14 +20102,11 @@
         activeProductTab: saved.activeProductTab || appState.activeProductTab,
         generalSearchQuery: saved.generalSearchQuery || '',
         generalSearchPeriodBlock: Boolean(saved.generalSearchPeriodBlock),
+        saved: saved,
       }));
 
-      if (options.restoreScroll && typeof saved.scrollY === 'number' && saved.scrollY > 0) {
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            window.scrollTo(0, saved.scrollY);
-          });
-        });
+      if (options.restoreScroll) {
+        restoreScrollForCurrentView({ saved: saved });
       }
 
       renderStepProgress();
@@ -20085,6 +20174,34 @@
     }
 
     var navScrollMemory = Object.create(null);
+    var scrollMemorySaveTimer = null;
+    var scrollRestorationBound = false;
+
+    function loadScrollMemoryFromStorage() {
+      try {
+        var raw = sessionStorage.getItem(SCROLL_MEMORY_STORAGE_KEY);
+        if (!raw) return;
+        var saved = JSON.parse(raw);
+        if (!saved || typeof saved !== 'object') return;
+        Object.keys(saved).forEach(function (k) {
+          if (typeof saved[k] === 'number') navScrollMemory[k] = saved[k];
+        });
+      } catch (e) { /* ignore */ }
+    }
+
+    function persistScrollMemoryToStorage() {
+      try {
+        sessionStorage.setItem(SCROLL_MEMORY_STORAGE_KEY, JSON.stringify(navScrollMemory));
+      } catch (e) { /* quota / private mode */ }
+    }
+
+    function scheduleScrollMemoryPersist() {
+      if (scrollMemorySaveTimer) clearTimeout(scrollMemorySaveTimer);
+      scrollMemorySaveTimer = setTimeout(function () {
+        scrollMemorySaveTimer = null;
+        persistScrollMemoryToStorage();
+      }, 120);
+    }
 
     function getNavScrollKey() {
       if (isGeneralSearchView()) return 'general-search';
@@ -20096,11 +20213,22 @@
     function rememberNavScrollPosition(key) {
       var k = key || getNavScrollKey();
       navScrollMemory[k] = capturePageScrollY();
+      scheduleScrollMemoryPersist();
     }
 
     function restoreNavScrollPosition(key) {
       var k = key || getNavScrollKey();
-      var y = typeof navScrollMemory[k] === 'number' ? navScrollMemory[k] : 0;
+      var y = typeof navScrollMemory[k] === 'number' ? navScrollMemory[k] : null;
+      if (y == null) {
+        try {
+          var raw = sessionStorage.getItem(SCROLL_MEMORY_STORAGE_KEY);
+          if (raw) {
+            var saved = JSON.parse(raw);
+            if (saved && typeof saved[k] === 'number') y = saved[k];
+          }
+        } catch (e) { /* ignore */ }
+      }
+      if (typeof y !== 'number') y = 0;
       runAfterLayout(function () {
         runAfterLayout(function () {
           try {
@@ -20114,6 +20242,49 @@
           if (appMain) appMain.scrollTop = y;
         });
       });
+    }
+
+    function restoreScrollForCurrentView(options) {
+      options = options || {};
+      var saved = options.saved || readPersistedActiveStep();
+      var key = getNavScrollKey();
+      if (typeof navScrollMemory[key] === 'number') {
+        restoreNavScrollPosition(key);
+        return;
+      }
+      if (saved && typeof saved.scrollY === 'number' && saved.scrollY > 0) {
+        restorePageScrollY(saved.scrollY);
+        return;
+      }
+      restoreNavScrollPosition(key);
+    }
+
+    function initScrollPositionRestoration() {
+      if (scrollRestorationBound) return;
+      scrollRestorationBound = true;
+      loadScrollMemoryFromStorage();
+      window.addEventListener('scroll', function () {
+        rememberNavScrollPosition(getNavScrollKey());
+      }, { passive: true });
+      document.addEventListener('click', function (e) {
+        var link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+        if (!link) return;
+        var href = String(link.getAttribute('href') || '').trim();
+        if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+        rememberNavScrollPosition(getNavScrollKey());
+        persistScrollMemoryToStorage();
+      }, true);
+      document.addEventListener('toggle', function (e) {
+        var details = e.target;
+        if (!details || !details.tagName || details.tagName.toLowerCase() !== 'details') return;
+        var baseKey = getNavScrollKey();
+        if (details.open) {
+          rememberNavScrollPosition(baseKey + ':pre-expansion');
+        } else {
+          restoreNavScrollPosition(baseKey + ':pre-expansion');
+        }
+        scheduleScrollMemoryPersist();
+      }, true);
     }
 
     function applyWizardNavScroll(fromStep, toStep, fromSection) {
@@ -20343,7 +20514,7 @@
       } else if (n < effectiveFromStep) {
         if (n === 2 && fromNavSection === 'phase-c') {
           runAfterLayout(function () {
-            scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
+            restoreNavScrollPosition('step-2');
           });
         } else {
           restoreNavScrollPosition('step-' + n);
@@ -20520,6 +20691,7 @@
         const data = await fetchGradeInsightsAI(signal);
         if (runId !== gradeResearchRunId || signal.aborted) return;
         appState.gradeFromArchive = Boolean(data._fromCache || (data._meta && data._meta.fromCache));
+        if (data._meta && data._meta.cacheKey) appState.gradeCacheKey = data._meta.cacheKey;
         appState.gradeResearch = data;
         const gi = data && data.gradeInsights;
         const hasGradeContent = gi && (
@@ -20984,7 +21156,7 @@
       if (!data) return '';
       var parts = [];
       if (data.theory && Array.isArray(data.theory.sections)) {
-        data.theory.sections.forEach(function (sec) {
+        data.theory.sections.forEach(function (sec, i) {
           if (!sec) return;
           var content = String(sec.content || sec.text || sec.body || '').trim();
           if (!content) return;
@@ -20992,24 +21164,27 @@
           if (heading) {
             parts.push('<h3 class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(heading) + '</h3>');
           }
-          if (/<[a-z][\s\S]*>/i.test(content)) {
-            parts.push('<div class="prose-ai leading-relaxed mb-4">' + content + '</div>');
-          } else {
-            parts.push(formatPerplexityRawText(content));
-          }
+          parts.push(renderNarrativeProseBlock(content, {
+            blockPath: 'theory.sections[' + i + '].content',
+            cacheKey: appState.lessonCacheKey,
+          }));
         });
       }
       var core = String(data.core_emphases || '').trim();
       if (core) {
-        if (/<[a-z][\s\S]*>/i.test(core)) {
-          parts.push('<div class="prose-ai leading-relaxed mb-4">' + core + '</div>');
-        } else {
-          parts.push(formatPerplexityRawText(core));
-        }
+        parts.push(renderNarrativeProseBlock(core, {
+          blockPath: 'core_emphases',
+          cacheKey: appState.lessonCacheKey,
+        }));
       }
       if (!parts.length) {
         var plain = buildStepBSummaryFromPurePhaseC(data);
-        if (plain) parts.push(formatPerplexityRawText(plain));
+        if (plain) {
+          parts.push(renderNarrativeProseBlock(plain, {
+            blockPath: 'rawContent',
+            cacheKey: appState.lessonCacheKey,
+          }));
+        }
       }
       return parts.join('\n');
     }
@@ -21732,7 +21907,10 @@
         const secIcon = sec.icon || 'fa-compass';
         const secHeading = sec.heading || sec.title || '';
         const secContent = sec.content || sec.text || sec.body || '';
-        const secBodyHtml = renderNarrativeProseBlock(secContent);
+        const secBodyHtml = renderNarrativeProseBlock(secContent, {
+          blockPath: 'theory.sections[' + i + '].content',
+          cacheKey: appState.lessonCacheKey,
+        });
         html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
           '<div class="text-lg leading-relaxed">' + secBodyHtml + '</div>';
@@ -23745,6 +23923,7 @@
       bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       bindArchiveAdminDeleteEvents();
       initArchiveTextDeleteSelection();
+      initScrollPositionRestoration();
       document.getElementById('step-progress').addEventListener('click', function (e) {
         const btn = e.target.closest('[data-step-nav]');
         if (!btn || btn.disabled) return;

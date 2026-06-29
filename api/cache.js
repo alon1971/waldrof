@@ -543,6 +543,100 @@ function applyArchiveBlockReplacement(value, originalNorm, newText, depth) {
   return changed;
 }
 
+function parseArchiveBlockPath(path) {
+  const segments = [];
+  const re = /([^.\[\]]+)|\[(\d+)\]/g;
+  let match;
+  while ((match = re.exec(String(path || ''))) !== null) {
+    if (match[1] != null) segments.push(match[1]);
+    else if (match[2] != null) segments.push(parseInt(match[2], 10));
+  }
+  return segments;
+}
+
+/**
+ * Set a string field in result_data using a dot/bracket path (e.g. gradeInsights.rawContent,
+ * theory.sections[0].content). Returns false when the path cannot be resolved.
+ */
+function setValueAtArchiveBlockPath(value, path, newText) {
+  const segments = parseArchiveBlockPath(path);
+  if (!segments.length || value == null || typeof value !== 'object') return false;
+  let current = value;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const key = segments[i];
+    if (current == null || typeof current !== 'object') return false;
+    current = current[key];
+  }
+  const lastKey = segments[segments.length - 1];
+  if (current == null || typeof current !== 'object') return false;
+  if (Array.isArray(current) && typeof lastKey === 'number') {
+    if (lastKey < 0 || lastKey >= current.length) return false;
+    current[lastKey] = newText;
+    return true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(current, lastKey)) return false;
+  current[lastKey] = newText;
+  return true;
+}
+
+/**
+ * Admin curation: write a cleaned block directly to a known JSON path inside result_data.
+ * Avoids risky substring matching — the client supplies cache_key + blockPath + newText.
+ */
+async function setArchiveBlockByPath(cacheKey, blockPath, newText) {
+  const key = String(cacheKey || '').trim();
+  const path = String(blockPath || '').trim();
+  if (!key || !path) return { updated: false, cacheKey: key || null };
+  const safeNewText = typeof newText === 'string' ? newText : String(newText == null ? '' : newText);
+
+  const row = await fetchCachedRowByKey(key);
+  if (!row || row.result_data == null) return { updated: false, cacheKey: key };
+
+  let data = coerceCachedResultData(row.result_data);
+  if (!data || typeof data !== 'object') return { updated: false, cacheKey: key };
+
+  data = cloneJsonSafe(data);
+  if (!data) return { updated: false, cacheKey: key };
+
+  const changed = setValueAtArchiveBlockPath(data, path, safeNewText);
+  if (!changed) return { updated: false, cacheKey: key };
+
+  const safeResultData = sanitizeForJsonStorage(data);
+  if (!safeResultData) return { updated: false, cacheKey: key };
+
+  let saved = false;
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const patchRes = await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?cache_key=eq.' + encodeURIComponent(key),
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: safeJsonStringify({ result_data: safeResultData }),
+        }
+      );
+      if (patchRes.ok) saved = true;
+      else {
+        const errText = await patchRes.text();
+        console.warn('[cached_results] archive block path PATCH error', patchRes.status, errText.slice(0, 200));
+      }
+    } catch (err) {
+      console.warn('[cached_results] archive block path PATCH failed:', err.message || err);
+    }
+  }
+
+  loadFallbackStore();
+  if (fallbackStore.rows.has(key)) {
+    const existing = fallbackStore.rows.get(key);
+    existing.result_data = safeResultData;
+    fallbackStore.rows.set(key, existing);
+    persistFallbackStore();
+    saved = true;
+  }
+
+  return { updated: saved, cacheKey: key, blockPath: path };
+}
+
 /**
  * Admin curation: replace a whole text block (matched by its exact original value) with a
  * cleaned version supplied by the client. Returns { updated } — false when the original
@@ -3938,6 +4032,7 @@ module.exports = {
   deleteTopicProseArchive,
   removeArchiveLinkFromCache,
   replaceArchiveBlockInCache,
+  setArchiveBlockByPath,
   TOPIC_PROSE_ARCHIVE_PHASES,
   purgeCorruptedCachedRow,
   ensureJsonObjectForStorage,
