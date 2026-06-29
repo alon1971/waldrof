@@ -1497,7 +1497,7 @@
 
   /* ── UI ─────────────────────────────────────────────────────────────── */
 
-  var pricingBillingCycle = 'monthly';
+  var pricingBillingCycle = 'yearly';
 
   function escapeHtml(s) {
     if (typeof global.escapeHtml === 'function') return global.escapeHtml(s);
@@ -1921,54 +1921,32 @@
     return whatsAppSupportUrl(msg);
   }
 
-  function renderProPriceCell(cycle) {
-    if (cycle === 'yearly') {
-      return (
-        '<div class="pricing-price-stack">' +
-          '<span class="pricing-price-highlight">🔥 ' + escapeHtml(t('pricing_pro_yearly_line')) + '</span>' +
-          '<span class="pricing-price-note">' + escapeHtml(t('pricing_pro_yearly_savings')) + '</span>' +
-        '</div>'
-      );
-    }
-    return (
-      '<div class="pricing-price-stack">' +
-        '<span>• ' + escapeHtml(t('pricing_pro_monthly_line')) + '</span>' +
-        '<span class="pricing-price-muted">' + escapeHtml(t('pricing_pro_monthly_yearly_equiv')) + '</span>' +
-      '</div>'
-    );
-  }
-
   function renderPricingComparisonTable() {
     var wrap = document.getElementById('pricing-comparison-wrap');
     if (!wrap) return;
-    var cycle = pricingBillingCycle;
     var current = normalizeTierId(authState.tier);
     var displayTier = isProUser() ? 'pro' : current;
     var rows = [
-      { feature: t('pricing_row_archive'), free: t('pricing_cell_unlimited_sparkle'), pro: t('pricing_cell_unlimited_sparkle'), school: t('pricing_cell_unlimited_sparkle') },
-      { feature: t('pricing_row_community'), free: t('pricing_cell_unlimited'), pro: t('pricing_cell_unlimited'), school: t('pricing_cell_unlimited') },
-      { feature: t('pricing_row_chat'), free: t('pricing_cell_unlimited'), pro: t('pricing_cell_unlimited'), school: t('pricing_cell_unlimited') },
-      { feature: t('pricing_row_word'), free: t('pricing_cell_word_free'), pro: t('pricing_cell_word_pro'), school: t('pricing_cell_word_pro') },
-      { feature: t('pricing_row_live_search'), free: t('pricing_cell_search_free'), pro: t('pricing_cell_search_pro'), school: t('pricing_cell_search_school') },
-      { feature: t('pricing_row_price'), free: t('pricing_cell_price_free'), pro: renderProPriceCell(cycle), school:
-          '<span>' + escapeHtml(t('pricing_cell_price_school_line1')) + '</span><br>' +
-          '<span class="pricing-contact-name">' + escapeHtml(t('pricing_cell_price_school_contact')) + '</span>' },
+      { feature: t('pricing_row_archive'), free: t('pricing_cell_unlimited_sparkle'), pro: t('pricing_cell_unlimited_sparkle') },
+      { feature: t('pricing_row_community'), free: t('pricing_cell_unlimited'), pro: t('pricing_cell_unlimited') },
+      { feature: t('pricing_row_chat'), free: t('pricing_cell_unlimited'), pro: t('pricing_cell_unlimited') },
+      { feature: t('pricing_row_word'), free: t('pricing_cell_word_free'), pro: t('pricing_cell_word_pro') },
+      { feature: t('pricing_row_live_search'), free: t('pricing_cell_search_free'), pro: t('pricing_cell_search_pro') },
+      { feature: t('pricing_row_price'), free: t('pricing_cell_price_free'), pro: t('pricing_cell_price_pro') },
     ];
 
     var headerCells = [
       '<th scope="col" class="pricing-table-feature-col">' + escapeHtml(t('pricing_table_feature_col')) + '</th>',
       '<th scope="col" class="pricing-table-plan-col' + (displayTier === 'trial' ? ' pricing-table-plan-col--current' : '') + '">' + escapeHtml(t('pricing_table_free_header')) + '</th>',
       '<th scope="col" class="pricing-table-plan-col pricing-table-plan-col--featured' + (displayTier === 'pro' || displayTier === 'standard' ? ' pricing-table-plan-col--current' : '') + '">' + escapeHtml(t('pricing_table_pro_header')) + '</th>',
-      '<th scope="col" class="pricing-table-plan-col' + (displayTier === 'school' ? ' pricing-table-plan-col--current' : '') + '">' + escapeHtml(t('pricing_table_school_header')) + '</th>',
     ].join('');
 
     var bodyRows = rows.map(function (row) {
       return (
         '<tr>' +
           '<th scope="row" class="pricing-table-feature">' + escapeHtml(row.feature) + '</th>' +
-          '<td>' + (row.free.indexOf('<') >= 0 ? row.free : escapeHtml(row.free)) + '</td>' +
-          '<td class="pricing-table-pro-cell">' + (row.pro.indexOf('<') >= 0 ? row.pro : escapeHtml(row.pro)) + '</td>' +
-          '<td>' + (row.school.indexOf('<') >= 0 ? row.school : escapeHtml(row.school)) + '</td>' +
+          '<td>' + escapeHtml(row.free) + '</td>' +
+          '<td class="pricing-table-pro-cell">' + escapeHtml(row.pro) + '</td>' +
         '</tr>'
       );
     }).join('');
@@ -1979,7 +1957,8 @@
           '<thead><tr>' + headerCells + '</tr></thead>' +
           '<tbody>' + bodyRows + '</tbody>' +
         '</table>' +
-      '</div>';
+      '</div>' +
+      '<p class="pricing-auto-renew-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>';
 
     var waLink = document.getElementById('pricing-upgrade-whatsapp');
     var mailLink = document.getElementById('pricing-upgrade-email');
@@ -1988,7 +1967,7 @@
       waLink.setAttribute('aria-label', t('paywall_cta'));
     }
     if (mailLink) {
-      mailLink.href = schoolTierEmailHref();
+      mailLink.href = 'mailto:' + SUPPORT_EMAIL;
       mailLink.textContent = SUPPORT_EMAIL;
     }
     var phoneEl = document.getElementById('pricing-upgrade-phone');
@@ -2296,15 +2275,6 @@
       });
     }
 
-    document.querySelectorAll('[data-billing-cycle]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        pricingBillingCycle = btn.getAttribute('data-billing-cycle') || 'monthly';
-        document.querySelectorAll('[data-billing-cycle]').forEach(function (b) {
-          b.classList.toggle('billing-toggle-btn--active', b === btn);
-        });
-        renderPricingComparisonTable();
-      });
-    });
   }
 
   function initAuthSubscription(options) {

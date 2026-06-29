@@ -2729,17 +2729,6 @@
       text-align: center;
     }
     .pricing-modal-notice.hidden { display: none !important; }
-    .billing-toggle {
-      display: flex; justify-content: center; gap: 0.5rem; margin-bottom: 1.5rem;
-    }
-    .billing-toggle-btn {
-      padding: 0.5rem 1.25rem; border-radius: 9999px; font-weight: 600; font-size: 0.875rem;
-      border: 1px solid rgba(201, 169, 98, 0.45); background: rgba(255,255,255,0.7);
-      color: #5C4A3A; cursor: pointer; transition: all 0.15s;
-    }
-    .billing-toggle-btn--active {
-      background: linear-gradient(145deg, #7A9B76, #5C7D58); color: #fff; border-color: transparent;
-    }
     #pricing-tier-grid {
       display: grid; grid-template-columns: 1fr; gap: 1rem;
     }
@@ -2865,29 +2854,13 @@
       background: rgba(122, 155, 118, 0.04);
       font-weight: 500;
     }
-    .pricing-price-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 0.2rem;
-      align-items: center;
-    }
-    .pricing-price-highlight {
-      font-weight: 700;
-      color: #5C7D58;
-    }
-    .pricing-price-note {
+    .pricing-auto-renew-disclaimer {
+      margin: 0.75rem 0 0;
+      padding: 0 0.25rem;
       font-size: 0.75rem;
-      font-style: italic;
-      color: rgba(92, 74, 58, 0.75);
-    }
-    .pricing-price-muted {
-      font-size: 0.75rem;
-      color: rgba(92, 74, 58, 0.65);
-    }
-    .pricing-contact-name {
-      font-size: 0.78rem;
-      color: #8B3A3A;
-      font-weight: 600;
+      line-height: 1.45;
+      color: rgba(92, 74, 58, 0.72);
+      text-align: center;
     }
     .pricing-paywall-actions {
       display: flex;
@@ -4319,10 +4292,6 @@
         <p data-i18n="pricing_subtitle">תמחור שקוף למורים ולצוותים פדגוגיים</p>
       </div>
       <p id="pricing-modal-notice" class="pricing-modal-notice hidden" role="status" aria-live="polite"></p>
-      <div class="billing-toggle" role="group" aria-label="Billing cycle">
-        <button type="button" class="billing-toggle-btn billing-toggle-btn--active" data-billing-cycle="monthly" data-i18n="pricing_billing_monthly">חודשי</button>
-        <button type="button" class="billing-toggle-btn" data-billing-cycle="yearly" data-i18n="pricing_billing_yearly">שנתי</button>
-      </div>
       <div id="pricing-comparison-wrap" class="pricing-comparison-wrap"></div>
       <div class="pricing-paywall-actions">
         <a id="pricing-upgrade-whatsapp" href="#" target="_blank" rel="noopener noreferrer" class="pricing-paywall-cta">
@@ -4501,7 +4470,7 @@
             <span data-i18n="step_nav_c">ג׳ תוצרים ומהות פדגוגית</span>
           </button>
           <button type="button" id="header-compact-general-search" class="header-compact-nav-btn touch-btn">
-            <span data-i18n="nav_general_search">חיפוש כללי</span>
+            <span data-i18n="nav_general_search">חיפוש כללי ובניית תקופת לימוד</span>
           </button>
         </nav>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
@@ -4584,7 +4553,7 @@
           class="step-pill step-pill-general-search touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
           data-i18n-aria="nav_general_search_aria">
           <i class="fa-solid fa-magnifying-glass-chart text-base sm:text-sm"></i>
-          <span data-i18n="nav_general_search">חיפוש כללי</span>
+          <span data-i18n="nav_general_search">חיפוש כללי ובניית תקופת לימוד</span>
         </button>
         <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
         <button type="button" id="btn-pedagogy-export-top"
@@ -4839,7 +4808,7 @@
     <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
       <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
         <i class="fa-solid fa-magnifying-glass-chart text-gold"></i>
-        <span data-i18n="general_search_title">חיפוש כללי</span>
+        <span data-i18n="general_search_title">חיפוש כללי ובניית תקופת לימוד</span>
       </h2>
       <p class="text-sm text-walnut/70 mb-5" data-i18n="general_search_desc">חיפוש פדגוגי רב-שכבתי על פני כיתות א׳–ח׳.</p>
       <div class="flex flex-col sm:flex-row gap-2 mb-2">
