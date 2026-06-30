@@ -319,8 +319,10 @@
 
   function loadHistory(force) {
     if (!deps.isAuthenticated()) {
+      // User not ready/authenticated yet — clear the view but DO NOT mark as loaded,
+      // so the next call once the session resolves will actually fetch the archive.
       state.items = [];
-      state.loaded = true;
+      state.loaded = false;
       renderTable();
       return Promise.resolve();
     }

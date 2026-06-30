@@ -45,8 +45,8 @@ const LANGUAGES = {
     phase_c_empty:               'טענו נושא בשלב ב׳ כדי לראות את תוצרי שלב ג׳.',
 
     general_search_title:        'חיפוש כללי ובניית תקופת לימוד',
-    general_search_desc:         'חיפוש פדגוגי רב-שכבתי על פני כיתות א׳–ח׳.',
-    general_search_placeholder:  'לדוגמה: התפתחות החשבון מא׳–ח׳',
+    general_search_desc:         'ניתן לבצע מחקר מקיף על נושא נבחר, או לבקש רקע כללי ובניית תוכנית תקופה לפי נושא, כיתה וגיל ספציפיים',
+    general_search_placeholder:  'רנסנס כיתה ז׳, מגלי עולם, התפתחות החשבון א׳–ח׳...',
     general_search_btn:          'חפש',
     general_search_loading:      'מחפש ומנתח...',
     general_search_section_axis: 'ציר התפתחותי',
@@ -709,8 +709,8 @@ const LANGUAGES = {
     phase_c_empty:               'Load a topic in Step B to see Step C products.',
 
     general_search_title:        'General search',
-    general_search_desc:         'Multi-grade pedagogical search across grades 1–8.',
-    general_search_placeholder:  'e.g. arithmetic development grades 1–8',
+    general_search_desc:         'Run comprehensive research on a chosen topic, or request general background and a full period plan by specific topic, grade and age',
+    general_search_placeholder:  'Renaissance grade 7, explorers, arithmetic development grades 1–8...',
     general_search_btn:          'Search',
     general_search_loading:      'Searching and analyzing...',
     general_search_section_axis: 'Developmental axis',

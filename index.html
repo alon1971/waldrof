@@ -4862,7 +4862,7 @@
       <div class="flex flex-col sm:flex-row gap-2 mb-2">
         <input type="text" id="general-search-input" maxlength="300"
           class="flex-1 rounded-xl border border-gold/40 bg-cream px-4 py-3 text-base focus:ring-2 focus:ring-sage/40 outline-none"
-          data-i18n-placeholder="general_search_placeholder" placeholder="לדוגמה: התפתחות החשבון מא׳–ח׳" />
+          data-i18n-placeholder="general_search_placeholder" placeholder="רנסנס כיתה ז׳, מגלי עולם, התפתחות החשבון א׳–ח׳..." />
         <button type="button" id="btn-general-search-submit"
           class="touch-btn bg-sage hover:bg-sage-dark text-white font-semibold px-6 py-3 rounded-xl text-sm shrink-0">
           <i class="fa-solid fa-magnifying-glass icon-inline"></i>
@@ -4882,6 +4882,13 @@
           <button type="button" id="btn-general-search-cancel" class="touch-btn shrink-0 px-5 py-3 rounded-xl w-full sm:w-auto">
             <span data-i18n="topic_research_cancel">ביטול ועריכה מחדש 🛑</span>
           </button>
+        </div>
+      </div>
+      <div id="general-search-archive-suggestion" class="hidden mt-3 p-4 rounded-xl border border-sage/40 bg-sage/5 text-sm" role="dialog" aria-live="polite">
+        <p id="general-search-archive-suggestion-text" class="text-walnut font-medium m-0"></p>
+        <div class="topic-archive-suggest-actions flex flex-wrap gap-2 mt-3">
+          <button type="button" id="general-search-archive-suggest-yes" class="touch-btn px-4 py-2 rounded-lg bg-sage text-white text-sm font-medium hover:bg-sage-dark"></button>
+          <button type="button" id="general-search-archive-suggest-no" class="touch-btn px-4 py-2 rounded-lg border border-gold/40 bg-cream text-walnut text-sm font-medium hover:bg-parchment"></button>
         </div>
       </div>
       <div id="general-search-results" class="general-search-results hidden"></div>
@@ -19525,6 +19532,7 @@
       var opts = options || {};
       var payload = { query: query };
       if (opts.periodBlock) payload.periodBlock = true;
+      if (opts.confirmArchiveKey) payload.confirmArchiveKey = opts.confirmArchiveKey;
       if (opts.bypassCache || opts.forceRefresh || opts.forceFresh || opts.skipCache) {
         payload.bypassCache = true;
         payload.forceRefresh = true;
@@ -19581,6 +19589,7 @@
 
     function openGeneralSearchView() {
       appState.navSection = 'general-search';
+      hideGeneralSearchArchiveSuggestion();
       document.getElementById('wizard').classList.add('hidden');
       document.getElementById('workspace').classList.add('hidden');
       hideAllWorkspacePanels();
@@ -19606,29 +19615,114 @@
       return Boolean(err && (err.name === 'AbortError' || err.message === 'The user aborted a request.'));
     }
 
-    async function runGeneralSearch() {
-      var input = document.getElementById('general-search-input');
-      var query = input ? String(input.value || '').trim() : '';
-      if (!query) {
-        if (input) input.focus();
-        return;
+    var generalSearchArchiveSuggestionHandlers = null;
+
+    function hideGeneralSearchArchiveSuggestion() {
+      var panel = document.getElementById('general-search-archive-suggestion');
+      var textEl = document.getElementById('general-search-archive-suggestion-text');
+      if (panel) panel.classList.add('hidden');
+      if (textEl) textEl.textContent = '';
+      generalSearchArchiveSuggestionHandlers = null;
+    }
+
+    function showGeneralSearchArchiveSuggestion(suggestion, handlers) {
+      var panel = document.getElementById('general-search-archive-suggestion');
+      var textEl = document.getElementById('general-search-archive-suggestion-text');
+      var yesBtn = document.getElementById('general-search-archive-suggest-yes');
+      var noBtn = document.getElementById('general-search-archive-suggest-no');
+      var suggestedTopic = suggestion && (suggestion.suggestedTopic || suggestion.suggestedQuery);
+      if (!panel || !textEl || !suggestedTopic) return false;
+      generalSearchArchiveSuggestionHandlers = handlers || null;
+      textEl.textContent = t('archive_suggest_prompt', { topic: suggestedTopic });
+      if (yesBtn) {
+        yesBtn.textContent = t('archive_suggest_yes');
+        yesBtn.disabled = false;
       }
+      if (noBtn) {
+        noBtn.textContent = t('archive_suggest_no');
+        noBtn.disabled = false;
+      }
+      var resultsEl = document.getElementById('general-search-results');
+      if (resultsEl) {
+        resultsEl.classList.add('hidden');
+        resultsEl.innerHTML = '';
+      }
+      panel.classList.remove('hidden');
+      return true;
+    }
+
+    var generalSearchSuggestEventsBound = false;
+    function ensureGeneralSearchArchiveSuggestionEvents() {
+      if (generalSearchSuggestEventsBound) return;
+      generalSearchSuggestEventsBound = true;
+      var yesBtn = document.getElementById('general-search-archive-suggest-yes');
+      var noBtn = document.getElementById('general-search-archive-suggest-no');
+      if (yesBtn) {
+        yesBtn.addEventListener('click', function () {
+          var handlers = generalSearchArchiveSuggestionHandlers;
+          hideGeneralSearchArchiveSuggestion();
+          if (handlers && typeof handlers.onConfirm === 'function') handlers.onConfirm();
+        });
+      }
+      if (noBtn) {
+        noBtn.addEventListener('click', function () {
+          var handlers = generalSearchArchiveSuggestionHandlers;
+          hideGeneralSearchArchiveSuggestion();
+          if (handlers && typeof handlers.onReject === 'function') handlers.onReject();
+        });
+      }
+    }
+
+    /**
+     * Shared execution path for general search. `options` may carry confirmArchiveKey
+     * (the "כן" path) or bypassCache (the "לא" → live Perplexity path).
+     */
+    async function performGeneralSearch(query, options) {
+      var opts = options || {};
+      var input = document.getElementById('general-search-input');
       var btn = document.getElementById('btn-general-search-submit');
       if (generalSearchAbort) generalSearchAbort.abort();
       var controller = new AbortController();
       generalSearchAbort = controller;
       var signal = controller.signal;
-      var periodBlock = isGeneralSearchPeriodBlockEnabled();
+      var periodBlock = opts.periodBlock != null ? Boolean(opts.periodBlock) : isGeneralSearchPeriodBlockEnabled();
+      hideGeneralSearchArchiveSuggestion();
       setGeneralSearchLoadingUi(true);
       if (btn) btn.disabled = true;
       if (input) input.disabled = true;
       setGeneralSearchPeriodToggleDisabled(true);
       try {
-        var response = await fetchPureGeneralSearch(query, signal, { periodBlock: periodBlock });
+        var fetchOpts = { periodBlock: periodBlock };
+        if (opts.bypassCache) fetchOpts.bypassCache = true;
+        if (opts.confirmArchiveKey) fetchOpts.confirmArchiveKey = opts.confirmArchiveKey;
+        var response = await fetchPureGeneralSearch(query, signal, fetchOpts);
         if (signal.aborted) return;
         appState.generalSearchQuery = query;
-        appState.generalSearchFromArchive = Boolean(response.meta && response.meta.fromCache);
-        if (response.meta && response.meta.cacheKey) appState.generalSearchCacheKey = response.meta.cacheKey;
+
+        var meta = response.meta || {};
+        if (meta.needsArchiveConfirmation && meta.archiveSuggestion) {
+          if (showGeneralSearchArchiveSuggestion(meta.archiveSuggestion, {
+            onConfirm: function () {
+              performGeneralSearch(query, {
+                periodBlock: periodBlock,
+                confirmArchiveKey: meta.archiveSuggestion.cacheKey,
+              }).catch(function (err) { alert(err.message || String(err)); });
+            },
+            onReject: function () {
+              performGeneralSearch(query, { periodBlock: periodBlock, bypassCache: true })
+                .catch(function (err) { alert(err.message || String(err)); });
+            },
+          })) {
+            return;
+          }
+          // No suggested topic to show — fall back to a live run.
+          response = await fetchPureGeneralSearch(query, signal, { periodBlock: periodBlock, bypassCache: true });
+          if (signal.aborted) return;
+          meta = response.meta || {};
+        }
+
+        appState.generalSearchFromArchive = Boolean(meta.fromCache);
+        if (meta.cacheKey) appState.generalSearchCacheKey = meta.cacheKey;
         appState.generalSearchResult = response.data;
         renderGeneralSearchResults(response.data);
       } catch (err) {
@@ -19649,6 +19743,17 @@
       }
     }
 
+    async function runGeneralSearch() {
+      var input = document.getElementById('general-search-input');
+      var query = input ? String(input.value || '').trim() : '';
+      if (!query) {
+        if (input) input.focus();
+        return;
+      }
+      ensureGeneralSearchArchiveSuggestionEvents();
+      await performGeneralSearch(query, {});
+    }
+
     function cancelGeneralSearch(e) {
       if (e) {
         e.preventDefault();
@@ -19662,6 +19767,7 @@
         generalSearchAbort.abort();
         generalSearchAbort = null;
       }
+      hideGeneralSearchArchiveSuggestion();
       setGeneralSearchLoadingUi(false);
       var btn = document.getElementById('btn-general-search-submit');
       if (btn) btn.disabled = false;
@@ -24721,7 +24827,12 @@
           updateClearTopicProseButtonVisibility();
           refreshMarketingBenchVisibility();
           if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
-          if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
+          // Only (re)load the search history once the auth SESSION is actually resolved.
+          // Fetching while the session is still restoring runs on a null user and leaves
+          // the history view blank (the bug after the hard-reload was added).
+          if (typeof WaldorfSearchHistory !== 'undefined' && authState && authState.sessionReady) {
+            WaldorfSearchHistory.refresh();
+          }
           if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
             LessonChatSidebar.refreshWelcome();
           }
@@ -24739,6 +24850,18 @@
           }
           requestAnimationFrame(syncProductTabsStickyLayout);
         });
+        // Catch-up: if the auth session already resolved BEFORE this subscriber attached
+        // (a race the hard-reload can expose, since subscribe() does not replay state),
+        // load the history now so a returning, authenticated user never sees a blank box.
+        try {
+          var initialAuthState = WaldorfAuth.getState();
+          if (initialAuthState && initialAuthState.sessionReady && initialAuthState.isAuthenticated &&
+              typeof WaldorfSearchHistory !== 'undefined') {
+            WaldorfSearchHistory.refresh();
+          }
+        } catch (catchUpErr) {
+          console.warn('[search-history] initial auth catch-up failed:', catchUpErr);
+        }
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
       try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
@@ -24991,6 +25114,11 @@
     try { initGlobalRawUrlLinkifier(); } catch (linkifyInitErr) { console.warn('[waldrof] initGlobalRawUrlLinkifier:', linkifyInitErr); }
 
     init().catch(function (err) { console.error('[waldrof] unhandled init error:', err); });
+  </script>
+</body>
+</html>
+
+init error:', err); });
   </script>
 </body>
 </html>
