@@ -5243,7 +5243,10 @@
     const summaryPanelOpenState = { bib: {}, ped: {} };
     /** Tracks open <details> static expansions across re-renders (Phase B/C embedded content). */
     const staticExpansionOpenState = {};
-    const EXPANSION_REQUEST_TIMEOUT_MS = 130000;
+    // Activity-based (idle) cutoff for streamed research. The request is aborted ONLY after
+    // this many ms of COMPLETE stream silence — the timer resets on every chunk/event/delta
+    // (including server heartbeats), so a long-but-healthy generation is never cut off.
+    const STREAM_IDLE_TIMEOUT_MS = 45000;
     const CURRICULUM_REQUEST_TIMEOUT_MS = 60000;
     var archiveCurriculumHealInFlight = null;
 
@@ -8043,17 +8046,67 @@
       // Never let the browser/SW serve or buffer this from cache — read it live.
       streamInit.cache = 'no-store';
 
+      // ---- Activity-based (idle) timeout ----------------------------------------------------
+      // We DO NOT use a fixed total timer that blindly cuts the request after N seconds.
+      // Instead an internal AbortController is armed with an idle timer that resets on every
+      // chunk/event/delta received from the stream. The request is aborted ONLY after
+      // STREAM_IDLE_TIMEOUT_MS of complete silence (no bytes at all — content, status,
+      // heartbeat or otherwise). The caller's own signal still aborts immediately.
+      const externalSignal = streamInit.signal || null;
+      const idleController = new AbortController();
+      let idleTimedOut = false;
+      let idleTimer = null;
+
+      function makeIdleTimeoutError() {
+        const e = new Error(isEnglish()
+          ? 'The connection was closed after 45 seconds with no response from the server. Please try again.'
+          : 'החיבור נסגר לאחר 45 שניות ללא תגובה מהשרת. נסו שוב בעוד רגע.');
+        e.isStreamIdleTimeout = true;
+        return e;
+      }
+      function clearIdleTimer() {
+        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      }
+      function resetIdleTimer() {
+        if (idleController.signal.aborted) return;
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(function () {
+          idleTimedOut = true;
+          try { idleController.abort(); } catch (e) { /* ignore */ }
+        }, STREAM_IDLE_TIMEOUT_MS);
+      }
+      function onExternalAbort() {
+        try { idleController.abort(); } catch (e) { /* ignore */ }
+      }
+      if (externalSignal) {
+        if (externalSignal.aborted) {
+          try { idleController.abort(); } catch (e) { /* ignore */ }
+        } else if (typeof externalSignal.addEventListener === 'function') {
+          externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+        }
+      }
+      // The fetch (and the body reader it returns) listen to the idle-aware controller, not
+      // the caller's raw signal, so the idle timer can abort a stalled stream on its own.
+      streamInit.signal = idleController.signal;
+
       let res;
+      // Start counting before the first byte so a server that never responds still trips.
+      resetIdleTimer();
       try {
         res = await fetch(url, streamInit);
       } catch (netErr) {
-        if (netErr && netErr.name === 'AbortError') throw netErr;
+        clearIdleTimer();
+        if (netErr && netErr.name === 'AbortError') {
+          if (idleTimedOut) throw makeIdleTimeoutError();
+          throw netErr;
+        }
         throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
       }
 
       const contentType = String((res.headers && res.headers.get && res.headers.get('content-type')) || '');
       if (!res.body || !res.body.getReader || !/text\/event-stream/i.test(contentType)) {
         // Server fell back to buffered JSON — parse the whole body once.
+        clearIdleTimer();
         const bodyText = await res.text();
         const json = parseApiJsonResponse(bodyText);
         return { res: { ok: res.ok, status: res.status }, json: json };
@@ -8066,6 +8119,8 @@
       let streamStarted = false;
 
       function handleEvent(eventName, dataStr) {
+        // Any parsed SSE event (status / delta / result / error) is activity — keep alive.
+        resetIdleTimer();
         let data = null;
         if (dataStr) {
           try { data = JSON.parse(dataStr); } catch (e) { data = null; }
@@ -8106,6 +8161,9 @@
         while (true) {
           const chunk = await reader.read();
           if (chunk.done) break;
+          // ANY byte off the wire (content delta, status frame, or a bare ": ping"
+          // heartbeat) counts as activity and resets the idle countdown.
+          resetIdleTimer();
           const decoded = decoder.decode(chunk.value, { stream: true });
           rawText += decoded;
           // Normalize CRLF so both the blank-line frame split and per-line parsing work
@@ -8120,9 +8178,17 @@
         }
         if (buffer.trim()) drainBlock(buffer);
       } catch (readErr) {
-        if (readErr && readErr.name === 'AbortError') throw readErr;
+        if (readErr && readErr.name === 'AbortError') {
+          // Distinguish a silent-stream idle cutoff from a genuine user cancellation.
+          if (idleTimedOut) throw makeIdleTimeoutError();
+          throw readErr;
+        }
         if (!finalEnvelope) throw new Error('שגיאת רשת בזרם הנתונים: ' + (readErr.message || readErr));
       } finally {
+        clearIdleTimer();
+        if (externalSignal && typeof externalSignal.removeEventListener === 'function') {
+          externalSignal.removeEventListener('abort', onExternalAbort);
+        }
         endResearchStreamUi();
       }
 
@@ -9129,29 +9195,6 @@
         (Array.isArray(dive.practicalSteps) && dive.practicalSteps.length) ||
         (dive.expansion && typeof dive.expansion === 'object')
       );
-    }
-
-    function mergeAbortSignals(userSignal, timeoutMs) {
-      var controller = new AbortController();
-      var timedOut = false;
-      var timer = setTimeout(function () {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
-      function onAbort() {
-        controller.abort();
-      }
-      if (userSignal) {
-        if (userSignal.aborted) {
-          clearTimeout(timer);
-          controller.abort();
-        } else if (typeof userSignal.addEventListener === 'function') {
-          userSignal.addEventListener('abort', onAbort, { once: true });
-        }
-      }
-      controller.signal._expansionTimedOut = function () { return timedOut; };
-      controller.signal._clearExpansionTimer = function () { clearTimeout(timer); };
-      return controller;
     }
 
     function mergeBlockPlanCurriculum(blockPlan, dataRoot) {
@@ -11104,8 +11147,9 @@
       const opts = options || {};
       const raw = source.raw || {};
       const typeMap = { books: 'book', articles: 'article', websites: 'website' };
-      const timeoutWrap = mergeAbortSignals(signal, EXPANSION_REQUEST_TIMEOUT_MS);
-      const activeSignal = timeoutWrap.signal;
+      // No blind total timer: the streamed request manages its own activity-based idle
+      // cutoff (STREAM_IDLE_TIMEOUT_MS, reset on every chunk/event), so a long-but-healthy
+      // expansion keeps running until the answer is fully delivered.
       try {
         const data = await invokeWaldorfResearch({
           phase: 'archive_summary',
@@ -11123,7 +11167,7 @@
           summaryDepthInstruction: isEnglish()
             ? 'Produce an exceptionally broad, deep pedagogical summary. Text only — no URLs or links.'
             : 'הפק תקציר פדגוגי רחב ומעמיק במיוחד. טקסט בלבד — ללא קישורים או URLs.',
-        }, { signal: activeSignal });
+        }, { signal: signal });
         if (!hasExpansionResponseContent(data)) {
           if (!opts.skipCache) {
             return fetchBibliographyDeepSummary(source, signal, { skipCache: true });
@@ -11134,14 +11178,12 @@
         }
         return data;
       } catch (err) {
-        if (activeSignal.aborted && typeof activeSignal._expansionTimedOut === 'function' && activeSignal._expansionTimedOut()) {
+        if (err && err.isStreamIdleTimeout) {
           throw new Error(isEnglish()
-            ? 'Expansion research timed out. Please try again.'
-            : 'מחקר ההרחבה ארך זמן רב מדי. נסו שוב.');
+            ? 'Expansion research stalled — 45 seconds passed with no response. Please try again.'
+            : 'מחקר ההרחבה נקטע — עברו 45 שניות ללא תגובה מהשרת. נסו שוב.');
         }
         throw err;
-      } finally {
-        if (typeof activeSignal._clearExpansionTimer === 'function') activeSignal._clearExpansionTimer();
       }
     }
 
@@ -11748,12 +11790,12 @@
 
     async function fetchPedagogyDeepDive(source, signal, options) {
       const opts = options || {};
-      const timeoutWrap = mergeAbortSignals(signal, EXPANSION_REQUEST_TIMEOUT_MS);
-      const activeSignal = timeoutWrap.signal;
+      // No blind total timer — rely on the stream's activity-based idle cutoff
+      // (STREAM_IDLE_TIMEOUT_MS, reset on every chunk/event) so healthy long answers finish.
       try {
         let data;
         if (source && source.subtype === 'enrich') {
-          data = await fetchCurriculumDayEnrichment(source, activeSignal);
+          data = await fetchCurriculumDayEnrichment(source, signal);
         } else {
           const g = GRADES.find(function (x) { return x.id === appState.grade; });
           const isAgeScope = source && source.type === 'grade';
@@ -11781,7 +11823,7 @@
           if (!isAgeScope) {
             payload.topic = appState.topic;
           }
-          data = await invokeWaldorfResearch(payload, { signal: activeSignal });
+          data = await invokeWaldorfResearch(payload, { signal: signal });
         }
         if (!hasExpansionResponseContent(data)) {
           if (!opts.skipCache) {
@@ -11793,14 +11835,12 @@
         }
         return data;
       } catch (err) {
-        if (activeSignal.aborted && typeof activeSignal._expansionTimedOut === 'function' && activeSignal._expansionTimedOut()) {
+        if (err && err.isStreamIdleTimeout) {
           throw new Error(isEnglish()
-            ? 'Expansion research timed out. Please try again.'
-            : 'מחקר ההרחבה ארך זמן רב מדי. נסו שוב.');
+            ? 'Expansion research stalled — 45 seconds passed with no response. Please try again.'
+            : 'מחקר ההרחבה נקטע — עברו 45 שניות ללא תגובה מהשרת. נסו שוב.');
         }
         throw err;
-      } finally {
-        if (typeof activeSignal._clearExpansionTimer === 'function') activeSignal._clearExpansionTimer();
       }
     }
 
@@ -12641,6 +12681,13 @@
       }
       if (topicTitle) docP(t('export_doc_topic_line', { topic: topicTitle }));
 
+      // Snapshot the part count AFTER the title/grade/topic header. If nothing real is
+      // appended below (e.g. we are in the General Search view, where the Phase-C content
+      // elements are empty/hidden), we must return '' rather than a header-only stub —
+      // otherwise this header ("מידע והשראה" + basic fields) masks the real content and
+      // blocks the General-Search / scrape collectors downstream.
+      var headerOnlyCount = parts.length;
+
       var sectionPlan = [
         { key: 'phase_c_section_theory', contentId: 'theoretical-content' },
         { key: 'phase_c_section_inspiration', contentId: 'inspiration-content' },
@@ -12700,6 +12747,9 @@
         }
       }
 
+      // Header-only result means no real Phase-C content was on screen — signal "empty"
+      // so the merged builder falls through to General Search / viewport scraping.
+      if (parts.length <= headerOnlyCount) return '';
       return parts.join('\n');
     }
 
@@ -12783,21 +12833,59 @@
         var linkLine = buildWordExportLinkLine(title, url);
         if (linkLine) parts.push(linkLine);
       });
-      if (Array.isArray(data.curriculum) && data.curriculum.length) {
+      var curriculumTable = buildWordCurriculumTableHtml(data.curriculum);
+      if (curriculumTable) {
         docH2(t('general_search_section_curriculum'));
-        var curriculumRows = padCurriculumRowsToFifteen(data.curriculum);
-        curriculumRows.forEach(function (row) {
-          if (!row) return;
-          var dayLabel = t('curriculum_day_short', { day: row.day });
-          var topicLine = String(row.topic || '').trim();
-          var contentLine = curriculumFieldPlainText(row.content).trim();
-          var artLine = curriculumFieldPlainText(row.art).trim();
-          docP(dayLabel + (topicLine ? ' — ' + topicLine : ''));
-          if (contentLine) docP(t('general_search_curriculum_col_content') + ': ' + contentLine);
-          if (artLine) docP(t('general_search_curriculum_col_art') + ': ' + artLine);
-        });
+        parts.push(curriculumTable);
       }
       return parts.join('\n');
+    }
+
+    /**
+     * Render the 15-day period plan as a real, Word-compatible <table> (native table),
+     * so the downloaded .doc shows a clean grid instead of scattered "Day — topic" lines
+     * or raw "| ... |" Markdown. Cells are escaped; week bands get a spanning header row.
+     */
+    function buildWordCurriculumTableHtml(curriculum) {
+      var rows = padCurriculumRowsToFifteen(curriculum || []);
+      if (!rows.some(curriculumRowHasRenderableText)) return '';
+      var rtl = !(typeof isEnglish === 'function' && isEnglish());
+      var dir = rtl ? 'rtl' : 'ltr';
+      var align = rtl ? 'right' : 'left';
+      function cell(text) { return escapeHtml(String(text == null ? '' : text).trim()); }
+      var tdStyle = 'border:1px solid #444;padding:6px;vertical-align:top;text-align:' + align + ';';
+      function th(label) {
+        return '<th style="border:1px solid #444;padding:6px;background:#f0f0f0;text-align:' + align +
+          ';font-weight:bold;">' + cell(label) + '</th>';
+      }
+      var html = '<table dir="' + dir + '" border="1" cellspacing="0" cellpadding="6" ' +
+        'style="border-collapse:collapse;width:100%;border:1px solid #444;margin:8px 0;">' +
+        '<thead><tr>' +
+        th(t('general_search_curriculum_col_day')) +
+        th(t('general_search_curriculum_col_topic')) +
+        th(t('general_search_curriculum_col_content')) +
+        th(t('general_search_curriculum_col_art')) +
+        '</tr></thead><tbody>';
+      var lastWeek = 0;
+      rows.forEach(function (row) {
+        if (!row) return;
+        var week = parseInt(row.week, 10) || Math.ceil((row.day || 1) / 5);
+        if (week !== lastWeek) {
+          lastWeek = week;
+          html += '<tr><td colspan="4" style="border:1px solid #444;padding:6px;background:#e8efe6;' +
+            'font-weight:bold;text-align:' + align + ';">' +
+            cell(t('general_search_curriculum_week', { week: week })) + '</td></tr>';
+        }
+        var display = mapCurriculumRowForDisplay(row, Math.max(0, (row.day || 1) - 1));
+        html += '<tr>' +
+          '<td style="' + tdStyle + '">' + cell(t('curriculum_day_short', { day: row.day })) + '</td>' +
+          '<td style="' + tdStyle + '">' + cell(String(display.topic || '').trim()) + '</td>' +
+          '<td style="' + tdStyle + '">' + cell(curriculumFieldPlainText(display.content)) + '</td>' +
+          '<td style="' + tdStyle + '">' + cell(curriculumFieldPlainText(display.art)) + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+      return html;
     }
 
     function isGeneralSearchPeriodBlockEnabled() {
@@ -12927,9 +13015,127 @@
       return work;
     }
 
+    /**
+     * Strip Perplexity-style footnote/citation residue from plain text before Word export.
+     * MUST run on text only (tags placeheld) so HTML attributes (href="", class="") are untouched.
+     * Removes: numeric citation markers like [14], clusters [14][5][2], ranges [1-3]/[1,2],
+     * and leaked quote/equals noise like ""="", ="" , "=" . Preserves Markdown links [label](url).
+     */
+    function stripWordExportCitations(text) {
+      var out = String(text == null ? '' : text);
+      if (!out) return out;
+      // A "quote token" is any leaked quote residue — a raw quote char (straight " ',
+      // Hebrew gershayim ״, curly “ ” ‘ ’) OR its HTML-entity form (&quot; &#34; &ldquo; …).
+      // Entity awareness matters because this runs AFTER cells/prose are HTML-escaped,
+      // so a leaked '"' is already "&quot;" by the time we get here.
+      var Q = '(?:["\'\u05F4\u201C\u201D\u2018\u2019]|&quot;|&#0*34;|&#x0*22;|&ldquo;|&rdquo;|&lsquo;|&rsquo;)';
+      // Numeric bracket citations (single [14], clustered [14][5][2], comma/range [1,2]/[1-3])
+      // — never a Markdown link (negative lookahead for the "(" of a [label](url) pair).
+      out = out.replace(/\[\s*\d{1,3}(?:\s*[,;–-]\s*\d{1,3})*\s*\](?!\()/g, '');
+      // Adjacent bracket clusters left behind (e.g. "[3][4][5]").
+      out = out.replace(/(?:\[\s*\d{1,3}\s*\]\s*){2,}(?!\()/g, '');
+      // Leaked attribute/quote artifacts: ""="" , "=" , ="" , ""= , ”=” (any quote mix).
+      out = out.replace(new RegExp(Q + '{1,2}\\s*=\\s*' + Q + '{1,2}', 'g'), '');
+      out = out.replace(new RegExp('=\\s*' + Q + '{2}', 'g'), '');
+      out = out.replace(new RegExp(Q + '{2}\\s*=', 'g'), '');
+      // Orphan double-quote pairs left behind by the markers above (raw or entity-encoded).
+      out = out.replace(new RegExp(Q + '{2}', 'g'), '');
+      // Tidy whitespace + stray spaces before punctuation introduced by the removals.
+      out = out.replace(/[ \t]{2,}/g, ' ');
+      out = out.replace(/[ \t]+([.,;:!?])/g, '$1');
+      return out;
+    }
+
+    function wordExportTableCell(text) {
+      return escapeHtml(String(text == null ? '' : text).trim())
+        .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+    }
+
+    function wordExportSplitTableRow(line) {
+      var t = String(line).trim().replace(/^\|/, '').replace(/\|$/, '');
+      return t.split('|').map(function (c) { return c.trim(); });
+    }
+
+    function wordExportIsTableSeparator(line) {
+      var t = String(line || '').trim();
+      if (t.indexOf('-') === -1) return false;
+      var body = t.replace(/^\|/, '').replace(/\|$/, '');
+      if (!body.length) return false;
+      return body.split('|').every(function (c) { return /^\s*:?-{1,}:?\s*$/.test(c); });
+    }
+
+    function wordExportIsTableRow(line) {
+      var t = String(line || '').trim();
+      return t.indexOf('|') !== -1 && /\S/.test(t);
+    }
+
+    /**
+     * Convert GitHub-flavoured Markdown tables (rows with | and a --- separator) into
+     * native Word-compatible HTML <table> markup, so plans like the 15-day schedule
+     * download as real, formatted tables instead of scattered "| ... |" text.
+     */
+    function convertMarkdownTablesToWordTables(html) {
+      var src = String(html == null ? '' : html);
+      if (src.indexOf('|') === -1) return src;
+      var rtl = !(typeof isEnglish === 'function' && isEnglish());
+      var dir = rtl ? 'rtl' : 'ltr';
+      var align = rtl ? 'right' : 'left';
+
+      // Unwrap paragraph-wrapped single-line table rows back into newline-delimited lines.
+      // Consume surrounding whitespace so consecutive rows stay contiguous (no blank gaps).
+      src = src.replace(/\s*<p[^>]*>\s*(\|[^<]*\|)\s*<\/p>\s*/gi, '\n$1\n');
+      // Safety net: collapse any blank lines still sandwiched between two pipe rows.
+      var prev;
+      do { prev = src; src = src.replace(/(\|[^\n]*)\n(?:[ \t]*\n)+(?=[ \t]*\|)/g, '$1\n'); } while (src !== prev);
+
+      var lines = src.split('\n');
+      var out = [];
+      var i = 0;
+      while (i < lines.length) {
+        var line = lines[i];
+        var headerIsRow = wordExportIsTableRow(line) && !wordExportIsTableSeparator(line);
+        var nextIsSep = (i + 1 < lines.length) && wordExportIsTableSeparator(lines[i + 1]);
+        if (headerIsRow && nextIsSep) {
+          var headerCells = wordExportSplitTableRow(line);
+          var bodyRows = [];
+          var j = i + 2;
+          while (j < lines.length && wordExportIsTableRow(lines[j]) && !wordExportIsTableSeparator(lines[j])) {
+            bodyRows.push(wordExportSplitTableRow(lines[j]));
+            j++;
+          }
+          var tbl = '<table dir="' + dir + '" border="1" cellspacing="0" cellpadding="6" ' +
+            'style="border-collapse:collapse;width:100%;border:1px solid #444;margin:8px 0;">';
+          tbl += '<thead><tr>';
+          headerCells.forEach(function (c) {
+            tbl += '<th style="border:1px solid #444;padding:6px;background:#f0f0f0;' +
+              'text-align:' + align + ';font-weight:bold;">' + wordExportTableCell(c) + '</th>';
+          });
+          tbl += '</tr></thead><tbody>';
+          bodyRows.forEach(function (row) {
+            tbl += '<tr>';
+            for (var k = 0; k < headerCells.length; k++) {
+              tbl += '<td style="border:1px solid #444;padding:6px;text-align:' + align + ';' +
+                'vertical-align:top;">' + wordExportTableCell(row[k] != null ? row[k] : '') + '</td>';
+            }
+            tbl += '</tr>';
+          });
+          tbl += '</tbody></table>';
+          out.push(tbl);
+          i = j;
+          continue;
+        }
+        out.push(line);
+        i++;
+      }
+      return out.join('\n');
+    }
+
     function prepareWordExportHtml(html) {
       var out = stripWordExportUiNoise(String(html || ''));
       if (!out.trim()) return out;
+
+      // Turn Markdown tables (e.g. the 15-day plan from Perplexity) into native Word tables.
+      out = convertMarkdownTablesToWordTables(out);
 
       out = out.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, function (_m, attrs, inner) {
         var hrefMatch = attrs.match(/href\s*=\s*["']([^"']+)["']/i);
@@ -12954,6 +13160,9 @@
         tagPlaceholders.push(tag);
         return '\x00WTAG' + idx + '\x00';
       });
+      // With all tags placeheld, `out` is pure text — safe to strip citation residue
+      // without touching HTML attributes (href="", class="", etc.).
+      out = stripWordExportCitations(out);
       out = wordExportLinkifyPlainText(out);
       tagPlaceholders.forEach(function (tag, i) {
         out = out.split('\x00WTAG' + i + '\x00').join(tag);
@@ -12971,6 +13180,20 @@
 
     function buildMergedWordExportHtml() {
       var sections = [];
+      // The General Search view is its own content surface (general analysis + the full
+      // 15-day period plan). When it is active, export it directly and in full so it can
+      // never be masked/replaced by stale lesson (Phase-C / grade) state still in appState.
+      try {
+        if (typeof isGeneralSearchView === 'function' && isGeneralSearchView()) {
+          var gsData = collectGeneralSearchDocumentData();
+          if (gsData && gsData.data) {
+            var gsExportHtml = buildGeneralSearchExportHtml(gsData);
+            if (gsExportHtml && gsExportHtml.trim()) return gsExportHtml.trim();
+          }
+        }
+      } catch (gsErr) {
+        console.error('[word-export] general-search collector failed', gsErr);
+      }
       try {
         var pedData = collectPedagogySummaryDocumentData();
         if (pedData) {
@@ -12991,6 +13214,19 @@
         }
       } catch (unifiedErr) {
         console.error('[word-export] unified collector failed', unifiedErr);
+      }
+      // Always fold in any General Search result (incl. the full 15-day period plan) that
+      // is held in state, so the merged document captures every section the user produced.
+      try {
+        var mergedGs = collectGeneralSearchDocumentData();
+        if (mergedGs && mergedGs.data) {
+          var mergedGsHtml = buildGeneralSearchExportHtml(mergedGs);
+          if (mergedGsHtml && mergedGsHtml.trim() && sections.indexOf(mergedGsHtml.trim()) === -1) {
+            sections.push(mergedGsHtml.trim());
+          }
+        }
+      } catch (mergedGsErr) {
+        console.error('[word-export] general-search merge failed', mergedGsErr);
       }
       if (!sections.length) {
         try {
