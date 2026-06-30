@@ -1192,10 +1192,25 @@
     authState.tier = 'trial';
     authState.provider = 'mock';
     authState.sessionReady = true;
+    // Hard reload after logout: once the session is cleared we force a FULL page load
+    // (window.location.reload(true)) so the browser drops every byte of in-memory app
+    // state, caches and timers, and the user lands on a completely clean page.
     try {
-      global.location.replace(getCleanAppUrl());
+      var cleanUrl = getCleanAppUrl();
+      var current = String(global.location.href || '').split('#')[0];
+      if (current === cleanUrl) {
+        // Already on the clean URL — a plain hard reload is the cleanest reset.
+        global.location.reload(true);
+      } else {
+        // Strip any OAuth tokens / query / hash by navigating to the clean URL,
+        // which itself triggers a full document load.
+        global.location.replace(cleanUrl);
+      }
     } catch (e) {
-      global.location.href = getCleanAppUrl();
+      try { global.location.reload(true); }
+      catch (e2) {
+        try { global.location.href = getCleanAppUrl(); } catch (e3) { /* */ }
+      }
     }
   }
 

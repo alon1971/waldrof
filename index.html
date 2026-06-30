@@ -24930,6 +24930,55 @@
       if (!shouldPreserveWizardViewport()) ensurePageAtTop();
       scheduleInitialPageScrollReset();
     });
+    // ── Auto hard-reload after a long sleep / background, so the app always wakes up
+    //    fully in sync with the server + Supabase (never stuck on stale state/memory). ──
+    (function setupAutoWakeReload() {
+      if (typeof document === 'undefined' || document.documentElement.dataset.wakeReloadBound) return;
+      document.documentElement.dataset.wakeReloadBound = '1';
+      var WAKE_RELOAD_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes away ⇒ reload on wake
+      var HEARTBEAT_MS = 30 * 1000;                  // catches device sleep (wall-clock jump)
+      var hiddenSince = null;
+      var lastHeartbeat = Date.now();
+      var pendingWakeReload = false;
+
+      function hardReloadForWake(reason) {
+        try { console.info('[wake-reload] reloading after', reason); } catch (e) { /* */ }
+        try { location.reload(); }
+        catch (e) { try { location.href = location.pathname + location.search; } catch (e2) { /* */ } }
+      }
+      function maybeWakeReload(gapMs, reason) {
+        if (gapMs < WAKE_RELOAD_THRESHOLD_MS) return;
+        if (document.visibilityState === 'visible') hardReloadForWake(reason);
+        else pendingWakeReload = true; // defer until the tab is focused again
+      }
+
+      document.addEventListener('visibilitychange', function () {
+        var now = Date.now();
+        if (document.visibilityState === 'hidden') {
+          hiddenSince = now;
+        } else if (document.visibilityState === 'visible') {
+          if (pendingWakeReload) { hardReloadForWake('deferred wake'); return; }
+          if (hiddenSince) {
+            var awayMs = now - hiddenSince;
+            hiddenSince = null;
+            maybeWakeReload(awayMs, 'background ' + Math.round(awayMs / 60000) + 'm');
+          }
+          lastHeartbeat = now;
+        }
+      });
+
+      // Heartbeat: a gap far larger than the interval means the device slept/suspended
+      // even while this tab stayed "visible" — visibilitychange never fires in that case.
+      setInterval(function () {
+        var now = Date.now();
+        var gap = now - lastHeartbeat;
+        lastHeartbeat = now;
+        if (gap >= WAKE_RELOAD_THRESHOLD_MS) {
+          maybeWakeReload(gap, 'sleep ' + Math.round(gap / 60000) + 'm');
+        }
+      }, HEARTBEAT_MS);
+    })();
+
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) persistActiveStep();
       else onAppRegainsAttention();
