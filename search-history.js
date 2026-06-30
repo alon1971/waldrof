@@ -19,6 +19,7 @@
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
     isAuthenticated: function () { return false; },
+    isSessionReady: function () { return false; },
     getContributor: function () { return null; },
     getAccessToken: function () { return Promise.resolve(null); },
     showAuth: function () {},
@@ -108,9 +109,26 @@
     if (openBtn) openBtn.focus();
   }
 
+  function canLoadHistory() {
+    return deps.isSessionReady() && deps.isAuthenticated();
+  }
+
   function openView() {
     if (!deps.isAuthenticated()) {
       if (typeof deps.showAuth === 'function') deps.showAuth();
+      return;
+    }
+    if (!deps.isSessionReady()) {
+      ensureOverlay();
+      state.viewOpen = true;
+      var pendingOverlay = document.getElementById('search-history-overlay');
+      if (pendingOverlay) {
+        pendingOverlay.classList.remove('hidden');
+        pendingOverlay.removeAttribute('hidden');
+        pendingOverlay.setAttribute('aria-hidden', 'false');
+      }
+      document.body.classList.add('search-history-view-open');
+      renderTable();
       return;
     }
     ensureOverlay();
@@ -159,6 +177,12 @@
     if (!deps.isAuthenticated()) {
       return '<tr><td colspan="4" class="search-history-table-empty">' +
         deps.escapeHtml(deps.t('search_history_need_auth')) + '</td></tr>';
+    }
+
+    if (!deps.isSessionReady()) {
+      return '<tr><td colspan="4" class="search-history-table-empty">' +
+        '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> ' +
+        deps.escapeHtml(deps.t('search_history_loading')) + '</td></tr>';
     }
 
     if (state.loading) {
@@ -318,9 +342,8 @@
   }
 
   function loadHistory(force) {
-    if (!deps.isAuthenticated()) {
-      // User not ready/authenticated yet — clear the view but DO NOT mark as loaded,
-      // so the next call once the session resolves will actually fetch the archive.
+    if (!canLoadHistory()) {
+      // Auth session not resolved yet — keep loaded=false so a later refresh actually fetches.
       state.items = [];
       state.loaded = false;
       renderTable();
@@ -333,9 +356,19 @@
     renderTable();
 
     return deps.getAccessToken().then(function (token) {
+      if (!token) {
+        var authErr = new Error(deps.t('search_history_need_auth'));
+        authErr.statusCode = 401;
+        throw authErr;
+      }
       var contributor = deps.getContributor();
+      if (!contributor || (!contributor.id && !contributor.email)) {
+        var profileErr = new Error(deps.t('search_history_loading'));
+        profileErr.statusCode = 401;
+        throw profileErr;
+      }
       var headers = { 'Content-Type': 'application/json' };
-      if (token) headers.Authorization = 'Bearer ' + token;
+      headers.Authorization = 'Bearer ' + token;
 
       return fetch(historyApiUrl(), {
         method: 'POST',
@@ -346,7 +379,11 @@
       return res.text().then(function (body) {
         var json;
         try { json = body ? JSON.parse(body) : {}; } catch (e) { json = {}; }
-        if (!res.ok) throw new Error((json && json.error) || body || res.status);
+        if (!res.ok) {
+          var err = new Error((json && json.error) || body || res.status);
+          err.statusCode = res.status;
+          throw err;
+        }
         return json;
       });
     }).then(function (json) {
@@ -354,12 +391,18 @@
       state.items = (data && data.items) || [];
       state.loaded = true;
     }).catch(function (err) {
-      state.items = [];
-      state.loaded = true;
-      var tbody = document.getElementById('search-history-table-body');
-      if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="4" class="search-history-table-empty search-history-table-empty--err">' +
-          deps.escapeHtml((err && err.message) || deps.t('search_history_error')) + '</td></tr>';
+      var authFailure = err && (err.statusCode === 401 || err.statusCode === 403);
+      if (authFailure) {
+        state.items = [];
+        state.loaded = false;
+      } else {
+        state.items = [];
+        state.loaded = true;
+        var tbody = document.getElementById('search-history-table-body');
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="4" class="search-history-table-empty search-history-table-empty--err">' +
+            deps.escapeHtml((err && err.message) || deps.t('search_history_error')) + '</td></tr>';
+        }
       }
     }).finally(function () {
       state.loading = false;
@@ -374,18 +417,25 @@
     state.viewOpen = false;
     renderEntryButton();
     bindGlobalEvents();
-    if (deps.isAuthenticated()) loadHistory(true);
+    if (canLoadHistory()) loadHistory(true);
     if (wasOpen) openView();
   }
 
   function invalidate() {
     state.loaded = false;
+    if (!canLoadHistory()) {
+      state.items = [];
+      if (state.viewOpen) renderTable();
+      return;
+    }
     loadHistory(true);
   }
 
   function init(options) {
     Object.assign(deps, options || {});
-    refresh();
+    renderEntryButton();
+    bindGlobalEvents();
+    if (canLoadHistory()) loadHistory(false);
   }
 
   global.WaldorfSearchHistory = {

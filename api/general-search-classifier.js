@@ -1,17 +1,11 @@
 /**
  * Gemini classifier for the GENERAL SEARCH archive (phase=general_search).
  *
- * Mirrors the flexible semantic check already used for topic/lesson disambiguation:
- * before spending a live Perplexity crawl we ask Gemini whether the new query is the
- * SAME pedagogical concept as one of the already-archived general searches.
+ * Before a live Perplexity crawl, asks Gemini whether the new query is the SAME
+ * pedagogical core concept as an archived general search.
  *
- * Word order is irrelevant and grade designations ("כיתה ז", "תקופה ז", "שכבה ז", "ז׳")
- * all refer to the same grade — so "רנסנס תקופה ז" and "כיתה ז רנסנס" are the same concept.
- *
- * Verdicts:
- *   - "exact"   → same concept AND same grade/scope → safe to reuse the archive silently.
- *   - "partial" → very likely the same concept but enough doubt to ask "האם התכוונת ל…".
- *   - "none"    → not the same concept → fall through to a live Perplexity run.
+ * Filler words ("תקופת לימוד", "בכיתה", "כיתה ז", "בניית תוכנית") never change the
+ * core concept — "רנסנס תקופת לימוד בכיתה ז" == "רנסנס".
  */
 const env = require('./env');
 const jsonRepair = require('./json-repair');
@@ -20,26 +14,33 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 /** Minimum confidence to silently reuse an archived result without asking the teacher. */
-const GENERAL_SEARCH_EXACT_MIN_CONFIDENCE = 0.9;
+const GENERAL_SEARCH_EXACT_MIN_CONFIDENCE = 0.82;
 /** Minimum confidence to surface a "did you mean…" partial suggestion. */
-const GENERAL_SEARCH_PARTIAL_MIN_CONFIDENCE = 0.7;
+const GENERAL_SEARCH_PARTIAL_MIN_CONFIDENCE = 0.62;
 
 const SYSTEM_PROMPT = [
-  'You are a Hebrew Waldorf-pedagogy search classifier.',
-  'You receive a NEW teacher search query and a numbered catalog of queries already stored in the archive.',
-  'Decide whether the NEW query refers to the SAME pedagogical concept as one of the archived queries.',
-  'Rules for "same concept":',
-  '- Word order is irrelevant ("רנסנס תקופה ז" == "תקופה ז רנסנס").',
-  '- Grade designations are interchangeable and do NOT change the concept: "כיתה ז", "תקופה ז", "שכבה ז", "כיתה ז׳", "ז׳", "גיל 13" all mean the same grade.',
-  '- The literal word "כיתה"/"תקופה"/"שכבה"/"לימוד"/"נושא" is filler and never changes the essence of the concept.',
-  '- Hebrew morphology, definite article (ה), and synonyms/pedagogical aliases count as the same concept (e.g. "מיתולוגיה נורדית" == "סיפורי הצפון").',
-  'NEVER treat a different subject, epoch, or grade as the same concept.',
+  'You are a Hebrew Waldorf-pedagogy search classifier with FUZZY / SEMANTIC matching.',
+  'You receive a NEW teacher search query and a catalog of queries already stored in the archive.',
+  'Your job: extract the CORE pedagogical subject from the NEW query and find the best archived match.',
+  '',
+  'CRITICAL — these words are FILLER and must be IGNORED when comparing concepts:',
+  '"תקופת לימוד", "תקופת", "תקופה", "בכיתה", "ב", "כיתה", "שכבה", "שכבת", "לימוד", "נושא", "מחקר", "בניית", "תוכנית", "מלאה", "15 ימים", "ימים".',
+  'Example: NEW «רנסנס תקופת לימוד בכיתה ז» has CORE «רנסנס» (grade 7) — same as archived «רנסנס», «רנסנס כיתה ז», «כיתה ז רנסנס».',
+  '',
+  'Rules for SAME concept:',
+  '- Word order is irrelevant.',
+  '- Grade designations are interchangeable: "כיתה ז", "תקופה ז", "שכבה ז", "ז׳", "גיל 13".',
+  '- Adding filler/context words around the core subject does NOT make it a different concept.',
+  '- Hebrew morphology, definite article (ה), and pedagogical aliases count as the same concept.',
+  '- If the NEW query contains MORE words but the archived query holds the same core subject → SAME concept.',
+  '',
+  'NEVER match a different subject, historical epoch, or grade.',
   'Choose the single best archived candidate, if any.',
-  'verdict = "exact" when it is the same concept AND the same grade/scope (confidence >= ' + GENERAL_SEARCH_EXACT_MIN_CONFIDENCE + ').',
-  'verdict = "partial" when it is very likely the same concept but you are not fully certain (confidence >= ' + GENERAL_SEARCH_PARTIAL_MIN_CONFIDENCE + ').',
-  'verdict = "none" when no archived query is the same concept.',
-  'Respond ONLY with valid JSON (no markdown, no commentary): {"match":{"key":"<catalog key or empty>","verdict":"exact|partial|none","confidence":0.0-1.0,"reason":"brief Hebrew"}}.',
-].join(' ');
+  'verdict = "exact" when same core subject AND same grade/scope (confidence >= ' + GENERAL_SEARCH_EXACT_MIN_CONFIDENCE + ').',
+  'verdict = "partial" when very likely the same core but not fully certain (confidence >= ' + GENERAL_SEARCH_PARTIAL_MIN_CONFIDENCE + ').',
+  'verdict = "none" when no archived query shares the same core subject.',
+  'Respond ONLY with valid JSON: {"match":{"key":"<catalog key or empty>","verdict":"exact|partial|none","confidence":0.0-1.0,"reason":"brief Hebrew"}}.',
+].join('\n');
 
 function buildCandidateText(candidates) {
   return candidates
@@ -53,6 +54,7 @@ function buildCandidateText(candidates) {
 function buildUserPrompt(query, candidates) {
   return [
     'שאילתה חדשה: «' + String(query || '').trim() + '»',
+    'חלץ את מושג הליבה הפדגוגי (הנושא/התקופה/המקצוע) מתוך השאילתה — התעלם ממילות מילוי כמו "תקופת לימוד", "בכיתה", "כיתה".',
     '',
     'ארכיב חיפושים קיימים:',
     buildCandidateText(candidates),
@@ -63,7 +65,7 @@ function normalizeVerdict(raw, confidence) {
   const verdict = String(raw || '').trim().toLowerCase();
   if (verdict === 'exact' && confidence >= GENERAL_SEARCH_EXACT_MIN_CONFIDENCE) return 'exact';
   if ((verdict === 'exact' || verdict === 'partial') && confidence >= GENERAL_SEARCH_PARTIAL_MIN_CONFIDENCE) {
-    return 'partial';
+    return verdict === 'exact' && confidence >= GENERAL_SEARCH_EXACT_MIN_CONFIDENCE ? 'exact' : 'partial';
   }
   return 'none';
 }

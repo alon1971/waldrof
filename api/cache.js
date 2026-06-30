@@ -2577,26 +2577,68 @@ async function setGeneralSearchCache(query, payload, options) {
   return cacheKey;
 }
 
+/** Extra filler stripped for general-search concept matching only. */
+const GENERAL_SEARCH_FILLER_WORDS = new Set([
+  'תקופת', 'תקופה', 'לימוד', 'בניית', 'בנייה', 'מלאה', 'מלא', 'ימים', 'יום',
+  'תוכנית', 'מחקר', 'כללי', 'ספציפי', 'ספציפית', 'עבור', 'בעניין', 'בקשה', 'בקש',
+]);
+
+function stripGeneralSearchFillers(text) {
+  return String(text || '')
+    .split(/\s+/)
+    .filter(function (word) {
+      if (!word) return false;
+      if (GENERAL_SEARCH_FILLER_WORDS.has(word)) return false;
+      if (isHebrewTopicStopWord(word)) return false;
+      return true;
+    })
+    .join(' ')
+    .trim();
+}
+
 /** Extract a normalized grade token (e.g. "כיתה ז" → "g:ז") so the period plan stays grade-specific. */
 function extractGeneralSearchGradeToken(query) {
   const text = stableNormalize(query).replace(/[״"'`׳]/g, '');
-  let m = text.match(/(?:^|\s)(?:ו|ב|ל|ש)?(?:כיתה|שכבה|שכבת)\s+([א-ת])(?:\s|$)/);
+  let m = text.match(/(?:^|\s)(?:ו|ב|ל|ש)?(?:כיתה|שכבה|שכבת|תקופה|תקופת)\s+([א-ת])(?:\s|$)/);
   if (m && m[1]) return 'g:' + m[1];
   m = text.match(/(?:^|\s)גיל\s+(\d{1,2})/);
   if (m && m[1]) return 'gn:' + m[1];
   return '';
 }
 
+function generalSearchCoreTokens(query) {
+  let normalized = normalizeTopicQuery(query);
+  normalized = stripGeneralSearchFillers(normalized);
+  if (!normalized) return [];
+  return normalized.split(/\s+/).filter(Boolean).sort();
+}
+
+/**
+ * True when both queries share the same grade (or one omits grade) and the shorter
+ * core concept is fully contained in the longer (e.g. "רנסנס" ⊆ "רנסנס תקופת לימוד בכיתה ז").
+ */
+function generalSearchCoreSupersetMatch(queryA, queryB) {
+  const gradeA = extractGeneralSearchGradeToken(queryA);
+  const gradeB = extractGeneralSearchGradeToken(queryB);
+  if (gradeA && gradeB && gradeA !== gradeB) return false;
+  const tokensA = generalSearchCoreTokens(queryA);
+  const tokensB = generalSearchCoreTokens(queryB);
+  if (!tokensA.length || !tokensB.length) return false;
+  const shorter = tokensA.length <= tokensB.length ? tokensA : tokensB;
+  const longer = tokensA.length <= tokensB.length ? tokensB : tokensA;
+  return shorter.every(function (tok) {
+    return longer.indexOf(tok) >= 0;
+  });
+}
+
 /**
  * Deterministic concept key for general search — sorts the core keywords (so pure
  * word-order variants collapse) while preserving the grade so different grades never merge.
- * e.g. "כיתה ז רנסנס" and "רנסנס כיתה ז" → "g:ז|רנסנס" (same), but "כיתה ג בראשית" stays distinct.
  */
 function normalizeGeneralSearchConceptKey(query) {
-  const normalized = normalizeTopicQuery(query);
-  if (!normalized) return '';
-  const core = normalized.split(' ').filter(Boolean).sort().join(' ');
-  if (!core) return '';
+  const tokens = generalSearchCoreTokens(query);
+  if (!tokens.length) return '';
+  const core = tokens.join(' ');
   const grade = extractGeneralSearchGradeToken(query);
   return (grade ? grade + '|' : '') + core;
 }
@@ -2640,10 +2682,22 @@ async function fetchGeneralSearchCandidates(periodBlock, options) {
   byKey.forEach(function (row) {
     const data = coerceCachedResultData(row.result_data);
     if (!data || !isGeneralSearchPayload(data)) return;
-    if (!generalSearchCacheVariantMatches(data, wantPeriod)) return;
     const queryText = String(row.query_text || row.topic || data.query || '').trim();
     if (!queryText) return;
-    candidates.push({ key: row.cache_key, query: queryText, data: data });
+    const rowPeriod = Boolean(data.periodBlock);
+    candidates.push({
+      key: row.cache_key,
+      query: queryText,
+      data: data,
+      periodBlock: rowPeriod,
+      variantMatch: rowPeriod === wantPeriod,
+    });
+  });
+
+  // Prefer same variant (standard vs 15-day) but keep all rows for semantic matching.
+  candidates.sort(function (a, b) {
+    if (a.variantMatch !== b.variantMatch) return a.variantMatch ? -1 : 1;
+    return 0;
   });
   return candidates;
 }
@@ -2662,12 +2716,13 @@ async function findGeneralSearchArchiveSuggestion(query, options) {
   const candidates = await fetchGeneralSearchCandidates(periodBlock, opts);
   if (!candidates.length) return null;
 
-  // Cheap deterministic pass: pure word-order / grade-word reorders → exact, no LLM cost.
+  // Cheap deterministic pass: word-order / grade-word reorders / core-concept superset.
   const conceptKey = normalizeGeneralSearchConceptKey(q);
   if (conceptKey) {
     const deterministic = candidates.find(function (c) {
-      return normalizeGeneralSearchConceptKey(c.query) === conceptKey
-        && stableNormalize(c.query) !== stableNormalize(q);
+      if (stableNormalize(c.query) === stableNormalize(q)) return false;
+      if (normalizeGeneralSearchConceptKey(c.query) === conceptKey) return true;
+      return generalSearchCoreSupersetMatch(q, c.query);
     });
     if (deterministic) {
       return {
@@ -2719,9 +2774,6 @@ async function getGeneralSearchByCacheKey(cacheKey, options) {
   if (row.phase && row.phase !== GENERAL_SEARCH_PHASE) return null;
   const data = coerceCachedResultData(row.result_data);
   if (!data || !isGeneralSearchPayload(data)) return null;
-  if (opts.periodBlock != null && !generalSearchCacheVariantMatches(data, Boolean(opts.periodBlock))) {
-    return null;
-  }
   bumpHitCountAsync(key, row.hit_count);
   return {
     data: cloneJsonSafe(data),

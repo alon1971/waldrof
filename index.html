@@ -1472,6 +1472,14 @@
     }
     #btn-topic-research-cancel:hover,
     #btn-general-search-cancel:hover { background: rgba(196, 120, 90, 0.12); }
+    #btn-general-search-clear {
+      color: #4a3728;
+      min-width: 2.75rem;
+    }
+    #btn-general-search-clear:hover {
+      background: rgba(92, 125, 88, 0.1);
+      border-color: rgba(92, 125, 88, 0.45);
+    }
     #topic-research-loading,
     #general-search-loading { border-color: rgba(196, 120, 90, 0.45); }
     [dir="ltr"] .icon-inline { margin-inline-end: 0.25rem; margin-inline-start: 0; }
@@ -4858,11 +4866,18 @@
         <i class="fa-solid fa-magnifying-glass-chart text-gold"></i>
         <span data-i18n="general_search_title">חיפוש כללי ובניית תקופת לימוד</span>
       </h2>
-      <p class="text-sm text-walnut/70 mb-5" data-i18n="general_search_desc">חיפוש פדגוגי רב-שכבתי על פני כיתות א׳–ח׳.</p>
+      <p class="text-sm text-walnut/70 mb-5" data-i18n="general_search_desc">ניתן לבצע מחקר כללי על נושא נבחר והתפתחותו לאורך השנים, או לחקור נושא ספציפי על פי גיל/כיתה ולבקש לבנות עבורו תוכנית תקופה מלאה ל-15 יום</p>
       <div class="flex flex-col sm:flex-row gap-2 mb-2">
         <input type="text" id="general-search-input" maxlength="300"
           class="flex-1 rounded-xl border border-gold/40 bg-cream px-4 py-3 text-base focus:ring-2 focus:ring-sage/40 outline-none"
-          data-i18n-placeholder="general_search_placeholder" placeholder="רנסנס כיתה ז׳, מגלי עולם, התפתחות החשבון א׳–ח׳..." />
+          placeholder="" aria-label="" data-i18n-placeholder="general_search_placeholder" />
+        <button type="button" id="btn-general-search-clear"
+          class="touch-btn shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl border border-gold/40 bg-cream text-walnut text-sm font-medium hover:bg-parchment"
+          data-i18n="general_search_clear" data-i18n-aria="general_search_clear_aria"
+          aria-label="נקה תוצאות ואפס את שדה החיפוש">
+          <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
+          <span class="hidden sm:inline" data-i18n="general_search_clear">מחקר חדש</span>
+        </button>
         <button type="button" id="btn-general-search-submit"
           class="touch-btn bg-sage hover:bg-sage-dark text-white font-semibold px-6 py-3 rounded-xl text-sm shrink-0">
           <i class="fa-solid fa-magnifying-glass icon-inline"></i>
@@ -19754,6 +19769,38 @@
       await performGeneralSearch(query, {});
     }
 
+    function clearGeneralSearchWorkspace() {
+      if (generalSearchAbort) {
+        generalSearchAbort.abort();
+        generalSearchAbort = null;
+      }
+      hideGeneralSearchArchiveSuggestion();
+      setGeneralSearchLoadingUi(false);
+      appState.generalSearchQuery = '';
+      appState.generalSearchResult = null;
+      appState.generalSearchFromArchive = false;
+      appState.generalSearchCacheKey = '';
+      var input = document.getElementById('general-search-input');
+      if (input) {
+        input.value = '';
+        input.disabled = false;
+      }
+      var btn = document.getElementById('btn-general-search-submit');
+      if (btn) btn.disabled = false;
+      setGeneralSearchPeriodToggleDisabled(false);
+      var resultsEl = document.getElementById('general-search-results');
+      if (resultsEl) {
+        resultsEl.classList.add('hidden');
+        resultsEl.innerHTML = '';
+      }
+      removeArchiveUpgradeQueries('general-search');
+      requestAnimationFrame(function () {
+        if (input) {
+          try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+        }
+      });
+    }
+
     function cancelGeneralSearch(e) {
       if (e) {
         e.preventDefault();
@@ -24573,6 +24620,13 @@
       if (generalSearchSubmit) {
         generalSearchSubmit.addEventListener('click', function () { runGeneralSearch(); });
       }
+      var generalSearchClear = document.getElementById('btn-general-search-clear');
+      if (generalSearchClear) {
+        generalSearchClear.addEventListener('click', function (e) {
+          e.preventDefault();
+          clearGeneralSearchWorkspace();
+        });
+      }
       var generalSearchCancel = document.getElementById('btn-general-search-cancel');
       if (generalSearchCancel) {
         generalSearchCancel.addEventListener('click', cancelGeneralSearch);
@@ -24755,7 +24809,11 @@
       if (typeof LessonChatSidebar !== 'undefined' && LessonChatSidebar.isReady && LessonChatSidebar.isReady()) {
         LessonChatSidebar.refreshWelcome();
       }
-      if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.refresh();
+      if (typeof WaldorfSearchHistory !== 'undefined' &&
+          typeof WaldorfAuth !== 'undefined' &&
+          WaldorfAuth.getState().sessionReady) {
+        WaldorfSearchHistory.refresh();
+      }
     }
 
     if ('serviceWorker' in navigator) {
@@ -24802,6 +24860,9 @@
           escapeHtml: escapeHtml,
           isAuthenticated: function () {
             return typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated;
+          },
+          isSessionReady: function () {
+            return typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().sessionReady;
           },
           getContributor: function () {
             return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getContributorProfile() : null;
