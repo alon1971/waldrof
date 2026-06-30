@@ -13,6 +13,7 @@ const archiveDisambiguation = require('./archive-disambiguation');
 const jsonRepair = require('./json-repair');
 const archiveCoerce = require('../archive-coerce');
 const communitySemanticMatch = require('./community-semantic-match');
+const generalSearchClassifier = require('./general-search-classifier');
 const embeddings = require('./embeddings');
 const catalogTopics = require('./catalog-topics');
 const driveCatalogSync = require('./drive-catalog-sync');
@@ -2576,6 +2577,163 @@ async function setGeneralSearchCache(query, payload, options) {
   return cacheKey;
 }
 
+/** Extract a normalized grade token (e.g. "כיתה ז" → "g:ז") so the period plan stays grade-specific. */
+function extractGeneralSearchGradeToken(query) {
+  const text = stableNormalize(query).replace(/[״"'`׳]/g, '');
+  let m = text.match(/(?:^|\s)(?:ו|ב|ל|ש)?(?:כיתה|שכבה|שכבת)\s+([א-ת])(?:\s|$)/);
+  if (m && m[1]) return 'g:' + m[1];
+  m = text.match(/(?:^|\s)גיל\s+(\d{1,2})/);
+  if (m && m[1]) return 'gn:' + m[1];
+  return '';
+}
+
+/**
+ * Deterministic concept key for general search — sorts the core keywords (so pure
+ * word-order variants collapse) while preserving the grade so different grades never merge.
+ * e.g. "כיתה ז רנסנס" and "רנסנס כיתה ז" → "g:ז|רנסנס" (same), but "כיתה ג בראשית" stays distinct.
+ */
+function normalizeGeneralSearchConceptKey(query) {
+  const normalized = normalizeTopicQuery(query);
+  if (!normalized) return '';
+  const core = normalized.split(' ').filter(Boolean).sort().join(' ');
+  if (!core) return '';
+  const grade = extractGeneralSearchGradeToken(query);
+  return (grade ? grade + '|' : '') + core;
+}
+
+/** Load archived general_search rows (Supabase + fallback) for the requested variant. */
+async function fetchGeneralSearchCandidates(periodBlock, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const wantPeriod = Boolean(periodBlock);
+  const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 60, 1), 120);
+  const byKey = new Map();
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const res = await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
+        '&select=cache_key,query_text,topic,result_data,hit_count,last_hit_at,created_at' +
+        '&order=last_hit_at.desc.nullslast,created_at.desc&limit=' + limit,
+        { method: 'GET' }
+      );
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows)) {
+          rows.forEach(function (row) {
+            if (row && row.cache_key) byKey.set(row.cache_key, row);
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[cached_results] general_search candidate fetch failed:', err.message || err);
+    }
+  }
+
+  loadFallbackStore();
+  fallbackStore.rows.forEach(function (row) {
+    if (row && row.phase === GENERAL_SEARCH_PHASE && row.cache_key && !byKey.has(row.cache_key)) {
+      byKey.set(row.cache_key, row);
+    }
+  });
+
+  const candidates = [];
+  byKey.forEach(function (row) {
+    const data = coerceCachedResultData(row.result_data);
+    if (!data || !isGeneralSearchPayload(data)) return;
+    if (!generalSearchCacheVariantMatches(data, wantPeriod)) return;
+    const queryText = String(row.query_text || row.topic || data.query || '').trim();
+    if (!queryText) return;
+    candidates.push({ key: row.cache_key, query: queryText, data: data });
+  });
+  return candidates;
+}
+
+/**
+ * Flexible (Gemini-backed) lookup for an archived general search that means the SAME
+ * concept as `query` — even when word order differs or the grade is written differently.
+ * Returns { matchType: 'exact'|'partial', cacheKey, suggestedQuery, similarity, data? } or null.
+ */
+async function findGeneralSearchArchiveSuggestion(query, options) {
+  const q = normalizeGeneralSearchQuery(query);
+  if (!q) return null;
+  const opts = options && typeof options === 'object' ? options : {};
+  const periodBlock = Boolean(opts.periodBlock);
+
+  const candidates = await fetchGeneralSearchCandidates(periodBlock, opts);
+  if (!candidates.length) return null;
+
+  // Cheap deterministic pass: pure word-order / grade-word reorders → exact, no LLM cost.
+  const conceptKey = normalizeGeneralSearchConceptKey(q);
+  if (conceptKey) {
+    const deterministic = candidates.find(function (c) {
+      return normalizeGeneralSearchConceptKey(c.query) === conceptKey
+        && stableNormalize(c.query) !== stableNormalize(q);
+    });
+    if (deterministic) {
+      return {
+        matchType: 'exact',
+        cacheKey: deterministic.key,
+        suggestedQuery: deterministic.query,
+        similarity: 1,
+        periodBlock: periodBlock,
+        data: cloneJsonSafe(deterministic.data),
+      };
+    }
+  }
+
+  let verdict;
+  try {
+    verdict = await generalSearchClassifier.classifyGeneralSearchArchiveMatch(
+      q,
+      candidates.map(function (c) { return { key: c.key, query: c.query }; })
+    );
+  } catch (classifyErr) {
+    console.warn('[cached_results] general_search classifier failed:', classifyErr.message || classifyErr);
+    return null;
+  }
+  if (!verdict || !verdict.key) return null;
+
+  const matched = candidates.find(function (c) { return c.key === verdict.key; });
+  if (!matched) return null;
+  // An identical normalized query would already be an exact cache hit upstream.
+  if (stableNormalize(matched.query) === stableNormalize(q) && verdict.verdict !== 'partial') return null;
+
+  return {
+    matchType: verdict.verdict === 'exact' ? 'exact' : 'partial',
+    cacheKey: matched.key,
+    suggestedQuery: matched.query,
+    similarity: verdict.confidence,
+    reason: verdict.reason || '',
+    periodBlock: periodBlock,
+    data: cloneJsonSafe(matched.data),
+  };
+}
+
+/** Load an archived general search payload directly by cache_key (the "כן, התכוונתי" path). */
+async function getGeneralSearchByCacheKey(cacheKey, options) {
+  const key = String(cacheKey || '').trim();
+  if (!key) return null;
+  const opts = options && typeof options === 'object' ? options : {};
+  const row = await fetchCachedRowByKey(key);
+  if (!row || !row.result_data) return null;
+  if (row.phase && row.phase !== GENERAL_SEARCH_PHASE) return null;
+  const data = coerceCachedResultData(row.result_data);
+  if (!data || !isGeneralSearchPayload(data)) return null;
+  if (opts.periodBlock != null && !generalSearchCacheVariantMatches(data, Boolean(opts.periodBlock))) {
+    return null;
+  }
+  bumpHitCountAsync(key, row.hit_count);
+  return {
+    data: cloneJsonSafe(data),
+    meta: {
+      fromCache: true,
+      cacheKey: key,
+      table: TABLE_NAME,
+      source: 'general_search_confirmed',
+    },
+  };
+}
+
 async function getCachedResult(body, options) {
   const opts = options && typeof options === 'object' ? options : {};
   const requireEnhanced = opts.requireEnhanced !== false
@@ -4051,6 +4209,9 @@ module.exports = {
   setGeneralSearchCache,
   buildGeneralSearchCacheBody,
   normalizeGeneralSearchQuery,
+  normalizeGeneralSearchConceptKey,
+  findGeneralSearchArchiveSuggestion,
+  getGeneralSearchByCacheKey,
   isGeneralSearchPayload,
   hydrateTopicMasterArchiveLinks,
   findSemanticTopicMasterMatch,

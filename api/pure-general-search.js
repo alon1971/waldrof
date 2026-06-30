@@ -238,6 +238,25 @@ async function runPureGeneralSearch(body, requestContext) {
     return runArchiveUpgradeGeneralSearch(body, requestContext);
   }
 
+  // "כן, התכוונתי" — the teacher confirmed a suggested archive match: serve it directly.
+  const confirmArchiveKey = String(body.confirmArchiveKey || body.archiveCacheKey || '').trim();
+  if (confirmArchiveKey) {
+    const confirmed = await cache.getGeneralSearchByCacheKey(confirmArchiveKey, { periodBlock: periodBlock });
+    if (confirmed && confirmed.data) {
+      return {
+        data: normalizeGeneralSearchResponse(confirmed.data, { periodBlock: periodBlock }),
+        meta: Object.assign({
+          fromCache: true,
+          source: 'general_search_confirmed',
+          periodBlock: periodBlock,
+          archived: true,
+          archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+        }, confirmed.meta || {}),
+      };
+    }
+    // Fall through to a fresh run if the confirmed key vanished from the archive.
+  }
+
   if (!bypassCache) {
     const cached = await cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
     if (cached && cached.data) {
@@ -252,6 +271,52 @@ async function runPureGeneralSearch(body, requestContext) {
           archived: true,
           archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
         }, cached.meta || {}),
+      };
+    }
+
+    // Semantic (Gemini) disambiguation before spending a live Perplexity crawl.
+    // Catches word-order / grade-wording variants ("רנסנס תקופה ז" ≈ "כיתה ז רנסנס").
+    let suggestion = null;
+    try {
+      suggestion = await cache.findGeneralSearchArchiveSuggestion(query, { periodBlock: periodBlock });
+    } catch (suggestErr) {
+      console.warn('[pure-general-search] archive suggestion failed:', suggestErr.message || suggestErr);
+    }
+    if (suggestion && suggestion.cacheKey) {
+      if (suggestion.matchType === 'exact' && suggestion.data) {
+        // Same concept + same grade → reuse the archive silently (no duplicate, no cost).
+        return {
+          data: normalizeGeneralSearchResponse(suggestion.data, { periodBlock: periodBlock }),
+          meta: {
+            fromCache: true,
+            source: 'general_search_semantic',
+            periodBlock: periodBlock,
+            cacheKey: suggestion.cacheKey,
+            similarity: suggestion.similarity,
+            matchedQuery: suggestion.suggestedQuery || null,
+            archived: true,
+            archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+          },
+        };
+      }
+      // Partial (MAYBE) → ask the teacher via the existing "האם התכוונת ל…" UI.
+      return {
+        data: null,
+        meta: {
+          fromCache: false,
+          needsArchiveConfirmation: true,
+          periodBlock: periodBlock,
+          archiveSuggestion: {
+            matchType: 'partial',
+            scope: 'general-search',
+            requestedQuery: query,
+            suggestedTopic: suggestion.suggestedQuery,
+            suggestedQuery: suggestion.suggestedQuery,
+            cacheKey: suggestion.cacheKey,
+            similarity: suggestion.similarity,
+            periodBlock: periodBlock,
+          },
+        },
       };
     }
   }
