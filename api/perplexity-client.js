@@ -18,7 +18,20 @@ const PERPLEXITY_MODEL = 'sonar-reasoning-pro';
  */
 const PERPLEXITY_MAX_OUTPUT_TOKENS_PRO = 16000;
 const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 6000;
+// Activity-based IDLE timeout for the upstream Perplexity connection. For STREAMING this is
+// reset on every inbound byte/delta (see armTimer + readStreamResponse), so the request is
+// aborted ONLY after this many ms of complete upstream silence — a long but healthy
+// generation is never cut. This is generous (vs. the 45s browser-facing idle) because there
+// is no heartbeat upstream to reset it before sonar-reasoning-pro emits its first token.
+// For the NON-streaming https fallback it acts as a total request timeout.
 const REQUEST_TIMEOUT_MS = 180000;
+/** Up to 3 retries after a 429 (1s, 2s, 4s backoff) before surfacing an error. */
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_BASE_DELAY_MS = 1000;
+
+function sleep(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
 
 function normalizeApiKey(apiKey) {
   return String(apiKey || '')
@@ -200,13 +213,48 @@ function extractMessageContent(data) {
 
 function mapHttpError(status, responseText) {
   const detail = String(responseText || '').slice(0, 400);
+  let err;
   if (status === 401 || status === 403) {
-    return new Error(
+    err = new Error(
       'Perplexity API key invalid or unauthorized (HTTP ' + status + '). ' +
       'Verify PERPLEXITY_API_KEY in Render Environment Variables.'
     );
+  } else {
+    err = new Error('Perplexity API ' + status + ': ' + detail);
   }
-  return new Error('Perplexity API ' + status + ': ' + detail);
+  err.statusCode = status;
+  return err;
+}
+
+function isRateLimitError(err) {
+  if (!err) return false;
+  if (err.statusCode === 429) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\bPerplexity API 429\b|\b429\b.*too many requests|rate limit/i.test(msg);
+}
+
+/**
+ * Retry an upstream call on HTTP 429 with exponential backoff (1s → 2s → 4s).
+ * Non-rate-limit errors fail immediately; the HTTP handler stays open so the client
+ * loading UI is uninterrupted.
+ */
+async function withRateLimitRetry(operation, label) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastErr = err;
+      if (!isRateLimitError(err) || attempt >= RATE_LIMIT_MAX_RETRIES) throw err;
+      const delayMs = RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
+      console.warn(
+        '[perplexity] Rate limit (429) on', label || 'request',
+        '— retry', attempt + 1, '/', RATE_LIMIT_MAX_RETRIES, 'in', delayMs, 'ms'
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw lastErr;
 }
 
 function extractCitations(data) {
@@ -243,7 +291,7 @@ function abortedPerplexityError() {
   return new Error('הקריאה ל-Perplexity הופסקה עקב חוסר תגובה (timeout). נסו שוב בעוד רגע.');
 }
 
-async function fetchPerplexityResponse(apiKey, body, useStream, onDelta) {
+async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta) {
   const streaming = useStream !== false;
   const requestBody = Object.assign({}, body, { stream: streaming });
   const headers = buildHeaders(apiKey, streaming);
@@ -299,12 +347,16 @@ async function fetchPerplexityResponse(apiKey, body, useStream, onDelta) {
   }
 }
 
+async function fetchPerplexityResponse(apiKey, body, useStream, onDelta) {
+  return fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta);
+}
+
 async function fetchPerplexity(apiKey, body, useStream) {
   const result = await fetchPerplexityResponse(apiKey, body, useStream);
   return result.content;
 }
 
-async function httpsPerplexity(apiKey, body) {
+async function httpsPerplexityOnce(apiKey, body) {
   const requestBody = Object.assign({}, body, { stream: false });
   const headers = buildHeaders(apiKey, false);
   const result = await httpsPostJson(PERPLEXITY_URL, headers, requestBody, REQUEST_TIMEOUT_MS);
@@ -318,6 +370,35 @@ async function httpsPerplexity(apiKey, body) {
   const content = extractMessageContent(data);
   if (!content) throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
   return { content: content, citations: extractCitations(data), rawResponseText: result.text };
+}
+
+async function httpsPerplexity(apiKey, body) {
+  return httpsPerplexityOnce(apiKey, body);
+}
+
+/** Fetch (streaming or not) with a single https fallback on connection failure. */
+async function executePerplexityRequest(apiKey, body, useStream, onDelta) {
+  try {
+    return await fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta);
+  } catch (fetchErr) {
+    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+    // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
+    if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
+    // Rate limits are retried at the outer wrapper — do not fall through to https.
+    if (isRateLimitError(fetchErr)) throw fetchErr;
+    // Only a genuine connection failure (no tokens produced) gets a single https fallback.
+    if (!isRetriableConnectionError(msg)) throw fetchErr;
+
+    console.warn('[perplexity] connection failed, single https fallback:', msg);
+    try {
+      return await httpsPerplexity(apiKey, body);
+    } catch (httpsErr) {
+      const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
+      if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
+      if (isRateLimitError(httpsErr)) throw httpsErr;
+      throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
+    }
+  }
 }
 
 /**
@@ -341,34 +422,14 @@ async function callPerplexityChatWithCitations(options) {
     messages: opts.messages || [],
   };
 
-  try {
-    const result = await fetchPerplexityResponse(apiKey, body, false);
-    return {
-      content: result.content,
-      citations: result.citations || [],
-      rawResponseText: result.rawResponseText || '',
-    };
-  } catch (fetchErr) {
-    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
-    if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
-    // Only a genuine connection failure (no tokens produced) gets a single https fallback.
-    if (!isRetriableConnectionError(msg)) throw fetchErr;
-
-    console.warn('[perplexity] connection failed, single https fallback:', msg);
-    try {
-      const result = await httpsPerplexity(apiKey, body);
-      return {
-        content: result.content,
-        citations: result.citations || [],
-        rawResponseText: result.rawResponseText || '',
-      };
-    } catch (httpsErr) {
-      const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
-      if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
-      throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
-    }
-  }
+  const result = await withRateLimitRetry(function () {
+    return executePerplexityRequest(apiKey, body, false);
+  }, 'chat-citations');
+  return {
+    content: result.content,
+    citations: result.citations || [],
+    rawResponseText: result.rawResponseText || '',
+  };
 }
 
 /**
@@ -396,26 +457,10 @@ async function callPerplexityChat(options) {
   const useStream = opts.stream !== false;
   const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
 
-  try {
-    const result = await fetchPerplexityResponse(apiKey, body, useStream, onDelta);
-    return result.content;
-  } catch (fetchErr) {
-    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
-    if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
-    // Only a genuine connection failure (no tokens produced) gets a single https fallback.
-    if (!isRetriableConnectionError(msg)) throw fetchErr;
-
-    console.warn('[perplexity] connection failed, single https fallback:', msg);
-    try {
-      const result = await httpsPerplexity(apiKey, body);
-      return result.content;
-    } catch (httpsErr) {
-      const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
-      if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
-      throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
-    }
-  }
+  const result = await withRateLimitRetry(function () {
+    return executePerplexityRequest(apiKey, body, useStream, onDelta);
+  }, 'chat');
+  return result.content;
 }
 
 /**
@@ -438,24 +483,9 @@ async function callPerplexitySearch(options) {
   const useStream = opts.stream === true;
   const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
 
-  try {
-    return await fetchPerplexityResponse(apiKey, body, useStream, onDelta);
-  } catch (fetchErr) {
-    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
-    if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
-    // Only a genuine connection failure (no tokens produced) gets a single https fallback.
-    if (!isRetriableConnectionError(msg)) throw fetchErr;
-
-    console.warn('[perplexity] search connection failed, single https fallback:', msg);
-    try {
-      return await httpsPerplexity(apiKey, body);
-    } catch (httpsErr) {
-      const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
-      if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
-      throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
-    }
-  }
+  return withRateLimitRetry(function () {
+    return executePerplexityRequest(apiKey, body, useStream, onDelta);
+  }, 'search');
 }
 
 module.exports = {
