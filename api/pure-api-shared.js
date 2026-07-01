@@ -211,8 +211,15 @@ function createLegacyPostHandler(runFn) {
       return sendJson(res, 400, { error: 'Missing JSON body' });
     }
     try {
-      const data = await runFn(body);
-      return sendJson(res, 200, { ok: true, data: data, meta: { fromCache: false, source: 'perplexity-pure' } });
+      const result = await runFn(body, req);
+      if (result && typeof result === 'object' && (result.data !== undefined || result.meta)) {
+        return sendJson(res, 200, {
+          ok: true,
+          data: result.data,
+          meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
+        });
+      }
+      return sendJson(res, 200, { ok: true, data: result, meta: { fromCache: false, source: 'perplexity-pure' } });
     } catch (err) {
       const statusCode = err && err.statusCode ? err.statusCode : 500;
       const message = err instanceof Error ? err.message : String(err);

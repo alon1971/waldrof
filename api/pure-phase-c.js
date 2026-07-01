@@ -4,6 +4,7 @@
  */
 const shared = require('./pure-api-shared');
 const cache = require('./cache');
+const authContext = require('./auth-context');
 const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
 const waldorfWebSeed = require('../waldorf-web-seed');
@@ -3048,12 +3049,51 @@ async function mergeTopicMasterPayloads(historic, fresh, grade, topic) {
   return modelResult.parsed;
 }
 
-async function runPurePhaseC(body) {
+async function runPurePhaseC(body, requestContext) {
   const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
   const gradeId = resolveGradeId(body);
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
+
+  let teacher = null;
+  try {
+    teacher = await authContext.resolveVerifiedUser(
+      { headers: (requestContext && requestContext.headers) || {} },
+      body
+    );
+  } catch (authErr) {
+    console.warn('[pure-phase-c] resolve teacher failed:', authErr.message || authErr);
+  }
+  if (teacher) {
+    authContext.sanitizeCachedUserFields(body, teacher);
+  }
+
+  const ownerBody = teacher ? {
+    userId: teacher.id,
+    userEmail: teacher.email,
+    teacherUser: teacher,
+  } : {
+    userId: body.userId,
+    userEmail: body.userEmail,
+    teacherUser: body.teacherUser,
+  };
+
+  async function registerTeacherHistory(cacheKey, resultData) {
+    if (!teacher || !cacheKey) return;
+    try {
+      await cache.linkArchiveToTeacherHistory(teacher, cacheKey, {
+        topic: topic,
+        gradeId: gradeId,
+        gradeLabel: grade,
+        queryText: topic,
+        requestedTopic: topic,
+        resultData: resultData,
+      });
+    } catch (linkErr) {
+      console.warn('[pure-phase-c] history link failed:', linkErr.message || linkErr);
+    }
+  }
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
     return runArchiveUpgradePhaseC(body);
@@ -3074,10 +3114,15 @@ async function runPurePhaseC(body) {
       try {
         adaptTopicMasterPayload(cached.data, { gradeId: gradeId, grade: grade, gradeLabel: grade, topic: topic });
         stampTopicMasterArchiveLinks(cached.data, cached.data);
+        const cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
+        if (cacheKey) {
+          await registerTeacherHistory(cacheKey, cached.data);
+        }
         return {
           data: safeNormalizePhaseCResponse(cached.data, grade, topic),
           meta: Object.assign({
             fromCache: true,
+            cacheKey: cacheKey || undefined,
             source: cached.meta && cached.meta.semanticMatch
               ? (cached.meta.source || 'topic_master_semantic')
               : 'topic_master_archive',
@@ -3113,16 +3158,23 @@ async function runPurePhaseC(body) {
     }
   }
 
+  let savedKey = null;
   if (gradeId) {
-    cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
-      console.warn('[pure-phase-c] topic_master cache save failed:', err.message || err);
-    });
+    try {
+      savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBody);
+      if (savedKey) {
+        await registerTeacherHistory(savedKey, normalized);
+      }
+    } catch (saveErr) {
+      console.warn('[pure-phase-c] topic_master cache save failed:', saveErr.message || saveErr);
+    }
   }
 
   return {
     data: normalized,
     meta: {
       fromCache: false,
+      cacheKey: savedKey || undefined,
       source: body.mergeWithHistoric ? 'topic_master_merge' : (modelResult.parseFallback ? 'perplexity-pure-fallback' : 'perplexity-pure'),
       parseFallback: Boolean(modelResult.parseFallback),
       merged: Boolean(body.mergeWithHistoric && body.historicPayload),
@@ -3130,9 +3182,9 @@ async function runPurePhaseC(body) {
   };
 }
 
-const legacyHandler = shared.createLegacyPostHandler(async function (body) {
-  const result = await runPurePhaseC(body || {});
-  return result.data;
+const legacyHandler = shared.createLegacyPostHandler(async function (body, req) {
+  const result = await runPurePhaseC(body || {}, { headers: req && req.headers });
+  return result;
 });
 
 async function fetchHandler(request) {
@@ -3150,7 +3202,9 @@ async function fetchHandler(request) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400, headers: headers });
   }
   try {
-    const result = await runPurePhaseC(body || {});
+    const result = await runPurePhaseC(body || {}, {
+      headers: Object.fromEntries(request.headers.entries()),
+    });
     return Response.json({
       ok: true,
       data: result.data,

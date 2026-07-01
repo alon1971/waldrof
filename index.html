@@ -19582,6 +19582,20 @@
         gradeId: appState.grade,
         topic: topic,
       };
+      if (typeof WaldorfAuth !== 'undefined') {
+        var teacher = WaldorfAuth.getContributorProfile();
+        var identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function'
+          ? WaldorfAuth.getIdentityEmail()
+          : '';
+        if (teacher) {
+          payload.teacherUser = teacher;
+          if (teacher.id) payload.userId = teacher.id;
+          payload.userEmail = teacher.email || identityEmail;
+        } else if (identityEmail) {
+          payload.userEmail = identityEmail;
+          payload.teacherUser = { email: identityEmail };
+        }
+      }
       if (opts.bypassCache || opts.forceRefresh || opts.forceFresh || opts.skipCache) {
         payload.bypassCache = true;
         payload.forceRefresh = true;
@@ -22088,6 +22102,20 @@
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
         if (meta.fromCache && meta.cacheKey) {
+          try {
+            await recordArchiveSearchHistory({
+              cacheKey: meta.cacheKey,
+              topic: topic,
+              gradeId: appState.grade,
+              gradeLabel: appState.gradeLabel,
+              userQuery: topic,
+              requestedTopic: topic,
+            });
+            if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+          } catch (linkErr) {
+            console.warn('[waldrof] recordArchiveSearchHistory failed:', linkErr);
+          }
+        } else if (meta.cacheKey) {
           try {
             await recordArchiveSearchHistory({
               cacheKey: meta.cacheKey,

@@ -384,7 +384,18 @@ async function executeSearchHistory(req) {
   );
 
   try {
+    console.log('[search-history][debug] list request', {
+      action: action,
+      teacherId: teacher && teacher.id,
+      teacherEmail: teacher && teacher.email,
+      limit: limit,
+    });
     const items = await cacheDb.listTeacherSearchHistory(teacher, { limit: limit });
+    console.log('[search-history][debug] list response', {
+      teacherId: teacher && teacher.id,
+      teacherEmail: teacher && teacher.email,
+      count: items.length,
+    });
     return {
       ok: true,
       action: 'list',

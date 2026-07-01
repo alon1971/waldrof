@@ -405,6 +405,12 @@
       var data = json.data || json;
       state.items = (data && data.items) || [];
       state.loaded = true;
+      console.log('[search-history][debug] client loaded', {
+        count: state.items.length,
+        degraded: Boolean(data && data.degraded),
+        teacherEmail: data && data.teacher && data.teacher.email,
+        teacherId: data && data.teacher && data.teacher.id,
+      });
     }).catch(function (err) {
       var authFailure = err && (err.statusCode === 401 || err.statusCode === 403);
       var aborted = err && (err.name === 'AbortError' || /aborted/i.test(String(err.message || '')));

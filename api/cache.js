@@ -213,10 +213,13 @@ function buildRow(cacheKey, body, resultData) {
       || (body && body.teacherUser && body.teacherUser.id)
       || null;
     const mapped = authContext.mapUserIdForSupabaseQuery(candidate, userEmail);
-    if (mapped === authContext.LOCAL_DEMO_MOCK_UUID) {
+    if (mapped && authContext.isValidAuthUuid(mapped) && !authContext.isMockUserId(mapped)) {
+      verifiedUserId = mapped;
+    } else if (mapped === authContext.LOCAL_DEMO_MOCK_UUID) {
       verifiedUserId = mapped;
     }
   }
+  const normalizedEmail = userEmail ? String(userEmail).trim().toLowerCase() : null;
   return {
     cache_key: cacheKey,
     phase: body.phase,
@@ -228,7 +231,7 @@ function buildRow(cacheKey, body, resultData) {
       : (body.userMessage || body.archiveQuery || body.topic || body.gradeLabel || null),
     result_data: resultData,
     user_id: verifiedUserId,
-    user_email: userEmail,
+    user_email: normalizedEmail,
     hit_count: 0,
     last_hit_at: null,
   };
@@ -2485,7 +2488,7 @@ async function deleteTopicProseArchive(gradeId, topic, options) {
 }
 
 /** Persist unified Step B→C master JSON under grade_id + normalized topic. */
-async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
+async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData, ownerBody) {
   const gid = String(gradeId || '').trim();
   const topicStr = String(topic || '').trim();
   if (!gid || !topicStr || !masterData) return null;
@@ -2512,6 +2515,11 @@ async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData) {
     topicNormalized: normalizeTopicQuery(topicStr) || topicStr,
   };
   const body = buildTopicMasterCacheBody(gid, gradeLabel, topicStr);
+  if (ownerBody && typeof ownerBody === 'object') {
+    if (ownerBody.teacherUser) body.teacherUser = ownerBody.teacherUser;
+    if (ownerBody.userId) body.userId = ownerBody.userId;
+    if (ownerBody.userEmail) body.userEmail = String(ownerBody.userEmail).trim().toLowerCase();
+  }
   return setCachedResult(body, safe);
 }
 
@@ -3029,7 +3037,8 @@ function listFallbackTeacherHistory(teacher, limit) {
   const fetchLimit = searchHistoryFetchLimit(limit);
   const rows = Array.from(fallbackStore.rows.values())
     .filter(function (row) {
-      if (!row || row.phase !== 'topic' || !row.result_data) return false;
+      if (!row || !row.result_data) return false;
+      if (row.phase !== 'topic' && row.phase !== TOPIC_MASTER_PHASE) return false;
       if (userId && row.user_id === userId) return true;
       if (userEmail && String(row.user_email || '').toLowerCase() === userEmail) return true;
       return false;
@@ -3224,52 +3233,101 @@ function formatHistoryItem(row, options) {
 /**
  * List cached topic lesson plans for a teacher (newest first).
  */
+async function queryTeacherHistoryRows(filterParams, fetchLimit) {
+  const params = new URLSearchParams();
+  params.set(
+    'select',
+    'cache_key,phase,grade_id,grade_label,topic,query_text,result_data,hit_count,created_at,last_hit_at,user_id,user_email'
+  );
+  params.set('phase', 'in.(topic,topic_master)');
+  params.set('order', 'created_at.desc');
+  params.set('limit', String(fetchLimit));
+  Object.keys(filterParams || {}).forEach(function (key) {
+    params.set(key, filterParams[key]);
+  });
+
+  const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+    method: 'GET',
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.warn(
+      '[search-history][debug] supabase query failed',
+      res.status,
+      filterParams,
+      errText.slice(0, 240)
+    );
+    return [];
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
 async function listTeacherSearchHistory(teacher, options) {
   const limit = (options && options.limit) || 20;
   const fetchLimit = searchHistoryFetchLimit(limit);
   const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
   const userId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email) || '';
 
-  if (!userId && !userEmail) return [];
+  if (!userId && !userEmail) {
+    console.warn('[search-history][debug] missing teacher identity — empty history');
+    return [];
+  }
 
   if (isSupabaseCacheEnabled()) {
     try {
-      const params = new URLSearchParams();
-      params.set('select', 'cache_key,phase,grade_id,grade_label,topic,query_text,result_data,hit_count,created_at,last_hit_at');
-      params.set('phase', 'eq.topic');
-      params.set('order', 'created_at.desc');
-      params.set('limit', String(fetchLimit));
+      const seenKeys = new Set();
+      const allRows = [];
 
-      if (userId && userEmail) {
-        params.set(
-          'or',
-          '(user_id.eq.' + postgrestFilterValue(userId) + ',user_email.eq.' + postgrestFilterValue(userEmail) + ')'
-        );
-      } else if (userId) {
-        params.set('user_id', 'eq.' + postgrestFilterValue(userId));
-      } else {
-        params.set('user_email', 'eq.' + postgrestFilterValue(userEmail));
+      function mergeRows(rows) {
+        (rows || []).forEach(function (row) {
+          if (!row || !row.cache_key || seenKeys.has(row.cache_key)) return;
+          seenKeys.add(row.cache_key);
+          allRows.push(row);
+        });
       }
 
-      const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
-        method: 'GET',
+      if (userId) {
+        mergeRows(await queryTeacherHistoryRows({
+          user_id: 'eq.' + postgrestFilterValue(userId),
+        }, fetchLimit));
+      }
+      if (userEmail) {
+        mergeRows(await queryTeacherHistoryRows({
+          user_email: 'ilike.' + postgrestFilterValue(userEmail),
+        }, fetchLimit));
+      }
+
+      console.log('[search-history][debug] supabase raw rows', {
+        userId: userId || null,
+        userEmail: userEmail || null,
+        rawCount: allRows.length,
+        phases: allRows.slice(0, 8).map(function (row) {
+          return {
+            phase: row.phase,
+            cacheKey: row.cache_key ? row.cache_key.slice(0, 12) : null,
+            userId: row.user_id || null,
+            userEmail: row.user_email || null,
+          };
+        }),
       });
 
-      if (res.ok) {
-        const rows = await res.json();
-        if (Array.isArray(rows)) {
-          const items = rows
-            .filter(function (row) { return row && row.result_data && isSearchHistoryResultData(row.result_data); })
-            .map(formatHistoryItem);
-          return dedupeSearchHistoryItems(items, limit);
-        }
-      } else {
-        const errText = await res.text();
-        console.warn('[cached_results] history read error', res.status, errText.slice(0, 200));
-      }
+      const items = allRows
+        .filter(function (row) { return row && row.result_data && isSearchHistoryResultData(row.result_data); })
+        .map(formatHistoryItem);
+
+      console.log('[search-history][debug] after lesson filter', {
+        userId: userId || null,
+        userEmail: userEmail || null,
+        itemCount: items.length,
+      });
+
+      return dedupeSearchHistoryItems(items, limit);
     } catch (err) {
       console.warn('[cached_results] history read failed:', err.message || err);
     }
+  } else {
+    console.warn('[search-history][debug] supabase cache disabled — using local fallback only');
   }
 
   return listFallbackTeacherHistory(teacher, limit);
@@ -3395,7 +3453,7 @@ async function getCommunityLessonByCacheKey(cacheKey) {
  */
 async function getTeacherLessonByCacheKey(teacher, cacheKey) {
   const row = await fetchCachedRowByKey(cacheKey);
-  if (!row || row.phase !== 'topic') return null;
+  if (!row || (row.phase !== 'topic' && row.phase !== TOPIC_MASTER_PHASE)) return null;
   if (!teacherOwnsRow(teacher, row)) return null;
   const coerced = await readAndValidateCachedResultData(row, cacheKey);
   if (!coerced) return null;
