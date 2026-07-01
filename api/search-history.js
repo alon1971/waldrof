@@ -383,14 +383,26 @@ async function executeSearchHistory(req) {
     40
   );
 
-  const items = await cacheDb.listTeacherSearchHistory(teacher, { limit: limit });
-  return {
-    ok: true,
-    action: 'list',
-    count: items.length,
-    items: items,
-    teacher: { id: teacher.id, email: teacher.email },
-  };
+  try {
+    const items = await cacheDb.listTeacherSearchHistory(teacher, { limit: limit });
+    return {
+      ok: true,
+      action: 'list',
+      count: items.length,
+      items: items,
+      teacher: { id: teacher.id, email: teacher.email },
+    };
+  } catch (listErr) {
+    console.warn('[search-history] list failed:', listErr.message || listErr);
+    return {
+      ok: true,
+      action: 'list',
+      count: 0,
+      items: [],
+      degraded: true,
+      teacher: { id: teacher.id, email: teacher.email },
+    };
+  }
 }
 
 async function legacyHandler(req, res) {

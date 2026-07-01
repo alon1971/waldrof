@@ -15878,15 +15878,25 @@
       if (!canUseCommunityUploadApi()) {
         throw new Error('Community API unavailable');
       }
-      const res = await fetch(communityMaterialsApiUrl(), {
-        method: 'GET',
-        cache: 'no-store',
-        headers: {
-          Accept: 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache',
-        },
-      });
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller
+        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
+        : null;
+      let res;
+      try {
+        res = await fetch(communityMaterialsApiUrl(), {
+          method: 'GET',
+          cache: 'no-store',
+          signal: controller ? controller.signal : undefined,
+          headers: {
+            Accept: 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            Pragma: 'no-cache',
+          },
+        });
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
       const text = await res.text();
       if (!res.ok) {
         throw new Error(parseCommunityApiError(text, res.status));
@@ -15901,6 +15911,9 @@
       if (!Array.isArray(rows)) {
         throw new Error('Invalid community materials response');
       }
+      if (json.degraded) {
+        console.warn('[community] server returned degraded empty list:', json.reason || 'unknown');
+      }
       return rows;
     }
 
@@ -15911,16 +15924,41 @@
       } catch (clientErr) {
         console.warn('[community] client fetch failed:', formatSupabaseError(clientErr));
       }
-      const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' });
-      const url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?select=*&order=created_at.desc';
-      const res = await fetch(url, { headers: headers, cache: 'no-store' });
-      if (!res.ok) throw new Error(await res.text() || res.status);
-      return res.json();
+      if (!SUPABASE_URL) return [];
+      try {
+        const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' });
+        const url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?select=*&order=created_at.desc';
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller
+          ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
+          : null;
+        let res;
+        try {
+          res = await fetch(url, {
+            headers: headers,
+            cache: 'no-store',
+            signal: controller ? controller.signal : undefined,
+          });
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+        }
+        if (!res.ok) throw new Error(await res.text() || res.status);
+        const json = await res.json();
+        return Array.isArray(json) ? json : [];
+      } catch (directErr) {
+        console.warn('[community] direct REST fallback failed:', formatSupabaseError(directErr));
+        return [];
+      }
     }
 
     async function fetchCommunityMaterials() {
       if (canUseCommunityUploadApi()) {
-        return fetchCommunityMaterialsFromServer();
+        try {
+          return await fetchCommunityMaterialsFromServer();
+        } catch (serverErr) {
+          console.warn('[community] server API failed, trying fallback:', formatSupabaseError(serverErr));
+          return fetchCommunityMaterialsOfflineFallback();
+        }
       }
       return fetchCommunityMaterialsOfflineFallback();
     }
@@ -17352,11 +17390,14 @@
       }
       try {
         const rows = await fetchCommunityMaterials();
-        appState.communityCache = rows.map(mapRow).filter(function (item) { return Boolean(resolveCommunityMaterialId(item)); });
+        appState.communityCache = (rows || []).map(mapRow).filter(function (item) {
+          return Boolean(resolveCommunityMaterialId(item));
+        });
         appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
       } catch (err) {
-        console.error('[community] loadCommunity failed:', formatSupabaseError(err));
-        throw err;
+        console.warn('[community] loadCommunity failed:', formatSupabaseError(err));
+        appState.communityCache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
       }
     }
 
@@ -25182,7 +25223,7 @@
       }
       if (isCloudConfigured()) {
         try { subscribeRealtime(); } catch (e) { console.warn('[waldrof] subscribeRealtime:', e); }
-        try { await loadCommunity(); } catch (e) { console.warn('[waldrof] loadCommunity:', e); }
+        loadCommunity().catch(function (e) { console.warn('[waldrof] loadCommunity:', e); });
       }
       scheduleInitialPageScrollReset();
       resetWizardStepViewOnThisLoad = false;

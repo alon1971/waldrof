@@ -236,14 +236,37 @@ function buildRow(cacheKey, body, resultData) {
 
 async function supabaseRequest(relativePath, options) {
   const cfg = getSupabaseConfig();
+  const baseUrl = String(cfg.url || '').trim();
+  if (!baseUrl || !cfg.key) {
+    throw new Error('Supabase is not configured');
+  }
   const headers = Object.assign({
     apikey: cfg.key,
     Authorization: 'Bearer ' + cfg.key,
     'Content-Type': 'application/json',
   }, options.headers || {});
 
-  const res = await fetch(cfg.url + relativePath, Object.assign({}, options, { headers }));
-  return res;
+  try {
+    const res = await fetch(baseUrl + relativePath, Object.assign({}, options, {
+      headers: headers,
+      signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? AbortSignal.timeout(20000)
+        : undefined,
+    }));
+    return res;
+  } catch (fetchErr) {
+    const err = new Error(fetchErr instanceof Error ? fetchErr.message : String(fetchErr));
+    err.networkError = true;
+    throw err;
+  }
+}
+
+/** Quote PostgREST filter values that contain reserved characters (e.g. emails with @). */
+function postgrestFilterValue(value) {
+  const s = String(value || '').trim();
+  if (!s) return '""';
+  if (/^[a-zA-Z0-9_-]+$/.test(s)) return s;
+  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
 function bumpHitCountAsync(cacheKey, currentCount) {
@@ -3218,11 +3241,14 @@ async function listTeacherSearchHistory(teacher, options) {
       params.set('limit', String(fetchLimit));
 
       if (userId && userEmail) {
-        params.set('or', '(user_id.eq.' + userId + ',user_email.eq.' + userEmail + ')');
+        params.set(
+          'or',
+          '(user_id.eq.' + postgrestFilterValue(userId) + ',user_email.eq.' + postgrestFilterValue(userEmail) + ')'
+        );
       } else if (userId) {
-        params.set('user_id', 'eq.' + userId);
+        params.set('user_id', 'eq.' + postgrestFilterValue(userId));
       } else {
-        params.set('user_email', 'eq.' + userEmail);
+        params.set('user_email', 'eq.' + postgrestFilterValue(userEmail));
       }
 
       const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
@@ -3313,11 +3339,14 @@ async function listTeacherChatHistory(teacher, options) {
       params.set('limit', String(limit));
 
       if (userId && userEmail) {
-        params.set('or', '(user_id.eq.' + userId + ',user_email.eq.' + userEmail + ')');
+        params.set(
+          'or',
+          '(user_id.eq.' + postgrestFilterValue(userId) + ',user_email.eq.' + postgrestFilterValue(userEmail) + ')'
+        );
       } else if (userId) {
-        params.set('user_id', 'eq.' + userId);
+        params.set('user_id', 'eq.' + postgrestFilterValue(userId));
       } else {
-        params.set('user_email', 'eq.' + userEmail);
+        params.set('user_email', 'eq.' + postgrestFilterValue(userEmail));
       }
       if (gradeId) params.set('grade_id', 'eq.' + gradeId);
       if (topic) params.set('topic', 'ilike.*' + topic.slice(0, 60) + '*');

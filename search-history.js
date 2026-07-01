@@ -362,6 +362,13 @@
     state.loading = true;
     renderTable();
 
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timeoutId = controller
+      ? setTimeout(function () {
+        try { controller.abort(); } catch (e) { /* ignore */ }
+      }, 20000)
+      : null;
+
     return deps.getAccessToken().then(function (token) {
       if (!token) {
         var authErr = new Error(deps.t('search_history_need_auth'));
@@ -380,7 +387,8 @@
       return fetch(historyApiUrl(), {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify({ teacherUser: contributor, limit: 40 }),
+        signal: controller ? controller.signal : undefined,
+        body: JSON.stringify({ action: 'list', teacherUser: contributor, limit: 40 }),
       });
     }).then(function (res) {
       return res.text().then(function (body) {
@@ -399,19 +407,25 @@
       state.loaded = true;
     }).catch(function (err) {
       var authFailure = err && (err.statusCode === 401 || err.statusCode === 403);
+      var aborted = err && (err.name === 'AbortError' || /aborted/i.test(String(err.message || '')));
       if (authFailure) {
         state.items = [];
         state.loaded = false;
       } else {
         state.items = [];
         state.loaded = true;
+        console.warn('[search-history] load failed:', err && err.message ? err.message : err);
         var tbody = document.getElementById('search-history-table-body');
-        if (tbody) {
+        if (tbody && state.viewOpen) {
           tbody.innerHTML = '<tr><td colspan="4" class="search-history-table-empty search-history-table-empty--err">' +
             deps.escapeHtml((err && err.message) || deps.t('search_history_error')) + '</td></tr>';
         }
       }
+      if (aborted) {
+        console.warn('[search-history] load timed out');
+      }
     }).finally(function () {
+      if (timeoutId) clearTimeout(timeoutId);
       state.loading = false;
       if (state.viewOpen) renderTable();
     });

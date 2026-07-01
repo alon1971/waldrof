@@ -244,12 +244,31 @@ function supabaseAuthHeaders(apiKey, bearerToken, extraHeaders) {
 
 async function supabaseFetch(url, relativePath, options, apiKey, bearerToken) {
   const opts = options || {};
-  const res = await fetch(url + relativePath, {
-    method: opts.method || 'GET',
-    body: opts.body,
-    headers: supabaseAuthHeaders(apiKey, bearerToken, opts.headers),
-  });
-  const text = await res.text();
+  const baseUrl = String(url || '').trim();
+  if (!baseUrl) {
+    return { ok: false, status: 503, body: null, text: 'SUPABASE_URL is not configured' };
+  }
+  let res;
+  try {
+    res = await fetch(baseUrl + relativePath, {
+      method: opts.method || 'GET',
+      body: opts.body,
+      headers: supabaseAuthHeaders(apiKey, bearerToken, opts.headers),
+      signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? AbortSignal.timeout(15000)
+        : undefined,
+    });
+  } catch (fetchErr) {
+    const message = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+    return { ok: false, status: 503, body: null, text: message || 'fetch failed' };
+  }
+  let text = '';
+  try {
+    text = await res.text();
+  } catch (readErr) {
+    const message = readErr instanceof Error ? readErr.message : String(readErr);
+    return { ok: false, status: 503, body: null, text: message || 'response read failed' };
+  }
   return parseSupabaseHttpResponse(res, text);
 }
 
@@ -311,12 +330,29 @@ async function supabaseRequestWithKeyFallback(relativePath, options, preferAnon)
     if (!key || seen.has(key)) continue;
     seen.add(key);
     const opts = options || {};
-    const res = await fetch(url + relativePath, {
-      method: opts.method || 'GET',
-      body: opts.body,
-      headers: supabaseAuthHeaders(key, key, opts.headers),
-    });
-    const text = await res.text();
+    let res;
+    try {
+      res = await fetch(url + relativePath, {
+        method: opts.method || 'GET',
+        body: opts.body,
+        headers: supabaseAuthHeaders(key, key, opts.headers),
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+          ? AbortSignal.timeout(15000)
+          : undefined,
+      });
+    } catch (fetchErr) {
+      const message = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      lastResult = { ok: false, status: 503, body: null, text: message || 'fetch failed' };
+      break;
+    }
+    let text = '';
+    try {
+      text = await res.text();
+    } catch (readErr) {
+      const message = readErr instanceof Error ? readErr.message : String(readErr);
+      lastResult = { ok: false, status: 503, body: null, text: message || 'response read failed' };
+      break;
+    }
     lastResult = parseSupabaseHttpResponse(res, text);
     if (res.ok) return lastResult;
     if (res.status !== 401 && res.status !== 403) break;
@@ -325,18 +361,44 @@ async function supabaseRequestWithKeyFallback(relativePath, options, preferAnon)
 }
 
 async function listCommunityMaterials() {
-  const result = await supabaseRequestWithKeyFallback(
-    '/rest/v1/' + MATERIALS_TABLE + '?select=*&order=created_at.desc',
-    { method: 'GET' },
-    true
-  );
-  if (!result.ok) {
-    const err = new Error('Failed to list community materials (' + result.status + ')');
-    err.statusCode = result.status;
-    err.responseText = result.text;
-    throw err;
+  const supabaseUrl = env.getSupabaseUrl();
+  if (!supabaseUrl) {
+    console.warn('[community-materials] SUPABASE_URL missing — returning empty list');
+    return { rows: [], degraded: true, reason: 'missing_supabase_url' };
   }
-  return Array.isArray(result.body) ? result.body : [];
+  const anonKey = env.getSupabaseAnonKey();
+  const serviceKey = env.getSupabaseServiceRoleKey();
+  if (!anonKey && !serviceKey) {
+    console.warn('[community-materials] Supabase keys missing — returning empty list');
+    return { rows: [], degraded: true, reason: 'missing_supabase_keys' };
+  }
+
+  try {
+    const result = await supabaseRequestWithKeyFallback(
+      '/rest/v1/' + MATERIALS_TABLE + '?select=*&order=created_at.desc',
+      { method: 'GET' },
+      true
+    );
+    if (!result.ok) {
+      console.warn(
+        '[community-materials] list failed:',
+        result.status,
+        String(result.text || '').slice(0, 200)
+      );
+      return {
+        rows: [],
+        degraded: true,
+        reason: 'supabase_http_' + String(result.status || 'error'),
+      };
+    }
+    return {
+      rows: Array.isArray(result.body) ? result.body : [],
+      degraded: false,
+    };
+  } catch (err) {
+    console.warn('[community-materials] list error:', err.message || err);
+    return { rows: [], degraded: true, reason: 'list_exception' };
+  }
 }
 
 async function fetchMaterialById(id) {
@@ -546,8 +608,11 @@ async function legacyHandler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const rows = await listCommunityMaterials();
-      return sendJson(res, 200, { data: rows });
+      const listed = await listCommunityMaterials();
+      const payload = { data: listed.rows || [] };
+      if (listed.degraded) payload.degraded = true;
+      if (listed.reason) payload.reason = listed.reason;
+      return sendJson(res, 200, payload);
     }
 
     if (req.method === 'PATCH') {
