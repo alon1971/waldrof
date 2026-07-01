@@ -14653,6 +14653,55 @@
       return data && data.item ? data.item : null;
     }
 
+    async function recordArchiveSearchHistory(params) {
+      params = params || {};
+      var cacheKey = String(params.cacheKey || '').trim();
+      if (!cacheKey) return null;
+      if (typeof WaldorfAuth === 'undefined' || !WaldorfAuth.getState().isAuthenticated) return null;
+      var apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/search-history'
+        : '/api/search-history';
+      var headers = { 'Content-Type': 'application/json' };
+      var token = null;
+      try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
+      if (token) headers.Authorization = 'Bearer ' + token;
+      var contributor = WaldorfAuth.getContributorProfile();
+      if (!contributor) return null;
+      var res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          action: 'link_archive',
+          cacheKey: cacheKey,
+          topic: params.topic || appState.topic || '',
+          gradeId: params.gradeId || appState.grade || '',
+          gradeLabel: params.gradeLabel || appState.gradeLabel || '',
+          queryText: params.queryText || params.userQuery || params.topic || '',
+          requestedTopic: params.requestedTopic || params.userQuery || '',
+          teacherUser: contributor,
+        }),
+      });
+      var bodyText = await res.text();
+      var json;
+      try { json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {}; } catch (e) { json = {}; }
+      if (!res.ok || json.error) {
+        throw new Error((json && json.error) || bodyText || res.status);
+      }
+      var payload = json.data || json;
+      return payload && payload.cacheKey ? payload.cacheKey : cacheKey;
+    }
+
+    function isTopicMasterHistoryItem(item) {
+      var data = item && item.resultData;
+      if (!data || typeof data !== 'object') return false;
+      if (data.blockPlan) return false;
+      return Boolean(
+        data.theory &&
+        (String(data.core_emphases || '').trim().length > 20 ||
+          (Array.isArray(data.key_points) && data.key_points.length))
+      );
+    }
+
     async function fallbackToLiveTopicResearch(topic) {
       var topicStr = String(topic || appState.topic || '').trim();
       if (!topicStr || !appState.grade) return false;
@@ -14705,6 +14754,20 @@
           LessonChatSidebar.setDisplayMode('bubble');
         }
         await applyLessonPlanFromHistory(item, { userQuery: userQuery });
+        if (match.cacheKey) {
+          try {
+            await recordArchiveSearchHistory({
+              cacheKey: match.cacheKey,
+              topic: item.topic || userQuery || appState.topic,
+              gradeId: item.gradeId || appState.grade,
+              gradeLabel: item.gradeLabel || appState.gradeLabel,
+              userQuery: userQuery,
+              requestedTopic: userQuery,
+            });
+          } catch (linkErr) {
+            console.warn('[waldrof] recordArchiveSearchHistory failed:', linkErr);
+          }
+        }
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         return true;
       } catch (err) {
@@ -21518,6 +21581,18 @@
         statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
           escapeHtml(isEnglish() ? 'Loaded from archive — review the topic summary, then open Step C when ready.' : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.') + '</p>',
       });
+      if (match.cacheKey) {
+        recordArchiveSearchHistory({
+          cacheKey: match.cacheKey,
+          topic: topic,
+          gradeId: appState.grade,
+          gradeLabel: appState.gradeLabel,
+          userQuery: topic,
+          requestedTopic: topic,
+        }).catch(function (linkErr) {
+          console.warn('[waldrof] recordArchiveSearchHistory failed:', linkErr);
+        });
+      }
       if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
       setTopicResearchLoadingUi(false);
       var archiveBtn = document.getElementById('btn-topic-research');
@@ -21689,7 +21764,18 @@
               return applyTopicMasterArchivePayload(topic, Object.assign({}, match, { historicPayload: payload }));
             }
             return reloadArchiveLessonItem(match.cacheKey).then(function (item) {
-              return applyLessonPlanFromHistory(item, { userQuery: topic });
+              return applyLessonPlanFromHistory(item, { userQuery: topic }).then(function () {
+                if (match.cacheKey) {
+                  return recordArchiveSearchHistory({
+                    cacheKey: match.cacheKey,
+                    topic: (item && item.topic) || topic,
+                    gradeId: (item && item.gradeId) || appState.grade,
+                    gradeLabel: (item && item.gradeLabel) || appState.gradeLabel,
+                    userQuery: topic,
+                    requestedTopic: topic,
+                  });
+                }
+              });
             });
           }).then(function () {
             if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
@@ -21699,7 +21785,18 @@
           return;
         }
         reloadArchiveLessonItem(match.cacheKey).then(function (item) {
-          return applyLessonPlanFromHistory(item, { userQuery: topic });
+          return applyLessonPlanFromHistory(item, { userQuery: topic }).then(function () {
+            if (match.cacheKey) {
+              return recordArchiveSearchHistory({
+                cacheKey: match.cacheKey,
+                topic: (item && item.topic) || topic,
+                gradeId: (item && item.gradeId) || appState.grade,
+                gradeLabel: (item && item.gradeLabel) || appState.gradeLabel,
+                userQuery: topic,
+                requestedTopic: topic,
+              });
+            }
+          });
         }).then(function () {
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         }).catch(function (err) {
@@ -21949,7 +22046,23 @@
 
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
 
-        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
+        if (meta.fromCache && meta.cacheKey) {
+          try {
+            await recordArchiveSearchHistory({
+              cacheKey: meta.cacheKey,
+              topic: topic,
+              gradeId: appState.grade,
+              gradeLabel: appState.gradeLabel,
+              userQuery: topic,
+              requestedTopic: topic,
+            });
+            if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+          } catch (linkErr) {
+            console.warn('[waldrof] recordArchiveSearchHistory failed:', linkErr);
+          }
+        }
+
+        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function' && !meta.fromCache) {
           try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
         }
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
@@ -24875,6 +24988,13 @@
           },
           getGradeLabel: getGradeLabelById,
           onReload: function (item) {
+            if (isTopicMasterHistoryItem(item)) {
+              applyTopicMasterArchivePayload(item.topic || appState.topic, {
+                cacheKey: item.cacheKey,
+                historicPayload: item.resultData,
+              });
+              return;
+            }
             applyLessonPlanFromHistory(item).catch(function (err) {
               console.error('[search-history] apply failed:', err);
               alert((err && err.message) || t('search_history_error'));

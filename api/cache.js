@@ -3016,7 +3016,13 @@ function listFallbackTeacherHistory(teacher, limit) {
     })
     .slice(0, fetchLimit);
 
-  return dedupeSearchHistoryItems(rows.map(formatHistoryItem), limit || 20);
+  return dedupeSearchHistoryItems(
+    rows
+      .filter(function (row) { return row && isSearchHistoryResultData(row.result_data); })
+      .map(formatHistoryItem)
+      .filter(function (item) { return item && item.hasLessonPlan; }),
+    limit || 20
+  );
 }
 
 function teacherOwnsRow(teacher, row) {
@@ -3028,11 +3034,155 @@ function teacherOwnsRow(teacher, row) {
   return false;
 }
 
+function isSearchHistoryResultData(data) {
+  if (!data || typeof data !== 'object') return false;
+  const coerced = coerceArchiveLessonResultData(data) || coerceCachedResultData(data) || data;
+  if (coerced && coerced.blockPlan) return true;
+  if (isTopicMasterPayload(coerced)) return true;
+  if (coerced.purePhaseC && typeof coerced.purePhaseC === 'object') return true;
+  return false;
+}
+
+function buildTeacherHistoryCacheKey(teacher, sourceCacheKey) {
+  const userId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email) || '';
+  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const owner = userId || userEmail;
+  const sourceKey = String(sourceCacheKey || '').trim();
+  if (!owner || !sourceKey) return null;
+  return hashString('teacher_history|' + owner + '|' + sourceKey);
+}
+
+async function touchTeacherHistoryTimestamps(cacheKey) {
+  const key = String(cacheKey || '').trim();
+  if (!key) return;
+  const now = new Date().toISOString();
+  if (isSupabaseCacheEnabled()) {
+    try {
+      await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?cache_key=eq.' + encodeURIComponent(key),
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({ created_at: now, last_hit_at: now }),
+        }
+      );
+    } catch (err) {
+      console.warn('[cached_results] touchTeacherHistory failed:', err.message || err);
+    }
+    return;
+  }
+  loadFallbackStore();
+  const row = fallbackStore.rows.get(key);
+  if (!row) return;
+  row.created_at = now;
+  row.last_hit_at = now;
+  fallbackStore.rows.set(key, row);
+  persistFallbackStore();
+}
+
+/**
+ * Link a community/archive cache row to the signed-in teacher's search history.
+ * Creates a teacher-owned cached_results row (distinct cache_key) without mutating the source archive.
+ */
+async function linkArchiveToTeacherHistory(teacher, sourceCacheKey, options) {
+  const sourceKey = String(sourceCacheKey || '').trim();
+  if (!sourceKey || !teacher) return null;
+
+  const userEmail = String(teacher.email || '').trim().toLowerCase();
+  const userId = authContext.mapUserIdForSupabaseQuery(teacher.id, teacher.email) || '';
+  if (!userId && !userEmail) return null;
+
+  const opts = options && typeof options === 'object' ? options : {};
+  const sourceRow = await fetchCachedRowByKey(sourceKey);
+
+  if (sourceRow && teacherOwnsRow(teacher, sourceRow)) {
+    await touchTeacherHistoryTimestamps(sourceKey);
+    return { cacheKey: sourceKey, linked: false, touched: true, sourceCacheKey: sourceKey };
+  }
+
+  const historyKey = buildTeacherHistoryCacheKey(teacher, sourceKey);
+  if (!historyKey) return null;
+
+  const existingHistory = await fetchCachedRowByKey(historyKey);
+  if (existingHistory && teacherOwnsRow(teacher, existingHistory)) {
+    await touchTeacherHistoryTimestamps(historyKey);
+    return { cacheKey: historyKey, linked: false, touched: true, sourceCacheKey: sourceKey };
+  }
+
+  let resultData = opts.resultData ? cloneJsonSafe(opts.resultData) : null;
+  if (!resultData && sourceRow) {
+    resultData = await readAndValidateCachedResultData(sourceRow, sourceKey);
+  }
+  if (resultData) {
+    resultData = coerceArchiveLessonResultData(resultData) || coerceCachedResultData(resultData) || resultData;
+  }
+  if (!isSearchHistoryResultData(resultData)) {
+    console.warn('[cached_results] linkArchive skip — no displayable lesson data', sourceKey.slice(0, 12));
+    return null;
+  }
+
+  const payload = Object.assign({}, cloneJsonSafe(resultData) || resultData, {
+    _teacherHistoryLink: {
+      sourceCacheKey: sourceKey,
+      linkedAt: new Date().toISOString(),
+    },
+  });
+  const safeResultData = ensureJsonObjectForStorage(payload);
+  if (!safeResultData) return null;
+
+  const body = {
+    phase: 'topic',
+    currentGrade: opts.gradeId || (sourceRow && sourceRow.grade_id) || null,
+    gradeId: opts.gradeId || (sourceRow && sourceRow.grade_id) || null,
+    gradeLabel: opts.gradeLabel || (sourceRow && sourceRow.grade_label) || null,
+    topic: String(
+      opts.topic || opts.requestedTopic || (sourceRow && (sourceRow.topic || sourceRow.query_text)) || ''
+    ).trim() || null,
+    userEmail: userEmail || null,
+    teacherUser: { id: userId, email: userEmail },
+    userId: userId,
+  };
+
+  const row = buildRow(historyKey, body, safeResultData);
+  row.created_at = new Date().toISOString();
+  row.last_hit_at = row.created_at;
+  const queryText = String(opts.queryText || opts.requestedTopic || body.topic || '').trim();
+  if (queryText) row.query_text = queryText;
+
+  if (isSupabaseCacheEnabled()) {
+    try {
+      const upsertPath = '/rest/v1/' + TABLE_NAME + '?on_conflict=cache_key';
+      const res = await supabaseRequest(upsertPath, {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: safeJsonStringify(row),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.warn('[cached_results] linkArchive upsert error', res.status, errText.slice(0, 200));
+      }
+    } catch (err) {
+      console.warn('[cached_results] linkArchive failed:', err.message || err);
+      return null;
+    }
+  } else {
+    setFallbackCached(historyKey, body, safeResultData);
+  }
+
+  console.log(
+    '[cached_results] linked archive to teacher history',
+    historyKey.slice(0, 12),
+    '←',
+    sourceKey.slice(0, 12)
+  );
+  return { cacheKey: historyKey, linked: true, sourceCacheKey: sourceKey };
+}
+
 function formatHistoryItem(row, options) {
   const opts = options || {};
   const rawData = coerceCachedResultData(row.result_data) || row.result_data || {};
   const data = coerceArchiveLessonResultData(rawData) || rawData;
-  const hasPlan = Boolean(data && data.blockPlan);
+  const hasPlan = isSearchHistoryResultData(data);
   const includeResult = opts.includeResultData !== false;
   return {
     cacheKey: row.cache_key,
@@ -3083,7 +3233,7 @@ async function listTeacherSearchHistory(teacher, options) {
         const rows = await res.json();
         if (Array.isArray(rows)) {
           const items = rows
-            .filter(function (row) { return row && row.result_data && row.result_data.blockPlan; })
+            .filter(function (row) { return row && row.result_data && isSearchHistoryResultData(row.result_data); })
             .map(formatHistoryItem);
           return dedupeSearchHistoryItems(items, limit);
         }
@@ -3221,7 +3371,7 @@ async function getTeacherLessonByCacheKey(teacher, cacheKey) {
   const coerced = await readAndValidateCachedResultData(row, cacheKey);
   if (!coerced) return null;
   let data = coerceArchiveLessonResultData(coerced);
-  if (!data || !data.blockPlan) {
+  if (!isSearchHistoryResultData(data)) {
     await purgeCorruptedCachedRow(cacheKey, 'invalid_lesson_shape');
     return null;
   }
@@ -4284,6 +4434,8 @@ module.exports = {
   isSupabaseCacheEnabled,
   listTeacherSearchHistory,
   listTeacherChatHistory,
+  linkArchiveToTeacherHistory,
+  isSearchHistoryResultData,
   getTeacherLessonByCacheKey,
   getCommunityLessonByCacheKey,
   saveTopicChatSession,

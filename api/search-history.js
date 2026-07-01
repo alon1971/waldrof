@@ -292,6 +292,36 @@ async function executeSearchHistory(req) {
     return { ok: true, action: 'reload', item: item };
   }
 
+  if (action === 'link_archive') {
+    const teacher = await resolveTeacher(req, body);
+    const cacheKey = String((body && body.cacheKey) || '').trim();
+    if (!cacheKey) {
+      const err = new Error('חסר מזהה ארכיון לרישום בהיסטוריה');
+      err.statusCode = 400;
+      throw err;
+    }
+    const linked = await cacheDb.linkArchiveToTeacherHistory(teacher, cacheKey, {
+      topic: body && body.topic,
+      gradeId: body && (body.gradeId || body.currentGrade),
+      gradeLabel: body && body.gradeLabel,
+      queryText: body && (body.queryText || body.userQuery || body.topic),
+      requestedTopic: body && body.requestedTopic,
+    });
+    if (!linked) {
+      const err = new Error('לא ניתן לרשום את החיפוש בהיסטוריה האישית');
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      ok: true,
+      action: 'link_archive',
+      cacheKey: linked.cacheKey,
+      sourceCacheKey: linked.sourceCacheKey,
+      linked: Boolean(linked.linked),
+      touched: Boolean(linked.touched),
+    };
+  }
+
   const teacher = await resolveTeacher(req, body);
 
   if (action === 'save_chat') {

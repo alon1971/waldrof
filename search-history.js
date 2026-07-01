@@ -159,7 +159,14 @@
     renderTable();
 
     return fetchLessonByCacheKey(cacheKey).then(function (item) {
-      if (!item || !item.resultData || !item.resultData.blockPlan) {
+      if (!item || !item.resultData) {
+        throw new Error(deps.t('search_history_error'));
+      }
+      var hasBlockPlan = Boolean(item.resultData.blockPlan);
+      var hasTopicMaster = item.resultData.theory &&
+        (String(item.resultData.core_emphases || '').trim().length > 20 ||
+          (Array.isArray(item.resultData.key_points) && item.resultData.key_points.length));
+      if (!hasBlockPlan && !hasTopicMaster) {
         throw new Error(deps.t('search_history_error'));
       }
       deps.onReload(item);

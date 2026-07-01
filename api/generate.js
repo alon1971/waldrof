@@ -2851,6 +2851,25 @@ async function handleGeneratePost(parsedBody, requestContext, streamHooks) {
     }
   }
   const result = await executeGenerate(parsedBody, apiKey, ctx, streamHooks);
+  if (
+    result &&
+    result.meta &&
+    result.meta.fromCache &&
+    result.meta.cacheKey &&
+    verifiedUser &&
+    (parsedBody.phase === 'topic' || parsedBody.phase === 'topic_master')
+  ) {
+    cacheDb.linkArchiveToTeacherHistory(verifiedUser, result.meta.cacheKey, {
+      topic: parsedBody.topic,
+      gradeId: parsedBody.currentGrade || parsedBody.gradeId,
+      gradeLabel: parsedBody.gradeLabel,
+      queryText: parsedBody.topic,
+      requestedTopic: result.meta.requestedTopic || parsedBody.topic,
+      resultData: result.data,
+    }).catch(function (linkErr) {
+      console.warn('[generate] linkArchiveToTeacherHistory failed:', linkErr.message || linkErr);
+    });
+  }
   const billable = result &&
     result.meta &&
     !result.meta.fromCache &&
