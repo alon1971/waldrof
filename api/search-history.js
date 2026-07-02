@@ -322,21 +322,10 @@ async function executeSearchHistory(req) {
       requestedTopic: body && body.requestedTopic,
     });
     if (!linked) {
-      console.warn('[search-history] link_archive failed — no row created', {
-        cacheKey: cacheKey.slice(0, 12),
-        teacherId: teacher && teacher.id,
-        teacherEmail: teacher && teacher.email,
-      });
       const err = new Error('לא ניתן לרשום את החיפוש בהיסטוריה האישית');
       err.statusCode = 404;
       throw err;
     }
-    console.log('[search-history] link_archive OK', {
-      cacheKey: cacheKey.slice(0, 12),
-      linkedKey: linked.cacheKey ? linked.cacheKey.slice(0, 12) : null,
-      linked: Boolean(linked.linked),
-      touched: Boolean(linked.touched),
-    });
     return {
       ok: true,
       action: 'link_archive',

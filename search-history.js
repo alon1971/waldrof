@@ -70,36 +70,6 @@
     return state.items.find(function (x) { return x.cacheKey === cacheKey; }) || null;
   }
 
-  function isTopicMasterHistoryShape(resultData, item) {
-    if (item && item.phase === 'topic_master') return true;
-    if (!resultData || typeof resultData !== 'object') return false;
-    if (resultData.purePhaseC && typeof resultData.purePhaseC === 'object') return true;
-    if (resultData.theory && typeof resultData.theory === 'object') {
-      if (String(resultData.core_emphases || '').trim().length > 20) return true;
-      if (Array.isArray(resultData.key_points) && resultData.key_points.length) return true;
-    }
-    return false;
-  }
-
-  function hasMeaningfulBlockPlanShell(resultData) {
-    if (!resultData || !resultData.blockPlan || typeof resultData.blockPlan !== 'object') return false;
-    var bp = resultData.blockPlan;
-    if (String(bp.rawContent || '').trim()) return true;
-    var theory = bp.theory;
-    if (theory && Array.isArray(theory.sections) && theory.sections.length) return true;
-    if (Array.isArray(bp.curriculum) && bp.curriculum.length) return true;
-    var wr = resultData.webResearch;
-    if (wr && String(wr.summary || wr.overview || '').trim()) return true;
-    return false;
-  }
-
-  function isOpenableHistoryPayload(resultData, item) {
-    if (!resultData || typeof resultData !== 'object') return false;
-    if (isTopicMasterHistoryShape(resultData, item)) return true;
-    if (hasMeaningfulBlockPlanShell(resultData)) return true;
-    return false;
-  }
-
   function fetchLessonByCacheKey(cacheKey) {
     return deps.getAccessToken().then(function (token) {
       var contributor = deps.getContributor();
@@ -119,29 +89,9 @@
       return res.text().then(function (body) {
         var json;
         try { json = body ? JSON.parse(body) : {}; } catch (e) { json = {}; }
-        if (!res.ok) {
-          var err = new Error((json && json.error) || body || String(res.status));
-          err.statusCode = res.status;
-          err.responseBody = body;
-          console.error('[search-history] reload HTTP error', {
-            cacheKey: cacheKey,
-            status: res.status,
-            error: json && json.error,
-            bodyPreview: body ? String(body).slice(0, 500) : '',
-          });
-          throw err;
-        }
+        if (!res.ok) throw new Error((json && json.error) || body || res.status);
         var data = json.data || json;
-        var item = (data && data.item) || null;
-        if (!item || !item.resultData) {
-          console.error('[search-history] reload empty payload', {
-            cacheKey: cacheKey,
-            item: item,
-            action: data && data.action,
-          });
-          throw new Error(deps.t('search_history_error'));
-        }
-        return item;
+        return (data && data.item) || null;
       });
     });
   }
@@ -209,26 +159,20 @@
     renderTable();
 
     return fetchLessonByCacheKey(cacheKey).then(function (item) {
-      if (!isOpenableHistoryPayload(item.resultData, item)) {
-        console.error('[search-history] reload unusable lesson shape', {
-          cacheKey: cacheKey,
-          phase: item.phase,
-          hasBlockPlan: Boolean(item.resultData && item.resultData.blockPlan),
-          hasPurePhaseC: Boolean(item.resultData && item.resultData.purePhaseC),
-          hasTheory: Boolean(item.resultData && item.resultData.theory),
-        });
+      if (!item || !item.resultData) {
         throw new Error(deps.t('search_history_error'));
       }
-      return Promise.resolve(deps.onReload(item)).then(function () {
-        closeView();
-      });
+      var hasBlockPlan = Boolean(item.resultData.blockPlan);
+      var hasTopicMaster = item.resultData.theory &&
+        (String(item.resultData.core_emphases || '').trim().length > 20 ||
+          (Array.isArray(item.resultData.key_points) && item.resultData.key_points.length));
+      if (!hasBlockPlan && !hasTopicMaster) {
+        throw new Error(deps.t('search_history_error'));
+      }
+      deps.onReload(item);
+      closeView();
     }).catch(function (err) {
-      console.error('[search-history] open history item failed', {
-        cacheKey: cacheKey,
-        statusCode: err && err.statusCode,
-        message: err && err.message,
-        responseBody: err && err.responseBody ? String(err.responseBody).slice(0, 500) : undefined,
-      });
+      console.error('[search-history] fetch reload failed:', err);
       alert((err && err.message) || deps.t('search_history_error'));
     }).finally(function () {
       state.openingKey = '';

@@ -3066,39 +3066,13 @@ function teacherOwnsRow(teacher, row) {
   return false;
 }
 
-function isTopicMasterHistoryData(data) {
-  if (!data || typeof data !== 'object') return false;
-  const d = coerceCachedResultData(data) || data;
-  if (isTopicMasterPayload(d)) return true;
-  if (d._topicMaster && typeof d._topicMaster === 'object') return true;
-  if (d.purePhaseC && typeof d.purePhaseC === 'object') return true;
-  const theory = d.theory;
-  if (!theory || typeof theory !== 'object') return false;
-  if (Array.isArray(theory.sections) && theory.sections.length) return true;
-  return Boolean(
-    String(d.core_emphases || '').trim().length > 20
-    || (Array.isArray(d.key_points) && d.key_points.length > 0)
-  );
-}
-
-function hasMeaningfulLessonBlockPlan(coerced) {
-  if (!coerced || !coerced.blockPlan || typeof coerced.blockPlan !== 'object') return false;
-  const bp = coerced.blockPlan;
-  if (String(bp.rawContent || '').trim()) return true;
-  const theory = bp.theory;
-  if (theory && Array.isArray(theory.sections) && theory.sections.length) return true;
-  if (Array.isArray(bp.curriculum) && bp.curriculum.length) return true;
-  const wr = coerced.webResearch;
-  if (wr && String(wr.summary || wr.overview || '').trim()) return true;
-  return false;
-}
-
 function isSearchHistoryResultData(data) {
   if (!data || typeof data !== 'object') return false;
-  if (isTopicMasterHistoryData(data)) return true;
   const coerced = coerceArchiveLessonResultData(data) || coerceCachedResultData(data) || data;
-  if (isTopicMasterHistoryData(coerced)) return true;
-  return hasMeaningfulLessonBlockPlan(coerced);
+  if (coerced && coerced.blockPlan) return true;
+  if (isTopicMasterPayload(coerced)) return true;
+  if (coerced.purePhaseC && typeof coerced.purePhaseC === 'object') return true;
+  return false;
 }
 
 function buildTeacherHistoryCacheKey(teacher, sourceCacheKey) {
@@ -3175,15 +3149,8 @@ async function linkArchiveToTeacherHistory(teacher, sourceCacheKey, options) {
     resultData = coerceArchiveLessonResultData(resultData) || coerceCachedResultData(resultData) || resultData;
   }
   if (!isSearchHistoryResultData(resultData)) {
-    const rawSource = sourceRow && sourceRow.result_data
-      ? (coerceCachedResultData(sourceRow.result_data) || sourceRow.result_data)
-      : null;
-    if (rawSource && isTopicMasterHistoryData(rawSource)) {
-      resultData = rawSource;
-    } else {
-      console.warn('[cached_results] linkArchive skip — no displayable lesson data', sourceKey.slice(0, 12));
-      return null;
-    }
+    console.warn('[cached_results] linkArchive skip — no displayable lesson data', sourceKey.slice(0, 12));
+    return null;
   }
 
   const payload = Object.assign({}, cloneJsonSafe(resultData) || resultData, {
@@ -3196,7 +3163,7 @@ async function linkArchiveToTeacherHistory(teacher, sourceCacheKey, options) {
   if (!safeResultData) return null;
 
   const body = {
-    phase: (sourceRow && sourceRow.phase === TOPIC_MASTER_PHASE) ? TOPIC_MASTER_PHASE : 'topic',
+    phase: 'topic',
     currentGrade: opts.gradeId || (sourceRow && sourceRow.grade_id) || null,
     gradeId: opts.gradeId || (sourceRow && sourceRow.grade_id) || null,
     gradeLabel: opts.gradeLabel || (sourceRow && sourceRow.grade_label) || null,
