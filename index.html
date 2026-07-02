@@ -2328,6 +2328,127 @@
     body.auth-locked #lesson-chat-fab,
     body.auth-locked #lesson-chat-fullscreen,
     body.auth-locked footer { pointer-events: none; user-select: none; opacity: 0.35; filter: blur(1px); }
+    body.welcome-open { overflow: hidden; }
+    body.welcome-open #app-shell,
+    body.welcome-open #lesson-chat-sidebar,
+    body.welcome-open #lesson-chat-fab-wrap,
+    body.welcome-open footer { pointer-events: none; user-select: none; }
+    #welcome-overlay {
+      position: fixed; inset: 0; z-index: 110;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.25rem;
+      padding-top: max(1.25rem, env(safe-area-inset-top));
+      padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+      background: linear-gradient(145deg, rgba(92, 74, 58, 0.62), rgba(92, 125, 88, 0.48));
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #welcome-overlay.hidden { display: none; }
+    .welcome-card {
+      width: 100%; max-width: 34rem; max-height: min(92vh, 720px);
+      display: flex; flex-direction: column;
+      background: linear-gradient(165deg, #FDFBF7 0%, #F7F3EB 45%, #EDE6D6 100%);
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      border-radius: 1.5rem;
+      box-shadow: 0 24px 64px rgba(92, 74, 58, 0.28), 0 0 0 1px rgba(255,255,255,0.6) inset;
+      overflow: hidden;
+    }
+    .welcome-card-header {
+      padding: 2rem 2rem 1rem;
+      text-align: center;
+      background: linear-gradient(180deg, rgba(122, 155, 118, 0.14), transparent);
+      border-bottom: 1px solid rgba(201, 169, 98, 0.25);
+    }
+    .welcome-card-logo {
+      width: 3.75rem; height: 3.75rem; margin: 0 auto 1rem;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #F7F3EB;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.6rem;
+      box-shadow: 0 4px 16px rgba(92, 125, 88, 0.35);
+    }
+    .welcome-card-title {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.65rem !important;
+      font-weight: 700;
+      color: #8B3A3A;
+      margin: 0;
+      line-height: 1.35 !important;
+    }
+    .welcome-card-subtitle {
+      margin: 0.65rem 0 0;
+      font-size: 1rem !important;
+      color: rgba(92, 74, 58, 0.78);
+      line-height: 1.55 !important;
+    }
+    .welcome-card-body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 1.5rem 2rem 1.25rem;
+      color: #5C4A3A;
+      line-height: 1.75;
+    }
+    .welcome-card-body p {
+      margin: 0 0 1rem;
+      font-size: 1rem !important;
+      line-height: 1.75 !important;
+    }
+    .welcome-card-body p:last-child { margin-bottom: 0; }
+    .welcome-card-body strong { color: #8B3A3A; font-weight: 700; }
+    .welcome-card-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.85rem 1rem;
+      padding: 1.15rem 2rem 1.75rem;
+      border-top: 1px solid rgba(201, 169, 98, 0.3);
+      background: rgba(255,255,255,0.35);
+    }
+    .welcome-hide-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.875rem !important;
+      color: rgba(92, 74, 58, 0.82);
+      cursor: pointer;
+      user-select: none;
+    }
+    .welcome-hide-label input {
+      width: 1rem; height: 1rem;
+      accent-color: #5C7D58;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .welcome-continue-btn {
+      margin-inline-start: auto;
+      padding: 0.85rem 1.75rem;
+      border: none; border-radius: 0.85rem;
+      cursor: pointer; font-weight: 700;
+      font-size: 1rem !important;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.35);
+      transition: transform 0.12s, box-shadow 0.15s;
+      white-space: nowrap;
+    }
+    .welcome-continue-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(92, 125, 88, 0.42);
+    }
+    @media (max-width: 480px) {
+      .welcome-card-header { padding: 1.5rem 1.25rem 0.85rem; }
+      .welcome-card-body { padding: 1.15rem 1.25rem 1rem; }
+      .welcome-card-footer {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 1rem 1.25rem 1.35rem;
+      }
+      .welcome-continue-btn { width: 100%; margin-inline-start: 0; }
+      .welcome-hide-label { justify-content: center; }
+    }
     #auth-overlay {
       position: fixed; inset: 0; z-index: 100;
       display: flex; align-items: flex-start; justify-content: center;
@@ -4267,6 +4388,29 @@
     </button>
   </div>
 
+  <!-- Welcome splash — first visit until user opts out -->
+  <div id="welcome-overlay" class="hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+    <div class="welcome-card">
+      <div class="welcome-card-header">
+        <div class="welcome-card-logo" aria-hidden="true"><i class="fa-solid fa-seedling"></i></div>
+        <h2 id="welcome-title" class="welcome-card-title font-display">ברוכים הבאים</h2>
+        <p class="welcome-card-subtitle font-display">מתכנן תקופות לימוד אנתרופוסופי</p>
+      </div>
+      <div class="welcome-card-body">
+        <p>מסע פדגוגי <strong>שלב-אחר-שלב</strong> לתכנון תקופות לימוד — מכיתה א׳ ועד ח׳.</p>
+        <p>כאן תוכלו לבנות תקופות לימוד עשירות ומותאמות, לגשת למחקר חי, למאגר הקהילתי ולארכיון הידע — הכל במקום אחד, בשפה פדגוגית ומכבדת.</p>
+        <p>המערכת נמצאת בפיתוח מתמשך. נשמח לשמוע מכם — ומאחלים לכם מסע לימוד מעורר השראה.</p>
+      </div>
+      <div class="welcome-card-footer">
+        <label class="welcome-hide-label" for="welcome-hide-checkbox">
+          <input type="checkbox" id="welcome-hide-checkbox" />
+          <span>אל תציג הודעה זו שנית</span>
+        </label>
+        <button type="button" id="welcome-continue-btn" class="welcome-continue-btn">המשך לאתר</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Auth overlay (login / signup) -->
   <div id="auth-overlay" class="hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="auth-card-title">
     <div id="auth-card" class="auth-card">
@@ -5060,6 +5204,51 @@
   <script src="chat-sidebar.js?v=20250627"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+    (function initWelcomeOverlay() {
+      var STORAGE_KEY = 'hideWelcomePage';
+      var overlay = document.getElementById('welcome-overlay');
+      var continueBtn = document.getElementById('welcome-continue-btn');
+      var hideCheckbox = document.getElementById('welcome-hide-checkbox');
+      if (!overlay || !continueBtn) return;
+
+      function shouldHideWelcome() {
+        try { return localStorage.getItem(STORAGE_KEY) === 'true'; } catch (e) { return false; }
+      }
+
+      function showWelcome() {
+        overlay.classList.remove('hidden');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('welcome-open');
+        try { continueBtn.focus({ preventScroll: true }); } catch (e) { continueBtn.focus(); }
+      }
+
+      function hideWelcome() {
+        overlay.classList.add('hidden');
+        overlay.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('welcome-open');
+      }
+
+      function onContinue() {
+        if (hideCheckbox && hideCheckbox.checked) {
+          try { localStorage.setItem(STORAGE_KEY, 'true'); } catch (e) { /* ignore */ }
+        }
+        hideWelcome();
+      }
+
+      continueBtn.addEventListener('click', onContinue);
+      overlay.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') onContinue();
+      });
+
+      if (!shouldHideWelcome()) {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', showWelcome);
+        } else {
+          showWelcome();
+        }
+      }
+    })();
 
     // =============================================================================
     // Runtime config — loaded from server env via GET /api/config (Render / local .env)
@@ -25367,9 +25556,3 @@
   </script>
 </body>
 </html>
-
-init error:', err); });
-  </script>
-</body>
-</html>
-
