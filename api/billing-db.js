@@ -15,6 +15,9 @@ const BILLING_WRITE_COLUMNS = [
   'word_downloads_count',
   'auto_renew',
   'expires_at',
+  'user_email',
+  'user_full_name',
+  'user_phone',
   'updated_at',
 ];
 
@@ -80,6 +83,35 @@ function pickBillingFields(obj) {
     if (obj && obj[key] !== undefined) out[key] = obj[key];
   });
   return out;
+}
+
+function buildBillingContactPatch(opts) {
+  const o = opts || {};
+  const out = {};
+  const email = String(o.email || o.user_email || '').trim().toLowerCase();
+  const fullName = String(o.fullName || o.name || o.user_full_name || '').trim();
+  const phone = String(o.phone || o.user_phone || '').trim();
+  if (email) out.user_email = email;
+  if (fullName) out.user_full_name = fullName;
+  if (phone) out.user_phone = phone;
+  return out;
+}
+
+function extractPhoneFromAuthUser(authUser) {
+  if (!authUser) return '';
+  const meta = authUser.user_metadata || authUser.raw_user_meta_data || {};
+  const candidates = [meta.phone, meta.phone_number, meta.mobile, authUser.phone];
+  for (let i = 0; i < candidates.length; i++) {
+    const value = String(candidates[i] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function extractFullNameFromAuthUser(authUser) {
+  if (!authUser) return '';
+  const meta = authUser.user_metadata || authUser.raw_user_meta_data || {};
+  return String(meta.full_name || meta.name || '').trim();
 }
 
 function subscriptionStatusLabel(planType) {
@@ -203,11 +235,11 @@ async function activatePaidSubscription(options) {
 
   if (!userId) throw new Error('activatePaidSubscription requires userId');
 
-  const subRow = await upsertSubscriptionRow(userId, {
+  const subRow = await upsertSubscriptionRow(userId, Object.assign({
     plan_type: planType,
     expires_at: expiresAt,
     auto_renew: autoRenew,
-  });
+  }, buildBillingContactPatch(opts)));
 
   log('activated', { userId: userId, email: email || undefined, planType: planType, expiresAt: expiresAt });
   return subRow;

@@ -78,6 +78,8 @@ async function handlePaymentSuccessRequest(req, body) {
   const subRow = await billingDb.activatePaidSubscription({
     userId: userId,
     email: email,
+    fullName: name,
+    phone: phone,
     planType: parsed.planType,
     expiresAt: expiresAt,
     autoRenew: true,

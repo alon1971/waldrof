@@ -21,6 +21,9 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
   'word_downloads_count',
   'auto_renew',
   'expires_at',
+  'user_email',
+  'user_full_name',
+  'user_phone',
   'updated_at',
 ];
 
@@ -150,6 +153,73 @@ function pickSubscriptionWriteFields(obj) {
   return out;
 }
 
+function extractPhoneFromAuthMeta(meta, user) {
+  const m = meta || {};
+  const candidates = [
+    m.phone,
+    m.phone_number,
+    m.mobile,
+    user && user.phone,
+  ];
+  for (let i = 0; i < candidates.length; i++) {
+    const value = String(candidates[i] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function buildSubscriptionContactPatch(user, patch) {
+  const u = user || {};
+  const p = patch || {};
+  const email = normalizeEmail(p.user_email || p.email || u.email);
+  const fullName = String(
+    p.user_full_name || p.fullName || p.name || p.displayName || u.fullName || u.name || ''
+  ).trim();
+  const phone = String(p.user_phone || p.phone || u.phone || u.user_phone || '').trim();
+  const out = {};
+  if (email) out.user_email = email;
+  if (fullName) out.user_full_name = fullName;
+  if (phone) out.user_phone = phone;
+  return out;
+}
+
+function shouldRefreshSubscriptionContact(row, contactPatch) {
+  if (!row || !contactPatch) return false;
+  if (contactPatch.user_email && !String(row.user_email || '').trim()) return true;
+  if (contactPatch.user_full_name && !String(row.user_full_name || '').trim()) return true;
+  if (contactPatch.user_phone && !String(row.user_phone || '').trim()) return true;
+  if (contactPatch.user_email && normalizeEmail(row.user_email) !== contactPatch.user_email) return true;
+  if (contactPatch.user_full_name && String(row.user_full_name || '').trim() !== contactPatch.user_full_name) return true;
+  if (contactPatch.user_phone && String(row.user_phone || '').trim() !== contactPatch.user_phone) return true;
+  return false;
+}
+
+async function enrichUserFromProfile(user, userToken) {
+  if (!user || !user.id) return user;
+  try {
+    const params = new URLSearchParams();
+    params.set('select', 'email,display_name');
+    params.set('id', 'eq.' + mapSupabaseUserId(user.id, user.email));
+    params.set('limit', '1');
+    const res = await supabaseRequest(
+      '/rest/v1/profiles?' + params.toString(),
+      { method: 'GET' },
+      userToken
+    );
+    const rows = await readSupabaseResponse(res, 'profiles read');
+    const profile = Array.isArray(rows) && rows.length ? rows[0] : null;
+    if (!profile) return user;
+    return Object.assign({}, user, {
+      email: user.email || profile.email || '',
+      name: user.name || profile.display_name || user.name,
+      fullName: user.fullName || profile.display_name || user.fullName,
+    });
+  } catch (profileErr) {
+    logUsage('profile_enrich_skip', profileErr.message || profileErr);
+    return user;
+  }
+}
+
 function setCors(res) {
   Object.entries(corsHeaders).forEach(function (entry) {
     res.setHeader(entry[0], entry[1]);
@@ -271,10 +341,13 @@ async function verifySupabaseToken(token) {
   }
   if (!user || !user.id) return null;
   const meta = user.user_metadata || {};
+  const fullName = meta.full_name || meta.name || (user.email ? user.email.split('@')[0] : '');
   return {
     id: user.id,
     email: user.email || '',
-    name: meta.full_name || meta.name || (user.email ? user.email.split('@')[0] : ''),
+    name: fullName,
+    fullName: fullName,
+    phone: extractPhoneFromAuthMeta(meta, user),
     tier: 'trial',
   };
 }
@@ -299,6 +372,8 @@ async function resolveUser(req, body) {
       id: fromBody.id,
       email: normalizeEmail(fromBody.email),
       name: fromBody.name || fromBody.displayName || '',
+      fullName: fromBody.fullName || fromBody.name || fromBody.displayName || '',
+      phone: fromBody.phone || fromBody.user_phone || '',
       tier: normalizeTier(fromBody.tier || fromBody.plan_type || 'trial'),
     });
   }
@@ -309,6 +384,8 @@ async function resolveUser(req, body) {
       id: fromBody && fromBody.id ? String(fromBody.id).trim() : ('email:' + email),
       email: email,
       name: (fromBody && (fromBody.name || fromBody.displayName)) || email.split('@')[0],
+      fullName: (fromBody && (fromBody.fullName || fromBody.name || fromBody.displayName)) || email.split('@')[0],
+      phone: (fromBody && (fromBody.phone || fromBody.user_phone)) || '',
       tier: isProUserEmail(email) ? 'pro' : normalizeTier((fromBody && fromBody.tier) || 'trial'),
     });
   }
@@ -434,6 +511,7 @@ function subscriptionRowFromPatch(user, patch, existing) {
   const nextCount = (patch && patch.search_count_monthly != null)
     ? Number(patch.search_count_monthly)
     : prevCount;
+  const contact = buildSubscriptionContactPatch(user, patch);
 
   return pickSubscriptionWriteFields({
     user_id: user.id,
@@ -446,6 +524,9 @@ function subscriptionRowFromPatch(user, patch, existing) {
       ? patch.auto_renew
       : (prev.auto_renew !== false),
     expires_at: (patch && patch.expires_at !== undefined) ? patch.expires_at : (prev.expires_at || null),
+    user_email: contact.user_email || prev.user_email || null,
+    user_full_name: contact.user_full_name || prev.user_full_name || null,
+    user_phone: contact.user_phone || prev.user_phone || null,
     updated_at: new Date().toISOString(),
   });
 }
@@ -484,12 +565,13 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const params = new URLSearchParams();
   params.set('user_id', 'eq.' + pk);
 
-  const writePatch = pickSubscriptionWriteFields(
-    Object.assign({}, patch, {
+  const mergedRow = user
+    ? subscriptionRowFromPatch(user, patch, existing)
+    : pickSubscriptionWriteFields(Object.assign({}, patch, {
       plan_type: patch.plan_type || patch.tier,
       updated_at: new Date().toISOString(),
-    })
-  );
+    }));
+  const writePatch = Object.assign({}, mergedRow);
   delete writePatch.user_id;
 
   logUsage('update:before', {
@@ -554,15 +636,19 @@ async function upsertSubscriptionRow(user, patch, userToken) {
 
 async function ensureSubscription(user, userToken) {
   user = applyLocalDemoUserIdMapping(user);
+  user = await enrichUserFromProfile(user, userToken);
+  const contactPatch = buildSubscriptionContactPatch(user);
   let row = await fetchSubscriptionRow(user.id, userToken, user.email);
   if (!row) {
     logUsage('ensure:create_row', { user_id: user.id });
-    row = await insertSubscriptionRow(user, {
+    row = await insertSubscriptionRow(user, Object.assign({
       plan_type: normalizeTier(user.tier || 'trial'),
       search_count_monthly: 0,
       word_downloads_count: 0,
       auto_renew: true,
-    }, userToken);
+    }, contactPatch), userToken);
+  } else if (shouldRefreshSubscriptionContact(row, contactPatch)) {
+    row = await updateSubscriptionRow(user.id, contactPatch, row, user, userToken);
   }
   return row;
 }

@@ -8,4 +8,7 @@
 -- word_downloads_count integer
 -- auto_renew boolean
 -- expires_at timestamptz nullable
+-- user_email text (teacher email, denormalized)
+-- user_full_name text (teacher display name)
+-- user_phone text (teacher phone)
 -- created_at, updated_at timestamptz

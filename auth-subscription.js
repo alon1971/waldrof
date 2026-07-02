@@ -798,6 +798,18 @@
     return '/api/subscription';
   }
 
+  function buildTeacherUserPayload() {
+    if (!authState.user) return null;
+    return {
+      id: authState.user.id,
+      email: authState.user.email || getIdentityEmail(),
+      displayName: authState.user.displayName,
+      name: getUpgradeUserFullName(),
+      fullName: getUpgradeUserFullName(),
+      phone: getUpgradeUserPhone(),
+    };
+  }
+
   function fetchSubscriptionAction(action) {
     var identityEmail = getIdentityEmail();
     if (!authState.isAuthenticated && !identityEmail) return Promise.resolve(null);
@@ -806,12 +818,9 @@
       if (token) headers.Authorization = 'Bearer ' + token;
       if (identityEmail) headers['X-User-Email'] = identityEmail;
       var body = { action: action || 'status', userEmail: identityEmail || undefined };
-      if (authState.user) {
-        body.teacherUser = {
-          id: authState.user.id,
-          email: authState.user.email || identityEmail,
-          displayName: authState.user.displayName,
-        };
+      var teacherUser = buildTeacherUserPayload();
+      if (teacherUser) {
+        body.teacherUser = teacherUser;
       } else if (identityEmail) {
         body.teacherUser = {
           email: identityEmail,
@@ -1361,12 +1370,9 @@
         userEmail: identityEmail || undefined,
       };
       if (authState.user) {
-        body.teacherUser = {
-          id: authState.user.id,
-          email: authState.user.email || identityEmail,
-          displayName: authState.user.displayName,
+        body.teacherUser = Object.assign({}, buildTeacherUserPayload() || {}, {
           tier: authState.tier,
-        };
+        });
       }
       return fetch(billingCheckoutUrl, {
         method: 'POST',
