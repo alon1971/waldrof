@@ -70,15 +70,33 @@
     return state.items.find(function (x) { return x.cacheKey === cacheKey; }) || null;
   }
 
-  function isOpenableHistoryPayload(resultData, item) {
-    if (!resultData || typeof resultData !== 'object') return false;
-    if (resultData.blockPlan) return true;
-    if (resultData.purePhaseC && typeof resultData.purePhaseC === 'object') return true;
+  function isTopicMasterHistoryShape(resultData, item) {
     if (item && item.phase === 'topic_master') return true;
+    if (!resultData || typeof resultData !== 'object') return false;
+    if (resultData.purePhaseC && typeof resultData.purePhaseC === 'object') return true;
     if (resultData.theory && typeof resultData.theory === 'object') {
       if (String(resultData.core_emphases || '').trim().length > 20) return true;
       if (Array.isArray(resultData.key_points) && resultData.key_points.length) return true;
     }
+    return false;
+  }
+
+  function hasMeaningfulBlockPlanShell(resultData) {
+    if (!resultData || !resultData.blockPlan || typeof resultData.blockPlan !== 'object') return false;
+    var bp = resultData.blockPlan;
+    if (String(bp.rawContent || '').trim()) return true;
+    var theory = bp.theory;
+    if (theory && Array.isArray(theory.sections) && theory.sections.length) return true;
+    if (Array.isArray(bp.curriculum) && bp.curriculum.length) return true;
+    var wr = resultData.webResearch;
+    if (wr && String(wr.summary || wr.overview || '').trim()) return true;
+    return false;
+  }
+
+  function isOpenableHistoryPayload(resultData, item) {
+    if (!resultData || typeof resultData !== 'object') return false;
+    if (isTopicMasterHistoryShape(resultData, item)) return true;
+    if (hasMeaningfulBlockPlanShell(resultData)) return true;
     return false;
   }
 
@@ -201,8 +219,9 @@
         });
         throw new Error(deps.t('search_history_error'));
       }
-      deps.onReload(item);
-      closeView();
+      return Promise.resolve(deps.onReload(item)).then(function () {
+        closeView();
+      });
     }).catch(function (err) {
       console.error('[search-history] open history item failed', {
         cacheKey: cacheKey,

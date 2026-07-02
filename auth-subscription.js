@@ -1623,13 +1623,13 @@
     });
   }
 
-  /** After a successful live /api/generate response — sync usage from server, never trust stale client cache. */
+  /** After a successful live search — sync usage from server; never double-bill when searchBilled. */
   function syncUsageAfterLiveSearch(meta) {
     var m = meta || {};
     var chain = Promise.resolve();
     if (m.usage) {
       applyServerUsage(m.usage);
-    } else if (!m.searchBilled) {
+    } else if (!m.searchBilled && !m.fromCache) {
       chain = recordSearch().catch(function (usageErr) {
         console.warn('[usage] recordSearch failed after generate:', usageErr && usageErr.message ? usageErr.message : usageErr);
         return null;

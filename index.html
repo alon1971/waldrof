@@ -7183,9 +7183,6 @@
         if (scope === 'phase-c' || isPhaseCView()) {
           phaseCRenderUnifiedView(response.data);
         }
-        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
-          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
-        }
         if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
       } catch (err) {
         if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isTopicResearchAbortError(err)) return;
@@ -7237,9 +7234,6 @@
         appState.gradeFromArchive = false;
         appState.gradeResearch = data;
         renderGradeInsightsPanel(appState.grade, data);
-        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
-          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
-        }
       } catch (err) {
         if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isGradeResearchAbortError(err)) return;
         if (isRateLimitError(err)) return;
@@ -7285,9 +7279,6 @@
         appState.generalSearchFromArchive = false;
         appState.generalSearchResult = response.data;
         renderGeneralSearchResults(response.data);
-        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function') {
-          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
-        }
       } catch (err) {
         if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isGeneralSearchAbortError(err)) return;
         var resultsEl = document.getElementById('general-search-results');
@@ -7875,7 +7866,7 @@
       options = options || {};
       try {
         const normalized = coerceArchiveLessonResultData(item);
-        if (!normalized || !normalized.blockPlan) {
+        if (!normalized || !hasTopicResearchContent(normalized)) {
           throw new Error(t('search_history_error'));
         }
         item = Object.assign({}, item || {}, { resultData: normalized });
@@ -14970,11 +14961,13 @@
     }
 
     function isTopicMasterHistoryItem(item) {
-      var data = item && item.resultData;
-      if (!data || typeof data !== 'object') return false;
-      if (data.blockPlan) return false;
+      if (!item) return false;
       if (item.phase === 'topic_master') return true;
+      var data = item.resultData;
+      if (!data || typeof data !== 'object') return false;
       if (data.purePhaseC && typeof data.purePhaseC === 'object') return true;
+      if (extractTopicMasterFromData(data)) return true;
+      if (hasTopicResearchContent(data)) return false;
       return Boolean(
         data.theory &&
         typeof data.theory === 'object' &&
@@ -19870,7 +19863,11 @@
         }
         throw new Error(json.error || ('שגיאת שרת (' + res.status + ')'));
       }
-      if (json.meta && json.meta.usage && typeof WaldorfAuth !== 'undefined') {
+      if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.syncUsageAfterLiveSearch === 'function') {
+        try {
+          await WaldorfAuth.syncUsageAfterLiveSearch(json.meta || {});
+        } catch (usageSyncErr) { /* ignore */ }
+      } else if (json.meta && json.meta.usage && typeof WaldorfAuth !== 'undefined') {
         try { WaldorfAuth.applyUsageFromServer(json.meta.usage); } catch (usageSyncErr) { /* ignore */ }
       }
       return { data: json.data || json, meta: json.meta || null };
@@ -21924,8 +21921,12 @@
     }
 
     function applyTopicMasterArchivePayload(topic, match) {
-      var payload = match.historicPayload || (match.resultData && match.resultData.purePhaseC) || null;
-      if (!payload) return Promise.resolve(false);
+      var rawPayload = match.historicPayload
+        || (match.resultData && match.resultData.purePhaseC)
+        || match.resultData
+        || null;
+      var payload = extractTopicMasterFromData(rawPayload) || rawPayload;
+      if (!payload || typeof payload !== 'object') return Promise.resolve(false);
       appState.archiveSuggestionPending = false;
       appState.archiveFreshSearchPending = false;
       appState.archiveRejectedSearch = null;
@@ -22432,9 +22433,6 @@
           }
         }
 
-        if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordSearch === 'function' && !meta.fromCache) {
-          try { await WaldorfAuth.recordSearch(); } catch (usageErr) { /* ignore */ }
-        }
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
       } catch (e) {
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
@@ -25360,20 +25358,30 @@
           onReload: function (item) {
             if (isTopicMasterHistoryItem(item)) {
               var rd = item.resultData || {};
-              var historicPayload = (rd.purePhaseC && typeof rd.purePhaseC === 'object')
-                ? rd.purePhaseC
-                : rd;
-              applyTopicMasterArchivePayload(item.topic || appState.topic, {
+              var topic = String(item.topic || appState.topic || '').trim();
+              var gradeId = item.gradeId || appState.grade;
+              if (gradeId) {
+                appState.grade = gradeId;
+                appState.gradeLabel = item.gradeLabel || getGradeLabelById(gradeId);
+                var gradeSelect = document.getElementById('grade-select');
+                if (gradeSelect) gradeSelect.value = gradeId;
+              }
+              if (topic) {
+                appState.topic = topic;
+                var topicInput = document.getElementById('topic-input');
+                if (topicInput) topicInput.value = topic;
+              }
+              appState.lessonCacheKey = item.cacheKey || '';
+              appState.lessonFromArchive = true;
+              var historicPayload = (rd.purePhaseC && typeof rd.purePhaseC === 'object') ? rd.purePhaseC : rd;
+              var tmPayload = extractTopicMasterFromData(historicPayload) || historicPayload;
+              return applyTopicMasterArchivePayload(topic, {
                 cacheKey: item.cacheKey,
-                historicPayload: historicPayload,
-                resultData: item.resultData,
+                historicPayload: tmPayload,
+                resultData: rd,
               });
-              return;
             }
-            applyLessonPlanFromHistory(item).catch(function (err) {
-              console.error('[search-history] apply failed:', err);
-              alert((err && err.message) || t('search_history_error'));
-            });
+            return applyLessonPlanFromHistory(item);
           },
         });
       }

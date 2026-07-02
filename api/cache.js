@@ -3069,9 +3069,16 @@ function teacherOwnsRow(teacher, row) {
 function isSearchHistoryResultData(data) {
   if (!data || typeof data !== 'object') return false;
   const coerced = coerceArchiveLessonResultData(data) || coerceCachedResultData(data) || data;
-  if (coerced && coerced.blockPlan) return true;
   if (isTopicMasterPayload(coerced)) return true;
   if (coerced.purePhaseC && typeof coerced.purePhaseC === 'object') return true;
+  if (coerced && coerced.blockPlan && typeof coerced.blockPlan === 'object') {
+    if (String(coerced.blockPlan.rawContent || '').trim()) return true;
+    const theory = coerced.blockPlan.theory;
+    if (theory && Array.isArray(theory.sections) && theory.sections.length) return true;
+    if (Array.isArray(coerced.blockPlan.curriculum) && coerced.blockPlan.curriculum.length) return true;
+    const wr = coerced.webResearch;
+    if (wr && String(wr.summary || wr.overview || '').trim()) return true;
+  }
   return false;
 }
 
