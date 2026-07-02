@@ -3868,6 +3868,34 @@
       margin: 0 0 1rem;
       max-width: 28rem;
     }
+    .archive-upgrade-action {
+      margin: 1.25rem 0 0.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(92, 125, 88, 0.12);
+      text-align: start;
+    }
+    .archive-upgrade-live-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.85rem;
+      font-size: 0.78rem;
+      line-height: 1.3;
+      color: #5C7D58;
+      background: rgba(247, 243, 235, 0.65);
+      border: 1px solid rgba(92, 125, 88, 0.22);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .archive-upgrade-live-btn:hover {
+      background: rgba(247, 243, 235, 0.95);
+      border-color: rgba(92, 125, 88, 0.35);
+    }
+    .archive-upgrade-live-btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
     .archive-upgrade-query .lesson-chat-suggest-actions {
       flex-direction: row;
       flex-wrap: wrap;
@@ -7035,12 +7063,19 @@
 
     function dismissArchiveUpgradeQuery(scope) {
       appState.archiveUpgradeDismissed[archiveUpgradeDismissKey(scope)] = true;
-      document.querySelectorAll('.archive-upgrade-query[data-archive-upgrade-scope="' + scope + '"]').forEach(function (node) {
+      document.querySelectorAll('[data-archive-upgrade-scope="' + scope + '"]').forEach(function (node) {
         node.remove();
       });
     }
 
+    function canUseArchiveLiveUpgrade() {
+      return typeof WaldorfAuth !== 'undefined'
+        && typeof WaldorfAuth.isProUser === 'function'
+        && WaldorfAuth.isProUser();
+    }
+
     function shouldShowArchiveUpgradeQuery(scope) {
+      if (!canUseArchiveLiveUpgrade()) return false;
       if (appState.archiveUpgradeActive) return false;
       if (isArchiveUpgradeDismissed(scope)) return false;
       if (scope === 'grade') return Boolean(appState.gradeFromArchive);
@@ -7048,29 +7083,24 @@
       return Boolean(appState.lessonFromArchive);
     }
 
-    function buildArchiveUpgradeQueryHtml(scope) {
-      return '<div class="archive-upgrade-query lesson-chat-bubble lesson-chat-bubble--assistant" data-archive-upgrade-scope="' +
-        escapeHtml(scope) + '" role="dialog" aria-live="polite">' +
-        '<p class="lesson-chat-bubble-body m-0">' + escapeHtml(t('archive_upgrade_prompt')) + '</p>' +
-        '<div class="lesson-chat-suggest-actions">' +
-        '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--yes archive-upgrade-yes" data-archive-upgrade-scope="' +
-        escapeHtml(scope) + '">' + escapeHtml(t('archive_upgrade_yes')) + '</button>' +
-        '<button type="button" class="lesson-chat-suggest-btn lesson-chat-suggest-btn--no archive-upgrade-no" data-archive-upgrade-scope="' +
-        escapeHtml(scope) + '">' + escapeHtml(t('archive_upgrade_no')) + '</button>' +
-        '</div></div>';
+    function buildArchiveUpgradeActionHtml(scope) {
+      return '<div class="archive-upgrade-action" data-archive-upgrade-scope="' + escapeHtml(scope) + '">' +
+        '<button type="button" class="archive-upgrade-live-btn" data-archive-upgrade-scope="' + escapeHtml(scope) + '">' +
+        '<i class="fa-solid fa-satellite-dish" aria-hidden="true"></i> ' +
+        escapeHtml(t('archive_upgrade_live_btn')) + '</button></div>';
     }
 
     function mountArchiveUpgradeQuery(container, scope) {
       if (!container || !shouldShowArchiveUpgradeQuery(scope)) return;
-      var existing = container.querySelector('.archive-upgrade-query[data-archive-upgrade-scope="' + scope + '"]');
+      var existing = container.querySelector('[data-archive-upgrade-scope="' + scope + '"]');
       if (existing) return;
-      container.insertAdjacentHTML('afterbegin', buildArchiveUpgradeQueryHtml(scope));
+      container.insertAdjacentHTML('beforeend', buildArchiveUpgradeActionHtml(scope));
     }
 
     function removeArchiveUpgradeQueries(scope) {
       var selector = scope
-        ? '.archive-upgrade-query[data-archive-upgrade-scope="' + scope + '"]'
-        : '.archive-upgrade-query';
+        ? '[data-archive-upgrade-scope="' + scope + '"]'
+        : '.archive-upgrade-action, .archive-upgrade-query';
       document.querySelectorAll(selector).forEach(function (node) { node.remove(); });
     }
 
@@ -7319,16 +7349,10 @@
       if (archiveUpgradeEventsBound) return;
       archiveUpgradeEventsBound = true;
       document.addEventListener('click', function (e) {
-        var yesBtn = e.target.closest('.archive-upgrade-yes');
-        if (yesBtn) {
+        var liveBtn = e.target.closest('.archive-upgrade-live-btn');
+        if (liveBtn) {
           e.preventDefault();
-          handleArchiveUpgradeYes(yesBtn.getAttribute('data-archive-upgrade-scope') || 'step-b');
-          return;
-        }
-        var noBtn = e.target.closest('.archive-upgrade-no');
-        if (noBtn) {
-          e.preventDefault();
-          handleArchiveUpgradeNo(noBtn.getAttribute('data-archive-upgrade-scope') || 'step-b');
+          handleArchiveUpgradeNo(liveBtn.getAttribute('data-archive-upgrade-scope') || 'step-b');
         }
       });
     }
@@ -7859,6 +7883,9 @@
       runAfterLayout(function () {
         scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
       });
+      if (appState.lessonFromArchive && appState.lessonCacheKey) {
+        scheduleArchiveHistoryLink({ fromCache: true, cacheKey: appState.lessonCacheKey }, topicStr);
+      }
       return true;
     }
 
@@ -14960,6 +14987,27 @@
       return payload && payload.cacheKey ? payload.cacheKey : cacheKey;
     }
 
+    function scheduleArchiveHistoryLink(meta, topic) {
+      var m = meta || {};
+      var cacheKey = String(m.cacheKey || appState.lessonCacheKey || '').trim();
+      if (!cacheKey) return;
+      if (!m.fromCache && !appState.lessonFromArchive) return;
+      if (typeof WaldorfAuth === 'undefined' || !WaldorfAuth.getState().isAuthenticated) return;
+      recordArchiveSearchHistory({
+        cacheKey: cacheKey,
+        topic: topic || appState.topic || '',
+        gradeId: appState.grade,
+        gradeLabel: appState.gradeLabel,
+        queryText: topic || appState.topic || '',
+        userQuery: topic || appState.topic || '',
+        requestedTopic: topic || appState.topic || '',
+      }).then(function () {
+        if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+      }).catch(function (linkErr) {
+        console.warn('[waldrof] scheduleArchiveHistoryLink failed:', linkErr && linkErr.message ? linkErr.message : linkErr);
+      });
+    }
+
     function isTopicMasterHistoryItem(item) {
       if (!item) return false;
       if (item.phase === 'topic_master') return true;
@@ -21973,18 +22021,6 @@
         statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
           escapeHtml(isEnglish() ? 'Loaded from archive — review the topic summary, then open Step C when ready.' : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.') + '</p>',
       });
-      if (match.cacheKey) {
-        recordArchiveSearchHistory({
-          cacheKey: match.cacheKey,
-          topic: topic,
-          gradeId: appState.grade,
-          gradeLabel: appState.gradeLabel,
-          userQuery: topic,
-          requestedTopic: topic,
-        }).catch(function (linkErr) {
-          console.warn('[waldrof] recordArchiveSearchHistory failed:', linkErr);
-        });
-      }
       if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
       setTopicResearchLoadingUi(false);
       var archiveBtn = document.getElementById('btn-topic-research');
@@ -22416,6 +22452,9 @@
         enableWizardTopicStepNavigation();
         scrollToWizardTopicViewport({ behavior: 'smooth', focusField: false });
       });
+      if (meta.fromCache && meta.cacheKey) {
+        scheduleArchiveHistoryLink(meta, topic);
+      }
     }
 
     async function runPurePhaseCFromStepB(topic, runId, signal, options) {
@@ -22437,36 +22476,6 @@
         }));
 
         scrollToStepBAndFocus({ behavior: 'smooth', focusField: false });
-
-        if (meta.fromCache && meta.cacheKey) {
-          try {
-            await recordArchiveSearchHistory({
-              cacheKey: meta.cacheKey,
-              topic: topic,
-              gradeId: appState.grade,
-              gradeLabel: appState.gradeLabel,
-              userQuery: topic,
-              requestedTopic: topic,
-            });
-            if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
-          } catch (linkErr) {
-            console.warn('[waldrof] recordArchiveSearchHistory failed:', linkErr);
-          }
-        } else if (meta.cacheKey) {
-          try {
-            await recordArchiveSearchHistory({
-              cacheKey: meta.cacheKey,
-              topic: topic,
-              gradeId: appState.grade,
-              gradeLabel: appState.gradeLabel,
-              userQuery: topic,
-              requestedTopic: topic,
-            });
-            if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
-          } catch (linkErr) {
-            console.warn('[waldrof] recordArchiveSearchHistory failed:', linkErr);
-          }
-        }
 
         if (btn) btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
       } catch (e) {
