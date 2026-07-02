@@ -1177,15 +1177,34 @@
     });
   }
 
-  function clearAllBrowserStorage() {
-    try { localStorage.clear(); } catch (e) { /* */ }
-    try { sessionStorage.clear(); } catch (e) { /* */ }
+  function clearAuthBrowserStorage() {
+    var keys = [
+      STORAGE_AUTH,
+      STORAGE_USAGE,
+      STORAGE_WORD_DOWNLOADS,
+      STORAGE_IDENTITY_EMAIL,
+      'chat_history',
+    ];
+    keys.forEach(function (key) {
+      try { localStorage.removeItem(key); } catch (e) { /* */ }
+    });
+    // Supabase session tokens — do not use localStorage.clear(); preserve UI prefs (e.g. hideWelcomePage).
+    try {
+      var toRemove = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && /^sb-.*-auth-token$/.test(k)) toRemove.push(k);
+      }
+      toRemove.forEach(function (k) {
+        try { localStorage.removeItem(k); } catch (e) { /* */ }
+      });
+    } catch (e) { /* */ }
   }
 
   function completeLogoutRedirect() {
     if (logoutFinalized) return;
     logoutFinalized = true;
-    clearAllBrowserStorage();
+    clearAuthBrowserStorage();
     resetSupabaseClient();
     authState.isAuthenticated = false;
     authState.user = null;
