@@ -14961,17 +14961,48 @@
     }
 
     function isTopicMasterHistoryItem(item) {
-      var data = item && item.resultData;
-      if (!data || typeof data !== 'object') return false;
-      if (data.blockPlan) return false;
+      if (!item) return false;
       if (item.phase === 'topic_master') return true;
+      var data = item.resultData;
+      if (!data || typeof data !== 'object') return false;
       if (data.purePhaseC && typeof data.purePhaseC === 'object') return true;
+      if (extractTopicMasterFromData(data)) return true;
+      if (hasTopicResearchContent(data)) return false;
       return Boolean(
         data.theory &&
         typeof data.theory === 'object' &&
-        (String(data.core_emphases || '').trim().length > 20 ||
+        ((Array.isArray(data.theory.sections) && data.theory.sections.length) ||
+          String(data.core_emphases || '').trim().length > 20 ||
           (Array.isArray(data.key_points) && data.key_points.length))
       );
+    }
+
+    function resolveTopicMasterPayloadFromHistory(item) {
+      var data = item && item.resultData;
+      if (!data || typeof data !== 'object') return null;
+      if (data.purePhaseC && typeof data.purePhaseC === 'object') return data.purePhaseC;
+      return extractTopicMasterFromData(data) || data;
+    }
+
+    function applyHistoryItemContext(item, topic) {
+      var topicStr = String(topic || (item && item.topic) || appState.topic || '').trim();
+      var gradeId = (item && item.gradeId) || appState.grade;
+      if (gradeId) {
+        appState.grade = gradeId;
+        appState.gradeLabel = (item && item.gradeLabel) || getGradeLabelById(gradeId);
+        var gradeSelect = document.getElementById('grade-select');
+        if (gradeSelect) gradeSelect.value = gradeId;
+      }
+      if (topicStr) {
+        appState.topic = topicStr;
+        var topicInput = document.getElementById('topic-input');
+        if (topicInput) topicInput.value = topicStr;
+      }
+      if (item && item.cacheKey) {
+        appState.lessonCacheKey = item.cacheKey;
+        appState.lessonFromArchive = true;
+      }
+      return topicStr;
     }
 
     async function fallbackToLiveTopicResearch(topic) {
@@ -21919,14 +21950,24 @@
     }
 
     function applyTopicMasterArchivePayload(topic, match) {
-      var payload = match.historicPayload || (match.resultData && match.resultData.purePhaseC) || null;
-      if (!payload) return Promise.resolve(false);
+      match = match || {};
+      var rawPayload = match.historicPayload
+        || (match.resultData && match.resultData.purePhaseC)
+        || match.resultData
+        || null;
+      var payload = extractTopicMasterFromData(rawPayload) || rawPayload;
+      if (!payload || typeof payload !== 'object') return Promise.resolve(false);
+      var topicStr = applyHistoryItemContext(
+        { cacheKey: match.cacheKey, gradeId: match.gradeId, gradeLabel: match.gradeLabel, topic: match.topic },
+        topic
+      );
+      if (!topicStr) return Promise.resolve(false);
       appState.archiveSuggestionPending = false;
       appState.archiveFreshSearchPending = false;
       appState.archiveRejectedSearch = null;
       appState.archiveMergePending = null;
       hideTopicArchiveSuggestionBanner();
-      commitPurePhaseCToStepB(topic, payload, {
+      commitPurePhaseCToStepB(topicStr, payload, {
         fromCache: true,
         cacheKey: match.cacheKey || '',
         statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
@@ -25351,9 +25392,19 @@
           getGradeLabel: getGradeLabelById,
           onReload: function (item) {
             if (isTopicMasterHistoryItem(item)) {
-              applyTopicMasterArchivePayload(item.topic || appState.topic, {
+              var topic = applyHistoryItemContext(item);
+              var payload = resolveTopicMasterPayloadFromHistory(item);
+              if (!payload) {
+                alert(t('search_history_error'));
+                return;
+              }
+              applyTopicMasterArchivePayload(topic, {
                 cacheKey: item.cacheKey,
-                historicPayload: item.resultData,
+                gradeId: item.gradeId,
+                gradeLabel: item.gradeLabel,
+                topic: topic,
+                historicPayload: payload,
+                resultData: item.resultData,
               });
               return;
             }
