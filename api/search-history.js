@@ -279,11 +279,25 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
-    let item = await cacheDb.getCommunityLessonByCacheKey(cacheKey);
+    const teacher = await resolveTeacher(req, body);
+    console.log('[search-history][debug] reload request', {
+      cacheKey: cacheKey.slice(0, 12),
+      teacherId: teacher && teacher.id,
+      teacherEmail: teacher && teacher.email,
+    });
+    // Teacher-owned rows first — community loader only accepts blockPlan and may purge topic_master rows.
+    let item = await cacheDb.getTeacherLessonByCacheKey(teacher, cacheKey);
     if (!item) {
-      const teacher = await resolveTeacher(req, body);
-      item = await cacheDb.getTeacherLessonByCacheKey(teacher, cacheKey);
+      item = await cacheDb.getCommunityLessonByCacheKey(cacheKey);
     }
+    console.log('[search-history][debug] reload response', {
+      cacheKey: cacheKey.slice(0, 12),
+      found: Boolean(item),
+      phase: item && item.phase,
+      hasResultData: Boolean(item && item.resultData),
+      hasBlockPlan: Boolean(item && item.resultData && item.resultData.blockPlan),
+      hasPurePhaseC: Boolean(item && item.resultData && item.resultData.purePhaseC),
+    });
     if (!item) {
       const err = new Error('לא נמצאה תכנית שיעור שמורה עבור חיפוש זה');
       err.statusCode = 404;

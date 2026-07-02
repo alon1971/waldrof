@@ -3435,17 +3435,15 @@ async function listTeacherChatHistory(teacher, options) {
  */
 async function getCommunityLessonByCacheKey(cacheKey) {
   const row = await fetchCachedRowByKey(cacheKey);
-  if (!row || row.phase !== 'topic') return null;
+  if (!row || (row.phase !== 'topic' && row.phase !== TOPIC_MASTER_PHASE)) return null;
   const coerced = await readAndValidateCachedResultData(row, cacheKey);
   if (!coerced) return null;
-  let data = coerceArchiveLessonResultData(coerced);
-  if (!data || !data.blockPlan) {
-    await purgeCorruptedCachedRow(cacheKey, 'invalid_lesson_shape');
-    return null;
-  }
-  data = applyArchiveLinkCleanupPolicy(data, 'topic');
+  const data = coerceArchiveLessonResultData(coerced) || coerceCachedResultData(coerced) || coerced;
+  if (!isSearchHistoryResultData(data)) return null;
+  const cleanupPhase = row.phase === TOPIC_MASTER_PHASE ? TOPIC_MASTER_PHASE : 'topic';
+  const cleaned = applyArchiveLinkCleanupPolicy(data, cleanupPhase);
   bumpHitCountAsync(cacheKey, row.hit_count);
-  return formatHistoryItem(Object.assign({}, row, { result_data: data }));
+  return formatHistoryItem(Object.assign({}, row, { result_data: cleaned }));
 }
 
 /**
@@ -3457,14 +3455,12 @@ async function getTeacherLessonByCacheKey(teacher, cacheKey) {
   if (!teacherOwnsRow(teacher, row)) return null;
   const coerced = await readAndValidateCachedResultData(row, cacheKey);
   if (!coerced) return null;
-  let data = coerceArchiveLessonResultData(coerced);
-  if (!isSearchHistoryResultData(data)) {
-    await purgeCorruptedCachedRow(cacheKey, 'invalid_lesson_shape');
-    return null;
-  }
-  data = applyArchiveLinkCleanupPolicy(data, 'topic');
+  const data = coerceArchiveLessonResultData(coerced) || coerceCachedResultData(coerced) || coerced;
+  if (!isSearchHistoryResultData(data)) return null;
+  const cleanupPhase = row.phase === TOPIC_MASTER_PHASE ? TOPIC_MASTER_PHASE : 'topic';
+  const cleaned = applyArchiveLinkCleanupPolicy(data, cleanupPhase);
   bumpHitCountAsync(cacheKey, row.hit_count);
-  return formatHistoryItem(Object.assign({}, row, { result_data: data }));
+  return formatHistoryItem(Object.assign({}, row, { result_data: cleaned }));
 }
 
 /**

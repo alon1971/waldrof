@@ -70,6 +70,18 @@
     return state.items.find(function (x) { return x.cacheKey === cacheKey; }) || null;
   }
 
+  function isOpenableHistoryPayload(resultData, item) {
+    if (!resultData || typeof resultData !== 'object') return false;
+    if (resultData.blockPlan) return true;
+    if (resultData.purePhaseC && typeof resultData.purePhaseC === 'object') return true;
+    if (item && item.phase === 'topic_master') return true;
+    if (resultData.theory && typeof resultData.theory === 'object') {
+      if (String(resultData.core_emphases || '').trim().length > 20) return true;
+      if (Array.isArray(resultData.key_points) && resultData.key_points.length) return true;
+    }
+    return false;
+  }
+
   function fetchLessonByCacheKey(cacheKey) {
     return deps.getAccessToken().then(function (token) {
       var contributor = deps.getContributor();
@@ -89,9 +101,29 @@
       return res.text().then(function (body) {
         var json;
         try { json = body ? JSON.parse(body) : {}; } catch (e) { json = {}; }
-        if (!res.ok) throw new Error((json && json.error) || body || res.status);
+        if (!res.ok) {
+          var err = new Error((json && json.error) || body || String(res.status));
+          err.statusCode = res.status;
+          err.responseBody = body;
+          console.error('[search-history] reload HTTP error', {
+            cacheKey: cacheKey,
+            status: res.status,
+            error: json && json.error,
+            bodyPreview: body ? String(body).slice(0, 500) : '',
+          });
+          throw err;
+        }
         var data = json.data || json;
-        return (data && data.item) || null;
+        var item = (data && data.item) || null;
+        if (!item || !item.resultData) {
+          console.error('[search-history] reload empty payload', {
+            cacheKey: cacheKey,
+            item: item,
+            action: data && data.action,
+          });
+          throw new Error(deps.t('search_history_error'));
+        }
+        return item;
       });
     });
   }
@@ -159,20 +191,25 @@
     renderTable();
 
     return fetchLessonByCacheKey(cacheKey).then(function (item) {
-      if (!item || !item.resultData) {
-        throw new Error(deps.t('search_history_error'));
-      }
-      var hasBlockPlan = Boolean(item.resultData.blockPlan);
-      var hasTopicMaster = item.resultData.theory &&
-        (String(item.resultData.core_emphases || '').trim().length > 20 ||
-          (Array.isArray(item.resultData.key_points) && item.resultData.key_points.length));
-      if (!hasBlockPlan && !hasTopicMaster) {
+      if (!isOpenableHistoryPayload(item.resultData, item)) {
+        console.error('[search-history] reload unusable lesson shape', {
+          cacheKey: cacheKey,
+          phase: item.phase,
+          hasBlockPlan: Boolean(item.resultData && item.resultData.blockPlan),
+          hasPurePhaseC: Boolean(item.resultData && item.resultData.purePhaseC),
+          hasTheory: Boolean(item.resultData && item.resultData.theory),
+        });
         throw new Error(deps.t('search_history_error'));
       }
       deps.onReload(item);
       closeView();
     }).catch(function (err) {
-      console.error('[search-history] fetch reload failed:', err);
+      console.error('[search-history] open history item failed', {
+        cacheKey: cacheKey,
+        statusCode: err && err.statusCode,
+        message: err && err.message,
+        responseBody: err && err.responseBody ? String(err.responseBody).slice(0, 500) : undefined,
+      });
       alert((err && err.message) || deps.t('search_history_error'));
     }).finally(function () {
       state.openingKey = '';

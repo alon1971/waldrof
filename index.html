@@ -5280,7 +5280,7 @@
   <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 2;</script>
   <script src="auth-subscription.js?v=20260628a"></script>
   <script src="share-materials.js?v=20250619"></script>
-  <script src="search-history.js?v=20250620"></script>
+  <script src="search-history.js?v=20250701"></script>
   <script src="hebrew-topic-match.js?v=20250622a"></script>
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
@@ -14156,10 +14156,9 @@
           showAppToast(isEnglish() ? 'No chat content to export' : 'אין תוכן בבועה זו לייצוא', 'error');
           return;
         }
-        try { assertWordDownloadForExport(); }
+        try { await reserveWordDownloadForExport(); }
         catch (gateErr) {
-          if (gateErr && gateErr.code === 'WORD_DOWNLOAD_LIMIT') {
-            showAppToast(gateErr.message || t('word_download_limit_exceeded') || t('export_doc_error'), 'error');
+          if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
             return;
           }
         }
@@ -14276,10 +14275,9 @@
         // The gate shows its own auth/pricing modal — we ALSO surface a toast so the
         // button never looks "dead" (clean console + no file) when it's actually
         // being blocked on purpose.
-        try { assertWordDownloadForExport(); }
+        try { await reserveWordDownloadForExport(); }
         catch (gateErr) {
-          if (gateErr && gateErr.code === 'WORD_DOWNLOAD_LIMIT') {
-            showAppToast(gateErr.message || t('word_download_limit_exceeded') || t('export_doc_error'), 'error');
+          if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
             return;
           }
         }
@@ -14975,8 +14973,11 @@
       var data = item && item.resultData;
       if (!data || typeof data !== 'object') return false;
       if (data.blockPlan) return false;
+      if (item.phase === 'topic_master') return true;
+      if (data.purePhaseC && typeof data.purePhaseC === 'object') return true;
       return Boolean(
         data.theory &&
+        typeof data.theory === 'object' &&
         (String(data.core_emphases || '').trim().length > 20 ||
           (Array.isArray(data.key_points) && data.key_points.length))
       );
@@ -19850,7 +19851,27 @@
         throw new Error(friendlyJsonParseError(parseErr));
       }
       if (!res.ok || json.error) {
+        if (res.status === 429 && json && (json.code === 'RATE_LIMIT' || json.code === 'RATE_LIMIT_MONTHLY')) {
+          if (typeof WaldorfAuth !== 'undefined') {
+            if (json.usage) WaldorfAuth.applyUsageFromServer(json.usage);
+            WaldorfAuth.showSearchLimitBlocked({
+              usage: json.usage,
+              tier: json.code === 'RATE_LIMIT' ? 'trial' : undefined,
+              usagePeriod: json.code === 'RATE_LIMIT' ? 'lifetime' : 'monthly',
+            });
+          }
+          var searchLimitErr = new Error(t('rate_limit_exceeded'));
+          searchLimitErr.code = json.code;
+          throw searchLimitErr;
+        }
+        if (res.status === 401 && json && json.code === 'AUTH_REQUIRED') {
+          if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.showAuthOverlay();
+          throw new Error(json.error || 'יש להתחבר כדי לבצע מחקר חי');
+        }
         throw new Error(json.error || ('שגיאת שרת (' + res.status + ')'));
+      }
+      if (json.meta && json.meta.usage && typeof WaldorfAuth !== 'undefined') {
+        try { WaldorfAuth.applyUsageFromServer(json.meta.usage); } catch (usageSyncErr) { /* ignore */ }
       }
       return { data: json.data || json, meta: json.meta || null };
     }
@@ -25338,9 +25359,14 @@
           getGradeLabel: getGradeLabelById,
           onReload: function (item) {
             if (isTopicMasterHistoryItem(item)) {
+              var rd = item.resultData || {};
+              var historicPayload = (rd.purePhaseC && typeof rd.purePhaseC === 'object')
+                ? rd.purePhaseC
+                : rd;
               applyTopicMasterArchivePayload(item.topic || appState.topic, {
                 cacheKey: item.cacheKey,
-                historicPayload: item.resultData,
+                historicPayload: historicPayload,
+                resultData: item.resultData,
               });
               return;
             }
