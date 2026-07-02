@@ -1606,7 +1606,16 @@
         return usage.count;
       }
       return getSearchesUsed();
-    }).catch(function () {
+    }).catch(function (err) {
+      if (err && (err.code === 'RATE_LIMIT' || err.code === 'RATE_LIMIT_MONTHLY')) {
+        if (err.usage) applyServerUsage(err.usage);
+        showSearchLimitBlocked({
+          usage: err.usage,
+          tier: err.code === 'RATE_LIMIT' ? 'trial' : undefined,
+          usagePeriod: err.code === 'RATE_LIMIT' ? 'lifetime' : 'monthly',
+        });
+        throw err;
+      }
       return refreshSubscriptionFromServer().then(function (data) {
         if (data && data.usage) return data.usage.searchesUsed;
         return getSearchesUsed();
@@ -2133,6 +2142,7 @@
 
   function handlePricingUpgradeClick() {
     if (isProUser()) return;
+    hideFreeTierLimitModal();
     if (!authState.isAuthenticated) {
       showAuthOverlay();
       return;
