@@ -31,7 +31,7 @@
   /**
    * Free-tier lifetime search cap — must stay in sync with api/tier-limits.js
    * and window.__WALDROF_TRIAL_SEARCH_LIMIT__ in index.html.
-   * BETA default: 20. Production default: 3.
+   * Free tier default: 2 live searches (lifetime).
    */
   function resolveTrialLifetimeSearchLimit() {
     if (trialSearchLimitFromServer != null) return trialSearchLimitFromServer;
@@ -43,7 +43,7 @@
       var fromRuntime = Number(global.__WALDROF_RUNTIME_CONFIG__.trialSearchLimit);
       if (Number.isFinite(fromRuntime) && fromRuntime > 0) return Math.floor(fromRuntime);
     }
-    return 20; // BETA fallback — revert to 3 after beta testing
+    return 2;
   }
 
   var TIERS = {
@@ -1539,7 +1539,7 @@
     var check = canPerformWordDownload();
     if (!check.allowed) {
       if (check.reason === 'auth') showAuthOverlay();
-      else showPricingModal('paywall_word_message');
+      else showFreeTierLimitModal();
       var err = new Error(t('word_download_limit_exceeded'));
       err.code = 'WORD_DOWNLOAD_LIMIT';
       err.details = check;
@@ -1550,7 +1550,7 @@
 
   function recordWordDownload() {
     var tier = normalizeTierId(authState.tier);
-    if (tier !== 'trial') {
+    if (isProUser() || tier !== 'trial') {
       return Promise.resolve(getWordDownloadsUsed());
     }
     return fetchSubscriptionAction('record_word_download').then(function (data) {
@@ -1564,6 +1564,12 @@
       writeWordDownloads(used);
       notifyListeners();
       return used;
+    }).catch(function (err) {
+      if (err && err.code === 'WORD_DOWNLOAD_LIMIT') {
+        if (err.usage) applyServerUsage(err.usage);
+        showFreeTierLimitModal();
+      }
+      throw err;
     });
   }
 
@@ -1728,6 +1734,30 @@
     }
   }
 
+  function showFreeTierLimitModal() {
+    var el = document.getElementById('free-tier-limit-modal');
+    var msg = document.getElementById('free-tier-limit-message');
+    if (msg) msg.textContent = t('free_tier_limit_message');
+    var upgradeBtn = document.getElementById('free-tier-limit-upgrade');
+    if (upgradeBtn) upgradeBtn.textContent = t('free_tier_limit_upgrade');
+    var closeBtn = document.getElementById('free-tier-limit-close');
+    if (closeBtn) closeBtn.textContent = t('free_tier_limit_close');
+    if (el) {
+      el.classList.remove('hidden');
+      el.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('free-tier-limit-open');
+    }
+  }
+
+  function hideFreeTierLimitModal() {
+    var el = document.getElementById('free-tier-limit-modal');
+    if (el) {
+      el.classList.add('hidden');
+      el.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('free-tier-limit-open');
+    }
+  }
+
   function showPricingModal(noticeKey) {
     var el = document.getElementById('pricing-modal');
     var notice = document.getElementById('pricing-modal-notice');
@@ -1768,7 +1798,7 @@
     var tier = normalizeTierId(o.tier || (o.usage && o.usage.tier) || authState.tier);
     var period = o.usagePeriod || (o.usage && o.usage.usagePeriod) || authState.usagePeriod;
     if (tier === 'trial' || period === 'lifetime') {
-      showPricingModal('paywall_search_message');
+      showFreeTierLimitModal();
     } else {
       showRateLimitModal({
         usage: o.usage && o.usage.searchesUsed != null ? o.usage.searchesUsed : getSearchesUsed(),
@@ -2457,6 +2487,13 @@
     var rateBackdrop = document.getElementById('rate-limit-backdrop');
     if (rateBackdrop) rateBackdrop.addEventListener('click', hideRateLimitModal);
 
+    var freeTierClose = document.getElementById('free-tier-limit-close');
+    if (freeTierClose) freeTierClose.addEventListener('click', hideFreeTierLimitModal);
+    var freeTierUpgrade = document.getElementById('free-tier-limit-upgrade');
+    if (freeTierUpgrade) freeTierUpgrade.addEventListener('click', handlePricingUpgradeClick);
+    var freeTierBackdrop = document.getElementById('free-tier-limit-backdrop');
+    if (freeTierBackdrop) freeTierBackdrop.addEventListener('click', hideFreeTierLimitModal);
+
     var identityInput = document.getElementById('identity-email-input');
     if (identityInput) {
       identityInput.addEventListener('change', function () {
@@ -2622,6 +2659,8 @@
     isSupabaseConfigured: isSupabaseConfigured,
     showPricingModal: showPricingModal,
     hidePricingModal: hidePricingModal,
+    showFreeTierLimitModal: showFreeTierLimitModal,
+    hideFreeTierLimitModal: hideFreeTierLimitModal,
     showSearchLimitBlocked: showSearchLimitBlocked,
     showRateLimitModal: showRateLimitModal,
     showUserSettingsModal: showUserSettingsModal,

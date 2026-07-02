@@ -5,6 +5,7 @@
 const shared = require('./pure-api-shared');
 const cache = require('./cache');
 const authContext = require('./auth-context');
+const subscriptionApi = require('./subscription');
 
 const SYSTEM_PROMPT = [
   'You are a Waldorf / anthroposophical pedagogy expert.',
@@ -182,7 +183,19 @@ function buildArchiveUpgradeIntro(archiveText, userQuery) {
   ].join(' ');
 }
 
-async function runArchiveUpgradeGeneralSearch(body, requestContext) {
+async function enforceLiveSearchQuota(body, requestContext) {
+  const headers = (requestContext && requestContext.headers) || {};
+  await subscriptionApi.assertLiveSearchAllowedForPureApi(body, headers);
+}
+
+async function recordLiveSearchUsage(body, requestContext, teacher) {
+  const headers = (requestContext && requestContext.headers) || {};
+  const reqShape = { body: body || {}, headers: headers };
+  const billed = await subscriptionApi.recordLiveSearchFromRequest(reqShape, teacher || undefined);
+  return billed && billed.usage ? billed.usage : null;
+}
+
+async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
   const query = String(body.query || body.topic || body.q || '').trim();
   if (!query) throw shared.badRequest('query is required');
   const historic = body.historicPayload;
@@ -197,6 +210,7 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext) {
   const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
   const userPrompt = upgradeIntro + '\n\n' + basePrompt;
 
+  await enforceLiveSearchQuota(body, requestContext);
   const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
     phase: periodBlock ? 'general_search_period' : 'general_search',
     query: query,
@@ -211,6 +225,8 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext) {
     periodBlock
   );
 
+  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+
   return {
     data: normalized,
     meta: {
@@ -221,6 +237,8 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext) {
       cacheKey: archiveResult.cacheKey || undefined,
       archived: archiveResult.archived,
       archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+      searchBilled: true,
+      usage: searchUsage || undefined,
     },
   };
 }
@@ -229,13 +247,26 @@ async function runPureGeneralSearch(body, requestContext) {
   const query = String(body.query || body.topic || body.q || '').trim();
   if (!query) throw shared.badRequest('query is required');
 
+  let teacher = null;
+  try {
+    teacher = await authContext.resolveVerifiedUser(
+      { headers: (requestContext && requestContext.headers) || {} },
+      body
+    );
+  } catch (authErr) {
+    console.warn('[pure-general-search] resolve teacher failed:', authErr.message || authErr);
+  }
+  if (teacher) {
+    authContext.sanitizeCachedUserFields(body, teacher);
+  }
+
   const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
   const bypassCache = Boolean(
     body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade
   );
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
-    return runArchiveUpgradeGeneralSearch(body, requestContext);
+    return runArchiveUpgradeGeneralSearch(body, requestContext, teacher);
   }
 
   // "כן, התכוונתי" — the teacher confirmed a suggested archive match: serve it directly.
@@ -324,6 +355,7 @@ async function runPureGeneralSearch(body, requestContext) {
   const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
   const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
 
+  await enforceLiveSearchQuota(body, requestContext);
   const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
     phase: periodBlock ? 'general_search_period' : 'general_search',
     query: query,
@@ -338,6 +370,8 @@ async function runPureGeneralSearch(body, requestContext) {
     periodBlock
   );
 
+  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+
   return {
     data: normalized,
     meta: {
@@ -347,6 +381,8 @@ async function runPureGeneralSearch(body, requestContext) {
       cacheKey: archiveResult.cacheKey || undefined,
       archived: archiveResult.archived,
       archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+      searchBilled: true,
+      usage: searchUsage || undefined,
     },
   };
 }
@@ -374,7 +410,11 @@ const legacyHandler = async function (req, res) {
     const statusCode = err && err.statusCode ? err.statusCode : 500;
     const message = err instanceof Error ? err.message : String(err);
     console.error('[pure-general-search]', statusCode, message);
-    return shared.sendJson(res, statusCode, { error: message });
+    return shared.sendJson(res, statusCode, {
+      error: message,
+      code: err && err.code ? err.code : undefined,
+      usage: err && err.usage ? err.usage : undefined,
+    });
   }
 };
 
@@ -403,7 +443,11 @@ async function fetchHandler(request) {
     }, { status: 200, headers: headers });
   } catch (err) {
     const statusCode = err && err.statusCode ? err.statusCode : 500;
-    return Response.json({ error: err.message || String(err) }, { status: 500, headers: headers });
+    return Response.json({
+      error: err.message || String(err),
+      code: err && err.code ? err.code : undefined,
+      usage: err && err.usage ? err.usage : undefined,
+    }, { status: statusCode, headers: headers });
   }
 }
 

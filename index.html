@@ -2396,6 +2396,17 @@
       line-height: 1.75 !important;
     }
     .welcome-card-body p:last-child { margin-bottom: 0; }
+    .welcome-card-body ul {
+      margin: 0 0 1rem;
+      padding-inline-start: 1.35rem;
+      list-style: disc;
+    }
+    .welcome-card-body li {
+      margin-bottom: 0.75rem;
+      font-size: 1rem !important;
+      line-height: 1.75 !important;
+    }
+    .welcome-card-body li:last-child { margin-bottom: 0; }
     .welcome-card-body strong { color: #8B3A3A; font-weight: 700; }
     .welcome-card-footer {
       display: flex;
@@ -3100,6 +3111,58 @@
     #rate-limit-close {
       border: 1px solid rgba(201, 169, 98, 0.45); background: transparent; color: #5C4A3A;
     }
+
+    #free-tier-limit-modal .app-modal-panel {
+      max-width: 32rem;
+      text-align: center;
+      padding: 2rem 1.75rem 1.75rem;
+    }
+    .free-tier-limit-icon {
+      width: 3.75rem; height: 3.75rem; margin: 0 auto 1rem; border-radius: 50%;
+      background: linear-gradient(145deg, rgba(122, 155, 118, 0.18), rgba(196, 120, 90, 0.12));
+      color: #8B3A3A;
+      display: flex; align-items: center; justify-content: center; font-size: 1.55rem;
+    }
+    .free-tier-limit-message {
+      margin: 0;
+      color: #5C4A3A;
+      font-size: 1rem !important;
+      line-height: 1.75 !important;
+      text-align: center;
+      white-space: pre-line;
+    }
+    .free-tier-limit-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      margin-top: 1.5rem;
+    }
+    #free-tier-limit-upgrade {
+      border: none;
+      border-radius: 0.85rem;
+      padding: 0.9rem 1.15rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.35);
+      transition: transform 0.12s, box-shadow 0.15s;
+    }
+    #free-tier-limit-upgrade:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(92, 125, 88, 0.42);
+    }
+    #free-tier-limit-close {
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      border-radius: 0.85rem;
+      padding: 0.75rem 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: rgba(92, 74, 58, 0.82);
+    }
+    #free-tier-limit-close:hover { color: #5C4A3A; background: rgba(255,255,255,0.45); }
+    body.free-tier-limit-open { overflow: hidden; }
 
     /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
@@ -4397,9 +4460,15 @@
         <p class="welcome-card-subtitle font-display">מתכנן תקופות לימוד אנתרופוסופי</p>
       </div>
       <div class="welcome-card-body">
-        <p>מסע פדגוגי <strong>שלב-אחר-שלב</strong> לתכנון תקופות לימוד — מכיתה א׳ ועד ח׳.</p>
-        <p>כאן תוכלו לבנות תקופות לימוד עשירות ומותאמות, לגשת למחקר חי, למאגר הקהילתי ולארכיון הידע — הכל במקום אחד, בשפה פדגוגית ומכבדת.</p>
-        <p>המערכת נמצאת בפיתוח מתמשך. נשמח לשמוע מכם — ומאחלים לכם מסע לימוד מעורר השראה.</p>
+        <p>מורים ומחנכים יקרים,<br>הכלי הזה נולד מתוך רצון עמוק לתמוך בקהילת מורי וולדורף בארץ, ולחסוך לכם שעות ארוכות של חיפוש מתיש אחר חומרים רלוונטיים ברשת.</p>
+        <p>חשוב לי להדגיש: הכלי נועד להוות השראה, לעזור בריכוז הידע ולפתוח כיווני חשיבה. הוא בשום אופן אינו מחליף את עבודת ההכנה הפנימית של המורה, את ההעמקה האישית בחומר הלימוד ואת פיתוח התקופה מתוך הקשר חי עם הילדים בכיתה.</p>
+        <p><strong>איך זה עובד?</strong></p>
+        <ul>
+          <li><strong>המאגר הקהילתי (חינמי):</strong> החזון הגדול הוא יצירת כלי שיתופי. ככל שנעלה יותר חומרי עבודה – שירים, דקלומים, מערכים וכו' – נוכל לבנות יחד מאגר מידע עצום, מקצועי ומרוכז במקום אחד, המזין את כולנו.</li>
+          <li><strong>מחקר וחיפוש חי (בתשלום שנתי):</strong> כדי להביא לכם את התוצאות העמוקות והמקיפות ביותר, החיפוש החי באתר מבוסס על מנוע הבינה המלאכותית העוצמתי Perplexity. מאחר שהפעלתו כרוכה בעלויות טכנולוגיות גבוהות, הגישה לחיפוש החי פתוחה באמצעות דמי מנוי שנתיים סמליים. תשלום זה מכסה את הוצאות החיפוש ומאפשר לי להמשיך לשדרג ולייעל את האתר עבורכם.</li>
+        </ul>
+        <p>שתהיה עבודה פורייה ומלאת השראה.</p>
+        <p>תיהנו,<br>שלכם, אלון ירושלמי</p>
       </div>
       <div class="welcome-card-footer">
         <label class="welcome-hide-label" for="welcome-hide-checkbox">
@@ -4511,6 +4580,22 @@
       <div class="rate-limit-actions">
         <button type="button" id="rate-limit-upgrade" data-i18n="rate_limit_upgrade">צפו במסלולים ושדרגו</button>
         <button type="button" id="rate-limit-close" data-i18n="rate_limit_dismiss">הבנתי</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Free tier limit — upgrade prompt -->
+  <div id="free-tier-limit-modal" class="app-modal hidden" aria-hidden="true" role="alertdialog" aria-modal="true" aria-labelledby="free-tier-limit-title">
+    <div id="free-tier-limit-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel">
+      <div class="free-tier-limit-icon" aria-hidden="true"><i class="fa-solid fa-leaf"></i></div>
+      <h2 id="free-tier-limit-title" class="font-display text-burgundy text-lg font-bold sr-only">הגעת למכסת השימוש החינמית</h2>
+      <p id="free-tier-limit-message" class="free-tier-limit-message" data-i18n="free_tier_limit_message">הגעת למכסת השימוש החינמית במערכת.
+באפשרותך להמשיך להשתמש במאגר הקהילתי ולשלוף חומרים קיימים ללא שום הגבלה!
+כדי להמשיך לבצע מחקרים חיים חדשים ולהוריד מסמכי Word, הנך מוזמן לשדרג למנוי השנתי שלנו וליהנות מגישה מלאה ללא הגבלה, תוך תמיכה בפיתוח והרחבת האתר עבור הקהילה.</p>
+      <div class="free-tier-limit-actions">
+        <button type="button" id="free-tier-limit-upgrade">לשדרוג למנוי שנתי</button>
+        <button type="button" id="free-tier-limit-close" data-i18n="free_tier_limit_close">סגור</button>
       </div>
     </div>
   </div>
@@ -5192,7 +5277,7 @@
     </footer>
 
   <!-- BETA: free-tier lifetime search cap (production default: 3). Revert to 3 after beta testing. -->
-  <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 20;</script>
+  <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 2;</script>
   <script src="auth-subscription.js?v=20260628a"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250620"></script>
@@ -13744,13 +13829,19 @@
       WaldorfAuth.assertWordDownloadAllowed();
     }
 
-    async function trackWordDownloadAfterExport() {
+    async function reserveWordDownloadForExport() {
       if (typeof WaldorfAuth === 'undefined') return;
-      try {
-        await WaldorfAuth.recordWordDownload();
-      } catch (err) {
-        console.warn('[word-download] track failed', err);
+      if (!WaldorfAuth.getState().isAuthenticated) {
+        WaldorfAuth.showAuthOverlay();
+        var authErr = new Error(t('word_download_limit_exceeded'));
+        authErr.code = 'AUTH_REQUIRED';
+        throw authErr;
       }
+      await WaldorfAuth.recordWordDownload();
+    }
+
+    async function trackWordDownloadAfterExport() {
+      /* Usage is reserved on the server before export via reserveWordDownloadForExport(). */
     }
 
     async function downloadGeneralSearchDocx() {
@@ -13760,7 +13851,7 @@
         return;
       }
       try {
-        assertWordDownloadForExport();
+        await reserveWordDownloadForExport();
       } catch (err) {
         return;
       }

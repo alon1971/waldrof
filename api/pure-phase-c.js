@@ -8,6 +8,7 @@ const authContext = require('./auth-context');
 const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
 const waldorfWebSeed = require('../waldorf-web-seed');
+const subscriptionApi = require('./subscription');
 
 /** Structural JSON keys that must never appear in pedagogical fallback text. */
 const PHASE_C_JSON_KEY_PATTERN = /["']?(?:theory|inspiration|sections|heading|headings|content|title|text|body|summary|bibliography|books|articles|websites|global|items|podcast|episodes|theme|insight|narrative|pinterest_links|pedagogical_resources|core_emphases|key_points|recommended_reading|relevant_links|icon|url|board|label|source|snippet|author|note|pin|quotes|fa-compass|theory_background|pedagogical_inspiration|developmental_compass|pedagogical_emphases)["']?\s*:/gi;
@@ -2961,7 +2962,19 @@ function buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic) {
   return buildArchiveUpgradeIntro(archiveText, topic) + '\n\n' + buildPhaseCGenerationUserPrompt(grade, topic);
 }
 
-async function runArchiveUpgradePhaseC(body) {
+async function enforceLiveSearchQuota(body, requestContext, teacher) {
+  const headers = (requestContext && requestContext.headers) || {};
+  await subscriptionApi.assertLiveSearchAllowedForPureApi(body, headers);
+}
+
+async function recordLiveSearchUsage(body, requestContext, teacher) {
+  const headers = (requestContext && requestContext.headers) || {};
+  const reqShape = { body: body || {}, headers: headers };
+  const billed = await subscriptionApi.recordLiveSearchFromRequest(reqShape, teacher || undefined);
+  return billed && billed.usage ? billed.usage : null;
+}
+
+async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
   const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
   const gradeId = resolveGradeId(body);
@@ -2980,6 +2993,7 @@ async function runArchiveUpgradePhaseC(body) {
   }
 
   const userPrompt = buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic);
+  await enforceLiveSearchQuota(body, requestContext, teacher);
   const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
     phase: 'topic_master',
     grade: grade,
@@ -2997,6 +3011,8 @@ async function runArchiveUpgradePhaseC(body) {
     });
   }
 
+  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+
   return {
     data: normalized,
     meta: {
@@ -3004,6 +3020,8 @@ async function runArchiveUpgradePhaseC(body) {
       source: 'archive_upgrade_synthesis',
       archiveUpgraded: true,
       parseFallback: Boolean(modelResult.parseFallback),
+      searchBilled: true,
+      usage: searchUsage || undefined,
     },
   };
 }
@@ -3096,7 +3114,7 @@ async function runPurePhaseC(body, requestContext) {
   }
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
-    return runArchiveUpgradePhaseC(body);
+    return runArchiveUpgradePhaseC(body, requestContext, teacher);
   }
 
   if (gradeId && shouldBypassTopicMasterCache(body)) {
@@ -3136,6 +3154,7 @@ async function runPurePhaseC(body, requestContext) {
 
   const userPrompt = buildPhaseCGenerationUserPrompt(grade, topic);
 
+  await enforceLiveSearchQuota(body, requestContext, teacher);
   const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
     phase: 'topic_master',
     grade: grade,
@@ -3170,6 +3189,8 @@ async function runPurePhaseC(body, requestContext) {
     }
   }
 
+  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+
   return {
     data: normalized,
     meta: {
@@ -3178,6 +3199,8 @@ async function runPurePhaseC(body, requestContext) {
       source: body.mergeWithHistoric ? 'topic_master_merge' : (modelResult.parseFallback ? 'perplexity-pure-fallback' : 'perplexity-pure'),
       parseFallback: Boolean(modelResult.parseFallback),
       merged: Boolean(body.mergeWithHistoric && body.historicPayload),
+      searchBilled: true,
+      usage: searchUsage || undefined,
     },
   };
 }
@@ -3212,7 +3235,11 @@ async function fetchHandler(request) {
     }, { status: 200, headers: headers });
   } catch (err) {
     const statusCode = err && err.statusCode ? err.statusCode : 500;
-    return Response.json({ error: err.message || String(err) }, { status: statusCode, headers: headers });
+    return Response.json({
+      error: err.message || String(err),
+      code: err && err.code ? err.code : undefined,
+      usage: err && err.usage ? err.usage : undefined,
+    }, { status: statusCode, headers: headers });
   }
 }
 

@@ -224,7 +224,11 @@ function createLegacyPostHandler(runFn) {
       const statusCode = err && err.statusCode ? err.statusCode : 500;
       const message = err instanceof Error ? err.message : String(err);
       console.error('[pure-api]', statusCode, message);
-      return sendJson(res, statusCode, { error: message });
+      return sendJson(res, statusCode, {
+        error: message,
+        code: err && err.code ? err.code : undefined,
+        usage: err && err.usage ? err.usage : undefined,
+      });
     }
   };
 }

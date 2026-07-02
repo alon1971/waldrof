@@ -890,11 +890,88 @@ async function assertSearchAllowedFromRequest(req) {
   return { allowed: true, usage: usage };
 }
 
+function buildRequestShape(body, headers) {
+  return { body: body || {}, headers: headers || {} };
+}
+
+async function assertLiveSearchAllowedForPureApi(body, headers) {
+  const reqShape = buildRequestShape(body, headers);
+  const email = extractUserEmail(reqShape, body);
+  if (isProUserEmail(email)) {
+    return { allowed: true, proUser: true, usage: buildProUserUsagePayload(email) };
+  }
+  if (!isEnabled()) {
+    const userToken = extractUserToken(reqShape);
+    if (!userToken && !email) {
+      const err = new Error('יש להתחבר כדי לבצע מחקר חי');
+      err.statusCode = 401;
+      err.code = 'AUTH_REQUIRED';
+      throw err;
+    }
+    return { allowed: true, skipped: true };
+  }
+  let user;
+  try {
+    user = applyLocalDemoUserIdMapping(await resolveUser(reqShape, body));
+  } catch (authErr) {
+    const err = new Error('יש להתחבר כדי לבצע מחקר חי');
+    err.statusCode = 401;
+    err.code = 'AUTH_REQUIRED';
+    throw err;
+  }
+  const row = await ensureSubscription(user, extractUserToken(reqShape));
+  if (isSubscriptionExpired(row)) {
+    const usage = buildUsagePayload(row);
+    const expiredErr = new Error('תוקף המנוי הסתיים — שדרגו מחדש כדי להמשיך');
+    expiredErr.statusCode = 403;
+    expiredErr.code = 'SUBSCRIPTION_EXPIRED';
+    expiredErr.usage = usage;
+    throw expiredErr;
+  }
+  const usage = buildUsagePayload(row);
+  if (!usage.allowed) {
+    throw buildSearchLimitError(usage);
+  }
+  return { allowed: true, usage: usage, user: user };
+}
+
+async function assertWordDownloadAllowedFromRequest(req) {
+  const body = req && req.body;
+  const email = extractUserEmail(req, body);
+  if (isProUserEmail(email)) {
+    return { allowed: true, proUser: true, usage: buildProUserUsagePayload(email) };
+  }
+  if (!isEnabled()) {
+    const err = new Error('מערכת המנויים אינה זמינה — נסו שוב מאוחר יותר');
+    err.statusCode = 503;
+    err.code = 'SUBSCRIPTION_UNAVAILABLE';
+    throw err;
+  }
+  const userToken = extractUserToken(req);
+  const user = applyLocalDemoUserIdMapping(await resolveUser(req, body));
+  const row = await ensureSubscription(user, userToken);
+  const tier = effectiveTierFromRow(row);
+  if (tier !== 'trial') {
+    return { allowed: true, unlimited: true, usage: buildUsagePayload(row) };
+  }
+  const usage = buildUsagePayload(row);
+  if (!usage.wordDownloadsAllowed) {
+    const err = new Error('הגעתם למגבלת 5 הורדות Word בחודש במסלול החינמי. שדרגו למסלול פרו להורדות ללא הגבלה.');
+    err.statusCode = 429;
+    err.code = 'WORD_DOWNLOAD_LIMIT';
+    err.usage = usage;
+    throw err;
+  }
+  return { allowed: true, usage: usage, user: user };
+}
+
 module.exports = {
   legacyHandler,
   executeSubscription,
   recordLiveSearchFromRequest,
   assertSearchAllowedFromRequest,
+  assertLiveSearchAllowedForPureApi,
+  assertWordDownloadAllowedFromRequest,
   recordSearch,
   resolveUser,
   extractUserToken,
@@ -905,6 +982,8 @@ module.exports = {
   PRO_USERS,
   TIER_LIMITS,
   normalizeTier,
+  buildSearchLimitError,
+  buildUsagePayload,
 };
 
 async function fetchHandler(request) {
