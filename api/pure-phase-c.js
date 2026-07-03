@@ -435,7 +435,7 @@ function isForbiddenForeignSourceUrl(url) {
   if (!u) return true;
   const lower = u.toLowerCase();
   if (/\.(ru|su|ua)(?:\/|$|:)/i.test(lower)) return true;
-  if (/cyberleninka|elibrary\.ru|vestnik|valdorfsk|pedagogik/i.test(lower) && /\.ru|\.su|\.ua/i.test(lower)) {
+  if (/cyberleninka|elibrary\.ru|kpfu|vk\.com|vkontakte|vestnik|valdorfsk|pedagogik/i.test(lower)) {
     return true;
   }
   try {
@@ -2423,6 +2423,7 @@ const PHASE_C_CRITICAL_TEXT_INSTRUCTION = [
 const PHASE_C_LANGUAGE_SOURCE_RULE = [
   'CRITICAL LANGUAGE & SOURCE RULE: You are strictly FORBIDDEN from returning, searching, or citing sources in Russian, Arabic, or any foreign language other than Hebrew or English.',
   'Every single referenced source, pedagogical text, or recommended tool MUST be actively available ONLY in Hebrew or English.',
+  'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
   'Absolutely no academic document repositories from foreign governments or universities (e.g., .ru, .su, .ua domains).',
 ].join(' ');
 

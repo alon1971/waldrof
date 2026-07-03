@@ -259,6 +259,12 @@ const CHAT_NO_INVENTED_CITATIONS_INSTRUCTION =
   'When verified community matches DO exist in the provided blocks, use the mandatory community celebration opening instead.\n' +
   '=== END CHAT — STRICT GROUNDING ===\n';
 
+const RUSSIAN_SOURCES_EXCLUSION_INSTRUCTION =
+  '\n=== SOURCE GEOGRAPHY — RUSSIAN EXCLUSION (MANDATORY) ===\n' +
+  'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). ' +
+  'All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).\n' +
+  '=== END SOURCE GEOGRAPHY ===\n';
+
 const SOURCES_CITATION_INSTRUCTION =
   '\n=== SOURCES, CITATIONS & VISUAL INSPIRATION (MANDATORY) ===\n' +
   'ALON YERUSHALMY — RELEVANCE-FIRST, SINGLE CITATION RULE:\n' +
@@ -291,6 +297,7 @@ const SOURCES_CITATION_INSTRUCTION =
   'Each "pin" MUST be a SHORT Pinterest search of at most 2–4 high-impact keywords — never one long concatenated string.\n' +
   'Generate 2–4 DISTINCT grade-locked variations only — Hebrew board titles (can be descriptive) and SHORT English "pin" phrases; no URLs required.\n' +
   'STRICTLY FORBIDDEN: long bundled queries, generic decorative boards, bare topic-only queries, wrong-grade pins, duplicate pin phrases.\n' +
+  RUSSIAN_SOURCES_EXCLUSION_INSTRUCTION +
   '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
 const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
@@ -1841,12 +1848,31 @@ function validateTopicBlockPlan(blockPlan) {
   });
 }
 
+function isExcludedRussianSourceUrl(url) {
+  const lower = String(url || '').trim().toLowerCase();
+  if (!lower) return true;
+  if (/\.(ru|su)(?:\/|$|:)/i.test(lower)) return true;
+  if (/cyberleninka|elibrary\.ru|kpfu|vk\.com|vkontakte/i.test(lower)) return true;
+  try {
+    const host = new URL(/^https?:\/\//i.test(lower) ? lower : 'https://' + lower).hostname.toLowerCase();
+    if (/\.(ru|su)$/.test(host)) return true;
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+function filterPerplexityCitations(citations) {
+  return (Array.isArray(citations) ? citations : []).filter(function (url) {
+    return url && !isExcludedRussianSourceUrl(url);
+  });
+}
+
 function buildPerplexitySearchSystemPrompt() {
   return (
     'You are a factual Waldorf / Steiner-Waldorf pedagogy research assistant. ' +
     'Perform live web search and return accurate, well-sourced pedagogical research in Hebrew. ' +
     'Include HTTPS reference links for major claims from open web search results only. ' +
-    'Be comprehensive — cover child development, main-lesson structure, classroom practice, and curriculum context.'
+    'Be comprehensive — cover child development, main-lesson structure, classroom practice, and curriculum context.' +
+    RUSSIAN_SOURCES_EXCLUSION_INSTRUCTION
   );
 }
 
@@ -2035,7 +2061,7 @@ async function fetchOrRunPerplexityResearch(body, logContext, streamHooks, strea
 
   const rawPayload = {
     content: searchResult.content,
-    citations: searchResult.citations || [],
+    citations: filterPerplexityCitations(searchResult.citations),
     searchedAt: new Date().toISOString(),
     topic: body.topic || null,
     gradeId: resolvedGradeId(body) || null,

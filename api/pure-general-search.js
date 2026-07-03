@@ -14,6 +14,7 @@ const SYSTEM_PROMPT = [
   'core_pedagogical_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — plus grade-band lesson dynamics; never superficial),',
   'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
   'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
+  'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
 ].join(' ');
 
 const PERIOD_BLOCK_SYSTEM_PROMPT = [
@@ -24,6 +25,7 @@ const PERIOD_BLOCK_SYSTEM_PROMPT = [
   'recommended_literature (array of 3-6 objects: {title, author, note} — note MUST explain relevance to this block),',
   'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew lesson topic), content (Hebrew main narrative/story focus, 2-4 sentences), art (Hebrew notebook/drawing/painting/handwork activity)).',
+  'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
 ].join(' ');
 
 function coerceCurriculumDays(value) {

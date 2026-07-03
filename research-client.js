@@ -146,6 +146,10 @@
     'Each "pin" MUST be a SHORT search of at most 2–4 high-impact keywords — never one long concatenated string.\n' +
     'Hebrew board titles may be descriptive; "pin" phrases must stay short, grade-locked, and Waldorf-anchored in English.\n' +
     'WALDORF PEDAGOGICAL WEB RESOURCES: open web search for verified Waldorf articles — return empty array if none found.\n' +
+    '\n=== SOURCE GEOGRAPHY — RUSSIAN EXCLUSION (MANDATORY) ===\n' +
+    'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). ' +
+    'All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).\n' +
+    '=== END SOURCE GEOGRAPHY ===\n' +
     '=== END SOURCES, CITATIONS & VISUAL INSPIRATION ===\n';
 
   const WALDORF_PEDAGOGICAL_WEB_RESOURCES_INSTRUCTION =
