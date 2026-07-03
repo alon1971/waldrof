@@ -9,6 +9,7 @@ const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const subscriptionApi = require('./subscription');
+const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 
 /** Structural JSON keys that must never appear in pedagogical fallback text. */
 const PHASE_C_JSON_KEY_PATTERN = /["']?(?:theory|inspiration|sections|heading|headings|content|title|text|body|summary|bibliography|books|articles|websites|global|items|podcast|episodes|theme|insight|narrative|pinterest_links|pedagogical_resources|core_emphases|key_points|recommended_reading|relevant_links|icon|url|board|label|source|snippet|author|note|pin|quotes|fa-compass|theory_background|pedagogical_inspiration|developmental_compass|pedagogical_emphases)["']?\s*:/gi;
@@ -2527,6 +2528,7 @@ function buildPhaseCGradeTopicLockInstruction(grade, topic) {
 }
 
 const SYSTEM_PROMPT = [
+  hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   WALDORF_CORE_SYSTEM_PROMPT,
   PHASE_C_ON_DEMAND_EXPANSION_INSTRUCTION,
   PHASE_C_CRITICAL_TEXT_INSTRUCTION,
@@ -3137,6 +3139,7 @@ async function registerTeacherHistoryForExpand(cacheKey, resultData, body, teach
 }
 
 const TOPIC_MASTER_MERGE_SYSTEM_PROMPT = [
+  hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   'You are a senior Waldorf pedagogical editor merging two Phase C master documents.',
   'Return ONE valid JSON object matching the Phase C schema (theory, inspiration, core_emphases, key_points, recommended_reading, relevant_links, pinterest_links).',
   'Preserve EVERY unique pedagogical insight, example, and developmental nuance from BOTH the historic archive and the fresh live research.',

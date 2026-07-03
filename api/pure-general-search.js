@@ -6,8 +6,10 @@ const shared = require('./pure-api-shared');
 const cache = require('./cache');
 const authContext = require('./auth-context');
 const subscriptionApi = require('./subscription');
+const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 
 const SYSTEM_PROMPT = [
+  hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   'You are a Waldorf / anthroposophical pedagogy expert.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'developmental_axis (string: AT LEAST 2-3 comprehensive Hebrew paragraphs tracing the developmental thread across grades 1-8 — soul-spiritual milestones per age band, never brief),',
@@ -18,6 +20,7 @@ const SYSTEM_PROMPT = [
 ].join(' ');
 
 const PERIOD_BLOCK_SYSTEM_PROMPT = [
+  hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   'You are a Waldorf / anthroposophical pedagogy expert specializing in main-lesson block planning.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'developmental_axis (string: 1-2 comprehensive Hebrew paragraphs on soul-spiritual developmental context for the stated grade and subject),',

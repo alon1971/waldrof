@@ -31,6 +31,7 @@ const waldorfWebSeed = require('../waldorf-web-seed');
 const enrichmentLinksApi = require('./enrichment-links');
 const geminiEnrichment = require('./gemini-enrichment');
 const waldorfQueryGen = require('../waldorf-query-generation');
+const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 
 /** Grade/topic: cache-first from Supabase; on miss run Perplexity-only pipeline. */
 const ARCHIVE_ONLY_MODE = process.env.ARCHIVE_ONLY !== 'false';
@@ -551,6 +552,7 @@ function normalizeEnrichmentLinks(raw, body, options) {
 
 function waldorfSystemPrompt(extra) {
   return (
+    hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS +
     'You are an expert Waldorf / Steiner-Waldorf pedagogy researcher and curriculum designer. ' +
     'Use live web search as the CORE ANCHOR to gather broad, exhaustive, high-quality educational material for every query. ' +
     pedagogicalScope.PEDAGOGICAL_SCOPE_GUARDRAIL_INSTRUCTION +
@@ -1868,6 +1870,7 @@ function filterPerplexityCitations(citations) {
 
 function buildPerplexitySearchSystemPrompt() {
   return (
+    hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS +
     'You are a factual Waldorf / Steiner-Waldorf pedagogy research assistant. ' +
     'Perform live web search and return accurate, well-sourced pedagogical research in Hebrew. ' +
     'Include HTTPS reference links for major claims from open web search results only. ' +
