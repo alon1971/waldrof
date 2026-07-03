@@ -33,6 +33,7 @@ const knowledgeSeed = require('./api/knowledge-seed');
 const billingCheckout = require('./api/billing-checkout');
 const billingWebhooks = require('./api/billing-webhooks');
 const paymentSuccessWebhook = require('./api/payment-success-webhook');
+const testCancellationAlert = require('./api/test-cancellation-alert');
 const billingReport = require('./api/billing-report');
 const purePhaseCApi = require('./api/pure-phase-c');
 const pureGeneralSearchApi = require('./api/pure-general-search');
@@ -619,6 +620,28 @@ async function handleApiPaymentSuccessWebhook(req, res) {
   }
 }
 
+async function handleApiTestCancellationAlertCron(req, res) {
+  try {
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    const query = Object.fromEntries(parsedUrl.searchParams.entries());
+    assertCronAuthorized(req, query);
+    let body = null;
+    if (req.method === 'POST') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) body = JSON.parse(raw);
+    }
+    const result = await testCancellationAlert.handleCronRequest({
+      method: req.method,
+      body: body,
+    }, query);
+    writeJsonResponse(res, 200, result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    console.error('[api/cron/test-cancellation-alert]', status, err.message || err);
+    writeJsonResponse(res, status, { error: err.message || String(err) });
+  }
+}
+
 async function handleApiBillingReportCron(req, res) {
   try {
     const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
@@ -763,6 +786,10 @@ const server = http.createServer(async function (req, res) {
 
   if (pathname === '/api/cron/drive-catalog-sync') {
     return handleApiDriveCatalogSyncCron(req, res);
+  }
+
+  if (pathname === '/api/cron/test-cancellation-alert') {
+    return handleApiTestCancellationAlertCron(req, res);
   }
 
   if (pathname === '/api/pure-phase-c') {
