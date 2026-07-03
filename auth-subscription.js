@@ -1706,13 +1706,23 @@
     var chain = Promise.resolve();
     if (m.usage) {
       applyServerUsage(m.usage);
-    } else if (!m.searchBilled && !m.fromCache) {
+      persistAuth();
+      notifyListeners();
+      return Promise.resolve(m.usage);
+    }
+    if (!m.searchBilled && !m.fromCache) {
       chain = recordSearch().catch(function (usageErr) {
         console.warn('[usage] recordSearch failed after generate:', usageErr && usageErr.message ? usageErr.message : usageErr);
         return null;
       });
     }
-    return chain.then(function () {
+    return chain.then(function (data) {
+      if (data && data.usage) {
+        applyServerUsage(data.usage);
+        persistAuth();
+        notifyListeners();
+        return data.usage;
+      }
       return refreshSubscriptionFromServer();
     });
   }

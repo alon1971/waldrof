@@ -12,6 +12,27 @@ const { TRIAL_LIFETIME_SEARCH_LIMIT, PRO_MONTHLY_SEARCH_LIMIT } = require('./tie
 
 const TABLE = 'user_subscriptions';
 const LOG_PREFIX = '[subscription]';
+const SUBSCRIPTION_ROW_CACHE_MS = 10000;
+const subscriptionRowCache = new Map();
+
+function subscriptionCacheKey(userId, emailHint) {
+  return mapSupabaseUserId(userId, emailHint) + '|' + normalizeEmail(emailHint);
+}
+
+function getCachedSubscriptionRow(userId, emailHint) {
+  const entry = subscriptionRowCache.get(subscriptionCacheKey(userId, emailHint));
+  if (!entry || Date.now() - entry.at > SUBSCRIPTION_ROW_CACHE_MS) return null;
+  return entry.row;
+}
+
+function setCachedSubscriptionRow(userId, emailHint, row) {
+  if (!row) return;
+  subscriptionRowCache.set(subscriptionCacheKey(userId, emailHint), { row: row, at: Date.now() });
+}
+
+function invalidateSubscriptionCache(userId, emailHint) {
+  subscriptionRowCache.delete(subscriptionCacheKey(userId, emailHint));
+}
 
 /** Columns that exist in production user_subscriptions — never send tier/trial_searches_used. */
 const SUBSCRIPTION_WRITE_COLUMNS = [
@@ -614,12 +635,24 @@ async function fetchSubscriptionRow(userId, userToken, emailHint) {
   const pk = mapSupabaseUserId(userId, emailHint);
   const email = normalizeEmail(emailHint);
 
+  const cached = getCachedSubscriptionRow(userId, emailHint);
+  if (cached) {
+    logUsage('fetch:cache_hit', { user_id: pk, plan_type: cached.plan_type });
+    return cached;
+  }
+
   logUsage('fetch:before', { user_id: pk, raw_user_id: userId, email: email || undefined });
 
   const idRows = pk ? await listSubscriptionRows({ user_id: 'eq.' + pk }, userToken) : [];
-  const emailRows = email ? await listSubscriptionRows({ user_email: 'eq.' + email }, userToken) : [];
-  const merged = dedupeSubscriptionRows(idRows.concat(emailRows));
-  let row = pickBestSubscriptionRow(merged);
+  let emailRows = [];
+  let row = pickBestSubscriptionRow(idRows);
+  const needsEmailLookup = Boolean(email) && (
+    !row || isTrialFromRow(row)
+  );
+  if (needsEmailLookup) {
+    emailRows = await listSubscriptionRows({ user_email: 'eq.' + email }, userToken);
+    row = pickBestSubscriptionRow(dedupeSubscriptionRows(idRows.concat(emailRows)));
+  }
 
   if (idRows.length && emailRows.length && idRows[0] && emailRows[0]
     && String(idRows[0].user_id) !== String(emailRows[0].user_id)) {
@@ -647,6 +680,7 @@ async function fetchSubscriptionRow(userId, userToken, emailHint) {
     search_count_monthly: row ? row.search_count_monthly : null,
   });
 
+  if (row) setCachedSubscriptionRow(userId, emailHint, row);
   return row;
 }
 
@@ -712,11 +746,13 @@ async function insertSubscriptionRow(user, patch, userToken) {
     search_count_monthly: inserted.search_count_monthly,
   });
 
+  invalidateSubscriptionCache(user.id, user.email);
   return inserted;
 }
 
 async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const pk = mapSupabaseUserId(userId, user && user.email);
+  invalidateSubscriptionCache(userId, user && user.email);
   const params = new URLSearchParams();
   params.set('user_id', 'eq.' + pk);
 
@@ -791,11 +827,16 @@ async function upsertSubscriptionRow(user, patch, userToken) {
 
 async function ensureSubscription(user, userToken) {
   user = applyLocalDemoUserIdMapping(user);
-  user = await enrichUserFromProfile(user, userToken);
-  const contactPatch = buildSubscriptionContactPatch(user);
   let row = await fetchSubscriptionRow(user.id, userToken, user.email);
+  const contactPatch = buildSubscriptionContactPatch(user);
+  const needsProfileEnrich = !row || shouldRefreshSubscriptionContact(row, contactPatch);
+  if (needsProfileEnrich) {
+    user = await enrichUserFromProfile(user, userToken);
+    Object.assign(contactPatch, buildSubscriptionContactPatch(user));
+  }
   if (row) {
     row = await alignSubscriptionUserId(row, user.id, user, userToken);
+    if (row) setCachedSubscriptionRow(user.id, user.email, row);
   }
   if (!row) {
     logUsage('ensure:create_row', { user_id: user.id, email: user.email || undefined });
@@ -806,10 +847,13 @@ async function ensureSubscription(user, userToken) {
       word_downloads_count: 0,
       auto_renew: true,
     }, contactPatch), userToken);
+    setCachedSubscriptionRow(user.id, user.email, row);
   } else if (shouldRefreshSubscriptionContact(row, contactPatch)) {
     row = await updateSubscriptionRow(user.id, contactPatch, row, user, userToken);
+    setCachedSubscriptionRow(user.id, user.email, row);
   }
   row = await downgradeSubscriptionIfExpired(user, row, userToken);
+  if (row) setCachedSubscriptionRow(user.id, user.email, row);
   return row;
 }
 
