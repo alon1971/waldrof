@@ -185,6 +185,19 @@ function buildArchiveUpgradeIntro(archiveText, userQuery) {
   ].join(' ');
 }
 
+function buildResearchExpandIntro(archiveText, userQuery) {
+  const text = String(archiveText || '').trim().slice(0, 16000);
+  const query = String(userQuery || '').trim();
+  return [
+    'Continue and EXPAND this existing Waldorf pedagogical research document.',
+    'EXISTING OUTPUT (preserve all strong content — extend and deepen, never shrink):',
+    text,
+    '',
+    'TASK: Run additional live web search on the topic \'' + query + '\' and ADD substantially more pedagogical depth, classroom examples, developmental nuance, and verified English/Hebrew sources.',
+    'Return one complete, richer updated document.',
+  ].join(' ');
+}
+
 async function enforceLiveSearchQuota(body, requestContext) {
   const headers = (requestContext && requestContext.headers) || {};
   await subscriptionApi.assertLiveSearchAllowedForPureApi(body, headers);
@@ -245,6 +258,54 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
   };
 }
 
+async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
+  const query = String(body.query || body.topic || body.q || '').trim();
+  if (!query) throw shared.badRequest('query is required');
+  const historic = body.historicPayload;
+  if (!historic || typeof historic !== 'object') {
+    throw shared.badRequest('historicPayload is required for research expand');
+  }
+
+  const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
+  const archiveText = buildGeneralSearchArchiveText(historic) || JSON.stringify(historic).slice(0, 16000);
+  const expandIntro = buildResearchExpandIntro(archiveText, query);
+  const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
+  const userPrompt = expandIntro + '\n\n' + basePrompt;
+
+  await enforceLiveSearchQuota(body, requestContext);
+  const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+    phase: periodBlock ? 'general_search_period' : 'general_search',
+    query: query,
+  });
+  const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+
+  const archiveResult = await persistGeneralSearchArchive(
+    query,
+    normalized,
+    body,
+    requestContext,
+    periodBlock
+  );
+
+  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+
+  return {
+    data: normalized,
+    meta: {
+      fromCache: false,
+      source: 'research_expand',
+      researchExpanded: true,
+      periodBlock: periodBlock,
+      cacheKey: archiveResult.cacheKey || undefined,
+      archived: archiveResult.archived,
+      archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+      searchBilled: true,
+      usage: searchUsage || undefined,
+    },
+  };
+}
+
 async function runPureGeneralSearch(body, requestContext) {
   const query = String(body.query || body.topic || body.q || '').trim();
   if (!query) throw shared.badRequest('query is required');
@@ -264,8 +325,12 @@ async function runPureGeneralSearch(body, requestContext) {
 
   const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
   const bypassCache = Boolean(
-    body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade
+    body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade || body.researchExpand
   );
+
+  if (body.researchExpand && body.historicPayload && typeof body.historicPayload === 'object') {
+    return runResearchExpandGeneralSearch(body, requestContext, teacher);
+  }
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
     return runArchiveUpgradeGeneralSearch(body, requestContext, teacher);

@@ -2901,7 +2901,7 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
 
 function shouldBypassTopicMasterCache(body) {
   if (!body || typeof body !== 'object') return false;
-  return Boolean(body.forceFresh || body.skipCache || body.bypassCache || body.forceRefresh || body.archiveUpgrade);
+  return Boolean(body.forceFresh || body.skipCache || body.bypassCache || body.forceRefresh || body.archiveUpgrade || body.researchExpand);
 }
 
 function buildArchiveUpgradeIntro(archiveText, userQuery) {
@@ -2911,6 +2911,19 @@ function buildArchiveUpgradeIntro(archiveText, userQuery) {
     'The user is not fully satisfied with this existing archive material: ' + text + '.',
     'Please run a live web search on the topic \'' + query + '\' and synthesize a brand-new, updated, comprehensive Waldorf pedagogical document that merges the best parts of the archive with the fresh discovery.',
     'Return a single, cohesive response.',
+  ].join(' ');
+}
+
+function buildResearchExpandIntro(archiveText, userQuery) {
+  const text = String(archiveText || '').trim().slice(0, 16000);
+  const query = String(userQuery || '').trim();
+  return [
+    'Continue and EXPAND this existing Waldorf pedagogical research document.',
+    'EXISTING OUTPUT (preserve all strong content — extend and deepen, never shrink):',
+    text,
+    '',
+    'TASK: Run additional live web search on the topic \'' + query + '\' and ADD substantially more pedagogical depth, classroom examples, developmental nuance, and verified English/Hebrew sources.',
+    'Return one complete, richer updated document.',
   ].join(' ');
 }
 
@@ -2961,6 +2974,12 @@ function buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic) {
   adaptTopicMasterPayload(historic, { grade: grade, gradeLabel: grade, topic: topic });
   const archiveText = gatherPhaseCFallbackSourceText(historic) || JSON.stringify(historic).slice(0, 16000);
   return buildArchiveUpgradeIntro(archiveText, topic) + '\n\n' + buildPhaseCGenerationUserPrompt(grade, topic);
+}
+
+function buildResearchExpandPhaseCUserPrompt(historic, grade, topic) {
+  adaptTopicMasterPayload(historic, { grade: grade, gradeLabel: grade, topic: topic });
+  const archiveText = gatherPhaseCFallbackSourceText(historic) || JSON.stringify(historic).slice(0, 16000);
+  return buildResearchExpandIntro(archiveText, topic) + '\n\n' + buildPhaseCGenerationUserPrompt(grade, topic);
 }
 
 async function enforceLiveSearchQuota(body, requestContext, teacher) {
@@ -3025,6 +3044,96 @@ async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
       usage: searchUsage || undefined,
     },
   };
+}
+
+async function runResearchExpandPhaseC(body, requestContext, teacher) {
+  const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
+  const topic = String(body.topic || '').trim();
+  const gradeId = resolveGradeId(body);
+  const historic = body.historicPayload;
+  if (!historic || typeof historic !== 'object') {
+    throw shared.badRequest('historicPayload is required for research expand');
+  }
+
+  if (gradeId) {
+    try {
+      await cache.deleteTopicMasterCache(gradeId, topic);
+      console.log('[pure-phase-c] research expand — purged topic_master cache for', topic);
+    } catch (purgeErr) {
+      console.warn('[pure-phase-c] research expand cache purge failed:', purgeErr.message || purgeErr);
+    }
+  }
+
+  const userPrompt = buildResearchExpandPhaseCUserPrompt(historic, grade, topic);
+  await enforceLiveSearchQuota(body, requestContext, teacher);
+  const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+    phase: 'topic_master',
+    grade: grade,
+    gradeLabel: grade,
+    topic: topic,
+    max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+  });
+  const parsed = modelResult.parsed;
+  let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+  stampTopicMasterArchiveLinks(normalized, parsed);
+
+  let savedKey = null;
+  if (gradeId) {
+    try {
+      savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBodyFromRequest(body, teacher));
+      if (savedKey && teacher) {
+        await registerTeacherHistoryForExpand(savedKey, normalized, body, teacher, topic, gradeId, grade);
+      }
+    } catch (saveErr) {
+      console.warn('[pure-phase-c] research expand cache save failed:', saveErr.message || saveErr);
+    }
+  }
+
+  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+
+  return {
+    data: normalized,
+    meta: {
+      fromCache: false,
+      source: 'research_expand',
+      researchExpanded: true,
+      cacheKey: savedKey || undefined,
+      parseFallback: Boolean(modelResult.parseFallback),
+      searchBilled: true,
+      usage: searchUsage || undefined,
+    },
+  };
+}
+
+function ownerBodyFromRequest(body, teacher) {
+  if (teacher) {
+    return {
+      userId: teacher.id,
+      userEmail: teacher.email,
+      teacherUser: teacher,
+    };
+  }
+  return {
+    userId: body.userId,
+    userEmail: body.userEmail,
+    teacherUser: body.teacherUser,
+  };
+}
+
+async function registerTeacherHistoryForExpand(cacheKey, resultData, body, teacher, topic, gradeId, grade) {
+  if (!teacher || !cacheKey) return;
+  try {
+    await cache.linkArchiveToTeacherHistory(teacher, cacheKey, {
+      topic: topic,
+      gradeId: gradeId,
+      gradeLabel: grade,
+      queryText: topic,
+      requestedTopic: topic,
+      resultData: resultData,
+    });
+  } catch (linkErr) {
+    console.warn('[pure-phase-c] research expand history link failed:', linkErr.message || linkErr);
+  }
 }
 
 const TOPIC_MASTER_MERGE_SYSTEM_PROMPT = [
@@ -3112,6 +3221,10 @@ async function runPurePhaseC(body, requestContext) {
     } catch (linkErr) {
       console.warn('[pure-phase-c] history link failed:', linkErr.message || linkErr);
     }
+  }
+
+  if (body.researchExpand && body.historicPayload && typeof body.historicPayload === 'object') {
+    return runResearchExpandPhaseC(body, requestContext, teacher);
   }
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {

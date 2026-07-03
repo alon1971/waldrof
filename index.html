@@ -1052,6 +1052,56 @@
     #btn-clear-topic-prose-server.server-cache-admin-visible:not(.hidden) {
       display: inline-flex !important;
     }
+    #btn-admin-research-tools {
+      display: none !important;
+    }
+    #btn-admin-research-tools.admin-research-visible:not(.hidden) {
+      display: inline-flex !important;
+    }
+    .admin-research-menu {
+      position: absolute;
+      top: calc(100% + 0.35rem);
+      inset-inline-end: 0;
+      min-width: 15rem;
+      z-index: 120;
+      background: #fff;
+      border: 1px solid rgba(139, 58, 58, 0.22);
+      border-radius: 0.85rem;
+      box-shadow: 0 10px 28px rgba(92, 74, 58, 0.14);
+      padding: 0.35rem;
+    }
+    .admin-research-menu.hidden { display: none !important; }
+    .admin-research-menu-item {
+      display: block;
+      width: 100%;
+      text-align: start;
+      border: 0;
+      background: transparent;
+      color: #5C4A3A;
+      font-size: 0.875rem;
+      line-height: 1.45;
+      padding: 0.65rem 0.75rem;
+      border-radius: 0.55rem;
+      cursor: pointer;
+    }
+    .admin-research-menu-item:hover {
+      background: rgba(139, 58, 58, 0.08);
+      color: #8B3A3A;
+    }
+    .admin-research-menu-item:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+    #admin-research-tools-wrap {
+      position: relative;
+      flex-shrink: 0;
+    }
+    #admin-research-tools-wrap:not(.hidden) {
+      position: fixed;
+      top: 4.75rem;
+      inset-inline-end: 0.75rem;
+      z-index: 130;
+    }
     @media (max-width: 767px) {
       .step-pill { min-height: 44px; padding: 0.625rem 0.75rem; font-size: var(--app-body-size) !important; }
       .curriculum-card-toggle { min-height: 56px; }
@@ -5008,6 +5058,16 @@
           <span class="text-walnut/40 mx-0.5" aria-hidden="true">|</span>
           <button type="button" id="ws-crumb-community" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_community">מאגר קהילתי</button>
         </nav>
+        <div id="admin-research-tools-wrap" class="hidden" aria-hidden="true">
+          <button type="button" id="btn-admin-research-tools" class="touch-btn text-sm bg-sage/10 text-sage-dark border border-sage/30 px-3 py-2 rounded-lg hover:bg-sage/15 shrink-0 hidden admin-research-visible" aria-haspopup="menu" aria-expanded="false" title="כלי מחקר מתקדמים (מנהל)">
+            <i class="fa-solid fa-flask icon-inline"></i> <span>מחקר מתקדם</span>
+          </button>
+          <div id="admin-research-tools-menu" class="admin-research-menu hidden" role="menu" aria-label="כלי מחקר מתקדמים">
+            <button type="button" class="admin-research-menu-item" data-admin-research-action="expand" role="menuitem">הרחב מחקר זה</button>
+            <button type="button" class="admin-research-menu-item" data-admin-research-action="refresh" role="menuitem">רענן / החלף תוכן</button>
+            <button type="button" class="admin-research-menu-item" data-admin-research-action="synthesize" role="menuitem">סנתז עם הארכיון</button>
+          </div>
+        </div>
         <button type="button" id="btn-restart" class="touch-btn text-sm bg-burgundy/10 text-burgundy border border-burgundy/25 px-3 py-2 rounded-lg hover:bg-burgundy/15 shrink-0">
           <i class="fa-solid fa-rotate-right icon-inline"></i> <span data-i18n="btn_restart">מחקר חדש</span>
         </button>
@@ -11235,6 +11295,7 @@
         updatePedagogyExportButtonsVisibility();
         nudgeGoogleTranslate();
         syncLessonChatFabLayout();
+        updateAdminResearchToolsVisibility();
         return;
       }
 
@@ -11281,6 +11342,7 @@
       updatePedagogyExportButtonsVisibility();
       nudgeGoogleTranslate();
       syncLessonChatFabLayout();
+      updateAdminResearchToolsVisibility();
     }
 
     function getWaldorfPedagogicalResourcesSearchInstruction() {
@@ -19656,6 +19718,7 @@
       runAfterLayout(function () {
         enableWizardTopicStepNavigation();
       });
+      updateAdminResearchToolsVisibility();
     }
 
     function phaseCRenderNarrativeTab(data) {
@@ -19885,6 +19948,7 @@
       ensureArchiveUpgradeQueryEvents();
       mountArchiveUpgradeQuery(resultsEl, 'general-search');
       renderMarketingBench('general-search-marketing-mount');
+      updateAdminResearchToolsVisibility();
     }
 
     function setPhaseCLoadingUi(loading) {
@@ -19992,6 +20056,14 @@
         payload.forceFresh = true;
         payload.skipCache = true;
       }
+      if (opts.researchExpand && opts.historicPayload) {
+        payload.researchExpand = true;
+        payload.historicPayload = opts.historicPayload;
+        payload.bypassCache = true;
+        payload.forceRefresh = true;
+        payload.forceFresh = true;
+        payload.skipCache = true;
+      }
       var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, payload, signal);
       return response;
     }
@@ -20052,6 +20124,14 @@
       }
       if (opts.archiveUpgrade && opts.historicPayload) {
         payload.archiveUpgrade = true;
+        payload.historicPayload = opts.historicPayload;
+        payload.bypassCache = true;
+        payload.forceRefresh = true;
+        payload.forceFresh = true;
+        payload.skipCache = true;
+      }
+      if (opts.researchExpand && opts.historicPayload) {
+        payload.researchExpand = true;
         payload.historicPayload = opts.historicPayload;
         payload.bypassCache = true;
         payload.forceRefresh = true;
@@ -20560,6 +20640,8 @@
       renderWorkspaceBreadcrumb();
       updateTopNavButtons();
       updateClearTopicProseButtonVisibility();
+      ensureAdminResearchToolsEvents();
+      updateAdminResearchToolsVisibility();
     }
 
     const SERVER_CACHE_ADMIN_EMAILS = ['alon1971@gmail.com'];
@@ -20725,6 +20807,286 @@
         }
         updateClearTopicProseButtonVisibility();
       }
+    }
+
+    const RESEARCH_ADMIN_EMAILS = ['alon1971@gmail.com'];
+    var adminResearchMenuOpen = false;
+    var adminResearchEventsBound = false;
+
+    function isResearchAdminUser() {
+      if (typeof WaldorfAuth === 'undefined') return false;
+      var email = '';
+      if (typeof WaldorfAuth.getState === 'function') {
+        var authState = WaldorfAuth.getState();
+        if (authState && authState.user && authState.user.email) {
+          email = String(authState.user.email).toLowerCase().trim();
+        }
+      }
+      if (!email && typeof WaldorfAuth.getContributorProfile === 'function') {
+        var profile = WaldorfAuth.getContributorProfile();
+        if (profile && profile.email) email = String(profile.email).toLowerCase().trim();
+      }
+      return email && RESEARCH_ADMIN_EMAILS.indexOf(email) >= 0;
+    }
+
+    function getAdminResearchContext() {
+      if (isGeneralSearchView() && appState.generalSearchResult) {
+        return { scope: 'general-search', hasContent: true };
+      }
+      if ((isPhaseCView() || isWorkspaceOpen()) && appState.grade && appState.topic &&
+          (appState.purePhaseC || appState.topicResearchCompleted || appState.aiGeneratedPlan)) {
+        return { scope: isPhaseCView() ? 'phase-c' : 'step-b', hasContent: true };
+      }
+      if (appState.gradeResearch && appState.grade && !isWorkspaceOpen() && appState.step === 1) {
+        return { scope: 'grade', hasContent: true };
+      }
+      return { scope: '', hasContent: false };
+    }
+
+    function closeAdminResearchMenu() {
+      adminResearchMenuOpen = false;
+      var menu = document.getElementById('admin-research-tools-menu');
+      var btn = document.getElementById('btn-admin-research-tools');
+      if (menu) menu.classList.add('hidden');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleAdminResearchMenu() {
+      var menu = document.getElementById('admin-research-tools-menu');
+      var btn = document.getElementById('btn-admin-research-tools');
+      if (!menu || !btn) return;
+      adminResearchMenuOpen = !adminResearchMenuOpen;
+      menu.classList.toggle('hidden', !adminResearchMenuOpen);
+      btn.setAttribute('aria-expanded', adminResearchMenuOpen ? 'true' : 'false');
+    }
+
+    function setAdminResearchLoading(loading) {
+      var wrap = document.getElementById('admin-research-tools-wrap');
+      var btn = document.getElementById('btn-admin-research-tools');
+      var items = document.querySelectorAll('.admin-research-menu-item');
+      if (btn) btn.disabled = !!loading;
+      items.forEach(function (item) { item.disabled = !!loading; });
+      if (wrap) wrap.dataset.loading = loading ? '1' : '';
+    }
+
+    function updateAdminResearchToolsVisibility() {
+      var wrap = document.getElementById('admin-research-tools-wrap');
+      var btn = document.getElementById('btn-admin-research-tools');
+      if (!wrap || !btn) return;
+      var ctx = getAdminResearchContext();
+      var show = isResearchAdminUser() && ctx.hasContent;
+      wrap.classList.toggle('hidden', !show);
+      wrap.setAttribute('aria-hidden', show ? 'false' : 'true');
+      btn.classList.toggle('hidden', !show);
+      btn.classList.toggle('admin-research-visible', show);
+      if (!show) closeAdminResearchMenu();
+    }
+
+    async function runAdminResearchExpand() {
+      var ctx = getAdminResearchContext();
+      if (!ctx.hasContent) return;
+      closeAdminResearchMenu();
+      setAdminResearchLoading(true);
+      try {
+        if (ctx.scope === 'general-search') {
+          var query = String(appState.generalSearchQuery || '').trim();
+          var historicGs = resolveGeneralSearchHistoricPayload();
+          if (!query || !historicGs) return;
+          if (generalSearchAbort) generalSearchAbort.abort();
+          var gsController = new AbortController();
+          generalSearchAbort = gsController;
+          setGeneralSearchLoadingUi(true);
+          var gsResponse = await fetchPureGeneralSearch(query, gsController.signal, {
+            researchExpand: true,
+            historicPayload: historicGs,
+            periodBlock: Boolean(appState.generalSearchPeriodBlock),
+          });
+          if (gsController.signal.aborted) return;
+          appState.generalSearchFromArchive = false;
+          appState.generalSearchResult = gsResponse.data;
+          renderGeneralSearchResults(gsResponse.data);
+          if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+          return;
+        }
+        if (ctx.scope === 'grade') {
+          var historicGrade = resolveGradeHistoricPayload();
+          if (!historicGrade || !appState.grade) return;
+          if (gradeResearchAbort) gradeResearchAbort.abort();
+          var gradeController = new AbortController();
+          gradeResearchAbort = gradeController;
+          setArchiveUpgradeLoadingUi('grade', true);
+          var g = GRADES.find(function (x) { return x.id === appState.grade; });
+          var gradeData = await invokeWaldorfResearch({
+            phase: 'grade',
+            gradeId: appState.grade,
+            gradeLabel: appState.gradeLabel,
+            age: g ? g.age : '',
+            currentGrade: appState.grade,
+            gradeLockInstruction: getGradeLockInstruction(),
+            gradePrompt: buildGradeInsightsPrompt(),
+            noUrlsInstruction: getNoUrlsInstruction(),
+            noLatexInstruction: getNoLatexInstruction(),
+            researchExpand: true,
+            historicPayload: historicGrade,
+            bypassCache: true,
+            forceRefresh: true,
+            skipCache: true,
+          }, { signal: gradeController.signal });
+          if (gradeController.signal.aborted) return;
+          appState.gradeFromArchive = false;
+          appState.gradeResearch = gradeData;
+          renderGradeInsightsPanel(appState.grade, gradeData);
+          return;
+        }
+        var topic = String(appState.topic || '').trim();
+        var historicTopic = resolveTopicHistoricPayload();
+        if (!topic || !historicTopic) return;
+        if (topicResearchAbort) topicResearchAbort.abort();
+        if (appState.archiveUpgradeAbort) appState.archiveUpgradeAbort.abort();
+        var topicController = new AbortController();
+        topicResearchAbort = topicController;
+        appState.archiveUpgradeAbort = topicController;
+        setArchiveUpgradeLoadingUi(ctx.scope === 'phase-c' ? 'phase-c' : 'step-b', true);
+        var topicResponse = await fetchPurePhaseC(appState.gradeLabel || appState.grade, topic, topicController.signal, {
+          researchExpand: true,
+          historicPayload: historicTopic,
+        });
+        if (topicController.signal.aborted) return;
+        appState.lessonFromArchive = false;
+        var expandMsg = isEnglish()
+          ? 'Research expanded — archive updated.'
+          : 'המחקר הורחב — הארכיון עודכן.';
+        commitPurePhaseCToStepB(topic, topicResponse.data, {
+          fromCache: false,
+          stayOnPhaseC: ctx.scope === 'phase-c' || isPhaseCView(),
+          statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
+            escapeHtml(expandMsg) + '</p>',
+        });
+        invalidateProductTabRenders();
+        if (ctx.scope === 'phase-c' || isPhaseCView()) {
+          phaseCRenderUnifiedView(topicResponse.data);
+        }
+        if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
+      } catch (err) {
+        if (!isTopicResearchAbortError(err) && !isGradeResearchAbortError(err) && !isGeneralSearchAbortError(err) && !isRateLimitError(err)) {
+          alert((err && err.message) || String(err));
+        }
+      } finally {
+        setAdminResearchLoading(false);
+        topicResearchAbort = null;
+        appState.archiveUpgradeAbort = null;
+        setArchiveUpgradeLoadingUi('step-b', false);
+        setArchiveUpgradeLoadingUi('phase-c', false);
+        setArchiveUpgradeLoadingUi('grade', false);
+        setGeneralSearchLoadingUi(false);
+      }
+    }
+
+    async function runAdminResearchRefresh() {
+      var ctx = getAdminResearchContext();
+      if (!ctx.hasContent) return;
+      closeAdminResearchMenu();
+      setAdminResearchLoading(true);
+      try {
+        if (ctx.scope === 'general-search') {
+          var queryRefresh = String(appState.generalSearchQuery || '').trim();
+          if (!queryRefresh) return;
+          await performGeneralSearch(queryRefresh, {
+            periodBlock: Boolean(appState.generalSearchPeriodBlock),
+            bypassCache: true,
+            forceRefresh: true,
+          });
+          return;
+        }
+        if (ctx.scope === 'grade') {
+          if (!appState.grade) return;
+          if (gradeResearchAbort) gradeResearchAbort.abort();
+          var gradeRefreshController = new AbortController();
+          gradeResearchAbort = gradeRefreshController;
+          setGradeInsightsLoadingUi(true);
+          var gradeRow = GRADES.find(function (x) { return x.id === appState.grade; });
+          var refreshedGrade = await invokeWaldorfResearch({
+            phase: 'grade',
+            gradeId: appState.grade,
+            gradeLabel: appState.gradeLabel,
+            age: gradeRow ? gradeRow.age : '',
+            currentGrade: appState.grade,
+            gradeLockInstruction: getGradeLockInstruction(),
+            gradePrompt: buildGradeInsightsPrompt(),
+            noUrlsInstruction: getNoUrlsInstruction(),
+            noLatexInstruction: getNoLatexInstruction(),
+            bypassCache: true,
+            forceRefresh: true,
+            skipCache: true,
+          }, { signal: gradeRefreshController.signal });
+          if (gradeRefreshController.signal.aborted) return;
+          appState.gradeFromArchive = false;
+          appState.gradeResearch = refreshedGrade;
+          renderGradeInsightsPanel(appState.grade, refreshedGrade);
+          return;
+        }
+        await refreshPurePhaseCFromCloud();
+      } catch (err) {
+        if (!isRateLimitError(err)) alert((err && err.message) || String(err));
+      } finally {
+        setAdminResearchLoading(false);
+        setGradeInsightsLoadingUi(false);
+      }
+    }
+
+    async function runAdminResearchSynthesize() {
+      var ctx = getAdminResearchContext();
+      if (!ctx.hasContent) return;
+      closeAdminResearchMenu();
+      setAdminResearchLoading(true);
+      try {
+        if (ctx.scope === 'general-search') {
+          await runGeneralSearchArchiveUpgrade();
+          return;
+        }
+        if (ctx.scope === 'grade') {
+          await runGradeArchiveUpgrade();
+          return;
+        }
+        await runTopicArchiveUpgrade(ctx.scope === 'phase-c' ? 'phase-c' : 'step-b');
+      } catch (err) {
+        if (!isRateLimitError(err)) alert((err && err.message) || String(err));
+      } finally {
+        setAdminResearchLoading(false);
+      }
+    }
+
+    function ensureAdminResearchToolsEvents() {
+      if (adminResearchEventsBound) return;
+      adminResearchEventsBound = true;
+      var btn = document.getElementById('btn-admin-research-tools');
+      var menu = document.getElementById('admin-research-tools-menu');
+      if (btn) {
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleAdminResearchMenu();
+        });
+      }
+      if (menu) {
+        menu.addEventListener('click', function (e) {
+          var item = e.target && e.target.closest ? e.target.closest('[data-admin-research-action]') : null;
+          if (!item || item.disabled) return;
+          var action = item.getAttribute('data-admin-research-action');
+          if (action === 'expand') runAdminResearchExpand();
+          else if (action === 'refresh') runAdminResearchRefresh();
+          else if (action === 'synthesize') runAdminResearchSynthesize();
+        });
+      }
+      document.addEventListener('click', function (e) {
+        if (!adminResearchMenuOpen) return;
+        var wrap = document.getElementById('admin-research-tools-wrap');
+        if (wrap && e.target && wrap.contains(e.target)) return;
+        closeAdminResearchMenu();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeAdminResearchMenu();
+      });
     }
 
     function renderStepProgress() {
@@ -22458,6 +22820,7 @@
       if (meta.fromCache && meta.cacheKey) {
         scheduleArchiveHistoryLink(meta, topic);
       }
+      updateAdminResearchToolsVisibility();
     }
 
     async function runPurePhaseCFromStepB(topic, runId, signal, options) {
@@ -25268,6 +25631,8 @@
 
       bindWizardNavClick(document.getElementById('btn-restart'), function () { startNewResearch(); });
       updateClearTopicProseButtonVisibility();
+      ensureAdminResearchToolsEvents();
+      updateAdminResearchToolsVisibility();
 
       initGlobalEnterNavigation();
       ensurePedagogySuggestionEvents();
@@ -25431,6 +25796,7 @@
         var didSessionScrollReset = false;
         WaldorfAuth.subscribe(function (authState) {
           updateClearTopicProseButtonVisibility();
+          updateAdminResearchToolsVisibility();
           refreshMarketingBenchVisibility();
           if (typeof window.WaldorfWelcome !== 'undefined') {
             window.WaldorfWelcome.tryShowAfterAuth();

@@ -3016,6 +3016,19 @@ function buildArchiveUpgradeIntro(archiveText, userQuery) {
   ].join(' ');
 }
 
+function buildResearchExpandIntro(archiveText, userQuery) {
+  const text = String(archiveText || '').trim().slice(0, 16000);
+  const query = String(userQuery || '').trim();
+  return [
+    'Continue and EXPAND this existing Waldorf pedagogical research document.',
+    'EXISTING OUTPUT (preserve all strong content — extend and deepen, never shrink):',
+    text,
+    '',
+    'TASK: Run additional live web search on the topic \'' + query + '\' and ADD substantially more pedagogical depth, classroom examples, developmental nuance, and verified English/Hebrew sources.',
+    'Return one complete, richer updated document.',
+  ].join(' ');
+}
+
 function buildGradeArchiveSourceText(historic) {
   if (!historic || typeof historic !== 'object') return '';
   const gi = historic.gradeInsights;
@@ -3114,6 +3127,76 @@ async function runGradeArchiveUpgrade(body, apiKey, logContext) {
   };
 }
 
+async function runGradeResearchExpand(body, apiKey, logContext) {
+  if (!body.historicPayload || typeof body.historicPayload !== 'object') {
+    const err = new Error('historicPayload is required for research expand');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  body.skipCache = true;
+  body.forceFresh = true;
+  body.bypassCache = true;
+  cacheDb.normalizeGradeCacheRequest(body);
+
+  try {
+    await cacheDb.deleteRawPerplexityCache(body);
+    const cacheKey = cacheDb.buildCacheKey(body);
+    if (cacheKey) await cacheDb.deleteCachedRowByKey(cacheKey);
+  } catch (purgeErr) {
+    console.warn('[generate] grade research expand cache purge failed:', purgeErr.message || purgeErr);
+  }
+
+  const gradeLabel = String(body.gradeLabel || cacheDb.resolveGradeLabelFromId(body.currentGrade || body.gradeId, null) || '').trim();
+  const archiveText = buildGradeArchiveSourceText(body.historicPayload) || JSON.stringify(body.historicPayload).slice(0, 16000);
+  const userQuery = gradeLabel || String(body.currentGrade || body.gradeId || '').trim();
+  const expandUserPrompt = buildResearchExpandIntro(archiveText, userQuery) + '\n\n' + buildUserPrompt(body);
+
+  const gradeLockSystem =
+    resolvedGradeId(body) || body.gradeLabel
+      ? ' CRITICAL: currentGrade is locked — never mix pedagogical content from other grades.'
+      : '';
+  const scopeOverrideBlocks = pedagogicalScope.isPedagogicalScopeOverridden(body)
+    ? pedagogicalScope.buildScopeOverridePromptBlocks(body)
+    : null;
+  const scopeGuardSystem = pedagogicalScope.shouldValidatePedagogicalScope(body)
+    ? (scopeOverrideBlocks
+      ? scopeOverrideBlocks.synthesisSystem
+      : ' CRITICAL: Enforce Waldorf pedagogical scope — surface soft warnings for cross-grade topics; never hallucinate justifications.')
+    : '';
+  const extraSystem =
+    gradeLockSystem +
+    scopeGuardSystem +
+    ' CRITICAL JSON OUTPUT: Reply with raw JSON only — first character {, last character }. No ```json fences, no Hebrew/English preamble.';
+
+  const data = await fetchPerplexityStructuredWithRetry(
+    body,
+    apiKey,
+    expandUserPrompt,
+    extraSystem,
+    {},
+    logContext
+  );
+
+  let savedKey = null;
+  try {
+    const cachePayload = cacheDb.stampPerplexityOnlyMetadata(data);
+    savedKey = await cacheDb.setCachedResult(body, cachePayload || data);
+  } catch (saveErr) {
+    console.warn('[generate] grade research expand cache save failed:', saveErr.message || saveErr);
+  }
+
+  return {
+    data: data,
+    meta: attachCommunityMeta({
+      fromCache: false,
+      source: 'research_expand',
+      researchExpanded: true,
+      cacheKey: savedKey || undefined,
+    }, EMPTY_COMMUNITY_PROBE),
+  };
+}
+
 async function executeGenerate(body, apiKey, requestContext, streamHooks) {
   if (!body || !body.phase) {
     const err = new Error('Missing phase');
@@ -3193,6 +3276,10 @@ async function executeGenerate(body, apiKey, requestContext, streamHooks) {
     ip: resolveClientIp(requestContext),
     action: buildActionLabel(body),
   };
+
+  if (body.researchExpand && body.historicPayload && typeof body.historicPayload === 'object' && body.phase === 'grade') {
+    return runGradeResearchExpand(body, apiKey, logContext);
+  }
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object' && body.phase === 'grade') {
     return runGradeArchiveUpgrade(body, apiKey, logContext);
