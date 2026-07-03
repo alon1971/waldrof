@@ -444,8 +444,9 @@ function readSearchLimitFromRow(row, tier) {
     const n = Number(stored);
     if (!Number.isNaN(n) && n >= 0) return n;
   }
-  const limits = TIER_LIMITS[tier];
-  if (tier === 'trial') return limits.lifetime;
+  const limitTier = row && !isTrialFromRow(row) ? planTypeFromRow(row) : (tier || 'trial');
+  const limits = TIER_LIMITS[limitTier] || TIER_LIMITS.trial;
+  if (limitTier === 'trial') return limits.lifetime;
   return limits.monthly;
 }
 
@@ -454,7 +455,8 @@ function readWordDownloadLimitFromRow(row, tier) {
     const n = Number(row.word_downloads_limit);
     if (!Number.isNaN(n) && n >= 0) return n;
   }
-  return TIER_LIMITS[tier].wordDownloads;
+  const limitTier = row && !isTrialFromRow(row) ? planTypeFromRow(row) : (tier || 'trial');
+  return (TIER_LIMITS[limitTier] || TIER_LIMITS.trial).wordDownloads;
 }
 
 async function downgradeSubscriptionIfExpired(user, row, userToken) {
@@ -548,38 +550,101 @@ function buildUsagePayload(row) {
   };
 }
 
-async function fetchSubscriptionRow(userId, userToken, emailHint) {
-  const pk = mapSupabaseUserId(userId, emailHint);
+function pickBestSubscriptionRow(rows) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  for (let i = 0; i < rows.length; i++) {
+    if (!isTrialFromRow(rows[i])) return rows[i];
+  }
+  return rows[0];
+}
+
+function dedupeSubscriptionRows(rows) {
+  const out = [];
+  const seen = new Set();
+  (rows || []).forEach(function (row) {
+    if (!row) return;
+    const key = String(row.user_id || row.id || '').trim() || JSON.stringify(row);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(row);
+  });
+  return out;
+}
+
+async function listSubscriptionRows(queryParams, userToken) {
   const params = new URLSearchParams();
   params.set('select', '*');
-  params.set('user_id', 'eq.' + pk);
-  params.set('limit', '1');
+  Object.keys(queryParams || {}).forEach(function (key) {
+    params.set(key, queryParams[key]);
+  });
+  params.set('limit', '5');
+  const res = await supabaseRequest(
+    '/rest/v1/' + TABLE + '?' + params.toString(),
+    { method: 'GET' },
+    userToken
+  );
+  const rows = await readSupabaseResponse(res, 'subscription read');
+  return Array.isArray(rows) ? rows : [];
+}
 
-  logUsage('fetch:before', { user_id: pk, raw_user_id: userId });
+async function alignSubscriptionUserId(row, authUserId, user, userToken) {
+  if (!row || !authUserId) return row;
+  const targetId = mapSupabaseUserId(authUserId, user && user.email);
+  const rowId = String(row.user_id || '').trim();
+  if (!rowId || rowId === targetId) return row;
+  logUsage('align_user_id', {
+    from: rowId,
+    to: targetId,
+    email: user && user.email,
+    plan_type: row.plan_type,
+    is_trial: row.is_trial,
+  });
+  const params = new URLSearchParams();
+  params.set('user_id', 'eq.' + rowId);
+  const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ user_id: targetId, updated_at: new Date().toISOString() }),
+  }, userToken);
+  const rows = await readSupabaseResponse(res, 'subscription align user_id');
+  return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, row, { user_id: targetId });
+}
 
-  async function queryRow(token) {
-    const res = await supabaseRequest(
-      '/rest/v1/' + TABLE + '?' + params.toString(),
-      { method: 'GET' },
-      token
-    );
-    const rows = await readSupabaseResponse(res, 'subscription read');
-    return Array.isArray(rows) && rows.length ? rows[0] : null;
-  }
+async function fetchSubscriptionRow(userId, userToken, emailHint) {
+  const pk = mapSupabaseUserId(userId, emailHint);
+  const email = normalizeEmail(emailHint);
 
-  let row = await queryRow(userToken);
-  const cfg = getSupabaseConfig();
-  if (!row && userToken && cfg.serviceKey) {
-    logUsage('fetch:service_role_fallback', { user_id: pk });
-    row = await queryRow(null);
+  logUsage('fetch:before', { user_id: pk, raw_user_id: userId, email: email || undefined });
+
+  const idRows = pk ? await listSubscriptionRows({ user_id: 'eq.' + pk }, userToken) : [];
+  const emailRows = email ? await listSubscriptionRows({ user_email: 'eq.' + email }, userToken) : [];
+  const merged = dedupeSubscriptionRows(idRows.concat(emailRows));
+  let row = pickBestSubscriptionRow(merged);
+
+  if (idRows.length && emailRows.length && idRows[0] && emailRows[0]
+    && String(idRows[0].user_id) !== String(emailRows[0].user_id)) {
+    logUsage('fetch:multiple_rows', {
+      user_id: pk,
+      email: email,
+      by_id_plan: idRows[0].plan_type,
+      by_id_trial: idRows[0].is_trial,
+      by_email_plan: emailRows[0].plan_type,
+      by_email_trial: emailRows[0].is_trial,
+      picked_plan: row ? row.plan_type : null,
+      picked_trial: row ? row.is_trial : null,
+    });
   }
 
   logUsage('fetch:after', {
     user_id: pk,
     found: Boolean(row),
-    search_count_monthly: row ? row.search_count_monthly : null,
+    row_user_id: row ? row.user_id : null,
     plan_type: row ? row.plan_type : null,
     is_trial: row ? row.is_trial : null,
+    search_limit_monthly: row ? row.search_limit_monthly : null,
+    word_downloads_limit: row ? row.word_downloads_limit : null,
+    expires_at: row ? row.expires_at : null,
+    search_count_monthly: row ? row.search_count_monthly : null,
   });
 
   return row;
@@ -729,8 +794,11 @@ async function ensureSubscription(user, userToken) {
   user = await enrichUserFromProfile(user, userToken);
   const contactPatch = buildSubscriptionContactPatch(user);
   let row = await fetchSubscriptionRow(user.id, userToken, user.email);
+  if (row) {
+    row = await alignSubscriptionUserId(row, user.id, user, userToken);
+  }
   if (!row) {
-    logUsage('ensure:create_row', { user_id: user.id });
+    logUsage('ensure:create_row', { user_id: user.id, email: user.email || undefined });
     row = await insertSubscriptionRow(user, Object.assign({
       plan_type: 'trial',
       is_trial: true,

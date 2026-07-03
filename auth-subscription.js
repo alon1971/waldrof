@@ -281,6 +281,10 @@
     return tier === 'pro' || tier === 'standard';
   }
 
+  function hasPaidAccess() {
+    return isProUser() || hasPaidSubscription();
+  }
+
   function parseIsTrialFlag(value) {
     if (value === false || value === 0 || value === 'false' || value === '0') return false;
     if (value === true || value === 1 || value === 'true' || value === '1') return true;
@@ -812,7 +816,7 @@
     }
     if (usage.wordDownloadLimit != null) authState.wordDownloadLimit = usage.wordDownloadLimit;
     var tier = normalizeTierId(authState.tier);
-    if (tier === 'trial') {
+    if (tier === 'trial' && !hasPaidSubscription()) {
       writeUsage({ count: authState.searchesUsed, lifetime: authState.searchesUsed });
     } else {
       writeUsage({ count: authState.searchesUsed, lifetime: readUsage().lifetime });
@@ -902,9 +906,10 @@
       applyProUserTierIfEligible();
       if (data.proUser || data.whitelisted) {
         applyProUserUsageFromServer(data.usage || { proUser: true });
-      } else {
-        if (data.usage) applyServerUsage(data.usage);
-        else applySubscriptionFields(data.subscription, null);
+      } else if (data.usage) {
+        applyServerUsage(data.usage);
+      } else if (data.subscription) {
+        applySubscriptionFields(data.subscription, null);
       }
       applyProUserTierIfEligible();
       persistAuth();
@@ -919,13 +924,18 @@
 
   function getEffectiveLimit(tierId) {
     if (isProUser()) return null;
-    var tier = getTierConfig(tierId || authState.tier);
-    if (authState.searchLimit != null && normalizeTierId(tierId || authState.tier) === normalizeTierId(authState.tier)) {
+    if (authState.searchLimit != null) {
       return authState.searchLimit;
+    }
+    if (hasPaidSubscription()) {
+      var paidTier = getTierConfig(authState.planType || authState.tier);
+      if (paidTier.monthlyLimit != null) return paidTier.monthlyLimit;
+      return null;
     }
     if (normalizeTierId(tierId || authState.tier) === 'trial') {
       return resolveTrialLifetimeSearchLimit();
     }
+    var tier = getTierConfig(tierId || authState.tier);
     if (tier.lifetimeLimit != null) return tier.lifetimeLimit;
     return tier.monthlyLimit;
   }
@@ -1583,6 +1593,15 @@
   function canPerformWordDownload() {
     if (isProUser()) return { allowed: true, unlimited: true, proUser: true };
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
+    if (hasPaidSubscription()) {
+      var paidDlLimit = authState.wordDownloadLimit;
+      if (paidDlLimit == null) return { allowed: true, unlimited: true };
+      var paidDlUsed = getWordDownloadsUsed();
+      if (paidDlUsed >= paidDlLimit) {
+        return { allowed: false, reason: 'word_limit', usage: paidDlUsed, limit: paidDlLimit };
+      }
+      return { allowed: true, usage: paidDlUsed, limit: paidDlLimit };
+    }
     var tier = normalizeTierId(authState.tier);
     if (tier !== 'trial') return { allowed: true, unlimited: true };
     var used = getWordDownloadsUsed();
@@ -1608,7 +1627,7 @@
 
   function recordWordDownload() {
     var tier = normalizeTierId(authState.tier);
-    if (isProUser() || tier !== 'trial') {
+    if (isProUser() || hasPaidSubscription() || tier !== 'trial') {
       return Promise.resolve(getWordDownloadsUsed());
     }
     return fetchSubscriptionAction('record_word_download').then(function (data) {
@@ -2269,15 +2288,15 @@
   function syncAuthBodyClass() {
     if (!document.body) return;
     document.body.classList.toggle('is-authenticated', Boolean(authState.isAuthenticated));
-    document.body.classList.toggle('is-pro-user', isProUser());
+    document.body.classList.toggle('is-pro-user', hasPaidAccess());
   }
 
   function syncProUserDomState() {
     syncAuthBodyClass();
-    var pro = isProUser();
+    var paid = hasPaidAccess();
     var accountBar = document.getElementById('user-account-bar');
-    if (accountBar) accountBar.classList.toggle('user-account-bar--pro', pro);
-    if (pro) setSearchUsageMeterHidden(true);
+    if (accountBar) accountBar.classList.toggle('user-account-bar--pro', paid);
+    if (paid) setSearchUsageMeterHidden(true);
   }
 
   function updateHeaderUi() {
@@ -2296,15 +2315,19 @@
       var upgradeBtn = document.getElementById('btn-open-pricing');
       if (nameEl) setHeaderDisplayName(nameEl);
       if (tierEl) {
-        var displayTier = isProUser() ? 'pro' : (authState.planType || authState.tier);
-        tierEl.textContent = isProUser() ? t('pro_user_badge') : tierLabel(displayTier);
+        var displayTier = hasPaidAccess()
+          ? (isProUser() ? 'pro' : (authState.planType || authState.tier))
+          : (authState.planType || authState.tier);
+        tierEl.textContent = hasPaidAccess() && (displayTier === 'pro' || displayTier === 'standard')
+          ? tierLabel(displayTier)
+          : tierLabel(displayTier);
         tierEl.className = 'user-tier-badge user-tier-badge--' + (typeof WaldorfAuth.normalizeTierId === 'function'
           ? WaldorfAuth.normalizeTierId(displayTier)
           : displayTier);
         tierEl.classList.toggle('user-tier-badge--pro-user', isProUser());
       }
-      if (upgradeBtn) upgradeBtn.classList.toggle('hidden', isProUser() || hasPaidSubscription());
-      setSearchUsageMeterHidden(isProUser() || hasPaidSubscription());
+      if (upgradeBtn) upgradeBtn.classList.toggle('hidden', hasPaidAccess());
+      setSearchUsageMeterHidden(hasPaidAccess());
       var signOutBtn = document.getElementById('btn-auth-signout');
       var settingsBtn = document.getElementById('btn-user-settings');
       if (signOutBtn) signOutBtn.classList.remove('hidden');
@@ -2348,7 +2371,7 @@
     syncProUserDomState();
     var meter = document.getElementById('search-usage-meter');
     if (!meter) return;
-    if (isProUser() || !authState.isAuthenticated) {
+    if (hasPaidAccess() || !authState.isAuthenticated) {
       setSearchUsageMeterHidden(true);
       return;
     }
@@ -2358,7 +2381,7 @@
     var countEl = document.getElementById('search-usage-count');
     var labelEl = document.getElementById('search-usage-label');
     var fillEl = document.getElementById('search-usage-fill');
-    var tier = normalizeTierId(authState.tier);
+    var tier = normalizeTierId(authState.planType || authState.tier);
     if (countEl) {
       countEl.textContent = displayLimit != null
         ? used + ' / ' + displayLimit
@@ -2725,6 +2748,8 @@
     getIdentityEmail: getIdentityEmail,
     setIdentityEmail: setIdentityEmail,
     isProUser: isProUser,
+    hasPaidSubscription: hasPaidSubscription,
+    hasPaidAccess: hasPaidAccess,
     isProUserEmail: isProUserEmail,
     PRO_USERS: PRO_USERS,
     normalizeTierId: normalizeTierId,
