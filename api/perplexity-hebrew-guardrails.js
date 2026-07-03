@@ -15,6 +15,16 @@ const PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION =
   'Examples: רודולף שטיינר, השטיינר, ושטיינר, משטיינר, לשטיינר, בשטיינר — never הסטיינר, וסטיינר, מסטיינר, etc.\n' +
   '=== END STEINER SPELLING ===\n';
 
+const PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION =
+  '\n=== HEBREW TERMINOLOGY — RUBICON CROSSINGS (MANDATORY) ===\n' +
+  'In ALL Hebrew output — including dynamic section headings, Developmental Compass titles (מצפן התפתחותי), core_emphases, and theory.sections headings — ' +
+  'NEVER use the non-standard literal translations "הלידה הראשונה", "לידה ראשונה", "הלידה השנייה", or "לידה שנייה".\n' +
+  'Always use the established Waldorf pedagogical terms:\n' +
+  '- חציית הרוביקון הראשונה (גיל 9) — for the first Rubicon crossing (around age 9)\n' +
+  '- חציית הרוביקון השנייה (גיל 12) — for the second Rubicon crossing (around age 12)\n' +
+  'Example heading: "מצפן התפתחותי לכיתה ד׳: חציית הרוביקון הראשונה (גיל 9)" — NOT "הלידה הראשונה".\n' +
+  '=== END RUBICON TERMINOLOGY ===\n';
+
 const PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION =
   '\n=== CORE SCHOLARLY IDENTITY (MANDATORY) ===\n' +
   'You are a world-class scholar and expert in Rudolf Steiner\'s philosophy, Anthroposophy, Waldorf pedagogy, and child development. ' +
@@ -31,11 +41,18 @@ const PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION =
 const PERPLEXITY_HEBREW_GUARDRAILS =
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION +
   PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION +
+  PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION +
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION +
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION;
 
-/** סטיינר → שטיינר (covers הסטיינר, וסטיינר, מסטיינר, etc.) */
+/** Post-processing fixes for common Hebrew terminology errors in AI output (headings + prose). */
 const HEBREW_AUTO_REPLACEMENTS = [
+  { pattern: /הלידה\s+השנייה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
+  { pattern: /הלידה\s+השניה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
+  { pattern: /הלידה\s+הראשונה/g, replacement: 'חציית הרוביקון הראשונה (גיל 9)' },
+  { pattern: /לידה\s+שנייה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
+  { pattern: /לידה\s+שניה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
+  { pattern: /לידה\s+ראשונה/g, replacement: 'חציית הרוביקון הראשונה (גיל 9)' },
   { pattern: /סטיינר/g, replacement: 'שטיינר' },
 ];
 
@@ -71,6 +88,7 @@ function applyHebrewAutoReplacementsDeep(value, depth) {
 module.exports = {
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION,
   PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION,
+  PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION,
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION,
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION,
   PERPLEXITY_HEBREW_GUARDRAILS,

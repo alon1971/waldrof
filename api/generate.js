@@ -1753,7 +1753,7 @@ function stripSourcePrefixes(text) {
 }
 
 function sanitizePedagogicalText(text) {
-  return stripSourcePrefixes(stripReferenceBrackets(text));
+  return hebrewGuardrails.applyHebrewAutoReplacements(stripSourcePrefixes(stripReferenceBrackets(text)));
 }
 
 function sanitizePedagogicalTextField(value) {

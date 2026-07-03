@@ -293,6 +293,7 @@ const PEDAGOGICAL_DEPTH_INSTRUCTION = [
   'Tab 3 — דגשים פדגוגיים ומהותיים (core_emphases / core_pedagogical_emphases):',
   '- Write 3-4 comprehensive Hebrew paragraphs (never short summaries).',
   '- MUST include Developmental Compass (מצפן התפתחותי / רציונל התפתחותי ומצפן למורה):',
+  '  Use חציית הרוביקון הראשונה (גיל 9) / חציית הרוביקון השנייה (גיל 12) in headings and prose — NEVER "הלידה הראשונה" or "הלידה השנייה".',
   '  (1) Why this topic at this exact age/grade?',
   '  (2) The child\'s inner developmental milestone (soul-spiritual, cognitive, moral-imaginative)?',
   '  (3) Teacher rhythm, artistic approach, and qualitative classroom attitude?',

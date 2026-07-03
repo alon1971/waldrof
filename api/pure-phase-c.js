@@ -2469,7 +2469,7 @@ const PHASE_C_ESSAY_DEPTH_REQUIREMENTS = [
   'Spend the ENTIRE output token budget. Longer is better. If you feel you are getting close to "enough", keep going with new concrete detail.',
   'The manual MUST cover ALL of the following dimensions in depth — never skip a dimension:',
   '  1) Exhaustive pedagogical & anthroposophical background (the spiritual-scientific WHY behind teaching this topic at this grade).',
-  '  2) Structural developmental axis for the grade (the soul-spiritual developmental stage, the Developmental Compass מצפן התפתחותי, what is awakening in the child, why NOW).',
+  '  2) Structural developmental axis for the grade (the soul-spiritual developmental stage, the Developmental Compass מצפן התפתחותי, what is awakening in the child, why NOW). Use חציית הרוביקון הראשונה (גיל 9) / חציית הרוביקון השנייה (גיל 12) — NEVER "הלידה הראשונה" or "הלידה השנייה" in headings or prose.',
   '  3) Concrete, day-by-day lesson plans and main-lesson block architecture (rhythm of the day, opening, recall, main work, artistic deepening, closing — with real classroom sequences).',
   '  4) Storytelling ideas (specific tales, legends, biographies, imaginative narratives with motifs and how to tell them).',
   '  5) Blackboard drawing inspirations (chalk-drawing motifs, colors, composition, sequence — described vividly enough to reproduce).',
@@ -2512,12 +2512,12 @@ function buildPhaseCGradeTopicLockInstruction(grade, topic) {
     'Target main-lesson topic: ' + topicStr,
     'Every section MUST match THIS grade developmental stage and THIS topic only.',
     'FORBIDDEN: importing concepts, examples, or links from other grades.',
-    'FORBIDDEN for Grades 1-6: adolescent themes (הלידה השנייה, puberty, מרד השלישי, chemistry/physics upper-school depth) unless grade is 7 or 8.',
+    'FORBIDDEN for Grades 1-6: adolescent themes (חציית הרוביקון השנייה (גיל 12), puberty, מרד השלישי, chemistry/physics upper-school depth) unless grade is 7 or 8.',
   ];
   if (g !== null && g <= 2) {
     lines.push(
       'Grades 1-2 LOCK: fairy-tale consciousness, qualities of numbers, form drawing, rhythm, imaginative math stories, pictorial counting.',
-      'Grade 1 math example: המספרים כאיכויות, ציור צורות, סיפורי מספרים, תנועה ושיר — NEVER הלידה השנייה, NEVER abstract algebra, NEVER upper-school science.'
+      'Grade 1 math example: המספרים כאיכויות, ציור צורות, סיפורי מספרים, תנועה ושיר — NEVER חציית הרוביקון השנייה (גיל 12), NEVER abstract algebra, NEVER upper-school science.'
     );
   } else if (g !== null && g >= 7) {
     lines.push('Grades 7-8: adolescent soul themes are appropriate when directly tied to the topic and grade.');

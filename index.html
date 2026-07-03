@@ -12382,7 +12382,14 @@
     }
 
     function applyHebrewAutoReplacements(text) {
-      return String(text || '').replace(/סטיינר/g, 'שטיינר');
+      var out = String(text || '');
+      out = out.replace(/הלידה\s+השנייה/g, 'חציית הרוביקון השנייה (גיל 12)');
+      out = out.replace(/הלידה\s+השניה/g, 'חציית הרוביקון השנייה (גיל 12)');
+      out = out.replace(/הלידה\s+הראשונה/g, 'חציית הרוביקון הראשונה (גיל 9)');
+      out = out.replace(/לידה\s+שנייה/g, 'חציית הרוביקון השנייה (גיל 12)');
+      out = out.replace(/לידה\s+שניה/g, 'חציית הרוביקון השנייה (גיל 12)');
+      out = out.replace(/לידה\s+ראשונה/g, 'חציית הרוביקון הראשונה (גיל 9)');
+      return out.replace(/סטיינר/g, 'שטיינר');
     }
 
     function sanitizePedagogicalText(text) {
@@ -19629,7 +19636,7 @@
         pushText(theory.rawContent || theory.content || theory.text);
         (theory.sections || []).forEach(function (sec) {
           if (!sec) return;
-          var heading = String(sec.heading || sec.title || '').trim();
+          var heading = sanitizePedagogicalText(String(sec.heading || sec.title || '').trim());
           var body = String(sec.content || sec.text || sec.body || '').trim();
           if (!body) return;
           pushText(heading ? ('## ' + heading + '\n\n' + body) : body);
@@ -22951,7 +22958,7 @@
           if (!sec) return;
           var content = String(sec.content || sec.text || sec.body || '').trim();
           if (!content) return;
-          var heading = String(sec.heading || sec.title || '').trim();
+          var heading = sanitizePedagogicalText(String(sec.heading || sec.title || '').trim());
           if (heading) {
             parts.push('<h3 class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(heading) + '</h3>');
           }
@@ -23690,7 +23697,7 @@
         if (/מראי מקום|ביבליוגרפיה|מקורות להעמקה|bibliography|references/i.test(String(sec.heading || ''))) return;
         const secId = buildPedagogyItemId('theory', 'sec', i, sec.heading);
         const secIcon = sec.icon || 'fa-compass';
-        const secHeading = sec.heading || sec.title || '';
+        const secHeading = sanitizePedagogicalText(sec.heading || sec.title || '');
         const secContent = sec.content || sec.text || sec.body || '';
         const secBodyHtml = renderNarrativeProseBlock(secContent, {
           blockPath: 'theory.sections[' + i + '].content',
