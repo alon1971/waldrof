@@ -2127,24 +2127,15 @@
         authState.tier = normalizeTierId(data.subscription.tier || authState.tier);
         authState.expiresAt = data.subscription.expiresAt || authState.expiresAt;
       }
-      if (data && data.usage && data.usage.expiresAt) {
-        authState.expiresAt = data.usage.expiresAt;
+      if (data && data.usage) {
+        if (data.usage.tier) authState.tier = normalizeTierId(data.usage.tier);
+        if (data.usage.expiresAt) authState.expiresAt = data.usage.expiresAt;
       }
       persistAuth();
       hideCancelSubscriptionModal();
       hideUserSettingsModal();
       notifyListeners();
-      if (stripeCheckoutEnabled) {
-        alert(t('cancel_subscription_success'));
-        return data;
-      }
-      var followup = document.getElementById('cancel-subscription-followup');
-      var link = document.getElementById('cancel-subscription-whatsapp');
-      if (link) link.href = whatsAppSupportUrl(t('cancel_subscription_whatsapp_prefill'));
-      if (followup) {
-        followup.classList.remove('hidden');
-        followup.setAttribute('aria-hidden', 'false');
-      }
+      alert(t('cancel_subscription_success'));
       return data;
     }).catch(function (err) {
       alert((err && err.message) || t('cancel_subscription_error'));
@@ -2503,14 +2494,6 @@
     if (cancelBackdrop) cancelBackdrop.addEventListener('click', hideCancelSubscriptionModal);
     var cancelConfirm = document.getElementById('cancel-subscription-confirm');
     if (cancelConfirm) cancelConfirm.addEventListener('click', confirmCancelSubscription);
-    var followupClose = document.getElementById('cancel-subscription-followup-close');
-    if (followupClose) followupClose.addEventListener('click', function () {
-      var followup = document.getElementById('cancel-subscription-followup');
-      if (followup) {
-        followup.classList.add('hidden');
-        followup.setAttribute('aria-hidden', 'true');
-      }
-    });
 
     var rateClose = document.getElementById('rate-limit-close');
     if (rateClose) rateClose.addEventListener('click', hideRateLimitModal);

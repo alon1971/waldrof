@@ -410,9 +410,64 @@ function isSubscriptionExpired(row) {
   return new Date(row.expires_at).getTime() <= Date.now();
 }
 
+/** Paid access tier: stays pro/standard until expires_at; only then trial. */
 function effectiveTierFromRow(row) {
   if (isSubscriptionExpired(row)) return 'trial';
   return planTypeFromRow(row);
+}
+
+function readSearchLimitFromRow(row, tier) {
+  const stored = row && row.search_limit_monthly;
+  if (stored != null && stored !== '') {
+    const n = Number(stored);
+    if (!Number.isNaN(n) && n >= 0) return n;
+  }
+  const limits = TIER_LIMITS[tier];
+  if (tier === 'trial') return limits.lifetime;
+  return limits.monthly;
+}
+
+function readWordDownloadLimitFromRow(row, tier) {
+  if (row && row.word_downloads_limit != null && row.word_downloads_limit !== '') {
+    const n = Number(row.word_downloads_limit);
+    if (!Number.isNaN(n) && n >= 0) return n;
+  }
+  return TIER_LIMITS[tier].wordDownloads;
+}
+
+async function downgradeSubscriptionIfExpired(user, row, userToken) {
+  if (!row || !user || !user.id) return row;
+  if (planTypeFromRow(row) === 'trial') return row;
+  if (!isSubscriptionExpired(row)) return row;
+  logUsage('downgrade_expired', {
+    user_id: user.id,
+    expires_at: row.expires_at,
+    previous_plan: planTypeFromRow(row),
+  });
+  return updateSubscriptionRow(user.id, {
+    plan_type: 'trial',
+    auto_renew: false,
+    expires_at: null,
+  }, row, user, userToken);
+}
+
+async function notifyCancellationRequested(user, row, expiresAt) {
+  const detail = {
+    userId: user && user.id,
+    email: normalizeEmail((user && user.email) || (row && row.user_email)),
+    fullName: (row && row.user_full_name) || (user && (user.fullName || user.name)) || '',
+    phone: (row && row.user_phone) || (user && user.phone) || '',
+    planType: planTypeFromRow(row),
+    expiresAt: expiresAt || (row && row.expires_at) || null,
+    cancelledAt: new Date().toISOString(),
+  };
+  logUsage('cancel_requested', detail);
+  try {
+    const billingEmail = require('./billing-email');
+    await billingEmail.sendCancellationAlert(detail);
+  } catch (notifyErr) {
+    logUsage('cancel_notify_failed', notifyErr.message || notifyErr);
+  }
 }
 
 function buildSearchLimitError(usage) {
@@ -434,22 +489,13 @@ function buildSearchLimitError(usage) {
 
 function buildUsagePayload(row) {
   const tier = effectiveTierFromRow(row);
-  const limits = TIER_LIMITS[tier];
   const month = currentMonthKey();
   const used = readSearchCountFromRow(row, tier);
-  let limit = null;
-  let period = 'lifetime';
-
-  if (tier === 'trial') {
-    limit = limits.lifetime;
-    period = 'lifetime';
-  } else {
-    limit = limits.monthly;
-    period = 'monthly';
-  }
+  const limit = readSearchLimitFromRow(row, tier);
+  const period = tier === 'trial' ? 'lifetime' : 'monthly';
 
   const wordDownloadsUsed = readWordDownloadsFromRow(row, tier);
-  const wordDownloadLimit = limits.wordDownloads;
+  const wordDownloadLimit = readWordDownloadLimitFromRow(row, tier);
   const wordDownloadsAllowed = wordDownloadLimit == null
     ? true
     : wordDownloadsUsed < wordDownloadLimit;
@@ -650,6 +696,7 @@ async function ensureSubscription(user, userToken) {
   } else if (shouldRefreshSubscriptionContact(row, contactPatch)) {
     row = await updateSubscriptionRow(user.id, contactPatch, row, user, userToken);
   }
+  row = await downgradeSubscriptionIfExpired(user, row, userToken);
   return row;
 }
 
@@ -777,7 +824,8 @@ async function recordWordDownload(user, userToken) {
 
   const usageBefore = buildUsagePayload(row);
   if (!usageBefore.wordDownloadsAllowed) {
-    const err = new Error('הגעתם למגבלת 5 הורדות Word בחודש במסלול החינמי. שדרגו למסלול פרו להורדות ללא הגבלה.');
+    const downloadCap = usageBefore.wordDownloadLimit != null ? usageBefore.wordDownloadLimit : 5;
+    const err = new Error('הגעתם למגבלת ' + downloadCap + ' הורדות Word בחודש במסלול החינמי. שדרגו למסלול פרו להורדות ללא הגבלה.');
     err.statusCode = 429;
     err.code = 'WORD_DOWNLOAD_LIMIT';
     err.usage = usageBefore;
@@ -832,18 +880,25 @@ async function cancelRenewal(user, userToken) {
     }
   }
 
+  const currentPlan = planTypeFromRow(row);
   const updated = await updateSubscriptionRow(user.id, {
     auto_renew: false,
     expires_at: expiresAt,
+    plan_type: currentPlan,
   }, row, user, userToken);
 
+  await notifyCancellationRequested(user, updated, expiresAt);
+
+  const effectiveTier = effectiveTierFromRow(updated);
   return {
     ok: true,
     action: 'cancel_renewal',
     subscription: {
-      tier: planTypeFromRow(updated),
+      tier: effectiveTier,
+      planType: planTypeFromRow(updated),
       autoRenew: false,
       expiresAt: updated.expires_at || null,
+      accessUntilExpiry: effectiveTier !== 'trial',
     },
     usage: buildUsagePayload(updated),
   };

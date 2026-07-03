@@ -46,7 +46,35 @@ async function sendEmail(options) {
   return { ok: true, messageId: info.messageId };
 }
 
+async function sendCancellationAlert(details) {
+  const d = details || {};
+  const email = String(d.email || '').trim() || '(unknown)';
+  const fullName = String(d.fullName || '').trim() || '—';
+  const phone = String(d.phone || '').trim() || '—';
+  const planType = String(d.planType || 'pro').trim();
+  const expiresAt = String(d.expiresAt || '').trim() || '—';
+  const userId = String(d.userId || '').trim() || '—';
+  const cancelledAt = String(d.cancelledAt || new Date().toISOString()).trim();
+
+  const subject = '[Waldrof] בקשת ביטול חידוש מנוי — ' + email;
+  const text = [
+    'משתמש ביקש לבטל את חידוש המנוי (הגישה נשמרת עד תאריך התפוגה).',
+    '',
+    'שם: ' + fullName,
+    'מייל: ' + email,
+    'טלפון: ' + phone,
+    'מזהה משתמש: ' + userId,
+    'מסלול נוכחי: ' + planType,
+    'תוקף עד: ' + expiresAt,
+    'זמן הבקשה: ' + cancelledAt,
+  ].join('\n');
+
+  log('cancellation_alert', { email: email, userId: userId, expiresAt: expiresAt });
+  return sendEmail({ subject: subject, text: text });
+}
+
 module.exports = {
   isEmailEnabled,
   sendEmail,
+  sendCancellationAlert,
 };
