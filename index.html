@@ -1102,6 +1102,16 @@
       inset-inline-end: 0.75rem;
       z-index: 130;
     }
+    .admin-research-tools-inline {
+      position: relative;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.65rem;
+      border-bottom: 1px dashed rgba(139, 58, 58, 0.22);
+    }
+    .admin-research-tools-inline .admin-research-menu--inline {
+      inset-inline-end: 0;
+      inset-inline-start: auto;
+    }
     @media (max-width: 767px) {
       .step-pill { min-height: 44px; padding: 0.625rem 0.75rem; font-size: var(--app-body-size) !important; }
       .curriculum-card-toggle { min-height: 56px; }
@@ -6161,6 +6171,9 @@
       if (!sourceId) return;
       if (isOpen) staticExpansionOpenState[sourceId] = true;
       else delete staticExpansionOpenState[sourceId];
+      if (typeof updateAdminResearchToolsVisibility === 'function') {
+        updateAdminResearchToolsVisibility();
+      }
     }
 
     function restoreStaticExpansionOpenState() {
@@ -6219,6 +6232,9 @@
     function restoreAllExpansionUiState() {
       restoreAllSummaryPanels();
       restoreStaticExpansionOpenState();
+      if (typeof updateAdminResearchToolsVisibility === 'function') {
+        updateAdminResearchToolsVisibility();
+      }
     }
 
     function getTheoryBibliographyPrompt() {
@@ -11917,6 +11933,7 @@
           '<button type="button" class="inline-expand-close" data-bib-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         applyExpansionDomDedupe(panel);
         panel.classList.remove('hidden');
+        updateAdminResearchToolsVisibility();
       });
     }
 
@@ -14479,6 +14496,7 @@
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         applyExpansionDomDedupe(panel);
         panel.classList.remove('hidden');
+        updateAdminResearchToolsVisibility();
       });
     }
 
@@ -17904,6 +17922,40 @@
       return true;
     }
 
+    function hardenExternalAnchorTagHtml(anchorHtml) {
+      var tag = String(anchorHtml || '');
+      if (!/<a\b/i.test(tag)) return tag;
+      var hrefMatch = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i);
+      if (!hrefMatch || !/^https?:\/\//i.test(hrefMatch[1])) return tag;
+      if (!/\btarget\s*=/i.test(tag)) {
+        tag = tag.replace(/<a\b/i, '<a target="_blank"');
+      } else {
+        tag = tag.replace(/\btarget\s*=\s*["'][^"']*["']/i, 'target="_blank"');
+      }
+      if (!/\brel\s*=/i.test(tag)) {
+        tag = tag.replace(/<a\b/i, '<a rel="noopener noreferrer"');
+      } else if (!/noopener/i.test(tag)) {
+        tag = tag.replace(/\brel\s*=\s*["']([^"']*)["']/i, function (_m, rel) {
+          return 'rel="' + (rel + ' noopener noreferrer').trim() + '"';
+        });
+      }
+      return tag;
+    }
+
+    function ensureExternalLinksOpenInNewTab(root) {
+      if (!root || typeof root.querySelectorAll !== 'function') return;
+      root.querySelectorAll('a[href]').forEach(function (anchor) {
+        var href = String(anchor.getAttribute('href') || '').trim();
+        if (!/^https?:\/\//i.test(href)) return;
+        anchor.setAttribute('target', '_blank');
+        var rel = String(anchor.getAttribute('rel') || '').trim();
+        if (!/noopener/i.test(rel)) {
+          anchor.setAttribute('rel', (rel + ' noopener noreferrer').trim());
+        }
+      });
+    }
+    window.ensureExternalLinksOpenInNewTab = ensureExternalLinksOpenInNewTab;
+
     function linkifyRawUrlsInContainer(root) {
       if (!root || _rawUrlLinkifyBusy) return;
       if (typeof document === 'undefined' || !document.createTreeWalker) return;
@@ -17926,6 +17978,7 @@
         var current;
         while ((current = walker.nextNode())) targets.push(current);
         targets.forEach(linkifyRawUrlsInTextNode);
+        ensureExternalLinksOpenInNewTab(root);
       } catch (linkifyErr) {
         /* never let linkifying break rendering */
       } finally {
@@ -17947,6 +18000,7 @@
         nodes.forEach(function (node) {
           if (node && node.nodeType === 1 && node.isConnected !== false) {
             linkifyRawUrlsInContainer(node);
+            ensureExternalLinksOpenInNewTab(node);
           }
         });
       }
@@ -18253,7 +18307,7 @@
       }
       var display = resolveFriendlyLinkDisplayLabel(label, href);
       if (isDeadSourceLinkLabel(display)) display = formatMarkdownLinkDisplay(label);
-      return '<a href="' + escapeHtml(href) + '" target="_blank" class="text-blue-600 underline">' +
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline prose-source-link">' +
         escapeHtml(display) + '</a>';
     }
 
@@ -18307,7 +18361,7 @@
       });
       work = replaceMarkdownLinksInText(work);
       preserved.forEach(function (tag, index) {
-        work = work.split('\x00EALINK' + index + '\x00').join(tag);
+        work = work.split('\x00EALINK' + index + '\x00').join(hardenExternalAnchorTagHtml(tag));
       });
       return restoreInteractiveHtmlBlocks(work, ui.preserved);
     }
@@ -20844,20 +20898,73 @@
     }
 
     function closeAdminResearchMenu() {
+      closeAllAdminResearchMenus();
+    }
+
+    function closeAllAdminResearchMenus() {
       adminResearchMenuOpen = false;
-      var menu = document.getElementById('admin-research-tools-menu');
       var btn = document.getElementById('btn-admin-research-tools');
+      var menu = document.getElementById('admin-research-tools-menu');
       if (menu) menu.classList.add('hidden');
       if (btn) btn.setAttribute('aria-expanded', 'false');
+      document.querySelectorAll('.admin-research-tools-inline .admin-research-menu').forEach(function (inlineMenu) {
+        inlineMenu.classList.add('hidden');
+      });
+      document.querySelectorAll('.admin-research-tools-trigger').forEach(function (trigger) {
+        trigger.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    function buildAdminResearchInlineBarHtml() {
+      return '<div class="admin-research-tools-inline" data-admin-research-inline="1">' +
+        '<button type="button" class="admin-research-tools-trigger touch-btn text-sm bg-sage/10 text-sage-dark border border-sage/30 px-3 py-2 rounded-lg hover:bg-sage/15" aria-haspopup="menu" aria-expanded="false" title="כלי מחקר מתקדמים (מנהל)">' +
+        '<i class="fa-solid fa-flask ml-1" aria-hidden="true"></i> מחקר מתקדם</button>' +
+        '<div class="admin-research-menu admin-research-menu--inline hidden" role="menu" aria-label="כלי מחקר מתקדמים">' +
+        '<button type="button" class="admin-research-menu-item" data-admin-research-action="expand" role="menuitem">הרחב מחקר זה</button>' +
+        '<button type="button" class="admin-research-menu-item" data-admin-research-action="refresh" role="menuitem">רענן / החלף תוכן</button>' +
+        '<button type="button" class="admin-research-menu-item" data-admin-research-action="synthesize" role="menuitem">סנתז עם הארכיון</button>' +
+        '</div></div>';
+    }
+
+    function mountAdminResearchToolsInExpansionInner(inner) {
+      if (!inner || inner.querySelector('.admin-research-tools-inline')) return;
+      if (inner.classList.contains('inline-expand-loading')) return;
+      if (!inner.textContent || !String(inner.textContent).trim()) return;
+      inner.insertAdjacentHTML('afterbegin', buildAdminResearchInlineBarHtml());
+    }
+
+    function syncExpansionAdminResearchTools() {
+      document.querySelectorAll('.admin-research-tools-inline').forEach(function (node) {
+        node.remove();
+      });
+      var ctx = getAdminResearchContext();
+      if (!isResearchAdminUser() || !ctx.hasContent) return;
+      document.querySelectorAll('.inline-expand-panel:not(.hidden) .inline-expand-inner').forEach(function (inner) {
+        mountAdminResearchToolsInExpansionInner(inner);
+      });
+      document.querySelectorAll('details.static-expansion-block[open] .static-expansion-body, details[data-static-expand][open] .static-expansion-body').forEach(function (inner) {
+        mountAdminResearchToolsInExpansionInner(inner);
+      });
     }
 
     function toggleAdminResearchMenu() {
-      var menu = document.getElementById('admin-research-tools-menu');
-      var btn = document.getElementById('btn-admin-research-tools');
+      var wrap = document.getElementById('admin-research-tools-wrap');
+      if (!wrap) return;
+      toggleAdminResearchMenuForWrap(wrap);
+    }
+
+    function toggleAdminResearchMenuForWrap(wrap) {
+      if (!wrap) return;
+      var menu = wrap.querySelector('.admin-research-menu');
+      var btn = wrap.querySelector('#btn-admin-research-tools') || wrap.querySelector('.admin-research-tools-trigger');
       if (!menu || !btn) return;
-      adminResearchMenuOpen = !adminResearchMenuOpen;
-      menu.classList.toggle('hidden', !adminResearchMenuOpen);
-      btn.setAttribute('aria-expanded', adminResearchMenuOpen ? 'true' : 'false');
+      var willOpen = menu.classList.contains('hidden');
+      closeAllAdminResearchMenus();
+      if (willOpen) {
+        adminResearchMenuOpen = true;
+        menu.classList.remove('hidden');
+        btn.setAttribute('aria-expanded', 'true');
+      }
     }
 
     function setAdminResearchLoading(loading) {
@@ -20865,8 +20972,14 @@
       var btn = document.getElementById('btn-admin-research-tools');
       var items = document.querySelectorAll('.admin-research-menu-item');
       if (btn) btn.disabled = !!loading;
+      document.querySelectorAll('.admin-research-tools-trigger').forEach(function (trigger) {
+        trigger.disabled = !!loading;
+      });
       items.forEach(function (item) { item.disabled = !!loading; });
       if (wrap) wrap.dataset.loading = loading ? '1' : '';
+      document.querySelectorAll('.admin-research-tools-inline').forEach(function (inlineWrap) {
+        inlineWrap.dataset.loading = loading ? '1' : '';
+      });
     }
 
     function updateAdminResearchToolsVisibility() {
@@ -20880,6 +20993,7 @@
       btn.classList.toggle('hidden', !show);
       btn.classList.toggle('admin-research-visible', show);
       if (!show) closeAdminResearchMenu();
+      syncExpansionAdminResearchTools();
     }
 
     async function runAdminResearchExpand() {
@@ -21059,33 +21173,29 @@
     function ensureAdminResearchToolsEvents() {
       if (adminResearchEventsBound) return;
       adminResearchEventsBound = true;
-      var btn = document.getElementById('btn-admin-research-tools');
-      var menu = document.getElementById('admin-research-tools-menu');
-      if (btn) {
-        btn.addEventListener('click', function (e) {
+      document.addEventListener('click', function (e) {
+        var trigger = e.target && e.target.closest ? e.target.closest('#btn-admin-research-tools, .admin-research-tools-trigger') : null;
+        if (trigger) {
           e.preventDefault();
           e.stopPropagation();
-          toggleAdminResearchMenu();
-        });
-      }
-      if (menu) {
-        menu.addEventListener('click', function (e) {
-          var item = e.target && e.target.closest ? e.target.closest('[data-admin-research-action]') : null;
-          if (!item || item.disabled) return;
+          var wrap = trigger.closest('#admin-research-tools-wrap, .admin-research-tools-inline');
+          toggleAdminResearchMenuForWrap(wrap);
+          return;
+        }
+        var item = e.target && e.target.closest ? e.target.closest('[data-admin-research-action]') : null;
+        if (item && !item.disabled) {
           var action = item.getAttribute('data-admin-research-action');
           if (action === 'expand') runAdminResearchExpand();
           else if (action === 'refresh') runAdminResearchRefresh();
           else if (action === 'synthesize') runAdminResearchSynthesize();
-        });
-      }
-      document.addEventListener('click', function (e) {
+          return;
+        }
         if (!adminResearchMenuOpen) return;
-        var wrap = document.getElementById('admin-research-tools-wrap');
-        if (wrap && e.target && wrap.contains(e.target)) return;
-        closeAdminResearchMenu();
+        var openWrap = e.target && e.target.closest ? e.target.closest('#admin-research-tools-wrap, .admin-research-tools-inline') : null;
+        if (!openWrap) closeAllAdminResearchMenus();
       });
       document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') closeAdminResearchMenu();
+        if (e.key === 'Escape') closeAllAdminResearchMenus();
       });
     }
 
@@ -23524,7 +23634,7 @@
       if (!href) return escapeHtml(String(title || url || ''));
       var label = resolveFriendlyLinkDisplayLabel(title, href);
       if (isDeadSourceLinkLabel(label)) label = getSourceLinkDisplayLabel('', href);
-      return '<a href="' + escapeHtml(href) + '" target="_blank" class="text-green-600 underline hover:text-green-800">' +
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="text-green-600 underline hover:text-green-800">' +
         escapeHtml(label) + '</a>';
     }
 
