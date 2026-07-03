@@ -2,15 +2,21 @@
 -- Run in Supabase SQL Editor (safe to re-run).
 
 alter table public.user_subscriptions
-  add column if not exists search_limit_monthly integer,
-  add column if not exists word_downloads_limit integer;
+  add column if not exists search_limit_monthly integer default 2,
+  add column if not exists word_downloads_limit integer default 17;
+
+alter table public.user_subscriptions
+  alter column search_limit_monthly set default 2;
+
+alter table public.user_subscriptions
+  alter column word_downloads_limit set default 17;
 
 comment on column public.user_subscriptions.search_limit_monthly is
-  'Max live searches: trial = lifetime cap; pro/standard = monthly cap';
+  'Max live searches: trial = lifetime cap; pro/standard = monthly cap (DB default 2)';
 comment on column public.user_subscriptions.word_downloads_limit is
-  'Max Word downloads for trial; NULL = unlimited (pro/standard)';
+  'Max Word downloads for trial; NULL = unlimited pro/standard (DB default 17)';
 
--- Backfill defaults: trial 2 searches + 5 downloads; paid tiers 30 searches/month, unlimited downloads.
+-- Backfill existing rows where limits were never set.
 update public.user_subscriptions
 set
   search_limit_monthly = coalesce(
@@ -24,7 +30,7 @@ set
     word_downloads_limit,
     case
       when lower(coalesce(plan_type, 'trial')) in ('pro', 'standard') then null
-      else 5
+      else 17
     end
   ),
   updated_at = now()

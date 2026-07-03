@@ -11,6 +11,6 @@
 -- user_email text (teacher email, denormalized)
 -- user_full_name text (teacher display name)
 -- user_phone text (teacher phone)
--- search_limit_monthly integer (trial lifetime cap / paid monthly cap)
--- word_downloads_limit integer (trial cap; NULL = unlimited)
+-- search_limit_monthly integer default 2 (trial lifetime / paid monthly cap)
+-- word_downloads_limit integer default 17 (trial cap; NULL = unlimited)
 -- created_at, updated_at timestamptz

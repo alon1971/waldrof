@@ -28,7 +28,7 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
 ];
 
 const TIER_LIMITS = {
-  trial: { lifetime: TRIAL_LIFETIME_SEARCH_LIMIT, monthly: null, wordDownloads: 5, wordDownloadsMonthly: true },
+  trial: { lifetime: TRIAL_LIFETIME_SEARCH_LIMIT, monthly: null, wordDownloads: 17, wordDownloadsMonthly: true },
   standard: { lifetime: null, monthly: 300, wordDownloads: null },
   pro: { lifetime: null, monthly: PRO_MONTHLY_SEARCH_LIMIT, wordDownloads: null },
 };
