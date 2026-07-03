@@ -3,6 +3,7 @@
  */
 const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
+const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -213,9 +214,17 @@ function createLegacyPostHandler(runFn) {
     try {
       const result = await runFn(body, req);
       if (result && typeof result === 'object' && (result.data !== undefined || result.meta)) {
+        var responseData = result.data;
+        if (responseData != null && typeof responseData === 'object') {
+          responseData = hebrewGuardrails.applyHebrewAutoReplacementsDeep(
+            JSON.parse(JSON.stringify(responseData))
+          );
+        } else if (typeof responseData === 'string') {
+          responseData = hebrewGuardrails.applyHebrewAutoReplacements(responseData);
+        }
         return sendJson(res, 200, {
           ok: true,
-          data: result.data,
+          data: responseData,
           meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
         });
       }

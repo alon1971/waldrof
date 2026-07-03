@@ -18,6 +18,7 @@ const embeddings = require('./embeddings');
 const catalogTopics = require('./catalog-topics');
 const driveCatalogSync = require('./drive-catalog-sync');
 const enrichmentLinks = require('./enrichment-links');
+const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 
 const TABLE_NAME = 'cached_results';
 /** Phase stored in cached_results for raw Perplexity web-search payloads (hybrid pipeline). */
@@ -384,7 +385,7 @@ function coerceCachedResultData(raw) {
     data = data.data;
   }
 
-  return data;
+  return hebrewGuardrails.applyHebrewAutoReplacementsDeep(data);
 }
 
 function tryParseArchiveJsonObject(value) {
@@ -794,9 +795,9 @@ function cloneJsonSafe(value) {
 /** Strip bytes/surrogates that break JSON.stringify or corrupt Supabase jsonb. */
 function sanitizeJsonString(text) {
   if (text == null) return text;
-  return String(text)
+  return hebrewGuardrails.applyHebrewAutoReplacements(String(text)
     .replace(/\u0000/g, '')
-    .replace(/[\uD800-\uDFFF]/g, '');
+    .replace(/[\uD800-\uDFFF]/g, ''));
 }
 
 /**

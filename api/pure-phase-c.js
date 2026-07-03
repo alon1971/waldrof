@@ -1033,7 +1033,8 @@ function sanitizePhaseCPlainProse(text) {
     }).filter(Boolean).join('\n\n');
   }
   out = stripSequentialDuplicateSentences(out);
-  return stripNakedUrlsFromProse(out).trim();
+  out = stripNakedUrlsFromProse(out).trim();
+  return hebrewGuardrails.applyHebrewAutoReplacements(out);
 }
 
 function stripSequentialDuplicateHtmlBlocks(html) {
@@ -3345,9 +3346,17 @@ async function fetchHandler(request) {
     const result = await runPurePhaseC(body || {}, {
       headers: Object.fromEntries(request.headers.entries()),
     });
+    var responseData = result.data;
+    if (responseData != null && typeof responseData === 'object') {
+      responseData = hebrewGuardrails.applyHebrewAutoReplacementsDeep(
+        JSON.parse(JSON.stringify(responseData))
+      );
+    } else if (typeof responseData === 'string') {
+      responseData = hebrewGuardrails.applyHebrewAutoReplacements(responseData);
+    }
     return Response.json({
       ok: true,
-      data: result.data,
+      data: responseData,
       meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
     }, { status: 200, headers: headers });
   } catch (err) {

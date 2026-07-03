@@ -1,6 +1,6 @@
 /**
  * Strict Hebrew output, scholarly identity, and zero-hallucination rules for Perplexity/Sonar prompts.
- * Included in every search and synthesis system prompt.
+ * Includes post-processing auto-replacements for common Hebrew spelling errors.
  */
 const PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION =
   '\n=== HEBREW OUTPUT — FORBIDDEN MACHINE-TRANSLATED TERMS (MANDATORY) ===\n' +
@@ -8,6 +8,12 @@ const PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION =
   'Never use words like \'דורחת\', \'דורחת פרקטית\', \'מבוכה\' (as a translation for Perplexity), or \'לדרוס\' when presenting educational material or prompts to the user. ' +
   'Always use natural, professional Hebrew. If referencing the system, use \'פרפלקסיטי\' or \'המערכת\'.\n' +
   '=== END FORBIDDEN TERMS ===\n';
+
+const PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION =
+  '\n=== HEBREW SPELLING — RUDOLF STEINER (MANDATORY) ===\n' +
+  'In all Hebrew output, always write Rudolf Steiner\'s name as שטיינר (with shin ש), NEVER סטיינר (with samekh ס). ' +
+  'Examples: רודולף שטיינר, השטיינר, ושטיינר, משטיינר, לשטיינר, בשטיינר — never הסטיינר, וסטיינר, מסטיינר, etc.\n' +
+  '=== END STEINER SPELLING ===\n';
 
 const PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION =
   '\n=== CORE SCHOLARLY IDENTITY (MANDATORY) ===\n' +
@@ -24,12 +30,51 @@ const PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION =
 
 const PERPLEXITY_HEBREW_GUARDRAILS =
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION +
+  PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION +
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION +
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION;
 
+/** סטיינר → שטיינר (covers הסטיינר, וסטיינר, מסטיינר, etc.) */
+const HEBREW_AUTO_REPLACEMENTS = [
+  { pattern: /סטיינר/g, replacement: 'שטיינר' },
+];
+
+function applyHebrewAutoReplacements(text) {
+  if (text == null || typeof text !== 'string') return text;
+  var out = text;
+  HEBREW_AUTO_REPLACEMENTS.forEach(function (rule) {
+    out = out.replace(rule.pattern, rule.replacement);
+  });
+  return out;
+}
+
+function applyHebrewAutoReplacementsDeep(value, depth) {
+  if (depth == null) depth = 0;
+  if (depth > 40) return value;
+  if (value == null) return value;
+  if (typeof value === 'string') return applyHebrewAutoReplacements(value);
+  if (Array.isArray(value)) {
+    for (var i = 0; i < value.length; i++) {
+      value[i] = applyHebrewAutoReplacementsDeep(value[i], depth + 1);
+    }
+    return value;
+  }
+  if (typeof value === 'object') {
+    Object.keys(value).forEach(function (key) {
+      value[key] = applyHebrewAutoReplacementsDeep(value[key], depth + 1);
+    });
+    return value;
+  }
+  return value;
+}
+
 module.exports = {
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION,
+  PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION,
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION,
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION,
   PERPLEXITY_HEBREW_GUARDRAILS,
+  HEBREW_AUTO_REPLACEMENTS,
+  applyHebrewAutoReplacements,
+  applyHebrewAutoReplacementsDeep,
 };
