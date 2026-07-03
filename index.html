@@ -4502,7 +4502,7 @@
         <ul>
           <li><strong>המאגר הקהילתי (חינמי):</strong> החזון הגדול הוא יצירת כלי שיתופי. ככל שנעלה יותר חומרי עבודה – שירים, דקלומים, מערכים וכו' – נוכל לבנות יחד מאגר מידע עצום, מקצועי ומרוכז במקום אחד, המזין את כולנו.</li>
           <li><strong>חיפוש ידע ארכיוני (חינמי):</strong> גישה חופשית ומלאה לכל מערכי השיעור, הרעיונות והתכנים שכבר חיפשו ונשמרו בעבר על ידי חברי הקהילה.</li>
-          <li><strong>מחקר וחיפוש חי (בתשלום שנתי):</strong> כדי להביא לכם את התוצאות העמוקות והמקיפות ביותר, החיפוש החי באתר מבוסס על מנוע הבינה המלאכותית המתקדם Perplexity. מאחר שהפעלת המנוע כרוכה בעלויות טכנולוגיות גבוהות, שירות זה פתוח למנויי ה-Pro ומאפשר לכם לחקור, ליצור ולייצר חומרי לימוד חדשים ומותאמים אישית בזמן אמת.</li>
+          <li><strong>מחקר וחיפוש חי (3 חיפושים ראשונים חינם / מנוי PRO בעלות שנתית סמלית):</strong> כדי להביא לכם את התוצאות העמוקות והמקיפות ביותר, החיפוש החי באתר מבוסס על מנוע הבינה המלאכותית המתקדם Perplexity. מאחר שהפעלת המנוע כרוכה בעלויות טכנולוגיות גבוהות, שירות זה פתוח למנויי ה-Pro בעלות שנתית סמלית בלבד, כאשר משתמשים חדשים מקבלים 3 חיפושים חיים ראשונים להתנסות במתנה כדי לחקור, ליצור ולייצר חומרי לימוד חדשים ומותאמים אישית בזמן אמת, עבורם ועבור חברי הקהילה.</li>
         </ul>
         <p>שתהיה עבודה פורייה ומלאת השראה.</p>
         <p>תיהנו,<br>שלכם, אלון ירושלמי</p>
@@ -5322,11 +5322,15 @@
       var hideCheckbox = document.getElementById('welcome-hide-checkbox');
       if (!overlay || !continueBtn) return;
 
+      var shownThisPage = false;
+
       function shouldHideWelcome() {
         try { return localStorage.getItem(STORAGE_KEY) === 'true'; } catch (e) { return false; }
       }
 
       function showWelcome() {
+        if (shownThisPage) return;
+        shownThisPage = true;
         overlay.classList.remove('hidden');
         overlay.setAttribute('aria-hidden', 'false');
         document.body.classList.add('welcome-open');
@@ -5346,18 +5350,20 @@
         hideWelcome();
       }
 
+      function tryShowWelcomeAfterAuth() {
+        if (shouldHideWelcome() || shownThisPage) return;
+        if (typeof WaldorfAuth === 'undefined') return;
+        var state = WaldorfAuth.getState();
+        if (!state || !state.sessionReady || !state.isAuthenticated) return;
+        showWelcome();
+      }
+
       continueBtn.addEventListener('click', onContinue);
       overlay.addEventListener('keydown', function (ev) {
         if (ev.key === 'Escape') onContinue();
       });
 
-      if (!shouldHideWelcome()) {
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', showWelcome);
-        } else {
-          showWelcome();
-        }
-      }
+      window.WaldorfWelcome = { tryShowAfterAuth: tryShowWelcomeAfterAuth };
     })();
 
     // =============================================================================
@@ -25426,6 +25432,9 @@
         WaldorfAuth.subscribe(function (authState) {
           updateClearTopicProseButtonVisibility();
           refreshMarketingBenchVisibility();
+          if (typeof window.WaldorfWelcome !== 'undefined') {
+            window.WaldorfWelcome.tryShowAfterAuth();
+          }
           if (typeof WaldorfShareMaterials !== 'undefined') WaldorfShareMaterials.refresh();
           // Only (re)load the search history once the auth SESSION is actually resolved.
           // Fetching while the session is still restoring runs on a null user and leaves
@@ -25458,6 +25467,9 @@
           if (initialAuthState && initialAuthState.sessionReady && initialAuthState.isAuthenticated &&
               typeof WaldorfSearchHistory !== 'undefined') {
             WaldorfSearchHistory.refresh();
+          }
+          if (typeof window.WaldorfWelcome !== 'undefined') {
+            window.WaldorfWelcome.tryShowAfterAuth();
           }
         } catch (catchUpErr) {
           console.warn('[search-history] initial auth catch-up failed:', catchUpErr);
