@@ -83,6 +83,8 @@
     isAuthenticated: false,
     user: null,
     tier: 'trial',
+    planType: 'trial',
+    isTrial: true,
     provider: 'mock',
     sessionReady: false,
     autoRenew: true,
@@ -270,8 +272,41 @@
   }
 
   function hasPaidSubscription() {
-    var tier = normalizeTierId(authState.tier);
+    if (authState.isTrial === false) {
+      var paidPlan = normalizeTierId(authState.planType || authState.tier);
+      return paidPlan === 'pro' || paidPlan === 'standard';
+    }
+    if (authState.isTrial === true) return false;
+    var tier = normalizeTierId(authState.planType || authState.tier);
     return tier === 'pro' || tier === 'standard';
+  }
+
+  function parseIsTrialFlag(value) {
+    if (value === false || value === 0 || value === 'false' || value === '0') return false;
+    if (value === true || value === 1 || value === 'true' || value === '1') return true;
+    return Boolean(value);
+  }
+
+  function applySubscriptionFields(subscription, usage) {
+    if (usage) {
+      if (usage.planType != null) authState.planType = normalizeTierId(usage.planType);
+      if (usage.isTrial != null) authState.isTrial = parseIsTrialFlag(usage.isTrial);
+      if (usage.tier != null) authState.tier = normalizeTierId(usage.tier);
+      if (usage.autoRenew != null) authState.autoRenew = usage.autoRenew !== false;
+      if (usage.expiresAt != null) authState.expiresAt = usage.expiresAt;
+      if (usage.searchLimit != null) authState.searchLimit = usage.searchLimit;
+      if (usage.usagePeriod != null) authState.usagePeriod = usage.usagePeriod;
+    }
+    if (subscription) {
+      if (subscription.planType != null) authState.planType = normalizeTierId(subscription.planType);
+      if (subscription.isTrial != null) authState.isTrial = parseIsTrialFlag(subscription.isTrial);
+      if (subscription.tier != null) authState.tier = normalizeTierId(subscription.tier);
+      if (subscription.autoRenew != null) authState.autoRenew = subscription.autoRenew !== false;
+      if (subscription.expiresAt != null) authState.expiresAt = subscription.expiresAt;
+    }
+    if (authState.isTrial === false && authState.planType) {
+      authState.tier = authState.planType;
+    }
   }
 
   function applyProUserTierIfEligible() {
@@ -769,13 +804,8 @@
       applyProUserTierIfEligible();
       return;
     }
-    authState.tier = normalizeTierId(usage.tier || authState.tier);
+    applySubscriptionFields(null, usage);
     authState.searchesUsed = Number(usage.searchesUsed) || 0;
-    authState.searchLimit = usage.searchLimit != null ? usage.searchLimit : authState.searchLimit;
-    authState.usagePeriod = usage.usagePeriod || authState.usagePeriod;
-    if (usage.autoRenew != null) authState.autoRenew = usage.autoRenew !== false;
-    if (usage.billingCycle != null) authState.billingCycle = usage.billingCycle;
-    if (usage.expiresAt != null) authState.expiresAt = usage.expiresAt;
     if (usage.wordDownloadsUsed != null) {
       authState.wordDownloadsUsed = Number(usage.wordDownloadsUsed) || 0;
       writeWordDownloads(authState.wordDownloadsUsed);
@@ -874,11 +904,7 @@
         applyProUserUsageFromServer(data.usage || { proUser: true });
       } else {
         if (data.usage) applyServerUsage(data.usage);
-        else if (data.subscription && data.subscription.tier) {
-          authState.tier = normalizeTierId(data.subscription.tier);
-          authState.autoRenew = data.subscription.autoRenew !== false;
-          authState.expiresAt = data.subscription.expiresAt || null;
-        }
+        else applySubscriptionFields(data.subscription, null);
       }
       applyProUserTierIfEligible();
       persistAuth();
@@ -922,6 +948,8 @@
       localStorage.setItem(STORAGE_AUTH, JSON.stringify({
         user: authState.user,
         tier: authState.tier,
+        planType: authState.planType,
+        isTrial: authState.isTrial,
         provider: authState.provider,
       }));
     } catch (e) { /* */ }
@@ -944,6 +972,8 @@
       authState.isAuthenticated = true;
       authState.user = data.user;
       authState.tier = normalizeTierId(data.tier || 'trial');
+      authState.planType = normalizeTierId(data.planType || data.tier || 'trial');
+      authState.isTrial = data.isTrial != null ? parseIsTrialFlag(data.isTrial) : authState.planType === 'trial';
       authState.provider = data.provider || 'mock';
       return true;
     } catch (e) {
@@ -971,6 +1001,9 @@
       isAuthenticated: authState.isAuthenticated,
       user: authState.user ? Object.assign({}, authState.user) : null,
       tier: normalizeTierId(authState.tier),
+      planType: normalizeTierId(authState.planType || authState.tier),
+      isTrial: authState.isTrial,
+      hasPaidSubscription: hasPaidSubscription(),
       provider: authState.provider,
       sessionReady: authState.sessionReady,
       autoRenew: authState.autoRenew,
@@ -1927,20 +1960,22 @@
     var renewEl = document.getElementById('user-settings-renew');
     var cancelBtn = document.getElementById('btn-cancel-subscription');
     var state = getPublicState();
-    if (tierEl) tierEl.textContent = tierLabel(state.tier);
+    var paid = state.hasPaidSubscription;
+    var displayPlan = paid ? (state.planType || state.tier) : state.tier;
+    if (tierEl) tierEl.textContent = tierLabel(displayPlan);
     if (usageEl) {
       usageEl.textContent = state.searchLimit != null
         ? (state.searchesUsed + ' / ' + state.searchLimit)
         : String(state.searchesUsed);
     }
     if (renewEl) {
-      renewEl.textContent = state.tier === 'trial'
+      renewEl.textContent = !paid
         ? t('user_settings_trial_renew')
         : (state.autoRenew ? t('user_settings_renew_on') : t('user_settings_renew_off'));
     }
     var expiresEl = document.getElementById('user-settings-expires');
     if (expiresEl) {
-      if (state.tier !== 'trial' && state.expiresAt) {
+      if (paid && state.expiresAt) {
         try {
           var d = new Date(state.expiresAt);
           expiresEl.textContent = isNaN(d.getTime()) ? state.expiresAt : d.toLocaleDateString('he-IL');
@@ -1952,9 +1987,9 @@
       }
     }
     if (cancelBtn) {
-      cancelBtn.classList.toggle('hidden', state.tier === 'trial');
-      cancelBtn.disabled = state.tier === 'trial';
-      if (state.tier !== 'trial' && state.autoRenew === false) {
+      cancelBtn.classList.toggle('hidden', !paid);
+      cancelBtn.disabled = !paid;
+      if (paid && state.autoRenew === false) {
         cancelBtn.classList.add('hidden');
       }
     }
@@ -2123,14 +2158,7 @@
   function confirmCancelSubscription() {
     return fetchSubscriptionAction('cancel_subscription').then(function (data) {
       authState.autoRenew = false;
-      if (data && data.subscription) {
-        authState.tier = normalizeTierId(data.subscription.tier || authState.tier);
-        authState.expiresAt = data.subscription.expiresAt || authState.expiresAt;
-      }
-      if (data && data.usage) {
-        if (data.usage.tier) authState.tier = normalizeTierId(data.usage.tier);
-        if (data.usage.expiresAt) authState.expiresAt = data.usage.expiresAt;
-      }
+      applySubscriptionFields(data.subscription, data.usage);
       persistAuth();
       hideCancelSubscriptionModal();
       hideUserSettingsModal();
@@ -2268,7 +2296,7 @@
       var upgradeBtn = document.getElementById('btn-open-pricing');
       if (nameEl) setHeaderDisplayName(nameEl);
       if (tierEl) {
-        var displayTier = isProUser() ? 'pro' : authState.tier;
+        var displayTier = isProUser() ? 'pro' : (authState.planType || authState.tier);
         tierEl.textContent = isProUser() ? t('pro_user_badge') : tierLabel(displayTier);
         tierEl.className = 'user-tier-badge user-tier-badge--' + (typeof WaldorfAuth.normalizeTierId === 'function'
           ? WaldorfAuth.normalizeTierId(displayTier)

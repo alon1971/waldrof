@@ -17,6 +17,7 @@ const LOG_PREFIX = '[subscription]';
 const SUBSCRIPTION_WRITE_COLUMNS = [
   'user_id',
   'plan_type',
+  'is_trial',
   'search_count_monthly',
   'word_downloads_count',
   'auto_renew',
@@ -120,8 +121,28 @@ function normalizeTier(tier) {
   return TIER_LIMITS[t] ? t : 'trial';
 }
 
+function parseIsTrialFlag(value) {
+  if (value === false || value === 0 || value === 'false' || value === '0') return false;
+  if (value === true || value === 1 || value === 'true' || value === '1') return true;
+  if (value == null || value === '') return null;
+  return Boolean(value);
+}
+
+/** Source of truth: is_trial column, then plan_type. */
+function isTrialFromRow(row) {
+  if (!row) return true;
+  const explicit = parseIsTrialFlag(row.is_trial);
+  if (explicit != null) return explicit;
+  const plan = String(row.plan_type || row.tier || 'trial').trim().toLowerCase();
+  return plan === 'trial';
+}
+
 function planTypeFromRow(row) {
-  return normalizeTier((row && (row.plan_type || row.tier)) || 'trial');
+  if (!row) return 'trial';
+  if (isTrialFromRow(row)) return 'trial';
+  const plan = String(row.plan_type || row.tier || 'pro').trim().toLowerCase();
+  if (LEGACY_TIER_MAP[plan]) return LEGACY_TIER_MAP[plan];
+  return TIER_LIMITS[plan] ? plan : 'pro';
 }
 
 function monthFromRow(row) {
@@ -348,7 +369,6 @@ async function verifySupabaseToken(token) {
     name: fullName,
     fullName: fullName,
     phone: extractPhoneFromAuthMeta(meta, user),
-    tier: 'trial',
   };
 }
 
@@ -405,15 +425,17 @@ function readWordDownloadsFromRow(row, tier) {
 
 function isSubscriptionExpired(row) {
   if (!row || !row.expires_at) return false;
-  const tier = planTypeFromRow(row);
-  if (tier === 'trial') return false;
+  if (isTrialFromRow(row)) return false;
   return new Date(row.expires_at).getTime() <= Date.now();
 }
 
-/** Paid access tier: stays pro/standard until expires_at; only then trial. */
+/** Paid access tier: plan_type + is_trial from DB; downgrade only after expires_at. */
 function effectiveTierFromRow(row) {
+  if (isTrialFromRow(row)) return 'trial';
+  const plan = planTypeFromRow(row);
+  if (plan === 'trial') return 'trial';
   if (isSubscriptionExpired(row)) return 'trial';
-  return planTypeFromRow(row);
+  return plan;
 }
 
 function readSearchLimitFromRow(row, tier) {
@@ -446,6 +468,7 @@ async function downgradeSubscriptionIfExpired(user, row, userToken) {
   });
   return updateSubscriptionRow(user.id, {
     plan_type: 'trial',
+    is_trial: true,
     auto_renew: false,
     expires_at: null,
   }, row, user, userToken);
@@ -505,6 +528,8 @@ function buildUsagePayload(row) {
 
   return {
     tier: tier,
+    planType: planTypeFromRow(row),
+    isTrial: isTrialFromRow(row),
     autoRenew: row.auto_renew !== false,
     expiresAt: row && row.expires_at ? row.expires_at : null,
     subscriptionExpired: expired,
@@ -532,19 +557,29 @@ async function fetchSubscriptionRow(userId, userToken, emailHint) {
 
   logUsage('fetch:before', { user_id: pk, raw_user_id: userId });
 
-  const res = await supabaseRequest(
-    '/rest/v1/' + TABLE + '?' + params.toString(),
-    { method: 'GET' },
-    userToken
-  );
-  const rows = await readSupabaseResponse(res, 'subscription read');
-  const row = Array.isArray(rows) && rows.length ? rows[0] : null;
+  async function queryRow(token) {
+    const res = await supabaseRequest(
+      '/rest/v1/' + TABLE + '?' + params.toString(),
+      { method: 'GET' },
+      token
+    );
+    const rows = await readSupabaseResponse(res, 'subscription read');
+    return Array.isArray(rows) && rows.length ? rows[0] : null;
+  }
+
+  let row = await queryRow(userToken);
+  const cfg = getSupabaseConfig();
+  if (!row && userToken && cfg.serviceKey) {
+    logUsage('fetch:service_role_fallback', { user_id: pk });
+    row = await queryRow(null);
+  }
 
   logUsage('fetch:after', {
     user_id: pk,
     found: Boolean(row),
     search_count_monthly: row ? row.search_count_monthly : null,
     plan_type: row ? row.plan_type : null,
+    is_trial: row ? row.is_trial : null,
   });
 
   return row;
@@ -552,16 +587,25 @@ async function fetchSubscriptionRow(userId, userToken, emailHint) {
 
 function subscriptionRowFromPatch(user, patch, existing) {
   const prev = existing || {};
-  const tier = normalizeTier((patch && patch.plan_type) || (patch && patch.tier) || prev.plan_type || prev.tier || user.tier || 'trial');
+  const tier = normalizeTier(
+    (patch && patch.plan_type) || (patch && patch.tier) || prev.plan_type || prev.tier || 'trial'
+  );
   const prevCount = readSearchCountFromRow(prev, tier);
   const nextCount = (patch && patch.search_count_monthly != null)
     ? Number(patch.search_count_monthly)
     : prevCount;
   const contact = buildSubscriptionContactPatch(user, patch);
+  let isTrial = tier === 'trial';
+  if (patch && patch.is_trial != null) {
+    isTrial = parseIsTrialFlag(patch.is_trial) !== false;
+  } else if (prev.is_trial != null && prev.is_trial !== '') {
+    isTrial = isTrialFromRow(prev);
+  }
 
   return pickSubscriptionWriteFields({
     user_id: user.id,
     plan_type: tier,
+    is_trial: isTrial,
     search_count_monthly: nextCount,
     word_downloads_count: (patch && patch.word_downloads_count) != null
       ? patch.word_downloads_count
@@ -688,7 +732,8 @@ async function ensureSubscription(user, userToken) {
   if (!row) {
     logUsage('ensure:create_row', { user_id: user.id });
     row = await insertSubscriptionRow(user, Object.assign({
-      plan_type: normalizeTier(user.tier || 'trial'),
+      plan_type: 'trial',
+      is_trial: true,
       search_count_monthly: 0,
       word_downloads_count: 0,
       auto_renew: true,
@@ -709,6 +754,8 @@ async function getStatus(user, userToken) {
     action: 'status',
     subscription: {
       tier: usage.tier,
+      planType: usage.planType,
+      isTrial: usage.isTrial,
       autoRenew: usage.autoRenew,
       expiresAt: usage.expiresAt,
     },
@@ -852,7 +899,7 @@ async function recordWordDownload(user, userToken) {
 async function cancelRenewal(user, userToken) {
   user = applyLocalDemoUserIdMapping(user);
   const row = await ensureSubscription(user, userToken);
-  if (planTypeFromRow(row) === 'trial') {
+  if (planTypeFromRow(row) === 'trial' || isTrialFromRow(row)) {
     const err = new Error('אין מנוי בתשלום לביטול');
     err.statusCode = 400;
     throw err;
@@ -885,6 +932,7 @@ async function cancelRenewal(user, userToken) {
     auto_renew: false,
     expires_at: expiresAt,
     plan_type: currentPlan,
+    is_trial: false,
   }, row, user, userToken);
 
   await notifyCancellationRequested(user, updated, expiresAt);

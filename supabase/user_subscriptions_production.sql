@@ -4,6 +4,7 @@
 -- id uuid PK
 -- user_id uuid FK -> users(id)
 -- plan_type text (trial | standard | pro)
+-- is_trial boolean default true (false = paid plan per plan_type)
 -- search_count_monthly integer
 -- word_downloads_count integer
 -- auto_renew boolean

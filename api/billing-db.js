@@ -11,6 +11,7 @@ const LOG_PREFIX = '[billing-db]';
 const BILLING_WRITE_COLUMNS = [
   'user_id',
   'plan_type',
+  'is_trial',
   'search_count_monthly',
   'word_downloads_count',
   'auto_renew',
@@ -237,6 +238,7 @@ async function activatePaidSubscription(options) {
 
   const subRow = await upsertSubscriptionRow(userId, Object.assign({
     plan_type: planType,
+    is_trial: false,
     expires_at: expiresAt,
     auto_renew: autoRenew,
   }, buildBillingContactPatch(opts)));
@@ -261,6 +263,7 @@ async function markSubscriptionCancelledAtPeriodEnd(userId, expiresAt) {
 async function downgradeExpiredSubscription(userId) {
   const subRow = await upsertSubscriptionRow(userId, {
     plan_type: 'trial',
+    is_trial: true,
     auto_renew: false,
     expires_at: null,
   });
