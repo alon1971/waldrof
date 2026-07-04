@@ -1104,15 +1104,23 @@
     }
     .admin-research-tools-inline {
       position: relative;
-      margin-bottom: 0.75rem;
-      padding-bottom: 0.65rem;
+      display: block !important;
+      margin: 0 0 0.75rem;
+      padding: 0.35rem 0 0.65rem;
       border-bottom: 1px dashed rgba(139, 58, 58, 0.22);
       z-index: 6;
+    }
+    .inline-expand-panel > .admin-research-tools-inline,
+    details.static-expansion-block > .admin-research-tools-inline,
+    details[data-static-expand] > .admin-research-tools-inline {
+      margin-top: 0.35rem;
     }
     .admin-research-tools-inline .admin-research-tools-trigger {
       display: inline-flex !important;
       align-items: center;
       gap: 0.35rem;
+      visibility: visible !important;
+      opacity: 1 !important;
     }
     .admin-research-tools-inline .admin-research-menu--inline {
       inset-inline-end: 0;
@@ -12006,12 +12014,14 @@
     function renderBibInlinePanel(panel, sourceId, summary, loading, errorMsg) {
       if (!panel) return;
       phaseCWipeContainer(panel);
+      if (sourceId) panel.setAttribute('data-expansion-source-id', sourceId);
       if (loading) {
         panel.innerHTML = '<div class="inline-expand-inner inline-expand-loading" role="status" aria-live="polite">' +
           '<p class="text-sage-dark m-0 mb-2"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('theory_bib_summary_loading')) + '</p>' +
           '<p class="text-walnut/65 text-sm m-0">' + escapeHtml(t('pedagogy_summary_loading_sub')) + '</p></div>';
         panel.classList.remove('hidden');
         prependAdminResearchToolbarToPanel(panel, sourceId);
+        syncExpansionAdminResearchTools();
         return;
       }
       if (errorMsg) {
@@ -12023,6 +12033,7 @@
           '<button type="button" class="inline-expand-close" data-bib-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         panel.classList.remove('hidden');
         prependAdminResearchToolbarToPanel(panel, sourceId);
+        syncExpansionAdminResearchTools();
         return;
       }
       const content = buildBibSummaryHtml(summary);
@@ -12035,8 +12046,9 @@
         panel.innerHTML = '<div class="inline-expand-inner">' + content +
           '<button type="button" class="inline-expand-close" data-bib-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         applyExpansionDomDedupe(panel);
-        prependAdminResearchToolbarToPanel(panel, sourceId);
         panel.classList.remove('hidden');
+        prependAdminResearchToolbarToPanel(panel, sourceId);
+        syncExpansionAdminResearchTools();
         updateAdminResearchToolsVisibility();
       });
     }
@@ -12170,10 +12182,10 @@
     function renderExpansionButtonBlock(item) {
       registerPedagogyItem(item);
       const btnLabel = expansionBtnLabel();
-      return '<div class="expansion-btn-block mt-3">' +
+      return '<div class="expansion-btn-block mt-3" data-expansion-block-id="' + escapeHtml(item.id) + '">' +
         '<button type="button" class="pedagogy-deep-btn pedagogy-deep-btn--inline expansion-practical-btn" data-pedagogy-id="' + escapeHtml(item.id) + '" title="' + escapeHtml(btnLabel) + '">' +
         escapeHtml(btnLabel) + '</button>' +
-        '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel hidden" aria-live="polite"></div></div>';
+        '<div id="ped-expand-' + escapeHtml(item.id) + '" class="inline-expand-panel hidden" data-expansion-source-id="' + escapeHtml(item.id) + '" aria-live="polite"></div></div>';
     }
 
     function normalizePedagogyDisplayText(text) {
@@ -14596,12 +14608,14 @@
     function renderPedagogyInlinePanel(panel, sourceId, summary, loading, errorMsg) {
       if (!panel) return;
       phaseCWipeContainer(panel);
+      if (sourceId) panel.setAttribute('data-expansion-source-id', sourceId);
       if (loading) {
         panel.innerHTML = '<div class="inline-expand-inner inline-expand-loading" role="status" aria-live="polite">' +
           '<p class="text-sage-dark m-0 mb-2"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' + escapeHtml(t('pedagogy_summary_loading')) + '</p>' +
           '<p class="text-walnut/65 text-sm m-0">' + escapeHtml(t('pedagogy_summary_loading_sub')) + '</p></div>';
         panel.classList.remove('hidden');
         prependAdminResearchToolbarToPanel(panel, sourceId);
+        syncExpansionAdminResearchTools();
         return;
       }
       if (errorMsg) {
@@ -14613,6 +14627,7 @@
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         panel.classList.remove('hidden');
         prependAdminResearchToolbarToPanel(panel, sourceId);
+        syncExpansionAdminResearchTools();
         return;
       }
       holdPageScroll(function () {
@@ -14620,8 +14635,10 @@
         panel.innerHTML = '<div class="inline-expand-inner">' + buildPedagogySummaryHtml(summary, src) +
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         applyExpansionDomDedupe(panel);
-        prependAdminResearchToolbarToPanel(panel, sourceId);
         panel.classList.remove('hidden');
+        // Inject AFTER inner HTML is final — toolbar sits on the panel host, not inside inner.
+        prependAdminResearchToolbarToPanel(panel, sourceId);
+        syncExpansionAdminResearchTools();
         updateAdminResearchToolsVisibility();
       });
     }
@@ -14651,7 +14668,9 @@
       runAfterLayout(function () {
         var panel = getPedExpandPanel(sourceId, triggerEl);
         if (panel && !panel.classList.contains('hidden')) {
+          panel.setAttribute('data-expansion-source-id', sourceId);
           prependAdminResearchToolbarToPanel(panel, sourceId);
+          syncExpansionAdminResearchTools();
         }
       });
     }
@@ -21054,7 +21073,9 @@
     }
 
     function shouldShowAdminResearchInlineToolbar() {
-      return isResearchAdminUser() && getAdminResearchContext().hasContent;
+      // Inline toolbars only need admin identity — open expansions in tab-narrative
+      // must show tools even if global floating-button context is incomplete.
+      return isResearchAdminUser();
     }
 
     function buildAdminResearchInlineBarHtml(expansionSourceId) {
@@ -21071,37 +21092,80 @@
         '</div></div>';
     }
 
-    function getExpansionContentRoot(panelOrDetails) {
-      if (!panelOrDetails) return null;
-      return panelOrDetails.querySelector('.inline-expand-inner') ||
-        panelOrDetails.querySelector('.static-expansion-body') ||
-        (panelOrDetails.classList && (
-          panelOrDetails.classList.contains('inline-expand-inner') ||
-          panelOrDetails.classList.contains('static-expansion-body')
-        ) ? panelOrDetails : null);
+    /**
+     * Resolve the expansion HOST (panel / details), not the inner prose root.
+     * Toolbar must live on the host so applyExpansionDomDedupe (which rewrites
+     * .inline-expand-inner HTML) cannot wipe it.
+     */
+    function resolveExpansionHost(panelOrDetails) {
+      if (!panelOrDetails || !panelOrDetails.closest) return panelOrDetails || null;
+      if (panelOrDetails.classList) {
+        if (panelOrDetails.classList.contains('inline-expand-panel')) return panelOrDetails;
+        if (panelOrDetails.classList.contains('static-expansion-block')) return panelOrDetails;
+        if (panelOrDetails.hasAttribute && panelOrDetails.hasAttribute('data-static-expand')) return panelOrDetails;
+      }
+      if (panelOrDetails.tagName === 'DETAILS') return panelOrDetails;
+      return panelOrDetails.closest(
+        '.inline-expand-panel, details.static-expansion-block, details[data-static-expand], .expansion-btn-block'
+      ) || panelOrDetails;
+    }
+
+    function resolveExpansionSourceId(host, explicitId) {
+      if (explicitId) return String(explicitId).trim();
+      if (!host) return '';
+      var fromAttr = host.getAttribute('data-expansion-source-id') ||
+        host.getAttribute('data-static-expand') ||
+        host.getAttribute('data-pedagogy-id') ||
+        '';
+      if (fromAttr) return String(fromAttr).trim();
+      var id = String(host.id || '').trim();
+      if (id.indexOf('ped-expand-') === 0) return id.slice('ped-expand-'.length);
+      if (id.indexOf('bib-expand-') === 0) return id.slice('bib-expand-'.length);
+      if (id.indexOf('static-expand-') === 0) return id.slice('static-expand-'.length);
+      var btn = host.querySelector && host.querySelector('[data-pedagogy-id], [data-bib-id]');
+      if (btn) {
+        return String(btn.getAttribute('data-pedagogy-id') || btn.getAttribute('data-bib-id') || '').trim();
+      }
+      var block = host.closest && host.closest('.expansion-btn-block');
+      if (block) {
+        var blockBtn = block.querySelector('[data-pedagogy-id]');
+        if (blockBtn) return String(blockBtn.getAttribute('data-pedagogy-id') || '').trim();
+      }
+      return '';
     }
 
     function prependAdminResearchToolbarToPanel(panelOrDetails, expansionSourceId) {
       if (!shouldShowAdminResearchInlineToolbar()) return;
-      var root = getExpansionContentRoot(panelOrDetails);
-      if (!root) return;
-      var existing = root.querySelector('.admin-research-tools-inline');
-      if (existing) {
-        if (expansionSourceId) {
-          existing.setAttribute('data-expansion-source-id', String(expansionSourceId));
+      var host = resolveExpansionHost(panelOrDetails);
+      if (!host) return;
+      // Prefer the actual expand panel when given an expansion-btn-block wrapper.
+      if (host.classList && host.classList.contains('expansion-btn-block')) {
+        var openPanel = host.querySelector('.inline-expand-panel:not(.hidden)');
+        if (openPanel) host = openPanel;
+        else return;
+      }
+      var sourceId = resolveExpansionSourceId(host, expansionSourceId);
+      if (sourceId) host.setAttribute('data-expansion-source-id', sourceId);
+      var existing = null;
+      for (var c = host.firstElementChild; c; c = c.nextElementSibling) {
+        if (c.classList && c.classList.contains('admin-research-tools-inline')) {
+          existing = c;
+          break;
         }
+      }
+      if (!existing) existing = host.querySelector(':scope > .admin-research-tools-inline');
+      if (existing) {
+        if (sourceId) existing.setAttribute('data-expansion-source-id', sourceId);
         return;
       }
-      root.insertAdjacentHTML('afterbegin', buildAdminResearchInlineBarHtml(expansionSourceId || ''));
+      // Inject as first child of the panel host — outside .inline-expand-inner.
+      host.insertAdjacentHTML('afterbegin', buildAdminResearchInlineBarHtml(sourceId || ''));
     }
 
     function mountAdminResearchToolsInExpansionInner(inner) {
       if (!inner) return;
-      var host = inner.closest('.inline-expand-panel, details.static-expansion-block, details[data-static-expand]') || inner.parentElement;
-      var sourceId = host && host.id ? String(host.id).replace(/^ped-expand-/, '').replace(/^static-expand-/, '') : '';
-      if (!sourceId && host) {
-        sourceId = host.getAttribute('data-static-expand') || host.getAttribute('data-pedagogy-id') || '';
-      }
+      var host = resolveExpansionHost(inner);
+      var sourceId = resolveExpansionSourceId(host, '');
       prependAdminResearchToolbarToPanel(host || inner, sourceId);
     }
 
@@ -21114,10 +21178,14 @@
       var selectors = [
         '#panel-narrative .inline-expand-panel:not(.hidden)',
         '#phase-c-unified-root .inline-expand-panel:not(.hidden)',
+        '#theoretical-content .inline-expand-panel:not(.hidden)',
+        '#inspiration-content .inline-expand-panel:not(.hidden)',
+        '#pedagogical-essence-content .inline-expand-panel:not(.hidden)',
         '#panel-narrative details[open].static-expansion-block',
         '#panel-narrative details[open][data-static-expand]',
         '#phase-c-unified-root details[open].static-expansion-block',
         '#phase-c-unified-root details[open][data-static-expand]',
+        '#theoretical-content details[open]',
         '.inline-expand-panel:not(.hidden)',
         'details.static-expansion-block[open]',
         'details[data-static-expand][open]',
@@ -21126,16 +21194,9 @@
         document.querySelectorAll(sel).forEach(function (panel) {
           if (seen.has(panel)) return;
           seen.add(panel);
-          var sourceId = panel.getAttribute('data-static-expand') ||
-            String(panel.id || '').replace(/^ped-expand-/, '').replace(/^static-expand-/, '') ||
-            (panel.querySelector('[data-pedagogy-id]') && panel.querySelector('[data-pedagogy-id]').getAttribute('data-pedagogy-id')) ||
-            '';
+          var sourceId = resolveExpansionSourceId(panel, '');
           prependAdminResearchToolbarToPanel(panel, sourceId);
         });
-      });
-      document.querySelectorAll('#panel-narrative .inline-expand-panel:not(.hidden) .inline-expand-inner, #phase-c-unified-root .inline-expand-panel:not(.hidden) .inline-expand-inner').forEach(function (inner) {
-        if (inner.querySelector('.admin-research-tools-inline')) return;
-        mountAdminResearchToolsInExpansionInner(inner);
       });
     }
 
@@ -21497,9 +21558,18 @@
         var item = e.target && e.target.closest ? e.target.closest('[data-admin-research-action]') : null;
         if (item && !item.disabled) {
           var inlineWrap = item.closest('.admin-research-tools-inline');
-          adminResearchActiveExpansionSourceId = inlineWrap
-            ? String(inlineWrap.getAttribute('data-expansion-source-id') || '').trim()
-            : '';
+          adminResearchActiveExpansionSourceId = '';
+          if (inlineWrap) {
+            adminResearchActiveExpansionSourceId = String(
+              inlineWrap.getAttribute('data-expansion-source-id') || ''
+            ).trim();
+            if (!adminResearchActiveExpansionSourceId) {
+              var hostPanel = inlineWrap.closest(
+                '.inline-expand-panel, details.static-expansion-block, details[data-static-expand], .expansion-btn-block'
+              );
+              adminResearchActiveExpansionSourceId = resolveExpansionSourceId(hostPanel, '');
+            }
+          }
           var action = item.getAttribute('data-admin-research-action');
           if (action === 'expand') runAdminResearchExpand();
           else if (action === 'refresh') runAdminResearchRefresh();
