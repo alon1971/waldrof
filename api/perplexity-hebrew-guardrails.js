@@ -32,6 +32,8 @@ const PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION =
   'NEVER use adjectival forms: וולדורפי, וולדורפית, וולדורפיים, וולדורפיות, וולדרופי, וולדרופית, הוולדורפי, הוולדורפית.\n' +
   'NEVER write "החינוך הוולדורפי", "פדגוגיה וולדורפית", or "פדגוגיה וולדרופית".\n' +
   'Correct: חינוך וולדרוף, פדגוגיית וולדרוף, בפדגוגיה וולדרוף, בתי ספר וולדרוף.\n' +
+  'Keep established English terms inside parentheses in English — do NOT translate them ' +
+  '(e.g. keep "(Waldorf)", "(Rubicon)", "(main lesson)", "(PDF)" as-is).\n' +
   '=== END WALDORF TERMINOLOGY ===\n';
 
 const PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION =
@@ -95,8 +97,18 @@ const HEBREW_AUTO_REPLACEMENTS = [
 function applyHebrewAutoReplacements(text) {
   if (text == null || typeof text !== 'string') return text;
   var out = text;
+  // Protect English parentheticals from accidental mangling during replacements.
+  var protectedChunks = [];
+  out = out.replace(/\([A-Za-z][^)]{0,80}\)/g, function (match) {
+    var idx = protectedChunks.length;
+    protectedChunks.push(match);
+    return '\u0000EP' + idx + '\u0000';
+  });
   HEBREW_AUTO_REPLACEMENTS.forEach(function (rule) {
     out = out.replace(rule.pattern, rule.replacement);
+  });
+  protectedChunks.forEach(function (chunk, idx) {
+    out = out.split('\u0000EP' + idx + '\u0000').join(chunk);
   });
   return out;
 }

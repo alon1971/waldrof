@@ -12459,6 +12459,13 @@
 
     function applyHebrewAutoReplacements(text) {
       var out = String(text || '');
+      // Protect English parentheticals (e.g. "(Waldorf)", "(Rubicon)") from mangling.
+      var protectedChunks = [];
+      out = out.replace(/\([A-Za-z][^)]{0,80}\)/g, function (match) {
+        var idx = protectedChunks.length;
+        protectedChunks.push(match);
+        return '\u0000EP' + idx + '\u0000';
+      });
       out = out.replace(/הלידה\s+השנייה/g, 'חציית הרוביקון השנייה (גיל 12)');
       out = out.replace(/הלידה\s+השניה/g, 'חציית הרוביקון השנייה (גיל 12)');
       out = out.replace(/הלידה\s+הראשונה/g, 'חציית הרוביקון הראשונה (גיל 9)');
@@ -12483,7 +12490,11 @@
       out = out.replace(new RegExp('ה' + WALDORF_ADJ_DRO, 'g'), 'וולדרוף');
       out = out.replace(new RegExp(WALDORF_ADJ_DOR, 'g'), 'וולדרוף');
       out = out.replace(new RegExp(WALDORF_ADJ_DRO, 'g'), 'וולדרוף');
-      return out.replace(/סטיינר/g, 'שטיינר');
+      out = out.replace(/סטיינר/g, 'שטיינר');
+      protectedChunks.forEach(function (chunk, idx) {
+        out = out.split('\u0000EP' + idx + '\u0000').join(chunk);
+      });
+      return out;
     }
 
     function sanitizePedagogicalText(text) {
@@ -16099,38 +16110,33 @@
     }
 
     async function deleteArchiveLinkAdmin(url, triggerEl) {
-      if (!isArchiveAdminUser()) return;
-      if (!confirm(ARCHIVE_DELETE_CONFIRM)) return;
-      var ctx = buildArchiveDeleteRequestContext(triggerEl);
+      if (!isArchiveAdminUser()) return false;
+      if (!confirm(ARCHIVE_DELETE_CONFIRM)) return false;
       var linkUrl = String(url || (triggerEl && triggerEl.getAttribute('data-archive-url')) || '').trim();
       if (!linkUrl) {
         showArchiveToast('לא נמצא קישור למחיקה.', 'error');
-        return;
+        return false;
       }
-      // Capture the full list item BEFORE any async work / re-render.
+      var ctx = buildArchiveDeleteRequestContext(triggerEl);
+      // Capture and remove the full <li> immediately (number + label + link + trash).
       var rowEl = (triggerEl && triggerEl.closest) ? triggerEl.closest('li') : null;
-      if (triggerEl) triggerEl.disabled = true;
-
-      // 1) Physical removal of the entire <li> — number, label, link, trash.
       if (rowEl) {
-        try { rowEl.remove(); } catch (domErr) { /* ignore */ }
-      } else if (triggerEl) {
-        removeArchiveListItemFromDom(triggerEl);
+        rowEl.remove();
+      } else if (triggerEl && triggerEl.closest) {
+        var fallbackRow = triggerEl.closest('.archive-link-row');
+        if (fallbackRow) fallbackRow.remove();
       }
 
-      // 2) Suppress + purge client state so re-renders cannot bring the link back.
+      // Keep client state clean so a later re-render cannot restore this URL.
       purgeArchiveUrlFromClientState(linkUrl);
       removeArchiveUrlFromDom(linkUrl, null);
+
+      // Rebuild sources list from cleaned state only (no archive-synthesis mixing).
+      try {
+        if (appState.purePhaseC) phaseCRenderExtraLinksBox(appState.purePhaseC);
+      } catch (e) { /* ignore */ }
       cleanupOrphanSourceListItems(document);
 
-      // 3) Re-render sources lists from the cleaned state (filters suppressed URLs).
-      refreshArchiveLinksUiAfterDelete();
-      cleanupOrphanSourceListItems(document);
-      // 4) Persist to cached_results.
-      if (!ctx.cacheKey && !(ctx.gradeId && ctx.topic) && !ctx.query) {
-        showArchiveToast('הקישור הוסר מהתצוגה.');
-        return;
-      }
       try {
         var result = await postArchiveDeleteRequest({
           action: 'delete_archive_link',
@@ -16147,17 +16153,11 @@
         if (payload && payload.cacheKey && !appState.lessonCacheKey && ctx.phase === 'topic_master') {
           appState.lessonCacheKey = payload.cacheKey;
         }
-        // Re-apply DOM removal after any async UI updates.
-        removeArchiveUrlFromDom(linkUrl, null);
-        refreshArchiveLinksUiAfterDelete();
-        cleanupOrphanSourceListItems(document);
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
-        removeArchiveUrlFromDom(linkUrl, null);
-        refreshArchiveLinksUiAfterDelete();
-        cleanupOrphanSourceListItems(document);
         showArchiveToast('הקישור הוסר מהתצוגה.');
       }
+      return true;
     }
 
     async function deleteArchiveMaterialAdmin(materialId, triggerEl) {
@@ -16204,9 +16204,15 @@
         var url = btn.getAttribute('data-archive-url');
         if (materialId) {
           deleteArchiveMaterialAdmin(materialId, btn);
-        } else if (url) {
-          deleteArchiveLinkAdmin(url, btn);
+          return;
         }
+        if (!url) return;
+        // Capture the full list row before any async work.
+        var listItem = btn.closest('li');
+        deleteArchiveLinkAdmin(url, btn).then(function (didDelete) {
+          // Final guarantee: if delete ran and the <li> somehow survived, remove it now.
+          if (didDelete && listItem && listItem.isConnected) listItem.remove();
+        });
       });
     }
 
@@ -16318,23 +16324,7 @@
           phaseCRenderExtraLinksBox(appState.purePhaseC);
         }
       } catch (e1) { /* ignore */ }
-      try {
-        var theoryMount = document.getElementById('theoretical-content');
-        if (theoryMount && appState.purePhaseC && typeof renderPureTheoryLiveLinksSection === 'function') {
-          theoryMount.querySelectorAll('.theory-live-links-section').forEach(function (node) {
-            node.remove();
-          });
-          var theory = (appState.aiGeneratedPlan && appState.aiGeneratedPlan.theory) ||
-            (appState.purePhaseC && appState.purePhaseC.theory) || {};
-          var liveHtml = renderPureTheoryLiveLinksSection(theory, appState.purePhaseC);
-          if (liveHtml) theoryMount.insertAdjacentHTML('beforeend', liveHtml);
-        }
-      } catch (e2) { /* ignore */ }
-      try {
-        if (appState.generalSearchResult && typeof renderGeneralSearchResults === 'function' && isGeneralSearchView()) {
-          renderGeneralSearchResults(appState.generalSearchResult);
-        }
-      } catch (e3) { /* ignore */ }
+      cleanupOrphanSourceListItems(document);
     }
 
     function normalizeArchiveSourceWhitespace(str) {
@@ -21626,20 +21616,9 @@
     }
 
     async function runAdminResearchExpand() {
-      var expansionSourceId = String(adminResearchActiveExpansionSourceId || '').trim();
+      // Full-page expand only (floating toolbar). Inline blocks use "הרחבה למחקר חדש".
+      adminResearchActiveExpansionSourceId = '';
       closeAdminResearchMenu();
-      // Inline expansion toolbar: expand ONLY that expansion block.
-      if (expansionSourceId) {
-        setAdminResearchLoading(true);
-        try {
-          await expandSingleExpansionFromCloud(expansionSourceId);
-        } catch (err) {
-          if (!isRateLimitError(err)) alert((err && err.message) || String(err));
-        } finally {
-          setAdminResearchLoading(false);
-        }
-        return;
-      }
       var ctx = getAdminResearchContext();
       if (!ctx.hasContent) return;
       setAdminResearchLoading(true);
@@ -21762,33 +21741,12 @@
       prependAdminResearchToolbarToPanel(staticEl, sourceId);
     }
 
-    function buildExpansionAdminModeInstruction(mode, historicSummary) {
-      var text = '';
-      try {
-        text = JSON.stringify(historicSummary || {}).slice(0, 12000);
-      } catch (e) {
-        text = String(historicSummary || '').slice(0, 12000);
-      }
-      if (mode === 'expand') {
-        return isEnglish()
-          ? ('RESEARCH EXPAND MODE (this single expansion only): Deepen and expand the EXISTING expansion below with substantially more pedagogical detail, practical classroom aspects, storytelling, and examples. Do NOT merely repeat it — enrich it. Existing content:\n' + text)
-          : ('מצב הרחבת מחקר (הרחבה זו בלבד): העמק והרחב את תוכן ההרחבה הקיים למטה בפרטים פדגוגיים, היבטים מעשיים לכיתה, סיפור ודוגמאות. אל תחזור עליו בלבד — העשר אותו.\nתוכן קיים:\n' + text);
-      }
-      if (mode === 'synthesize') {
-        return isEnglish()
-          ? ('ARCHIVE SYNTHESIS MODE (this single expansion only): Synthesize the EXISTING expansion below with established Waldorf/anthroposophic archive knowledge into one coherent, deeper, well-structured expansion. Existing content:\n' + text)
-          : ('מצב סינתזה עם הארכיון (הרחבה זו בלבד): סנתז את תוכן ההרחבה הקיים למטה עם ידע ארכיון וולדרוף/אנתרופוסופי מבוסס לתוצר אחד קוהרנטי, עמוק ומסודר יותר.\nתוכן קיים:\n' + text);
-      }
-      return '';
-    }
-
     /**
-     * Admin action on ONE inline/static expansion only (refresh / expand / synthesize).
-     * Uses pedagogy_deep_dive or archive_summary with bypassCache — never rewrites the main page payload.
+     * Fresh research for ONE expansion only — from scratch, bypassCache, original Waldorf prompts.
+     * Does not mix archive synthesis / expand-on-existing content.
      */
-    async function runSingleExpansionAdminAction(expansionSourceId, mode) {
+    async function refreshSingleExpansionFromCloud(expansionSourceId) {
       var sourceId = String(expansionSourceId || '').trim();
-      var actionMode = mode === 'expand' || mode === 'synthesize' ? mode : 'refresh';
       if (!sourceId) {
         throw new Error(isEnglish()
           ? 'Could not identify this expansion.'
@@ -21797,17 +21755,7 @@
 
       var pedSource = appState.pedagogyRegistry[sourceId] || ensurePedagogySourceRegistered(sourceId);
       var bibSource = appState.bibliographyRegistry[sourceId];
-      var historicPed = appState.pedagogySummaries[sourceId] ||
-        (pedSource && pedSource.expansion ? { pedagogyDeepDive: mapExpansionToDeepDive(pedSource.expansion, pedSource) } : null);
-      var historicBib = appState.bibliographySummaries[sourceId] ||
-        (bibSource && bibSource.expansion ? mapExpansionToArchiveSummary(bibSource.expansion, bibSource) : null);
       var forceOpts = { skipCache: true, forceRefresh: true, bypassCache: true };
-      if (actionMode === 'expand' || actionMode === 'synthesize') {
-        forceOpts.modeInstruction = buildExpansionAdminModeInstruction(
-          actionMode,
-          historicPed || historicBib || pedSource || bibSource || {}
-        );
-      }
 
       if (pedSource) {
         var pedKey = getPedagogySummaryCacheKey(pedSource);
@@ -21817,11 +21765,8 @@
           delete summaryJobsByKey[pedKey];
         }
         delete summaryFailedByKey[pedKey];
-        // Refresh replaces from scratch; expand/synthesize build on current text.
-        if (actionMode === 'refresh') {
-          delete appState.pedagogySummaries[sourceId];
-          if (pedSource.expansion) delete pedSource.expansion;
-        }
+        delete appState.pedagogySummaries[sourceId];
+        if (pedSource.expansion) delete pedSource.expansion;
         summaryPanelOpenState.ped[pedKey] = true;
         var pedPanel = getPedExpandPanel(sourceId);
         if (pedPanel) {
@@ -21853,10 +21798,8 @@
           delete summaryJobsByKey[bibKey];
         }
         delete summaryFailedByKey[bibKey];
-        if (actionMode === 'refresh') {
-          delete appState.bibliographySummaries[sourceId];
-          if (bibSource.expansion) delete bibSource.expansion;
-        }
+        delete appState.bibliographySummaries[sourceId];
+        if (bibSource.expansion) delete bibSource.expansion;
         summaryPanelOpenState.bib[bibKey] = true;
         var bibPanel = getBibExpandPanel(sourceId);
         if (bibPanel) {
@@ -21885,34 +21828,10 @@
         : 'לא ניתן לזהות את ההרחבה.');
     }
 
-    function refreshSingleExpansionFromCloud(expansionSourceId) {
-      return runSingleExpansionAdminAction(expansionSourceId, 'refresh');
-    }
-
-    function expandSingleExpansionFromCloud(expansionSourceId) {
-      return runSingleExpansionAdminAction(expansionSourceId, 'expand');
-    }
-
-    function synthesizeSingleExpansionFromCloud(expansionSourceId) {
-      return runSingleExpansionAdminAction(expansionSourceId, 'synthesize');
-    }
-
     async function runAdminResearchRefresh() {
-      var expansionSourceId = String(adminResearchActiveExpansionSourceId || '').trim();
+      // Full-page refresh only (floating toolbar). Inline blocks use "הרחבה למחקר חדש".
+      adminResearchActiveExpansionSourceId = '';
       closeAdminResearchMenu();
-      // Inline expansion toolbar: refresh ONLY that expansion (bypassCache), even if
-      // the global page context is incomplete.
-      if (expansionSourceId) {
-        setAdminResearchLoading(true);
-        try {
-          await refreshSingleExpansionFromCloud(expansionSourceId);
-        } catch (err) {
-          if (!isRateLimitError(err)) alert((err && err.message) || String(err));
-        } finally {
-          setAdminResearchLoading(false);
-        }
-        return;
-      }
       var ctx = getAdminResearchContext();
       if (!ctx.hasContent) return;
       setAdminResearchLoading(true);
@@ -21966,20 +21885,9 @@
     }
 
     async function runAdminResearchSynthesize() {
-      var expansionSourceId = String(adminResearchActiveExpansionSourceId || '').trim();
+      // Full-page synthesize only (floating toolbar). Inline blocks use "הרחבה למחקר חדש".
+      adminResearchActiveExpansionSourceId = '';
       closeAdminResearchMenu();
-      // Inline expansion toolbar: synthesize ONLY that expansion block with archive knowledge.
-      if (expansionSourceId) {
-        setAdminResearchLoading(true);
-        try {
-          await synthesizeSingleExpansionFromCloud(expansionSourceId);
-        } catch (err) {
-          if (!isRateLimitError(err)) alert((err && err.message) || String(err));
-        } finally {
-          setAdminResearchLoading(false);
-        }
-        return;
-      }
       var ctx = getAdminResearchContext();
       if (!ctx.hasContent) return;
       setAdminResearchLoading(true);
