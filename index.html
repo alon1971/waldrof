@@ -11606,6 +11606,7 @@
 
     async function fetchBibliographyDeepSummary(source, signal, options) {
       const opts = options || {};
+      const forceRefresh = opts.skipCache === true || opts.forceRefresh === true || opts.bypassCache === true;
       const raw = source.raw || {};
       const typeMap = { books: 'book', articles: 'article', websites: 'website' };
       // No blind total timer: the streamed request manages its own activity-based idle
@@ -11622,7 +11623,9 @@
           gradeLabel: appState.gradeLabel,
           topic: appState.topic,
           bibliographyContext: true,
-          skipCache: opts.skipCache === true,
+          skipCache: forceRefresh,
+          bypassCache: forceRefresh,
+          forceRefresh: forceRefresh,
           noUrlsInstruction: getNoUrlsInstruction(),
           noLatexInstruction: getNoLatexInstruction(),
           summaryDepthInstruction: isEnglish()
@@ -11831,17 +11834,27 @@
       summaryPanelOpenState.ped = {};
     }
 
-    function startBibliographySummaryJob(sourceId) {
+    function startBibliographySummaryJob(sourceId, options) {
+      const opts = options || {};
+      const forceRefresh = opts.skipCache === true || opts.forceRefresh === true || opts.bypassCache === true;
       const source = appState.bibliographyRegistry[sourceId];
       if (!source) return Promise.reject(new Error('missing source'));
       const cacheKey = getBibliographySummaryCacheKey(source);
       const existing = summaryJobsByKey[cacheKey];
-      if (existing) return existing.promise;
+      if (existing) {
+        if (forceRefresh && existing.controller) {
+          existing.controller.abort();
+          delete summaryJobsByKey[cacheKey];
+        } else {
+          return existing.promise;
+        }
+      }
 
       delete summaryFailedByKey[cacheKey];
       const controller = new AbortController();
       setBibDeepBtnDisabledForCacheKey(cacheKey, true);
-      if (summaryPanelOpenState.bib[cacheKey]) {
+      if (summaryPanelOpenState.bib[cacheKey] || forceRefresh) {
+        if (forceRefresh) summaryPanelOpenState.bib[cacheKey] = true;
         Object.keys(appState.bibliographyRegistry).forEach(function (sid) {
           const src = appState.bibliographyRegistry[sid];
           if (src && getBibliographySummaryCacheKey(src) === cacheKey) {
@@ -11850,7 +11863,9 @@
         });
       }
 
-      const promise = fetchBibliographyDeepSummary(source, controller.signal).then(function (data) {
+      const promise = fetchBibliographyDeepSummary(source, controller.signal, {
+        skipCache: forceRefresh,
+      }).then(function (data) {
         if (!hasExpansionResponseContent(data)) {
           throw new Error(isEnglish()
             ? 'Expansion research returned no content. Please try again.'
@@ -11866,8 +11881,10 @@
         refreshBibliographyPanelsForCacheKey(cacheKey, summary);
         return summary;
       }).catch(function (e) {
+        var activeJob = summaryJobsByKey[cacheKey];
+        if (activeJob && activeJob.controller !== controller) throw e;
         if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) {
-          if (summaryPanelOpenState.bib[cacheKey]) {
+          if (summaryPanelOpenState.bib[cacheKey] && !summaryJobsByKey[cacheKey]) {
             const errMsg = formatExpansionErrorMessage(isEnglish()
               ? 'Expansion loading was interrupted. Click the button again to retry.'
               : 'טעינת ההרחבה הופסקה. לחצו שוב על הכפתור לניסיון חוזר.');
@@ -11881,25 +11898,37 @@
         refreshBibliographyPanelsForCacheKey(cacheKey, null, errMsg);
         throw e;
       }).finally(function () {
-        delete summaryJobsByKey[cacheKey];
-        setBibDeepBtnDisabledForCacheKey(cacheKey, false);
+        if (summaryJobsByKey[cacheKey] && summaryJobsByKey[cacheKey].controller === controller) {
+          delete summaryJobsByKey[cacheKey];
+          setBibDeepBtnDisabledForCacheKey(cacheKey, false);
+        }
       });
 
       summaryJobsByKey[cacheKey] = { promise: promise, controller: controller };
       return promise;
     }
 
-    function startPedagogySummaryJob(sourceId) {
+    function startPedagogySummaryJob(sourceId, options) {
+      const opts = options || {};
+      const forceRefresh = opts.skipCache === true || opts.forceRefresh === true || opts.bypassCache === true;
       const source = appState.pedagogyRegistry[sourceId];
       if (!source) return Promise.reject(new Error('missing source'));
       const cacheKey = getPedagogySummaryCacheKey(source);
       const existing = summaryJobsByKey[cacheKey];
-      if (existing) return existing.promise;
+      if (existing) {
+        if (forceRefresh && existing.controller) {
+          existing.controller.abort();
+          delete summaryJobsByKey[cacheKey];
+        } else {
+          return existing.promise;
+        }
+      }
 
       delete summaryFailedByKey[cacheKey];
       const controller = new AbortController();
       setPedDeepBtnDisabledForCacheKey(cacheKey, true);
-      if (summaryPanelOpenState.ped[cacheKey]) {
+      if (summaryPanelOpenState.ped[cacheKey] || forceRefresh) {
+        if (forceRefresh) summaryPanelOpenState.ped[cacheKey] = true;
         Object.keys(appState.pedagogyRegistry).forEach(function (sid) {
           const src = appState.pedagogyRegistry[sid];
           if (src && getPedagogySummaryCacheKey(src) === cacheKey) {
@@ -11908,7 +11937,9 @@
         });
       }
 
-      const promise = fetchPedagogyDeepDive(source, controller.signal).then(function (data) {
+      const promise = fetchPedagogyDeepDive(source, controller.signal, {
+        skipCache: forceRefresh,
+      }).then(function (data) {
         if (!hasExpansionResponseContent(data)) {
           throw new Error(isEnglish()
             ? 'Expansion research returned no content. Please try again.'
@@ -11924,8 +11955,10 @@
         refreshPedagogyPanelsForCacheKey(cacheKey, summary);
         return summary;
       }).catch(function (e) {
+        var activeJob = summaryJobsByKey[cacheKey];
+        if (activeJob && activeJob.controller !== controller) throw e;
         if (e && (e.name === 'AbortError' || e.message === 'The user aborted a request.')) {
-          if (summaryPanelOpenState.ped[cacheKey]) {
+          if (summaryPanelOpenState.ped[cacheKey] && !summaryJobsByKey[cacheKey]) {
             const errMsg = formatExpansionErrorMessage(isEnglish()
               ? 'Expansion loading was interrupted. Click the button again to retry.'
               : 'טעינת ההרחבה הופסקה. לחצו שוב על הכפתור לניסיון חוזר.');
@@ -11939,8 +11972,10 @@
         refreshPedagogyPanelsForCacheKey(cacheKey, null, errMsg);
         throw e;
       }).finally(function () {
-        delete summaryJobsByKey[cacheKey];
-        setPedDeepBtnDisabledForCacheKey(cacheKey, false);
+        if (summaryJobsByKey[cacheKey] && summaryJobsByKey[cacheKey].controller === controller) {
+          delete summaryJobsByKey[cacheKey];
+          setPedDeepBtnDisabledForCacheKey(cacheKey, false);
+        }
       });
 
       summaryJobsByKey[cacheKey] = { promise: promise, controller: controller };
@@ -12227,7 +12262,9 @@
         '</div>';
     }
 
-    async function fetchCurriculumDayEnrichment(source, signal) {
+    async function fetchCurriculumDayEnrichment(source, signal, options) {
+      const opts = options || {};
+      const forceRefresh = opts.skipCache === true || opts.forceRefresh === true || opts.bypassCache === true;
       const g = GRADES.find(function (x) { return x.id === appState.grade; });
       const dayTopic = String((source && source.preview) || (source && source.title) || '').trim();
       return invokeWaldorfResearch({
@@ -12250,17 +12287,21 @@
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
         expandInstruction: getCurriculumDayExpansionInstruction(),
+        skipCache: forceRefresh,
+        bypassCache: forceRefresh,
+        forceRefresh: forceRefresh,
       }, { signal: signal });
     }
 
     async function fetchPedagogyDeepDive(source, signal, options) {
       const opts = options || {};
+      const forceRefresh = opts.skipCache === true || opts.forceRefresh === true || opts.bypassCache === true;
       // No blind total timer — rely on the stream's activity-based idle cutoff
       // (STREAM_IDLE_TIMEOUT_MS, reset on every chunk/event) so healthy long answers finish.
       try {
         let data;
         if (source && source.subtype === 'enrich') {
-          data = await fetchCurriculumDayEnrichment(source, signal);
+          data = await fetchCurriculumDayEnrichment(source, signal, { skipCache: forceRefresh });
         } else {
           const g = GRADES.find(function (x) { return x.id === appState.grade; });
           const isAgeScope = source && source.type === 'grade';
@@ -12283,7 +12324,9 @@
             noUrlsInstruction: getNoUrlsInstruction(),
             noLatexInstruction: getNoLatexInstruction(),
             expandInstruction: getOnDemandExpansionInstruction(expansionScope),
-            skipCache: opts.skipCache === true,
+            skipCache: forceRefresh,
+            bypassCache: forceRefresh,
+            forceRefresh: forceRefresh,
           };
           if (!isAgeScope) {
             payload.topic = appState.topic;
@@ -15796,13 +15839,43 @@
 
     function removeArchiveListItemFromDom(triggerEl) {
       if (!triggerEl) return;
-      var row = triggerEl.closest('li, .catalog-material-row, article.bg-cream, .community-found-alert__item, .archive-pinterest-item');
+      var row = triggerEl.closest('li.archive-link-row, li, .catalog-material-row, article.bg-cream, .community-found-alert__item, .archive-pinterest-item');
       if (row) {
         row.remove();
         return;
       }
       var pinCard = triggerEl.closest('.pin-card');
-      if (pinCard && pinCard.parentElement) pinCard.parentElement.remove();
+      if (pinCard && pinCard.parentElement) {
+        pinCard.parentElement.remove();
+        return;
+      }
+      var prev = triggerEl.previousElementSibling;
+      if (prev && prev.tagName === 'A') prev.remove();
+      triggerEl.remove();
+    }
+
+    function removeArchiveUrlFromDom(url, triggerEl) {
+      if (triggerEl) removeArchiveListItemFromDom(triggerEl);
+      var targetNorm = normalizeArchiveLinkUrlClient(url);
+      if (!targetNorm) return;
+      document.querySelectorAll('a[href]').forEach(function (anchor) {
+        if (normalizeArchiveLinkUrlClient(anchor.getAttribute('href')) !== targetNorm) return;
+        var row = anchor.closest('li.archive-link-row, li');
+        if (row && row.querySelector('.archive-admin-delete-btn')) {
+          row.remove();
+          return;
+        }
+        var next = anchor.nextElementSibling;
+        if (next && next.classList && next.classList.contains('archive-admin-delete-btn')) {
+          next.remove();
+        }
+        if (anchor.parentNode) anchor.remove();
+      });
+      document.querySelectorAll('.archive-admin-delete-btn[data-archive-url]').forEach(function (btn) {
+        if (normalizeArchiveLinkUrlClient(btn.getAttribute('data-archive-url')) === targetNorm) {
+          removeArchiveListItemFromDom(btn);
+        }
+      });
     }
 
     function purgeArchiveUrlFromClientState(url) {
@@ -15823,6 +15896,9 @@
         stripLinkArray(payload.relevant_links);
         stripLinkArray(payload.pedagogical_resources);
         stripLinkArray(payload.gallery);
+        stripLinkArray(payload._liveCitations);
+        stripLinkArray(payload.citations);
+        stripLinkArray(payload.sources);
         if (payload.enrichment_links && typeof payload.enrichment_links === 'object') {
           stripLinkArray(payload.enrichment_links.pinterest_links);
           stripLinkArray(payload.enrichment_links.article_links);
@@ -15830,50 +15906,52 @@
         if (payload.blockPlan && typeof payload.blockPlan === 'object') {
           walkPayload(payload.blockPlan);
         }
-        if (payload.theory && payload.theory.bibliography && Array.isArray(payload.theory.bibliography.websites)) {
-          stripLinkArray(payload.theory.bibliography.websites);
+        if (payload.theory && payload.theory.bibliography) {
+          var bib = payload.theory.bibliography;
+          stripLinkArray(bib.websites);
+          stripLinkArray(bib.articles);
+          stripLinkArray(bib.books);
+        }
+        if (payload.gradeInsights && typeof payload.gradeInsights === 'object') {
+          stripLinkArray(payload.gradeInsights.sources);
         }
       }
       walkPayload(appState.purePhaseC);
       walkPayload(appState.aiGeneratedPlan);
       walkPayload(appState.generalSearchResult);
+      walkPayload(appState.gradeResearch);
+      walkPayload(appState.webResearch);
       stripLinkArray(appState.visualGallery);
       stripLinkArray(appState.pedagogicalResources);
+      Object.keys(appState.pedagogySummaries || {}).forEach(function (sid) {
+        walkPayload(appState.pedagogySummaries[sid]);
+      });
+      Object.keys(appState.bibliographySummaries || {}).forEach(function (sid) {
+        walkPayload(appState.bibliographySummaries[sid]);
+      });
     }
 
     async function deleteArchiveLinkAdmin(url, triggerEl) {
       if (!isArchiveAdminUser()) return;
       if (!confirm(ARCHIVE_DELETE_CONFIRM)) return;
-      var cacheKey = String(appState.lessonCacheKey || '').trim();
+      var blockHost = triggerEl && triggerEl.closest ? triggerEl.closest('[data-archive-key]') : null;
+      var cacheKey = resolveArchiveBlockCacheKey(
+        blockHost ? blockHost.getAttribute('data-archive-key') : ''
+      );
+      if (triggerEl) triggerEl.disabled = true;
+      // Optimistic UI: always remove from client sources/citations and DOM immediately.
+      purgeArchiveUrlFromClientState(url);
+      removeArchiveUrlFromDom(url, triggerEl);
       if (!cacheKey) {
-        alert('לא נמצא מזהה ארכיון — טענו את הנושא מהארכיון תחילה.');
+        showArchiveToast('הקישור הוסר מהתצוגה.');
         return;
       }
-      if (triggerEl) triggerEl.disabled = true;
       try {
-        var headers = { 'Content-Type': 'application/json' };
-        if (typeof WaldorfAuth !== 'undefined') {
-          var token = await WaldorfAuth.getAccessToken();
-          if (token) headers.Authorization = 'Bearer ' + token;
-          var identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function' ? WaldorfAuth.getIdentityEmail() : '';
-          if (identityEmail) headers['X-User-Email'] = identityEmail;
-        }
-        var res = await fetch('/api/search-history', {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify({ action: 'delete_archive_link', cacheKey: cacheKey, url: url }),
-        });
-        var bodyText = await res.text();
-        var json = {};
-        try { json = bodyText ? JSON.parse(bodyText) : {}; } catch (parseErr) { json = {}; }
-        if (!res.ok || json.error) {
-          throw new Error((json && json.error) || bodyText || ('שגיאת שרת (' + res.status + ')'));
-        }
-        purgeArchiveUrlFromClientState(url);
-        removeArchiveListItemFromDom(triggerEl);
+        await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: url });
+        showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
-        alert('מחיקת הקישור מהארכיון נכשלה: ' + (err && err.message ? err.message : String(err)));
-        if (triggerEl) triggerEl.disabled = false;
+        // Link may exist only in live citations (not yet in archive row) — client already updated.
+        showArchiveToast('הקישור הוסר מהתצוגה.');
       }
     }
 
@@ -16226,15 +16304,21 @@
      * from prose so the two paths never interfere.
      */
     async function deleteArchiveLinkSelection(ctx, cacheKey) {
-      if (!cacheKey) { showArchiveToast('מזהה הארכיון אינו ברור — הפעולה בוטלה.', 'error'); return; }
+      var linkUrl = ctx && ctx.linkUrl ? ctx.linkUrl : '';
+      if (!linkUrl) { showArchiveToast('לא נמצא קישור למחיקה.', 'error'); return; }
+      // Optimistic UI: always remove from client sources/citations and DOM immediately.
+      purgeArchiveUrlFromClientState(linkUrl);
+      removeArchiveUrlFromDom(linkUrl, ctx.anchorEl || null);
+      clearSelectionRanges();
+      if (!cacheKey) {
+        showArchiveToast('הקישור הוסר מהתצוגה.');
+        return;
+      }
       try {
-        await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrl });
-        purgeArchiveUrlFromClientState(ctx.linkUrl);
-        if (ctx.anchorEl) removeArchiveListItemFromDom(ctx.anchorEl);
-        clearSelectionRanges();
+        await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: linkUrl });
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
-        showArchiveToast('מחיקת הקישור נכשלה: ' + (err && err.message ? err.message : ''), 'error');
+        showArchiveToast('הקישור הוסר מהתצוגה.');
       }
     }
 
@@ -21205,6 +21289,117 @@
       }
     }
 
+    function updateStaticExpansionBodyAfterRefresh(sourceId, summary, source) {
+      var staticEl = typeof getStaticExpansionElement === 'function'
+        ? getStaticExpansionElement(sourceId)
+        : (document.getElementById('static-expand-' + sourceId) ||
+          document.querySelector('[data-static-expand="' + sourceId + '"]'));
+      if (!staticEl) return;
+      var body = staticEl.querySelector('.static-expansion-body');
+      if (!body) return;
+      var html = '';
+      if (summary) {
+        if (appState.bibliographyRegistry[sourceId]) {
+          html = buildBibSummaryHtml(summary);
+        } else {
+          html = buildPedagogySummaryHtml(summary, source || appState.pedagogyRegistry[sourceId]);
+        }
+      }
+      if (!html || !expansionBodyHasVisibleText(html)) {
+        html = '<p class="text-walnut/70">' + escapeHtml(t('pedagogy_summary_empty')) + '</p>';
+      }
+      body.innerHTML = html;
+      applyExpansionDomDedupe(body);
+      prependAdminResearchToolbarToPanel(staticEl, sourceId);
+    }
+
+    /**
+     * Refresh ONLY one inline/static expansion panel (bypassCache on pedagogy_deep_dive /
+     * archive_summary). Does not touch the main topic/grade/general-search payload.
+     */
+    async function refreshSingleExpansionFromCloud(expansionSourceId) {
+      var sourceId = String(expansionSourceId || '').trim();
+      if (!sourceId) {
+        throw new Error(isEnglish()
+          ? 'Could not identify this expansion to refresh.'
+          : 'לא ניתן לזהות את ההרחבה לרענון.');
+      }
+
+      var pedSource = appState.pedagogyRegistry[sourceId] || ensurePedagogySourceRegistered(sourceId);
+      var bibSource = appState.bibliographyRegistry[sourceId];
+      var forceOpts = { skipCache: true, forceRefresh: true, bypassCache: true };
+
+      if (pedSource) {
+        var pedKey = getPedagogySummaryCacheKey(pedSource);
+        var existingPed = summaryJobsByKey[pedKey];
+        if (existingPed && existingPed.controller) {
+          existingPed.controller.abort();
+          delete summaryJobsByKey[pedKey];
+        }
+        delete summaryFailedByKey[pedKey];
+        delete appState.pedagogySummaries[sourceId];
+        if (pedSource.expansion) delete pedSource.expansion;
+        summaryPanelOpenState.ped[pedKey] = true;
+        var pedPanel = getPedExpandPanel(sourceId);
+        if (pedPanel) {
+          pedPanel.classList.remove('hidden');
+          renderPedagogyInlinePanel(pedPanel, sourceId, null, true);
+        }
+        var staticPed = typeof getStaticExpansionElement === 'function'
+          ? getStaticExpansionElement(sourceId)
+          : null;
+        if (staticPed) {
+          var pedBody = staticPed.querySelector('.static-expansion-body');
+          if (pedBody) {
+            pedBody.innerHTML = '<div class="inline-expand-loading" role="status" aria-live="polite">' +
+              '<p class="text-sage-dark m-0 mb-2"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' +
+              escapeHtml(t('pedagogy_summary_loading')) + '</p></div>';
+            prependAdminResearchToolbarToPanel(staticPed, sourceId);
+          }
+        }
+        var pedSummary = await startPedagogySummaryJob(sourceId, forceOpts);
+        updateStaticExpansionBodyAfterRefresh(sourceId, pedSummary, pedSource);
+        return;
+      }
+
+      if (bibSource) {
+        var bibKey = getBibliographySummaryCacheKey(bibSource);
+        var existingBib = summaryJobsByKey[bibKey];
+        if (existingBib && existingBib.controller) {
+          existingBib.controller.abort();
+          delete summaryJobsByKey[bibKey];
+        }
+        delete summaryFailedByKey[bibKey];
+        delete appState.bibliographySummaries[sourceId];
+        if (bibSource.expansion) delete bibSource.expansion;
+        summaryPanelOpenState.bib[bibKey] = true;
+        var bibPanel = getBibExpandPanel(sourceId);
+        if (bibPanel) {
+          bibPanel.classList.remove('hidden');
+          renderBibInlinePanel(bibPanel, sourceId, null, true);
+        }
+        var staticBib = typeof getStaticExpansionElement === 'function'
+          ? getStaticExpansionElement(sourceId)
+          : null;
+        if (staticBib) {
+          var bibBody = staticBib.querySelector('.static-expansion-body');
+          if (bibBody) {
+            bibBody.innerHTML = '<div class="inline-expand-loading" role="status" aria-live="polite">' +
+              '<p class="text-sage-dark m-0 mb-2"><i class="fa-solid fa-spinner fa-spin ml-1"></i> ' +
+              escapeHtml(t('theory_bib_summary_loading')) + '</p></div>';
+            prependAdminResearchToolbarToPanel(staticBib, sourceId);
+          }
+        }
+        var bibSummary = await startBibliographySummaryJob(sourceId, forceOpts);
+        updateStaticExpansionBodyAfterRefresh(sourceId, bibSummary, bibSource);
+        return;
+      }
+
+      throw new Error(isEnglish()
+        ? 'Could not identify this expansion to refresh.'
+        : 'לא ניתן לזהות את ההרחבה לרענון.');
+    }
+
     async function runAdminResearchRefresh() {
       var ctx = getAdminResearchContext();
       if (!ctx.hasContent) return;
@@ -21212,6 +21407,11 @@
       closeAdminResearchMenu();
       setAdminResearchLoading(true);
       try {
+        // Inline expansion toolbar: refresh ONLY that expansion block.
+        if (expansionSourceId) {
+          await refreshSingleExpansionFromCloud(expansionSourceId);
+          return;
+        }
         if (ctx.scope === 'general-search') {
           var queryRefresh = String(appState.generalSearchQuery || '').trim();
           if (!queryRefresh) return;
@@ -21249,19 +21449,9 @@
           renderGradeInsightsPanel(appState.grade, refreshedGrade);
           return;
         }
+        // Floating global toolbar only: refresh the full topic payload.
         resetSummarySession();
         await refreshPurePhaseCFromCloud();
-        if (expansionSourceId) {
-          delete appState.pedagogySummaries[expansionSourceId];
-          var expansionSrc = appState.pedagogyRegistry[expansionSourceId];
-          if (expansionSrc) {
-            delete summaryFailedByKey[getPedagogySummaryCacheKey(expansionSrc)];
-          }
-          var expandPanel = getPedExpandPanel(expansionSourceId);
-          if (expandPanel && !expandPanel.classList.contains('hidden')) {
-            startPedagogySummaryJob(expansionSourceId).catch(function () { /* surfaced in panel */ });
-          }
-        }
       } catch (err) {
         if (!isRateLimitError(err)) alert((err && err.message) || String(err));
       } finally {
