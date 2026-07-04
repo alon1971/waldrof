@@ -16602,6 +16602,19 @@
      * back to the row. Strict: aborts if the block/row can't be identified, restores on failure.
      */
     async function deleteArchiveTextSelection(ctx, cacheKey) {
+      // If the selection includes any links, always delete by URL only — never exact text match
+      // (display text may be guardrail-normalized while archive still has older inflections).
+      var linkUrls = (ctx && Array.isArray(ctx.linkUrls) ? ctx.linkUrls.slice() : []);
+      if (ctx && ctx.linkUrl && linkUrls.indexOf(ctx.linkUrl) < 0) linkUrls.push(ctx.linkUrl);
+      if (linkUrls.length) {
+        for (var li = 0; li < linkUrls.length; li++) {
+          await deleteArchiveLinkSelection({
+            linkUrl: linkUrls[li],
+            anchorEl: ctx && ctx.anchorEl,
+          }, cacheKey);
+        }
+        return;
+      }
       if (!ctx.block) {
         showArchiveToast('לא ניתן לזהות את בלוק הטקסט למחיקה — הפעולה בוטלה.', 'error');
         return;
@@ -16616,12 +16629,16 @@
         return;
       }
       var block = ctx.block;
-      var blockSource = String(ctx.blockSource || block.getAttribute('data-archive-source') || '').trim();
+      // Normalize both sides so guardrail replacements (וולדרוף / דוח) do not break matching.
+      var blockSource = applyHebrewAutoReplacements(String(
+        ctx.blockSource || block.getAttribute('data-archive-source') || ''
+      ).trim());
       if (!blockSource) {
         showArchiveToast('לא נמצא מקור ארכיון לבלוק — הפעולה בוטלה.', 'error');
         return;
       }
-      var newSource = snipArchiveSelectionFromBlockSource(blockSource, ctx.text);
+      var selectionText = applyHebrewAutoReplacements(String(ctx.text || '').trim());
+      var newSource = snipArchiveSelectionFromBlockSource(blockSource, selectionText);
       if (newSource === blockSource) {
         showArchiveToast('לא ניתן לזהות את הקטע המסומן במקור הארכיון — הפעולה בוטלה.', 'error');
         return;
@@ -16665,10 +16682,13 @@
       if (archiveTextFabEl) archiveTextFabEl.disabled = true;
       var cacheKey = String(
         (ctx.block && ctx.block.getAttribute('data-archive-key')) ||
+        resolveActiveArchiveCacheKey(ctx.anchorEl || ctx.block) ||
         resolveArchiveBlockCacheKey() ||
         ''
       ).trim();
       try {
+        // Prefer URL-only deletion whenever any link is part of the selection
+        // (never exact-match surrounding prose — display may be guardrail-normalized).
         if (ctx.linkOnly && ctx.linkUrl) {
           await deleteArchiveLinkSelection(ctx, cacheKey);
         } else {
@@ -19797,7 +19817,9 @@
     function wrapArchiveEditableBlock(innerHtml, sourceText, meta) {
       meta = meta || {};
       if (!innerHtml) return innerHtml;
-      var src = String(sourceText == null ? '' : sourceText);
+      // Keep data-archive-source in sync with displayed (guardrail-normalized) text so
+      // selection-based edits never fail due to וולדורפי vs וולדרוף mismatches.
+      var src = applyHebrewAutoReplacements(String(sourceText == null ? '' : sourceText));
       var blockPath = String(meta.blockPath || '').trim();
       var cacheKey = resolveArchiveBlockCacheKey(meta.cacheKey);
       if (!src.trim() && !blockPath) return innerHtml;

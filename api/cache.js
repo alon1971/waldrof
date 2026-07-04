@@ -492,7 +492,10 @@ function stripUrlFromProseString(str, targetNorm) {
   variants.forEach(function (variant) {
     if (!variant) return;
     const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Cut out whole list items / anchors that contain the URL — never depend on surrounding prose text.
+    out = out.replace(new RegExp('<li\\b[^>]*>[\\s\\S]*?' + escaped + '[\\s\\S]*?<\\/li>', 'gi'), '');
     out = out.replace(new RegExp('<a\\b[^>]*href=["\'][^"\']*' + escaped + '[^"\']*["\'][^>]*>[\\s\\S]*?<\\/a>', 'gi'), '');
+    out = out.replace(new RegExp('<a\\b[^>]*>[\\s\\S]*?' + escaped + '[\\s\\S]*?<\\/a>', 'gi'), '');
     out = out.replace(new RegExp('\\[[^\\]]*\\]\\([^\\)]*' + escaped + '[^\\)]*\\)', 'gi'), '');
     out = out.replace(new RegExp(escaped, 'gi'), '');
   });
