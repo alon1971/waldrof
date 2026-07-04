@@ -21,10 +21,47 @@ const PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION =
   'In ALL Hebrew output — including dynamic section headings, Developmental Compass titles (מצפן התפתחותי), core_emphases, and theory.sections headings — ' +
   'NEVER use the non-standard literal translations "הלידה הראשונה", "לידה ראשונה", "הלידה השנייה", or "לידה שנייה".\n' +
   'Always use the established Waldorf pedagogical terms:\n' +
-  '- חציית הרוביקון הראשונה (גיל 9) — for the first Rubicon crossing (around age 9)\n' +
-  '- חציית הרוביקון השנייה (גיל 12) — for the second Rubicon crossing (around age 12)\n' +
-  'Example heading: "מצפן התפתחותי לכיתה ד׳: חציית הרוביקון הראשונה (גיל 9)" — NOT "הלידה הראשונה".\n' +
+  '- חציית הרוביקון הראשונה (גיל 9) — for the first Rubicon crossing (around age 9 / Grade 3)\n' +
+  '- חציית הרוביקון השנייה (גיל 12) — for the second Rubicon crossing (around age 12 / Grade 6)\n' +
+  'Example heading: "מצפן התפתחותי לכיתה ג׳: חציית הרוביקון הראשונה (גיל 9)" — NOT "הלידה הראשונה".\n' +
+  'ABSOLUTE BAN: NEVER use רוביקון / Rubicon / חציית הרוביקון for Grade 1 (ages 6–7) or any early-childhood stage before age 9.\n' +
   '=== END RUBICON TERMINOLOGY ===\n';
+
+/**
+ * Locked anthroposophical developmental map (Rudolf Steiner) — non-negotiable system guardrail.
+ * The model MUST bind every grade-specific claim to exactly these stages; no mixing, no invention.
+ */
+const PERPLEXITY_STEINER_DEVELOPMENTAL_STAGES_GUARDRAIL =
+  '\n=== STEINER DEVELOPMENTAL STAGES MAP (LOCKED — ABSOLUTE — NO COMPROMISE) ===\n' +
+  'You MUST adhere EXACTLY to Rudolf Steiner\'s anthroposophical developmental stages below in EVERY piece of content ' +
+  '(מצפן התפתחותי, core_emphases, theory, grade insights, expansions, lesson plans). ' +
+  'NEVER mix stages across grades. NEVER invent alternate names. NEVER apply a later stage to an earlier grade.\n\n' +
+  'AGE 6–7 / GRADE 1 (כיתה א׳):\n' +
+  '  • Stage: לידת הגוף האתרי והחלפת השיניים (birth of the etheric body and change of teeth).\n' +
+  '  • Consciousness: gradual exit from תודעת החלום / העולם החלומי (dream consciousness / dream world).\n' +
+  '  • FORBIDDEN mangled/mistranslated phrases: NEVER write "העולם החזלי", "העולם החזליי", or similar corruptions — ONLY תודעת החלום or העולם החלומי.\n' +
+  '  • ABSOLUTE BAN: NEVER use רוביקון, Rubicon, חציית הרוביקון, הרוביקון הראשון, or הרוביקון השני at this stage.\n\n' +
+  'AGE 9 / GRADE 3 (כיתה ג׳):\n' +
+  '  • Stage: משבר גיל התשע וחציית "הרוביקון הראשון" — חציית הרוביקון הראשונה (גיל 9).\n' +
+  '  • Experience: primary separation from the world, expulsion from paradise (גירוש מגן עדן), and loneliness in the soul (תחושת בדידות בנפש).\n' +
+  '  • Use ONLY this Rubicon label for age 9 — never call it the second Rubicon, and never use "הלידה הראשונה".\n\n' +
+  'AGE 12 / GRADE 6 (כיתה ו׳):\n' +
+  '  • Stage: חציית "הרוביקון השני" — חציית הרוביקון השנייה (גיל 12).\n' +
+  '  • Characterized by full landing into physicality and the physical world (התגשמות עמוקה בתוך הגוף / נחיתה מלאה אל הגשמיות).\n' +
+  '  • Physiology: experience of muscle weight and hardening of the skeletal system (חוויית כובד השרירים והתקשות מערכת השלד) — gravity of the earth (כוח הכובד של האדמה).\n' +
+  '  • Thinking: transition to causal-logical, intellectual, scientific thinking (חשיבה סיבתית-לוגית, אינטלקטואלית ומדעית) — cause and effect.\n' +
+  '  • Use ONLY this Rubicon label for age 12 — never call it the first Rubicon, and never use "הלידה השנייה".\n\n' +
+  'AGE 13–14 / GRADE 8 (כיתה ח׳):\n' +
+  '  • Stage: לידת הגוף האסטרלי (birth of the astral body) — junction of sexual and soul adolescence (צומת גיל ההתבגרות המינית והנפשית).\n' +
+  '  • Do NOT label this stage as a Rubicon crossing; Rubicon terms apply only at ages 9 and 12 as defined above.\n\n' +
+  'CROSS-GRADE RULES:\n' +
+  '  • Grade 1–2 content: etheric birth, tooth change, dream consciousness ONLY — zero Rubicon language.\n' +
+  '  • Grade 3–4 content may reference the first Rubicon (age 9) when developmentally accurate.\n' +
+  '  • Grade 6–7 content may reference the second Rubicon (age 12) when developmentally accurate.\n' +
+  '  • Grade 8 content: astral body birth / adolescence — not Rubicon.\n' +
+  '  • Never assign second-Rubicon physiology (skeleton/muscle gravity, causal intellect) to Grade 1–5.\n' +
+  '  • Never assign first-Rubicon paradise-expulsion themes to Grade 1–2.\n' +
+  '=== END STEINER DEVELOPMENTAL STAGES MAP ===\n';
 
 const PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION =
   '\n=== HEBREW TERMINOLOGY — WALDORF EDUCATION (MANDATORY) ===\n' +
@@ -53,6 +90,7 @@ const PERPLEXITY_HEBREW_GUARDRAILS =
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION +
   PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION +
   PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION +
+  PERPLEXITY_STEINER_DEVELOPMENTAL_STAGES_GUARDRAIL +
   PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION +
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION +
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION;
@@ -73,6 +111,10 @@ const HEBREW_AUTO_REPLACEMENTS = [
   { pattern: /לידה\s+שנייה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
   { pattern: /לידה\s+שניה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
   { pattern: /לידה\s+ראשונה/g, replacement: 'חציית הרוביקון הראשונה (גיל 9)' },
+  // Mangled "dream world / dream consciousness" (Grade 1) — never leave corruptions in archive text
+  { pattern: /העולם\s+החזליי?/g, replacement: 'העולם החלומי' },
+  { pattern: /תודעת\s+החזליי?/g, replacement: 'תודעת החלום' },
+  { pattern: /החזליי?/g, replacement: 'החלומי' },
   // AI misspelling of דוח (developmental report) — with/without niqqud; avoid matching דורחת
   { pattern: /ד[\u0591-\u05C7]*ו[\u0591-\u05C7]*ר[\u0591-\u05C7]*ח[\u0591-\u05C7]*(?!ת)/g, replacement: 'דוח' },
   { pattern: /דוראך/g, replacement: 'דוח' },
@@ -137,6 +179,7 @@ module.exports = {
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION,
   PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION,
   PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION,
+  PERPLEXITY_STEINER_DEVELOPMENTAL_STAGES_GUARDRAIL,
   PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION,
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION,
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION,

@@ -82,10 +82,19 @@
     'In ALL Hebrew output — including dynamic section headings, Developmental Compass titles (מצפן התפתחותי), core_emphases, and theory.sections headings — ' +
     'NEVER use the non-standard literal translations "הלידה הראשונה", "לידה ראשונה", "הלידה השנייה", or "לידה שנייה".\n' +
     'Always use the established Waldorf pedagogical terms:\n' +
-    '- חציית הרוביקון הראשונה (גיל 9) — for the first Rubicon crossing (around age 9)\n' +
-    '- חציית הרוביקון השנייה (גיל 12) — for the second Rubicon crossing (around age 12)\n' +
-    'Example heading: "מצפן התפתחותי לכיתה ד׳: חציית הרוביקון הראשונה (גיל 9)" — NOT "הלידה הראשונה".\n' +
+    '- חציית הרוביקון הראשונה (גיל 9) — for the first Rubicon crossing (around age 9 / Grade 3)\n' +
+    '- חציית הרוביקון השנייה (גיל 12) — for the second Rubicon crossing (around age 12 / Grade 6)\n' +
+    'Example heading: "מצפן התפתחותי לכיתה ג׳: חציית הרוביקון הראשונה (גיל 9)" — NOT "הלידה הראשונה".\n' +
+    'ABSOLUTE BAN: NEVER use רוביקון / Rubicon / חציית הרוביקון for Grade 1 (ages 6–7) or any early-childhood stage before age 9.\n' +
     '=== END RUBICON TERMINOLOGY ===\n' +
+    '\n=== STEINER DEVELOPMENTAL STAGES MAP (LOCKED — ABSOLUTE — NO COMPROMISE) ===\n' +
+    'You MUST adhere EXACTLY to Rudolf Steiner\'s anthroposophical developmental stages below in EVERY piece of content. NEVER mix stages across grades.\n\n' +
+    'AGE 6–7 / GRADE 1 (כיתה א׳): לידת הגוף האתרי והחלפת השיניים; תודעת החלום / העולם החלומי. ' +
+    'FORBIDDEN: "העולם החזלי" and any רוביקון / Rubicon language.\n\n' +
+    'AGE 9 / GRADE 3 (כיתה ג׳): משבר גיל התשע וחציית הרוביקון הראשונה (גיל 9) — היפרדות מהעולם, גירוש מגן עדן, בדידות בנפש.\n\n' +
+    'AGE 12 / GRADE 6 (כיתה ו׳): חציית הרוביקון השנייה (גיל 12) — נחיתה מלאה אל הגשמיות; כובד שרירים והתקשות שלד; חשיבה סיבתית-לוגית.\n\n' +
+    'AGE 13–14 / GRADE 8 (כיתה ח׳): לידת הגוף האסטרלי — צומת התבגרות מינית ונפשית (not a Rubicon label).\n' +
+    '=== END STEINER DEVELOPMENTAL STAGES MAP ===\n' +
     '\n=== HEBREW TERMINOLOGY — WALDORF EDUCATION (MANDATORY) ===\n' +
     'In ALL Hebrew output, always write Waldorf education as חינוך וולדרוף (noun form וולדרוף only).\n' +
     'NEVER use adjectival forms: וולדורפי, וולדורפית, וולדורפיים, וולדרופית, הוולדורפי, הוולדורפית.\n' +

@@ -2530,17 +2530,33 @@ function buildPhaseCGradeTopicLockInstruction(grade, topic) {
     'Target main-lesson topic: ' + topicStr,
     'Every section MUST match THIS grade developmental stage and THIS topic only.',
     'FORBIDDEN: importing concepts, examples, or links from other grades.',
+    'LOCKED STEINER MAP (bind Developmental Compass ONLY to the matching stage):',
+    '  Grade 1 (ages 6–7): לידת הגוף האתרי והחלפת השיניים; תודעת החלום / העולם החלומי — NEVER רוביקון; NEVER "העולם החזלי".',
+    '  Grade 3 (age 9): משבר גיל התשע + חציית הרוביקון הראשונה (גיל 9) — גירוש מגן עדן, בדידות בנפש.',
+    '  Grade 6 (age 12): חציית הרוביקון השנייה (גיל 12) — נחיתה לגשמיות, כובד שרירים/שלד, חשיבה סיבתית-לוגית.',
+    '  Grade 8 (ages 13–14): לידת הגוף האסטרלי — צומת התבגרות מינית ונפשית (not a Rubicon label).',
     'FORBIDDEN for Grades 1-6: adolescent themes (חציית הרוביקון השנייה (גיל 12), puberty, מרד השלישי, chemistry/physics upper-school depth) unless grade is 7 or 8.',
   ];
   if (g !== null && g <= 2) {
     lines.push(
-      'Grades 1-2 LOCK: fairy-tale consciousness, qualities of numbers, form drawing, rhythm, imaginative math stories, pictorial counting.',
-      'Grade 1 math example: המספרים כאיכויות, ציור צורות, סיפורי מספרים, תנועה ושיר — NEVER חציית הרוביקון השנייה (גיל 12), NEVER abstract algebra, NEVER upper-school science.'
+      'Grades 1-2 LOCK: לידת הגוף האתרי, החלפת השיניים, יציאה הדרגתית מתודעת החלום / העולם החלומי, fairy-tale consciousness, qualities of numbers, form drawing, rhythm.',
+      'ABSOLUTE BAN for Grades 1-2: any רוביקון / Rubicon language (first or second), paradise-expulsion as Rubicon, skeletal/muscle gravity of age 12, astral-body puberty themes.',
+      'Grade 1 math example: המספרים כאיכויות, ציור צורות, סיפורי מספרים, תנועה ושיר — NEVER חציית הרוביקון, NEVER abstract algebra, NEVER upper-school science.'
+    );
+  } else if (g === 3 || g === 4) {
+    lines.push(
+      'Grades 3-4 LOCK: חציית הרוביקון הראשונה (גיל 9) — separation from the world, expulsion from paradise, soul loneliness. NEVER second Rubicon; NEVER Grade-1-only dream-consciousness as the main axis.'
+    );
+  } else if (g === 5 || g === 6) {
+    lines.push(
+      'Grades 5-6 LOCK: by Grade 6 use חציית הרוביקון השנייה (גיל 12) — full landing into physicality, muscle/skeleton gravity, causal-logical thinking. NEVER first Rubicon as the primary axis for Grade 6.'
     );
   } else if (g !== null && g >= 7) {
-    lines.push('Grades 7-8: adolescent soul themes are appropriate when directly tied to the topic and grade.');
+    lines.push(
+      'Grades 7-8: adolescent soul themes are appropriate when tied to the topic; Grade 8 axis = לידת הגוף האסטרלי (not Rubicon).'
+    );
   } else if (g !== null) {
-    lines.push('Middle grades (3-6): concrete imaginative thinking; match Steiner middle-period curriculum — no early-childhood-only tone, no full upper-school abstraction.');
+    lines.push('Middle grades: concrete imaginative thinking; match Steiner middle-period curriculum — no early-childhood-only tone, no full upper-school abstraction.');
   }
   lines.push('=== END GRADE & TOPIC LOCK ===');
   return lines.join('\n');
