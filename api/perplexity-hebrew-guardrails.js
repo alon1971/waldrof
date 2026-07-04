@@ -26,6 +26,14 @@ const PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION =
   'Example heading: "מצפן התפתחותי לכיתה ד׳: חציית הרוביקון הראשונה (גיל 9)" — NOT "הלידה הראשונה".\n' +
   '=== END RUBICON TERMINOLOGY ===\n';
 
+const PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION =
+  '\n=== HEBREW TERMINOLOGY — WALDORF EDUCATION (MANDATORY) ===\n' +
+  'In ALL Hebrew output, always write Waldorf education as חינוך וולדרוף (noun form וולדרוף).\n' +
+  'NEVER use the adjectival forms "וולדורפי", "הוולדורפי", or the phrase "החינוך הוולדורפי".\n' +
+  'Correct: חינוך וולדרוף, פדגוגיית וולדרוף, בתי ספר וולדרוף.\n' +
+  'Forbidden: החינוך הוולדורפי, גישה וולדורפית as "וולדורפי", הוולדורפי.\n' +
+  '=== END WALDORF TERMINOLOGY ===\n';
+
 const PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION =
   '\n=== CORE SCHOLARLY IDENTITY (MANDATORY) ===\n' +
   'You are a world-class scholar and expert in Rudolf Steiner\'s philosophy, Anthroposophy, Waldorf pedagogy, and child development. ' +
@@ -43,6 +51,7 @@ const PERPLEXITY_HEBREW_GUARDRAILS =
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION +
   PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION +
   PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION +
+  PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION +
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION +
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION;
 
@@ -57,6 +66,10 @@ const HEBREW_AUTO_REPLACEMENTS = [
   // AI misspelling of דוח (developmental report) — with/without niqqud; avoid matching דורחת
   { pattern: /ד[\u0591-\u05C7]*ו[\u0591-\u05C7]*ר[\u0591-\u05C7]*ח[\u0591-\u05C7]*(?!ת)/g, replacement: 'דוח' },
   { pattern: /דוראך/g, replacement: 'דוח' },
+  // Waldorf education: adjectival forms → noun form וולדרוף (longest phrases first)
+  { pattern: /החינוך\s+הוולדורפי/g, replacement: 'חינוך וולדרוף' },
+  { pattern: /הוולדורפי(?!ת|ים|ות)/g, replacement: 'וולדרוף' },
+  { pattern: /וולדורפי(?!ת|ים|ות)/g, replacement: 'וולדרוף' },
   { pattern: /סטיינר/g, replacement: 'שטיינר' },
 ];
 
@@ -93,6 +106,7 @@ module.exports = {
   PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION,
   PERPLEXITY_HEBREW_STEINER_SPELLING_INSTRUCTION,
   PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION,
+  PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION,
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION,
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION,
   PERPLEXITY_HEBREW_GUARDRAILS,

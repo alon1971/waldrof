@@ -12447,6 +12447,10 @@
       // AI misspelling of דוח (developmental report) — with/without niqqud; avoid matching דורחת
       out = out.replace(/ד[\u0591-\u05C7]*ו[\u0591-\u05C7]*ר[\u0591-\u05C7]*ח[\u0591-\u05C7]*(?!ת)/g, 'דוח');
       out = out.replace(/דוראך/g, 'דוח');
+      // Waldorf education: adjectival forms → noun form וולדרוף (longest phrases first)
+      out = out.replace(/החינוך\s+הוולדורפי/g, 'חינוך וולדרוף');
+      out = out.replace(/הוולדורפי(?!ת|ים|ות)/g, 'וולדרוף');
+      out = out.replace(/וולדורפי(?!ת|ים|ות)/g, 'וולדרוף');
       return out.replace(/סטיינר/g, 'שטיינר');
     }
 
