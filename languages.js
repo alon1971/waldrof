@@ -175,6 +175,7 @@ const LANGUAGES = {
     global_curricula:            'תוכניות לימודים עולמיות',
     sources_label:               'מקורות',
     source_link_label:           'קישור למקור',
+    source_article_entry_label:  'לכניסה למקור המאמר',
     typical_blocks:              'אפוקות טיפוסיות',
 
     no_teacher_folders:          'לא נמצאו תיקיות מורה',
@@ -845,6 +846,7 @@ const LANGUAGES = {
     global_curricula:            'Global Curricula',
     sources_label:               'Sources',
     source_link_label:           'Source link',
+    source_article_entry_label:  'Open source article',
     typical_blocks:              'Typical Main Lesson Blocks',
 
     no_teacher_folders:          'No teacher folders found',

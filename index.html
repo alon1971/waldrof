@@ -15949,30 +15949,32 @@
     }
 
     function removeArchiveListItemFromDom(triggerEl) {
-      if (!triggerEl) return false;
-      var row = triggerEl.closest('li.archive-link-row, li, .catalog-material-row, article.bg-cream, .community-found-alert__item, .archive-pinterest-item');
+      if (!triggerEl || !triggerEl.closest) return false;
+      // Always remove the full list item (number + label + link + trash), never leave orphans.
+      var row = triggerEl.closest('li');
+      if (row) {
+        row.remove();
+        return true;
+      }
+      row = triggerEl.closest(
+        '.archive-link-row, .catalog-material-row, article.bg-cream, .community-found-alert__item, .archive-pinterest-item'
+      );
       if (row) {
         row.remove();
         return true;
       }
       var pinCard = triggerEl.closest('.pin-card');
-      if (pinCard && pinCard.parentElement) {
-        pinCard.parentElement.remove();
-        return true;
-      }
-      var prev = triggerEl.previousElementSibling;
-      if (prev && prev.tagName === 'A') prev.remove();
-      if (triggerEl.parentNode) {
-        triggerEl.remove();
+      if (pinCard) {
+        (pinCard.parentElement || pinCard).remove();
         return true;
       }
       return false;
     }
 
     function removeArchiveUrlFromDom(url, triggerEl) {
-      // 1) Always remove the clicked row first (physical DOM removal).
+      // 1) Always remove the clicked <li> first.
       if (triggerEl) removeArchiveListItemFromDom(triggerEl);
-      // 2) Remove any other matching source rows / anchors in the page.
+      // 2) Remove any other matching full list rows (never strip only the <a>).
       var scopes = [
         '#phase-c-extra-links-list',
         '#phase-c-unified-root',
@@ -15986,23 +15988,12 @@
       scopes.forEach(function (sel) {
         var root = document.querySelector(sel);
         if (!root) return;
-        root.querySelectorAll('li.archive-link-row, li').forEach(function (row) {
+        root.querySelectorAll('li').forEach(function (row) {
           var anchor = row.querySelector('a[href]');
           var btn = row.querySelector('.archive-admin-delete-btn[data-archive-url]');
           var href = (anchor && anchor.getAttribute('href')) ||
             (btn && btn.getAttribute('data-archive-url')) || '';
           if (href && archiveUrlsMatchClient(href, url)) row.remove();
-        });
-        root.querySelectorAll('a[href]').forEach(function (anchor) {
-          if (!archiveUrlsMatchClient(anchor.getAttribute('href'), url)) return;
-          var row = anchor.closest('li.archive-link-row, li');
-          if (row) {
-            row.remove();
-            return;
-          }
-          var next = anchor.nextElementSibling;
-          if (next && next.classList && next.classList.contains('archive-admin-delete-btn')) next.remove();
-          if (anchor.parentNode) anchor.remove();
         });
       });
     }
@@ -16098,10 +16089,12 @@
         showArchiveToast('לא נמצא קישור למחיקה.', 'error');
         return;
       }
+      var rowEl = triggerEl && triggerEl.closest ? triggerEl.closest('li') : null;
       if (triggerEl) triggerEl.disabled = true;
       // 1) Suppress + purge client state so re-renders cannot bring the link back.
       purgeArchiveUrlFromClientState(linkUrl);
-      // 2) Physical DOM removal of the clicked row and any matching rows.
+      // 2) Physical DOM removal of the full <li> (number + label + link + trash).
+      if (rowEl && rowEl.parentNode) rowEl.remove();
       removeArchiveUrlFromDom(linkUrl, triggerEl);
       // 3) Re-render sources lists from the cleaned state (filters suppressed URLs).
       refreshArchiveLinksUiAfterDelete();
@@ -18904,7 +18897,42 @@
 
     function isDeadSourceLinkLabel(text) {
       var cleaned = String(text || '').trim();
-      return !cleaned || /^https?$/i.test(cleaned) || /^www\.?$/i.test(cleaned);
+      if (!cleaned) return true;
+      if (/^https?$/i.test(cleaned) || /^www\.?$/i.test(cleaned)) return true;
+      if (/^https?:\/\//i.test(cleaned)) return true;
+      if (/^www\./i.test(cleaned)) return true;
+      if (/%[0-9A-Fa-f]{2}/.test(cleaned)) return true;
+      if (cleaned.length > 70 && !/[\u0590-\u05FF]{3,}/.test(cleaned)) return true;
+      return false;
+    }
+
+    /** Clean, short label for source links — never show raw/percent-encoded URLs. */
+    function formatSourceLinkDisplayLabel(label, url) {
+      var href = String(url || '').trim();
+      var clean = String(label || '')
+        .replace(/\[?\s*HTTPS\s*\]?\s*\([^)]*\)/gi, '')
+        .replace(/\(\s*\)/g, '')
+        .replace(/\bhttps?:\/\/\S+/gi, '')
+        .replace(/\bwww\.\S+/gi, '')
+        .replace(/%[0-9A-Fa-f]{2}/g, '')
+        .replace(/\s*[—–\-:|]\s*$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (clean &&
+          !isDeadSourceLinkLabel(clean) &&
+          !/^https?:\/\//i.test(clean) &&
+          !/^www\./i.test(clean) &&
+          !/%[0-9A-Fa-f]{2}/i.test(clean) &&
+          clean.length <= 80) {
+        return clean;
+      }
+      if (href) {
+        try {
+          var host = new URL(href).hostname.replace(/^www\./i, '');
+          if (host && !/google\.(com|co\.\w+)$/i.test(host)) return host;
+        } catch (e) { /* ignore */ }
+      }
+      return t('source_article_entry_label');
     }
 
     function cleanSourceLabelText(text) {
@@ -19023,32 +19051,14 @@
     }
 
     function humanizeSourceLinkLabel(label, url) {
-      var text = decodeUriComponentSafe(String(label || '').trim());
-      if (!text) text = decodeUriComponentSafe(String(url || '').trim());
-      if (isDeadSourceLinkLabel(text)) return getSourceLinkDisplayLabel('', url);
-      if (/^https?:\/\//i.test(text) && (hasLongPercentEncodedHebrewPath(text) || /%D7[0-9A-Fa-f]{2}/i.test(text))) {
-        return resolveFriendlyLinkDisplayLabel('', text);
-      }
-      if (!/^https?:\/\//i.test(text)) return text;
-      try {
-        var parsed = new URL(text);
-        var pathBits = decodeUriComponentSafe(parsed.pathname.replace(/\/$/, '')).split('/').filter(Boolean);
-        var last = pathBits.length ? pathBits[pathBits.length - 1] : '';
-        if (last && last.length > 2 && !/^[a-f0-9-]{20,}$/i.test(last)) {
-          return last.replace(/[-_]+/g, ' ').trim();
-        }
-        return parsed.hostname.replace(/^www\./i, '');
-      } catch (e) {
-        return getSourceLinkDisplayLabel('', url);
-      }
+      return formatSourceLinkDisplayLabel(label, url);
     }
 
     function buildProseSourceLinkHtml(url, label) {
       var href = sanitizeProseLinkUrl(url);
-      if (!href) return escapeHtml(resolveFriendlyLinkDisplayLabel(label, url));
-      var display = resolveFriendlyLinkDisplayLabel(label, href);
-      if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
-      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-blue-600 underline hover:text-blue-800">' +
+      if (!href) return escapeHtml(formatSourceLinkDisplayLabel(label, url));
+      var display = formatSourceLinkDisplayLabel(label, href);
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-blue-600 underline hover:text-blue-800" title="' + escapeHtml(href) + '">' +
         escapeHtml(display) + '</a>';
     }
 
@@ -19936,15 +19946,15 @@
       var linkClass = opts.linkClass || 'prose-source-link text-green-700 underline font-bold hover:text-green-800';
       return '<ul class="pure-card-body i18n-list pure-links-grid w-full">' + list.map(function (item) {
         var url = String(item.url || item.link || item.href || '').trim();
-        var title = String(item.title || item.name || url).trim();
+        var title = String(item.title || item.name || '').trim();
         var href = sanitizeExternalLinkUrl(url);
-        if (!href) return '<li>' + escapeHtml(title) + '</li>';
-        var display = phaseCLinkLabel(title, href);
-        if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
+        if (!href) return '';
+        var display = formatSourceLinkDisplayLabel(title, href);
         var deleteBtn = showDelete ? buildArchiveAdminDeleteBtn({ url: href }) : '';
-        return '<li class="archive-link-row"><a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="' + linkClass + '">' +
+        return '<li class="archive-link-row">' +
+          '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="' + linkClass + '" title="' + escapeHtml(href) + '">' +
           escapeHtml(display) + '</a>' + deleteBtn + '</li>';
-      }).join('') + '</ul>';
+      }).filter(Boolean).join('') + '</ul>';
     }
 
     /** Never linkify prose lines, headings, or invalid URL strings. */
@@ -19959,15 +19969,14 @@
     }
 
     function phaseCLinkLabel(label, url) {
-      return resolveFriendlyLinkDisplayLabel(label, url);
+      return formatSourceLinkDisplayLabel(label, url);
     }
 
     function phaseCLinkHtml(url, label) {
       var href = phaseCSafeExternalHref(url);
       if (!href) return escapeHtml(phaseCLinkLabel(label, url));
       var display = phaseCLinkLabel(label, href);
-      if (isDeadSourceLinkLabel(display)) display = t('source_link_label');
-      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-green-700 underline font-bold hover:text-green-800">' +
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="prose-source-link text-green-700 underline font-bold hover:text-green-800" title="' + escapeHtml(href) + '">' +
         escapeHtml(display) + '</a>';
     }
 
@@ -20107,7 +20116,9 @@
         var key = href.toLowerCase();
         if (seen[key]) return;
         seen[key] = true;
-        out.push({ title: String(title || href).trim(), url: href });
+        var cleanTitle = String(title || '').trim();
+        if (isDeadSourceLinkLabel(cleanTitle)) cleanTitle = '';
+        out.push({ title: cleanTitle, url: href });
       }
       collectPhaseCLinkItemsClient(source).forEach(function (item) {
         if (!item || !item.url || isPinterestUrl(item.url)) return;
