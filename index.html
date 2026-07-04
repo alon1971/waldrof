@@ -10254,7 +10254,7 @@
       renderPersonalInWorkspace();
       renderTeacherDriveMergeSlots();
       renderCommunityMaterials();
-      updateCommunityBadge();
+      updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
     }
 
     function renderCurriculumTabPanels() {
@@ -15676,7 +15676,7 @@
       appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
       try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
       releaseCatalogUploadLocks();
-      updateCommunityBadge();
+      updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
       await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
       if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
       renderCommunityMaterials();
@@ -16430,7 +16430,7 @@
           try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
         }
         removeArchiveListItemFromDom(triggerEl);
-        updateCommunityBadge();
+        updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
         if (catalogState.view === 'materials') {
           await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, { skipCommunityReload: true });
         }
@@ -18642,7 +18642,7 @@
             if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
             if (document.getElementById('workspace').classList.contains('hidden') === false) {
               renderCommunityMaterials();
-              updateCommunityBadge();
+              updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
               if (!document.getElementById('panel-catalog').classList.contains('hidden') && !isCatalogUploadModalOpen()) {
                 renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic, { force: true });
               }
@@ -25346,15 +25346,15 @@
       phaseCRenderUnifiedView(appState.purePhaseC);
     }
 
-    function updateCommunityBadge() {
-      const b = document.getElementById('community-badge');
-      if (!b) return;
-      const n = filterByGrade(appState.communityCache, appState.grade).length;
-      if (n > 0) {
-        b.textContent = String(n);
-        b.classList.remove('hidden');
-      } else {
-        b.classList.add('hidden');
+    function updateCommunityBadge(n) {
+      const badge = document.getElementById('community-badge');
+      if (badge) {
+        if (n > 0) {
+          badge.textContent = n;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
       }
     }
 
@@ -25679,7 +25679,7 @@
     }
 
     async function refreshCommunityUiAfterCacheReload() {
-      updateCommunityBadge();
+      updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
       if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
       renderCommunityMaterials();
       const catalogPanel = document.getElementById('panel-catalog');
@@ -25980,7 +25980,7 @@
           await renderCatalogGradePanel(gradeId);
         }
         scrollToCatalogContent(catalogState.view);
-        updateCommunityBadge();
+        updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
       } catch (err) {
         showCommunityUploadError(err);
         if (msgEl) {
@@ -26228,7 +26228,7 @@
     }
 
     async function refreshCatalogAfterMaterialChange(topicOverride) {
-      updateCommunityBadge();
+      updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
       const nextTopic = topicOverride != null ? topicOverride : catalogState.topic;
       if (catalogState.view === 'materials') {
         await renderCatalogMaterials(catalogState.gradeId, nextTopic);
@@ -26985,7 +26985,7 @@
           renderCommunityMaterials();
           renderTopicCommunitySlot();
           renderGradeCommunityList();
-          updateCommunityBadge();
+          updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
           if (!document.getElementById('panel-catalog').classList.contains('hidden')) {
             renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
           }
