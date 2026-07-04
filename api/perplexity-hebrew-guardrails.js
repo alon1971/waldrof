@@ -28,10 +28,10 @@ const PERPLEXITY_HEBREW_RUBICON_TERMINOLOGY_INSTRUCTION =
 
 const PERPLEXITY_HEBREW_WALDORF_TERMINOLOGY_INSTRUCTION =
   '\n=== HEBREW TERMINOLOGY — WALDORF EDUCATION (MANDATORY) ===\n' +
-  'In ALL Hebrew output, always write Waldorf education as חינוך וולדרוף (noun form וולדרוף).\n' +
-  'NEVER use the adjectival forms "וולדורפי", "הוולדורפי", or the phrase "החינוך הוולדורפי".\n' +
-  'Correct: חינוך וולדרוף, פדגוגיית וולדרוף, בתי ספר וולדרוף.\n' +
-  'Forbidden: החינוך הוולדורפי, גישה וולדורפית as "וולדורפי", הוולדורפי.\n' +
+  'In ALL Hebrew output, always write Waldorf education as חינוך וולדרוף (noun form וולדרוף only).\n' +
+  'NEVER use adjectival forms: וולדורפי, וולדורפית, וולדורפיים, וולדורפיות, וולדרופי, וולדרופית, הוולדורפי, הוולדורפית.\n' +
+  'NEVER write "החינוך הוולדורפי", "פדגוגיה וולדורפית", or "פדגוגיה וולדרופית".\n' +
+  'Correct: חינוך וולדרוף, פדגוגיית וולדרוף, בפדגוגיה וולדרוף, בתי ספר וולדרוף.\n' +
   '=== END WALDORF TERMINOLOGY ===\n';
 
 const PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION =
@@ -55,7 +55,15 @@ const PERPLEXITY_HEBREW_GUARDRAILS =
   PERPLEXITY_SCHOLAR_CORE_IDENTITY_INSTRUCTION +
   PERPLEXITY_ZERO_HALLUCINATION_POLICY_INSTRUCTION;
 
-/** Post-processing fixes for common Hebrew terminology errors in AI output (headings + prose). */
+/**
+ * Adjectival Waldorf stems (וולדורפ* and misspelled וולדרופ*) with optional ה- prefix
+ * and common suffixes י / ית / יים / יות.
+ */
+const WALDORF_ADJ_SUFFIX = '(?:ית|יים|יות|י)?';
+const WALDORF_ADJ_DOR = 'וולדורפ' + WALDORF_ADJ_SUFFIX; // וולדורפי, וולדורפית, …
+const WALDORF_ADJ_DRO = 'וולדרופ' + WALDORF_ADJ_SUFFIX; // וולדרופי, וולדרופית, …
+
+/** Post-processing fixes for common Hebrew terminology errors in AI output (headings + prose + HTML). */
 const HEBREW_AUTO_REPLACEMENTS = [
   { pattern: /הלידה\s+השנייה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
   { pattern: /הלידה\s+השניה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
@@ -66,10 +74,21 @@ const HEBREW_AUTO_REPLACEMENTS = [
   // AI misspelling of דוח (developmental report) — with/without niqqud; avoid matching דורחת
   { pattern: /ד[\u0591-\u05C7]*ו[\u0591-\u05C7]*ר[\u0591-\u05C7]*ח[\u0591-\u05C7]*(?!ת)/g, replacement: 'דוח' },
   { pattern: /דוראך/g, replacement: 'דוח' },
-  // Waldorf education: adjectival forms → noun form וולדרוף (longest phrases first)
-  { pattern: /החינוך\s+הוולדורפי/g, replacement: 'חינוך וולדרוף' },
-  { pattern: /הוולדורפי(?!ת|ים|ות)/g, replacement: 'וולדרוף' },
-  { pattern: /וולדורפי(?!ת|ים|ות)/g, replacement: 'וולדרוף' },
+  // Waldorf education — longest phrases first, then bare adjectival forms (incl. feminine/plural)
+  { pattern: new RegExp('בפדגוגיה\\s+ה?' + WALDORF_ADJ_DOR, 'g'), replacement: 'בפדגוגיה וולדרוף' },
+  { pattern: new RegExp('בפדגוגיה\\s+ה?' + WALDORF_ADJ_DRO, 'g'), replacement: 'בפדגוגיה וולדרוף' },
+  { pattern: new RegExp('הפדגוגיה\\s+ה?' + WALDORF_ADJ_DOR, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('הפדגוגיה\\s+ה?' + WALDORF_ADJ_DRO, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('פדגוגיה\\s+ה?' + WALDORF_ADJ_DOR, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('פדגוגיה\\s+ה?' + WALDORF_ADJ_DRO, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('החינוך\\s+ה?' + WALDORF_ADJ_DOR, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('החינוך\\s+ה?' + WALDORF_ADJ_DRO, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('חינוך\\s+ה?' + WALDORF_ADJ_DOR, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('חינוך\\s+ה?' + WALDORF_ADJ_DRO, 'g'), replacement: 'חינוך וולדרוף' },
+  { pattern: new RegExp('ה' + WALDORF_ADJ_DOR, 'g'), replacement: 'וולדרוף' },
+  { pattern: new RegExp('ה' + WALDORF_ADJ_DRO, 'g'), replacement: 'וולדרוף' },
+  { pattern: new RegExp(WALDORF_ADJ_DOR, 'g'), replacement: 'וולדרוף' },
+  { pattern: new RegExp(WALDORF_ADJ_DRO, 'g'), replacement: 'וולדרוף' },
   { pattern: /סטיינר/g, replacement: 'שטיינר' },
 ];
 

@@ -6048,19 +6048,19 @@
       const exp = data || {};
       let html = '';
       if (exp.classroomImplementation) {
-        html += '<p class="leading-relaxed">' + escapeHtml(stripExpansionSourceNoiseClient(exp.classroomImplementation)) + '</p>';
+        html += '<p class="leading-relaxed">' + escapeHtml(applyHebrewAutoReplacements(stripExpansionSourceNoiseClient(exp.classroomImplementation))) + '</p>';
       }
       const steps = exp.practicalSteps || [];
       if (steps.length) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('pedagogy_steps')) + '</h4><ol class="list-decimal mr-5 space-y-2 i18n-list">';
         steps.forEach(function (p) {
-          html += '<li><span class="leading-relaxed">' + escapeHtml(stripExpansionSourceNoiseClient(p)) + '</span></li>';
+          html += '<li><span class="leading-relaxed">' + escapeHtml(applyHebrewAutoReplacements(stripExpansionSourceNoiseClient(p))) + '</span></li>';
         });
         html += '</ol>';
       }
       if (exp.parentCommunityAspects) {
         html += '<h4 class="app-subhead font-semibold text-sage-dark mt-4 mb-2">' + escapeHtml(t('expansion_parent_community')) + '</h4>';
-        html += '<p class="leading-relaxed">' + escapeHtml(stripExpansionSourceNoiseClient(exp.parentCommunityAspects)) + '</p>';
+        html += '<p class="leading-relaxed">' + escapeHtml(applyHebrewAutoReplacements(stripExpansionSourceNoiseClient(exp.parentCommunityAspects))) + '</p>';
       }
       return html;
     }
@@ -12436,6 +12436,11 @@
       return { title: title || 'תובנות', episodes: linked };
     }
 
+    // Keep in sync with api/perplexity-hebrew-guardrails.js HEBREW_AUTO_REPLACEMENTS
+    var WALDORF_ADJ_SUFFIX = '(?:ית|יים|יות|י)?';
+    var WALDORF_ADJ_DOR = 'וולדורפ' + WALDORF_ADJ_SUFFIX;
+    var WALDORF_ADJ_DRO = 'וולדרופ' + WALDORF_ADJ_SUFFIX;
+
     function applyHebrewAutoReplacements(text) {
       var out = String(text || '');
       out = out.replace(/הלידה\s+השנייה/g, 'חציית הרוביקון השנייה (גיל 12)');
@@ -12447,10 +12452,21 @@
       // AI misspelling of דוח (developmental report) — with/without niqqud; avoid matching דורחת
       out = out.replace(/ד[\u0591-\u05C7]*ו[\u0591-\u05C7]*ר[\u0591-\u05C7]*ח[\u0591-\u05C7]*(?!ת)/g, 'דוח');
       out = out.replace(/דוראך/g, 'דוח');
-      // Waldorf education: adjectival forms → noun form וולדרוף (longest phrases first)
-      out = out.replace(/החינוך\s+הוולדורפי/g, 'חינוך וולדרוף');
-      out = out.replace(/הוולדורפי(?!ת|ים|ות)/g, 'וולדרוף');
-      out = out.replace(/וולדורפי(?!ת|ים|ות)/g, 'וולדרוף');
+      // Waldorf education — all adjectival forms → noun וולדרוף (longest phrases first)
+      out = out.replace(new RegExp('בפדגוגיה\\s+ה?' + WALDORF_ADJ_DOR, 'g'), 'בפדגוגיה וולדרוף');
+      out = out.replace(new RegExp('בפדגוגיה\\s+ה?' + WALDORF_ADJ_DRO, 'g'), 'בפדגוגיה וולדרוף');
+      out = out.replace(new RegExp('הפדגוגיה\\s+ה?' + WALDORF_ADJ_DOR, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('הפדגוגיה\\s+ה?' + WALDORF_ADJ_DRO, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('פדגוגיה\\s+ה?' + WALDORF_ADJ_DOR, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('פדגוגיה\\s+ה?' + WALDORF_ADJ_DRO, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('החינוך\\s+ה?' + WALDORF_ADJ_DOR, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('החינוך\\s+ה?' + WALDORF_ADJ_DRO, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('חינוך\\s+ה?' + WALDORF_ADJ_DOR, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('חינוך\\s+ה?' + WALDORF_ADJ_DRO, 'g'), 'חינוך וולדרוף');
+      out = out.replace(new RegExp('ה' + WALDORF_ADJ_DOR, 'g'), 'וולדרוף');
+      out = out.replace(new RegExp('ה' + WALDORF_ADJ_DRO, 'g'), 'וולדרוף');
+      out = out.replace(new RegExp(WALDORF_ADJ_DOR, 'g'), 'וולדרוף');
+      out = out.replace(new RegExp(WALDORF_ADJ_DRO, 'g'), 'וולדרוף');
       return out.replace(/סטיינר/g, 'שטיינר');
     }
 
@@ -12684,8 +12700,9 @@
     function formatPerplexityRawText(text, options) {
       options = options || {};
       if (!text) return '<div class="prose-ai"></div>';
+      // Always run Hebrew terminology replacements — including archive/prepared HTML.
       var s = options.prepared
-        ? cleanLaTeX(decodeHtmlEntitiesIfNeeded(String(text)))
+        ? cleanLaTeX(decodeHtmlEntitiesIfNeeded(applyHebrewAutoReplacements(String(text))))
         : cleanLaTeX(decodeHtmlEntitiesIfNeeded(sanitizePedagogicalText(sanitizePhaseCProseForRender(String(text)))));
       var narrativeOnly = isPurePhaseCMode();
       var hasMarkdownLinks = /\[[^\]]+\]\(\s*https?:\/\//i.test(s);
@@ -12719,7 +12736,7 @@
     function injectStepBWebResearchHtml(html) {
       var out = document.getElementById('web-research-result');
       if (!out) return;
-      var content = String(html || '').trim();
+      var content = applyHebrewAutoReplacements(String(html || '').trim());
       if (!content) content = '<p class="text-walnut/70">—</p>';
       out.innerHTML = content;
       out.classList.remove('hidden');
