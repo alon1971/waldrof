@@ -15663,6 +15663,10 @@
       return headers;
     }
 
+    function setElementTextContent(el, text) {
+      if (el) el.textContent = text;
+    }
+
     async function refreshCatalogAfterCommunityDelete(pk) {
       forgetCommunityOwnership(pk);
       appState.communityCache = appState.communityCache.filter(function (m) {
@@ -15685,12 +15689,12 @@
         const submitBtn = form.querySelector('[type="submit"]');
         if (submitBtn) {
           submitBtn.disabled = false;
-          submitBtn.textContent = t('catalog_submit');
+          setElementTextContent(submitBtn, t('catalog_submit'));
         }
         const msgEl = form.querySelector('.catalog-upload-msg');
         if (msgEl) {
           msgEl.classList.add('hidden');
-          msgEl.textContent = '';
+          setElementTextContent(msgEl, '');
           msgEl.classList.remove('text-terracotta');
           msgEl.classList.add('text-sage-dark');
         }
@@ -25343,9 +25347,15 @@
     }
 
     function updateCommunityBadge() {
-      const n = filterByGrade(appState.communityCache, appState.grade).length;
       const b = document.getElementById('community-badge');
-      if (n > 0) { b.textContent = n; b.classList.remove('hidden'); } else b.classList.add('hidden');
+      if (!b) return;
+      const n = filterByGrade(appState.communityCache, appState.grade).length;
+      if (n > 0) {
+        b.textContent = String(n);
+        b.classList.remove('hidden');
+      } else {
+        b.classList.add('hidden');
+      }
     }
 
     function renderCommunityMaterials() {
@@ -25459,7 +25469,7 @@
       const msgEl = form.querySelector('.catalog-upload-msg');
       if (msgEl) {
         msgEl.classList.add('hidden');
-        msgEl.textContent = '';
+        setElementTextContent(msgEl, '');
         msgEl.classList.remove('text-terracotta');
         msgEl.classList.add('text-sage-dark');
       }
@@ -25943,12 +25953,12 @@
       if (submitBtn && submitBtn.disabled) return;
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = mode === 'link' ? t('catalog_saving_link') : t('catalog_uploading');
+        setElementTextContent(submitBtn, mode === 'link' ? t('catalog_saving_link') : t('catalog_uploading'));
       }
       if (msgEl) {
         msgEl.classList.remove('hidden', 'text-terracotta', 'text-sage-dark');
         msgEl.classList.add('text-sage-dark');
-        msgEl.textContent = mode === 'link' ? t('catalog_saving_link') : t('catalog_uploading');
+        setElementTextContent(msgEl, mode === 'link' ? t('catalog_saving_link') : t('catalog_uploading'));
       }
       try {
         if (!gradeId) throw new Error(t('catalog_err_grade'));
@@ -25974,14 +25984,20 @@
       } catch (err) {
         showCommunityUploadError(err);
         if (msgEl) {
-          msgEl.textContent = formatSupabaseError(err);
+          setElementTextContent(msgEl, formatSupabaseError(err));
           msgEl.classList.remove('text-sage-dark');
           msgEl.classList.add('text-terracotta');
         }
       } finally {
-        if (submitBtn) {
+        appState.isSubmitting = false;
+        if (submitBtn && submitBtn.isConnected) {
           submitBtn.disabled = false;
-          submitBtn.textContent = t('catalog_submit');
+          setElementTextContent(submitBtn, t('catalog_submit'));
+        } else {
+          document.querySelectorAll('.catalog-upload-form [type="submit"]').forEach(function (btn) {
+            btn.disabled = false;
+            setElementTextContent(btn, t('catalog_submit'));
+          });
         }
       }
     }
@@ -26285,7 +26301,7 @@
       const submitBtn = form.querySelector('[type="submit"]');
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = t('catalog_edit_saving');
+        setElementTextContent(submitBtn, t('catalog_edit_saving'));
       }
       try {
         await updateCommunityMaterial(materialId, {
@@ -26312,7 +26328,7 @@
       } finally {
         if (submitBtn) {
           submitBtn.disabled = false;
-          submitBtn.textContent = t('catalog_edit_save');
+          setElementTextContent(submitBtn, t('catalog_edit_save'));
         }
       }
     }
