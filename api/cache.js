@@ -546,6 +546,41 @@ function removeMatchingUrlsFromArchivePayload(value, targetNorm, depth) {
   return changed;
 }
 
+async function findCachedRowContainingUrl(url, opts) {
+  opts = opts || {};
+  const targetNorm = normalizeArchiveLinkUrl(url);
+  const gradeId = String(opts.gradeId || '').trim();
+  if (!targetNorm || !gradeId || !isSupabaseCacheEnabled()) return null;
+  try {
+    const params = new URLSearchParams();
+    params.set('select', LEGACY_ROW_SELECT);
+    params.set('grade_id', 'eq.' + gradeId);
+    params.set('phase', 'in.(' + TOPIC_MASTER_PHASE + ',topic,' + GENERAL_SEARCH_PHASE + ')');
+    params.set('order', 'last_hit_at.desc.nullslast,created_at.desc');
+    params.set('limit', '25');
+    const res = await supabaseRequest(
+      '/rest/v1/' + TABLE_NAME + '?' + params.toString(),
+      { method: 'GET' }
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!Array.isArray(rows)) return null;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.result_data == null) continue;
+      const data = coerceCachedResultData(row.result_data);
+      if (!data || typeof data !== 'object') continue;
+      const probe = cloneJsonSafe(data);
+      if (probe && removeMatchingUrlsFromArchivePayload(probe, targetNorm, 0)) {
+        return row;
+      }
+    }
+  } catch (err) {
+    console.warn('[cached_results] find row by url failed:', err.message || err);
+  }
+  return null;
+}
+
 async function resolveArchiveRowForLinkDelete(cacheKey, opts) {
   opts = opts || {};
   let key = String(cacheKey || '').trim();
@@ -593,6 +628,14 @@ async function resolveArchiveRowForLinkDelete(cacheKey, opts) {
     }
   }
 
+  // Last resort: scan recent grade rows for a payload that contains this URL.
+  if (opts.url || opts.linkUrl) {
+    const byUrl = await findCachedRowContainingUrl(opts.url || opts.linkUrl, opts);
+    if (byUrl && byUrl.cache_key) {
+      return { row: byUrl, cacheKey: byUrl.cache_key };
+    }
+  }
+
   return { row: null, cacheKey: key || null };
 }
 
@@ -604,11 +647,12 @@ async function removeArchiveLinkFromCache(cacheKey, url, opts) {
   const targetNorm = normalizeArchiveLinkUrl(url);
   if (!targetNorm) return { removed: false, cacheKey: cacheKey || null, reason: 'bad_url' };
 
-  const resolved = await resolveArchiveRowForLinkDelete(cacheKey, opts || {});
+  const resolved = await resolveArchiveRowForLinkDelete(cacheKey, Object.assign({}, opts || {}, { url: url }));
   const key = resolved.cacheKey;
   const row = resolved.row;
   if (!row || row.result_data == null) {
-    return { removed: false, cacheKey: key || null, reason: 'row_not_found' };
+    // No archive row — treat as success so client-only citations stay removed in UI.
+    return { removed: true, cacheKey: key || null, reason: 'row_not_found_client_only' };
   }
 
   let data = coerceCachedResultData(row.result_data);
@@ -620,7 +664,10 @@ async function removeArchiveLinkFromCache(cacheKey, url, opts) {
   if (!data) return { removed: false, cacheKey: key, reason: 'clone_failed' };
 
   const changed = removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
-  if (!changed) return { removed: false, cacheKey: key, reason: 'url_not_in_payload' };
+  if (!changed) {
+    // Already absent from stored payload — success for idempotent delete.
+    return { removed: true, cacheKey: key, reason: 'already_absent' };
+  }
 
   const safeResultData = sanitizeForJsonStorage(data);
   if (!safeResultData) return { removed: false, cacheKey: key, reason: 'sanitize_failed' };

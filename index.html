@@ -15893,100 +15893,199 @@
     }
 
     function normalizeArchiveLinkUrlClient(url) {
-      return String(url || '').trim().toLowerCase().replace(/\/+$/, '');
+      var s = String(url || '').trim().toLowerCase();
+      if (!s) return '';
+      try {
+        var parsed = new URL(s);
+        parsed.hash = '';
+        var path = (parsed.pathname || '').replace(/\/+$/, '');
+        s = (parsed.origin + path + (parsed.search || '')).toLowerCase();
+      } catch (e) {
+        s = s.replace(/\/+$/, '');
+      }
+      return s;
+    }
+
+    function archiveUrlVariantsClient(url) {
+      var norm = normalizeArchiveLinkUrlClient(url);
+      if (!norm) return [];
+      var out = [norm];
+      var bare = norm.replace(/^https?:\/\//, '');
+      if (bare && out.indexOf(bare) < 0) out.push(bare);
+      var noWww = bare.replace(/^www\./, '');
+      if (noWww && out.indexOf(noWww) < 0) out.push(noWww);
+      if (noWww && out.indexOf('https://' + noWww) < 0) out.push('https://' + noWww);
+      if (noWww && out.indexOf('http://' + noWww) < 0) out.push('http://' + noWww);
+      return out;
+    }
+
+    function archiveUrlsMatchClient(a, b) {
+      if (!a || !b) return false;
+      var left = archiveUrlVariantsClient(a);
+      var right = archiveUrlVariantsClient(b);
+      for (var i = 0; i < left.length; i++) {
+        for (var j = 0; j < right.length; j++) {
+          if (left[i] === right[j]) return true;
+          if (left[i].indexOf(right[j]) >= 0 || right[j].indexOf(left[i]) >= 0) return true;
+        }
+      }
+      return false;
+    }
+
+    function suppressArchiveUrlClient(url) {
+      if (!appState.suppressedArchiveUrls) appState.suppressedArchiveUrls = Object.create(null);
+      archiveUrlVariantsClient(url).forEach(function (variant) {
+        if (variant) appState.suppressedArchiveUrls[variant] = true;
+      });
+    }
+
+    function isArchiveUrlSuppressedClient(url) {
+      if (!appState.suppressedArchiveUrls) return false;
+      var variants = archiveUrlVariantsClient(url);
+      for (var i = 0; i < variants.length; i++) {
+        if (appState.suppressedArchiveUrls[variants[i]]) return true;
+      }
+      return false;
     }
 
     function removeArchiveListItemFromDom(triggerEl) {
-      if (!triggerEl) return;
+      if (!triggerEl) return false;
       var row = triggerEl.closest('li.archive-link-row, li, .catalog-material-row, article.bg-cream, .community-found-alert__item, .archive-pinterest-item');
       if (row) {
         row.remove();
-        return;
+        return true;
       }
       var pinCard = triggerEl.closest('.pin-card');
       if (pinCard && pinCard.parentElement) {
         pinCard.parentElement.remove();
-        return;
+        return true;
       }
       var prev = triggerEl.previousElementSibling;
       if (prev && prev.tagName === 'A') prev.remove();
-      triggerEl.remove();
+      if (triggerEl.parentNode) {
+        triggerEl.remove();
+        return true;
+      }
+      return false;
     }
 
     function removeArchiveUrlFromDom(url, triggerEl) {
+      // 1) Always remove the clicked row first (physical DOM removal).
       if (triggerEl) removeArchiveListItemFromDom(triggerEl);
-      var targetNorm = normalizeArchiveLinkUrlClient(url);
-      if (!targetNorm) return;
-      document.querySelectorAll('a[href]').forEach(function (anchor) {
-        if (normalizeArchiveLinkUrlClient(anchor.getAttribute('href')) !== targetNorm) return;
-        var row = anchor.closest('li.archive-link-row, li');
-        if (row && row.querySelector('.archive-admin-delete-btn')) {
-          row.remove();
-          return;
-        }
-        var next = anchor.nextElementSibling;
-        if (next && next.classList && next.classList.contains('archive-admin-delete-btn')) {
-          next.remove();
-        }
-        if (anchor.parentNode) anchor.remove();
-      });
-      document.querySelectorAll('.archive-admin-delete-btn[data-archive-url]').forEach(function (btn) {
-        if (normalizeArchiveLinkUrlClient(btn.getAttribute('data-archive-url')) === targetNorm) {
-          removeArchiveListItemFromDom(btn);
-        }
+      // 2) Remove any other matching source rows / anchors in the page.
+      var scopes = [
+        '#phase-c-extra-links-list',
+        '#phase-c-unified-root',
+        '#panel-narrative',
+        '#panel-resources',
+        '#web-research-result',
+        '#theoretical-content',
+        '#grade-insights-body',
+        '#general-search-results',
+      ];
+      scopes.forEach(function (sel) {
+        var root = document.querySelector(sel);
+        if (!root) return;
+        root.querySelectorAll('li.archive-link-row, li').forEach(function (row) {
+          var anchor = row.querySelector('a[href]');
+          var btn = row.querySelector('.archive-admin-delete-btn[data-archive-url]');
+          var href = (anchor && anchor.getAttribute('href')) ||
+            (btn && btn.getAttribute('data-archive-url')) || '';
+          if (href && archiveUrlsMatchClient(href, url)) row.remove();
+        });
+        root.querySelectorAll('a[href]').forEach(function (anchor) {
+          if (!archiveUrlsMatchClient(anchor.getAttribute('href'), url)) return;
+          var row = anchor.closest('li.archive-link-row, li');
+          if (row) {
+            row.remove();
+            return;
+          }
+          var next = anchor.nextElementSibling;
+          if (next && next.classList && next.classList.contains('archive-admin-delete-btn')) next.remove();
+          if (anchor.parentNode) anchor.remove();
+        });
       });
     }
 
     function purgeArchiveUrlFromClientState(url) {
-      var targetNorm = normalizeArchiveLinkUrlClient(url);
-      if (!targetNorm) return;
+      if (!url) return;
+      suppressArchiveUrlClient(url);
+      function itemMatches(item) {
+        if (item == null) return false;
+        if (typeof item === 'string') return archiveUrlsMatchClient(item, url);
+        if (typeof item !== 'object') return false;
+        return archiveUrlsMatchClient(item.url || item.link || item.href || item.src || item.pinUrl, url);
+      }
       function stripLinkArray(arr) {
         if (!Array.isArray(arr)) return;
         for (var i = arr.length - 1; i >= 0; i--) {
-          var item = arr[i];
-          var itemUrl = typeof item === 'string'
-            ? item
-            : (item && (item.url || item.link || item.href || item.src || item.pinUrl));
-          if (normalizeArchiveLinkUrlClient(itemUrl) === targetNorm) arr.splice(i, 1);
+          if (itemMatches(arr[i])) arr.splice(i, 1);
         }
       }
-      function walkPayload(payload) {
-        if (!payload || typeof payload !== 'object') return;
-        stripLinkArray(payload.relevant_links);
-        stripLinkArray(payload.pedagogical_resources);
-        stripLinkArray(payload.gallery);
-        stripLinkArray(payload._liveCitations);
-        stripLinkArray(payload.citations);
-        stripLinkArray(payload.sources);
+      function stripUrlFromString(str) {
+        var out = String(str || '');
+        if (!out) return out;
+        archiveUrlVariantsClient(url).forEach(function (variant) {
+          if (!variant) return;
+          var escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          out = out.replace(new RegExp('<a\\b[^>]*href=["\'][^"\']*' + escaped + '[^"\']*["\'][^>]*>[\\s\\S]*?<\\/a>', 'gi'), '');
+          out = out.replace(new RegExp('\\[[^\\]]*\\]\\([^\\)]*' + escaped + '[^\\)]*\\)', 'gi'), '');
+          out = out.replace(new RegExp(escaped, 'gi'), '');
+        });
+        return out.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+      }
+      function walkPayload(payload, depth) {
+        if (!payload || typeof payload !== 'object' || (depth || 0) > 20) return;
+        var nextDepth = (depth || 0) + 1;
+        var linkKeys = [
+          'relevant_links', 'pedagogical_resources', 'gallery', 'pinterest_links',
+          '_liveCitations', 'citations', 'sources', 'recommended_reading', 'recommended_literature',
+        ];
+        linkKeys.forEach(function (key) { stripLinkArray(payload[key]); });
         if (payload.enrichment_links && typeof payload.enrichment_links === 'object') {
           stripLinkArray(payload.enrichment_links.pinterest_links);
           stripLinkArray(payload.enrichment_links.article_links);
         }
-        if (payload.blockPlan && typeof payload.blockPlan === 'object') {
-          walkPayload(payload.blockPlan);
-        }
-        if (payload.theory && payload.theory.bibliography) {
-          var bib = payload.theory.bibliography;
-          stripLinkArray(bib.websites);
-          stripLinkArray(bib.articles);
-          stripLinkArray(bib.books);
+        if (payload.blockPlan && typeof payload.blockPlan === 'object') walkPayload(payload.blockPlan, nextDepth);
+        if (payload.theory && typeof payload.theory === 'object') {
+          walkPayload(payload.theory, nextDepth);
+          if (payload.theory.bibliography) {
+            stripLinkArray(payload.theory.bibliography.websites);
+            stripLinkArray(payload.theory.bibliography.articles);
+            stripLinkArray(payload.theory.bibliography.books);
+          }
         }
         if (payload.gradeInsights && typeof payload.gradeInsights === 'object') {
           stripLinkArray(payload.gradeInsights.sources);
+          walkPayload(payload.gradeInsights, nextDepth);
         }
+        Object.keys(payload).forEach(function (key) {
+          var child = payload[key];
+          if (typeof child === 'string' && /https?:\/\//i.test(child) && archiveUrlsMatchClient(child, url)) {
+            payload[key] = stripUrlFromString(child);
+          } else if (Array.isArray(child)) {
+            stripLinkArray(child);
+            child.forEach(function (entry) {
+              if (entry && typeof entry === 'object') walkPayload(entry, nextDepth);
+            });
+          } else if (child && typeof child === 'object') {
+            walkPayload(child, nextDepth);
+          }
+        });
       }
-      walkPayload(appState.purePhaseC);
-      walkPayload(appState.aiGeneratedPlan);
-      walkPayload(appState.generalSearchResult);
-      walkPayload(appState.gradeResearch);
-      walkPayload(appState.webResearch);
+      walkPayload(appState.purePhaseC, 0);
+      walkPayload(appState.aiGeneratedPlan, 0);
+      walkPayload(appState.generalSearchResult, 0);
+      walkPayload(appState.gradeResearch, 0);
+      walkPayload(appState.webResearch, 0);
+      if (appState.webResearch) stripLinkArray(appState.webResearch.citations);
       stripLinkArray(appState.visualGallery);
       stripLinkArray(appState.pedagogicalResources);
       Object.keys(appState.pedagogySummaries || {}).forEach(function (sid) {
-        walkPayload(appState.pedagogySummaries[sid]);
+        walkPayload(appState.pedagogySummaries[sid], 0);
       });
       Object.keys(appState.bibliographySummaries || {}).forEach(function (sid) {
-        walkPayload(appState.bibliographySummaries[sid]);
+        walkPayload(appState.bibliographySummaries[sid], 0);
       });
     }
 
@@ -15994,20 +16093,28 @@
       if (!isArchiveAdminUser()) return;
       if (!confirm(ARCHIVE_DELETE_CONFIRM)) return;
       var ctx = buildArchiveDeleteRequestContext(triggerEl);
+      var linkUrl = String(url || (triggerEl && triggerEl.getAttribute('data-archive-url')) || '').trim();
+      if (!linkUrl) {
+        showArchiveToast('לא נמצא קישור למחיקה.', 'error');
+        return;
+      }
       if (triggerEl) triggerEl.disabled = true;
-      // Optimistic UI: always remove from client sources/citations and DOM immediately.
-      purgeArchiveUrlFromClientState(url);
-      removeArchiveUrlFromDom(url, triggerEl);
+      // 1) Suppress + purge client state so re-renders cannot bring the link back.
+      purgeArchiveUrlFromClientState(linkUrl);
+      // 2) Physical DOM removal of the clicked row and any matching rows.
+      removeArchiveUrlFromDom(linkUrl, triggerEl);
+      // 3) Re-render sources lists from the cleaned state (filters suppressed URLs).
       refreshArchiveLinksUiAfterDelete();
+      // 4) Persist to cached_results.
       if (!ctx.cacheKey && !(ctx.gradeId && ctx.topic) && !ctx.query) {
-        showArchiveToast('הקישור הוסר מהתצוגה (לא נמצא מזהה ארכיון לשמירה).');
+        showArchiveToast('הקישור הוסר מהתצוגה.');
         return;
       }
       try {
         var result = await postArchiveDeleteRequest({
           action: 'delete_archive_link',
           cacheKey: ctx.cacheKey,
-          url: url,
+          url: linkUrl,
           gradeId: ctx.gradeId,
           gradeLabel: ctx.gradeLabel,
           topic: ctx.topic,
@@ -16019,9 +16126,13 @@
         if (payload && payload.cacheKey && !appState.lessonCacheKey && ctx.phase === 'topic_master') {
           appState.lessonCacheKey = payload.cacheKey;
         }
+        // Re-apply DOM removal after any async UI updates.
+        removeArchiveUrlFromDom(linkUrl, null);
+        refreshArchiveLinksUiAfterDelete();
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
-        // Client already updated; archive row may be missing or URL only in live citations.
+        removeArchiveUrlFromDom(linkUrl, null);
+        refreshArchiveLinksUiAfterDelete();
         showArchiveToast('הקישור הוסר מהתצוגה.');
       }
     }
@@ -16185,10 +16296,22 @@
         }
       } catch (e1) { /* ignore */ }
       try {
-        if (appState.purePhaseC && document.getElementById('theoretical-content') && typeof renderTheory === 'function') {
-          // Keep open expansion panels; only refresh extra-links is enough for most deletes.
+        var theoryMount = document.getElementById('theoretical-content');
+        if (theoryMount && appState.purePhaseC && typeof renderPureTheoryLiveLinksSection === 'function') {
+          theoryMount.querySelectorAll('.theory-live-links-section').forEach(function (node) {
+            node.remove();
+          });
+          var theory = (appState.aiGeneratedPlan && appState.aiGeneratedPlan.theory) ||
+            (appState.purePhaseC && appState.purePhaseC.theory) || {};
+          var liveHtml = renderPureTheoryLiveLinksSection(theory, appState.purePhaseC);
+          if (liveHtml) theoryMount.insertAdjacentHTML('beforeend', liveHtml);
         }
       } catch (e2) { /* ignore */ }
+      try {
+        if (appState.generalSearchResult && typeof renderGeneralSearchResults === 'function' && isGeneralSearchView()) {
+          renderGeneralSearchResults(appState.generalSearchResult);
+        }
+      } catch (e3) { /* ignore */ }
     }
 
     function normalizeArchiveSourceWhitespace(str) {
@@ -16440,13 +16563,12 @@
       if (!linkUrl) { showArchiveToast('לא נמצא קישור למחיקה.', 'error'); return; }
       var deleteCtx = buildArchiveDeleteRequestContext(ctx && ctx.anchorEl);
       if (cacheKey) deleteCtx.cacheKey = cacheKey;
-      // Optimistic UI: always remove from client sources/citations and DOM immediately.
       purgeArchiveUrlFromClientState(linkUrl);
       removeArchiveUrlFromDom(linkUrl, ctx.anchorEl || null);
       refreshArchiveLinksUiAfterDelete();
       clearSelectionRanges();
       if (!deleteCtx.cacheKey && !(deleteCtx.gradeId && deleteCtx.topic) && !deleteCtx.query) {
-        showArchiveToast('הקישור הוסר מהתצוגה (לא נמצא מזהה ארכיון לשמירה).');
+        showArchiveToast('הקישור הוסר מהתצוגה.');
         return;
       }
       try {
@@ -16465,8 +16587,12 @@
         if (payload && payload.cacheKey && !appState.lessonCacheKey && deleteCtx.phase === 'topic_master') {
           appState.lessonCacheKey = payload.cacheKey;
         }
+        removeArchiveUrlFromDom(linkUrl, null);
+        refreshArchiveLinksUiAfterDelete();
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
+        removeArchiveUrlFromDom(linkUrl, null);
+        refreshArchiveLinksUiAfterDelete();
         showArchiveToast('הקישור הוסר מהתצוגה.');
       }
     }
@@ -19779,6 +19905,7 @@
         if (opts.blockPinterest && isPinterestUrl(url)) return false;
         var href = sanitizeExternalLinkUrl(url);
         if (!href) return false;
+        if (isArchiveUrlSuppressedClient(href)) return false;
         if (isVerifiedLiveCitationUrlClient(href)) return true;
         if (!passesPhaseCBoxASourceFilter(item)) return false;
         return true;
@@ -19952,6 +20079,7 @@
       function pushLink(title, url) {
         var href = sanitizeExternalLinkUrl(url);
         if (!href || isPinterestUrl(href)) return;
+        if (isArchiveUrlSuppressedClient(href)) return;
         if (isForbiddenForeignSourceUrlClient(href)) return;
         if (isExpansionLowQualitySourceUrl(href)) return;
         var key = href.toLowerCase();
@@ -24071,6 +24199,7 @@
         if (!u || !/^https?:\/\//i.test(u) || isPinterestUrl(u)) return;
         u = sanitizeExternalLinkUrl(u);
         if (!u || seen[u]) return;
+        if (isArchiveUrlSuppressedClient(u)) return;
         seen[u] = true;
         out.push({ title: t, url: u });
       }
