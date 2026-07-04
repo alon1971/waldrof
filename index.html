@@ -14278,6 +14278,137 @@
     }
     window.showAppToast = showAppToast;
 
+    /**
+     * Fix Hebrew typed while the OS keyboard was still on English layout
+     * (e.g. "nvpfu," → "מהפכות"). Runs before topic / general-search submit so
+     * gibberish Latin never reaches the API or cached_results.
+     */
+    var EN_TO_HE_KEYBOARD_MAP = {
+      q: '/', w: "'", e: 'ק', r: 'ר', t: 'א', y: 'ט', u: 'ו', i: 'ן', o: 'ם', p: 'פ',
+      a: 'ש', s: 'ד', d: 'ג', f: 'כ', g: 'ע', h: 'י', j: 'ח', k: 'ל', l: 'ך',
+      z: 'ז', x: 'ס', c: 'ב', v: 'ה', b: 'נ', n: 'מ', m: 'צ',
+      ',': 'ת', '.': 'ץ', ';': 'ף', "'": ',', '/': '.', '`': ';',
+    };
+
+    // Intentional English topics (education / common words) — never auto-convert these.
+    var KNOWN_ENGLISH_TOPIC_WORDS = {
+      a: 1, an: 1, the: 1, and: 1, or: 1, of: 1, in: 1, on: 1, to: 1, for: 1, with: 1, from: 1,
+      by: 1, as: 1, at: 1, is: 1, are: 1, was: 1, were: 1, be: 1, been: 1, being: 1,
+      this: 1, that: 1, these: 1, those: 1, it: 1, its: 1, we: 1, our: 1, you: 1, your: 1,
+      they: 1, their: 1, he: 1, she: 1, his: 1, her: 1, my: 1, me: 1, us: 1, them: 1,
+      not: 1, no: 1, yes: 1, all: 1, any: 1, some: 1, more: 1, most: 1, other: 1, into: 1,
+      about: 1, over: 1, after: 1, before: 1, between: 1, through: 1, during: 1, under: 1,
+      art: 1, arts: 1, music: 1, math: 1, maths: 1, mathematics: 1, science: 1, history: 1,
+      geography: 1, nature: 1, animal: 1, animals: 1, plant: 1, plants: 1, farming: 1, farm: 1,
+      season: 1, seasons: 1, spring: 1, summer: 1, autumn: 1, fall: 1, winter: 1,
+      festival: 1, festivals: 1, fairy: 1, tale: 1, tales: 1, story: 1, stories: 1, myth: 1,
+      myths: 1, legend: 1, legends: 1, bible: 1, genesis: 1, creation: 1, world: 1,
+      egypt: 1, egyptian: 1, greece: 1, greek: 1, rome: 1, roman: 1, europe: 1, european: 1,
+      africa: 1, african: 1, america: 1, american: 1, asia: 1, asian: 1, israel: 1, jewish: 1,
+      hebrew: 1, english: 1, language: 1, languages: 1, culture: 1, writing: 1, reading: 1,
+      painting: 1, drawing: 1, craft: 1, crafts: 1, handwork: 1, movement: 1, dance: 1,
+      drama: 1, theater: 1, theatre: 1, poetry: 1, poem: 1, poems: 1, song: 1, songs: 1,
+      number: 1, numbers: 1, geometry: 1, form: 1, forms: 1, drawing: 1, color: 1, colour: 1,
+      colors: 1, colours: 1, light: 1, dark: 1, day: 1, days: 1, night: 1, time: 1, space: 1,
+      human: 1, body: 1, soul: 1, spirit: 1, child: 1, children: 1, childhood: 1, school: 1,
+      teacher: 1, teachers: 1, teaching: 1, learning: 1, education: 1, pedagogy: 1,
+      pedagogical: 1, curriculum: 1, lesson: 1, lessons: 1, block: 1, blocks: 1, period: 1,
+      periods: 1, grade: 1, grades: 1, class: 1, classroom: 1, kindergarten: 1,
+      montessori: 1, waldorf: 1, steiner: 1, rudolf: 1, anthroposophy: 1, anthroposophical: 1,
+      shakespeare: 1, goethe: 1, homer: 1, odyssey: 1, iliad: 1, bible: 1, torah: 1,
+      physics: 1, chemistry: 1, biology: 1, botany: 1, zoology: 1, astronomy: 1, geology: 1,
+      photosynthesis: 1, evolution: 1, revolution: 1, revolutions: 1, culture: 1, cultures: 1,
+      ancient: 1, modern: 1, medieval: 1, renaissance: 1, middle: 1, ages: 1, age: 1,
+      water: 1, fire: 1, earth: 1, air: 1, sun: 1, moon: 1, star: 1, stars: 1, sky: 1,
+      tree: 1, trees: 1, forest: 1, garden: 1, flower: 1, flowers: 1, bird: 1, birds: 1,
+      fish: 1, horse: 1, horses: 1, dog: 1, dogs: 1, cat: 1, cats: 1, bee: 1, bees: 1,
+      bread: 1, food: 1, cooking: 1, home: 1, house: 1, family: 1, community: 1, society: 1,
+      peace: 1, war: 1, freedom: 1, justice: 1, love: 1, friendship: 1, courage: 1,
+      hope: 1, faith: 1, truth: 1, beauty: 1, good: 1, evil: 1, life: 1, death: 1,
+      work: 1, play: 1, game: 1, games: 1, sport: 1, sports: 1, health: 1, medicine: 1,
+      technology: 1, computer: 1, computers: 1, internet: 1, media: 1, news: 1,
+      project: 1, projects: 1, research: 1, study: 1, studies: 1, topic: 1, topics: 1,
+      introduction: 1, overview: 1, summary: 1, review: 1, practice: 1, theory: 1,
+      practical: 1, creative: 1, social: 1, emotional: 1, physical: 1, spiritual: 1,
+      developmental: 1, development: 1, growth: 1, change: 1, transformation: 1,
+    };
+
+    function convertEnglishLayoutToHebrew(text) {
+      return String(text == null ? '' : text).split('').map(function (ch) {
+        var lower = ch.toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(EN_TO_HE_KEYBOARD_MAP, lower)) {
+          return EN_TO_HE_KEYBOARD_MAP[lower];
+        }
+        return ch;
+      }).join('');
+    }
+
+    function isKnownEnglishTopicWord(word) {
+      var w = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
+      if (!w) return true;
+      if (KNOWN_ENGLISH_TOPIC_WORDS[w]) return true;
+      // Longer words with multiple vowels are usually intentional English, not layout mash.
+      var vowels = (w.match(/[aeiouy]/g) || []).length;
+      if (w.length >= 6 && vowels >= 2) return true;
+      if (w.length >= 4 && vowels >= 2 && (vowels / w.length) >= 0.35) return true;
+      return false;
+    }
+
+    function isLatinKeyboardOnlyText(text) {
+      var s = String(text == null ? '' : text).trim();
+      if (!s) return false;
+      if (/[\u0590-\u05FF]/.test(s)) return false;
+      // Letters must be Latin; allow spaces and keys that exist on the Hebrew layout map.
+      if (!/^[a-zA-Z\s,'`.;\/\-]+$/.test(s)) return false;
+      if (!/[a-zA-Z]/.test(s)) return false;
+      return true;
+    }
+
+    function shouldFixReversedKeyboardInput(text) {
+      if (!isLatinKeyboardOnlyText(text)) return false;
+      var words = String(text).trim().split(/\s+/).filter(Boolean);
+      if (!words.length) return false;
+      // Only auto-fix when every token looks like gibberish / non-English.
+      for (var i = 0; i < words.length; i++) {
+        if (isKnownEnglishTopicWord(words[i])) return false;
+      }
+      var converted = convertEnglishLayoutToHebrew(text);
+      if (converted === text) return false;
+      if (!/[\u0590-\u05FF]/.test(converted)) return false;
+      return true;
+    }
+
+    /**
+     * @param {string} text
+     * @param {{ inputEl?: HTMLElement|null, silent?: boolean }} [options]
+     * @returns {string} corrected text (or original when no fix applied)
+     */
+    function applyReversedKeyboardCorrection(text, options) {
+      var opts = options || {};
+      var original = String(text == null ? '' : text);
+      var trimmed = original.trim();
+      if (!trimmed || !shouldFixReversedKeyboardInput(trimmed)) return original;
+
+      // Preserve leading/trailing whitespace from the original field value.
+      var leading = original.match(/^\s*/)[0] || '';
+      var trailing = original.match(/\s*$/)[0] || '';
+      var correctedCore = convertEnglishLayoutToHebrew(trimmed);
+      var corrected = leading + correctedCore + trailing;
+
+      if (opts.inputEl) {
+        try { opts.inputEl.value = corrected.trim(); } catch (e) { /* ignore */ }
+      }
+
+      if (!opts.silent) {
+        var toastMsg = isEnglish()
+          ? ('It looks like you typed with a reversed keyboard. We auto-corrected to "' + correctedCore + '".')
+          : ('נראה שהקלדת במקלדת הפוכה. תיקנו אוטומטית ל-\'' + correctedCore + '\'.');
+        showAppToast(toastMsg);
+      }
+      return corrected.trim();
+    }
+    window.applyReversedKeyboardCorrection = applyReversedKeyboardCorrection;
+
     /** Clone a visible DOM node for Word export — strips UI chrome, keeps prose structure. */
     function cloneDomForWordExport(rootEl) {
       if (!rootEl) return null;
@@ -20923,7 +21054,10 @@
 
     async function runGeneralSearch() {
       var input = document.getElementById('general-search-input');
-      var query = input ? String(input.value || '').trim() : '';
+      var query = applyReversedKeyboardCorrection(
+        input ? String(input.value || '') : '',
+        { inputEl: input }
+      );
       if (!query) {
         if (input) input.focus();
         return;
@@ -23894,7 +24028,11 @@
       const genOpts = options || {};
       clearArchiveClarificationState();
 
-      const topic = document.getElementById('topic-input').value.trim();
+      const topicInputEl = document.getElementById('topic-input');
+      const topic = applyReversedKeyboardCorrection(
+        topicInputEl ? topicInputEl.value : '',
+        { inputEl: topicInputEl }
+      );
       const currentGrade = appState.grade;
       if (!topic) return;
       if (!currentGrade) {
