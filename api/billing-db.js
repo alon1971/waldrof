@@ -145,6 +145,23 @@ async function fetchSubscriptionByUserId(userId) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
+async function fetchSubscriptionByEmail(email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return null;
+  const params = new URLSearchParams();
+  params.set('select', '*');
+  params.set('user_email', 'eq.' + normalized);
+  params.set('limit', '5');
+  const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), { method: 'GET' });
+  if (!Array.isArray(rows) || !rows.length) return null;
+  for (let i = 0; i < rows.length; i++) {
+    const plan = String(rows[i].plan_type || rows[i].tier || 'trial').toLowerCase();
+    const isTrial = rows[i].is_trial;
+    if (plan !== 'trial' && isTrial !== true && isTrial !== 'true') return rows[i];
+  }
+  return rows[0];
+}
+
 async function fetchSubscriptionByStripeId(stripeSubscriptionId) {
   const params = new URLSearchParams();
   params.set('select', '*');
@@ -155,21 +172,42 @@ async function fetchSubscriptionByStripeId(stripeSubscriptionId) {
 }
 
 async function upsertSubscriptionRow(userId, patch) {
-  const existing = await fetchSubscriptionByUserId(userId);
+  const email = String((patch && patch.user_email) || '').trim().toLowerCase();
+  let existing = await fetchSubscriptionByUserId(userId);
+  if (!existing && email) {
+    existing = await fetchSubscriptionByEmail(email);
+  }
+
   const row = pickBillingFields(Object.assign({
     user_id: userId,
     updated_at: new Date().toISOString(),
   }, patch));
+  if (email) row.user_email = email;
 
   if (existing) {
+    // Patch the existing row identity (may differ from current auth user_id when matched by email).
+    const rowKey = String(existing.user_id || userId).trim();
     const params = new URLSearchParams();
-    params.set('user_id', 'eq.' + userId);
-    delete row.user_id;
-    const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
-      method: 'PATCH',
-      body: JSON.stringify(row),
-    });
-    return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, existing, row);
+    params.set('user_id', 'eq.' + rowKey);
+    const writePatch = Object.assign({}, row);
+    // Align to the active auth user when possible.
+    writePatch.user_id = userId;
+    writePatch.updated_at = new Date().toISOString();
+    try {
+      const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
+        method: 'PATCH',
+        body: JSON.stringify(writePatch),
+      });
+      return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, existing, writePatch);
+    } catch (patchErr) {
+      // If user_id align conflicts, update fields without changing primary key.
+      delete writePatch.user_id;
+      const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
+        method: 'PATCH',
+        body: JSON.stringify(writePatch),
+      });
+      return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, existing, writePatch);
+    }
   }
 
   const defaults = {
@@ -179,11 +217,36 @@ async function upsertSubscriptionRow(userId, patch) {
     plan_type: 'trial',
   };
   const insertRow = pickBillingFields(Object.assign(defaults, { user_id: userId }, patch));
-  const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE, {
-    method: 'POST',
-    body: JSON.stringify(insertRow),
-  });
-  return Array.isArray(rows) && rows.length ? rows[0] : insertRow;
+  if (email) insertRow.user_email = email;
+  const conflictTarget = insertRow.user_email ? 'user_email' : 'user_id';
+  try {
+    const rows = await supabaseRequest(
+      '/rest/v1/' + SUBSCRIPTIONS_TABLE + '?on_conflict=' + encodeURIComponent(conflictTarget),
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(insertRow),
+      }
+    );
+    return Array.isArray(rows) && rows.length ? rows[0] : insertRow;
+  } catch (upsertErr) {
+    // Unique email conflict — update the existing email row.
+    if (email) {
+      const byEmail = await fetchSubscriptionByEmail(email);
+      if (byEmail) {
+        const params = new URLSearchParams();
+        params.set('user_id', 'eq.' + String(byEmail.user_id).trim());
+        const writePatch = Object.assign({}, insertRow);
+        delete writePatch.user_id;
+        const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
+          method: 'PATCH',
+          body: JSON.stringify(writePatch),
+        });
+        return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, byEmail, writePatch);
+      }
+    }
+    throw upsertErr;
+  }
 }
 
 async function updateProfileFields(userId, patch) {

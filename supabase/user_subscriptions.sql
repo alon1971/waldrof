@@ -19,6 +19,20 @@ create table if not exists public.user_subscriptions (
 create index if not exists user_subscriptions_email_idx
   on public.user_subscriptions (user_email);
 
+-- One row per teacher email (NULLs allowed). See user_subscriptions_email_unique.sql for
+-- production backfill + constraint on existing databases.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'user_subscriptions_user_email_key'
+      and conrelid = 'public.user_subscriptions'::regclass
+  ) then
+    alter table public.user_subscriptions
+      add constraint user_subscriptions_user_email_key unique (user_email);
+  end if;
+end $$;
+
 comment on table public.user_subscriptions is 'Per-user subscription tier, search quotas, and auto-renew flag';
 comment on column public.user_subscriptions.trial_searches_used is 'Lifetime trial searches (cap 10)';
 comment on column public.user_subscriptions.word_downloads_count is 'Lifetime Word downloads (trial cap 10)';

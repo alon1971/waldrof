@@ -628,6 +628,34 @@ async function alignSubscriptionUserId(row, authUserId, user, userToken) {
   const targetId = mapSupabaseUserId(authUserId, user && user.email);
   const rowId = String(row.user_id || '').trim();
   if (!rowId || rowId === targetId) return row;
+
+  // If target user_id already has a row, keep the better of the two and drop the other.
+  const targetRows = await listSubscriptionRows({ user_id: 'eq.' + targetId }, userToken);
+  if (targetRows.length) {
+    const best = pickBestSubscriptionRow(dedupeSubscriptionRows([row].concat(targetRows)));
+    const dropIds = dedupeSubscriptionRows([row].concat(targetRows))
+      .map(function (r) { return String(r.user_id || '').trim(); })
+      .filter(function (id) { return id && id !== String(best.user_id || '').trim(); });
+    for (let i = 0; i < dropIds.length; i++) {
+      try {
+        const delParams = new URLSearchParams();
+        delParams.set('user_id', 'eq.' + dropIds[i]);
+        const delRes = await supabaseRequest('/rest/v1/' + TABLE + '?' + delParams.toString(), {
+          method: 'DELETE',
+          headers: { Prefer: 'return=minimal' },
+        }, userToken);
+        await readSupabaseResponse(delRes, 'subscription delete duplicate');
+        logUsage('align_user_id:deleted_duplicate', { deleted: dropIds[i], kept: best.user_id });
+      } catch (delErr) {
+        logUsage('align_user_id:delete_failed', { id: dropIds[i], message: delErr.message || delErr });
+      }
+    }
+    invalidateSubscriptionCache(rowId, user && user.email);
+    invalidateSubscriptionCache(targetId, user && user.email);
+    if (String(best.user_id || '').trim() === targetId) return best;
+    row = best;
+  }
+
   logUsage('align_user_id', {
     from: rowId,
     to: targetId,
@@ -636,14 +664,21 @@ async function alignSubscriptionUserId(row, authUserId, user, userToken) {
     is_trial: row.is_trial,
   });
   const params = new URLSearchParams();
-  params.set('user_id', 'eq.' + rowId);
-  const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), {
-    method: 'PATCH',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ user_id: targetId, updated_at: new Date().toISOString() }),
-  }, userToken);
-  const rows = await readSupabaseResponse(res, 'subscription align user_id');
-  return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, row, { user_id: targetId });
+  params.set('user_id', 'eq.' + String(row.user_id || rowId).trim());
+  try {
+    const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ user_id: targetId, updated_at: new Date().toISOString() }),
+    }, userToken);
+    const rows = await readSupabaseResponse(res, 'subscription align user_id');
+    invalidateSubscriptionCache(rowId, user && user.email);
+    invalidateSubscriptionCache(targetId, user && user.email);
+    return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, row, { user_id: targetId });
+  } catch (alignErr) {
+    logUsage('align_user_id:failed', { message: alignErr.message || alignErr, from: rowId, to: targetId });
+    return row;
+  }
 }
 
 async function fetchSubscriptionRow(userId, userToken, emailHint) {
@@ -660,14 +695,11 @@ async function fetchSubscriptionRow(userId, userToken, emailHint) {
 
   const idRows = pk ? await listSubscriptionRows({ user_id: 'eq.' + pk }, userToken) : [];
   let emailRows = [];
-  let row = pickBestSubscriptionRow(idRows);
-  const needsEmailLookup = Boolean(email) && (
-    !row || isTrialFromRow(row)
-  );
-  if (needsEmailLookup) {
+  // Always resolve by email when present so the same teacher never gets a second row.
+  if (email) {
     emailRows = await listSubscriptionRows({ user_email: 'eq.' + email }, userToken);
-    row = pickBestSubscriptionRow(dedupeSubscriptionRows(idRows.concat(emailRows)));
   }
+  let row = pickBestSubscriptionRow(dedupeSubscriptionRows(idRows.concat(emailRows)));
 
   if (idRows.length && emailRows.length && idRows[0] && emailRows[0]
     && String(idRows[0].user_id) !== String(emailRows[0].user_id)) {
@@ -735,41 +767,118 @@ function subscriptionRowFromPatch(user, patch, existing) {
   });
 }
 
+function isUniqueViolationError(err) {
+  if (!err) return false;
+  if (err.statusCode === 409) return true;
+  const body = String(err.supabaseBody || err.message || '');
+  return /duplicate key|unique constraint|23505/i.test(body);
+}
+
+/**
+ * Insert-or-update by email (preferred) or user_id.
+ * Never creates a second row for an email that already exists.
+ */
 async function insertSubscriptionRow(user, patch, userToken) {
   user = applyLocalDemoUserIdMapping(user);
+  const email = normalizeEmail(
+    (patch && (patch.user_email || patch.email)) || user.email
+  );
+
+  // Guard: if this email already has a row, update it instead of inserting.
+  if (email) {
+    const byEmail = await listSubscriptionRows({ user_email: 'eq.' + email }, userToken);
+    if (byEmail.length) {
+      let existing = pickBestSubscriptionRow(byEmail);
+      existing = await alignSubscriptionUserId(existing, user.id, user, userToken);
+      logUsage('insert:redirect_to_update', {
+        user_id: user.id,
+        email: email,
+        existing_user_id: existing && existing.user_id,
+      });
+      return updateSubscriptionRow(user.id, patch, existing, user, userToken);
+    }
+  }
+
+  const byId = await listSubscriptionRows({
+    user_id: 'eq.' + mapSupabaseUserId(user.id, user.email),
+  }, userToken);
+  if (byId.length) {
+    return updateSubscriptionRow(user.id, patch, byId[0], user, userToken);
+  }
+
   const row = subscriptionRowFromPatch(user, Object.assign({
     search_count_monthly: 0,
     word_downloads_count: 0,
     auto_renew: true,
   }, patch || {}), null);
+  if (email) row.user_email = email;
 
-  logUsage('insert:before', { user_id: user.id, row: row });
-
-  const res = await supabaseRequest('/rest/v1/' + TABLE, {
-    method: 'POST',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(row),
-  }, userToken);
-
-  const rows = await readSupabaseResponse(res, 'subscription insert');
-  const inserted = Array.isArray(rows) && rows.length ? rows[0] : row;
-
-  logUsage('insert:after', {
-    user_id: user.id,
-    status: 'ok',
-    rows_returned: Array.isArray(rows) ? rows.length : 0,
-    search_count_monthly: inserted.search_count_monthly,
-  });
-
-  invalidateSubscriptionCache(user.id, user.email);
-  return inserted;
+  // Prefer email conflict target when present (requires unique on user_email).
+  const conflictTargets = row.user_email ? ['user_email', 'user_id'] : ['user_id'];
+  let lastErr = null;
+  for (let i = 0; i < conflictTargets.length; i++) {
+    const conflictTarget = conflictTargets[i];
+    logUsage('insert:upsert_before', {
+      user_id: user.id,
+      email: row.user_email || undefined,
+      on_conflict: conflictTarget,
+    });
+    try {
+      const res = await supabaseRequest(
+        '/rest/v1/' + TABLE + '?on_conflict=' + encodeURIComponent(conflictTarget),
+        {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify(row),
+        },
+        userToken
+      );
+      const rows = await readSupabaseResponse(res, 'subscription upsert');
+      const inserted = Array.isArray(rows) && rows.length ? rows[0] : row;
+      logUsage('insert:upsert_after', {
+        user_id: user.id,
+        on_conflict: conflictTarget,
+        rows_returned: Array.isArray(rows) ? rows.length : 0,
+        search_count_monthly: inserted.search_count_monthly,
+      });
+      invalidateSubscriptionCache(user.id, user.email);
+      return inserted;
+    } catch (err) {
+      lastErr = err;
+      if (isUniqueViolationError(err)) {
+        logUsage('insert:unique_conflict_retry', {
+          user_id: user.id,
+          email: email || undefined,
+          message: err.message || err,
+        });
+        const existing = await fetchSubscriptionRow(user.id, userToken, user.email);
+        if (existing) {
+          return updateSubscriptionRow(user.id, patch, existing, user, userToken);
+        }
+      }
+      // No unique on user_email yet — try user_id conflict next.
+      if (conflictTarget === 'user_email' && /no unique|ON CONFLICT/i.test(String(err.message || ''))) {
+        continue;
+      }
+      if (i < conflictTargets.length - 1) continue;
+      throw err;
+    }
+  }
+  throw lastErr || new Error('subscription upsert failed');
 }
 
 async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const pk = mapSupabaseUserId(userId, user && user.email);
+  // Always patch the existing row's primary key — never invent a second row for the same email.
+  const rowKey = existing && existing.user_id
+    ? String(existing.user_id).trim()
+    : pk;
   invalidateSubscriptionCache(userId, user && user.email);
+  if (existing && existing.user_email) {
+    invalidateSubscriptionCache(existing.user_id, existing.user_email);
+  }
   const params = new URLSearchParams();
-  params.set('user_id', 'eq.' + pk);
+  params.set('user_id', 'eq.' + rowKey);
 
   const mergedRow = user
     ? subscriptionRowFromPatch(user, patch, existing)
@@ -778,10 +887,12 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
       updated_at: new Date().toISOString(),
     }));
   const writePatch = Object.assign({}, mergedRow);
+  // Keep the row identity stable during PATCH; align user_id separately when needed.
   delete writePatch.user_id;
 
   logUsage('update:before', {
     user_id: pk,
+    row_key: rowKey,
     patch: writePatch,
     before_count: existing ? readSearchCountFromRow(existing) : null,
   });
@@ -797,11 +908,18 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
 
   logUsage('update:after', {
     user_id: pk,
+    row_key: rowKey,
     rows_affected: rowsAffected,
     response: rows,
   });
 
-  if (rowsAffected > 0) return rows[0];
+  let updated = rowsAffected > 0 ? rows[0] : null;
+  if (updated && user) {
+    updated = await alignSubscriptionUserId(updated, userId, user, userToken);
+    invalidateSubscriptionCache(userId, user && user.email);
+    return updated;
+  }
+  if (updated) return updated;
 
   if (existing) {
     const merged = subscriptionRowFromPatch(
@@ -809,8 +927,25 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
       patch,
       existing
     );
+    if (merged.user_email) {
+      logUsage('update:upsert_fallback_email', { user_id: pk, email: merged.user_email });
+      try {
+        const upsertRes = await supabaseRequest(
+          '/rest/v1/' + TABLE + '?on_conflict=user_email',
+          {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+            body: JSON.stringify(merged),
+          },
+          userToken
+        );
+        const upsertRows = await readSupabaseResponse(upsertRes, 'subscription upsert by email');
+        if (Array.isArray(upsertRows) && upsertRows.length) return upsertRows[0];
+      } catch (emailUpsertErr) {
+        logUsage('update:upsert_email_failed', { message: emailUpsertErr.message || emailUpsertErr });
+      }
+    }
     logUsage('update:upsert_fallback', { user_id: pk, merged: merged });
-
     const upsertRes = await supabaseRequest('/rest/v1/' + TABLE + '?on_conflict=user_id', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
@@ -833,8 +968,9 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
 
 async function upsertSubscriptionRow(user, patch, userToken) {
   user = applyLocalDemoUserIdMapping(user);
-  const existing = await fetchSubscriptionRow(user.id, userToken, user.email);
+  let existing = await fetchSubscriptionRow(user.id, userToken, user.email);
   if (existing) {
+    existing = await alignSubscriptionUserId(existing, user.id, user, userToken);
     return updateSubscriptionRow(user.id, patch, existing, user, userToken);
   }
   return insertSubscriptionRow(user, patch, userToken);
@@ -849,23 +985,21 @@ async function ensureSubscription(user, userToken) {
     user = await enrichUserFromProfile(user, userToken);
     Object.assign(contactPatch, buildSubscriptionContactPatch(user));
   }
-  if (row) {
-    row = await alignSubscriptionUserId(row, user.id, user, userToken);
-    if (row) setCachedSubscriptionRow(user.id, user.email, row);
-  }
   if (!row) {
+    // Upsert by email/user_id — never creates a second row for an existing email.
     logUsage('ensure:create_row', { user_id: user.id, email: user.email || undefined });
-    row = await insertSubscriptionRow(user, Object.assign({
+    row = await upsertSubscriptionRow(user, Object.assign({
       plan_type: 'trial',
       is_trial: true,
       search_count_monthly: 0,
       word_downloads_count: 0,
       auto_renew: true,
     }, contactPatch), userToken);
-    setCachedSubscriptionRow(user.id, user.email, row);
-  } else if (shouldRefreshSubscriptionContact(row, contactPatch)) {
-    row = await updateSubscriptionRow(user.id, contactPatch, row, user, userToken);
-    setCachedSubscriptionRow(user.id, user.email, row);
+  } else {
+    row = await alignSubscriptionUserId(row, user.id, user, userToken);
+    if (shouldRefreshSubscriptionContact(row, contactPatch)) {
+      row = await updateSubscriptionRow(user.id, contactPatch, row, user, userToken);
+    }
   }
   row = await downgradeSubscriptionIfExpired(user, row, userToken);
   if (row) setCachedSubscriptionRow(user.id, user.email, row);

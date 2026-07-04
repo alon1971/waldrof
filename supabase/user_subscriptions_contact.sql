@@ -10,6 +10,10 @@ create index if not exists user_subscriptions_user_email_idx
   on public.user_subscriptions (lower(user_email))
   where user_email is not null and btrim(user_email) <> '';
 
+-- Prefer the dedicated migration for live DBs with duplicates:
+--   supabase/user_subscriptions_email_unique.sql
+-- (normalizes emails, merges usage, deletes duplicates, adds UNIQUE).
+
 comment on column public.user_subscriptions.user_email is 'Teacher email (denormalized for admin)';
 comment on column public.user_subscriptions.user_full_name is 'Teacher full display name';
 comment on column public.user_subscriptions.user_phone is 'Teacher phone number';
