@@ -6,6 +6,7 @@ const PERPLEXITY_HEBREW_FORBIDDEN_TERMS_INSTRUCTION =
   '\n=== HEBREW OUTPUT — FORBIDDEN MACHINE-TRANSLATED TERMS (MANDATORY) ===\n' +
   'You are strictly forbidden from using literal machine translations of technical terms in the Hebrew output. ' +
   'Never use words like \'דורחת\', \'דורחת פרקטית\', \'מבוכה\' (as a translation for Perplexity), or \'לדרוס\' when presenting educational material or prompts to the user. ' +
+  'Never write \'דורח\' or \'דוראך\' — always use \'דוח\' (e.g. דוח התפתחותי, never דורח התפתחותי).\n' +
   'Always use natural, professional Hebrew. If referencing the system, use \'פרפלקסיטי\' or \'המערכת\'.\n' +
   '=== END FORBIDDEN TERMS ===\n';
 
@@ -53,6 +54,9 @@ const HEBREW_AUTO_REPLACEMENTS = [
   { pattern: /לידה\s+שנייה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
   { pattern: /לידה\s+שניה/g, replacement: 'חציית הרוביקון השנייה (גיל 12)' },
   { pattern: /לידה\s+ראשונה/g, replacement: 'חציית הרוביקון הראשונה (גיל 9)' },
+  // AI misspelling of דוח (developmental report) — with/without niqqud; avoid matching דורחת
+  { pattern: /ד[\u0591-\u05C7]*ו[\u0591-\u05C7]*ר[\u0591-\u05C7]*ח[\u0591-\u05C7]*(?!ת)/g, replacement: 'דוח' },
+  { pattern: /דוראך/g, replacement: 'דוח' },
   { pattern: /סטיינר/g, replacement: 'שטיינר' },
 ];
 

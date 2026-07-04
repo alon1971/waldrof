@@ -71,6 +71,7 @@
     '\n=== HEBREW OUTPUT — FORBIDDEN MACHINE-TRANSLATED TERMS (MANDATORY) ===\n' +
     'You are strictly forbidden from using literal machine translations of technical terms in the Hebrew output. ' +
     'Never use words like \'דורחת\', \'דורחת פרקטית\', \'מבוכה\' (as a translation for Perplexity), or \'לדרוס\' when presenting educational material or prompts to the user. ' +
+    'Never write \'דורח\' or \'דוראך\' — always use \'דוח\' (e.g. דוח התפתחותי, never דורח התפתחותי).\n' +
     'Always use natural, professional Hebrew. If referencing the system, use \'פרפלקסיטי\' or \'המערכת\'.\n' +
     '=== END FORBIDDEN TERMS ===\n' +
     '\n=== HEBREW SPELLING — RUDOLF STEINER (MANDATORY) ===\n' +

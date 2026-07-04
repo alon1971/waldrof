@@ -12444,6 +12444,9 @@
       out = out.replace(/לידה\s+שנייה/g, 'חציית הרוביקון השנייה (גיל 12)');
       out = out.replace(/לידה\s+שניה/g, 'חציית הרוביקון השנייה (גיל 12)');
       out = out.replace(/לידה\s+ראשונה/g, 'חציית הרוביקון הראשונה (גיל 9)');
+      // AI misspelling of דוח (developmental report) — with/without niqqud; avoid matching דורחת
+      out = out.replace(/ד[\u0591-\u05C7]*ו[\u0591-\u05C7]*ר[\u0591-\u05C7]*ח[\u0591-\u05C7]*(?!ת)/g, 'דוח');
+      out = out.replace(/דוראך/g, 'דוח');
       return out.replace(/סטיינר/g, 'שטיינר');
     }
 
@@ -21227,6 +21230,42 @@
       return '';
     }
 
+    function bindAdminResearchInlineToolbar(wrap) {
+      if (!wrap || wrap.dataset.adminResearchBound === '1') return;
+      wrap.dataset.adminResearchBound = '1';
+      wrap.addEventListener('click', function (e) {
+        var trigger = e.target && e.target.closest
+          ? e.target.closest('.admin-research-tools-trigger')
+          : null;
+        if (trigger && wrap.contains(trigger)) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleAdminResearchMenuForWrap(wrap);
+          return;
+        }
+        var item = e.target && e.target.closest
+          ? e.target.closest('[data-admin-research-action]')
+          : null;
+        if (!item || !wrap.contains(item) || item.disabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        adminResearchActiveExpansionSourceId = String(
+          wrap.getAttribute('data-expansion-source-id') || ''
+        ).trim();
+        if (!adminResearchActiveExpansionSourceId) {
+          var hostPanel = wrap.closest(
+            '.inline-expand-panel, details.static-expansion-block, details[data-static-expand], .expansion-btn-block'
+          );
+          adminResearchActiveExpansionSourceId = resolveExpansionSourceId(hostPanel, '');
+        }
+        var action = item.getAttribute('data-admin-research-action');
+        closeAllAdminResearchMenus();
+        if (action === 'expand') runAdminResearchExpand();
+        else if (action === 'refresh') runAdminResearchRefresh();
+        else if (action === 'synthesize') runAdminResearchSynthesize();
+      });
+    }
+
     function prependAdminResearchToolbarToPanel(panelOrDetails, expansionSourceId) {
       if (!shouldShowAdminResearchInlineToolbar()) return;
       var host = resolveExpansionHost(panelOrDetails);
@@ -21249,10 +21288,13 @@
       if (!existing) existing = host.querySelector(':scope > .admin-research-tools-inline');
       if (existing) {
         if (sourceId) existing.setAttribute('data-expansion-source-id', sourceId);
+        bindAdminResearchInlineToolbar(existing);
         return;
       }
       // Inject as first child of the panel host — outside .inline-expand-inner.
       host.insertAdjacentHTML('afterbegin', buildAdminResearchInlineBarHtml(sourceId || ''));
+      var injected = host.querySelector(':scope > .admin-research-tools-inline') || host.firstElementChild;
+      if (injected) bindAdminResearchInlineToolbar(injected);
     }
 
     function mountAdminResearchToolsInExpansionInner(inner) {
@@ -21555,17 +21597,25 @@
     }
 
     async function runAdminResearchRefresh() {
-      var ctx = getAdminResearchContext();
-      if (!ctx.hasContent) return;
       var expansionSourceId = String(adminResearchActiveExpansionSourceId || '').trim();
       closeAdminResearchMenu();
+      // Inline expansion toolbar: refresh ONLY that expansion (bypassCache), even if
+      // the global page context is incomplete.
+      if (expansionSourceId) {
+        setAdminResearchLoading(true);
+        try {
+          await refreshSingleExpansionFromCloud(expansionSourceId);
+        } catch (err) {
+          if (!isRateLimitError(err)) alert((err && err.message) || String(err));
+        } finally {
+          setAdminResearchLoading(false);
+        }
+        return;
+      }
+      var ctx = getAdminResearchContext();
+      if (!ctx.hasContent) return;
       setAdminResearchLoading(true);
       try {
-        // Inline expansion toolbar: refresh ONLY that expansion block.
-        if (expansionSourceId) {
-          await refreshSingleExpansionFromCloud(expansionSourceId);
-          return;
-        }
         if (ctx.scope === 'general-search') {
           var queryRefresh = String(appState.generalSearchQuery || '').trim();
           if (!queryRefresh) return;
@@ -21650,6 +21700,8 @@
         }
         var item = e.target && e.target.closest ? e.target.closest('[data-admin-research-action]') : null;
         if (item && !item.disabled) {
+          e.preventDefault();
+          e.stopPropagation();
           var inlineWrap = item.closest('.admin-research-tools-inline');
           adminResearchActiveExpansionSourceId = '';
           if (inlineWrap) {
@@ -21664,6 +21716,7 @@
             }
           }
           var action = item.getAttribute('data-admin-research-action');
+          closeAllAdminResearchMenus();
           if (action === 'expand') runAdminResearchExpand();
           else if (action === 'refresh') runAdminResearchRefresh();
           else if (action === 'synthesize') runAdminResearchSynthesize();
