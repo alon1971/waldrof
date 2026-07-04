@@ -642,57 +642,65 @@ async function resolveArchiveRowForLinkDelete(cacheKey, opts) {
   return { row: null, cacheKey: key || null };
 }
 
-/**
- * Remove a broken/irrelevant link URL from a cached archive row (admin curation).
- * Accepts optional gradeId/topic/phase to resolve the row when cacheKey is missing or stale.
- */
-async function removeArchiveLinkFromCache(cacheKey, url, opts) {
-  const targetNorm = normalizeArchiveLinkUrl(url);
-  if (!targetNorm) return { removed: false, cacheKey: cacheKey || null, reason: 'bad_url' };
-
-  const resolved = await resolveArchiveRowForLinkDelete(cacheKey, Object.assign({}, opts || {}, { url: url }));
-  const key = resolved.cacheKey;
-  const row = resolved.row;
-  if (!row || row.result_data == null) {
-    // No archive row — treat as success so client-only citations stay removed in UI.
-    return { removed: true, cacheKey: key || null, reason: 'row_not_found_client_only' };
-  }
-
-  let data = coerceCachedResultData(row.result_data);
-  if (!data || typeof data !== 'object') {
-    return { removed: false, cacheKey: key, reason: 'bad_payload' };
-  }
-
-  data = cloneJsonSafe(data);
-  if (!data) return { removed: false, cacheKey: key, reason: 'clone_failed' };
-
-  const changed = removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
-  if (!changed) {
-    // Already absent from stored payload — success for idempotent delete.
-    return { removed: true, cacheKey: key, reason: 'already_absent' };
-  }
-
-  const safeResultData = sanitizeForJsonStorage(data);
-  if (!safeResultData) return { removed: false, cacheKey: key, reason: 'sanitize_failed' };
+async function persistCachedResultData(cacheKey, resultData, existingRow) {
+  const key = String(cacheKey || '').trim();
+  const safeResultData = sanitizeForJsonStorage(resultData);
+  if (!key || !safeResultData) return false;
 
   let saved = false;
   if (isSupabaseCacheEnabled()) {
     try {
+      // Prefer PATCH with representation so we know a row was actually updated.
       const patchRes = await supabaseRequest(
         '/rest/v1/' + TABLE_NAME + '?cache_key=eq.' + encodeURIComponent(key),
         {
           method: 'PATCH',
-          headers: { Prefer: 'return=minimal' },
+          headers: { Prefer: 'return=representation' },
           body: safeJsonStringify({ result_data: safeResultData }),
         }
       );
-      if (patchRes.ok) saved = true;
-      else {
+      if (patchRes.ok) {
+        const text = await patchRes.text();
+        let rows = [];
+        try { rows = text ? JSON.parse(text) : []; } catch (e) { rows = []; }
+        if (Array.isArray(rows) && rows.length > 0) saved = true;
+      } else {
         const errText = await patchRes.text();
         console.warn('[cached_results] archive link delete PATCH error', patchRes.status, errText.slice(0, 200));
       }
+
+      // UPSERT fallback when PATCH matched 0 rows or failed.
+      if (!saved) {
+        const upsertRow = {
+          cache_key: key,
+          phase: (existingRow && existingRow.phase) || TOPIC_MASTER_PHASE,
+          grade_id: (existingRow && existingRow.grade_id) || null,
+          grade_label: (existingRow && existingRow.grade_label) || null,
+          topic: (existingRow && existingRow.topic) || null,
+          query_text: (existingRow && existingRow.query_text) || null,
+          result_data: safeResultData,
+          hit_count: (existingRow && existingRow.hit_count) || 0,
+        };
+        const upsertRes = await supabaseRequest(
+          '/rest/v1/' + TABLE_NAME + '?on_conflict=cache_key',
+          {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+            body: safeJsonStringify(upsertRow),
+          }
+        );
+        if (upsertRes.ok) {
+          const text = await upsertRes.text();
+          let rows = [];
+          try { rows = text ? JSON.parse(text) : []; } catch (e) { rows = []; }
+          saved = Array.isArray(rows) ? rows.length > 0 : true;
+        } else {
+          const errText = await upsertRes.text();
+          console.warn('[cached_results] archive link delete UPSERT error', upsertRes.status, errText.slice(0, 200));
+        }
+      }
     } catch (err) {
-      console.warn('[cached_results] archive link delete PATCH failed:', err.message || err);
+      console.warn('[cached_results] archive link delete persist failed:', err.message || err);
     }
   }
 
@@ -703,7 +711,100 @@ async function removeArchiveLinkFromCache(cacheKey, url, opts) {
     fallbackStore.rows.set(key, existing);
     persistFallbackStore();
     saved = true;
+  } else if (safeResultData) {
+    fallbackStore.rows.set(key, {
+      cache_key: key,
+      phase: (existingRow && existingRow.phase) || TOPIC_MASTER_PHASE,
+      grade_id: (existingRow && existingRow.grade_id) || null,
+      topic: (existingRow && existingRow.topic) || null,
+      result_data: safeResultData,
+      hit_count: 0,
+    });
+    persistFallbackStore();
+    saved = true;
   }
+
+  return saved;
+}
+
+/**
+ * Remove a broken/irrelevant link URL from a cached archive row (admin curation).
+ * Accepts optional gradeId/topic/phase and client-cleaned updatedPayload for authoritative write.
+ */
+async function removeArchiveLinkFromCache(cacheKey, url, opts) {
+  opts = opts || {};
+  const targetNorm = normalizeArchiveLinkUrl(url);
+  if (!targetNorm) return { removed: false, cacheKey: cacheKey || null, reason: 'bad_url' };
+
+  const resolved = await resolveArchiveRowForLinkDelete(cacheKey, Object.assign({}, opts, { url: url }));
+  let key = resolved.cacheKey || String(cacheKey || '').trim();
+  let row = resolved.row;
+
+  const gradeId = String(opts.gradeId || (row && row.grade_id) || '').trim();
+  const topic = String(opts.topic || (row && row.topic) || '').trim();
+  if ((!key || !row) && gradeId && topic) {
+    const body = buildTopicMasterCacheBody(gradeId, opts.gradeLabel || null, topic);
+    const builtKey = buildCacheKey(body);
+    if (builtKey) {
+      key = builtKey;
+      if (!row) row = await fetchCachedRowByKey(builtKey);
+    }
+  }
+
+  // Prefer client-cleaned payload (already purged of the URL) when provided.
+  let data = null;
+  if (opts.updatedPayload && typeof opts.updatedPayload === 'object') {
+    data = cloneJsonSafe(opts.updatedPayload);
+  } else if (row && row.result_data != null) {
+    data = cloneJsonSafe(coerceCachedResultData(row.result_data));
+  }
+
+  if (!data || typeof data !== 'object') {
+    return { removed: false, cacheKey: key || null, reason: 'row_not_found' };
+  }
+  if (!key) {
+    return { removed: false, cacheKey: null, reason: 'row_not_found' };
+  }
+
+  // Always strip by URL (arrays + <li>/<a> in HTML strings) — never depend on surrounding prose.
+  removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
+
+  // Rebuild _liveCitations from remaining link fields only (do not resurrect deleted URL).
+  try {
+    const urls = [];
+    const seen = Object.create(null);
+    function pushUrl(raw) {
+      const u = String(raw || '').trim();
+      if (!u || !/^https?:\/\//i.test(u) || seen[u]) return;
+      if (normalizeArchiveLinkUrl(u) === targetNorm) return;
+      seen[u] = true;
+      urls.push(u);
+    }
+    function walkList(list) {
+      (list || []).forEach(function (item) {
+        if (!item) return;
+        if (typeof item === 'string') pushUrl(item);
+        else pushUrl(item.url || item.link || item.href);
+      });
+    }
+    walkList(data.relevant_links);
+    walkList(data.pedagogical_resources);
+    walkList(data.pinterest_links);
+    walkList(data.recommended_reading);
+    const bib = data.theory && data.theory.bibliography;
+    if (bib) {
+      walkList(bib.books);
+      walkList(bib.articles);
+      walkList(bib.websites);
+    }
+    data._liveCitations = urls;
+  } catch (e) { /* keep stripped payload */ }
+
+  const saved = await persistCachedResultData(key, data, row || {
+    phase: TOPIC_MASTER_PHASE,
+    grade_id: gradeId || null,
+    topic: topic || null,
+  });
 
   return { removed: saved, cacheKey: key, reason: saved ? 'ok' : 'save_failed' };
 }

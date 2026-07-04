@@ -203,14 +203,16 @@ async function executeSearchHistory(req) {
       phase: body && body.phase,
       query: body && (body.query || body.topic),
       periodBlock: body && body.periodBlock,
+      // Client-cleaned payload is authoritative — guarantees permanent DB write.
+      updatedPayload: body && body.updatedPayload,
     });
     if (!result || !result.removed) {
       const reason = result && result.reason ? result.reason : 'unknown';
-      let message = 'הקישור לא נמצא בארכיון או שהמחיקה נכשלה';
+      let message = 'הקישור לא נשמר במחיקה מהארכיון';
       if (reason === 'row_not_found') {
         message = 'לא ניתן למצוא את שורת הארכיון (cache_key) ולכן לא ניתן למחוק';
-      } else if (reason === 'url_not_in_payload') {
-        message = 'הקישור לא נמצא בנתוני הארכיון של הרשומה';
+      } else if (reason === 'save_failed') {
+        message = 'עדכון cached_results נכשל — הקישור לא נמחק מהמסד';
       }
       const err = new Error(message);
       err.statusCode = 404;
