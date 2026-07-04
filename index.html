@@ -1115,16 +1115,16 @@
     details[data-static-expand] > .admin-research-tools-inline {
       margin-top: 0.35rem;
     }
-    .admin-research-tools-inline .admin-research-tools-trigger {
+    .admin-research-fresh-btn {
       display: inline-flex !important;
       align-items: center;
       gap: 0.35rem;
       visibility: visible !important;
       opacity: 1 !important;
     }
-    .admin-research-tools-inline .admin-research-menu--inline {
-      inset-inline-end: 0;
-      inset-inline-start: auto;
+    .admin-research-fresh-btn:disabled {
+      opacity: 0.55;
+      cursor: wait;
     }
     @media (max-width: 767px) {
       .step-pill { min-height: 44px; padding: 0.625rem 0.75rem; font-size: var(--app-body-size) !important; }
@@ -15950,7 +15950,7 @@
 
     function removeArchiveListItemFromDom(triggerEl) {
       if (!triggerEl || !triggerEl.closest) return false;
-      // Always remove the full list item (number + label + link + trash), never leave orphans.
+      // Mandatory: delete the full <li> parent (number + label + link + trash).
       var row = triggerEl.closest('li');
       if (row) {
         row.remove();
@@ -15971,10 +15971,26 @@
       return false;
     }
 
+    function cleanupOrphanSourceListItems(root) {
+      var scope = root || document;
+      scope.querySelectorAll(
+        '#phase-c-extra-links-list li, .pure-links-grid li, .theory-live-links-section li, .archive-link-row'
+      ).forEach(function (li) {
+        if (!li || !li.isConnected) return;
+        var hasAnchor = li.querySelector('a[href]');
+        var text = String(li.textContent || '').replace(/[\s🗑️]/g, '');
+        if (!hasAnchor && text.length < 3) li.remove();
+      });
+    }
+
     function removeArchiveUrlFromDom(url, triggerEl) {
-      // 1) Always remove the clicked <li> first.
-      if (triggerEl) removeArchiveListItemFromDom(triggerEl);
-      // 2) Remove any other matching full list rows (never strip only the <a>).
+      // 1) Always remove the clicked <li> in full — never only the <a>.
+      if (triggerEl && triggerEl.closest) {
+        var clickedLi = triggerEl.closest('li');
+        if (clickedLi) clickedLi.remove();
+        else removeArchiveListItemFromDom(triggerEl);
+      }
+      // 2) Remove any other matching full list rows by URL.
       var scopes = [
         '#phase-c-extra-links-list',
         '#phase-c-unified-root',
@@ -15988,13 +16004,15 @@
       scopes.forEach(function (sel) {
         var root = document.querySelector(sel);
         if (!root) return;
-        root.querySelectorAll('li').forEach(function (row) {
+        Array.prototype.slice.call(root.querySelectorAll('li')).forEach(function (row) {
+          if (!row || !row.isConnected) return;
           var anchor = row.querySelector('a[href]');
           var btn = row.querySelector('.archive-admin-delete-btn[data-archive-url]');
           var href = (anchor && anchor.getAttribute('href')) ||
             (btn && btn.getAttribute('data-archive-url')) || '';
           if (href && archiveUrlsMatchClient(href, url)) row.remove();
         });
+        cleanupOrphanSourceListItems(root);
       });
     }
 
@@ -16089,15 +16107,25 @@
         showArchiveToast('לא נמצא קישור למחיקה.', 'error');
         return;
       }
-      var rowEl = triggerEl && triggerEl.closest ? triggerEl.closest('li') : null;
+      // Capture the full list item BEFORE any async work / re-render.
+      var rowEl = (triggerEl && triggerEl.closest) ? triggerEl.closest('li') : null;
       if (triggerEl) triggerEl.disabled = true;
-      // 1) Suppress + purge client state so re-renders cannot bring the link back.
+
+      // 1) Physical removal of the entire <li> — number, label, link, trash.
+      if (rowEl) {
+        try { rowEl.remove(); } catch (domErr) { /* ignore */ }
+      } else if (triggerEl) {
+        removeArchiveListItemFromDom(triggerEl);
+      }
+
+      // 2) Suppress + purge client state so re-renders cannot bring the link back.
       purgeArchiveUrlFromClientState(linkUrl);
-      // 2) Physical DOM removal of the full <li> (number + label + link + trash).
-      if (rowEl && rowEl.parentNode) rowEl.remove();
-      removeArchiveUrlFromDom(linkUrl, triggerEl);
+      removeArchiveUrlFromDom(linkUrl, null);
+      cleanupOrphanSourceListItems(document);
+
       // 3) Re-render sources lists from the cleaned state (filters suppressed URLs).
       refreshArchiveLinksUiAfterDelete();
+      cleanupOrphanSourceListItems(document);
       // 4) Persist to cached_results.
       if (!ctx.cacheKey && !(ctx.gradeId && ctx.topic) && !ctx.query) {
         showArchiveToast('הקישור הוסר מהתצוגה.');
@@ -16122,10 +16150,12 @@
         // Re-apply DOM removal after any async UI updates.
         removeArchiveUrlFromDom(linkUrl, null);
         refreshArchiveLinksUiAfterDelete();
+        cleanupOrphanSourceListItems(document);
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
         removeArchiveUrlFromDom(linkUrl, null);
         refreshArchiveLinksUiAfterDelete();
+        cleanupOrphanSourceListItems(document);
         showArchiveToast('הקישור הוסר מהתצוגה.');
       }
     }
@@ -21377,13 +21407,9 @@
         ? ' data-expansion-source-id="' + escapeHtml(String(expansionSourceId)) + '"'
         : '';
       return '<div class="admin-research-tools-inline" data-admin-research-inline="1"' + sourceAttr + '>' +
-        '<button type="button" class="admin-research-tools-trigger touch-btn text-sm bg-sage/10 text-sage-dark border border-sage/30 px-3 py-2 rounded-lg hover:bg-sage/15" aria-haspopup="menu" aria-expanded="false" title="כלי מחקר מתקדמים (מנהל)">' +
-        '<i class="fa-solid fa-flask ml-1" aria-hidden="true"></i> מחקר מתקדם</button>' +
-        '<div class="admin-research-menu admin-research-menu--inline hidden" role="menu" aria-label="כלי מחקר מתקדמים">' +
-        '<button type="button" class="admin-research-menu-item" data-admin-research-action="expand" role="menuitem">הרחב מחקר זה</button>' +
-        '<button type="button" class="admin-research-menu-item" data-admin-research-action="refresh" role="menuitem">רענן / החלף תוכן</button>' +
-        '<button type="button" class="admin-research-menu-item" data-admin-research-action="synthesize" role="menuitem">סנתז עם הארכיון</button>' +
-        '</div></div>';
+        '<button type="button" class="admin-research-fresh-btn touch-btn text-sm bg-sage/10 text-sage-dark border border-sage/30 px-3 py-2 rounded-lg hover:bg-sage/15" data-admin-research-fresh="1" title="הרחבה למחקר חדש">' +
+        '<i class="fa-solid fa-magnifying-glass ml-1" aria-hidden="true"></i> הרחבה למחקר חדש</button>' +
+        '</div>';
     }
 
     /**
@@ -21432,36 +21458,47 @@
       if (!wrap || wrap.dataset.adminResearchBound === '1') return;
       wrap.dataset.adminResearchBound = '1';
       wrap.addEventListener('click', function (e) {
-        var trigger = e.target && e.target.closest
-          ? e.target.closest('.admin-research-tools-trigger')
+        var btn = e.target && e.target.closest
+          ? e.target.closest('[data-admin-research-fresh]')
           : null;
-        if (trigger && wrap.contains(trigger)) {
-          e.preventDefault();
-          e.stopPropagation();
-          toggleAdminResearchMenuForWrap(wrap);
-          return;
-        }
-        var item = e.target && e.target.closest
-          ? e.target.closest('[data-admin-research-action]')
-          : null;
-        if (!item || !wrap.contains(item) || item.disabled) return;
+        if (!btn || !wrap.contains(btn) || btn.disabled) return;
         e.preventDefault();
         e.stopPropagation();
-        adminResearchActiveExpansionSourceId = String(
-          wrap.getAttribute('data-expansion-source-id') || ''
-        ).trim();
-        if (!adminResearchActiveExpansionSourceId) {
+        var sourceId = String(wrap.getAttribute('data-expansion-source-id') || '').trim();
+        if (!sourceId) {
           var hostPanel = wrap.closest(
             '.inline-expand-panel, details.static-expansion-block, details[data-static-expand], .expansion-btn-block'
           );
-          adminResearchActiveExpansionSourceId = resolveExpansionSourceId(hostPanel, '');
+          sourceId = resolveExpansionSourceId(hostPanel, '');
         }
-        var action = item.getAttribute('data-admin-research-action');
-        closeAllAdminResearchMenus();
-        if (action === 'expand') runAdminResearchExpand();
-        else if (action === 'refresh') runAdminResearchRefresh();
-        else if (action === 'synthesize') runAdminResearchSynthesize();
+        if (!sourceId) {
+          alert(isEnglish()
+            ? 'Could not identify this expansion.'
+            : 'לא ניתן לזהות את ההרחבה.');
+          return;
+        }
+        adminResearchActiveExpansionSourceId = sourceId;
+        runFreshExpansionResearch(sourceId, btn);
       });
+    }
+
+    /**
+     * Single admin action on an expansion: brand-new research from scratch
+     * (original Waldorf / anthroposophy system prompts, bypassCache).
+     */
+    async function runFreshExpansionResearch(sourceId, triggerBtn) {
+      var sid = String(sourceId || '').trim();
+      if (!sid) return;
+      if (triggerBtn) triggerBtn.disabled = true;
+      setAdminResearchLoading(true);
+      try {
+        await refreshSingleExpansionFromCloud(sid);
+      } catch (err) {
+        if (!isRateLimitError(err)) alert((err && err.message) || String(err));
+      } finally {
+        setAdminResearchLoading(false);
+        if (triggerBtn) triggerBtn.disabled = false;
+      }
     }
 
     function prependAdminResearchToolbarToPanel(panelOrDetails, expansionSourceId) {
@@ -21484,6 +21521,11 @@
         }
       }
       if (!existing) existing = host.querySelector(':scope > .admin-research-tools-inline');
+      // Replace legacy multi-action menus with the single "הרחבה למחקר חדש" button.
+      if (existing && !existing.querySelector('[data-admin-research-fresh]')) {
+        existing.remove();
+        existing = null;
+      }
       if (existing) {
         if (sourceId) existing.setAttribute('data-expansion-source-id', sourceId);
         bindAdminResearchInlineToolbar(existing);
@@ -21558,7 +21600,7 @@
       var btn = document.getElementById('btn-admin-research-tools');
       var items = document.querySelectorAll('.admin-research-menu-item');
       if (btn) btn.disabled = !!loading;
-      document.querySelectorAll('.admin-research-tools-trigger').forEach(function (trigger) {
+      document.querySelectorAll('.admin-research-tools-trigger, .admin-research-fresh-btn').forEach(function (trigger) {
         trigger.disabled = !!loading;
       });
       items.forEach(function (item) { item.disabled = !!loading; });
