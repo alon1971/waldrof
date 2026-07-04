@@ -15953,23 +15953,35 @@
     async function deleteArchiveLinkAdmin(url, triggerEl) {
       if (!isArchiveAdminUser()) return;
       if (!confirm(ARCHIVE_DELETE_CONFIRM)) return;
-      var blockHost = triggerEl && triggerEl.closest ? triggerEl.closest('[data-archive-key]') : null;
-      var cacheKey = resolveArchiveBlockCacheKey(
-        blockHost ? blockHost.getAttribute('data-archive-key') : ''
-      );
+      var ctx = buildArchiveDeleteRequestContext(triggerEl);
       if (triggerEl) triggerEl.disabled = true;
       // Optimistic UI: always remove from client sources/citations and DOM immediately.
       purgeArchiveUrlFromClientState(url);
       removeArchiveUrlFromDom(url, triggerEl);
-      if (!cacheKey) {
-        showArchiveToast('הקישור הוסר מהתצוגה.');
+      refreshArchiveLinksUiAfterDelete();
+      if (!ctx.cacheKey && !(ctx.gradeId && ctx.topic) && !ctx.query) {
+        showArchiveToast('הקישור הוסר מהתצוגה (לא נמצא מזהה ארכיון לשמירה).');
         return;
       }
       try {
-        await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: url });
+        var result = await postArchiveDeleteRequest({
+          action: 'delete_archive_link',
+          cacheKey: ctx.cacheKey,
+          url: url,
+          gradeId: ctx.gradeId,
+          gradeLabel: ctx.gradeLabel,
+          topic: ctx.topic,
+          phase: ctx.phase,
+          query: ctx.query,
+          periodBlock: ctx.periodBlock,
+        });
+        var payload = result && result.data ? result.data : result;
+        if (payload && payload.cacheKey && !appState.lessonCacheKey && ctx.phase === 'topic_master') {
+          appState.lessonCacheKey = payload.cacheKey;
+        }
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
-        // Link may exist only in live citations (not yet in archive row) — client already updated.
+        // Client already updated; archive row may be missing or URL only in live citations.
         showArchiveToast('הקישור הוסר מהתצוגה.');
       }
     }
@@ -16076,6 +16088,67 @@
       if (isGeneralSearchView()) return String(appState.generalSearchCacheKey || '').trim();
       if (appState.navSection === 'wizard' && appState.step === 1) return String(appState.gradeCacheKey || '').trim();
       return String(appState.lessonCacheKey || '').trim();
+    }
+
+    /** Resolve the active cached_results row key for the open lesson / search / grade view. */
+    function resolveActiveArchiveCacheKey(triggerEl) {
+      if (triggerEl && triggerEl.closest) {
+        var host = triggerEl.closest('[data-archive-key]');
+        if (host) {
+          var fromHost = String(host.getAttribute('data-archive-key') || '').trim();
+          if (fromHost) return fromHost;
+        }
+        var scope = triggerEl.closest(
+          '#phase-c-unified-root, #panel-narrative, #panel-resources, #web-research-result, #general-search-results, #grade-insights-body, #step-2, #workspace'
+        );
+        if (scope) {
+          var block = scope.querySelector('[data-archive-key]');
+          if (block) {
+            var fromScope = String(block.getAttribute('data-archive-key') || '').trim();
+            if (fromScope) return fromScope;
+          }
+        }
+      }
+      var explicit = resolveArchiveBlockCacheKey('');
+      if (explicit) return explicit;
+      if (appState.lessonCacheKey) return String(appState.lessonCacheKey).trim();
+      if (appState.generalSearchCacheKey) return String(appState.generalSearchCacheKey).trim();
+      if (appState.gradeCacheKey) return String(appState.gradeCacheKey).trim();
+      return '';
+    }
+
+    function buildArchiveDeleteRequestContext(triggerEl) {
+      var cacheKey = resolveActiveArchiveCacheKey(triggerEl);
+      var phase = 'topic_master';
+      var query = '';
+      if (isGeneralSearchView()) {
+        phase = 'general_search';
+        query = String(appState.generalSearchQuery || '').trim();
+      } else if (appState.navSection === 'wizard' && appState.step === 1 && !isWorkspaceOpen()) {
+        phase = 'grade';
+      }
+      return {
+        cacheKey: cacheKey,
+        gradeId: appState.grade || '',
+        gradeLabel: appState.gradeLabel || '',
+        topic: String(appState.topic || '').trim(),
+        phase: phase,
+        query: query,
+        periodBlock: Boolean(appState.generalSearchPeriodBlock),
+      };
+    }
+
+    function refreshArchiveLinksUiAfterDelete() {
+      try {
+        if (appState.purePhaseC && typeof phaseCRenderExtraLinksBox === 'function') {
+          phaseCRenderExtraLinksBox(appState.purePhaseC);
+        }
+      } catch (e1) { /* ignore */ }
+      try {
+        if (appState.purePhaseC && document.getElementById('theoretical-content') && typeof renderTheory === 'function') {
+          // Keep open expansion panels; only refresh extra-links is enough for most deletes.
+        }
+      } catch (e2) { /* ignore */ }
     }
 
     function normalizeArchiveSourceWhitespace(str) {
@@ -16325,16 +16398,33 @@
     async function deleteArchiveLinkSelection(ctx, cacheKey) {
       var linkUrl = ctx && ctx.linkUrl ? ctx.linkUrl : '';
       if (!linkUrl) { showArchiveToast('לא נמצא קישור למחיקה.', 'error'); return; }
+      var deleteCtx = buildArchiveDeleteRequestContext(ctx && ctx.anchorEl);
+      if (cacheKey) deleteCtx.cacheKey = cacheKey;
       // Optimistic UI: always remove from client sources/citations and DOM immediately.
       purgeArchiveUrlFromClientState(linkUrl);
       removeArchiveUrlFromDom(linkUrl, ctx.anchorEl || null);
+      refreshArchiveLinksUiAfterDelete();
       clearSelectionRanges();
-      if (!cacheKey) {
-        showArchiveToast('הקישור הוסר מהתצוגה.');
+      if (!deleteCtx.cacheKey && !(deleteCtx.gradeId && deleteCtx.topic) && !deleteCtx.query) {
+        showArchiveToast('הקישור הוסר מהתצוגה (לא נמצא מזהה ארכיון לשמירה).');
         return;
       }
       try {
-        await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: linkUrl });
+        var result = await postArchiveDeleteRequest({
+          action: 'delete_archive_link',
+          cacheKey: deleteCtx.cacheKey,
+          url: linkUrl,
+          gradeId: deleteCtx.gradeId,
+          gradeLabel: deleteCtx.gradeLabel,
+          topic: deleteCtx.topic,
+          phase: deleteCtx.phase,
+          query: deleteCtx.query,
+          periodBlock: deleteCtx.periodBlock,
+        });
+        var payload = result && result.data ? result.data : result;
+        if (payload && payload.cacheKey && !appState.lessonCacheKey && deleteCtx.phase === 'topic_master') {
+          appState.lessonCacheKey = payload.cacheKey;
+        }
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
         showArchiveToast('הקישור הוסר מהתצוגה.');
@@ -19859,6 +19949,9 @@
       var listEl = document.getElementById('phase-c-extra-links-list');
       if (!listEl) return;
       phaseCWipeContainer(listEl);
+      var archiveKey = resolveActiveArchiveCacheKey(listEl) || String(appState.lessonCacheKey || '').trim();
+      if (archiveKey) listEl.setAttribute('data-archive-key', archiveKey);
+      else listEl.removeAttribute('data-archive-key');
       var links = collectPhaseCResourcesLinks(data);
       var linksHtml = renderPureLinksBlock(links, {
         blockPinterest: true,

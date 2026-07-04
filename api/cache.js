@@ -427,19 +427,76 @@ async function deleteCachedRowByKey(cacheKey) {
 }
 
 function normalizeArchiveLinkUrl(url) {
-  return String(url || '').trim().toLowerCase().replace(/\/+$/, '');
+  let s = String(url || '').trim().toLowerCase();
+  if (!s) return '';
+  try {
+    const parsed = new URL(s);
+    parsed.hash = '';
+    const path = (parsed.pathname || '').replace(/\/+$/, '');
+    s = (parsed.origin + path + (parsed.search || '')).toLowerCase();
+  } catch (e) {
+    s = s.replace(/\/+$/, '');
+  }
+  return s;
+}
+
+function archiveUrlVariants(url) {
+  const norm = normalizeArchiveLinkUrl(url);
+  if (!norm) return [];
+  const out = [norm];
+  const bare = norm.replace(/^https?:\/\//, '');
+  if (bare && out.indexOf(bare) < 0) out.push(bare);
+  const noWww = bare.replace(/^www\./, '');
+  if (noWww && out.indexOf(noWww) < 0) out.push(noWww);
+  if (noWww && out.indexOf('https://' + noWww) < 0) out.push('https://' + noWww);
+  if (noWww && out.indexOf('http://' + noWww) < 0) out.push('http://' + noWww);
+  return out;
 }
 
 function archiveLinkItemMatchesUrl(item, targetNorm) {
   if (item == null || !targetNorm) return false;
-  if (typeof item === 'string') return normalizeArchiveLinkUrl(item) === targetNorm;
+  const variants = archiveUrlVariants(targetNorm);
+  function matchesRaw(raw) {
+    const n = normalizeArchiveLinkUrl(raw);
+    if (!n) return false;
+    if (n === targetNorm) return true;
+    for (let i = 0; i < variants.length; i++) {
+      if (n === variants[i] || n.indexOf(variants[i]) >= 0 || variants[i].indexOf(n) >= 0) return true;
+    }
+    return false;
+  }
+  if (typeof item === 'string') return matchesRaw(item);
   if (typeof item !== 'object') return false;
   const keys = ['url', 'link', 'href', 'readUrl', 'src', 'pinUrl'];
   for (let i = 0; i < keys.length; i++) {
     const value = item[keys[i]];
-    if (value && normalizeArchiveLinkUrl(value) === targetNorm) return true;
+    if (value && matchesRaw(value)) return true;
   }
   return false;
+}
+
+function stringContainsArchiveUrl(str, targetNorm) {
+  if (typeof str !== 'string' || !targetNorm) return false;
+  const lower = str.toLowerCase();
+  const variants = archiveUrlVariants(targetNorm);
+  for (let i = 0; i < variants.length; i++) {
+    if (variants[i] && lower.indexOf(variants[i]) >= 0) return true;
+  }
+  return false;
+}
+
+function stripUrlFromProseString(str, targetNorm) {
+  let out = String(str || '');
+  if (!out || !targetNorm) return out;
+  const variants = archiveUrlVariants(targetNorm);
+  variants.forEach(function (variant) {
+    if (!variant) return;
+    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp('<a\\b[^>]*href=["\'][^"\']*' + escaped + '[^"\']*["\'][^>]*>[\\s\\S]*?<\\/a>', 'gi'), '');
+    out = out.replace(new RegExp('\\[[^\\]]*\\]\\([^\\)]*' + escaped + '[^\\)]*\\)', 'gi'), '');
+    out = out.replace(new RegExp(escaped, 'gi'), '');
+  });
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function removeMatchingUrlsFromArchivePayload(value, targetNorm, depth) {
@@ -452,6 +509,15 @@ function removeMatchingUrlsFromArchivePayload(value, targetNorm, depth) {
       if (archiveLinkItemMatchesUrl(value[i], targetNorm)) {
         value.splice(i, 1);
         changed = true;
+      } else if (typeof value[i] === 'string' && stringContainsArchiveUrl(value[i], targetNorm)) {
+        const next = stripUrlFromProseString(value[i], targetNorm);
+        if (!next) {
+          value.splice(i, 1);
+          changed = true;
+        } else if (next !== value[i]) {
+          value[i] = next;
+          changed = true;
+        }
       } else if (value[i] && typeof value[i] === 'object') {
         if (removeMatchingUrlsFromArchivePayload(value[i], targetNorm, nextDepth)) changed = true;
       }
@@ -460,34 +526,104 @@ function removeMatchingUrlsFromArchivePayload(value, targetNorm, depth) {
   }
   if (typeof value === 'object') {
     Object.keys(value).forEach(function (key) {
-      if (removeMatchingUrlsFromArchivePayload(value[key], targetNorm, nextDepth)) changed = true;
+      const child = value[key];
+      if (typeof child === 'string') {
+        if (archiveLinkItemMatchesUrl(child, targetNorm)) {
+          value[key] = '';
+          changed = true;
+        } else if (stringContainsArchiveUrl(child, targetNorm)) {
+          const next = stripUrlFromProseString(child, targetNorm);
+          if (next !== child) {
+            value[key] = next;
+            changed = true;
+          }
+        }
+        return;
+      }
+      if (removeMatchingUrlsFromArchivePayload(child, targetNorm, nextDepth)) changed = true;
     });
   }
   return changed;
 }
 
+async function resolveArchiveRowForLinkDelete(cacheKey, opts) {
+  opts = opts || {};
+  let key = String(cacheKey || '').trim();
+  let row = key ? await fetchCachedRowByKey(key) : null;
+  if (row) return { row: row, cacheKey: key };
+
+  const gradeId = String(opts.gradeId || '').trim();
+  const topic = String(opts.topic || '').trim();
+  const phase = String(opts.phase || '').trim();
+  const query = String(opts.query || topic || '').trim();
+
+  if (gradeId && topic && (!phase || phase === TOPIC_MASTER_PHASE || phase === 'topic')) {
+    try {
+      const cached = await getTopicMasterCache(gradeId, topic, { requireEnhanced: false });
+      if (cached && cached.meta && cached.meta.cacheKey) {
+        row = await fetchCachedRowByKey(cached.meta.cacheKey);
+        if (row) return { row: row, cacheKey: cached.meta.cacheKey };
+      }
+    } catch (e) { /* continue */ }
+    const body = buildTopicMasterCacheBody(gradeId, opts.gradeLabel || null, topic);
+    const builtKey = buildCacheKey(body);
+    if (builtKey) {
+      row = await fetchCachedRowByKey(builtKey);
+      if (row) return { row: row, cacheKey: builtKey };
+    }
+  }
+
+  if (phase === 'grade' && gradeId) {
+    const gradeKey = buildCacheKey({ phase: 'grade', currentGrade: gradeId, gradeId: gradeId });
+    if (gradeKey) {
+      row = await fetchCachedRowByKey(gradeKey);
+      if (row) return { row: row, cacheKey: gradeKey };
+    }
+  }
+
+  if (query && (phase === GENERAL_SEARCH_PHASE || phase === 'pure_general_search' || phase === 'general-search')) {
+    const gsKey = buildCacheKey({
+      phase: GENERAL_SEARCH_PHASE,
+      query: query,
+      periodBlock: Boolean(opts.periodBlock),
+    });
+    if (gsKey) {
+      row = await fetchCachedRowByKey(gsKey);
+      if (row) return { row: row, cacheKey: gsKey };
+    }
+  }
+
+  return { row: null, cacheKey: key || null };
+}
+
 /**
  * Remove a broken/irrelevant link URL from a cached archive row (admin curation).
+ * Accepts optional gradeId/topic/phase to resolve the row when cacheKey is missing or stale.
  */
-async function removeArchiveLinkFromCache(cacheKey, url) {
-  const key = String(cacheKey || '').trim();
+async function removeArchiveLinkFromCache(cacheKey, url, opts) {
   const targetNorm = normalizeArchiveLinkUrl(url);
-  if (!key || !targetNorm) return { removed: false, cacheKey: key || null };
+  if (!targetNorm) return { removed: false, cacheKey: cacheKey || null, reason: 'bad_url' };
 
-  const row = await fetchCachedRowByKey(key);
-  if (!row || row.result_data == null) return { removed: false, cacheKey: key };
+  const resolved = await resolveArchiveRowForLinkDelete(cacheKey, opts || {});
+  const key = resolved.cacheKey;
+  const row = resolved.row;
+  if (!row || row.result_data == null) {
+    return { removed: false, cacheKey: key || null, reason: 'row_not_found' };
+  }
 
   let data = coerceCachedResultData(row.result_data);
-  if (!data || typeof data !== 'object') return { removed: false, cacheKey: key };
+  if (!data || typeof data !== 'object') {
+    return { removed: false, cacheKey: key, reason: 'bad_payload' };
+  }
 
   data = cloneJsonSafe(data);
-  if (!data) return { removed: false, cacheKey: key };
+  if (!data) return { removed: false, cacheKey: key, reason: 'clone_failed' };
 
   const changed = removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
-  if (!changed) return { removed: false, cacheKey: key };
+  if (!changed) return { removed: false, cacheKey: key, reason: 'url_not_in_payload' };
 
   const safeResultData = sanitizeForJsonStorage(data);
-  if (!safeResultData) return { removed: false, cacheKey: key };
+  if (!safeResultData) return { removed: false, cacheKey: key, reason: 'sanitize_failed' };
 
   let saved = false;
   if (isSupabaseCacheEnabled()) {
@@ -519,7 +655,7 @@ async function removeArchiveLinkFromCache(cacheKey, url) {
     saved = true;
   }
 
-  return { removed: saved, cacheKey: key };
+  return { removed: saved, cacheKey: key, reason: saved ? 'ok' : 'save_failed' };
 }
 
 function normalizeArchiveBlockValue(text) {

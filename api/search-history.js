@@ -191,21 +191,37 @@ async function executeSearchHistory(req) {
     await resolveArchiveAdmin(req, body);
     const cacheKey = String((body && body.cacheKey) || '').trim();
     const url = String((body && body.url) || '').trim();
-    if (!cacheKey || !url) {
-      const err = new Error('חסרים מזהה ארכיון או קישור למחיקה');
+    if (!url) {
+      const err = new Error('חסר קישור למחיקה');
       err.statusCode = 400;
       throw err;
     }
-    const result = await cacheDb.removeArchiveLinkFromCache(cacheKey, url);
+    const result = await cacheDb.removeArchiveLinkFromCache(cacheKey, url, {
+      gradeId: body && (body.gradeId || body.currentGrade),
+      gradeLabel: body && body.gradeLabel,
+      topic: body && body.topic,
+      phase: body && body.phase,
+      query: body && (body.query || body.topic),
+      periodBlock: body && body.periodBlock,
+    });
     if (!result || !result.removed) {
-      const err = new Error('הקישור לא נמצא בארכיון או שהמחיקה נכשלה');
+      const reason = result && result.reason ? result.reason : 'unknown';
+      let message = 'הקישור לא נמצא בארכיון או שהמחיקה נכשלה';
+      if (reason === 'row_not_found') {
+        message = 'לא ניתן למצוא את שורת הארכיון (cache_key) ולכן לא ניתן למחוק';
+      } else if (reason === 'url_not_in_payload') {
+        message = 'הקישור לא נמצא בנתוני הארכיון של הרשומה';
+      }
+      const err = new Error(message);
       err.statusCode = 404;
+      err.reason = reason;
+      err.cacheKey = result && result.cacheKey ? result.cacheKey : cacheKey;
       throw err;
     }
     return {
       ok: true,
       action: 'delete_archive_link',
-      cacheKey: cacheKey,
+      cacheKey: result.cacheKey || cacheKey,
       url: url,
     };
   }
