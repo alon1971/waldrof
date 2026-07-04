@@ -7434,15 +7434,19 @@
     }
 
     function handleArchiveUpgradeNo(scope) {
+      function quietAbortAlert(err) {
+        if (isBenignStreamAbortError(err)) return;
+        alert(err.message || String(err));
+      }
       if (scope === 'grade') {
-        runGradeArchiveUpgrade().catch(function (err) { alert(err.message || String(err)); });
+        runGradeArchiveUpgrade().catch(quietAbortAlert);
         return;
       }
       if (scope === 'general-search') {
-        runGeneralSearchArchiveUpgrade().catch(function (err) { alert(err.message || String(err)); });
+        runGeneralSearchArchiveUpgrade().catch(quietAbortAlert);
         return;
       }
-      runTopicArchiveUpgrade(scope).catch(function (err) { alert(err.message || String(err)); });
+      runTopicArchiveUpgrade(scope).catch(quietAbortAlert);
     }
 
     function ensureArchiveUpgradeQueryEvents() {
@@ -8510,9 +8514,11 @@
         res = await fetch(url, streamInit);
       } catch (netErr) {
         clearIdleTimer();
-        if (netErr && netErr.name === 'AbortError') {
+        if (isBenignStreamAbortError(netErr)) {
           if (idleTimedOut) throw makeIdleTimeoutError();
-          throw netErr;
+          var abortNet = new Error(netErr && netErr.message ? netErr.message : 'aborted');
+          abortNet.name = 'AbortError';
+          throw abortNet;
         }
         throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
       }
@@ -8521,9 +8527,19 @@
       if (!res.body || !res.body.getReader || !/text\/event-stream/i.test(contentType)) {
         // Server fell back to buffered JSON — parse the whole body once.
         clearIdleTimer();
-        const bodyText = await res.text();
-        const json = parseApiJsonResponse(bodyText);
-        return { res: { ok: res.ok, status: res.status }, json: json };
+        try {
+          const bodyText = await res.text();
+          const json = parseApiJsonResponse(bodyText);
+          return { res: { ok: res.ok, status: res.status }, json: json };
+        } catch (bodyErr) {
+          if (isBenignStreamAbortError(bodyErr)) {
+            if (idleTimedOut) throw makeIdleTimeoutError();
+            var abortBody = new Error(bodyErr && bodyErr.message ? bodyErr.message : 'aborted');
+            abortBody.name = 'AbortError';
+            throw abortBody;
+          }
+          throw bodyErr;
+        }
       }
 
       const reader = res.body.getReader();
@@ -8592,12 +8608,20 @@
         }
         if (buffer.trim()) drainBlock(buffer);
       } catch (readErr) {
-        if (readErr && readErr.name === 'AbortError') {
+        if (isBenignStreamAbortError(readErr)) {
           // Distinguish a silent-stream idle cutoff from a genuine user cancellation.
+          // BodyStreamBuffer / abort during re-render must stay silent.
           if (idleTimedOut) throw makeIdleTimeoutError();
-          throw readErr;
+          if (finalEnvelope) {
+            // Stream was cut after we already got a terminal result — use it.
+          } else {
+            var abortRead = new Error(readErr && readErr.message ? readErr.message : 'aborted');
+            abortRead.name = 'AbortError';
+            throw abortRead;
+          }
+        } else if (!finalEnvelope) {
+          throw new Error('שגיאת רשת בזרם הנתונים: ' + (readErr.message || readErr));
         }
-        if (!finalEnvelope) throw new Error('שגיאת רשת בזרם הנתונים: ' + (readErr.message || readErr));
       } finally {
         clearIdleTimer();
         if (externalSignal && typeof externalSignal.removeEventListener === 'function') {
@@ -21018,8 +21042,22 @@
 
     var generalSearchAbort = null;
 
+    /** True for intentional/stream aborts — never surface these as alert() to the user. */
+    function isBenignStreamAbortError(err) {
+      if (!err) return false;
+      if (err.name === 'AbortError' || err.code === 20) return true;
+      var msg = String(err.message || err || '');
+      if (!msg) return false;
+      var lower = msg.toLowerCase();
+      return lower.indexOf('aborted') >= 0 ||
+        lower.indexOf('bodystreambuffer') >= 0 ||
+        lower.indexOf('bodystream') >= 0 ||
+        lower.indexOf('the user aborted') >= 0 ||
+        lower.indexOf('signal is aborted') >= 0;
+    }
+
     function isGeneralSearchAbortError(err) {
-      return Boolean(err && (err.name === 'AbortError' || err.message === 'The user aborted a request.'));
+      return isBenignStreamAbortError(err);
     }
 
     var generalSearchArchiveSuggestionHandlers = null;
@@ -21113,11 +21151,17 @@
               performGeneralSearch(query, {
                 periodBlock: periodBlock,
                 confirmArchiveKey: meta.archiveSuggestion.cacheKey,
-              }).catch(function (err) { alert(err.message || String(err)); });
+              }).catch(function (err) {
+                if (isBenignStreamAbortError(err)) return;
+                alert(err.message || String(err));
+              });
             },
             onReject: function () {
               performGeneralSearch(query, { periodBlock: periodBlock, bypassCache: true })
-                .catch(function (err) { alert(err.message || String(err)); });
+                .catch(function (err) {
+                  if (isBenignStreamAbortError(err)) return;
+                  alert(err.message || String(err));
+                });
             },
           })) {
             return;
@@ -21133,7 +21177,8 @@
         appState.generalSearchResult = response.data;
         renderGeneralSearchResults(response.data);
       } catch (err) {
-        if (isGeneralSearchAbortError(err)) return;
+        // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
+        if (isGeneralSearchAbortError(err) || isBenignStreamAbortError(err) || signal.aborted) return;
         var resultsEl = document.getElementById('general-search-results');
         if (resultsEl) {
           resultsEl.classList.remove('hidden');
@@ -21162,7 +21207,18 @@
         return;
       }
       ensureGeneralSearchArchiveSuggestionEvents();
-      await performGeneralSearch(query, {});
+      try {
+        await performGeneralSearch(query, {});
+      } catch (err) {
+        // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
+        if (isBenignStreamAbortError(err) || isGeneralSearchAbortError(err)) return;
+        var resultsEl = document.getElementById('general-search-results');
+        if (resultsEl) {
+          resultsEl.classList.remove('hidden');
+          resultsEl.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+            escapeHtml(err && err.message ? err.message : String(err)) + '</p>';
+        }
+      }
     }
 
     function clearGeneralSearchWorkspace() {
@@ -21781,7 +21837,8 @@
         try {
           await refreshSingleExpansionFromCloud(sid);
         } catch (err) {
-          if (!isRateLimitError(err)) alert((err && err.message) || String(err));
+          if (isBenignStreamAbortError(err) || isRateLimitError(err)) return;
+          alert((err && err.message) || String(err));
         } finally {
           setAdminResearchLoading(false);
           if (triggerBtn) triggerBtn.disabled = false;
@@ -23380,7 +23437,7 @@
     }
 
     function isGradeResearchAbortError(err) {
-      return Boolean(err && (err.name === 'AbortError' || err.message === 'The user aborted a request.'));
+      return isBenignStreamAbortError(err);
     }
 
     function cancelGradeResearch(e) {
@@ -23585,7 +23642,7 @@
     }
 
     function isTopicResearchAbortError(err) {
-      return Boolean(err && (err.name === 'AbortError' || err.message === 'The user aborted a request.'));
+      return isBenignStreamAbortError(err);
     }
 
     function normalizeArchiveSuggestionMatch(match) {
@@ -23693,6 +23750,7 @@
           }
           return runArchiveMergeResearch(topic, historicPayload);
         }).catch(function (err) {
+          if (isBenignStreamAbortError(err)) return;
           alert(err.message || String(err));
         });
       };
@@ -23701,6 +23759,7 @@
         appState.archiveMergePending = null;
         hideTopicArchiveSuggestionBanner();
         runFreshArchiveBypassResearch(topic).catch(function (err) {
+          if (isBenignStreamAbortError(err)) return;
           alert(err.message || String(err));
         });
       };
@@ -23771,6 +23830,7 @@
           return true;
         }
         applyArchiveTopicMatch(match, { closeChat: false, userQuery: topic }).catch(function (err) {
+          if (isBenignStreamAbortError(err)) return;
           alert(err.message || String(err));
         });
         return true;
@@ -23821,6 +23881,7 @@
           }).then(function () {
             if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
           }).catch(function (err) {
+            if (isBenignStreamAbortError(err)) return;
             alert(err.message || String(err));
           });
           return;
@@ -23841,6 +23902,7 @@
         }).then(function () {
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
         }).catch(function (err) {
+          if (isBenignStreamAbortError(err)) return;
           alert(err.message || String(err));
         });
       };
@@ -23873,6 +23935,7 @@
             rejectBtn.disabled = false;
             updateTopicResearchButton();
           }
+          if (isBenignStreamAbortError(err)) return;
           alert(err.message || String(err));
         });
       };
@@ -24198,36 +24261,49 @@
         return;
       }
 
-      const skipArchiveProbe = Boolean(
-        genOpts.scopeOverride || forceCacheBypass || shouldForceLiveArchiveBypass(topic, currentGrade)
-      );
-      if (!skipArchiveProbe) {
-        let archiveMatch = null;
-        try {
-          archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-        } catch (probeErr) {
-          console.warn('[archive-probe] topic search failed:', probeErr);
+      try {
+        const skipArchiveProbe = Boolean(
+          genOpts.scopeOverride || forceCacheBypass || shouldForceLiveArchiveBypass(topic, currentGrade)
+        );
+        if (!skipArchiveProbe) {
+          let archiveMatch = null;
+          try {
+            archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+          } catch (probeErr) {
+            if (isBenignStreamAbortError(probeErr)) return;
+            console.warn('[archive-probe] topic search failed:', probeErr);
+          }
+          if (runId !== topicResearchRunId || signal.aborted) {
+            setTopicResearchLoadingUi(false);
+            btn.disabled = false;
+            updateTopicResearchButton();
+            return;
+          }
+          if (archiveMatch && archiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
+            setTopicResearchLoadingUi(false);
+            btn.disabled = false;
+            updateTopicResearchButton();
+            topicResearchAbort = null;
+            presentGradeMismatchNotice(archiveMatch.gradeMismatch);
+            return;
+          }
+          if (presentArchivePartialMatch(topic, archiveMatch)) {
+            return;
+          }
         }
-        if (runId !== topicResearchRunId || signal.aborted) {
-          setTopicResearchLoadingUi(false);
-          btn.disabled = false;
-          updateTopicResearchButton();
-          return;
-        }
-        if (archiveMatch && archiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
-          setTopicResearchLoadingUi(false);
-          btn.disabled = false;
-          updateTopicResearchButton();
-          topicResearchAbort = null;
-          presentGradeMismatchNotice(archiveMatch.gradeMismatch);
-          return;
-        }
-        if (presentArchivePartialMatch(topic, archiveMatch)) {
-          return;
-        }
-      }
 
-      await runPurePhaseCFromStepB(topic, runId, signal, { forceRefresh: forceCacheBypass, bypassCache: forceCacheBypass });
+        await runPurePhaseCFromStepB(topic, runId, signal, { forceRefresh: forceCacheBypass, bypassCache: forceCacheBypass });
+      } catch (err) {
+        // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
+        if (isBenignStreamAbortError(err) || runId !== topicResearchRunId || signal.aborted) return;
+        if (isRateLimitError(err)) return;
+        if (out) {
+          out.classList.remove('hidden');
+          out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+            escapeHtml(err && err.message ? err.message : String(err)) + '</p>';
+        }
+        updateTopicResearchButton();
+      }
     }
 
     function renderPersonalList() {
