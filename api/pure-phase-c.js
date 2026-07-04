@@ -534,6 +534,7 @@ function extractLiveCitationsFromParsed(parsed, topic) {
   function pushUrl(url, snippet) {
     const clean = cleanHarvestedUrl(url);
     if (!clean || isDeadPhaseCFallbackUrl(clean) || isForbiddenForeignSourceUrl(clean)) return;
+    if (isArchiveUrlSuppressedInPhaseCPayload(clean, parsed)) return;
     if (violatesPedagogicalTopicContext(clean, snippet || '', topicStr)) return;
     const key = normalizeCitationUrlForMatch(clean);
     if (!key || seen.has(key)) return;
@@ -1622,6 +1623,20 @@ function extractUrlFromLinkItem(item) {
 }
 
 /** Harvest every live HTTPS URL stored across Phase C link arrays (for archive round-trip). */
+function isArchiveUrlSuppressedInPhaseCPayload(url, data) {
+  if (!data || !Array.isArray(data._suppressedArchiveUrls) || !data._suppressedArchiveUrls.length) return false;
+  const key = normalizeCitationUrlForMatch(url) || String(url || '').trim().toLowerCase();
+  if (!key) return false;
+  for (let i = 0; i < data._suppressedArchiveUrls.length; i++) {
+    const entryKey = normalizeCitationUrlForMatch(data._suppressedArchiveUrls[i])
+      || String(data._suppressedArchiveUrls[i] || '').trim().toLowerCase();
+    if (entryKey && (entryKey === key || entryKey.indexOf(key) >= 0 || key.indexOf(entryKey) >= 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function collectPhaseCLinkUrlList(normalized, topic) {
   if (!normalized || typeof normalized !== 'object') return [];
   const topicStr = String(topic || (normalized._topicMaster && normalized._topicMaster.topic) || '').trim();
@@ -1630,6 +1645,7 @@ function collectPhaseCLinkUrlList(normalized, topic) {
   function pushUrl(raw) {
     const clean = cleanHarvestedUrl(raw);
     if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
+    if (isArchiveUrlSuppressedInPhaseCPayload(clean, normalized)) return;
     if (violatesPedagogicalTopicContext(clean, '', topicStr)) return;
     const key = normalizeCitationUrlForMatch(clean);
     if (!key || seen.has(key)) return;
@@ -1672,6 +1688,7 @@ function collectPhaseCLinkItemsForDisplay(normalized, topic) {
     const clean = cleanHarvestedUrl(url);
     if (!clean || isDeadPhaseCFallbackUrl(clean)) return;
     if (isPinterestPhaseCUrl(clean)) return;
+    if (isArchiveUrlSuppressedInPhaseCPayload(clean, normalized)) return;
     const snippet = String(title || '').trim();
     if (violatesPedagogicalTopicContext(clean, snippet, topicStr)) return;
     const key = normalizeCitationUrlForMatch(clean);

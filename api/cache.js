@@ -549,39 +549,126 @@ function removeMatchingUrlsFromArchivePayload(value, targetNorm, depth) {
   return changed;
 }
 
-async function findCachedRowContainingUrl(url, opts) {
+async function findAllCachedRowsContainingUrl(url, opts) {
   opts = opts || {};
   const targetNorm = normalizeArchiveLinkUrl(url);
   const gradeId = String(opts.gradeId || '').trim();
-  if (!targetNorm || !gradeId || !isSupabaseCacheEnabled()) return null;
+  const found = [];
+  if (!targetNorm || !gradeId || !isSupabaseCacheEnabled()) return found;
   try {
     const params = new URLSearchParams();
     params.set('select', LEGACY_ROW_SELECT);
     params.set('grade_id', 'eq.' + gradeId);
     params.set('phase', 'in.(' + TOPIC_MASTER_PHASE + ',topic,' + GENERAL_SEARCH_PHASE + ')');
     params.set('order', 'last_hit_at.desc.nullslast,created_at.desc');
-    params.set('limit', '25');
+    params.set('limit', '40');
     const res = await supabaseRequest(
       '/rest/v1/' + TABLE_NAME + '?' + params.toString(),
       { method: 'GET' }
     );
-    if (!res.ok) return null;
+    if (!res.ok) return found;
     const rows = await res.json();
-    if (!Array.isArray(rows)) return null;
+    if (!Array.isArray(rows)) return found;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.result_data == null) continue;
       const data = coerceCachedResultData(row.result_data);
       if (!data || typeof data !== 'object') continue;
-      const probe = cloneJsonSafe(data);
-      if (probe && removeMatchingUrlsFromArchivePayload(probe, targetNorm, 0)) {
-        return row;
-      }
+      // Match link arrays, HTML, or prior suppress list / raw API citations blob.
+      if (payloadContainsArchiveUrl(data, targetNorm)) found.push(row);
     }
   } catch (err) {
-    console.warn('[cached_results] find row by url failed:', err.message || err);
+    console.warn('[cached_results] find rows by url failed:', err.message || err);
   }
-  return null;
+  return found;
+}
+
+async function findCachedRowContainingUrl(url, opts) {
+  const rows = await findAllCachedRowsContainingUrl(url, opts);
+  return rows.length ? rows[0] : null;
+}
+
+function payloadContainsArchiveUrl(data, targetNorm) {
+  if (!data || !targetNorm) return false;
+  const probe = cloneJsonSafe(data);
+  if (probe && removeMatchingUrlsFromArchivePayload(probe, targetNorm, 0)) return true;
+  const suppressed = Array.isArray(data._suppressedArchiveUrls) ? data._suppressedArchiveUrls : [];
+  for (let i = 0; i < suppressed.length; i++) {
+    if (normalizeArchiveLinkUrl(suppressed[i]) === targetNorm) return true;
+  }
+  const raw = data._apiResponseRaw;
+  if (typeof raw === 'string' && stringContainsArchiveUrl(raw, targetNorm)) return true;
+  return false;
+}
+
+/** Permanently record a deleted URL so hydrate cannot resurrect it from _apiResponseRaw. */
+function rememberSuppressedArchiveUrl(data, url) {
+  if (!data || typeof data !== 'object') return;
+  if (!Array.isArray(data._suppressedArchiveUrls)) data._suppressedArchiveUrls = [];
+  const raw = String(url || '').trim();
+  if (raw && data._suppressedArchiveUrls.indexOf(raw) < 0) data._suppressedArchiveUrls.push(raw);
+  archiveUrlVariants(url).forEach(function (variant) {
+    if (variant && data._suppressedArchiveUrls.indexOf(variant) < 0) {
+      data._suppressedArchiveUrls.push(variant);
+    }
+  });
+}
+
+function isArchiveUrlSuppressedInPayload(url, data) {
+  if (!data || !Array.isArray(data._suppressedArchiveUrls) || !data._suppressedArchiveUrls.length) return false;
+  const targetNorm = normalizeArchiveLinkUrl(url);
+  if (!targetNorm) return false;
+  for (let i = 0; i < data._suppressedArchiveUrls.length; i++) {
+    const entryNorm = normalizeArchiveLinkUrl(data._suppressedArchiveUrls[i]);
+    if (entryNorm && (entryNorm === targetNorm || entryNorm.indexOf(targetNorm) >= 0 || targetNorm.indexOf(entryNorm) >= 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Strip every suppressed URL from link fields / HTML / citations and rebuild _liveCitations. */
+function applySuppressedArchiveUrlsToPayload(data) {
+  if (!data || typeof data !== 'object') return data;
+  const list = Array.isArray(data._suppressedArchiveUrls) ? data._suppressedArchiveUrls.slice() : [];
+  list.forEach(function (url) {
+    const norm = normalizeArchiveLinkUrl(url);
+    if (norm) removeMatchingUrlsFromArchivePayload(data, norm, 0);
+  });
+  rebuildLiveCitationsWithoutSuppressed(data);
+  return data;
+}
+
+function rebuildLiveCitationsWithoutSuppressed(data) {
+  if (!data || typeof data !== 'object') return;
+  const urls = [];
+  const seen = Object.create(null);
+  function pushUrl(raw) {
+    const u = String(raw || '').trim();
+    if (!u || !/^https?:\/\//i.test(u) || seen[u]) return;
+    if (isArchiveUrlSuppressedInPayload(u, data)) return;
+    seen[u] = true;
+    urls.push(u);
+  }
+  function walkList(list) {
+    (list || []).forEach(function (item) {
+      if (!item) return;
+      if (typeof item === 'string') pushUrl(item);
+      else pushUrl(item.url || item.link || item.href);
+    });
+  }
+  walkList(data.relevant_links);
+  walkList(data.pedagogical_resources);
+  walkList(data.pinterest_links);
+  walkList(data.recommended_reading);
+  walkList(data._liveCitations);
+  const bib = data.theory && data.theory.bibliography;
+  if (bib) {
+    walkList(bib.books);
+    walkList(bib.articles);
+    walkList(bib.websites);
+  }
+  data._liveCitations = urls;
 }
 
 async function resolveArchiveRowForLinkDelete(cacheKey, opts) {
@@ -647,7 +734,7 @@ async function persistCachedResultData(cacheKey, resultData, existingRow) {
   const safeResultData = sanitizeForJsonStorage(resultData);
   if (!key || !safeResultData) return false;
 
-  let saved = false;
+  let supabaseSaved = false;
   if (isSupabaseCacheEnabled()) {
     try {
       // Prefer PATCH with representation so we know a row was actually updated.
@@ -663,14 +750,14 @@ async function persistCachedResultData(cacheKey, resultData, existingRow) {
         const text = await patchRes.text();
         let rows = [];
         try { rows = text ? JSON.parse(text) : []; } catch (e) { rows = []; }
-        if (Array.isArray(rows) && rows.length > 0) saved = true;
+        if (Array.isArray(rows) && rows.length > 0) supabaseSaved = true;
       } else {
         const errText = await patchRes.text();
         console.warn('[cached_results] archive link delete PATCH error', patchRes.status, errText.slice(0, 200));
       }
 
       // UPSERT fallback when PATCH matched 0 rows or failed.
-      if (!saved) {
+      if (!supabaseSaved) {
         const upsertRow = {
           cache_key: key,
           phase: (existingRow && existingRow.phase) || TOPIC_MASTER_PHASE,
@@ -693,7 +780,7 @@ async function persistCachedResultData(cacheKey, resultData, existingRow) {
           const text = await upsertRes.text();
           let rows = [];
           try { rows = text ? JSON.parse(text) : []; } catch (e) { rows = []; }
-          saved = Array.isArray(rows) ? rows.length > 0 : true;
+          supabaseSaved = Array.isArray(rows) ? rows.length > 0 : true;
         } else {
           const errText = await upsertRes.text();
           console.warn('[cached_results] archive link delete UPSERT error', upsertRes.status, errText.slice(0, 200));
@@ -704,14 +791,17 @@ async function persistCachedResultData(cacheKey, resultData, existingRow) {
     }
   }
 
+  // Mirror to local fallback, but never report success from fallback alone when Supabase is on
+  // (otherwise the UI thinks the delete stuck while F5 still loads the old Supabase row).
+  let fallbackSaved = false;
   loadFallbackStore();
   if (fallbackStore.rows.has(key)) {
     const existing = fallbackStore.rows.get(key);
     existing.result_data = safeResultData;
     fallbackStore.rows.set(key, existing);
     persistFallbackStore();
-    saved = true;
-  } else if (safeResultData) {
+    fallbackSaved = true;
+  } else if (safeResultData && !isSupabaseCacheEnabled()) {
     fallbackStore.rows.set(key, {
       cache_key: key,
       phase: (existingRow && existingRow.phase) || TOPIC_MASTER_PHASE,
@@ -721,15 +811,27 @@ async function persistCachedResultData(cacheKey, resultData, existingRow) {
       hit_count: 0,
     });
     persistFallbackStore();
-    saved = true;
+    fallbackSaved = true;
+  } else if (safeResultData && isSupabaseCacheEnabled() && supabaseSaved) {
+    fallbackStore.rows.set(key, {
+      cache_key: key,
+      phase: (existingRow && existingRow.phase) || TOPIC_MASTER_PHASE,
+      grade_id: (existingRow && existingRow.grade_id) || null,
+      topic: (existingRow && existingRow.topic) || null,
+      result_data: safeResultData,
+      hit_count: 0,
+    });
+    persistFallbackStore();
   }
 
-  return saved;
+  if (isSupabaseCacheEnabled()) return supabaseSaved;
+  return fallbackSaved;
 }
 
 /**
- * Remove a broken/irrelevant link URL from a cached archive row (admin curation).
- * Accepts optional gradeId/topic/phase and client-cleaned updatedPayload for authoritative write.
+ * Remove a broken/irrelevant link URL from cached archive row(s) (admin curation).
+ * Writes every matching cached_results row for the grade, records _suppressedArchiveUrls
+ * so hydrate cannot resurrect the link from _apiResponseRaw, and requires a real Supabase write.
  */
 async function removeArchiveLinkFromCache(cacheKey, url, opts) {
   opts = opts || {};
@@ -737,76 +839,104 @@ async function removeArchiveLinkFromCache(cacheKey, url, opts) {
   if (!targetNorm) return { removed: false, cacheKey: cacheKey || null, reason: 'bad_url' };
 
   const resolved = await resolveArchiveRowForLinkDelete(cacheKey, Object.assign({}, opts, { url: url }));
-  let key = resolved.cacheKey || String(cacheKey || '').trim();
-  let row = resolved.row;
+  let primaryKey = resolved.cacheKey || String(cacheKey || '').trim();
+  let primaryRow = resolved.row;
 
-  const gradeId = String(opts.gradeId || (row && row.grade_id) || '').trim();
-  const topic = String(opts.topic || (row && row.topic) || '').trim();
-  if ((!key || !row) && gradeId && topic) {
+  const gradeId = String(opts.gradeId || (primaryRow && primaryRow.grade_id) || '').trim();
+  const topic = String(opts.topic || (primaryRow && primaryRow.topic) || '').trim();
+  if ((!primaryKey || !primaryRow) && gradeId && topic) {
     const body = buildTopicMasterCacheBody(gradeId, opts.gradeLabel || null, topic);
     const builtKey = buildCacheKey(body);
     if (builtKey) {
-      key = builtKey;
-      if (!row) row = await fetchCachedRowByKey(builtKey);
+      primaryKey = primaryKey || builtKey;
+      if (!primaryRow) primaryRow = await fetchCachedRowByKey(builtKey);
+      if (!primaryKey) primaryKey = builtKey;
     }
   }
 
-  // Prefer client-cleaned payload (already purged of the URL) when provided.
-  let data = null;
-  if (opts.updatedPayload && typeof opts.updatedPayload === 'object') {
-    data = cloneJsonSafe(opts.updatedPayload);
-  } else if (row && row.result_data != null) {
-    data = cloneJsonSafe(coerceCachedResultData(row.result_data));
+  // Collect every candidate row that still holds this URL (or is the active lesson key).
+  const candidates = new Map();
+  function addCandidate(row, key) {
+    const k = String(key || (row && row.cache_key) || '').trim();
+    if (!k) return;
+    if (!candidates.has(k)) candidates.set(k, row || null);
   }
-
-  if (!data || typeof data !== 'object') {
-    return { removed: false, cacheKey: key || null, reason: 'row_not_found' };
+  if (primaryKey) addCandidate(primaryRow, primaryKey);
+  if (gradeId && topic) {
+    const body = buildTopicMasterCacheBody(gradeId, opts.gradeLabel || null, topic);
+    const builtKey = buildCacheKey(body);
+    if (builtKey) {
+      const builtRow = await fetchCachedRowByKey(builtKey);
+      addCandidate(builtRow, builtKey);
+    }
   }
-  if (!key) {
-    return { removed: false, cacheKey: null, reason: 'row_not_found' };
-  }
-
-  // Always strip by URL (arrays + <li>/<a> in HTML strings) — never depend on surrounding prose.
-  removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
-
-  // Rebuild _liveCitations from remaining link fields only (do not resurrect deleted URL).
-  try {
-    const urls = [];
-    const seen = Object.create(null);
-    function pushUrl(raw) {
-      const u = String(raw || '').trim();
-      if (!u || !/^https?:\/\//i.test(u) || seen[u]) return;
-      if (normalizeArchiveLinkUrl(u) === targetNorm) return;
-      seen[u] = true;
-      urls.push(u);
-    }
-    function walkList(list) {
-      (list || []).forEach(function (item) {
-        if (!item) return;
-        if (typeof item === 'string') pushUrl(item);
-        else pushUrl(item.url || item.link || item.href);
-      });
-    }
-    walkList(data.relevant_links);
-    walkList(data.pedagogical_resources);
-    walkList(data.pinterest_links);
-    walkList(data.recommended_reading);
-    const bib = data.theory && data.theory.bibliography;
-    if (bib) {
-      walkList(bib.books);
-      walkList(bib.articles);
-      walkList(bib.websites);
-    }
-    data._liveCitations = urls;
-  } catch (e) { /* keep stripped payload */ }
-
-  const saved = await persistCachedResultData(key, data, row || {
-    phase: TOPIC_MASTER_PHASE,
-    grade_id: gradeId || null,
-    topic: topic || null,
+  const byUrlRows = await findAllCachedRowsContainingUrl(url, {
+    gradeId: gradeId,
+    topic: topic,
+    phase: opts.phase,
+  });
+  byUrlRows.forEach(function (row) {
+    if (row && row.cache_key) addCandidate(row, row.cache_key);
   });
 
-  return { removed: saved, cacheKey: key, reason: saved ? 'ok' : 'save_failed' };
+  // Allow write from client payload even when the row was not found by key (UPSERT path).
+  if (!candidates.size && primaryKey && opts.updatedPayload && typeof opts.updatedPayload === 'object') {
+    addCandidate(primaryRow, primaryKey);
+  }
+
+  if (!candidates.size) {
+    return { removed: false, cacheKey: primaryKey || null, reason: 'row_not_found' };
+  }
+
+  let anySaved = false;
+  let savedKey = primaryKey || null;
+
+  for (const entry of candidates.entries()) {
+    const key = entry[0];
+    let row = entry[1];
+    if (!row) row = await fetchCachedRowByKey(key);
+
+    let data = null;
+    // Prefer client-cleaned payload for the primary active lesson key.
+    if (key === primaryKey && opts.updatedPayload && typeof opts.updatedPayload === 'object') {
+      data = cloneJsonSafe(opts.updatedPayload);
+      // Merge prior suppress list from the DB row so older deletes stay deleted.
+      if (row && row.result_data != null) {
+        const existing = coerceCachedResultData(row.result_data);
+        if (existing && Array.isArray(existing._suppressedArchiveUrls)) {
+          if (!Array.isArray(data._suppressedArchiveUrls)) data._suppressedArchiveUrls = [];
+          existing._suppressedArchiveUrls.forEach(function (u) {
+            if (u && data._suppressedArchiveUrls.indexOf(u) < 0) data._suppressedArchiveUrls.push(u);
+          });
+        }
+        // Keep _apiResponseRaw from DB when client omitted it, then strip the URL from it.
+        if (data._apiResponseRaw == null && existing && existing._apiResponseRaw != null) {
+          data._apiResponseRaw = existing._apiResponseRaw;
+        }
+      }
+    } else if (row && row.result_data != null) {
+      data = cloneJsonSafe(coerceCachedResultData(row.result_data));
+    }
+
+    if (!data || typeof data !== 'object') continue;
+
+    // Strip URL from arrays, HTML <li>/<a>, and _apiResponseRaw citations blob.
+    removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
+    rememberSuppressedArchiveUrl(data, url);
+    applySuppressedArchiveUrlsToPayload(data);
+
+    const saved = await persistCachedResultData(key, data, row || {
+      phase: opts.phase || TOPIC_MASTER_PHASE,
+      grade_id: gradeId || null,
+      topic: topic || null,
+    });
+    if (saved) {
+      anySaved = true;
+      savedKey = key;
+    }
+  }
+
+  return { removed: anySaved, cacheKey: savedKey, reason: anySaved ? 'ok' : 'save_failed' };
 }
 
 function normalizeArchiveBlockValue(text) {
@@ -2617,6 +2747,8 @@ function hydrateTopicMasterArchiveLinks(data) {
     }
     if (urls.length) data._liveCitations = urls;
   }
+  // Admin-deleted links must never return via _apiResponseRaw / stamp hydration.
+  applySuppressedArchiveUrlsToPayload(data);
   return data;
 }
 

@@ -16034,6 +16034,30 @@
       });
     }
 
+    function rememberSuppressedArchiveUrlOnPayload(payload, url) {
+      if (!payload || typeof payload !== 'object') return;
+      if (!Array.isArray(payload._suppressedArchiveUrls)) payload._suppressedArchiveUrls = [];
+      var raw = String(url || '').trim();
+      if (raw && payload._suppressedArchiveUrls.indexOf(raw) < 0) payload._suppressedArchiveUrls.push(raw);
+      archiveUrlVariantsClient(url).forEach(function (variant) {
+        if (variant && payload._suppressedArchiveUrls.indexOf(variant) < 0) {
+          payload._suppressedArchiveUrls.push(variant);
+        }
+      });
+    }
+
+    function syncSuppressedArchiveUrlsFromPayload(payload) {
+      if (!payload || !Array.isArray(payload._suppressedArchiveUrls)) return;
+      payload._suppressedArchiveUrls.forEach(function (u) {
+        if (u) suppressArchiveUrlClient(u);
+      });
+      if (Array.isArray(payload._liveCitations)) {
+        payload._liveCitations = payload._liveCitations.filter(function (u) {
+          return !isArchiveUrlSuppressedClient(u);
+        });
+      }
+    }
+
     function purgeArchiveUrlFromClientState(url) {
       if (!url) return;
       suppressArchiveUrlClient(url);
@@ -16042,6 +16066,15 @@
         if (typeof item === 'string') return archiveUrlsMatchClient(item, url);
         if (typeof item !== 'object') return false;
         return archiveUrlsMatchClient(item.url || item.link || item.href || item.src || item.pinUrl, url);
+      }
+      function stringContainsArchiveUrlClient(str) {
+        if (typeof str !== 'string' || !str) return false;
+        var lower = str.toLowerCase();
+        var variants = archiveUrlVariantsClient(url);
+        for (var i = 0; i < variants.length; i++) {
+          if (variants[i] && lower.indexOf(variants[i]) >= 0) return true;
+        }
+        return archiveUrlsMatchClient(str, url);
       }
       function stripLinkArray(arr) {
         if (!Array.isArray(arr)) return;
@@ -16055,7 +16088,9 @@
         archiveUrlVariantsClient(url).forEach(function (variant) {
           if (!variant) return;
           var escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          out = out.replace(new RegExp('<li\\b[^>]*>[\\s\\S]*?' + escaped + '[\\s\\S]*?<\\/li>', 'gi'), '');
           out = out.replace(new RegExp('<a\\b[^>]*href=["\'][^"\']*' + escaped + '[^"\']*["\'][^>]*>[\\s\\S]*?<\\/a>', 'gi'), '');
+          out = out.replace(new RegExp('<a\\b[^>]*>[\\s\\S]*?' + escaped + '[\\s\\S]*?<\\/a>', 'gi'), '');
           out = out.replace(new RegExp('\\[[^\\]]*\\]\\([^\\)]*' + escaped + '[^\\)]*\\)', 'gi'), '');
           out = out.replace(new RegExp(escaped, 'gi'), '');
         });
@@ -16064,6 +16099,7 @@
       function walkPayload(payload, depth) {
         if (!payload || typeof payload !== 'object' || (depth || 0) > 20) return;
         var nextDepth = (depth || 0) + 1;
+        rememberSuppressedArchiveUrlOnPayload(payload, url);
         var linkKeys = [
           'relevant_links', 'pedagogical_resources', 'gallery', 'pinterest_links',
           '_liveCitations', 'citations', 'sources', 'recommended_reading', 'recommended_literature',
@@ -16087,8 +16123,10 @@
           walkPayload(payload.gradeInsights, nextDepth);
         }
         Object.keys(payload).forEach(function (key) {
+          if (key === '_suppressedArchiveUrls') return;
           var child = payload[key];
-          if (typeof child === 'string' && /https?:\/\//i.test(child) && archiveUrlsMatchClient(child, url)) {
+          // Substring match so _apiResponseRaw / HTML blobs lose the deleted URL permanently.
+          if (typeof child === 'string' && /https?:\/\//i.test(child) && stringContainsArchiveUrlClient(child)) {
             payload[key] = stripUrlFromString(child);
           } else if (Array.isArray(child)) {
             stripLinkArray(child);
@@ -16163,6 +16201,7 @@
           if (payload && payload.cacheKey) {
             appState.lessonCacheKey = payload.cacheKey;
           }
+          try { persistActiveStep(); } catch (ePersist) { /* ignore */ }
           showArchiveToast('הקישור נמחק מהארכיון.');
         } catch (err) {
           showArchiveToast('הקישור הוסר מהתצוגה (שמירה בארכיון נכשלה).');
@@ -16606,11 +16645,13 @@
           phase: deleteCtx.phase,
           query: deleteCtx.query,
           periodBlock: deleteCtx.periodBlock,
+          updatedPayload: appState.purePhaseC || appState.aiGeneratedPlan || null,
         });
         var payload = result && result.data ? result.data : result;
         if (payload && payload.cacheKey && !appState.lessonCacheKey && deleteCtx.phase === 'topic_master') {
           appState.lessonCacheKey = payload.cacheKey;
         }
+        try { persistActiveStep(); } catch (ePersist) { /* ignore */ }
         removeArchiveUrlFromDom(linkUrl, null);
         refreshArchiveLinksUiAfterDelete();
         showArchiveToast('הקישור נמחק מהארכיון.');
@@ -20312,6 +20353,10 @@
       var topic = appState.topic || '';
       var gradeLabel = appState.gradeLabel || '';
       var shaped = ensurePhaseCMasterShape(data);
+      if (Array.isArray(data._suppressedArchiveUrls)) {
+        shaped._suppressedArchiveUrls = data._suppressedArchiveUrls.slice();
+      }
+      syncSuppressedArchiveUrlsFromPayload(shaped);
       var tab3 = normalizePedagogicalEssenceView(shaped) || {
         core_emphases: String(shaped.core_emphases || '').trim(),
         key_points: shaped.key_points.slice(),
@@ -20319,11 +20364,18 @@
         relevant_links: shaped.relevant_links.slice(),
       };
       appState.purePhaseC = Object.assign({}, shaped, tab3);
+      if (Array.isArray(shaped._suppressedArchiveUrls)) {
+        appState.purePhaseC._suppressedArchiveUrls = shaped._suppressedArchiveUrls.slice();
+      }
       if (Array.isArray(shaped._liveCitations) && shaped._liveCitations.length) {
-        appState.purePhaseC._liveCitations = shaped._liveCitations.slice();
+        appState.purePhaseC._liveCitations = shaped._liveCitations.filter(function (u) {
+          return !isArchiveUrlSuppressedClient(u);
+        });
       } else {
         appState.purePhaseC._liveCitations = collectPhaseCLinkItemsClient(appState.purePhaseC).map(function (item) {
           return item.url;
+        }).filter(function (u) {
+          return !isArchiveUrlSuppressedClient(u);
         });
       }
       appState.aiGeneratedPlan = {
@@ -22104,38 +22156,39 @@
           window.scrollTo(0, y);
           if (document.documentElement) document.documentElement.scrollTop = y;
           if (document.body) document.body.scrollTop = y;
+          var appMain = document.getElementById('app-main');
+          if (appMain) appMain.scrollTop = y;
         } catch (e) { /* ignore */ }
+      }
+      function scheduleRestore() {
+        restore();
+        requestAnimationFrame(function () {
+          restore();
+          requestAnimationFrame(restore);
+        });
+        setTimeout(restore, 0);
+        setTimeout(restore, 50);
+        setTimeout(restore, 150);
+        setTimeout(restore, 300);
+        setTimeout(restore, 500);
       }
       var result;
       try {
         result = fn();
       } catch (err) {
-        restore();
+        scheduleRestore();
         throw err;
       }
       if (result && typeof result.then === 'function') {
         return result.then(function (value) {
-          restore();
-          requestAnimationFrame(function () {
-            restore();
-            requestAnimationFrame(restore);
-          });
-          setTimeout(restore, 0);
-          setTimeout(restore, 50);
-          setTimeout(restore, 150);
+          scheduleRestore();
           return value;
         }, function (err) {
-          restore();
+          scheduleRestore();
           throw err;
         });
       }
-      restore();
-      requestAnimationFrame(function () {
-        restore();
-        requestAnimationFrame(restore);
-      });
-      setTimeout(restore, 0);
-      setTimeout(restore, 50);
+      scheduleRestore();
       return result;
     }
 
@@ -22706,28 +22759,81 @@
       if (scrollRestorationBound) return;
       scrollRestorationBound = true;
       loadScrollMemoryFromStorage();
+      var pendingExpansionScrollY = null;
+
+      function pinCurrentScroll() {
+        rememberNavScrollPosition(getNavScrollKey());
+        persistScrollMemoryToStorage();
+      }
+
+      function restorePinnedScroll() {
+        restoreNavScrollPosition(getNavScrollKey());
+      }
+
       window.addEventListener('scroll', function () {
         rememberNavScrollPosition(getNavScrollKey());
       }, { passive: true });
+
+      // Leaving for an external link (new tab or same tab): freeze scrollY in sessionStorage.
       document.addEventListener('click', function (e) {
         var link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
         if (!link) return;
         var href = String(link.getAttribute('href') || '').trim();
         if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
-        rememberNavScrollPosition(getNavScrollKey());
-        persistScrollMemoryToStorage();
+        pinCurrentScroll();
       }, true);
+
+      // Capture scroll before <details> open/close layout shift.
+      document.addEventListener('click', function (e) {
+        var summary = e.target && e.target.closest ? e.target.closest('details summary') : null;
+        if (!summary) return;
+        pendingExpansionScrollY = capturePageScrollY();
+        pinCurrentScroll();
+      }, true);
+
       document.addEventListener('toggle', function (e) {
         var details = e.target;
         if (!details || !details.tagName || details.tagName.toLowerCase() !== 'details') return;
         var baseKey = getNavScrollKey();
+        var y = pendingExpansionScrollY;
+        pendingExpansionScrollY = null;
+        if (typeof y !== 'number') y = capturePageScrollY();
         if (details.open) {
-          rememberNavScrollPosition(baseKey + ':pre-expansion');
-        } else {
-          restoreNavScrollPosition(baseKey + ':pre-expansion');
+          navScrollMemory[baseKey + ':pre-expansion'] = y;
         }
+        function restoreExpansionScroll() {
+          try {
+            window.scrollTo(0, y);
+            if (document.documentElement) document.documentElement.scrollTop = y;
+            if (document.body) document.body.scrollTop = y;
+          } catch (err) { /* ignore */ }
+        }
+        restoreExpansionScroll();
+        requestAnimationFrame(function () {
+          restoreExpansionScroll();
+          requestAnimationFrame(restoreExpansionScroll);
+        });
+        setTimeout(restoreExpansionScroll, 0);
+        setTimeout(restoreExpansionScroll, 50);
+        setTimeout(restoreExpansionScroll, 150);
+        setTimeout(restoreExpansionScroll, 300);
         scheduleScrollMemoryPersist();
       }, true);
+
+      // Returning from another tab / bfcache / external page.
+      window.addEventListener('pageshow', function () {
+        restorePinnedScroll();
+      });
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') {
+          pinCurrentScroll();
+        } else if (document.visibilityState === 'visible') {
+          restorePinnedScroll();
+        }
+      });
+      window.addEventListener('focus', function () {
+        restorePinnedScroll();
+      });
     }
 
     function applyWizardNavScroll(fromStep, toStep, fromSection) {
