@@ -14343,15 +14343,9 @@
       }).join('');
     }
 
-    function isKnownEnglishTopicWord(word) {
+    function isExplicitEnglishTopicWord(word) {
       var w = String(word || '').toLowerCase().replace(/[^a-z]/g, '');
-      if (!w) return true;
-      if (KNOWN_ENGLISH_TOPIC_WORDS[w]) return true;
-      // Longer words with multiple vowels are usually intentional English, not layout mash.
-      var vowels = (w.match(/[aeiouy]/g) || []).length;
-      if (w.length >= 6 && vowels >= 2) return true;
-      if (w.length >= 4 && vowels >= 2 && (vowels / w.length) >= 0.35) return true;
-      return false;
+      return Boolean(w && KNOWN_ENGLISH_TOPIC_WORDS[w]);
     }
 
     function isLatinKeyboardOnlyText(text) {
@@ -14365,13 +14359,22 @@
     }
 
     function shouldFixReversedKeyboardInput(text) {
+      // English UI: leave intentional English topics alone.
+      try {
+        if (typeof isEnglish === 'function' && isEnglish()) return false;
+      } catch (eEn) { /* continue */ }
       if (!isLatinKeyboardOnlyText(text)) return false;
       var words = String(text).trim().split(/\s+/).filter(Boolean);
       if (!words.length) return false;
-      // Only auto-fix when every token looks like gibberish / non-English.
+      // Skip only when every token is an explicit English whitelist word (Waldorf, Montessori…).
+      var allExplicitEnglish = true;
       for (var i = 0; i < words.length; i++) {
-        if (isKnownEnglishTopicWord(words[i])) return false;
+        if (!isExplicitEnglishTopicWord(words[i])) {
+          allExplicitEnglish = false;
+          break;
+        }
       }
+      if (allExplicitEnglish) return false;
       var converted = convertEnglishLayoutToHebrew(text);
       if (converted === text) return false;
       if (!/[\u0590-\u05FF]/.test(converted)) return false;
@@ -14379,6 +14382,8 @@
     }
 
     /**
+     * Fix Hebrew typed on an English keyboard layout (e.g. nvpfu, → מהפכות).
+     * Must run on the client before any research/search API call.
      * @param {string} text
      * @param {{ inputEl?: HTMLElement|null, silent?: boolean }} [options]
      * @returns {string} corrected text (or original when no fix applied)
@@ -14387,25 +14392,35 @@
       var opts = options || {};
       var original = String(text == null ? '' : text);
       var trimmed = original.trim();
-      if (!trimmed || !shouldFixReversedKeyboardInput(trimmed)) return original;
+      if (!trimmed) return '';
+      if (!shouldFixReversedKeyboardInput(trimmed)) return trimmed;
 
-      // Preserve leading/trailing whitespace from the original field value.
-      var leading = original.match(/^\s*/)[0] || '';
-      var trailing = original.match(/\s*$/)[0] || '';
       var correctedCore = convertEnglishLayoutToHebrew(trimmed);
-      var corrected = leading + correctedCore + trailing;
+      if (!correctedCore || correctedCore === trimmed) return trimmed;
 
       if (opts.inputEl) {
-        try { opts.inputEl.value = corrected.trim(); } catch (e) { /* ignore */ }
+        try {
+          opts.inputEl.value = correctedCore;
+          // Fire input so any listeners / drafts see the Hebrew value.
+          try {
+            opts.inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+          } catch (evErr) { /* older browsers */ }
+        } catch (e) { /* ignore */ }
       }
 
       if (!opts.silent) {
-        var toastMsg = isEnglish()
-          ? ('It looks like you typed with a reversed keyboard. We auto-corrected to "' + correctedCore + '".')
-          : ('נראה שהקלדת במקלדת הפוכה. תיקנו אוטומטית ל-\'' + correctedCore + '\'.');
+        var toastMsg = 'נראה שהקלדת במקלדת הפוכה. תיקנו אוטומטית ל-\'' + correctedCore + '\'.';
+        try {
+          if (typeof isEnglish === 'function' && isEnglish()) {
+            toastMsg = 'It looks like you typed with a reversed keyboard. We auto-corrected to "' + correctedCore + '".';
+          }
+        } catch (eLang) { /* keep Hebrew toast */ }
         showAppToast(toastMsg);
       }
-      return corrected.trim();
+      try {
+        console.info('[keyboard-fix]', trimmed, '→', correctedCore);
+      } catch (eLog) { /* ignore */ }
+      return correctedCore;
     }
     window.applyReversedKeyboardCorrection = applyReversedKeyboardCorrection;
 
@@ -16326,28 +16341,10 @@
           return false;
         }
         var ctx = buildArchiveDeleteRequestContext(triggerEl);
-        // Capture and remove the full <li> immediately (number + label + link + trash).
-        var rowEl = (triggerEl && triggerEl.closest) ? triggerEl.closest('li') : null;
-        if (rowEl) {
-          rowEl.remove();
-        } else if (triggerEl && triggerEl.closest) {
-          var fallbackRow = triggerEl.closest('.archive-link-row');
-          if (fallbackRow) fallbackRow.remove();
-        }
-
-        // Keep client state clean so a later re-render cannot restore this URL.
-        purgeArchiveUrlFromClientState(linkUrl);
-        removeArchiveUrlFromDom(linkUrl, null);
-
-        // Rebuild sources list from cleaned state only.
-        try {
-          if (appState.purePhaseC) phaseCRenderExtraLinksBox(appState.purePhaseC);
-        } catch (e) { /* ignore */ }
-        cleanupOrphanSourceListItems(document);
 
         try {
-          var result = await postArchiveDeleteRequest({
-            action: 'delete_archive_link',
+          // Server-first: only mutate UI after a real Supabase UPDATE succeeds.
+          var payload = await postArchiveDeleteRequest({
             cacheKey: ctx.cacheKey,
             url: linkUrl,
             gradeId: ctx.gradeId,
@@ -16356,13 +16353,20 @@
             phase: ctx.phase || 'topic_master',
             query: ctx.query,
             periodBlock: ctx.periodBlock,
-            // Authoritative cleaned payload — backend writes this to cached_results permanently.
             updatedPayload: appState.purePhaseC || appState.aiGeneratedPlan || null,
           });
-          var payload = result && result.data ? result.data : result;
           if (payload && payload.cacheKey) {
             appState.lessonCacheKey = payload.cacheKey;
           }
+
+          var rowEl = (triggerEl && triggerEl.closest) ? triggerEl.closest('li') : null;
+          if (rowEl) rowEl.remove();
+          purgeArchiveUrlFromClientState(linkUrl);
+          removeArchiveUrlFromDom(linkUrl, null);
+          try {
+            if (appState.purePhaseC) phaseCRenderExtraLinksBox(appState.purePhaseC);
+          } catch (e) { /* ignore */ }
+          cleanupOrphanSourceListItems(document);
           try { persistActiveStep(); } catch (ePersist) { /* ignore */ }
           showArchiveToast('הקישור נמחק מהארכיון.');
           return true;
@@ -16737,18 +16741,79 @@
       archiveTextSelectionTimer = setTimeout(refreshArchiveTextSelection, 120);
     }
 
+    function getArchiveLinkApiUrl() {
+      try {
+        if (typeof location !== 'undefined' && location.origin) {
+          return location.origin + '/api/archive-link';
+        }
+      } catch (e) { /* ignore */ }
+      return '/api/archive-link';
+    }
+
     async function postArchiveDeleteRequest(payload) {
       var headers = { 'Content-Type': 'application/json' };
+      var identityEmail = '';
       if (typeof WaldorfAuth !== 'undefined') {
-        var token = await WaldorfAuth.getAccessToken();
-        if (token) headers.Authorization = 'Bearer ' + token;
-        var identityEmail = typeof WaldorfAuth.getIdentityEmail === 'function' ? WaldorfAuth.getIdentityEmail() : '';
-        if (identityEmail) headers['X-User-Email'] = identityEmail;
+        try {
+          var token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (tokenErr) { /* continue with email header */ }
+        if (typeof WaldorfAuth.getIdentityEmail === 'function') {
+          identityEmail = String(WaldorfAuth.getIdentityEmail() || '').trim();
+        }
+        if (!identityEmail) {
+          try {
+            var profile = WaldorfAuth.getContributorProfile && WaldorfAuth.getContributorProfile();
+            identityEmail = profile && profile.email ? String(profile.email).trim() : '';
+          } catch (profErr) { /* ignore */ }
+        }
+        if (identityEmail) {
+          headers['X-User-Email'] = identityEmail;
+        }
       }
-      var res = await fetch('/api/search-history', {
+      var body = Object.assign({}, payload || {}, {
+        action: 'delete_archive_link',
+        email: identityEmail || (payload && payload.email) || '',
+      });
+      // Dedicated delete route — never the search-history list endpoint.
+      var endpoint = getArchiveLinkApiUrl();
+      try { console.info('[archive-link] POST', endpoint, body.url, body.cacheKey); } catch (eLog) { /* ignore */ }
+      var res = await fetch(endpoint, {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
+      });
+      var bodyText = await res.text();
+      var json = {};
+      try { json = bodyText ? JSON.parse(bodyText) : {}; } catch (e) { json = {}; }
+      if (!res.ok || json.error || json.ok === false) {
+        throw new Error((json && json.error) || bodyText || ('שגיאת שרת (' + res.status + ')'));
+      }
+      return json.data || json;
+    }
+
+    /** Block text updates still go through /api/search-history (set_archive_block). */
+    async function postArchiveBlockRequest(payload) {
+      var headers = { 'Content-Type': 'application/json' };
+      var identityEmail = '';
+      if (typeof WaldorfAuth !== 'undefined') {
+        try {
+          var token = await WaldorfAuth.getAccessToken();
+          if (token) headers.Authorization = 'Bearer ' + token;
+        } catch (tokenErr) { /* continue */ }
+        if (typeof WaldorfAuth.getIdentityEmail === 'function') {
+          identityEmail = String(WaldorfAuth.getIdentityEmail() || '').trim();
+        }
+        if (identityEmail) headers['X-User-Email'] = identityEmail;
+      }
+      var endpoint = (typeof location !== 'undefined' && location.origin)
+        ? (location.origin + '/api/search-history')
+        : '/api/search-history';
+      var body = Object.assign({}, payload || {}, { email: identityEmail || '' });
+      var res = await fetch(endpoint, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body),
       });
       var bodyText = await res.text();
       var json = {};
@@ -16756,7 +16821,7 @@
       if (!res.ok || json.error) {
         throw new Error((json && json.error) || bodyText || ('שגיאת שרת (' + res.status + ')'));
       }
-      return json;
+      return json.data || json;
     }
 
     function cleanupEmptyArchiveNode(node) {
@@ -16792,17 +16857,13 @@
       if (!linkUrl) { showArchiveToast('לא נמצא קישור למחיקה.', 'error'); return; }
       var deleteCtx = buildArchiveDeleteRequestContext(ctx && ctx.anchorEl);
       if (cacheKey) deleteCtx.cacheKey = cacheKey;
-      purgeArchiveUrlFromClientState(linkUrl);
-      removeArchiveUrlFromDom(linkUrl, ctx.anchorEl || null);
-      refreshArchiveLinksUiAfterDelete();
       clearSelectionRanges();
       if (!deleteCtx.cacheKey && !(deleteCtx.gradeId && deleteCtx.topic) && !deleteCtx.query) {
-        showArchiveToast('הקישור הוסר מהתצוגה.');
+        showArchiveToast('לא ניתן לזהות את שורת הארכיון למחיקה.', 'error');
         return;
       }
       try {
-        var result = await postArchiveDeleteRequest({
-          action: 'delete_archive_link',
+        var payload = await postArchiveDeleteRequest({
           cacheKey: deleteCtx.cacheKey,
           url: linkUrl,
           gradeId: deleteCtx.gradeId,
@@ -16813,18 +16874,19 @@
           periodBlock: deleteCtx.periodBlock,
           updatedPayload: appState.purePhaseC || appState.aiGeneratedPlan || null,
         });
-        var payload = result && result.data ? result.data : result;
         if (payload && payload.cacheKey && !appState.lessonCacheKey && deleteCtx.phase === 'topic_master') {
           appState.lessonCacheKey = payload.cacheKey;
         }
-        try { persistActiveStep(); } catch (ePersist) { /* ignore */ }
-        removeArchiveUrlFromDom(linkUrl, null);
+        purgeArchiveUrlFromClientState(linkUrl);
+        removeArchiveUrlFromDom(linkUrl, ctx.anchorEl || null);
         refreshArchiveLinksUiAfterDelete();
+        try { persistActiveStep(); } catch (ePersist) { /* ignore */ }
         showArchiveToast('הקישור נמחק מהארכיון.');
       } catch (err) {
-        removeArchiveUrlFromDom(linkUrl, null);
-        refreshArchiveLinksUiAfterDelete();
-        showArchiveToast('הקישור הוסר מהתצוגה.');
+        showArchiveToast(
+          'שמירת המחיקה בארכיון נכשלה: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'),
+          'error'
+        );
       }
     }
 
@@ -16884,7 +16946,7 @@
         return;
       }
       try {
-        await postArchiveDeleteRequest({
+        await postArchiveBlockRequest({
           action: 'set_archive_block',
           cacheKey: cacheKey,
           blockPath: blockPath,
@@ -16892,10 +16954,11 @@
         });
         block.setAttribute('data-archive-source', newSource);
         applyArchiveBlockEditLocally(blockPath, newSource);
-        for (var i = 0; i < ctx.linkUrls.length; i++) {
+        var linkUrlsInBlock = Array.isArray(ctx.linkUrls) ? ctx.linkUrls : [];
+        for (var i = 0; i < linkUrlsInBlock.length; i++) {
           try {
-            await postArchiveDeleteRequest({ action: 'delete_archive_link', cacheKey: cacheKey, url: ctx.linkUrls[i] });
-            purgeArchiveUrlFromClientState(ctx.linkUrls[i]);
+            await postArchiveDeleteRequest({ cacheKey: cacheKey, url: linkUrlsInBlock[i] });
+            purgeArchiveUrlFromClientState(linkUrlsInBlock[i]);
           } catch (linkErr) { /* best-effort link cleanup */ }
         }
         showArchiveToast('הקטע נמחק מהארכיון.');
@@ -21089,10 +21152,11 @@
 
     async function runGeneralSearch() {
       var input = document.getElementById('general-search-input');
-      var query = applyReversedKeyboardCorrection(
-        input ? String(input.value || '') : '',
-        { inputEl: input }
-      );
+      // Active keyboard-layout fix BEFORE any general-search API / cache write.
+      var rawQuery = input ? String(input.value || '') : '';
+      var query = applyReversedKeyboardCorrection(rawQuery, { inputEl: input });
+      if (input && query) input.value = query;
+      appState.generalSearchQuery = query;
       if (!query) {
         if (input) input.focus();
         return;
@@ -24063,11 +24127,12 @@
       const genOpts = options || {};
       clearArchiveClarificationState();
 
+      // Active keyboard-layout fix BEFORE any archive probe / API / cache write.
       const topicInputEl = document.getElementById('topic-input');
-      const topic = applyReversedKeyboardCorrection(
-        topicInputEl ? topicInputEl.value : '',
-        { inputEl: topicInputEl }
-      );
+      var rawTopic = topicInputEl ? String(topicInputEl.value || '') : '';
+      const topic = applyReversedKeyboardCorrection(rawTopic, { inputEl: topicInputEl });
+      if (topicInputEl && topic) topicInputEl.value = topic;
+      appState.topic = topic;
       const currentGrade = appState.grade;
       if (!topic) return;
       if (!currentGrade) {

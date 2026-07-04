@@ -10,6 +10,7 @@ const jsonRepair = require('./json-repair');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const subscriptionApi = require('./subscription');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
+const keyboardLayout = require('./keyboard-layout');
 
 /** Structural JSON keys that must never appear in pedagogical fallback text. */
 const PHASE_C_JSON_KEY_PATTERN = /["']?(?:theory|inspiration|sections|heading|headings|content|title|text|body|summary|bibliography|books|articles|websites|global|items|podcast|episodes|theme|insight|narrative|pinterest_links|pedagogical_resources|core_emphases|key_points|recommended_reading|relevant_links|icon|url|board|label|source|snippet|author|note|pin|quotes|fa-compass|theory_background|pedagogical_inspiration|developmental_compass|pedagogical_emphases)["']?\s*:/gi;
@@ -3200,7 +3201,9 @@ async function mergeTopicMasterPayloads(historic, fresh, grade, topic) {
 
 async function runPurePhaseC(body, requestContext) {
   const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
-  const topic = String(body.topic || '').trim();
+  // Fix reversed English keyboard before cache key / Perplexity / cached_results.
+  const topic = keyboardLayout.applyReversedKeyboardCorrection(String(body.topic || '').trim());
+  if (body && topic) body.topic = topic;
   const gradeId = resolveGradeId(body);
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');

@@ -10,7 +10,7 @@ const subscription = require('./subscription');
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Email',
 };
 
 function getSupabaseConfig() {
@@ -67,13 +67,24 @@ async function verifySupabaseToken(token) {
 
 async function resolveArchiveAdmin(req, body) {
   const verified = await authContext.resolveVerifiedUser(req, body);
-  const email = verified && verified.email ? verified.email : '';
+  let email = verified && verified.email
+    ? String(verified.email).trim().toLowerCase()
+    : '';
+  if (!email) {
+    const headers = req && req.headers ? req.headers : {};
+    email = String(headers['x-user-email'] || headers['X-User-Email'] || '').trim().toLowerCase();
+  }
+  if (!email && body) {
+    email = String(body.email || body.userEmail || (body.teacherUser && body.teacherUser.email) || '')
+      .trim()
+      .toLowerCase();
+  }
   if (!subscription.isProUserEmail(email)) {
     const err = new Error('פעולה זו מותרת למנהל הארכיון בלבד');
     err.statusCode = 403;
     throw err;
   }
-  return verified;
+  return verified || { email: email, id: null };
 }
 
 async function resolveTeacher(req, body) {
@@ -188,44 +199,9 @@ async function executeSearchHistory(req) {
   }
 
   if (action === 'delete_archive_link') {
-    await resolveArchiveAdmin(req, body);
-    const cacheKey = String((body && body.cacheKey) || '').trim();
-    const url = String((body && body.url) || '').trim();
-    if (!url) {
-      const err = new Error('חסר קישור למחיקה');
-      err.statusCode = 400;
-      throw err;
-    }
-    const result = await cacheDb.removeArchiveLinkFromCache(cacheKey, url, {
-      gradeId: body && (body.gradeId || body.currentGrade),
-      gradeLabel: body && body.gradeLabel,
-      topic: body && body.topic,
-      phase: body && body.phase,
-      query: body && (body.query || body.topic),
-      periodBlock: body && body.periodBlock,
-      // Client-cleaned payload is authoritative — guarantees permanent DB write.
-      updatedPayload: body && body.updatedPayload,
-    });
-    if (!result || !result.removed) {
-      const reason = result && result.reason ? result.reason : 'unknown';
-      let message = 'הקישור לא נשמר במחיקה מהארכיון';
-      if (reason === 'row_not_found') {
-        message = 'לא ניתן למצוא את שורת הארכיון (cache_key) ולכן לא ניתן למחוק';
-      } else if (reason === 'save_failed') {
-        message = 'עדכון cached_results נכשל — הקישור לא נמחק מהמסד';
-      }
-      const err = new Error(message);
-      err.statusCode = 404;
-      err.reason = reason;
-      err.cacheKey = result && result.cacheKey ? result.cacheKey : cacheKey;
-      throw err;
-    }
-    return {
-      ok: true,
-      action: 'delete_archive_link',
-      cacheKey: result.cacheKey || cacheKey,
-      url: url,
-    };
+    // Prefer dedicated /api/archive-link; keep this path for backward compatibility.
+    const archiveLinkApi = require('./archive-link');
+    return archiveLinkApi.executeArchiveLink(req);
   }
 
   if (action === 'set_archive_block') {

@@ -7,6 +7,7 @@ const cache = require('./cache');
 const authContext = require('./auth-context');
 const subscriptionApi = require('./subscription');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
+const keyboardLayout = require('./keyboard-layout');
 
 const SYSTEM_PROMPT = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
@@ -310,7 +311,15 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
 }
 
 async function runPureGeneralSearch(body, requestContext) {
-  const query = String(body.query || body.topic || body.q || '').trim();
+  // Fix reversed English keyboard before cache key / Perplexity / cached_results.
+  const query = keyboardLayout.applyReversedKeyboardCorrection(
+    String(body.query || body.topic || body.q || '').trim()
+  );
+  if (body && query) {
+    if (body.query != null) body.query = query;
+    if (body.topic != null) body.topic = query;
+    if (body.q != null) body.q = query;
+  }
   if (!query) throw shared.badRequest('query is required');
 
   let teacher = null;
