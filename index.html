@@ -16122,13 +16122,44 @@
 
     function cleanupOrphanSourceListItems(root) {
       var scope = root || document;
-      scope.querySelectorAll(
-        '#phase-c-extra-links-list li, .pure-links-grid li, .theory-live-links-section li, .archive-link-row'
-      ).forEach(function (li) {
+      var listItemSel = [
+        '#phase-c-extra-links-list li',
+        '.pure-links-grid li',
+        '.theory-live-links-section li',
+        '.archive-link-row',
+        '.grade-insights-sources li',
+        '#phase-c-sources li',
+        '#web-research-result li',
+        '#theoretical-content li',
+        '#panel-narrative li',
+        '#general-search-results li',
+      ].join(', ');
+      scope.querySelectorAll(listItemSel).forEach(function (li) {
         if (!li || !li.isConnected) return;
-        var hasAnchor = li.querySelector('a[href]');
-        var text = String(li.textContent || '').replace(/[\s🗑️]/g, '');
+        var hasAnchor = li.querySelector('a[href^="http"], a[href^="HTTP"]');
+        var text = String(li.textContent || '')
+          .replace(/[\s\u200f\u200e\uFEFF🗑️]/g, '')
+          .replace(/^\d{1,3}[.)]?$/, '');
+        // Drop empty bullets and bare numbers left after the link was removed ("5.", "10.").
         if (!hasAnchor && text.length < 3) li.remove();
+      });
+      scope.querySelectorAll(
+        '#phase-c-extra-links-list ul, #phase-c-extra-links-list ol, ' +
+        '.pure-links-grid, .grade-insights-sources ul, .grade-insights-sources ol, ' +
+        '#phase-c-sources ul, #phase-c-sources ol, .theory-live-links-section ul, .theory-live-links-section ol'
+      ).forEach(function (list) {
+        if (!list || !list.isConnected) return;
+        if (!list.querySelector('li')) list.remove();
+      });
+      scope.querySelectorAll(
+        '.grade-insights-sources, #phase-c-sources, .theory-live-links-section'
+      ).forEach(function (block) {
+        if (!block || !block.isConnected) return;
+        if (!block.querySelector('a[href^="http"], a[href^="HTTP"], li')) {
+          var headingOnly = String(block.textContent || '')
+            .replace(/[\s:מקורותחומריםביבליוגרפיהSourcesMaterialsBibliographyLinks]/g, '');
+          if (headingOnly.length < 3) block.remove();
+        }
       });
     }
 
@@ -16334,10 +16365,14 @@
           }
           try { persistActiveStep(); } catch (ePersist) { /* ignore */ }
           showArchiveToast('הקישור נמחק מהארכיון.');
+          return true;
         } catch (err) {
-          showArchiveToast('הקישור הוסר מהתצוגה (שמירה בארכיון נכשלה).');
+          showArchiveToast(
+            'שמירת המחיקה בארכיון נכשלה: ' + (err && err.message ? err.message : 'שגיאה לא ידועה'),
+            'error'
+          );
+          return false;
         }
-        return true;
       });
     }
 

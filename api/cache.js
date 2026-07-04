@@ -475,36 +475,134 @@ function archiveLinkItemMatchesUrl(item, targetNorm) {
   return false;
 }
 
+function escapeRegexForArchive(str) {
+  return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** All string forms of a URL that may appear in stored HTML / JSON (encoding, entities, bare host). */
+function expandArchiveUrlSearchVariants(url) {
+  const base = archiveUrlVariants(url);
+  const out = [];
+  const seen = Object.create(null);
+  function push(v) {
+    const s = String(v || '').trim();
+    if (!s || s.length < 4) return;
+    const key = s.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push(s);
+  }
+  base.forEach(push);
+  base.forEach(function (v) {
+    push(v.replace(/&/g, '&amp;'));
+    push(v.replace(/&amp;/gi, '&'));
+    push(v.replace(/"/g, '&quot;'));
+    push(v.replace(/'/g, '&#39;'));
+    try { push(encodeURI(v)); } catch (e1) { /* ignore */ }
+    try { push(encodeURIComponent(v)); } catch (e2) { /* ignore */ }
+    try { push(decodeURIComponent(v)); } catch (e3) { /* ignore */ }
+    try { push(decodeURI(v)); } catch (e4) { /* ignore */ }
+    // Path-only fragment often appears inside longer hrefs.
+    try {
+      const parsed = new URL(v.indexOf('://') >= 0 ? v : 'https://' + v.replace(/^\/+/, ''));
+      push(parsed.hostname + parsed.pathname.replace(/\/+$/, ''));
+      push(parsed.pathname.replace(/\/+$/, ''));
+    } catch (e5) { /* ignore */ }
+  });
+  return out;
+}
+
 function stringContainsArchiveUrl(str, targetNorm) {
   if (typeof str !== 'string' || !targetNorm) return false;
   const lower = str.toLowerCase();
-  const variants = archiveUrlVariants(targetNorm);
+  const variants = expandArchiveUrlSearchVariants(targetNorm);
   for (let i = 0; i < variants.length; i++) {
-    if (variants[i] && lower.indexOf(variants[i]) >= 0) return true;
+    if (variants[i] && lower.indexOf(String(variants[i]).toLowerCase()) >= 0) return true;
   }
   return false;
 }
 
+/**
+ * Physically remove every HTML/list/markdown occurrence of a URL from a stored string:
+ * full <li>…</li>, anchors, numbered orphans, empty lists, and orphan source headings.
+ */
 function stripUrlFromProseString(str, targetNorm) {
   let out = String(str || '');
   if (!out || !targetNorm) return out;
-  const variants = archiveUrlVariants(targetNorm);
+  const variants = expandArchiveUrlSearchVariants(targetNorm);
+
   variants.forEach(function (variant) {
     if (!variant) return;
-    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Cut out whole list items / anchors that contain the URL — never depend on surrounding prose text.
-    out = out.replace(new RegExp('<li\\b[^>]*>[\\s\\S]*?' + escaped + '[\\s\\S]*?<\\/li>', 'gi'), '');
+    const escaped = escapeRegexForArchive(variant);
+    // Repeat until stable — non-greedy <li> matches one item at a time.
+    let prev = null;
+    let guard = 0;
+    while (prev !== out && guard < 40) {
+      prev = out;
+      guard += 1;
+      out = out.replace(new RegExp('<li\\b[^>]*>[\\s\\S]*?' + escaped + '[\\s\\S]*?<\\/li>', 'gi'), '');
+    }
     out = out.replace(new RegExp('<a\\b[^>]*href=["\'][^"\']*' + escaped + '[^"\']*["\'][^>]*>[\\s\\S]*?<\\/a>', 'gi'), '');
     out = out.replace(new RegExp('<a\\b[^>]*>[\\s\\S]*?' + escaped + '[\\s\\S]*?<\\/a>', 'gi'), '');
-    out = out.replace(new RegExp('\\[[^\\]]*\\]\\([^\\)]*' + escaped + '[^\\)]*\\)', 'gi'), '');
+    out = out.replace(new RegExp('\\[[^\\]\\n]*\\]\\(\\s*[^)\\n]*' + escaped + '[^)\\n]*\\)', 'gi'), '');
+    // Plain / markdown numbered lines that embed the URL (e.g. "5. label https://…").
+    out = out.replace(new RegExp('(?:^|\\n)\\s*\\d{1,3}\\s*[.)]\\s*[^\\n]*' + escaped + '[^\\n]*', 'gi'), '\n');
     out = out.replace(new RegExp(escaped, 'gi'), '');
   });
-  return out.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+
+  return cleanupEmptyArchiveHtmlShells(out);
+}
+
+/**
+ * After <li> removal: drop empty bullets, bare numbers ("5.", "10."), empty <ul>/<ol>,
+ * and orphan block titles ("מקורות", "חומרים", …) with no remaining rows.
+ */
+function cleanupEmptyArchiveHtmlShells(html) {
+  let out = String(html || '');
+  if (!out) return out;
+
+  let prev = null;
+  let guard = 0;
+  while (prev !== out && guard < 12) {
+    prev = out;
+    guard += 1;
+    // Empty or whitespace-only list items (incl. trash glyph leftovers).
+    out = out.replace(/<li\b[^>]*>\s*(?:&nbsp;|&#160;|[\s\u200f\u200e\uFEFF🗑️])*<\/li>/gi, '');
+    // Orphan numbered bullets left after the anchor was stripped: "5." / "10)"
+    out = out.replace(/<li\b[^>]*>\s*\d{1,3}\s*[.)]?\s*(?:&nbsp;|[\s\u200f\u200e])*<\/li>/gi, '');
+    // List items with no link and almost no text.
+    out = out.replace(/<li\b[^>]*>(?:(?!<a\b)[\s\S])*?<\/li>/gi, function (block) {
+      if (/<a\b/i.test(block)) return block;
+      const text = block
+        .replace(/<[^>]+>/g, '')
+        .replace(/[\s\u200f\u200e\uFEFF🗑️.&nbsp;0-9.)(-]/g, '');
+      return text.length < 2 ? '' : block;
+    });
+    // Empty lists.
+    out = out.replace(/<(ul|ol)\b[^>]*>\s*<\/\1>/gi, '');
+    // Orphan source/material headings with no list after them.
+    out = out.replace(
+      /<(p|div|h[1-6])\b[^>]*>\s*(?:<(?:strong|b|span)[^>]*>\s*)?(?:מקורות|חומרים|ביבליוגרפיה|קישורים|Sources|Materials|Bibliography|Links|Resources)\s*:?\s*(?:<\/(?:strong|b|span)>\s*)?<\/\1>\s*(?=(<\/?(?:div|section|article|aside)\b)|$)/gi,
+      ''
+    );
+    // Heading immediately followed by another heading / end — already covered; also drop
+    // heading + empty wrapper.
+    out = out.replace(
+      /<(p|div|h[1-6])\b[^>]*>\s*(?:<(?:strong|b|span)[^>]*>\s*)?(?:מקורות|חומרים|ביבליוגרפיה|קישורים|Sources|Materials|Bibliography|Links|Resources)\s*:?\s*(?:<\/(?:strong|b|span)>\s*)?<\/\1>\s*<(ul|ol)\b[^>]*>\s*<\/\2>/gi,
+      ''
+    );
+  }
+
+  return out
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/(<br\s*\/?>\s*){3,}/gi, '<br><br>')
+    .trim();
 }
 
 function removeMatchingUrlsFromArchivePayload(value, targetNorm, depth) {
   if (value == null || !targetNorm) return false;
-  if ((depth || 0) > 14) return false;
+  if ((depth || 0) > 24) return false;
   const nextDepth = (depth || 0) + 1;
   let changed = false;
   if (Array.isArray(value)) {
@@ -829,9 +927,64 @@ async function persistCachedResultData(cacheKey, resultData, existingRow) {
 }
 
 /**
+ * Scrub one URL out of a cached_results payload in-place:
+ * link arrays, every HTML string (<li> full rows), _apiResponseRaw, suppress list.
+ */
+function scrubArchiveUrlFromPayload(data, url) {
+  if (!data || typeof data !== 'object') return false;
+  const targetNorm = normalizeArchiveLinkUrl(url);
+  if (!targetNorm) return false;
+  removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
+  rememberSuppressedArchiveUrl(data, url);
+  // Drop raw Perplexity blob citations so hydrate cannot resurrect the URL.
+  if (typeof data._apiResponseRaw === 'string' && data._apiResponseRaw) {
+    data._apiResponseRaw = stripUrlFromProseString(data._apiResponseRaw, targetNorm);
+    if (!stringContainsArchiveUrl(data._apiResponseRaw, targetNorm)) {
+      // If the blob is only noise now, clear it entirely.
+      try {
+        const parsed = JSON.parse(data._apiResponseRaw);
+        const citations = parsed && parsed.citations;
+        if (Array.isArray(citations) && citations.length === 0) {
+          delete data._apiResponseRaw;
+        }
+      } catch (e) { /* keep scrubbed string */ }
+    }
+  }
+  applySuppressedArchiveUrlsToPayload(data);
+  return true;
+}
+
+/**
+ * True when the payload still exposes the URL as a live link (not merely in suppress list).
+ */
+function payloadStillExposesArchiveUrl(data, targetNorm) {
+  if (!data || !targetNorm) return false;
+  function walk(value, depth) {
+    if (value == null || (depth || 0) > 14) return false;
+    if (typeof value === 'string') return stringContainsArchiveUrl(value, targetNorm);
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        if (archiveLinkItemMatchesUrl(value[i], targetNorm)) return true;
+        if (walk(value[i], (depth || 0) + 1)) return true;
+      }
+      return false;
+    }
+    if (typeof value === 'object') {
+      const keys = Object.keys(value);
+      for (let i = 0; i < keys.length; i++) {
+        if (keys[i] === '_suppressedArchiveUrls') continue;
+        if (walk(value[keys[i]], (depth || 0) + 1)) return true;
+      }
+    }
+    return false;
+  }
+  return walk(data, 0);
+}
+
+/**
  * Remove a broken/irrelevant link URL from cached archive row(s) (admin curation).
- * Writes every matching cached_results row for the grade, records _suppressedArchiveUrls
- * so hydrate cannot resurrect the link from _apiResponseRaw, and requires a real Supabase write.
+ * Always mutates the authoritative Supabase row HTML/JSON (never client-only state),
+ * strips full <li> blocks, cleans empty lists/headings, and requires a verified UPDATE.
  */
 async function removeArchiveLinkFromCache(cacheKey, url, opts) {
   opts = opts || {};
@@ -879,9 +1032,9 @@ async function removeArchiveLinkFromCache(cacheKey, url, opts) {
     if (row && row.cache_key) addCandidate(row, row.cache_key);
   });
 
-  // Allow write from client payload even when the row was not found by key (UPSERT path).
+  // Last resort: upsert from client payload only when no DB row exists yet.
   if (!candidates.size && primaryKey && opts.updatedPayload && typeof opts.updatedPayload === 'object') {
-    addCandidate(primaryRow, primaryKey);
+    addCandidate(null, primaryKey);
   }
 
   if (!candidates.size) {
@@ -896,41 +1049,66 @@ async function removeArchiveLinkFromCache(cacheKey, url, opts) {
     let row = entry[1];
     if (!row) row = await fetchCachedRowByKey(key);
 
+    // Authoritative source = DB row. Client payload is only a fallback / suppress merge.
     let data = null;
-    // Prefer client-cleaned payload for the primary active lesson key.
-    if (key === primaryKey && opts.updatedPayload && typeof opts.updatedPayload === 'object') {
-      data = cloneJsonSafe(opts.updatedPayload);
-      // Merge prior suppress list from the DB row so older deletes stay deleted.
-      if (row && row.result_data != null) {
-        const existing = coerceCachedResultData(row.result_data);
-        if (existing && Array.isArray(existing._suppressedArchiveUrls)) {
-          if (!Array.isArray(data._suppressedArchiveUrls)) data._suppressedArchiveUrls = [];
-          existing._suppressedArchiveUrls.forEach(function (u) {
-            if (u && data._suppressedArchiveUrls.indexOf(u) < 0) data._suppressedArchiveUrls.push(u);
-          });
-        }
-        // Keep _apiResponseRaw from DB when client omitted it, then strip the URL from it.
-        if (data._apiResponseRaw == null && existing && existing._apiResponseRaw != null) {
-          data._apiResponseRaw = existing._apiResponseRaw;
-        }
-      }
-    } else if (row && row.result_data != null) {
+    if (row && row.result_data != null) {
       data = cloneJsonSafe(coerceCachedResultData(row.result_data));
+    } else if (opts.updatedPayload && typeof opts.updatedPayload === 'object') {
+      data = cloneJsonSafe(opts.updatedPayload);
     }
-
     if (!data || typeof data !== 'object') continue;
 
-    // Strip URL from arrays, HTML <li>/<a>, and _apiResponseRaw citations blob.
-    removeMatchingUrlsFromArchivePayload(data, targetNorm, 0);
-    rememberSuppressedArchiveUrl(data, url);
-    applySuppressedArchiveUrlsToPayload(data);
+    // Merge suppress lists from client (prior deletes in this session).
+    if (opts.updatedPayload && typeof opts.updatedPayload === 'object') {
+      const clientSuppressed = opts.updatedPayload._suppressedArchiveUrls;
+      if (Array.isArray(clientSuppressed)) {
+        if (!Array.isArray(data._suppressedArchiveUrls)) data._suppressedArchiveUrls = [];
+        clientSuppressed.forEach(function (u) {
+          if (u && data._suppressedArchiveUrls.indexOf(u) < 0) data._suppressedArchiveUrls.push(u);
+        });
+      }
+    }
+
+    scrubArchiveUrlFromPayload(data, url);
 
     const saved = await persistCachedResultData(key, data, row || {
       phase: opts.phase || TOPIC_MASTER_PHASE,
       grade_id: gradeId || null,
+      grade_label: opts.gradeLabel || null,
       topic: topic || null,
     });
-    if (saved) {
+    if (!saved) continue;
+
+    // Read-after-write: confirm Supabase actually stores the scrubbed payload.
+    let verified = false;
+    try {
+      const verifyRow = await fetchCachedRowByKey(key);
+      const verifyData = verifyRow ? coerceCachedResultData(verifyRow.result_data) : null;
+      if (verifyData && typeof verifyData === 'object') {
+        const stillLive = payloadStillExposesArchiveUrl(verifyData, targetNorm);
+        const hasSuppress = isArchiveUrlSuppressedInPayload(url, verifyData);
+        verified = !stillLive && hasSuppress;
+        if (!verified && !stillLive) {
+          // URL gone from live fields even if suppress list missing — accept.
+          verified = true;
+        }
+        if (stillLive) {
+          // One retry with a fresh scrub of whatever came back.
+          scrubArchiveUrlFromPayload(verifyData, url);
+          const retrySaved = await persistCachedResultData(key, verifyData, verifyRow || row);
+          if (retrySaved) {
+            const retryRow = await fetchCachedRowByKey(key);
+            const retryData = retryRow ? coerceCachedResultData(retryRow.result_data) : null;
+            verified = retryData ? !payloadStillExposesArchiveUrl(retryData, targetNorm) : false;
+          }
+        }
+      }
+    } catch (verifyErr) {
+      console.warn('[cached_results] archive link delete verify failed:', verifyErr.message || verifyErr);
+      verified = saved;
+    }
+
+    if (verified) {
       anySaved = true;
       savedKey = key;
     }
