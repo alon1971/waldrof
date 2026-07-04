@@ -11636,13 +11636,17 @@
           forceRefresh: forceRefresh,
           noUrlsInstruction: getNoUrlsInstruction(),
           noLatexInstruction: getNoLatexInstruction(),
-          summaryDepthInstruction: isEnglish()
+          summaryDepthInstruction: (isEnglish()
             ? 'Produce an exceptionally broad, deep pedagogical summary. Text only — no URLs or links.'
-            : 'הפק תקציר פדגוגי רחב ומעמיק במיוחד. טקסט בלבד — ללא קישורים או URLs.',
+            : 'הפק תקציר פדגוגי רחב ומעמיק במיוחד. טקסט בלבד — ללא קישורים או URLs.') +
+            (opts.modeInstruction ? ('\n\n' + String(opts.modeInstruction)) : ''),
         }, { signal: signal });
         if (!hasExpansionResponseContent(data)) {
           if (!opts.skipCache) {
-            return fetchBibliographyDeepSummary(source, signal, { skipCache: true });
+            return fetchBibliographyDeepSummary(source, signal, {
+              skipCache: true,
+              modeInstruction: opts.modeInstruction,
+            });
           }
           throw new Error(isEnglish()
             ? 'Expansion research returned no content. Please try again.'
@@ -11873,6 +11877,7 @@
 
       const promise = fetchBibliographyDeepSummary(source, controller.signal, {
         skipCache: forceRefresh,
+        modeInstruction: opts.modeInstruction || '',
       }).then(function (data) {
         if (!hasExpansionResponseContent(data)) {
           throw new Error(isEnglish()
@@ -11947,6 +11952,7 @@
 
       const promise = fetchPedagogyDeepDive(source, controller.signal, {
         skipCache: forceRefresh,
+        modeInstruction: opts.modeInstruction || '',
       }).then(function (data) {
         if (!hasExpansionResponseContent(data)) {
           throw new Error(isEnglish()
@@ -12298,7 +12304,8 @@
         gradeLockInstruction: getGradeLockInstruction(),
         noUrlsInstruction: getNoUrlsInstruction(),
         noLatexInstruction: getNoLatexInstruction(),
-        expandInstruction: getCurriculumDayExpansionInstruction(),
+        expandInstruction: getCurriculumDayExpansionInstruction() +
+          (opts.modeInstruction ? ('\n\n' + String(opts.modeInstruction)) : ''),
         skipCache: forceRefresh,
         bypassCache: forceRefresh,
         forceRefresh: forceRefresh,
@@ -12313,7 +12320,10 @@
       try {
         let data;
         if (source && source.subtype === 'enrich') {
-          data = await fetchCurriculumDayEnrichment(source, signal, { skipCache: forceRefresh });
+          data = await fetchCurriculumDayEnrichment(source, signal, {
+            skipCache: forceRefresh,
+            modeInstruction: opts.modeInstruction || '',
+          });
         } else {
           const g = GRADES.find(function (x) { return x.id === appState.grade; });
           const isAgeScope = source && source.type === 'grade';
@@ -12340,6 +12350,9 @@
             bypassCache: forceRefresh,
             forceRefresh: forceRefresh,
           };
+          if (opts.modeInstruction) {
+            payload.expandInstruction = String(payload.expandInstruction || '') + '\n\n' + String(opts.modeInstruction);
+          }
           if (!isAgeScope) {
             payload.topic = appState.topic;
           }
@@ -12347,7 +12360,10 @@
         }
         if (!hasExpansionResponseContent(data)) {
           if (!opts.skipCache) {
-            return fetchPedagogyDeepDive(source, signal, { skipCache: true });
+            return fetchPedagogyDeepDive(source, signal, {
+              skipCache: true,
+              modeInstruction: opts.modeInstruction,
+            });
           }
           throw new Error(isEnglish()
             ? 'Expansion research returned no content. Please try again.'
@@ -21407,9 +21423,22 @@
     }
 
     async function runAdminResearchExpand() {
+      var expansionSourceId = String(adminResearchActiveExpansionSourceId || '').trim();
+      closeAdminResearchMenu();
+      // Inline expansion toolbar: expand ONLY that expansion block.
+      if (expansionSourceId) {
+        setAdminResearchLoading(true);
+        try {
+          await expandSingleExpansionFromCloud(expansionSourceId);
+        } catch (err) {
+          if (!isRateLimitError(err)) alert((err && err.message) || String(err));
+        } finally {
+          setAdminResearchLoading(false);
+        }
+        return;
+      }
       var ctx = getAdminResearchContext();
       if (!ctx.hasContent) return;
-      closeAdminResearchMenu();
       setAdminResearchLoading(true);
       try {
         if (ctx.scope === 'general-search') {
@@ -21530,21 +21559,52 @@
       prependAdminResearchToolbarToPanel(staticEl, sourceId);
     }
 
+    function buildExpansionAdminModeInstruction(mode, historicSummary) {
+      var text = '';
+      try {
+        text = JSON.stringify(historicSummary || {}).slice(0, 12000);
+      } catch (e) {
+        text = String(historicSummary || '').slice(0, 12000);
+      }
+      if (mode === 'expand') {
+        return isEnglish()
+          ? ('RESEARCH EXPAND MODE (this single expansion only): Deepen and expand the EXISTING expansion below with substantially more pedagogical detail, practical classroom aspects, storytelling, and examples. Do NOT merely repeat it — enrich it. Existing content:\n' + text)
+          : ('מצב הרחבת מחקר (הרחבה זו בלבד): העמק והרחב את תוכן ההרחבה הקיים למטה בפרטים פדגוגיים, היבטים מעשיים לכיתה, סיפור ודוגמאות. אל תחזור עליו בלבד — העשר אותו.\nתוכן קיים:\n' + text);
+      }
+      if (mode === 'synthesize') {
+        return isEnglish()
+          ? ('ARCHIVE SYNTHESIS MODE (this single expansion only): Synthesize the EXISTING expansion below with established Waldorf/anthroposophic archive knowledge into one coherent, deeper, well-structured expansion. Existing content:\n' + text)
+          : ('מצב סינתזה עם הארכיון (הרחבה זו בלבד): סנתז את תוכן ההרחבה הקיים למטה עם ידע ארכיון וולדרוף/אנתרופוסופי מבוסס לתוצר אחד קוהרנטי, עמוק ומסודר יותר.\nתוכן קיים:\n' + text);
+      }
+      return '';
+    }
+
     /**
-     * Refresh ONLY one inline/static expansion panel (bypassCache on pedagogy_deep_dive /
-     * archive_summary). Does not touch the main topic/grade/general-search payload.
+     * Admin action on ONE inline/static expansion only (refresh / expand / synthesize).
+     * Uses pedagogy_deep_dive or archive_summary with bypassCache — never rewrites the main page payload.
      */
-    async function refreshSingleExpansionFromCloud(expansionSourceId) {
+    async function runSingleExpansionAdminAction(expansionSourceId, mode) {
       var sourceId = String(expansionSourceId || '').trim();
+      var actionMode = mode === 'expand' || mode === 'synthesize' ? mode : 'refresh';
       if (!sourceId) {
         throw new Error(isEnglish()
-          ? 'Could not identify this expansion to refresh.'
-          : 'לא ניתן לזהות את ההרחבה לרענון.');
+          ? 'Could not identify this expansion.'
+          : 'לא ניתן לזהות את ההרחבה.');
       }
 
       var pedSource = appState.pedagogyRegistry[sourceId] || ensurePedagogySourceRegistered(sourceId);
       var bibSource = appState.bibliographyRegistry[sourceId];
+      var historicPed = appState.pedagogySummaries[sourceId] ||
+        (pedSource && pedSource.expansion ? { pedagogyDeepDive: mapExpansionToDeepDive(pedSource.expansion, pedSource) } : null);
+      var historicBib = appState.bibliographySummaries[sourceId] ||
+        (bibSource && bibSource.expansion ? mapExpansionToArchiveSummary(bibSource.expansion, bibSource) : null);
       var forceOpts = { skipCache: true, forceRefresh: true, bypassCache: true };
+      if (actionMode === 'expand' || actionMode === 'synthesize') {
+        forceOpts.modeInstruction = buildExpansionAdminModeInstruction(
+          actionMode,
+          historicPed || historicBib || pedSource || bibSource || {}
+        );
+      }
 
       if (pedSource) {
         var pedKey = getPedagogySummaryCacheKey(pedSource);
@@ -21554,8 +21614,11 @@
           delete summaryJobsByKey[pedKey];
         }
         delete summaryFailedByKey[pedKey];
-        delete appState.pedagogySummaries[sourceId];
-        if (pedSource.expansion) delete pedSource.expansion;
+        // Refresh replaces from scratch; expand/synthesize build on current text.
+        if (actionMode === 'refresh') {
+          delete appState.pedagogySummaries[sourceId];
+          if (pedSource.expansion) delete pedSource.expansion;
+        }
         summaryPanelOpenState.ped[pedKey] = true;
         var pedPanel = getPedExpandPanel(sourceId);
         if (pedPanel) {
@@ -21587,8 +21650,10 @@
           delete summaryJobsByKey[bibKey];
         }
         delete summaryFailedByKey[bibKey];
-        delete appState.bibliographySummaries[sourceId];
-        if (bibSource.expansion) delete bibSource.expansion;
+        if (actionMode === 'refresh') {
+          delete appState.bibliographySummaries[sourceId];
+          if (bibSource.expansion) delete bibSource.expansion;
+        }
         summaryPanelOpenState.bib[bibKey] = true;
         var bibPanel = getBibExpandPanel(sourceId);
         if (bibPanel) {
@@ -21613,8 +21678,20 @@
       }
 
       throw new Error(isEnglish()
-        ? 'Could not identify this expansion to refresh.'
-        : 'לא ניתן לזהות את ההרחבה לרענון.');
+        ? 'Could not identify this expansion.'
+        : 'לא ניתן לזהות את ההרחבה.');
+    }
+
+    function refreshSingleExpansionFromCloud(expansionSourceId) {
+      return runSingleExpansionAdminAction(expansionSourceId, 'refresh');
+    }
+
+    function expandSingleExpansionFromCloud(expansionSourceId) {
+      return runSingleExpansionAdminAction(expansionSourceId, 'expand');
+    }
+
+    function synthesizeSingleExpansionFromCloud(expansionSourceId) {
+      return runSingleExpansionAdminAction(expansionSourceId, 'synthesize');
     }
 
     async function runAdminResearchRefresh() {
@@ -21686,9 +21763,22 @@
     }
 
     async function runAdminResearchSynthesize() {
+      var expansionSourceId = String(adminResearchActiveExpansionSourceId || '').trim();
+      closeAdminResearchMenu();
+      // Inline expansion toolbar: synthesize ONLY that expansion block with archive knowledge.
+      if (expansionSourceId) {
+        setAdminResearchLoading(true);
+        try {
+          await synthesizeSingleExpansionFromCloud(expansionSourceId);
+        } catch (err) {
+          if (!isRateLimitError(err)) alert((err && err.message) || String(err));
+        } finally {
+          setAdminResearchLoading(false);
+        }
+        return;
+      }
       var ctx = getAdminResearchContext();
       if (!ctx.hasContent) return;
-      closeAdminResearchMenu();
       setAdminResearchLoading(true);
       try {
         if (ctx.scope === 'general-search') {
