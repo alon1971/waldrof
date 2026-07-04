@@ -50,7 +50,7 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
 ];
 
 const TIER_LIMITS = {
-  trial: { lifetime: TRIAL_LIFETIME_SEARCH_LIMIT, monthly: null, wordDownloads: 17, wordDownloadsMonthly: true },
+  trial: { lifetime: TRIAL_LIFETIME_SEARCH_LIMIT, monthly: null, wordDownloads: 5, wordDownloadsMonthly: true },
   standard: { lifetime: null, monthly: 300, wordDownloads: null },
   pro: { lifetime: null, monthly: PRO_MONTHLY_SEARCH_LIMIT, wordDownloads: null },
 };
@@ -460,24 +460,39 @@ function effectiveTierFromRow(row) {
 }
 
 function readSearchLimitFromRow(row, tier) {
-  const stored = row && row.search_limit_monthly;
+  const subscription = row || null;
+  const limitTier = subscription && !isTrialFromRow(subscription)
+    ? planTypeFromRow(subscription)
+    : (tier || 'trial');
+  if (limitTier === 'trial') {
+    const maxSearches = subscription?.search_limit_monthly || 3;
+    const n = Number(maxSearches);
+    return !Number.isNaN(n) && n >= 0 ? n : 3;
+  }
+  const stored = subscription && subscription.search_limit_monthly;
   if (stored != null && stored !== '') {
     const n = Number(stored);
     if (!Number.isNaN(n) && n >= 0) return n;
   }
-  const limitTier = row && !isTrialFromRow(row) ? planTypeFromRow(row) : (tier || 'trial');
-  const limits = TIER_LIMITS[limitTier] || TIER_LIMITS.trial;
-  if (limitTier === 'trial') return limits.lifetime;
-  return limits.monthly;
+  return (TIER_LIMITS[limitTier] || TIER_LIMITS.pro).monthly;
 }
 
 function readWordDownloadLimitFromRow(row, tier) {
-  if (row && row.word_downloads_limit != null && row.word_downloads_limit !== '') {
-    const n = Number(row.word_downloads_limit);
+  const subscription = row || null;
+  const limitTier = subscription && !isTrialFromRow(subscription)
+    ? planTypeFromRow(subscription)
+    : (tier || 'trial');
+  if (limitTier === 'trial') {
+    const maxWordDownloads = subscription?.word_downloads_limit || 5;
+    const n = Number(maxWordDownloads);
+    return !Number.isNaN(n) && n >= 0 ? n : 5;
+  }
+  const stored = subscription && subscription.word_downloads_limit;
+  if (stored != null && stored !== '') {
+    const n = Number(stored);
     if (!Number.isNaN(n) && n >= 0) return n;
   }
-  const limitTier = row && !isTrialFromRow(row) ? planTypeFromRow(row) : (tier || 'trial');
-  return (TIER_LIMITS[limitTier] || TIER_LIMITS.trial).wordDownloads;
+  return (TIER_LIMITS[limitTier] || TIER_LIMITS.pro).wordDownloads;
 }
 
 async function downgradeSubscriptionIfExpired(user, row, userToken) {

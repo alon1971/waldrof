@@ -31,7 +31,7 @@
   /**
    * Free-tier lifetime search cap — must stay in sync with api/tier-limits.js
    * and window.__WALDROF_TRIAL_SEARCH_LIMIT__ in index.html.
-   * Free tier default: 2 live searches (lifetime).
+   * Free tier default: 3 live searches (lifetime).
    */
   function resolveTrialLifetimeSearchLimit() {
     if (trialSearchLimitFromServer != null) return trialSearchLimitFromServer;
@@ -43,7 +43,7 @@
       var fromRuntime = Number(global.__WALDROF_RUNTIME_CONFIG__.trialSearchLimit);
       if (Number.isFinite(fromRuntime) && fromRuntime > 0) return Math.floor(fromRuntime);
     }
-    return 2;
+    return 3;
   }
 
   var TIERS = {
