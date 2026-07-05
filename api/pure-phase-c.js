@@ -3031,6 +3031,33 @@ async function recordLiveSearchUsage(body, requestContext, teacher) {
   return billed && billed.usage ? billed.usage : null;
 }
 
+function hasBillablePhaseCData(normalized) {
+  if (!normalized || typeof normalized !== 'object') return false;
+  const theorySections = normalized.theory &&
+    Array.isArray(normalized.theory.sections) ? normalized.theory.sections : [];
+  if (theorySections.some(function (sec) {
+    return sec && String(sec.content || sec.text || '').trim();
+  })) {
+    return true;
+  }
+  return Boolean(
+    String(normalized.core_emphases || '').trim() ||
+    String(normalized.key_points || '').trim() ||
+    (Array.isArray(normalized.key_points) && normalized.key_points.length > 0)
+  );
+}
+
+async function billLiveSearchAfterSuccess(body, requestContext, teacher, normalized) {
+  if (!hasBillablePhaseCData(normalized)) return null;
+  try {
+    return await recordLiveSearchUsage(body, requestContext, teacher);
+  } catch (billErr) {
+    if (billErr && billErr.statusCode === 429) throw billErr;
+    console.warn('[pure-phase-c] live search billing failed:', billErr.message || billErr);
+    return null;
+  }
+}
+
 async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
   const grade = String(body.grade || body.gradeLabel || body.gradeId || '').trim();
   const topic = String(body.topic || '').trim();
@@ -3051,36 +3078,40 @@ async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
 
   const userPrompt = buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic);
   await enforceLiveSearchQuota(body, requestContext, teacher);
-  const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
-    phase: 'topic_master',
-    grade: grade,
-    gradeLabel: grade,
-    topic: topic,
-    max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-  });
-  const parsed = modelResult.parsed;
-  let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
-  stampTopicMasterArchiveLinks(normalized, parsed);
-
-  if (gradeId) {
-    cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
-      console.warn('[pure-phase-c] archive upgrade cache save failed:', err.message || err);
+  try {
+    const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+      phase: 'topic_master',
+      grade: grade,
+      gradeLabel: grade,
+      topic: topic,
+      max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
     });
+    const parsed = modelResult.parsed;
+    let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+    stampTopicMasterArchiveLinks(normalized, parsed);
+
+    if (gradeId) {
+      cache.setTopicMasterCache(gradeId, grade, topic, normalized).catch(function (err) {
+        console.warn('[pure-phase-c] archive upgrade cache save failed:', err.message || err);
+      });
+    }
+
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
+
+    return {
+      data: normalized,
+      meta: {
+        fromCache: false,
+        source: 'archive_upgrade_synthesis',
+        archiveUpgraded: true,
+        parseFallback: Boolean(modelResult.parseFallback),
+        searchBilled: Boolean(searchUsage),
+        usage: searchUsage || undefined,
+      },
+    };
+  } catch (err) {
+    throw err;
   }
-
-  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
-
-  return {
-    data: normalized,
-    meta: {
-      fromCache: false,
-      source: 'archive_upgrade_synthesis',
-      archiveUpgraded: true,
-      parseFallback: Boolean(modelResult.parseFallback),
-      searchBilled: true,
-      usage: searchUsage || undefined,
-    },
-  };
 }
 
 async function runResearchExpandPhaseC(body, requestContext, teacher) {
@@ -3103,43 +3134,47 @@ async function runResearchExpandPhaseC(body, requestContext, teacher) {
 
   const userPrompt = buildResearchExpandPhaseCUserPrompt(historic, grade, topic);
   await enforceLiveSearchQuota(body, requestContext, teacher);
-  const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
-    phase: 'topic_master',
-    grade: grade,
-    gradeLabel: grade,
-    topic: topic,
-    max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-  });
-  const parsed = modelResult.parsed;
-  let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
-  stampTopicMasterArchiveLinks(normalized, parsed);
+  try {
+    const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+      phase: 'topic_master',
+      grade: grade,
+      gradeLabel: grade,
+      topic: topic,
+      max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    });
+    const parsed = modelResult.parsed;
+    let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+    stampTopicMasterArchiveLinks(normalized, parsed);
 
-  let savedKey = null;
-  if (gradeId) {
-    try {
-      savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBodyFromRequest(body, teacher));
-      if (savedKey && teacher) {
-        await registerTeacherHistoryForExpand(savedKey, normalized, body, teacher, topic, gradeId, grade);
+    let savedKey = null;
+    if (gradeId) {
+      try {
+        savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBodyFromRequest(body, teacher));
+        if (savedKey && teacher) {
+          await registerTeacherHistoryForExpand(savedKey, normalized, body, teacher, topic, gradeId, grade);
+        }
+      } catch (saveErr) {
+        console.warn('[pure-phase-c] research expand cache save failed:', saveErr.message || saveErr);
       }
-    } catch (saveErr) {
-      console.warn('[pure-phase-c] research expand cache save failed:', saveErr.message || saveErr);
     }
+
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
+
+    return {
+      data: normalized,
+      meta: {
+        fromCache: false,
+        source: 'research_expand',
+        researchExpanded: true,
+        cacheKey: savedKey || undefined,
+        parseFallback: Boolean(modelResult.parseFallback),
+        searchBilled: Boolean(searchUsage),
+        usage: searchUsage || undefined,
+      },
+    };
+  } catch (err) {
+    throw err;
   }
-
-  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
-
-  return {
-    data: normalized,
-    meta: {
-      fromCache: false,
-      source: 'research_expand',
-      researchExpanded: true,
-      cacheKey: savedKey || undefined,
-      parseFallback: Boolean(modelResult.parseFallback),
-      searchBilled: true,
-      usage: searchUsage || undefined,
-    },
-  };
 }
 
 function ownerBodyFromRequest(body, teacher) {
@@ -3309,54 +3344,58 @@ async function runPurePhaseC(body, requestContext) {
   const userPrompt = buildPhaseCGenerationUserPrompt(grade, topic);
 
   await enforceLiveSearchQuota(body, requestContext, teacher);
-  const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
-    phase: 'topic_master',
-    grade: grade,
-    gradeLabel: grade,
-    topic: topic,
-    max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-  });
-  const parsed = modelResult.parsed;
-  let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
-  stampTopicMasterArchiveLinks(normalized, parsed);
+  try {
+    const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+      phase: 'topic_master',
+      grade: grade,
+      gradeLabel: grade,
+      topic: topic,
+      max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    });
+    const parsed = modelResult.parsed;
+    let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+    stampTopicMasterArchiveLinks(normalized, parsed);
 
-  if (body.mergeWithHistoric && body.historicPayload && typeof body.historicPayload === 'object') {
-    adaptTopicMasterPayload(body.historicPayload, { gradeId: gradeId, grade: grade, gradeLabel: grade, topic: topic });
-    try {
-      const mergedParsed = await mergeTopicMasterPayloads(body.historicPayload, normalized, grade, topic);
-      normalized = safeNormalizePhaseCResponse(mergedParsed, grade, topic);
-      stampTopicMasterArchiveLinks(normalized, mergedParsed);
-    } catch (mergeErr) {
-      console.warn('[pure-phase-c] topic_master merge failed — returning fresh payload:', mergeErr.message || mergeErr);
-    }
-  }
-
-  let savedKey = null;
-  if (gradeId) {
-    try {
-      savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBody);
-      if (savedKey) {
-        await registerTeacherHistory(savedKey, normalized);
+    if (body.mergeWithHistoric && body.historicPayload && typeof body.historicPayload === 'object') {
+      adaptTopicMasterPayload(body.historicPayload, { gradeId: gradeId, grade: grade, gradeLabel: grade, topic: topic });
+      try {
+        const mergedParsed = await mergeTopicMasterPayloads(body.historicPayload, normalized, grade, topic);
+        normalized = safeNormalizePhaseCResponse(mergedParsed, grade, topic);
+        stampTopicMasterArchiveLinks(normalized, mergedParsed);
+      } catch (mergeErr) {
+        console.warn('[pure-phase-c] topic_master merge failed — returning fresh payload:', mergeErr.message || mergeErr);
       }
-    } catch (saveErr) {
-      console.warn('[pure-phase-c] topic_master cache save failed:', saveErr.message || saveErr);
     }
+
+    let savedKey = null;
+    if (gradeId) {
+      try {
+        savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBody);
+        if (savedKey) {
+          await registerTeacherHistory(savedKey, normalized);
+        }
+      } catch (saveErr) {
+        console.warn('[pure-phase-c] topic_master cache save failed:', saveErr.message || saveErr);
+      }
+    }
+
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
+
+    return {
+      data: normalized,
+      meta: {
+        fromCache: false,
+        cacheKey: savedKey || undefined,
+        source: body.mergeWithHistoric ? 'topic_master_merge' : (modelResult.parseFallback ? 'perplexity-pure-fallback' : 'perplexity-pure'),
+        parseFallback: Boolean(modelResult.parseFallback),
+        merged: Boolean(body.mergeWithHistoric && body.historicPayload),
+        searchBilled: Boolean(searchUsage),
+        usage: searchUsage || undefined,
+      },
+    };
+  } catch (err) {
+    throw err;
   }
-
-  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
-
-  return {
-    data: normalized,
-    meta: {
-      fromCache: false,
-      cacheKey: savedKey || undefined,
-      source: body.mergeWithHistoric ? 'topic_master_merge' : (modelResult.parseFallback ? 'perplexity-pure-fallback' : 'perplexity-pure'),
-      parseFallback: Boolean(modelResult.parseFallback),
-      merged: Boolean(body.mergeWithHistoric && body.historicPayload),
-      searchBilled: true,
-      usage: searchUsage || undefined,
-    },
-  };
 }
 
 const legacyHandler = shared.createLegacyPostHandler(async function (body, req) {

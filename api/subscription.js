@@ -1024,15 +1024,42 @@ async function getStatus(user, userToken) {
   };
 }
 
-async function recordSearch(user, userToken) {
+/** Read-only quota check — never writes search_count_monthly. */
+async function assertSearchQuotaForUser(user, userToken) {
   user = applyLocalDemoUserIdMapping(user);
   const email = normalizeEmail(user && user.email);
   if (isProUserEmail(email)) {
-    logUsage('record_search:pro_bypass', { email: email });
+    return { allowed: true, proUser: true, usage: buildProUserUsagePayload(email), user: user };
+  }
+
+  const row = await ensureSubscription(user, userToken);
+  if (isSubscriptionExpired(row)) {
+    const usage = buildUsagePayload(row);
+    const err = new Error('תוקף המנוי הסתיים — שדרגו מחדש כדי להמשיך');
+    err.statusCode = 403;
+    err.code = 'SUBSCRIPTION_EXPIRED';
+    err.usage = usage;
+    throw err;
+  }
+
+  const usage = buildUsagePayload(row);
+  if (!usage.allowed) {
+    throw buildSearchLimitError(usage);
+  }
+
+  return { allowed: true, usage: usage, row: row, user: user };
+}
+
+/** Increment search counter by 1 — call only after a successful live AI response. */
+async function incrementSearchCountForUser(user, userToken) {
+  user = applyLocalDemoUserIdMapping(user);
+  const email = normalizeEmail(user && user.email);
+  if (isProUserEmail(email)) {
+    logUsage('increment_search:pro_bypass', { email: email });
     return { ok: true, action: 'record_search', usage: buildProUserUsagePayload(email), proUser: true };
   }
 
-  logUsage('record_search:start', {
+  logUsage('increment_search:start', {
     user_id: user && user.id,
     has_token: Boolean(userToken),
     service_role: Boolean(getSupabaseConfig().serviceKey),
@@ -1049,7 +1076,7 @@ async function recordSearch(user, userToken) {
   }
   const usageBefore = buildUsagePayload(row);
 
-  logUsage('record_search:before_increment', {
+  logUsage('increment_search:before_write', {
     user_id: user.id,
     searchesUsed_before: usageBefore.searchesUsed,
     search_count_monthly_raw: row.search_count_monthly,
@@ -1080,7 +1107,7 @@ async function recordSearch(user, userToken) {
   const updated = await updateSubscriptionRow(user.id, patch, row, user, userToken);
   const usage = buildUsagePayload(updated);
 
-  logUsage('record_search:after_increment', {
+  logUsage('increment_search:after_write', {
     user_id: user.id,
     searchesUsed_after: usage.searchesUsed,
     search_count_monthly_raw: updated.search_count_monthly,
@@ -1092,7 +1119,7 @@ async function recordSearch(user, userToken) {
     err.statusCode = 500;
     err.code = 'USAGE_PERSIST_FAILED';
     err.usage = usage;
-    logUsage('record_search:FAILED', {
+    logUsage('increment_search:FAILED', {
       user_id: user.id,
       before: usageBefore.searchesUsed,
       after: usage.searchesUsed,
@@ -1101,8 +1128,19 @@ async function recordSearch(user, userToken) {
     throw err;
   }
 
-  logUsage('record_search:OK', { user_id: user.id, searchesUsed: usage.searchesUsed });
+  logUsage('increment_search:OK', { user_id: user.id, searchesUsed: usage.searchesUsed });
   return { ok: true, action: 'record_search', usage: usage };
+}
+
+/** Explicit client/API record_search — check quota then increment (legacy action). */
+async function recordSearch(user, userToken) {
+  logUsage('record_search:start', {
+    user_id: user && user.id,
+    has_token: Boolean(userToken),
+    service_role: Boolean(getSupabaseConfig().serviceKey),
+  });
+  await assertSearchQuotaForUser(user, userToken);
+  return incrementSearchCountForUser(user, userToken);
 }
 
 async function recordWordDownload(user, userToken) {
@@ -1306,7 +1344,8 @@ async function recordLiveSearchFromRequest(req, explicitUser) {
     has_auth_header: Boolean(userToken),
     explicit_user: Boolean(explicitUser && explicitUser.id),
   });
-  return recordSearch(user, userToken);
+  // Quota was verified at request start (assertSearchAllowed*). Increment only after AI success.
+  return incrementSearchCountForUser(user, userToken);
 }
 
 async function assertSearchAllowedFromRequest(req) {
@@ -1324,20 +1363,7 @@ async function assertSearchAllowedFromRequest(req) {
     if (authErr && authErr.statusCode === 401) return { allowed: true, unauthenticated: true };
     throw authErr;
   }
-  const row = await ensureSubscription(user, userToken);
-  if (isSubscriptionExpired(row)) {
-    const usage = buildUsagePayload(row);
-    const err = new Error('תוקף המנוי הסתיים — שדרגו מחדש כדי להמשיך');
-    err.statusCode = 403;
-    err.code = 'SUBSCRIPTION_EXPIRED';
-    err.usage = usage;
-    throw err;
-  }
-  const usage = buildUsagePayload(row);
-  if (!usage.allowed) {
-    throw buildSearchLimitError(usage);
-  }
-  return { allowed: true, usage: usage };
+  return assertSearchQuotaForUser(user, userToken);
 }
 
 function buildRequestShape(body, headers) {
@@ -1369,20 +1395,8 @@ async function assertLiveSearchAllowedForPureApi(body, headers) {
     err.code = 'AUTH_REQUIRED';
     throw err;
   }
-  const row = await ensureSubscription(user, extractUserToken(reqShape));
-  if (isSubscriptionExpired(row)) {
-    const usage = buildUsagePayload(row);
-    const expiredErr = new Error('תוקף המנוי הסתיים — שדרגו מחדש כדי להמשיך');
-    expiredErr.statusCode = 403;
-    expiredErr.code = 'SUBSCRIPTION_EXPIRED';
-    expiredErr.usage = usage;
-    throw expiredErr;
-  }
-  const usage = buildUsagePayload(row);
-  if (!usage.allowed) {
-    throw buildSearchLimitError(usage);
-  }
-  return { allowed: true, usage: usage, user: user };
+  const check = await assertSearchQuotaForUser(user, extractUserToken(reqShape));
+  return Object.assign({}, check, { user: user });
 }
 
 async function assertWordDownloadAllowedFromRequest(req) {
@@ -1423,6 +1437,8 @@ module.exports = {
   assertLiveSearchAllowedForPureApi,
   assertWordDownloadAllowedFromRequest,
   recordSearch,
+  assertSearchQuotaForUser,
+  incrementSearchCountForUser,
   resolveUser,
   extractUserToken,
   extractUserEmail,

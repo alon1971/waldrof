@@ -214,6 +214,28 @@ async function recordLiveSearchUsage(body, requestContext, teacher) {
   return billed && billed.usage ? billed.usage : null;
 }
 
+function hasBillableGeneralSearchData(normalized) {
+  if (!normalized || typeof normalized !== 'object') return false;
+  return Boolean(
+    String(normalized.developmental_axis || '').trim() ||
+    String(normalized.core_pedagogical_emphases || '').trim() ||
+    (Array.isArray(normalized.recommended_literature) && normalized.recommended_literature.length > 0) ||
+    (Array.isArray(normalized.relevant_links) && normalized.relevant_links.length > 0) ||
+    (Array.isArray(normalized.curriculum) && normalized.curriculum.length > 0)
+  );
+}
+
+async function billLiveSearchAfterSuccess(body, requestContext, teacher, normalized) {
+  if (!hasBillableGeneralSearchData(normalized)) return null;
+  try {
+    return await recordLiveSearchUsage(body, requestContext, teacher);
+  } catch (billErr) {
+    if (billErr && billErr.statusCode === 429) throw billErr;
+    console.warn('[pure-general-search] live search billing failed:', billErr.message || billErr);
+    return null;
+  }
+}
+
 async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
   const query = String(body.query || body.topic || body.q || '').trim();
   if (!query) throw shared.badRequest('query is required');
@@ -230,36 +252,40 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
   const userPrompt = upgradeIntro + '\n\n' + basePrompt;
 
   await enforceLiveSearchQuota(body, requestContext);
-  const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
-    phase: periodBlock ? 'general_search_period' : 'general_search',
-    query: query,
-  });
-  const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+  try {
+    const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+      phase: periodBlock ? 'general_search_period' : 'general_search',
+      query: query,
+    });
+    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
-  const archiveResult = await persistGeneralSearchArchive(
-    query,
-    normalized,
-    body,
-    requestContext,
-    periodBlock
-  );
+    const archiveResult = await persistGeneralSearchArchive(
+      query,
+      normalized,
+      body,
+      requestContext,
+      periodBlock
+    );
 
-  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
 
-  return {
-    data: normalized,
-    meta: {
-      fromCache: false,
-      source: 'archive_upgrade_synthesis',
-      archiveUpgraded: true,
-      periodBlock: periodBlock,
-      cacheKey: archiveResult.cacheKey || undefined,
-      archived: archiveResult.archived,
-      archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
-      searchBilled: true,
-      usage: searchUsage || undefined,
-    },
-  };
+    return {
+      data: normalized,
+      meta: {
+        fromCache: false,
+        source: 'archive_upgrade_synthesis',
+        archiveUpgraded: true,
+        periodBlock: periodBlock,
+        cacheKey: archiveResult.cacheKey || undefined,
+        archived: archiveResult.archived,
+        archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+        searchBilled: Boolean(searchUsage),
+        usage: searchUsage || undefined,
+      },
+    };
+  } catch (err) {
+    throw err;
+  }
 }
 
 async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
@@ -278,36 +304,40 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
   const userPrompt = expandIntro + '\n\n' + basePrompt;
 
   await enforceLiveSearchQuota(body, requestContext);
-  const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
-    phase: periodBlock ? 'general_search_period' : 'general_search',
-    query: query,
-  });
-  const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+  try {
+    const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+      phase: periodBlock ? 'general_search_period' : 'general_search',
+      query: query,
+    });
+    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
-  const archiveResult = await persistGeneralSearchArchive(
-    query,
-    normalized,
-    body,
-    requestContext,
-    periodBlock
-  );
+    const archiveResult = await persistGeneralSearchArchive(
+      query,
+      normalized,
+      body,
+      requestContext,
+      periodBlock
+    );
 
-  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
 
-  return {
-    data: normalized,
-    meta: {
-      fromCache: false,
-      source: 'research_expand',
-      researchExpanded: true,
-      periodBlock: periodBlock,
-      cacheKey: archiveResult.cacheKey || undefined,
-      archived: archiveResult.archived,
-      archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
-      searchBilled: true,
-      usage: searchUsage || undefined,
-    },
-  };
+    return {
+      data: normalized,
+      meta: {
+        fromCache: false,
+        source: 'research_expand',
+        researchExpanded: true,
+        periodBlock: periodBlock,
+        cacheKey: archiveResult.cacheKey || undefined,
+        archived: archiveResult.archived,
+        archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+        searchBilled: Boolean(searchUsage),
+        usage: searchUsage || undefined,
+      },
+    };
+  } catch (err) {
+    throw err;
+  }
 }
 
 async function runPureGeneralSearch(body, requestContext) {
@@ -435,35 +465,39 @@ async function runPureGeneralSearch(body, requestContext) {
   const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
 
   await enforceLiveSearchQuota(body, requestContext);
-  const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
-    phase: periodBlock ? 'general_search_period' : 'general_search',
-    query: query,
-  });
-  const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+  try {
+    const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+      phase: periodBlock ? 'general_search_period' : 'general_search',
+      query: query,
+    });
+    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
-  const archiveResult = await persistGeneralSearchArchive(
-    query,
-    normalized,
-    body,
-    requestContext,
-    periodBlock
-  );
+    const archiveResult = await persistGeneralSearchArchive(
+      query,
+      normalized,
+      body,
+      requestContext,
+      periodBlock
+    );
 
-  const searchUsage = await recordLiveSearchUsage(body, requestContext, teacher);
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
 
-  return {
-    data: normalized,
-    meta: {
-      fromCache: false,
-      source: 'perplexity-pure',
-      periodBlock: periodBlock,
-      cacheKey: archiveResult.cacheKey || undefined,
-      archived: archiveResult.archived,
-      archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
-      searchBilled: true,
-      usage: searchUsage || undefined,
-    },
-  };
+    return {
+      data: normalized,
+      meta: {
+        fromCache: false,
+        source: 'perplexity-pure',
+        periodBlock: periodBlock,
+        cacheKey: archiveResult.cacheKey || undefined,
+        archived: archiveResult.archived,
+        archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+        searchBilled: Boolean(searchUsage),
+        usage: searchUsage || undefined,
+      },
+    };
+  } catch (err) {
+    throw err;
+  }
 }
 
 const legacyHandler = async function (req, res) {

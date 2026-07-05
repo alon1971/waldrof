@@ -695,6 +695,16 @@ function hasPedagogyDeepDiveContent(dive) {
   );
 }
 
+function hasArchiveSummaryContent(summary) {
+  if (!summary || typeof summary !== 'object') return false;
+  return Boolean(
+    String(summary.rawContent || '').trim() ||
+    String(summary.summaryHtml || '').trim() ||
+    String(summary.summary || '').trim() ||
+    String(summary.contentHtml || '').trim()
+  );
+}
+
 function buildPerplexityExpansionPayload(body, rawPayload) {
   const citations = Array.isArray(rawPayload.citations) ? rawPayload.citations.filter(Boolean) : [];
   return {
@@ -2170,10 +2180,94 @@ function validatePhaseResult(phase, data, body) {
     return Boolean(cacheDb.extractChatAnswerText(data));
   }
   if (phase === 'pedagogy_deep_dive') return hasPedagogyDeepDiveContent(data.pedagogyDeepDive);
-  if (phase === 'archive_summary') return Boolean(data.archiveSummary || data.pedagogyDeepDive);
+  if (phase === 'archive_summary') {
+    if (hasPedagogyDeepDiveContent(data.pedagogyDeepDive)) return true;
+    return hasArchiveSummaryContent(data.archiveSummary);
+  }
   if (phase === 'drive') return Boolean(data.driveMerge);
   if (phase === 'test') return data.ok === true;
   return true;
+}
+
+function isBillableLiveSearchResult(parsedBody, result) {
+  if (!result || !result.meta) return false;
+  if (result.meta.fromCache || result.meta.communityRouted || result.meta.needsArchiveConfirmation) return false;
+  if (isClearTopicProsePhase(parsedBody)) return false;
+  if (result.data == null && !result.meta.asyncAccepted) return false;
+  if (result.meta.asyncAccepted) return true;
+  return validatePhaseResult(parsedBody.phase, result.data, parsedBody);
+}
+
+async function attachLiveSearchBilling(parsedBody, ctx, verifiedUser, result) {
+  if (!isBillableLiveSearchResult(parsedBody, result)) return;
+  if (typeof subscriptionApi.recordLiveSearchFromRequest !== 'function') return;
+
+  const billingBody = Object.assign({}, parsedBody);
+  if (verifiedUser && verifiedUser.id) {
+    billingBody.teacherUser = Object.assign({}, billingBody.teacherUser || {}, {
+      id: verifiedUser.id,
+      email: verifiedUser.email || '',
+      name: verifiedUser.name || verifiedUser.displayName || '',
+      displayName: verifiedUser.displayName || verifiedUser.name || '',
+      tier: (billingBody.teacherUser && billingBody.teacherUser.tier) || verifiedUser.tier || 'trial',
+    });
+  }
+  const billReq = {
+    method: 'POST',
+    headers: ctx.headers || {},
+    body: billingBody,
+  };
+  console.log('[generate] billable live search — before increment', {
+    phase: parsedBody.phase,
+    user_id: verifiedUser && verifiedUser.id,
+    has_auth: Boolean(billReq.headers && (billReq.headers.authorization || billReq.headers.Authorization)),
+    fromCache: false,
+  });
+  try {
+    const billed = await subscriptionApi.recordLiveSearchFromRequest(billReq, verifiedUser);
+    console.log('[generate] billable live search — after increment', {
+      user_id: verifiedUser && verifiedUser.id,
+      searchBilled: Boolean(billed && billed.usage),
+      searchesUsed: billed && billed.usage ? billed.usage.searchesUsed : null,
+    });
+    if (billed && billed.usage) {
+      result.meta = Object.assign({}, result.meta, { usage: billed.usage, searchBilled: true });
+    } else if (typeof subscriptionApi.incrementSearchCountForUser === 'function' && verifiedUser && verifiedUser.id) {
+      const token = typeof subscriptionApi.extractUserToken === 'function'
+        ? subscriptionApi.extractUserToken(billReq)
+        : '';
+      console.log('[generate] incrementSearchCount direct fallback for user_id', verifiedUser.id);
+      const directBill = await subscriptionApi.incrementSearchCountForUser(verifiedUser, token);
+      console.log('[generate] direct fallback result searchesUsed', directBill && directBill.usage && directBill.usage.searchesUsed);
+      if (directBill && directBill.usage) {
+        result.meta = Object.assign({}, result.meta, { usage: directBill.usage, searchBilled: true });
+      } else {
+        result.meta = Object.assign({}, result.meta, { searchBilled: false });
+        console.warn('[generate] live search usage not recorded — no usage payload returned');
+      }
+    } else {
+      result.meta = Object.assign({}, result.meta, { searchBilled: false });
+      console.warn('[generate] live search usage not recorded — no verified user', {
+        verifiedUser: verifiedUser && verifiedUser.id,
+      });
+    }
+  } catch (billErr) {
+    console.error('[generate] billable live search — increment FAILED', {
+      user_id: verifiedUser && verifiedUser.id,
+      message: billErr && billErr.message,
+      code: billErr && billErr.code,
+      supabaseBody: billErr && billErr.supabaseBody,
+      usage: billErr && billErr.usage,
+    });
+    if (billErr && billErr.statusCode === 429) {
+      throw billErr;
+    }
+    if (billErr && billErr.usage) {
+      result.meta = Object.assign({}, result.meta, { usage: billErr.usage, searchBilled: false });
+    } else {
+      result.meta = Object.assign({}, result.meta, { searchBilled: false });
+    }
+  }
 }
 
 const MODEL_PARSE_MAX_ATTEMPTS = 2;
@@ -2879,108 +2973,41 @@ async function handleGeneratePost(parsedBody, requestContext, streamHooks) {
       }
     }
   }
-  const result = await executeGenerate(parsedBody, apiKey, ctx, streamHooks);
-  if (
-    result &&
-    result.meta &&
-    result.meta.fromCache &&
-    result.meta.cacheKey &&
-    verifiedUser &&
-    (parsedBody.phase === 'topic' || parsedBody.phase === 'topic_master')
-  ) {
-    cacheDb.linkArchiveToTeacherHistory(verifiedUser, result.meta.cacheKey, {
-      topic: parsedBody.topic,
-      gradeId: parsedBody.currentGrade || parsedBody.gradeId,
-      gradeLabel: parsedBody.gradeLabel,
-      queryText: parsedBody.topic,
-      requestedTopic: result.meta.requestedTopic || parsedBody.topic,
-      resultData: result.data,
-    }).catch(function (linkErr) {
-      console.warn('[generate] linkArchiveToTeacherHistory failed:', linkErr.message || linkErr);
-    });
-  }
-  const billable = result &&
-    result.meta &&
-    !result.meta.fromCache &&
-    !result.meta.communityRouted &&
-    !result.meta.needsArchiveConfirmation &&
-    !clearTopicProse &&
-    (result.data != null || result.meta.asyncAccepted);
-
-  if (billable && typeof subscriptionApi.recordLiveSearchFromRequest === 'function') {
-    const billingBody = Object.assign({}, parsedBody);
-    if (verifiedUser && verifiedUser.id) {
-      billingBody.teacherUser = Object.assign({}, billingBody.teacherUser || {}, {
-        id: verifiedUser.id,
-        email: verifiedUser.email || '',
-        name: verifiedUser.name || verifiedUser.displayName || '',
-        displayName: verifiedUser.displayName || verifiedUser.name || '',
-        tier: (billingBody.teacherUser && billingBody.teacherUser.tier) || verifiedUser.tier || 'trial',
+  let result;
+  try {
+    result = await executeGenerate(parsedBody, apiKey, ctx, streamHooks);
+    if (
+      result &&
+      result.meta &&
+      result.meta.fromCache &&
+      result.meta.cacheKey &&
+      verifiedUser &&
+      (parsedBody.phase === 'topic' || parsedBody.phase === 'topic_master')
+    ) {
+      cacheDb.linkArchiveToTeacherHistory(verifiedUser, result.meta.cacheKey, {
+        topic: parsedBody.topic,
+        gradeId: parsedBody.currentGrade || parsedBody.gradeId,
+        gradeLabel: parsedBody.gradeLabel,
+        queryText: parsedBody.topic,
+        requestedTopic: result.meta.requestedTopic || parsedBody.topic,
+        resultData: result.data,
+      }).catch(function (linkErr) {
+        console.warn('[generate] linkArchiveToTeacherHistory failed:', linkErr.message || linkErr);
       });
     }
-    const billReq = {
-      method: 'POST',
-      headers: ctx.headers || {},
-      body: billingBody,
-    };
-    console.log('[generate] billable live search — before recordSearch', {
-      phase: parsedBody.phase,
-      user_id: verifiedUser && verifiedUser.id,
-      has_auth: Boolean(billReq.headers && (billReq.headers.authorization || billReq.headers.Authorization)),
-      fromCache: false,
-    });
-    try {
-      const billed = await subscriptionApi.recordLiveSearchFromRequest(billReq, verifiedUser);
-      console.log('[generate] billable live search — after recordSearch', {
-        user_id: verifiedUser && verifiedUser.id,
-        searchBilled: Boolean(billed && billed.usage),
-        searchesUsed: billed && billed.usage ? billed.usage.searchesUsed : null,
-      });
-      if (billed && billed.usage) {
-        result.meta = Object.assign({}, result.meta, { usage: billed.usage, searchBilled: true });
-      } else if (typeof subscriptionApi.recordSearch === 'function' && verifiedUser && verifiedUser.id) {
-        const token = typeof subscriptionApi.extractUserToken === 'function'
-          ? subscriptionApi.extractUserToken(billReq)
-          : '';
-        console.log('[generate] recordSearch direct fallback for user_id', verifiedUser.id);
-        const directBill = await subscriptionApi.recordSearch(verifiedUser, token);
-        console.log('[generate] direct fallback result searchesUsed', directBill && directBill.usage && directBill.usage.searchesUsed);
-        if (directBill && directBill.usage) {
-          result.meta = Object.assign({}, result.meta, { usage: directBill.usage, searchBilled: true });
-        } else {
-          result.meta = Object.assign({}, result.meta, { searchBilled: false });
-          console.warn('[generate] live search usage not recorded — no usage payload returned');
-        }
-      } else {
-        result.meta = Object.assign({}, result.meta, { searchBilled: false });
-        console.warn('[generate] live search usage not recorded — no verified user', {
-          verifiedUser: verifiedUser && verifiedUser.id,
-        });
-      }
-    } catch (billErr) {
-      console.error('[generate] billable live search — recordSearch FAILED', {
-        user_id: verifiedUser && verifiedUser.id,
-        message: billErr && billErr.message,
-        code: billErr && billErr.code,
-        supabaseBody: billErr && billErr.supabaseBody,
-        usage: billErr && billErr.usage,
-      });
-      if (billErr && billErr.statusCode === 429) {
-        throw billErr;
-      }
-      if (billErr && billErr.usage) {
-        result.meta = Object.assign({}, result.meta, { usage: billErr.usage, searchBilled: false });
-      } else {
-        result.meta = Object.assign({}, result.meta, { searchBilled: false });
-      }
+
+    await attachLiveSearchBilling(parsedBody, ctx, verifiedUser, result);
+
+    if (isBillableLiveSearchResult(parsedBody, result) &&
+        typeof searchLogs.logLiveSearchFromRequestAsync === 'function') {
+      searchLogs.logLiveSearchFromRequestAsync(reqShape, parsedBody, { fromCache: false });
     }
-  }
 
-  if (billable && typeof searchLogs.logLiveSearchFromRequestAsync === 'function') {
-    searchLogs.logLiveSearchFromRequestAsync(reqShape, parsedBody, { fromCache: false });
+    return result;
+  } catch (genErr) {
+    // AI failures, timeouts, and parse errors must never increment the search counter.
+    throw genErr;
   }
-
-  return result;
 }
 
 /** Parse JSON body from adapters that attach req.body (legacy mock requests). */
