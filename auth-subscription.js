@@ -1761,6 +1761,7 @@
   }
 
   function showAuthOverlay() {
+    setShowEmailForm(false);
     var el = document.getElementById('auth-overlay');
     if (el) {
       el.classList.remove('hidden');
@@ -2410,6 +2411,13 @@
     }
   }
 
+  function setShowEmailForm(show) {
+    var emailForm = document.getElementById('auth-email-form');
+    var toggle = document.getElementById('auth-email-toggle');
+    if (emailForm) emailForm.classList.toggle('hidden', !show);
+    if (toggle) toggle.classList.toggle('hidden', show);
+  }
+
   function setAuthTab(tab) {
     var loginPanel = document.getElementById('auth-panel-login');
     var signupPanel = document.getElementById('auth-panel-signup');
@@ -2420,6 +2428,7 @@
     if (signupPanel) signupPanel.classList.toggle('hidden', isLogin);
     if (tabLogin) tabLogin.classList.toggle('auth-tab--active', isLogin);
     if (tabSignup) tabSignup.classList.toggle('auth-tab--active', !isLogin);
+    if (isLogin) setShowEmailForm(false);
   }
 
   function bindAuthUi() {
@@ -2431,6 +2440,16 @@
     if (tabSignup) tabSignup.addEventListener('click', function () {
       if (!authUiLoading) setAuthTab('signup');
     });
+
+    var emailToggle = document.getElementById('auth-email-toggle');
+    if (emailToggle) {
+      emailToggle.addEventListener('click', function () {
+        if (authUiLoading) return;
+        setShowEmailForm(true);
+        var emailInput = document.getElementById('auth-login-email');
+        if (emailInput && typeof emailInput.focus === 'function') emailInput.focus();
+      });
+    }
 
     document.querySelectorAll('[data-auth-google]').forEach(function (btn) {
       btn.addEventListener('click', function () {

@@ -2657,6 +2657,25 @@
     .auth-google-btn--loading .auth-btn-spinner { display: flex; }
     .auth-submit--loading { color: #fff; }
     .auth-google-btn--loading { color: #5C4A3A; }
+    .auth-panel--login { display: flex; flex-direction: column; align-items: stretch; }
+    .auth-login-primary { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0.5rem 0 0.25rem; }
+    .auth-social-block--center { width: 100%; max-width: 100%; margin-bottom: 0; }
+    .auth-google-btn--hero {
+      min-height: 3.5rem; padding: 1rem 1.25rem; font-size: 1.05rem !important;
+      border-radius: 0.95rem;
+      box-shadow: 0 6px 20px rgba(66, 133, 244, 0.15), 0 2px 8px rgba(92, 74, 58, 0.1), inset 0 1px 0 rgba(255,255,255,0.95);
+    }
+    .auth-google-btn--hero .auth-google-icon { width: 1.65rem; height: 1.65rem; }
+    .auth-google-btn--hero .auth-google-icon svg { width: 1.25rem; height: 1.25rem; }
+    .auth-email-toggle {
+      margin-top: 1.25rem; padding: 0.25rem 0.5rem; border: none; background: none;
+      color: rgba(92, 74, 58, 0.45); font-size: 0.78rem; font-weight: 500;
+      cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+      transition: color 0.15s ease;
+    }
+    .auth-email-toggle:hover { color: rgba(92, 74, 58, 0.7); }
+    .auth-email-form { width: 100%; margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid rgba(201, 169, 98, 0.25); }
+    .auth-email-form.hidden { display: none; }
 
     #user-account-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .header-user-identity { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
@@ -4603,30 +4622,34 @@
         <button type="button" id="auth-tab-login" class="auth-tab auth-tab--active" role="tab" aria-selected="true" data-i18n="auth_tab_login">כניסה</button>
         <button type="button" id="auth-tab-signup" class="auth-tab" role="tab" aria-selected="false" data-i18n="auth_tab_signup">הרשמה</button>
       </div>
-      <div id="auth-panel-login" class="auth-panel" role="tabpanel">
-        <div class="auth-social-block">
-          <button type="button" id="auth-google-login" class="auth-google-btn" data-auth-google aria-label="התחברות באמצעות גוגל">
-            <span class="auth-google-icon" aria-hidden="true"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Google"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg></span>
-            <span class="auth-google-label" data-i18n="auth_google_btn">התחברות דרך גוגל</span>
-            <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
-          </button>
+      <div id="auth-panel-login" class="auth-panel auth-panel--login" role="tabpanel">
+        <div class="auth-login-primary">
+          <div class="auth-social-block auth-social-block--center">
+            <button type="button" id="auth-google-login" class="auth-google-btn auth-google-btn--hero" data-auth-google aria-label="התחברות באמצעות גוגל">
+              <span class="auth-google-icon" aria-hidden="true"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Google"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg></span>
+              <span class="auth-google-label" data-i18n="auth_google_btn">התחברות דרך גוגל</span>
+              <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
+            </button>
+          </div>
+          <button type="button" id="auth-email-toggle" class="auth-email-toggle" data-i18n="auth_email_toggle">התחברות באמצעות מייל וסיסמה</button>
         </div>
-        <div class="auth-divider" role="separator"><span data-i18n="auth_or_email">או עם דוא״ל</span></div>
-        <form id="auth-form-login" novalidate>
-          <div class="auth-field">
-            <label for="auth-login-email" data-i18n="auth_email_label">דוא״ל</label>
-            <input type="email" id="auth-login-email" name="email" autocomplete="email" required />
-          </div>
-          <div class="auth-field">
-            <label for="auth-login-password" data-i18n="auth_password_label">סיסמה</label>
-            <input type="password" id="auth-login-password" name="password" autocomplete="current-password" required minlength="6" />
-          </div>
-          <p id="auth-login-error" class="auth-error" role="alert"></p>
-          <button type="submit" id="auth-submit-login" class="auth-submit">
-            <span class="auth-submit-label" data-i18n="auth_login_btn">היכנסו למערכת</span>
-            <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
-          </button>
-        </form>
+        <div id="auth-email-form" class="auth-email-form hidden">
+          <form id="auth-form-login" novalidate>
+            <div class="auth-field">
+              <label for="auth-login-email" data-i18n="auth_email_label">דוא״ל</label>
+              <input type="email" id="auth-login-email" name="email" autocomplete="email" required />
+            </div>
+            <div class="auth-field">
+              <label for="auth-login-password" data-i18n="auth_password_label">סיסמה</label>
+              <input type="password" id="auth-login-password" name="password" autocomplete="current-password" required minlength="6" />
+            </div>
+            <p id="auth-login-error" class="auth-error" role="alert"></p>
+            <button type="submit" id="auth-submit-login" class="auth-submit">
+              <span class="auth-submit-label" data-i18n="auth_login_btn">היכנסו למערכת</span>
+              <span class="auth-btn-spinner" aria-hidden="true"><i class="fa-solid fa-spinner fa-spin"></i></span>
+            </button>
+          </form>
+        </div>
       </div>
       <div id="auth-panel-signup" class="auth-panel hidden" role="tabpanel">
         <div class="auth-social-block">
