@@ -751,7 +751,30 @@ async function handleApiDriveCatalogSyncCron(req, res) {
   }
 }
 
+function shouldSkipWwwRedirect(hostname) {
+  const host = String(hostname || '').toLowerCase().split(':')[0];
+  if (!host || host.startsWith('www.')) return true;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return true;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return true;
+  if (host.endsWith('.onrender.com')) return true;
+  return false;
+}
+
+function redirectToWwwIfNeeded(req, res) {
+  const hostHeader = String(req.headers.host || '');
+  const hostname = hostHeader.split(':')[0];
+  if (shouldSkipWwwRedirect(hostname)) return false;
+  const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim() || 'https';
+  const parsed = new URL(req.url || '/', proto + '://' + hostHeader);
+  const target = proto + '://www.' + hostname.toLowerCase() + parsed.pathname + parsed.search;
+  res.writeHead(301, { Location: target });
+  res.end();
+  return true;
+}
+
 const server = http.createServer(async function (req, res) {
+  if (redirectToWwwIfNeeded(req, res)) return;
+
   const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
 
   if (pathname === '/health' || pathname === '/api/health') {
