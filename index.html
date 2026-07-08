@@ -2,20 +2,6 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <script>
-    (function () {
-      try {
-        var loc = window.location;
-        var host = String(loc.hostname || '').toLowerCase();
-        if (!host || host.indexOf('www.') === 0) return;
-        if (loc.protocol === 'file:') return;
-        if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return;
-        if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return;
-        if (host.endsWith('.onrender.com')) return;
-        loc.replace(loc.protocol + '//www.' + host + loc.pathname + loc.search + loc.hash);
-      } catch (e) { /* ignore */ }
-    })();
-  </script>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-55NVT1E0CD"></script>
   <script>
