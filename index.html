@@ -5668,10 +5668,9 @@
 
     (function clearCommunityLocalCacheAtStartup() {
       try {
-        window.communityFormDraft = { grade: '', topic: '', description: '', author: '', files: [], shareMode: 'file', shareUrl: '' };
         localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY);
-        localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY);
         localStorage.removeItem(COMMUNITY_OWNED_STORAGE_KEY);
+        // Keep COMMUNITY_UPLOAD_DRAFT_KEY so in-progress form text survives reloads.
       } catch (e) { /* ignore */ }
     })();
     const communitySessionOwnedIds = new Set();
@@ -13754,17 +13753,24 @@
 
     function buildGeneralSearchDocFilename(query) {
       var base = sanitizeDocxFilename(query || t('general_search_title'));
-      return base + '.doc';
+      return base + '.docx';
     }
 
     function sanitizeDocxFilename(name) {
       return String(name || 'summary').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 72) || 'summary';
     }
 
+    function ensureDocxFilename(filename) {
+      var name = String(filename || 'document').trim() || 'document';
+      if (/\.docx$/i.test(name)) return name;
+      if (/\.doc$/i.test(name)) return name.replace(/\.doc$/i, '.docx');
+      return name + '.docx';
+    }
+
     function buildPedagogyDocxFilename() {
       const grade = sanitizeDocxFilename(appState.gradeLabel || t('crumb_grade'));
       const topic = sanitizeDocxFilename(appState.topic || t('export_doc_no_topic'));
-      return t('export_doc_filename', { grade: grade, topic: topic }).replace(/\.docx$/i, '.doc');
+      return ensureDocxFilename(t('export_doc_filename', { grade: grade, topic: topic }));
     }
 
     /** Export-only href resolver — keeps valid http(s) URLs for Word hyperlinks even when path/query is percent-encoded Hebrew. */
@@ -14279,6 +14285,8 @@
       return parts.join('\n');
     }
 
+    var WORD_DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
     function buildSecureWordBlob(bodyHtml, langCode) {
       var lang = langCode || (isEnglish() ? 'en' : 'he');
       var dir = lang === 'en' ? 'ltr' : 'rtl';
@@ -14296,38 +14304,42 @@
         safeBody +
         '\n</body>\n' +
         '</html>';
-      return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+      return new Blob(['\ufeff' + htmlContent], { type: WORD_DOCX_MIME });
     }
 
     /**
-     * Foolproof, browser-restriction-friendly download trigger.
-     * Primary path: open the blob URL directly via window.open(url, '_blank') — the
-     * browser hands a .doc blob straight to its official download manager. Only if a
-     * popup blocker returns null do we fall back to the classic hidden-anchor click,
-     * so the download can never silently fail. Exposed globally so the sticky button
-     * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
+     * Force a real file download with a .docx filename and Word MIME type.
+     * Prefer the hidden <a download> path so the browser does not open the HTML
+     * payload as a webpage (which made Save As default to "Web Page").
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
+      var safeName = ensureDocxFilename(filename || 'document.docx');
       var url = URL.createObjectURL(blob);
-      var opened = null;
-      try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
-      if (!opened) {
+      var downloaded = false;
+      try {
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = safeName;
+        link.rel = 'noopener';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        downloaded = true;
+      } catch (anchorErr) {
+        console.error('[word-export] anchor download failed', anchorErr);
+      }
+      if (!downloaded) {
         try {
-          var link = document.createElement('a');
-          link.href = url;
-          link.download = filename || 'document.doc';
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } catch (anchorErr) {
-          console.error('[word-export] anchor fallback failed', anchorErr);
+          var opened = window.open(url, '_blank');
+          downloaded = Boolean(opened);
+        } catch (openErr) {
+          downloaded = false;
         }
       }
-      // Keep the object URL alive long enough for the new tab / download manager.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
-      return true;
+      return downloaded;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
@@ -14816,7 +14828,7 @@
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
           // Direct download via window.open (with anchor fallback) — see helper.
-          triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc');
+          triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.docx' : 'הודעת_צ\'אט.docx');
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
         } finally {
           if (exportBtn) exportBtn.disabled = false;
@@ -14946,14 +14958,13 @@
               '<head><meta charset="utf-8"></head>' +
               '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
               html + '</body></html>';
-            blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
+            blob = new Blob(['\ufeff' + htmlContent], { type: WORD_DOCX_MIME });
           }
-          // 3b. Dynamic filename (topic/grade based), always a .doc.
-          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.doc';
+          // 3b. Dynamic filename (topic/grade based), always a .docx.
+          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
           try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          // 3c. Direct download: open the blob URL in a new tab so the browser's
-          //     official download manager handles it (bypasses programmatic-click
-          //     restrictions). Falls back to an anchor only if a popup blocker hits.
+          // 3c. Force download via <a download> with .docx + Word MIME (not window.open,
+          //     which caused Save As to default to Web Page / HTML).
           triggerWordBlobDownload(blob, filename);
           // Fire-and-forget usage tracking — must never block or break the download.
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
@@ -25645,8 +25656,12 @@
       return Boolean(modal && !modal.classList.contains('hidden'));
     }
 
-    function resolveCatalogUploadActiveGrade(fallbackGradeId) {
-      return appState.grade || catalogState.gradeId || fallbackGradeId || '';
+    function resolveCatalogUploadActiveGrade(preferredGradeId) {
+      var preferred = preferredGradeId != null ? String(preferredGradeId).trim() : '';
+      if (preferred && preferred !== 'null' && preferred !== 'undefined') return preferred;
+      if (catalogState.gradeId) return String(catalogState.gradeId);
+      if (appState.grade) return String(appState.grade);
+      return '';
     }
 
     function resetCatalogUploadForm(form, opts) {
@@ -25699,6 +25714,14 @@
       const form = body.querySelector('.catalog-upload-form');
       bindSingleCatalogUploadForm(form);
       resetCatalogUploadForm(form, { presetTopic: presetTopic || '', keepReadonlyTopic: readonlyTopic });
+      applyCommunityFormDraftToForm(form);
+      // Current catalog/wizard grade wins over any draft grade.
+      const gradeSelect = form.querySelector('[name="catalog-grade"]');
+      if (gradeSelect && activeGrade) gradeSelect.value = activeGrade;
+      if (readonlyTopic) {
+        const topicInput = form.querySelector('[name="catalog-topic"]');
+        if (topicInput) topicInput.value = presetTopic || '';
+      }
       ensureCatalogUploadModalInteractive(form);
       modal.classList.remove('hidden');
       modal.removeAttribute('hidden');
@@ -25706,9 +25729,9 @@
       modal.style.pointerEvents = 'auto';
       window.communityUploadDrawerOpen = true;
       document.body.classList.add('catalog-modal-open');
-      persistCommunityFormDraft(true);
-      const topicInput = body.querySelector('[name="catalog-topic"]');
-      if (topicInput && !topicInput.readOnly) topicInput.focus({ preventScroll: true });
+      syncCommunityFormDraftFromForm(form, true);
+      const focusTopic = body.querySelector('[name="catalog-topic"]');
+      if (focusTopic && !focusTopic.readOnly) focusTopic.focus({ preventScroll: true });
     }
 
     function closeCatalogUploadModal() {
@@ -25744,7 +25767,9 @@
         btn.addEventListener('click', function (e) {
           e.preventDefault();
           e.stopPropagation();
-          const gradeId = btn.getAttribute('data-grade') || catalogState.gradeId || appState.grade;
+          const rawGrade = btn.getAttribute('data-grade');
+          const fromBtn = (rawGrade && rawGrade !== 'null' && rawGrade !== 'undefined') ? rawGrade : '';
+          const gradeId = fromBtn || catalogState.gradeId || appState.grade;
           const topic = btn.getAttribute('data-topic') || '';
           const readonly = btn.getAttribute('data-topic-readonly') === 'true';
           openCatalogUploadModal(gradeId, topic, readonly);
@@ -25867,7 +25892,6 @@
     }
 
     function resetCommunityClientStateOnReload() {
-      window.communityFormDraft = defaultCommunityFormDraft();
       window.selectedUploadFiles = [];
       window.communityUploadDrawerOpen = false;
       communitySessionOwnedIds.clear();
@@ -25875,8 +25899,8 @@
       appState.communityForGrade = [];
       try {
         localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY);
-        localStorage.removeItem(COMMUNITY_UPLOAD_DRAFT_KEY);
         localStorage.removeItem(COMMUNITY_OWNED_STORAGE_KEY);
+        // Keep COMMUNITY_UPLOAD_DRAFT_KEY — cleared only after successful submit.
       } catch (e) { /* ignore */ }
     }
 
@@ -27281,6 +27305,7 @@
             try { resetWizardSessionState(); } catch (e) { console.warn('[waldrof] logout resetWizardSessionState:', e); }
             try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] logout resetWizardOnPageLoad:', e); }
             try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] logout resetCommunityClientStateOnReload:', e); }
+            try { clearCommunityFormDraftOnSuccess(); } catch (e) { console.warn('[waldrof] logout clearCommunityFormDraft:', e); }
             try { refreshMarketingBenchVisibility(); } catch (e) { console.warn('[waldrof] logout refreshMarketingBenchVisibility:', e); }
             if (typeof WaldorfSearchHistory !== 'undefined' && typeof WaldorfSearchHistory.invalidate === 'function') {
               try { WaldorfSearchHistory.invalidate(); } catch (e) { /* ignore */ }
@@ -27399,9 +27424,7 @@
       try { updateTopicResearchButton(); } catch (e) { console.warn('[waldrof] updateTopicResearchButton:', e); }
       try { bindEvents(); } catch (e) { console.error('[waldrof] bindEvents failed — buttons may be inactive:', e); }
       try { bindCatalogUploadModalChrome(); } catch (e) { console.warn('[waldrof] bindCatalogUploadModalChrome:', e); }
-      if (!pageReloaded) {
-        loadCommunityFormDraftFromStorage();
-      }
+      try { loadCommunityFormDraftFromStorage(); } catch (e) { console.warn('[waldrof] loadCommunityFormDraftFromStorage:', e); }
       if (typeof LessonChatSidebar !== 'undefined') {
         LessonChatSidebar.init({
           t: t,
