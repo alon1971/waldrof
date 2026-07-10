@@ -4744,7 +4744,7 @@
        (Overview / Topic Edit / מידע והשראה) and while scrolling. Keeps the original
        id (#btn-phase-c-export-word) so all existing JS wiring keeps working. -->
   <div id="global-word-export-bar" dir="rtl">
-    <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export aria-label="הורד למסמך וורד">
+    <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד">
       <i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true" style="pointer-events: none;"></i>
       <span class="phase-c-unified-export-label" data-i18n="general_search_export_word" style="pointer-events: none;">הורד למסמך וורד</span>
     </button>
@@ -13764,8 +13764,9 @@
       const grade = sanitizeDocxFilename(appState.gradeLabel || t('crumb_grade'));
       const topic = sanitizeDocxFilename(appState.topic || t('export_doc_no_topic'));
       var name = t('export_doc_filename', { grade: grade, topic: topic });
-      if (!/\.docx$/i.test(name)) name = String(name || 'document').replace(/\.doc$/i, '') + '.docx';
-      return name;
+      // Keep a hard .docx extension for the HTML download attribute (Windows Save As).
+      if (/\.docx$/i.test(name)) return name;
+      return String(name || 'document').replace(/\.doc$/i, '') + '.docx';
     }
 
     /** Export-only href resolver — keeps valid http(s) URLs for Word hyperlinks even when path/query is percent-encoded Hebrew. */
@@ -14297,16 +14298,17 @@
         safeBody +
         '\n</body>\n' +
         '</html>';
-      return new Blob(['\ufeff' + htmlContent], {
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      });
+      return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
     }
 
     /**
      * Foolproof, browser-restriction-friendly download trigger.
      * Primary path: open the blob URL directly via window.open(url, '_blank') — the
-     * browser hands the blob to its download manager. Only if a popup blocker returns
-     * null do we fall back to the classic hidden-anchor click with download=".docx".
+     * browser hands a Word blob straight to its official download manager. Only if a
+     * popup blocker returns null do we fall back to the classic hidden-anchor click,
+     * so the download can never silently fail. Exposed globally so the sticky button
+     * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
+     * Filename must end with .docx so Windows Save As offers a Word document.
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
@@ -14330,6 +14332,7 @@
           console.error('[word-export] anchor fallback failed', anchorErr);
         }
       }
+      // Keep the object URL alive long enough for the new tab / download manager.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
       return true;
     }
@@ -14950,14 +14953,14 @@
               '<head><meta charset="utf-8"></head>' +
               '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
               html + '</body></html>';
-            blob = new Blob(['\ufeff' + htmlContent], {
-              type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            });
+            blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
           }
-          // 3b. Dynamic filename (topic/grade based), always a .docx.
+          // 3b. Dynamic filename (topic/grade based), hard .docx for Windows Save As.
           var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
           try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          // 3c. Stable download trigger (window.open + anchor fallback).
+          // 3c. Direct download: open the blob URL in a new tab so the browser's
+          //     official download manager handles it (bypasses programmatic-click
+          //     restrictions). Falls back to an anchor only if a popup blocker hits.
           triggerWordBlobDownload(blob, filename);
           // Fire-and-forget usage tracking — must never block or break the download.
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
