@@ -13760,17 +13760,12 @@
       return String(name || 'summary').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 72) || 'summary';
     }
 
-    function ensureDocxFilename(filename) {
-      var name = String(filename || 'document').trim() || 'document';
-      if (/\.docx$/i.test(name)) return name;
-      if (/\.doc$/i.test(name)) return name.replace(/\.doc$/i, '.docx');
-      return name + '.docx';
-    }
-
     function buildPedagogyDocxFilename() {
       const grade = sanitizeDocxFilename(appState.gradeLabel || t('crumb_grade'));
       const topic = sanitizeDocxFilename(appState.topic || t('export_doc_no_topic'));
-      return ensureDocxFilename(t('export_doc_filename', { grade: grade, topic: topic }));
+      var name = t('export_doc_filename', { grade: grade, topic: topic });
+      if (!/\.docx$/i.test(name)) name = String(name || 'document').replace(/\.doc$/i, '') + '.docx';
+      return name;
     }
 
     /** Export-only href resolver — keeps valid http(s) URLs for Word hyperlinks even when path/query is percent-encoded Hebrew. */
@@ -14285,8 +14280,6 @@
       return parts.join('\n');
     }
 
-    var WORD_DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
     function buildSecureWordBlob(bodyHtml, langCode) {
       var lang = langCode || (isEnglish() ? 'en' : 'he');
       var dir = lang === 'en' ? 'ltr' : 'rtl';
@@ -14304,42 +14297,41 @@
         safeBody +
         '\n</body>\n' +
         '</html>';
-      return new Blob(['\ufeff' + htmlContent], { type: WORD_DOCX_MIME });
+      return new Blob(['\ufeff' + htmlContent], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
     }
 
     /**
-     * Force a real file download with a .docx filename and Word MIME type.
-     * Prefer the hidden <a download> path so the browser does not open the HTML
-     * payload as a webpage (which made Save As default to "Web Page").
+     * Foolproof, browser-restriction-friendly download trigger.
+     * Primary path: open the blob URL directly via window.open(url, '_blank') — the
+     * browser hands the blob to its download manager. Only if a popup blocker returns
+     * null do we fall back to the classic hidden-anchor click with download=".docx".
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      var safeName = ensureDocxFilename(filename || 'document.docx');
-      var url = URL.createObjectURL(blob);
-      var downloaded = false;
-      try {
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = safeName;
-        link.rel = 'noopener';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        downloaded = true;
-      } catch (anchorErr) {
-        console.error('[word-export] anchor download failed', anchorErr);
+      var safeName = String(filename || 'document.docx');
+      if (!/\.docx$/i.test(safeName)) {
+        safeName = safeName.replace(/\.doc$/i, '') + '.docx';
       }
-      if (!downloaded) {
+      var url = URL.createObjectURL(blob);
+      var opened = null;
+      try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
+      if (!opened) {
         try {
-          var opened = window.open(url, '_blank');
-          downloaded = Boolean(opened);
-        } catch (openErr) {
-          downloaded = false;
+          var link = document.createElement('a');
+          link.href = url;
+          link.download = safeName;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (anchorErr) {
+          console.error('[word-export] anchor fallback failed', anchorErr);
         }
       }
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
-      return downloaded;
+      return true;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
@@ -14958,13 +14950,14 @@
               '<head><meta charset="utf-8"></head>' +
               '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
               html + '</body></html>';
-            blob = new Blob(['\ufeff' + htmlContent], { type: WORD_DOCX_MIME });
+            blob = new Blob(['\ufeff' + htmlContent], {
+              type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            });
           }
           // 3b. Dynamic filename (topic/grade based), always a .docx.
           var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
           try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          // 3c. Force download via <a download> with .docx + Word MIME (not window.open,
-          //     which caused Save As to default to Web Page / HTML).
+          // 3c. Stable download trigger (window.open + anchor fallback).
           triggerWordBlobDownload(blob, filename);
           // Fire-and-forget usage tracking — must never block or break the download.
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});

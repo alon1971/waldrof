@@ -848,20 +848,23 @@
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         });
       }
-      // Prefer shared download helper (anchor + .docx MIME) so Save As is not HTML.
+      // Stable download: prefer shared helper (window.open + anchor/.docx fallback).
       var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום_שיחה_עוזר_פדגוגי.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         window.triggerWordBlobDownload(blob, chatFilename);
       } else {
         var url = URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = chatFilename;
-        link.rel = 'noopener';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        var opened = null;
+        try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
+        if (!opened) {
+          var link = document.createElement('a');
+          link.href = url;
+          link.download = chatFilename;
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
         setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
       }
       if (typeof deps.recordWordDownload === 'function') {
