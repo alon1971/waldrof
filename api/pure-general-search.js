@@ -9,16 +9,8 @@ const subscriptionApi = require('./subscription');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 const keyboardLayout = require('./keyboard-layout');
 
-const SYSTEM_PROMPT = [
-  hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
-  'You are a Waldorf / anthroposophical pedagogy expert.',
-  'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'developmental_axis (string: AT LEAST 2-3 comprehensive Hebrew paragraphs tracing the developmental thread across grades 1-8 — soul-spiritual milestones per age band, never brief),',
-  'core_pedagogical_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — plus grade-band lesson dynamics; never superficial),',
-  'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
-  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
-  'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
-].join(' ');
+const SYSTEM_PROMPT =
+  'אתה מנוע חיפוש פדגוגי מומחה לחינוך ולדורף. תפקידך לייצר מערכי שיעור, תכנים פדגוגיים ותוכניות לימוד עשירות ומפורטות מאוד בעברית על בסיס הידע הרחב שלך באינטרנט. ענה בצורה ממוקדת, מקצועית ומהירה.';
 
 const PERIOD_BLOCK_SYSTEM_PROMPT = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,

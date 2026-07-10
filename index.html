@@ -14363,7 +14363,7 @@
         safeBody +
         '\n</body>\n' +
         '</html>';
-      return new Blob(['\ufeff' + htmlContent], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
     }
 
     /**
@@ -15043,7 +15043,7 @@
               '<head><meta charset="utf-8"></head>' +
               '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
               html + '</body></html>';
-            blob = new Blob(['\ufeff' + htmlContent], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+            blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
           }
           // 3b. Dynamic filename (topic/grade based), hard .docx for Windows Save As.
           var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
