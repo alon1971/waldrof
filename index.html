@@ -5383,6 +5383,12 @@
             </article>
           </div>
         </div>
+        <div id="phase-c-bottom-export-bar" class="lesson-chat-export-bar mt-6 mb-2" dir="rtl">
+          <button type="button" id="btn-phase-c-export-word-bottom" class="lesson-chat-export-btn phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד">
+            <i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true" style="pointer-events: none;"></i>
+            <span class="phase-c-unified-export-label" data-i18n="general_search_export_word" style="pointer-events: none;">הורד למסמך וורד</span>
+          </button>
+        </div>
         <div id="phase-c-marketing-mount"></div>
       </section>
       </div>
@@ -14358,49 +14364,28 @@
     }
 
     async function downloadGeneralSearchDocx() {
-      var payload = collectGeneralSearchDocumentData();
-      if (!payload || !payload.data) {
-        alert(t('general_search_export_empty'));
-        return;
-      }
-      try {
-        await reserveWordDownloadForExport();
-      } catch (err) {
-        return;
-      }
-      var btn = document.getElementById('btn-general-search-export-word');
-      var label = btn ? btn.querySelector('.general-search-export-label') : null;
-      if (btn) btn.disabled = true;
-      if (label) label.textContent = t('export_doc_generating');
-      try {
-        var html = buildGeneralSearchExportHtml(payload);
-        var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-        var filename = buildGeneralSearchDocFilename(payload.query);
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
-        await trackWordDownloadAfterExport();
-      } catch (err) {
-        if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
-        console.error('General search DOC export failed:', err);
-        alert(t('export_doc_error') + ': ' + (err.message || String(err)));
-      } finally {
-        if (btn) btn.disabled = false;
-        if (label) label.textContent = t('general_search_export_word');
-      }
+      // Same download path + data collectors as the floating right-side Word button.
+      return downloadUnifiedTopicDocx();
     }
 
     function bindGeneralSearchExportButton() {
-      // Click handling is via document-level delegation (ensureGeneralSearchWordExportDelegation),
-      // so freshly re-rendered result markup is always live. Here we just ensure the button is enabled.
+      // Prefer the shared unified handler (same as #btn-phase-c-export-word). Keep a
+      // direct listener as a hard fallback so re-rendered markup never looks "dead".
       var btn = document.getElementById('btn-general-search-export-word');
-      if (btn) btn.disabled = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.type = 'button';
+        if (!btn.dataset.exportBound) {
+          btn.dataset.exportBound = '1';
+          btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            downloadUnifiedTopicDocx();
+          });
+        }
+      }
       ensureGeneralSearchWordExportDelegation();
+      ensureTopicWordExportDelegation();
     }
 
     function ensureChatWordExportDelegation() {
@@ -14468,7 +14453,8 @@
         if (!btn || btn.disabled) return;
         e.preventDefault();
         e.stopPropagation();
-        downloadGeneralSearchDocx();
+        // Same handler + collectors as the floating right-side Word button.
+        downloadUnifiedTopicDocx();
       }, true);
     }
 
@@ -14896,9 +14882,12 @@
     async function downloadUnifiedTopicDocx() {
       if (unifiedWordExportInFlight) return;
       unifiedWordExportInFlight = true;
-      var btn = document.getElementById('btn-phase-c-export-word');
-      var label = btn ? btn.querySelector('.phase-c-unified-export-label') : null;
-      var navBtns = document.querySelectorAll('[data-pedagogy-export]');
+      var exportBtns = document.querySelectorAll(
+        '#btn-phase-c-export-word, #btn-phase-c-export-word-bottom, #btn-general-search-export-word, [data-unified-topic-export], [data-pedagogy-export]'
+      );
+      var labels = document.querySelectorAll(
+        '.phase-c-unified-export-label, .general-search-export-label'
+      );
       try {
         // ---- 1) Gather content — merge Class + Topic + Pedagogical sections ----
         var html = '';
@@ -14942,9 +14931,8 @@
         }
 
         // ---- 3) Build the .doc and physically trigger the browser download ----
-        if (btn) btn.disabled = true;
-        navBtns.forEach(function (b) { b.disabled = true; });
-        if (label) label.textContent = t('export_doc_generating');
+        exportBtns.forEach(function (b) { b.disabled = true; });
+        labels.forEach(function (label) { label.textContent = t('export_doc_generating'); });
         try {
           // 3a. Compile the Blob (with an inline fallback so a missing/blank blob can
           //     never silently abort the physical download).
@@ -14970,9 +14958,8 @@
           // Fire-and-forget usage tracking — must never block or break the download.
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
         } finally {
-          if (btn) btn.disabled = false;
-          navBtns.forEach(function (b) { b.disabled = false; });
-          if (label) label.textContent = t('general_search_export_word');
+          exportBtns.forEach(function (b) { b.disabled = false; });
+          labels.forEach(function (label) { label.textContent = t('general_search_export_word'); });
         }
       } catch (err) {
         // Absolute safety net: surface every failure as a toast, never freeze the UI.
@@ -15003,19 +14990,23 @@
     }
 
     function updatePhaseCExportButtons() {
-      var panelBtn = document.getElementById('btn-phase-c-export-word');
-      if (!panelBtn) return;
-      panelBtn.classList.remove('hidden');
-      panelBtn.disabled = false;
-      panelBtn.type = 'button';
-      if (!panelBtn.dataset.exportBound) {
-        panelBtn.dataset.exportBound = '1';
-        panelBtn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          downloadUnifiedTopicDocx();
-        });
-      }
+      var panelBtns = document.querySelectorAll(
+        '#btn-phase-c-export-word, #btn-phase-c-export-word-bottom, [data-unified-topic-export]'
+      );
+      panelBtns.forEach(function (panelBtn) {
+        if (!panelBtn) return;
+        panelBtn.classList.remove('hidden');
+        panelBtn.disabled = false;
+        panelBtn.type = 'button';
+        if (!panelBtn.dataset.exportBound) {
+          panelBtn.dataset.exportBound = '1';
+          panelBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            downloadUnifiedTopicDocx();
+          });
+        }
+      });
     }
 
     function updatePedagogyExportButtonsVisibility() {
@@ -20998,9 +20989,9 @@
         '</div>' +
         curriculumHtml +
         '<div class="lesson-chat-export-bar mt-4" dir="rtl">' +
-          '<button type="button" id="btn-general-search-export-word" class="lesson-chat-export-btn" dir="rtl">' +
-            '<i class="fa-solid fa-file-word" aria-hidden="true"></i>' +
-            '<span class="general-search-export-label" data-i18n="general_search_export_word">' + escapeHtml(t('general_search_export_word')) + '</span>' +
+          '<button type="button" id="btn-general-search-export-word" class="lesson-chat-export-btn phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="downloadUnifiedTopicDocx()" aria-label="' + escapeHtml(t('general_search_export_word')) + '">' +
+            '<i class="fa-solid fa-file-word text-sage-dark" aria-hidden="true" style="pointer-events: none;"></i>' +
+            '<span class="general-search-export-label phase-c-unified-export-label" data-i18n="general_search_export_word" style="pointer-events: none;">' + escapeHtml(t('general_search_export_word')) + '</span>' +
           '</button>' +
         '</div>';
       bindGeneralSearchExportButton();
