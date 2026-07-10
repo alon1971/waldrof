@@ -845,7 +845,8 @@
         blob = new Blob(['\ufeff' + fbHtml], { type: 'application/msword' });
       }
       // Direct download via temporary <a download="….docx"> (shared helper or local fallback).
-      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום_שיחה_עוזר_פדגוגי.docx';
+      var topicName = deps.isEnglish() ? 'pedagogy_chat_summary' : 'סיכום_שיחה_עוזר_פדגוגי';
+      var chatFilename = (topicName || 'document') + '.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         window.triggerWordBlobDownload(blob, chatFilename);
       } else {
@@ -853,7 +854,7 @@
         var link = document.createElement('a');
         link.href = url;
         // Explicit .docx on the temporary <a> so Save As treats this as Word, not Web Page.
-        link.download = /\.docx$/i.test(chatFilename) ? chatFilename : ((chatFilename || 'document') + '.docx');
+        link.download = (topicName || 'document') + '.docx';
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();

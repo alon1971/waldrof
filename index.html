@@ -14374,10 +14374,12 @@
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      var safeName = String(filename || 'document').replace(/\.doc$/i, '');
-      if (!/\.docx$/i.test(safeName)) {
-        safeName = (safeName || 'document') + '.docx';
-      }
+      // topicName-style base: never leave the temporary <a> with a bare blob ID / no extension.
+      var topicName = String(filename || 'document')
+        .replace(/\.docx$/i, '')
+        .replace(/\.doc$/i, '')
+        .trim();
+      var safeName = (topicName || 'document') + '.docx';
       var url = URL.createObjectURL(blob);
       try {
         var link = document.createElement('a');
@@ -14900,8 +14902,9 @@
           });
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-          // Direct download via window.open (with anchor fallback) — see helper.
-          triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.docx' : 'הודעת_צ\'אט.docx');
+          // Temporary <a download="….docx"> — explicit filename for Windows Save As.
+          var topicName = isEnglish() ? 'chat_message' : 'הודעת_צ\'אט';
+          triggerWordBlobDownload(blob, (topicName || 'document') + '.docx');
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
         } finally {
           if (exportBtn) exportBtn.disabled = false;
@@ -15040,9 +15043,12 @@
             blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
           }
           // 3b. Dynamic filename (topic/grade based), hard .docx for Windows Save As.
-          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
-          try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          if (!/\.docx$/i.test(filename)) filename = String(filename || 'document').replace(/\.doc$/i, '') + '.docx';
+          var topicName = isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי';
+          try {
+            var dyn = buildPedagogyDocxFilename();
+            if (dyn) topicName = String(dyn).replace(/\.docx$/i, '').replace(/\.doc$/i, '');
+          } catch (fnErr) {}
+          var filename = (topicName || 'document') + '.docx';
           // 3c. Temporary <a download="….docx"> — explicit filename for Windows Save As.
           triggerWordBlobDownload(blob, filename);
           // Fire-and-forget usage tracking — must never block or break the download.
