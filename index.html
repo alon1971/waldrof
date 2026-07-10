@@ -13818,7 +13818,7 @@
 
     function buildGeneralSearchDocFilename(query) {
       var base = sanitizeDocxFilename(query || t('general_search_title'));
-      return base + '.doc';
+      return base + '.docx';
     }
 
     function sanitizeDocxFilename(name) {
@@ -13829,9 +13829,8 @@
       const grade = sanitizeDocxFilename(appState.gradeLabel || t('crumb_grade'));
       const topic = sanitizeDocxFilename(appState.topic || t('export_doc_no_topic'));
       var name = t('export_doc_filename', { grade: grade, topic: topic });
-      // HTML Word blobs must use .doc (not .docx) so Windows Save As defaults to Word, not Web Page.
-      if (/\.doc$/i.test(name) && !/\.docx$/i.test(name)) return name;
-      return String(name || 'document').replace(/\.docx$/i, '').replace(/\.doc$/i, '') + '.doc';
+      // Real OOXML export uses .docx so Word Save As defaults to Word Document.
+      return String(name || 'document').replace(/\.docx$/i, '').replace(/\.doc$/i, '') + '.docx';
     }
 
     /** Export-only href resolver — keeps valid http(s) URLs for Word hyperlinks even when path/query is percent-encoded Hebrew. */
@@ -14346,90 +14345,214 @@
       return parts.join('\n');
     }
 
+    // ---------- Real .docx builder (ZIP/OOXML + HTML altChunk) ----------
+    // HTML-as-.doc opens in Word but Save As defaults to "Web Page".
+    // A real .docx makes Save As default to Word Document while still opening immediately.
+
+    function crc32ForZip(uint8) {
+      var table = crc32ForZip._table;
+      if (!table) {
+        table = new Uint32Array(256);
+        for (var n = 0; n < 256; n++) {
+          var c = n;
+          for (var k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+          table[n] = c >>> 0;
+        }
+        crc32ForZip._table = table;
+      }
+      var crc = 0xffffffff;
+      for (var i = 0; i < uint8.length; i++) crc = table[(crc ^ uint8[i]) & 0xff] ^ (crc >>> 8);
+      return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    function utf8EncodeForZip(str) {
+      if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(String(str || ''));
+      var s = unescape(encodeURIComponent(String(str || '')));
+      var out = new Uint8Array(s.length);
+      for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+      return out;
+    }
+
+    /** Build an uncompressed (STORE) ZIP ArrayBuffer from {name: string|Uint8Array}. */
+    function buildZipStore(files) {
+      var names = Object.keys(files || {});
+      var entries = [];
+      var total = 0;
+      for (var i = 0; i < names.length; i++) {
+        var name = names[i];
+        var data = files[name];
+        var bytes = (data instanceof Uint8Array) ? data : utf8EncodeForZip(data);
+        var nameBytes = utf8EncodeForZip(name);
+        var crc = crc32ForZip(bytes);
+        var localLen = 30 + nameBytes.length + bytes.length;
+        var centralLen = 46 + nameBytes.length;
+        entries.push({
+          name: name,
+          nameBytes: nameBytes,
+          bytes: bytes,
+          crc: crc,
+          localLen: localLen,
+          centralLen: centralLen,
+        });
+        total += localLen + centralLen;
+      }
+      total += 22;
+      var out = new Uint8Array(total);
+      var pos = 0;
+      function writeBytes(arr) {
+        out.set(arr, pos);
+        pos += arr.length;
+      }
+      function writeU16(n) {
+        out[pos++] = n & 0xff;
+        out[pos++] = (n >>> 8) & 0xff;
+      }
+      function writeU32(n) {
+        out[pos++] = n & 0xff;
+        out[pos++] = (n >>> 8) & 0xff;
+        out[pos++] = (n >>> 16) & 0xff;
+        out[pos++] = (n >>> 24) & 0xff;
+      }
+      var offsets = [];
+      for (var e = 0; e < entries.length; e++) {
+        offsets.push(pos);
+        var ent = entries[e];
+        out[pos++] = 0x50; out[pos++] = 0x4b; out[pos++] = 0x03; out[pos++] = 0x04;
+        writeU16(20); writeU16(0); writeU16(0); writeU16(0); writeU16(0);
+        writeU32(ent.crc); writeU32(ent.bytes.length); writeU32(ent.bytes.length);
+        writeU16(ent.nameBytes.length); writeU16(0);
+        writeBytes(ent.nameBytes);
+        writeBytes(ent.bytes);
+      }
+      var centralOffset = pos;
+      for (var c = 0; c < entries.length; c++) {
+        var cent = entries[c];
+        out[pos++] = 0x50; out[pos++] = 0x4b; out[pos++] = 0x01; out[pos++] = 0x02;
+        writeU16(20); writeU16(20); writeU16(0); writeU16(0); writeU16(0); writeU16(0);
+        writeU32(cent.crc); writeU32(cent.bytes.length); writeU32(cent.bytes.length);
+        writeU16(cent.nameBytes.length); writeU16(0); writeU16(0); writeU16(0); writeU16(0);
+        writeU32(0); writeU32(offsets[c]);
+        writeBytes(cent.nameBytes);
+      }
+      var centralSize = pos - centralOffset;
+      out[pos++] = 0x50; out[pos++] = 0x4b; out[pos++] = 0x05; out[pos++] = 0x06;
+      writeU16(0); writeU16(0);
+      writeU16(entries.length); writeU16(entries.length);
+      writeU32(centralSize); writeU32(centralOffset); writeU16(0);
+      return out.buffer;
+    }
+
+    function buildDocxHtmlPackage(htmlContent, langCode) {
+      var lang = langCode || 'he';
+      var isRtl = lang !== 'en';
+      var contentTypes =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Default Extension="htm" ContentType="text/html"/>' +
+        '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+        '<Override PartName="/word/afchunk.htm" ContentType="text/html"/>' +
+        '</Types>';
+      var rootRels =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+        '</Relationships>';
+      var docRels =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="htmlChunk" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="afchunk.htm"/>' +
+        '</Relationships>';
+      var bidi = isRtl ? '<w:bidi/>' : '';
+      var documentXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<w:body>' +
+        '<w:altChunk r:id="htmlChunk"/>' +
+        '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>' +
+        '<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/>' +
+        '<w:docGrid w:linePitch="360"/>' +
+        bidi +
+        '</w:sectPr>' +
+        '</w:body></w:document>';
+      return buildZipStore({
+        '[Content_Types].xml': contentTypes,
+        '_rels/.rels': rootRels,
+        'word/document.xml': documentXml,
+        'word/_rels/document.xml.rels': docRels,
+        'word/afchunk.htm': htmlContent,
+      });
+    }
+
     function buildSecureWordBlob(bodyHtml, langCode) {
       var lang = langCode || (isEnglish() ? 'en' : 'he');
       var dir = lang === 'en' ? 'ltr' : 'rtl';
       var safeBody = prepareWordExportHtml(bodyHtml == null ? '' : String(bodyHtml));
       var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
-      // Avoid raw "<!--" inside index.html <script> (can confuse HTML parsers).
-      var msoOpen = '<' + '!--[if gte mso 9]>';
-      var msoClose = '<' + '![endif]-->';
       var htmlContent =
-        '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
-        '<head>\n' +
-        '  <meta http-equiv="Content-Type" content="application/msword; charset=utf-8">\n' +
-        '  <meta charset="utf-8">\n' +
-        '  <meta name="ProgId" content="Word.Document">\n' +
-        '  <meta name="Generator" content="Microsoft Word 15">\n' +
-        '  <meta name="Originator" content="Microsoft Word 15">\n' +
-        '  ' + msoOpen + '<xml><o:OfficeDocumentSettings><o:AllowPNG/></o:OfficeDocumentSettings></xml>' + msoClose + '\n' +
-        '  ' + msoOpen + '<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml>' + msoClose + '\n' +
-        '  <style>\n' +
-        '    body, p, span, li, h1, h2, h3, h4, div { font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; }\n' +
-        '    @page { size: 21cm 29.7cm; margin: 2cm; }\n' +
-        '  </style>\n' +
-        '</head>\n' +
-        '<body lang="' + (lang === 'en' ? 'EN-US' : 'HE') + '" dir="' + dir + '" style="' + containerStyle + '">\n' +
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<style>body,p,span,li,h1,h2,h3,h4,div{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;}</style>' +
+        '</head><body lang="' + (lang === 'en' ? 'EN-US' : 'HE') + '" dir="' + dir + '" style="' + containerStyle + '">' +
         safeBody +
-        '\n</body>\n' +
-        '</html>';
-      return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+        '</body></html>';
+      try {
+        var zipBuf = buildDocxHtmlPackage(htmlContent, lang);
+        return new Blob([zipBuf], {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+      } catch (docxErr) {
+        console.error('[word-export] docx build failed, HTML fallback', docxErr);
+        return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+      }
     }
 
     function normalizeWordDownloadFilename(filename) {
-      var safeName = String(filename || 'document.doc');
-      safeName = safeName.replace(/\.docx$/i, '.doc');
-      if (!/\.doc$/i.test(safeName)) safeName = safeName + '.doc';
-      return safeName;
+      var safeName = String(filename || 'document.docx');
+      // Real OOXML blobs must use .docx so Word Save As defaults to Word Document.
+      safeName = safeName.replace(/\.docx$/i, '').replace(/\.doc$/i, '');
+      return safeName + '.docx';
     }
 
     /**
-     * Open the Word document immediately, and also save a named .doc copy.
-     * - Open first: user can edit and use Word "Save As" to choose folder/name.
-     * - Named .doc download: backup so a real Word file always exists (avoids
-     *   the UUID/blob "Web Page" Save As problem when only window.open is used).
+     * Open a real .docx immediately. Because the blob is OOXML (not HTML),
+     * Word Save As defaults to Word Document — not Web Page.
      */
     async function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
       var safeName = normalizeWordDownloadFilename(filename);
       var url = URL.createObjectURL(blob);
       var opened = null;
-      var downloaded = false;
 
-      // 1) Open immediately — same instant UX as the morning-stable path.
       try {
         opened = window.open(url, '_blank');
       } catch (openErr) {
         opened = null;
       }
 
-      // 2) Also place a properly named .doc in Downloads (or legacy Open/Save dialog).
-      try {
-        if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
-          downloaded = !!window.navigator.msSaveOrOpenBlob(blob, safeName);
-        }
-      } catch (msErr) {
-        downloaded = false;
-      }
-      if (!downloaded) {
+      // Fallback only if popup blocked: named .docx download.
+      if (!opened) {
         try {
-          var link = document.createElement('a');
-          link.href = url;
-          link.download = safeName;
-          link.rel = 'noopener';
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          downloaded = true;
+          if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
+            window.navigator.msSaveOrOpenBlob(blob, safeName);
+          } else {
+            var link = document.createElement('a');
+            link.href = url;
+            link.download = safeName;
+            link.rel = 'noopener';
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
         } catch (anchorErr) {
-          console.error('[word-export] download anchor failed', anchorErr);
+          console.error('[word-export] download fallback failed', anchorErr);
         }
       }
 
-      // Keep blob URL alive while Word loads the new tab.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 120000);
-      return Boolean(opened || downloaded);
+      return true;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
@@ -14939,7 +15062,7 @@
           });
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-          var saved = await triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc');
+          var saved = await triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.docx' : 'הודעת_צ\'אט.docx');
           if (saved) {
             Promise.resolve()
               .then(function () { return reserveWordDownloadForExport(); })
@@ -15078,25 +15201,29 @@
           if (!blob) {
             var dir = isEnglish() ? 'ltr' : 'rtl';
             var htmlContent =
-              '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-              '<head><meta http-equiv="Content-Type" content="application/msword; charset=utf-8"><meta charset="utf-8">' +
-              '<meta name="ProgId" content="Word.Document"><meta name="Generator" content="Microsoft Word 15"></head>' +
+              '<!DOCTYPE html><html><head><meta charset="utf-8"></head>' +
               '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
               html + '</body></html>';
-            blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+            try {
+              blob = new Blob([buildDocxHtmlPackage(htmlContent, isEnglish() ? 'en' : 'he')], {
+                type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              });
+            } catch (fbErr) {
+              blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
+            }
           }
-          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.doc';
+          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
           try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
           filename = normalizeWordDownloadFilename(filename);
 
-          // Open in Word immediately (and download a named .doc backup).
+          // Open real .docx immediately — Save As defaults to Word Document.
           var saved = await triggerWordBlobDownload(blob, filename);
           if (saved) {
             try {
               showAppToast(
                 isEnglish()
-                  ? 'Opened in Word. A .doc copy was also saved to Downloads — use Save As in Word to choose a folder.'
-                  : 'נפתח בוורד. עותק .doc נשמר גם בהורדות — אפשר לשמור בשם בוורד למיקום שתבחר.',
+                  ? 'Opened in Word. Use Save As to choose a folder — default type is Word Document.'
+                  : 'נפתח בוורד. השתמש ב״שמור בשם״ לבחירת מיקום — ברירת המחדל היא מסמך וורד.',
                 'success'
               );
             } catch (toastOk) { /* ignore */ }

@@ -848,18 +848,14 @@
       }
       // Prefer shared download helper (sets .doc filename). Never window.open(blob) first —
       // that yields a UUID with no extension and Save As → Web Page.
-      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.doc' : 'סיכום_שיחה_עוזר_פדגוגי.doc';
+      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום_שיחה_עוזר_פדגוגי.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         await window.triggerWordBlobDownload(blob, chatFilename);
       } else {
         var url = URL.createObjectURL(blob);
-        var downloaded = false;
-        try {
-          if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
-            downloaded = !!window.navigator.msSaveOrOpenBlob(blob, chatFilename);
-          }
-        } catch (msErr) { downloaded = false; }
-        if (!downloaded) {
+        var opened = null;
+        try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
+        if (!opened) {
           var link = document.createElement('a');
           link.href = url;
           link.download = chatFilename;
@@ -868,7 +864,7 @@
           link.click();
           document.body.removeChild(link);
         }
-        setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+        setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 120000);
       }
       if (typeof deps.recordWordDownload === 'function') {
         await deps.recordWordDownload();
