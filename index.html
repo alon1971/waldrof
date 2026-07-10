@@ -14351,8 +14351,9 @@
       var dir = lang === 'en' ? 'ltr' : 'rtl';
       var safeBody = prepareWordExportHtml(bodyHtml == null ? '' : String(bodyHtml));
       var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
-      // Classic Word HTML (.doc): ProgId + Content-Type tell Word this is a Word document,
-      // not a browser web page — critical for Save As defaulting to Word format.
+      // Avoid raw "<!--" inside index.html <script> (can confuse HTML parsers).
+      var msoOpen = '<' + '!--[if gte mso 9]>';
+      var msoClose = '<' + '![endif]-->';
       var htmlContent =
         '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
         '<head>\n' +
@@ -14361,14 +14362,11 @@
         '  <meta name="ProgId" content="Word.Document">\n' +
         '  <meta name="Generator" content="Microsoft Word 15">\n' +
         '  <meta name="Originator" content="Microsoft Word 15">\n' +
-        '  <!--[if gte mso 9]><xml><o:OfficeDocumentSettings><o:AllowPNG/></o:OfficeDocumentSettings></xml><![endif]-->\n' +
-        '  <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->\n' +
+        '  ' + msoOpen + '<xml><o:OfficeDocumentSettings><o:AllowPNG/></o:OfficeDocumentSettings></xml>' + msoClose + '\n' +
+        '  ' + msoOpen + '<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml>' + msoClose + '\n' +
         '  <style>\n' +
-        '    <!--\n' +
-        '    /* Style Definitions */\n' +
         '    body, p, span, li, h1, h2, h3, h4, div { font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; }\n' +
         '    @page { size: 21cm 29.7cm; margin: 2cm; }\n' +
-        '    -->\n' +
         '  </style>\n' +
         '</head>\n' +
         '<body lang="' + (lang === 'en' ? 'EN-US' : 'HE') + '" dir="' + dir + '" style="' + containerStyle + '">\n' +
@@ -14378,24 +14376,50 @@
       return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
     }
 
-    /**
-     * Download an HTML-Word blob as a real .doc file.
-     * MUST use <a download="name.doc"> — window.open(blob:) gives Word a UUID with no
-     * extension, so Save As defaults to "Web Page" (see user screenshot).
-     */
-    function triggerWordBlobDownload(blob, filename) {
-      if (!blob) return false;
+    function normalizeWordDownloadFilename(filename) {
       var safeName = String(filename || 'document.doc');
-      // Normalize any .docx callers down to .doc to match the HTML Word blob MIME.
       safeName = safeName.replace(/\.docx$/i, '.doc');
-      if (!/\.doc$/i.test(safeName)) {
-        safeName = safeName + '.doc';
+      if (!/\.doc$/i.test(safeName)) safeName = safeName + '.doc';
+      return safeName;
+    }
+
+    /**
+     * Save HTML-Word blob as a real .doc file with a proper filename.
+     * Prefer the native Save dialog (keeps .doc + Word type). Fall back to <a download>.
+     * Never window.open(blob:) first — that yields a UUID and Save As → Web Page.
+     */
+    async function triggerWordBlobDownload(blob, filename) {
+      if (!blob) return false;
+      var safeName = normalizeWordDownloadFilename(filename);
+
+      // 1) Chromium Save Picker — best for correct type + filename.
+      if (typeof window.showSaveFilePicker === 'function') {
+        try {
+          var handle = await window.showSaveFilePicker({
+            suggestedName: safeName,
+            types: [
+              {
+                description: 'Word Document',
+                accept: { 'application/msword': ['.doc'] },
+              },
+            ],
+          });
+          var writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return true;
+        } catch (pickerErr) {
+          // User cancelled — stop quietly. Other errors fall through to anchor download.
+          if (pickerErr && (pickerErr.name === 'AbortError' || pickerErr.name === 'NotAllowedError')) {
+            return false;
+          }
+          console.warn('[word-export] showSaveFilePicker failed, using anchor download', pickerErr);
+        }
       }
-      if (/\.docx$/i.test(safeName)) safeName = 'מסמך.doc';
+
       var url = URL.createObjectURL(blob);
       var downloaded = false;
       try {
-        // Edge/IE legacy helper — preserves filename when available.
         if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
           downloaded = !!window.navigator.msSaveOrOpenBlob(blob, safeName);
         }
@@ -14417,13 +14441,8 @@
           console.error('[word-export] download anchor failed', anchorErr);
         }
       }
-      // Last-resort only: open blob tab (no filename — Save As may show Web Page).
-      if (!downloaded) {
-        try { window.open(url, '_blank'); } catch (openErr) { /* ignore */ }
-      }
-      // Keep the object URL alive long enough for the download manager.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
-      return true;
+      return downloaded;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
@@ -14915,9 +14934,13 @@
           showAppToast(isEnglish() ? 'No chat content to export' : 'אין תוכן בבועה זו לייצוא', 'error');
           return;
         }
-        try { await reserveWordDownloadForExport(); }
+        try { assertWordDownloadForExport(); }
         catch (gateErr) {
           if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
+            return;
+          }
+          if (typeof WaldorfAuth !== 'undefined' && !WaldorfAuth.getState().isAuthenticated) {
+            WaldorfAuth.showAuthOverlay();
             return;
           }
         }
@@ -14929,9 +14952,13 @@
           });
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-          // Direct download via window.open (with anchor fallback) — see helper.
-          triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc');
-          Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+          var saved = await triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc');
+          if (saved) {
+            Promise.resolve()
+              .then(function () { return reserveWordDownloadForExport(); })
+              .catch(function () {});
+            Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+          }
         } finally {
           if (exportBtn) exportBtn.disabled = false;
         }
@@ -14996,6 +15023,10 @@
     async function downloadUnifiedTopicDocx() {
       if (unifiedWordExportInFlight) return;
       unifiedWordExportInFlight = true;
+      // Safety: never leave the button permanently dead if something hangs.
+      var inFlightWatchdog = setTimeout(function () {
+        unifiedWordExportInFlight = false;
+      }, 20000);
       var exportBtns = document.querySelectorAll(
         '#btn-phase-c-export-word, #btn-phase-c-export-word-bottom, #btn-general-search-export-word, [data-unified-topic-export], [data-pedagogy-export]'
       );
@@ -15031,21 +15062,20 @@
           return;
         }
 
-        // ---- 2) Paywall / download-limit gate ----
-        // This is the ONLY silent exit path: when a user hits the trial limit or is
-        // not authenticated, assertWordDownloadForExport throws WORD_DOWNLOAD_LIMIT.
-        // The gate shows its own auth/pricing modal — we ALSO surface a toast so the
-        // button never looks "dead" (clean console + no file) when it's actually
-        // being blocked on purpose.
-        try { await reserveWordDownloadForExport(); }
-        catch (gateErr) {
+        // ---- 2) Sync auth gate ONLY (no await) so the download keeps the user gesture.
+        //     Server usage is recorded after a successful save/download.
+        try {
+          assertWordDownloadForExport();
+        } catch (gateErr) {
           if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
+            return;
+          }
+          if (typeof WaldorfAuth !== 'undefined' && !WaldorfAuth.getState().isAuthenticated) {
+            WaldorfAuth.showAuthOverlay();
             return;
           }
         }
 
-        // ---- 3) Build the Word blob and trigger download (keep buttons enabled —
-        //     disabling them left a stuck semi-transparent unclickable UI).
         exportBtns.forEach(function (b) {
           b.disabled = false;
           b.removeAttribute('disabled');
@@ -15053,9 +15083,8 @@
           b.style.opacity = '1';
         });
         labels.forEach(function (label) { label.textContent = t('export_doc_generating'); });
+
         try {
-          // 3a. Compile the Blob (with an inline fallback so a missing/blank blob can
-          //     never silently abort the physical download).
           var blob = null;
           try { blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he'); }
           catch (blobErr) { console.error('[word-export] secure blob build failed, using fallback', blobErr); }
@@ -15069,15 +15098,21 @@
               html + '</body></html>';
             blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
           }
-          // 3b. Dynamic filename (topic/grade based), hard .doc for HTML Word Save As.
           var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.doc';
           try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          filename = String(filename || 'document').replace(/\.docx$/i, '.doc');
-          if (!/\.doc$/i.test(filename)) filename = filename + '.doc';
-          // 3c. Temporary <a download="….doc"> — explicit Word filename for Windows Save As.
-          triggerWordBlobDownload(blob, filename);
-          // Fire-and-forget usage tracking — must never block or break the download.
-          Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+          filename = normalizeWordDownloadFilename(filename);
+
+          // First await must be the save/download itself (needs user activation).
+          var saved = await triggerWordBlobDownload(blob, filename);
+          if (saved) {
+            try {
+              showAppToast(isEnglish() ? 'Word document saved.' : 'מסמך הוורד נשמר.', 'success');
+            } catch (toastOk) { /* ignore */ }
+            Promise.resolve()
+              .then(function () { return reserveWordDownloadForExport(); })
+              .catch(function () {});
+            Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+          }
         } finally {
           exportBtns.forEach(function (b) {
             b.disabled = false;
@@ -15088,12 +15123,12 @@
           labels.forEach(function (label) { label.textContent = t('general_search_export_word'); });
         }
       } catch (err) {
-        // Absolute safety net: surface every failure as a toast, never freeze the UI.
         console.error('Unified topic DOC export failed:', err);
         try {
           showAppToast((t('export_doc_error') || 'Export failed') + ': ' + (err && err.message ? err.message : String(err)), 'error');
         } catch (toastErr) { /* ignore */ }
       } finally {
+        clearTimeout(inFlightWatchdog);
         unifiedWordExportInFlight = false;
       }
     }

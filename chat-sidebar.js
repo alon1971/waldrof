@@ -850,7 +850,7 @@
       // that yields a UUID with no extension and Save As → Web Page.
       var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.doc' : 'סיכום_שיחה_עוזר_פדגוגי.doc';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
-        window.triggerWordBlobDownload(blob, chatFilename);
+        await window.triggerWordBlobDownload(blob, chatFilename);
       } else {
         var url = URL.createObjectURL(blob);
         var downloaded = false;
