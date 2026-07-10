@@ -78,7 +78,7 @@
     { gradeId: '3', blockLabel: 'תנ״ך וחקלאות', aliases: ['תנ״ך', 'תנך', 'מקרא', 'בראשית', 'נח', 'חקלאות', 'בית בנין', 'בניית בית', 'old testament', 'bible stories'] },
     { gradeId: '4', blockLabel: 'מיתולוגיה נורדית', aliases: ['נורדית', 'נורד', 'נורדים', 'אסגארד', 'אודין', 'תור', 'thor', 'odin', 'norse', 'norse mythology', 'גיאוגרפיה מקומית', 'local geography'] },
     { gradeId: '4', blockLabel: 'אדם וממלכת החי', aliases: ['אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי', 'ממלכת החי', 'human and animal', 'kingdom of nature'] },
-    { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'אודיסאוס', 'היסטוריה יוונית', 'greek mythology', 'ancient greece'] },
+    { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'אודיסאוס', 'היסטוריה יוונית', 'אלכסנדר הגדול', 'אולימפיאדה', 'אולימפיה', 'greek mythology', 'ancient greece'] },
     { gradeId: '5', blockLabel: 'בוטניקה', aliases: ['בוטניקה', 'צמחים', 'צמח', 'botany', 'plants'] },
     { gradeId: '6', blockLabel: 'רומא וימי ביניים', aliases: ['רומא', 'רומאית', 'rome', 'roman', 'roman history', 'ימי ביניים', 'medieval', 'middle ages', 'גיאולוגיה', 'geology', 'mineralogy'] },
     { gradeId: '7', blockLabel: 'מגלי עולם ורנסנס', aliases: ['מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers', 'רנסנס', 'renaissance', 'גלילאו', 'galileo', 'פיזיקה', 'physics', 'אסטרונומיה', 'astronomy'] },
@@ -154,7 +154,7 @@
   /** Universally accepted Waldorf pedagogical alias clusters (allowed disambiguation targets). */
   var ALLOWED_PEDAGOGICAL_ALIAS_CLUSTERS = [
     ['סיפורי הצפון', 'סיפורי צפון', 'מיתולוגיה נורדית', 'נורדית', 'norse mythology'],
-    ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'עתיקה', 'היסטוריה יוונית', 'greek mythology', 'ancient greece'],
+    ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'עתיקה', 'היסטוריה יוונית', 'אלכסנדר הגדול', 'אולימפיאדה', 'אולימפיה', 'greek mythology', 'ancient greece'],
     ['מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey'],
     ['משלי חיות', 'fables', 'animal fables'],
     ['סיפורי צדיקים', 'saints', 'saint stories'],
@@ -765,22 +765,25 @@
       }
     });
 
-    // Grade-5 Greece search tags — only when the full query is Greece-related
-    // or is the standalone tag עתיקה/מיתולוגיה (not when מיתולוגיה is part of מיתולוגיה נורדית).
-    var greeceTags = ['עתיקה', 'מיתולוגיה', 'מיתולוגיה יוונית', 'היסטוריה יוונית'];
+    // Grade-5 Greece search tags — never expand to bare mythology (pollutes Norse grade-4 hits).
+    var greeceTags = ['עתיקה', 'מיתולוגיה יוונית', 'היסטוריה יוונית', 'אלכסנדר הגדול', 'אולימפיאדה'];
     var hasGreece = raw.indexOf('יוון') >= 0
       || raw === 'עתיקה'
-      || raw === 'מיתולוגיה'
       || raw === 'ancient greece'
       || raw === 'greek mythology'
       || raw.indexOf('מיתולוגיה יוונית') >= 0
       || raw.indexOf('היסטוריה יוונית') >= 0
-      || raw.indexOf('greek mythology') >= 0;
+      || raw.indexOf('greek mythology') >= 0
+      || raw.indexOf('אלכסנדר') >= 0
+      || raw.indexOf('אולימפ') >= 0
+      || raw.indexOf('alexander') >= 0
+      || raw.indexOf('olympic') >= 0;
     if (!hasGreece) {
       terms.forEach(function (t) {
         var tn = stableNormalize(t);
         if (tn === 'יוון' || tn.indexOf('יוון') >= 0 || tn === 'מיתולוגיה יוונית'
-          || tn === 'ancient greece' || tn === 'greek mythology') {
+          || tn === 'ancient greece' || tn === 'greek mythology'
+          || tn.indexOf('אלכסנדר') >= 0 || tn.indexOf('אולימפ') >= 0) {
           hasGreece = true;
         }
       });
@@ -789,6 +792,7 @@
       greeceTags.forEach(function (tag) { terms.add(tag); });
       terms.add('יוון');
       terms.add('יוון העתיקה');
+      terms.delete('מיתולוגיה');
     }
 
     return Array.from(terms)

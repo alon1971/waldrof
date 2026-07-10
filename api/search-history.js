@@ -195,6 +195,7 @@ async function executeSearchHistory(req) {
       query: probe.query || query,
       matchMethod: probe.matchMethod || 'none',
       folderBrief: probe.folderBrief || null,
+      contextualRoute: probe.contextualRoute || null,
     };
   }
 

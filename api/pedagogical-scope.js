@@ -83,7 +83,7 @@ const CURRICULUM_BLOCKS = [
       catalogTopics.CATALOG_TOPIC_ALIAS_CLUSTERS[0] || [],
       catalogTopics.CATALOG_TOPIC_ALIAS_CLUSTERS[1] || [],
       catalogTopics.getSearchTagsForCanonicalTopic('יוון'),
-      ['מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'homer', 'greek mythology', 'ancient greece']
+      ['מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'homer', 'greek mythology', 'ancient greece', 'אלכסנדר הגדול', 'alexander the great', 'אולימפיאדה', 'אולימפיה', 'olympics', 'olympic']
     ),
   },
   {
@@ -428,6 +428,86 @@ function buildScopeMismatchGenerateResult(body, mismatch, communityProbe) {
   return { data: data, meta: meta };
 }
 
+
+/**
+ * Contextual catalog routing — map a clear curriculum term (e.g. Greece) to its Waldorf grade.
+ * Used when repository search finds no exact open file under that name.
+ */
+function buildContextualCatalogRoute(query) {
+  const q = String(query || '').trim();
+  if (!q || q.length < 2) return null;
+  const block = inferTopicCurriculumBlock(q);
+  if (!block || !block.gradeId) return null;
+
+  const gradeId = String(block.gradeId).trim();
+  const gLabel = gradeLabel(gradeId);
+  const topicDisplay = displayTopicLabel(q, block) || block.blockLabel || q;
+  const message =
+    'חיפשת חומרים על ' + topicDisplay +
+    ' (נושא השייך ל' + gLabel +
+    '). לא נמצא קובץ פתוח בשם זה, אך יש לנו תיקיית דרייב עשירה בחומרים עבור ' +
+    gLabel + ' – כדאי לבדוק בה!';
+
+  return {
+    query: q,
+    gradeId: gradeId,
+    gradeLabel: gLabel,
+    blockLabel: block.blockLabel,
+    topicDisplay: topicDisplay,
+    message: message,
+    driveFolderHint: true,
+  };
+}
+
+function hitMatchesExactTopicName(query, hit) {
+  const qNorm = stableNormalize(stripGradePhrases(query));
+  if (!qNorm || qNorm.length < 2 || !hit) return false;
+  const fields = [
+    hit.title,
+    hit.displayTitle,
+    hit.fileName,
+    hit.internalFileName,
+    hit.topic,
+    hit.catalogTopic,
+    hit.bundleTopic,
+  ];
+  for (let i = 0; i < fields.length; i++) {
+    const fieldNorm = stableNormalize(fields[i]);
+    if (!fieldNorm) continue;
+    if (fieldNorm === qNorm) return true;
+    if (fieldNorm.indexOf(qNorm) >= 0 && qNorm.length >= 3) return true;
+  }
+  return false;
+}
+
+function filterCommunityHitsByCurriculumGrade(query, hits) {
+  const block = inferTopicCurriculumBlock(query);
+  if (!block || !block.gradeId || !Array.isArray(hits) || !hits.length) {
+    return { hits: hits || [], block: block || null, filtered: false };
+  }
+  const gradeId = String(block.gradeId).trim();
+  const aligned = hits.filter(function (hit) {
+    const hitGrade = String(
+      (hit && (hit.gradeId || hit.grade_id || hit.grade_level)) || ''
+    ).trim();
+    return !hitGrade || hitGrade === gradeId;
+  });
+  if (!aligned.length) {
+    const allHadGrade = hits.every(function (hit) {
+      return String((hit && (hit.gradeId || hit.grade_id || hit.grade_level)) || '').trim();
+    });
+    if (allHadGrade) {
+      return { hits: [], block: block, filtered: true };
+    }
+    return { hits: hits, block: block, filtered: false };
+  }
+  return {
+    hits: aligned,
+    block: block,
+    filtered: aligned.length !== hits.length,
+  };
+}
+
 module.exports = {
   GRADE_LABEL_BY_ID,
   GRADE_TOPIC_SUGGESTIONS,
@@ -451,4 +531,7 @@ module.exports = {
   buildScopeOverridePromptBlocks,
   buildScopeMismatchChatPayload,
   buildScopeMismatchGenerateResult,
+  buildContextualCatalogRoute,
+  hitMatchesExactTopicName,
+  filterCommunityHitsByCurriculumGrade,
 };

@@ -19,6 +19,7 @@ const catalogTopics = require('./catalog-topics');
 const driveCatalogSync = require('./drive-catalog-sync');
 const enrichmentLinks = require('./enrichment-links');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
+const pedagogicalScope = require('./pedagogical-scope');
 
 const TABLE_NAME = 'cached_results';
 /** Phase stored in cached_results for raw Perplexity web-search payloads (hybrid pipeline). */
@@ -4164,6 +4165,15 @@ function buildCommunitySearchTerms(query) {
     if (cleaned && cleaned.length >= 2) terms.add(cleaned);
   });
 
+  // Never let bare mythology ride along with Greece queries (Norse false positives).
+  const qNorm = stableNormalize(q);
+  if (qNorm.indexOf('יוון') >= 0
+    || qNorm.indexOf('אלכסנדר') >= 0
+    || qNorm.indexOf('אולימפ') >= 0
+    || qNorm.indexOf('greek') >= 0) {
+    terms.delete('מיתולוגיה');
+  }
+
   return Array.from(terms)
     .filter(function (term) { return term && term.length >= 2; })
     .sort(function (a, b) { return b.length - a.length; })
@@ -4985,11 +4995,26 @@ async function findCommunityMaterials(options) {
   }
 
   const navQuery = String(opts.userMessage || opts.query || query || '').trim();
+  const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(navQuery, matches);
+  matches = gradeFilter.hits;
+  if (gradeFilter.filtered) {
+    matchMethod = matches.length ? (matchMethod + '_grade_aligned') : 'none';
+  }
+
+  const hasExactName = matches.some(function (hit) {
+    return pedagogicalScope.hitMatchesExactTopicName(navQuery, hit);
+  });
+  let contextualRoute = null;
+  if (!hasExactName) {
+    contextualRoute = pedagogicalScope.buildContextualCatalogRoute(navQuery);
+  }
+
   const result = {
     matches: matches.map(function (hit) { return withCatalogNavigationFields(hit, navQuery); }),
     count: matches.length,
     query: query,
     matchMethod: matches.length ? matchMethod : 'none',
+    contextualRoute: contextualRoute,
   };
   return attachCommunityFolderBriefToResult(result, opts);
 }
@@ -5055,6 +5080,26 @@ async function probeCommunityGlobalSearch(query, options) {
     } catch (archiveErr) {
       console.warn('[community] general_search archive probe failed:', archiveErr.message || archiveErr);
     }
+  }
+
+  // Re-apply curriculum grade alignment + contextual Drive hint after term/archive retries.
+  if (result && Array.isArray(result.matches)) {
+    const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(userMessage, result.matches);
+    result.matches = gradeFilter.hits;
+    result.count = result.matches.length;
+    if (gradeFilter.filtered && !result.count) {
+      result.matchMethod = 'none';
+    }
+    const hasExactName = result.matches.some(function (hit) {
+      return pedagogicalScope.hitMatchesExactTopicName(userMessage, hit);
+    });
+    if (!hasExactName) {
+      result.contextualRoute = pedagogicalScope.buildContextualCatalogRoute(userMessage);
+    } else {
+      result.contextualRoute = null;
+    }
+  } else if (result && !result.contextualRoute) {
+    result.contextualRoute = pedagogicalScope.buildContextualCatalogRoute(userMessage);
   }
 
   return result;
