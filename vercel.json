@@ -12,10 +12,6 @@
     "api/pure-general-search.js": {
       "maxDuration": 300,
       "memory": 1024
-    },
-    "api/anthroposophy-archive-chat.js": {
-      "maxDuration": 300,
-      "memory": 1024
     }
   },
   "headers": [

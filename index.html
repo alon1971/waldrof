@@ -668,18 +668,6 @@
       background: #8B3A3A;
       color: #fff;
     }
-    .step-pill.step-pill-anthroposophy-archive {
-      opacity: 1 !important;
-      border-color: rgba(92, 125, 88, 0.55);
-      background: rgba(255, 255, 255, 0.96);
-      color: #3d5c3a;
-      font-weight: 600;
-    }
-    .step-pill.step-pill-anthroposophy-archive:hover {
-      background: rgba(92, 125, 88, 0.08);
-      border-color: rgba(92, 125, 88, 0.75);
-    }
-    .step-pill.step-pill-anthroposophy-archive i { color: #5C7D58; }
     .step-pill.step-pill-general-search {
       opacity: 1 !important;
       border: 2px solid rgba(92, 125, 88, 0.8);
@@ -1000,20 +988,11 @@
     }
     @media (min-width: 640px) {
       .app-top-nav-inner > .step-pill-community,
-      .app-top-nav-inner > .step-pill-anthroposophy-archive,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
         flex: 1 1 10rem;
         min-width: 10rem;
         max-width: 15rem;
-      }
-      .app-top-nav-inner > .step-pill-anthroposophy-archive {
-        flex: 1 1 14rem;
-        min-width: 12rem;
-        max-width: 22rem;
-        white-space: normal;
-        text-align: center;
-        line-height: 1.25;
       }
       .app-top-nav-inner > .step-pill-general-search {
         flex: 1 1 14rem;
@@ -1035,7 +1014,6 @@
       }
       #step-progress .step-pill,
       .app-top-nav-inner > .step-pill-community,
-      .app-top-nav-inner > .step-pill-anthroposophy-archive,
       .app-top-nav-inner > .step-pill-general-search,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
@@ -1121,7 +1099,7 @@
       .catalog-open-upload,
       .share-materials-submit,
       .pedagogy-deep-btn,
-      .phase-c-unified-export-btn:not(#btn-phase-c-export-word) {
+      .phase-c-unified-export-btn {
         width: 100%;
         justify-content: center;
       }
@@ -3019,121 +2997,6 @@
       color: #5C4A3A; cursor: pointer; display: flex; align-items: center; justify-content: center;
     }
     html[dir="ltr"] .app-modal-close { left: auto; right: 1rem; }
-    #aac-modal.app-modal { z-index: 95; }
-    #aac-modal .app-modal-panel {
-      max-width: 40rem;
-      max-height: min(88vh, 44rem);
-      display: flex;
-      flex-direction: column;
-      padding: 1.25rem 1.15rem 1rem;
-      overflow: hidden;
-    }
-    #aac-modal .aac-header {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.75rem;
-      padding-inline-end: 2.5rem;
-      margin-bottom: 0.75rem;
-    }
-    #aac-modal .aac-header h2 {
-      margin: 0;
-      font-size: 1.05rem;
-      line-height: 1.35;
-      color: #6E2E2E;
-    }
-    #aac-modal .aac-header p {
-      margin: 0.35rem 0 0;
-      font-size: 0.8rem;
-      color: rgba(92, 74, 58, 0.75);
-      line-height: 1.4;
-    }
-    #aac-messages {
-      flex: 1 1 auto;
-      min-height: 12rem;
-      max-height: min(52vh, 26rem);
-      overflow-y: auto;
-      border: 1px solid rgba(201, 169, 98, 0.35);
-      border-radius: 1rem;
-      background: rgba(255, 255, 255, 0.72);
-      padding: 0.85rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    .aac-empty {
-      margin: auto;
-      text-align: center;
-      color: rgba(92, 74, 58, 0.7);
-      padding: 1.5rem 0.75rem;
-      max-width: 22rem;
-    }
-    .aac-empty i { font-size: 1.5rem; color: #5C7D58; margin-bottom: 0.5rem; }
-    .aac-empty p { margin: 0; font-size: 0.9rem; line-height: 1.45; }
-    .aac-msg { max-width: 95%; }
-    .aac-msg--user { align-self: flex-start; }
-    .aac-msg--assistant { align-self: stretch; }
-    .aac-msg-label {
-      font-size: 0.7rem;
-      font-weight: 700;
-      color: rgba(92, 74, 58, 0.65);
-      margin-bottom: 0.2rem;
-    }
-    .aac-msg-body {
-      font-size: 0.9rem;
-      line-height: 1.55;
-      color: #3d3228;
-      padding: 0.65rem 0.8rem;
-      border-radius: 0.85rem;
-      word-break: break-word;
-    }
-    .aac-msg--user .aac-msg-body {
-      background: rgba(110, 46, 46, 0.08);
-      border: 1px solid rgba(110, 46, 46, 0.18);
-    }
-    .aac-msg--assistant .aac-msg-body {
-      background: rgba(255, 255, 255, 0.95);
-      border: 1px solid rgba(92, 125, 88, 0.28);
-    }
-    .aac-link { color: #1d4ed8 !important; text-decoration: underline; word-break: break-all; }
-    #aac-status { margin-top: 0.5rem; font-size: 0.8rem; color: #5C7D58; }
-    #aac-status.hidden { display: none; }
-    #aac-form {
-      display: flex;
-      gap: 0.5rem;
-      margin-top: 0.75rem;
-      align-items: flex-end;
-    }
-    #aac-input {
-      flex: 1 1 auto;
-      min-height: 2.75rem;
-      max-height: 7rem;
-      resize: vertical;
-      border: 1px solid rgba(201, 169, 98, 0.5);
-      border-radius: 0.85rem;
-      padding: 0.65rem 0.8rem;
-      font-size: 0.95rem;
-      background: #fff;
-      color: #3d3228;
-      font-family: inherit;
-    }
-    #aac-input:focus { outline: 2px solid rgba(92, 125, 88, 0.45); outline-offset: 1px; }
-    #aac-send {
-      flex: 0 0 auto;
-      min-height: 2.75rem;
-      padding: 0.55rem 1rem;
-      border-radius: 0.85rem;
-      border: none;
-      background: #5C7D58;
-      color: #fff;
-      font-weight: 700;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    #aac-send:hover:not(:disabled) { background: #4a6847; }
-    #aac-send:disabled { opacity: 0.55; cursor: wait; }
-    body.aac-modal-open { overflow: hidden; }
     #contact-modal .app-modal-backdrop { z-index: 0; }
     #contact-modal .app-modal-panel {
       position: relative;
@@ -5055,29 +4918,6 @@
     </div>
   </div>
 
-  <!-- Isolated anthroposophy archive chat (does not affect lesson chat / search / Word) -->
-  <div id="aac-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="aac-title">
-    <div id="aac-modal-backdrop" class="app-modal-backdrop"></div>
-    <div class="app-modal-panel">
-      <button type="button" id="aac-modal-close" class="app-modal-close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
-      <div class="aac-header">
-        <div>
-          <h2 id="aac-title" class="font-display">שאלות כלליות מתוך מאגרים אנתרופוסופיים בלבד</h2>
-          <p>חיפוש חי במאגרים אנתרופוסופיים ובוולדורף — ללא חיבור לחיפוש הרגיל, למאגר הקהילתי או להורדות Word.</p>
-        </div>
-      </div>
-      <div id="aac-messages" aria-live="polite"></div>
-      <p id="aac-status" class="hidden" role="status"></p>
-      <form id="aac-form" autocomplete="off">
-        <textarea id="aac-input" rows="2" placeholder="כתבו שאלה כללית…" aria-label="שאלה למאגרים אנתרופוסופיים"></textarea>
-        <button type="submit" id="aac-send" class="touch-btn">
-          <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-          <span>שליחה</span>
-        </button>
-      </form>
-    </div>
-  </div>
-
   <!-- Pricing / upgrade modal -->
   <div id="pricing-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pricing-title">
     <div id="pricing-modal-backdrop" class="app-modal-backdrop"></div>
@@ -5349,14 +5189,6 @@
           data-i18n-aria="nav_community_aria">
           <i class="fa-solid fa-users-rays text-base sm:text-sm"></i>
           <span data-i18n="nav_community">מאגר קהילתי</span>
-        </button>
-        <button type="button" id="btn-nav-anthroposophy-archive"
-          class="step-pill step-pill-anthroposophy-archive touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer"
-          aria-expanded="false"
-          aria-controls="aac-modal"
-          aria-label="שאלות כלליות מתוך מאגרים אנתרופוסופיים בלבד">
-          <i class="fa-solid fa-landmark text-base sm:text-sm" aria-hidden="true"></i>
-          <span>שאלות כלליות מתוך מאגרים אנתרופוסופיים בלבד</span>
         </button>
         <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
         <button type="button" id="btn-pedagogy-export-top"
@@ -5830,7 +5662,6 @@
   <script src="research-client.js?v=20250621g"></script>
   <script src="archive-coerce.js?v=20250623b"></script>
   <script src="chat-sidebar.js?v=20250627"></script>
-  <script src="anthroposophy-archive-chat.js?v=20260710a"></script>
   <script>
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
@@ -14536,41 +14367,40 @@
     }
 
     /**
-     * Trigger a Word file download via a temporary <a download="….docx">.
-     * Prefer the anchor path so the browser gets an explicit .docx filename
-     * (window.open alone exposes a blob UUID and Save As defaults to Web Page).
-     * Blob MIME is left unchanged. Exposed globally for chat-sidebar.js etc.
+     * Foolproof, browser-restriction-friendly download trigger.
+     * Primary path: open the blob URL directly via window.open(url, '_blank') — the
+     * browser hands a Word blob straight to its official download manager. Only if a
+     * popup blocker returns null do we fall back to the classic hidden-anchor click,
+     * so the download can never silently fail. Exposed globally so the sticky button
+     * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
+     * Filename must end with .docx so Windows Save As offers a Word document.
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      var safeName = String(filename || 'document.docx').trim() || 'document.docx';
+      var safeName = String(filename || 'document.docx');
       if (!/\.docx$/i.test(safeName)) {
         safeName = safeName.replace(/\.doc$/i, '') + '.docx';
       }
       var url = URL.createObjectURL(blob);
-      var downloaded = false;
-      try {
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = safeName; // e.g. "מסמך.docx" / topic.docx — required for Windows Save As
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        downloaded = true;
-      } catch (anchorErr) {
-        console.error('[word-export] anchor download failed', anchorErr);
-      }
-      if (!downloaded) {
+      var opened = null;
+      try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
+      if (!opened) {
         try {
-          var opened = window.open(url, '_blank');
-          downloaded = Boolean(opened);
-        } catch (openErr) {
-          downloaded = false;
+          var link = document.createElement('a');
+          link.href = url;
+          // Hard .docx on the temporary <a> so Windows Save As treats this as Word, not Web Page.
+          link.download = /\.docx$/i.test(safeName) ? safeName : 'מסמך.docx';
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (anchorErr) {
+          console.error('[word-export] anchor fallback failed', anchorErr);
         }
       }
+      // Keep the object URL alive long enough for the new tab / download manager.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
-      return downloaded;
+      return true;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
@@ -17673,20 +17503,7 @@
 
     function parseCommunityNotes(rawNotes) {
       let rest = String(rawNotes || '');
-      const out = {
-        title: '',
-        author: '',
-        description: '',
-        fileSize: null,
-        fileType: '',
-        topicLegacy: '',
-        freeText: '',
-        subfolder: '',
-        catalogTopic: '',
-        drivePath: '',
-        driveFileId: '',
-        searchTags: '',
-      };
+      const out = { title: '', author: '', description: '', fileSize: null, fileType: '', topicLegacy: '', freeText: '' };
       const tagDefs = [
         { field: 'title', re: /^\[title:([^\]]+)\]\s*/ },
         { field: 'author', re: /^\[author:([^\]]+)\]\s*/ },
@@ -17694,11 +17511,6 @@
         { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/, parse: function (v) { return parseInt(v, 10) || null; } },
         { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/ },
         { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/ },
-        { field: 'subfolder', re: /^\[subfolder:([^\]]+)\]\s*/ },
-        { field: 'catalogTopic', re: /^\[catalogTopic:([^\]]+)\]\s*/ },
-        { field: 'drivePath', re: /^\[drivePath:([^\]]+)\]\s*/ },
-        { field: 'driveFileId', re: /^\[driveFileId:([^\]]+)\]\s*/ },
-        { field: 'searchTags', re: /^\[tags:([^\]]+)\]\s*/ },
       ];
       let matched = true;
       while (matched) {
@@ -17713,19 +17525,7 @@
           break;
         }
       }
-      // Drive-sync notes may place tags anywhere — harvest remaining tagged fields.
-      function harvestTag(field, re) {
-        if (out[field]) return;
-        const m = rest.match(re) || String(rawNotes || '').match(re);
-        if (m) out[field] = m[1].trim();
-      }
-      harvestTag('subfolder', /\[subfolder:([^\]]+)\]/);
-      harvestTag('catalogTopic', /\[catalogTopic:([^\]]+)\]/);
-      harvestTag('drivePath', /\[drivePath:([^\]]+)\]/);
-      harvestTag('driveFileId', /\[driveFileId:([^\]]+)\]/);
-      harvestTag('searchTags', /\[tags:([^\]]+)\]/);
-      harvestTag('title', /\[title:([^\]]+)\]/);
-      out.freeText = rest.replace(/\[[^\]]+\]/g, ' ').replace(/\s+/g, ' ').trim();
+      out.freeText = rest.trim();
       return out;
     }
 
@@ -18113,8 +17913,7 @@
     function searchCommunityCacheByQuery(query, gradeId) {
       const q = String(query || '').trim();
       if (!q || !Array.isArray(appState.communityCache)) return [];
-      const inferredGrade = inferCurriculumGradeFromQuery(q);
-      const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '') || inferredGrade;
+      const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '');
       const pool = scopedGrade
         ? filterByGrade(appState.communityCache, scopedGrade).filter(function (i) { return !i.isDemo; })
         : appState.communityCache.filter(function (i) { return !i.isDemo; });
@@ -18126,13 +17925,10 @@
           source: 'catalog',
           title: item.title || item.fileName || item.topic || 'חומר קהילתי',
           topic: item.topic || '',
-          catalogTopic: item.catalogTopic || item.topic || '',
+          catalogTopic: item.topic || '',
           gradeId: item.gradeLevel || scopedGrade || null,
           grade_level: item.gradeLevel || scopedGrade || null,
           fileName: item.fileName || '',
-          filePath: item.filePath || '',
-          drivePath: item.drivePath || '',
-          pathLabels: item.pathLabels || '',
           fileUrl: item.fileUrl || resolveCommunityFileUrl(item),
           description: item.notes || '',
           createdAt: item.createdAt || null,
@@ -18146,26 +17942,12 @@
       if (!q || !item) return 0;
       const pathBits = [
         item.filePath,
-        item.drivePath,
-        item.pathLabels,
-        item.subfolder,
-        item.catalogTopic,
         item.fileName,
         item.notes,
         item.topic,
         item.title,
-        item.searchTags,
       ].filter(Boolean).join(' ');
-      const candidates = [
-        item.topic,
-        item.catalogTopic,
-        item.title,
-        item.fileName,
-        item.notes,
-        item.drivePath,
-        item.pathLabels,
-        pathBits,
-      ].filter(Boolean);
+      const candidates = [item.topic, item.title, item.fileName, item.notes, pathBits].filter(Boolean);
       let best = 0;
       candidates.forEach(function (candidate) {
         if (typeof WaldorfHebrewTopicMatch !== 'undefined' && WaldorfHebrewTopicMatch.scoreHebrewTopicSimilarity) {
@@ -18605,7 +18387,7 @@
 
     async function probeCommunityTopicMatch(query, gradeId) {
       const q = String(query || '').trim();
-      if (!q) return { matches: [], folderBrief: null, contextualRoute: null };
+      if (!q) return { matches: [], folderBrief: null };
       const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
         ? location.origin + '/api/search-history'
         : '/api/search-history';
@@ -18615,8 +18397,7 @@
         try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
       }
       if (token) headers.Authorization = 'Bearer ' + token;
-      const inferredGrade = inferCurriculumGradeFromQuery(q);
-      const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '') || inferredGrade;
+      const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '');
       const body = {
         action: 'probe_community',
         topic: q,
@@ -18635,19 +18416,18 @@
         try {
           json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
         } catch (parseErr) {
-          return { matches: [], folderBrief: null, contextualRoute: null };
+          return { matches: [], folderBrief: null };
         }
-        if (!res.ok || json.error) return { matches: [], folderBrief: null, contextualRoute: null };
+        if (!res.ok || json.error) return { matches: [], folderBrief: null };
         const payload = json.data || json;
         return {
           matches: Array.isArray(payload.matches) ? payload.matches : [],
           folderBrief: payload.folderBrief || null,
           matchMethod: payload.matchMethod || 'none',
-          contextualRoute: payload.contextualRoute || null,
         };
       } catch (probeErr) {
         console.warn('[community-probe] failed:', probeErr);
-        return { matches: [], folderBrief: null, contextualRoute: null };
+        return { matches: [], folderBrief: null };
       }
     }
 
@@ -18743,8 +18523,7 @@
         try { await loadCommunity(); } catch (e) { /* ignore */ }
       }
       showCatalogStatus('מחפש במאגר הקהילתי…', 'info');
-      const inferredGrade = inferCurriculumGradeFromQuery(q);
-      const scopeGradeId = resolveCommunityGradeIdFromAny(catalogState.gradeId || '') || inferredGrade || '';
+      const scopeGradeId = resolveCommunityGradeIdFromAny(catalogState.gradeId || '') || '';
       const localItems = searchCommunityCacheByQuery(q, scopeGradeId);
       const probed = await probeCommunityTopicMatch(q, scopeGradeId);
       let serverMatches = probed.matches || [];
@@ -18754,33 +18533,12 @@
           return !matchGrade || matchGrade === scopeGradeId;
         });
       }
-      let matches = filterCommunityMatchesByCurriculumGrade(
-        q,
-        mergeCommunityMatches(localItems, serverMatches)
-      );
+      const matches = mergeCommunityMatches(localItems, serverMatches);
       let html = '<h4 class="font-bold text-burgundy mb-3 text-sm">תוצאות חיפוש עבור «' + escapeHtml(q) + '»</h4>';
       const primary = matches.length ? matches[0] : null;
       const folderCtx = primary ? resolveParentFolderFromMatch(primary, q) : { gradeId: '', catalogTopic: '', fileTitle: '' };
-      const hasExactFile = hasExactCommunityTopicFile(q, matches);
-      const contextualRoute = (!hasExactFile && (probed.contextualRoute || (
-        inferredGrade
-          ? {
-            gradeId: inferredGrade,
-            gradeLabel: getGradeLabelById(inferredGrade) || ('כיתה ' + inferredGrade),
-            topicDisplay: q,
-            query: q,
-            message: 'חיפשת חומרים על ' + q +
-              ' (נושא השייך ל' + (getGradeLabelById(inferredGrade) || ('כיתה ' + inferredGrade)) +
-              '). לא נמצא קובץ פתוח בשם זה, אך יש לנו תיקיית דרייב עשירה בחומרים עבור ' +
-              (getGradeLabelById(inferredGrade) || ('כיתה ' + inferredGrade)) + ' – כדאי לבדוק בה!',
-          }
-          : null
-      ))) || null;
       const hasParentFolderCard = Boolean(probed.folderBrief) || Boolean(folderCtx.gradeId && folderCtx.catalogTopic);
-      const hasResults = matches.length > 0 || hasParentFolderCard || Boolean(contextualRoute);
-      if (contextualRoute && !hasExactFile) {
-        html += buildContextualCatalogRouteHintHtml(contextualRoute);
-      }
+      const hasResults = matches.length > 0 || hasParentFolderCard;
       if (probed.folderBrief) {
         html += buildCatalogFolderBriefHtml(probed.folderBrief);
       } else if (folderCtx.gradeId && folderCtx.catalogTopic) {
@@ -18807,14 +18565,13 @@
         if (navGrade && navTopic && !hasParentFolderCard) {
           html += '<button type="button" class="touch-btn text-sm text-sage-dark hover:text-burgundy font-medium catalog-search-open-folder" data-grade="' + escapeHtml(String(navGrade)) + '" data-topic="' + escapeHtml(String(navTopic)) + '"><i class="fa-solid fa-folder-open"></i> פתיחת תיקיית «' + escapeHtml(String(navTopic)) + '»</button>';
         }
-      } else if (!probed.folderBrief && !contextualRoute) {
+      } else if (!probed.folderBrief) {
         html += '<p class="text-sm text-walnut/60 py-2">לא נמצאו חומרים תואמים במאגר הקהילתי.</p>';
       }
       mutateCatalogDom(function () {
         resultsEl.innerHTML = html;
         resultsEl.classList.remove('hidden');
         bindCatalogFolderBriefActions(resultsEl);
-        bindContextualCatalogRouteActions(resultsEl);
         const openBtn = resultsEl.querySelector('.catalog-search-open-folder');
         if (openBtn) {
           openBtn.addEventListener('click', function () {
@@ -27884,13 +27641,6 @@
           },
           escapeHtml: escapeHtml,
         });
-      }
-      if (typeof WaldorfAnthroposophyArchiveChat !== 'undefined') {
-        try {
-          WaldorfAnthroposophyArchiveChat.init({});
-        } catch (aacErr) {
-          console.warn('[waldrof] anthroposophy-archive-chat init:', aacErr);
-        }
       }
       if (isCloudConfigured()) {
         try { subscribeRealtime(); } catch (e) { console.warn('[waldrof] subscribeRealtime:', e); }

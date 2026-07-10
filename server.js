@@ -38,7 +38,6 @@ const testCancellationAlert = require('./api/test-cancellation-alert');
 const billingReport = require('./api/billing-report');
 const purePhaseCApi = require('./api/pure-phase-c');
 const pureGeneralSearchApi = require('./api/pure-general-search');
-const anthroposophyArchiveChatApi = require('./api/anthroposophy-archive-chat');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
   console.error('api/generate.js must export handleGeneratePost for Render Node hosting.');
@@ -840,11 +839,6 @@ const server = http.createServer(async function (req, res) {
     return handlePureApiRoute(req, res, pureGeneralSearchApi);
   }
 
-  if (pathname === '/api/anthroposophy-archive-chat') {
-    applyLongRunningRouteTimeout(req, res);
-    return handlePureApiRoute(req, res, anthroposophyArchiveChatApi);
-  }
-
   serveStatic(req, res, pathname);
 });
 
@@ -861,7 +855,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/anthroposophy-archive-chat | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
