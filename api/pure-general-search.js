@@ -10,10 +10,18 @@ const subscriptionApi = require('./subscription');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 const keyboardLayout = require('./keyboard-layout');
 
-const SYSTEM_PROMPT =
-  'אתה מנוע חיפוש פדגוגי מומחה לחינוך ולדורף. תפקידך לייצר מערכי שיעור, תכנים פדגוגיים ותוכניות לימוד עשירות ומפורטות מאוד בעברית על בסיס הידע הרחב שלך באינטרנט. ענה בצורה ממוקדת, מקצועית ומהירה. ' +
-  'אתה מנוע חיפוש פדגוגי מומחה לחינוך ולדורף. תפקידך לייצר מערכי שיעור ותוכניות לימוד עשירות ומפורטות מאוד בעברית על בסיס הידע הרחב שלך באינטרנט. ענה בצורה ממוקדת ומקצועית. ' +
-  'CRITICAL: עליך להחזיר את התשובה אך ורק בפורמט JSON תקין ומבנה מדויק כפי שה-Frontend מצפה לקבל, ללא תוספות טקסט חופשי, הקדמות או סימוני Markdown מחוץ ל-JSON.';
+/** Phase A only — exact JSON keys the Frontend expects. No Phase B / citation scan. */
+const SYSTEM_PROMPT = [
+  hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
+  'You are a Waldorf / anthroposophical pedagogy expert.',
+  'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
+  'developmental_axis (string: AT LEAST 2-3 comprehensive Hebrew paragraphs tracing the developmental thread across grades 1-8 — soul-spiritual milestones per age band, never brief),',
+  'core_pedagogical_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — plus grade-band lesson dynamics; never superficial),',
+  'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
+  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
+  'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
+  'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON.',
+].join(' ');
 
 const PERIOD_BLOCK_SYSTEM_PROMPT = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
@@ -24,7 +32,9 @@ const PERIOD_BLOCK_SYSTEM_PROMPT = [
   'recommended_literature (array of 3-6 objects: {title, author, note} — note MUST explain relevance to this block),',
   'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew lesson topic), content (Hebrew main narrative/story focus, 2-4 sentences), art (Hebrew notebook/drawing/painting/handwork activity)).',
+  'Keep every string compact enough that the FULL JSON (all 15 curriculum days) fits without truncation. Prefer 2 short sentences over long essays in curriculum.content.',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
+  'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON.',
 ].join(' ');
 
 function coerceCurriculumDays(value) {
@@ -251,6 +261,9 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
     const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
+      // One attempt only: a silent retry of a 15-day period plan often exceeds the gateway timeout
+      // and the proxy returns HTML, which the Frontend mislabels as "invalid JSON".
+      maxAttempts: 1,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
@@ -303,6 +316,7 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
     const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
+      maxAttempts: 1,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
@@ -428,6 +442,9 @@ async function runPureGeneralSearch(body, requestContext) {
     const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
+      // One attempt only: silent retry of a large period-block reply often exceeds the
+      // gateway timeout; the proxy then returns HTML and the UI shows a false "invalid JSON".
+      maxAttempts: 1,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
