@@ -10,9 +10,34 @@ const subscriptionApi = require('./subscription');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 const keyboardLayout = require('./keyboard-layout');
 
+/** Absolute Hebrew-only body text — no English prose, footnotes, or citation markers. */
+const HEBREW_ONLY_BODY_INSTRUCTION = [
+  '=== עברית נקייה בלבד (איסור מוחלט) ===',
+  'חל איסור מוחלט לכלול מילים באנגלית, הערות שוליים, סימוני מקורות (כמו [1], [2] או [cite]) או ביטויים זרים בגוף הטקסט.',
+  'כל התוכן חייב להיות בעברית נקייה, פדגוגית ומקצועית בלבד.',
+  'שמות ספרים/מחברים באנגלית מותרים רק בתוך recommended_literature.title / author וכתובות URL בתוך relevant_links.url — לא בגוף developmental_axis, core_pedagogical_emphases או curriculum.',
+  '=== סוף עברית נקייה ===',
+].join(' ');
+
+/**
+ * Period-block depth without long essay paragraphs that blow the token budget mid-JSON.
+ * Full 15-day plans stay complete by using focused bullets + structured lesson rows.
+ */
+const PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION = [
+  '=== תוכנית תקופה מלאה + JSON קשיח (חובה) ===',
+  'בנה תוכנית לימודים מלאה, עמוקה ומפורטת ל-15 ימי תקופה מלאים (3 שבועות × 5 ימים) — לעולם אל תבקש/תייצר חומר קצר או מקוצר.',
+  'התשובה כולה חייבת להיות אובייקט JSON תקין אחד בלבד, במבנה המדויק שה-Frontend מצפה לקבל — ללא טקסט חופשי, ללא הקדמה, ללא Markdown, ללא ```.',
+  'כדי שה-JSON לא יישבר בגלל אורך: בנה את מהלך 15 הימים באמצעות נקודות (bullet points) ממוקדות, נושאי ליבה יומיים ומערכי שיעור מובנים — לא פסקאות טקסט ארוכות ומסורבלות.',
+  'כל יום ב-curriculum חייב להיות מלא פדגוגית (נושא + תוכן + אמנות) אך מנוסח כנקודות/משפטים ממוקדים עם \\n בין שורות — לא חיבורי פרוזה ארוכים.',
+  'developmental_axis ו-core_pedagogical_emphases: עומק פדגוגי מלא ב-2–4 פסקאות עבריות ממוקדות (לא חיבורים אקדמיים ארוכים שגוזלים את תקציב הטוקנים מימי 10–15).',
+  'חובה להשלים את כל 15 הימים עד סוף האובייקט — אל תחתוך באמצע מערך, אל תשמיט ימים, אל תסיים ביום 8–12.',
+  '=== סוף תוכנית תקופה ===',
+].join(' ');
+
 /** Phase A only — exact JSON keys the Frontend expects. No Phase B / citation scan. */
 const SYSTEM_PROMPT = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
+  HEBREW_ONLY_BODY_INSTRUCTION,
   'You are a Waldorf / anthroposophical pedagogy expert.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'developmental_axis (string: AT LEAST 2-3 comprehensive Hebrew paragraphs tracing the developmental thread across grades 1-8 — soul-spiritual milestones per age band, never brief),',
@@ -25,17 +50,67 @@ const SYSTEM_PROMPT = [
 
 const PERIOD_BLOCK_SYSTEM_PROMPT = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
+  HEBREW_ONLY_BODY_INSTRUCTION,
+  PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION,
   'You are a Waldorf / anthroposophical pedagogy expert specializing in main-lesson block planning.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'developmental_axis (string: 1-2 comprehensive Hebrew paragraphs on soul-spiritual developmental context for the stated grade and subject),',
-  'core_pedagogical_emphases (string: 1-2 comprehensive Hebrew paragraphs with Waldorf block rhythm, narrative arc, and teacher compass for this grade+subject),',
-  'recommended_literature (array of 3-6 objects: {title, author, note} — note MUST explain relevance to this block),',
-  'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only),',
-  'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew lesson topic), content (Hebrew main narrative/story focus, 2-4 sentences), art (Hebrew notebook/drawing/painting/handwork activity)).',
-  'Keep every string compact enough that the FULL JSON (all 15 curriculum days) fits without truncation. Prefer 2 short sentences over long essays in curriculum.content.',
+  'developmental_axis (string: 2-4 focused Hebrew paragraphs — soul-spiritual developmental context for the stated grade and subject; full pedagogical depth, not a stub),',
+  'core_pedagogical_emphases (string: 2-4 focused Hebrew paragraphs — Waldorf block rhythm, narrative arc, Developmental Compass / מצפן התפתחותי, and teacher compass for this grade+subject),',
+  'recommended_literature (array of 3-6 objects: {title, author, note} — note in clean Hebrew explaining relevance to this block),',
+  'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only; title in Hebrew with short context),',
+  'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew core daily topic), content (Hebrew focused bullet points for main narrative/story/new material, separated by \\n — NOT long essays), art (Hebrew focused bullet points for notebook/drawing/painting/handwork)).',
+  'NEVER shorten the 15-day plan. NEVER omit days. Prefer structured bullets over long paragraphs so the FULL JSON closes cleanly.',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
-  'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON.',
+  'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON. First char { last char }.',
 ].join(' ');
+
+/** Strip citation markers / footnotes that leak into Hebrew pedagogical body text. */
+function stripCitationMarkers(text) {
+  return String(text || '')
+    .replace(/\[\s*(?:cite(?:_start|_end)?|citation|ref|source|note)\s*\]/gi, '')
+    .replace(/\[\s*\d+\s*\]/g, '')
+    .replace(/\(\s*(?:cite|citation|ref|source)\s*[:\s]*[^)]*\)/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function sanitizePedagogicalText(value) {
+  return stripCitationMarkers(shared.coerceText(value));
+}
+
+function looksLikeGatewayHtmlOrEnglishDump(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/<!DOCTYPE|<html[\s>]|<head[\s>]|<body[\s>]|<pre[\s>]|Gateway Time-?out|502 Bad Gateway|504 Gateway|Cloudflare|nginx/i.test(s)) {
+    return true;
+  }
+  // Raw JSON / repair debris dumped into display fields
+  if (/^\s*[\{\[]/.test(s) && /"(?:developmental_axis|curriculum|day|topic)"\s*:/.test(s)) {
+    return true;
+  }
+  const hebrew = (s.match(/[\u0590-\u05FF]/g) || []).length;
+  const latin = (s.match(/[A-Za-z]/g) || []).length;
+  // Mostly Latin with almost no Hebrew → English dump from parse fallback / model preamble
+  if (latin > 80 && hebrew < Math.max(20, latin * 0.15)) return true;
+  return false;
+}
+
+function isUnusableGeneralSearchParse(parsed, periodBlock) {
+  if (!parsed || typeof parsed !== 'object') return true;
+  if (parsed._parseFallback) {
+    const axis = String(parsed.developmental_axis || '');
+    const emphases = String(parsed.core_pedagogical_emphases || '');
+    if (looksLikeGatewayHtmlOrEnglishDump(axis) || looksLikeGatewayHtmlOrEnglishDump(emphases)) {
+      return true;
+    }
+    // Fallback with empty curriculum on a period request is unusable
+    if (periodBlock) {
+      const days = Array.isArray(parsed.curriculum) ? parsed.curriculum.length : 0;
+      if (days < 10) return true;
+    }
+  }
+  return false;
+}
 
 function coerceCurriculumDays(value) {
   if (!Array.isArray(value)) return [];
@@ -49,11 +124,11 @@ function coerceCurriculumDays(value) {
     out.push({
       day: resolvedDay,
       week: week >= 1 && week <= 3 ? week : Math.ceil(resolvedDay / 5),
-      topic: shared.coerceText(row.topic || row.title || row.theme || row.subject || ''),
-      content: shared.coerceText(
+      topic: sanitizePedagogicalText(row.topic || row.title || row.theme || row.subject || ''),
+      content: sanitizePedagogicalText(
         row.content || row.narrative || row.story || row.lesson || row.mainLesson || row.text || ''
       ),
-      art: shared.coerceText(
+      art: sanitizePedagogicalText(
         row.art || row.notebook || row.artActivity || row.craft || row.handwork || row.drawing || ''
       ),
     });
@@ -66,40 +141,83 @@ function normalizeGeneralSearchResponse(parsed, options) {
   const periodBlock = Boolean(opts.periodBlock);
   const data = parsed && typeof parsed === 'object' ? parsed : {};
   const normalized = {
-    developmental_axis: shared.coerceText(data.developmental_axis),
-    core_pedagogical_emphases: shared.coerceText(data.core_pedagogical_emphases),
-    recommended_literature: shared.coerceReadingList(data.recommended_literature),
-    relevant_links: shared.coerceLinks(data.relevant_links),
+    developmental_axis: sanitizePedagogicalText(data.developmental_axis),
+    core_pedagogical_emphases: sanitizePedagogicalText(data.core_pedagogical_emphases),
+    recommended_literature: shared.coerceReadingList(data.recommended_literature).map(function (item) {
+      return {
+        title: String(item.title || '').trim(),
+        author: String(item.author || '').trim(),
+        note: sanitizePedagogicalText(item.note),
+      };
+    }),
+    relevant_links: shared.coerceLinks(data.relevant_links).map(function (item) {
+      return {
+        title: sanitizePedagogicalText(item.title) || String(item.title || '').trim(),
+        url: String(item.url || '').trim(),
+      };
+    }),
   };
   if (periodBlock) {
     normalized.periodBlock = true;
-    normalized.curriculum = coerceCurriculumDays(data.curriculum || data.days || data.blockPlan && data.blockPlan.curriculum);
+    normalized.curriculum = coerceCurriculumDays(
+      data.curriculum || data.days || (data.blockPlan && data.blockPlan.curriculum)
+    );
   }
   return normalized;
 }
 
+/**
+ * Call Perplexity for general-search; never return English/HTML parse-fallback dumps to the UI.
+ */
+async function callGeneralSearchJson(systemPrompt, userPrompt, options) {
+  const opts = options || {};
+  const periodBlock = Boolean(opts.periodBlock);
+  const phase = opts.phase || (periodBlock ? 'general_search_period' : 'general_search');
+  const result = await shared.callPerplexityJsonSafe(systemPrompt, userPrompt, {
+    phase: phase,
+    query: opts.query || '',
+    max_tokens: opts.max_tokens,
+    temperature: opts.temperature,
+  });
+  const parsed = result && result.parsed;
+  if (result && result.parseFallback && isUnusableGeneralSearchParse(parsed, periodBlock)) {
+    const err = new Error(
+      periodBlock
+        ? 'תשובת המודל לא חזרה כ-JSON תקין לתוכנית 15 הימים. נסו שוב — ללא הצגת טקסט גולמי/HTML.'
+        : 'תשובת המודל לא חזרה כ-JSON תקין. נסו שוב — ללא הצגת טקסט גולמי/HTML.'
+    );
+    err.statusCode = 502;
+    err.code = 'INVALID_MODEL_JSON';
+    throw err;
+  }
+  return parsed;
+}
+
 function buildPeriodBlockUserPrompt(query) {
   return [
-    'Build a FULL Waldorf main-lesson block plan: 3 weeks × 5 school days = 15 days total.',
-    'Query (subject, topic, and/or grade — e.g. «רנסנס כיתה ז»): ' + query,
-    'Extract the target grade and block subject from the query. If grade is not explicit, infer the canonical Waldorf grade for this block topic.',
-    'Write in Hebrew unless the query is clearly in another language.',
+    'בנה תוכנית תקופה מלאה בחינוך וולדרוף: 3 שבועות × 5 ימי לימוד = 15 ימים במלואם.',
+    'אל תייצר חומר קצר או מקוצר — התוכנית חייבת להיות מלאה, עמוקה ומפורטת לכל 15 הימים.',
+    'שאילתה (נושא ו/או כיתה — למשל «רנסנס כיתה ז»): ' + query,
+    'חלץ את הכיתה ואת נושא התקופה מהשאילתה. אם הכיתה אינה מפורשת — הסיק את הכיתה הקנונית בחינוך וולדרוף לנושא זה.',
     '',
-    shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
+    HEBREW_ONLY_BODY_INSTRUCTION,
     '',
-    'Section requirements:',
-    '- developmental_axis: developmental soul-spiritual context for THIS grade and subject only.',
-    '- core_pedagogical_emphases: block arc, rhythm, artistic integration, and teacher compass.',
-    '- recommended_literature: professional sources for this block.',
-    '- relevant_links: verified professional Waldorf URLs.',
+    PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION,
     '',
-    'curriculum (תוכנית 15 ימים) — MANDATORY:',
-    '- EXACTLY 15 objects with day 1 through day 15.',
-    '- week 1 = days 1-5, week 2 = days 6-10, week 3 = days 11-15.',
-    '- Each day MUST include: topic (נושא השיעור), content (מוקד סיפורי/תוכן מרכזי), art (מחברת/פעילות אמנותית).',
-    '- Build a coherent narrative arc across all 15 days — opening, deepening, climax, integration.',
-    '- Align with Waldorf main-lesson rhythm: story/recitation, recall, new material, artistic work.',
-    '- Age-appropriate language and activities for the target grade.',
+    'דרישות מבנה JSON (מפתחות מדויקים בלבד):',
+    '- developmental_axis: הקשר נפשי-רוחני התפתחותי לכיתה ולנושא זה — 2–4 פסקאות עבריות ממוקדות ומעמיקות.',
+    '- core_pedagogical_emphases: קשת התקופה, מקצב, שילוב אמנותי, מצפן התפתחותי ומצפן למורה — 2–4 פסקאות עבריות ממוקדות.',
+    '- recommended_literature: מקורות מקצועיים לתקופה (הערות בעברית נקייה).',
+    '- relevant_links: כתובות מקצועיות מאומתות (כותרות בעברית עם הקשר קצר).',
+    '',
+    'curriculum (תוכנית 15 ימים) — חובה מוחלטת:',
+    '- בדיוק 15 אובייקטים: day 1 עד day 15.',
+    '- week 1 = ימים 1–5, week 2 = ימים 6–10, week 3 = ימים 11–15.',
+    '- בכל יום: topic (נושא ליבה יומי), content (נקודות ממוקדות לסיפור/תוכן חדש — מופרדות ב-\\n), art (נקודות ממוקדות למחברת/ציור/צביעה/עבודת יד).',
+    '- אין פסקאות ארוכות ב-content/art — רק נקודות/משפטים ממוקדים ששומרים על JSON שלם עד יום 15.',
+    '- קשת נרטיבית רציפה לאורך כל 15 הימים: פתיחה, העמקה, שיא, שילוב.',
+    '- מקצב שיעור ראשי: סיפור/דקלום, היזכרות, חומר חדש, עבודה אמנותית.',
+    '- שפה ופעילויות מותאמות לגיל הכיתה.',
   ].join('\n');
 }
 
@@ -109,7 +227,8 @@ function buildStandardUserPrompt(query) {
     'Query: ' + query,
     'Provide a structured multi-grade analysis: developmental progression, core emphases by age band,',
     'recommended professional literature, and relevant web resources.',
-    'Write in Hebrew unless the query is clearly in another language.',
+    '',
+    HEBREW_ONLY_BODY_INSTRUCTION,
     '',
     shared.PROFESSIONAL_LINKS_INSTRUCTION,
     '',
@@ -120,6 +239,7 @@ function buildStandardUserPrompt(query) {
     '- core_pedagogical_emphases (דגשים פדגוגיים מרכזיים): deep breakdown with Developmental Compass and grade-band lesson dynamics.',
     '- recommended_literature: each entry with contextual note explaining coverage and relevance.',
     '- relevant_links (קישורים): 6-8 live professional sources with descriptive titles — not parent-facing school homepages.',
+    'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown.',
   ].join('\n');
 }
 
@@ -258,12 +378,10 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
 
   await enforceLiveSearchQuota(body, requestContext);
   try {
-    const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+    const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
-      // One attempt only: a silent retry of a 15-day period plan often exceeds the gateway timeout
-      // and the proxy returns HTML, which the Frontend mislabels as "invalid JSON".
-      maxAttempts: 1,
+      periodBlock: periodBlock,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
@@ -313,10 +431,10 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
 
   await enforceLiveSearchQuota(body, requestContext);
   try {
-    const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+    const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
-      maxAttempts: 1,
+      periodBlock: periodBlock,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
@@ -439,14 +557,24 @@ async function runPureGeneralSearch(body, requestContext) {
   await enforceLiveSearchQuota(body, requestContext);
   console.log('[pure-general-search] phase-a-only — Perplexity search, no reference/citation scan');
   try {
-    const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
+    const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
-      // One attempt only: silent retry of a large period-block reply often exceeds the
-      // gateway timeout; the proxy then returns HTML and the UI shows a false "invalid JSON".
-      maxAttempts: 1,
+      periodBlock: periodBlock,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+
+    // Period plans must arrive complete — never archive/serve a truncated curriculum.
+    if (periodBlock && (!Array.isArray(normalized.curriculum) || normalized.curriculum.length < 15)) {
+      const err = new Error(
+        'תוכנית התקופה חזרה חלקית (' +
+          (normalized.curriculum ? normalized.curriculum.length : 0) +
+          '/15 ימים). נסו שוב לקבלת תוכנית מלאה.'
+      );
+      err.statusCode = 502;
+      err.code = 'INCOMPLETE_PERIOD_CURRICULUM';
+      throw err;
+    }
 
     const archiveResult = await persistGeneralSearchArchive(
       query,

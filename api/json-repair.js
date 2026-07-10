@@ -429,9 +429,14 @@ function buildModelParseFallback(phase, rawText, context) {
   }
 
   if (phase === 'general_search' || phase === 'pure_general_search' || phase === 'general_search_period') {
+    // Never dump raw English / HTML / truncated JSON into pedagogical display fields.
+    const rawLooksBad =
+      /<!DOCTYPE|<html[\s>]|<head[\s>]|<body[\s>]|Gateway Time-?out|502 Bad Gateway|504 Gateway|Cloudflare|nginx/i.test(plain) ||
+      (/[A-Za-z]{40,}/.test(plain) && ((plain.match(/[\u0590-\u05FF]/g) || []).length < 40));
+    const safeHebrew = rawLooksBad ? '' : plain.slice(0, 8000);
     const fallback = {
-      developmental_axis: plain.slice(0, 8000),
-      core_pedagogical_emphases: plain.slice(0, 8000),
+      developmental_axis: safeHebrew,
+      core_pedagogical_emphases: '',
       recommended_literature: [],
       relevant_links: [],
       _parseFallback: true,
