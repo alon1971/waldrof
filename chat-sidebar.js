@@ -852,7 +852,7 @@
         var url = URL.createObjectURL(blob);
         var link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', (topicName || 'document') + '.docx');
+        link.download = (topicName || 'document') + '.docx';
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
@@ -881,11 +881,9 @@
     if (!btn) return;
     btn.disabled = false;
     btn.type = 'button';
-    btn.onclick = function (e) {
-      if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+    btn.style.pointerEvents = 'auto';
+    btn.style.cursor = 'pointer';
+    btn.onclick = function () {
       downloadChatMessagesDoc();
     };
   }
