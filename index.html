@@ -14351,15 +14351,27 @@
       var dir = lang === 'en' ? 'ltr' : 'rtl';
       var safeBody = prepareWordExportHtml(bodyHtml == null ? '' : String(bodyHtml));
       var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
+      // Classic Word HTML (.doc): ProgId + Content-Type tell Word this is a Word document,
+      // not a browser web page — critical for Save As defaulting to Word format.
       var htmlContent =
         '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">\n' +
         '<head>\n' +
+        '  <meta http-equiv="Content-Type" content="application/msword; charset=utf-8">\n' +
         '  <meta charset="utf-8">\n' +
+        '  <meta name="ProgId" content="Word.Document">\n' +
+        '  <meta name="Generator" content="Microsoft Word 15">\n' +
+        '  <meta name="Originator" content="Microsoft Word 15">\n' +
+        '  <!--[if gte mso 9]><xml><o:OfficeDocumentSettings><o:AllowPNG/></o:OfficeDocumentSettings></xml><![endif]-->\n' +
+        '  <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->\n' +
         '  <style>\n' +
+        '    <!--\n' +
+        '    /* Style Definitions */\n' +
         '    body, p, span, li, h1, h2, h3, h4, div { font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; }\n' +
+        '    @page { size: 21cm 29.7cm; margin: 2cm; }\n' +
+        '    -->\n' +
         '  </style>\n' +
         '</head>\n' +
-        '<body dir="' + dir + '" style="' + containerStyle + '">\n' +
+        '<body lang="' + (lang === 'en' ? 'EN-US' : 'HE') + '" dir="' + dir + '" style="' + containerStyle + '">\n' +
         safeBody +
         '\n</body>\n' +
         '</html>';
@@ -14367,14 +14379,9 @@
     }
 
     /**
-     * Foolproof, browser-restriction-friendly download trigger.
-     * Primary path: open the blob URL directly via window.open(url, '_blank') — the
-     * browser hands a Word blob straight to its official download manager. Only if a
-     * popup blocker returns null do we fall back to the classic hidden-anchor click,
-     * so the download can never silently fail. Exposed globally so the sticky button
-     * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
-     * Filename must end with .doc (HTML Word / application/msword). Using .docx here
-     * makes Word open the file but default Save As to "Web Page".
+     * Download an HTML-Word blob as a real .doc file.
+     * MUST use <a download="name.doc"> — window.open(blob:) gives Word a UUID with no
+     * extension, so Save As defaults to "Web Page" (see user screenshot).
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
@@ -14384,24 +14391,37 @@
       if (!/\.doc$/i.test(safeName)) {
         safeName = safeName + '.doc';
       }
+      if (/\.docx$/i.test(safeName)) safeName = 'מסמך.doc';
       var url = URL.createObjectURL(blob);
-      var opened = null;
-      try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
-      if (!opened) {
+      var downloaded = false;
+      try {
+        // Edge/IE legacy helper — preserves filename when available.
+        if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
+          downloaded = !!window.navigator.msSaveOrOpenBlob(blob, safeName);
+        }
+      } catch (msErr) {
+        downloaded = false;
+      }
+      if (!downloaded) {
         try {
           var link = document.createElement('a');
           link.href = url;
-          // Hard .doc on the temporary <a> so Windows Save As offers Word Document.
-          link.download = /\.doc$/i.test(safeName) && !/\.docx$/i.test(safeName) ? safeName : 'מסמך.doc';
+          link.download = safeName;
+          link.rel = 'noopener';
           link.style.display = 'none';
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
+          downloaded = true;
         } catch (anchorErr) {
-          console.error('[word-export] anchor fallback failed', anchorErr);
+          console.error('[word-export] download anchor failed', anchorErr);
         }
       }
-      // Keep the object URL alive long enough for the new tab / download manager.
+      // Last-resort only: open blob tab (no filename — Save As may show Web Page).
+      if (!downloaded) {
+        try { window.open(url, '_blank'); } catch (openErr) { /* ignore */ }
+      }
+      // Keep the object URL alive long enough for the download manager.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
       return true;
     }
@@ -15043,7 +15063,8 @@
             var dir = isEnglish() ? 'ltr' : 'rtl';
             var htmlContent =
               '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-              '<head><meta charset="utf-8"></head>' +
+              '<head><meta http-equiv="Content-Type" content="application/msword; charset=utf-8"><meta charset="utf-8">' +
+              '<meta name="ProgId" content="Word.Document"><meta name="Generator" content="Microsoft Word 15"></head>' +
               '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
               html + '</body></html>';
             blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });

@@ -796,7 +796,8 @@
     var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
     var htmlContent =
       '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-      '<head><meta charset="utf-8"></head>' +
+      '<head><meta http-equiv="Content-Type" content="application/msword; charset=utf-8"><meta charset="utf-8">' +
+      '<meta name="ProgId" content="Word.Document"><meta name="Generator" content="Microsoft Word 15"></head>' +
       '<body dir="' + dir + '" style="' + containerStyle + '">' + bodyHtml + '</body></html>';
     return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
   }
@@ -839,25 +840,29 @@
         var fbBody = buildChatWordBodyHtml(persistable);
         var fbHtml =
           '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-          '<head><meta charset="utf-8"></head>' +
+          '<head><meta http-equiv="Content-Type" content="application/msword; charset=utf-8"><meta charset="utf-8">' +
+          '<meta name="ProgId" content="Word.Document"><meta name="Generator" content="Microsoft Word 15"></head>' +
           '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
           fbBody + '</body></html>';
         blob = new Blob(['\ufeff' + fbHtml], { type: 'application/msword;charset=utf-8' });
       }
-      // Direct download: prefer the shared window.open trigger from the main scope
-      // (browser download manager handles the file, bypassing click restrictions).
+      // Prefer shared download helper (sets .doc filename). Never window.open(blob) first —
+      // that yields a UUID with no extension and Save As → Web Page.
       var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.doc' : 'סיכום_שיחה_עוזר_פדגוגי.doc';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         window.triggerWordBlobDownload(blob, chatFilename);
       } else {
         var url = URL.createObjectURL(blob);
-        var opened = null;
-        try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
-        if (!opened) {
+        var downloaded = false;
+        try {
+          if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
+            downloaded = !!window.navigator.msSaveOrOpenBlob(blob, chatFilename);
+          }
+        } catch (msErr) { downloaded = false; }
+        if (!downloaded) {
           var link = document.createElement('a');
           link.href = url;
-          // Hard .doc on the temporary <a> so Windows Save As offers Word Document, not Web Page.
-          link.download = /\.doc$/i.test(chatFilename) && !/\.docx$/i.test(chatFilename) ? chatFilename : 'מסמך.doc';
+          link.download = chatFilename;
           link.style.display = 'none';
           document.body.appendChild(link);
           link.click();
