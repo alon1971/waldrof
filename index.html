@@ -14367,38 +14367,32 @@
     }
 
     /**
-     * Foolproof, browser-restriction-friendly download trigger.
-     * Primary path: open the blob URL directly via window.open(url, '_blank') — the
-     * browser hands a Word blob straight to its official download manager. Only if a
-     * popup blocker returns null do we fall back to the classic hidden-anchor click,
-     * so the download can never silently fail. Exposed globally so the sticky button
-     * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
-     * Filename must end with .docx so Windows Save As offers a Word document.
+     * Foolproof Word download trigger via a temporary <a download="….docx">.
+     * Always set an explicit .docx filename on the download attribute so Windows
+     * Save As offers a Word document (not "Web Page" from a bare blob UUID).
+     * Exposed globally so the sticky button and modules (e.g. chat-sidebar.js) can use it.
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      var safeName = String(filename || 'document.docx');
+      var safeName = String(filename || 'document').replace(/\.doc$/i, '');
       if (!/\.docx$/i.test(safeName)) {
-        safeName = safeName.replace(/\.doc$/i, '') + '.docx';
+        safeName = (safeName || 'document') + '.docx';
       }
       var url = URL.createObjectURL(blob);
-      var opened = null;
-      try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
-      if (!opened) {
-        try {
-          var link = document.createElement('a');
-          link.href = url;
-          // Hard .docx on the temporary <a> so Windows Save As treats this as Word, not Web Page.
-          link.download = /\.docx$/i.test(safeName) ? safeName : 'מסמך.docx';
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } catch (anchorErr) {
-          console.error('[word-export] anchor fallback failed', anchorErr);
-        }
+      try {
+        var link = document.createElement('a');
+        link.href = url;
+        // Explicit .docx on the temporary <a> so Save As treats this as Word, not Web Page.
+        link.download = safeName;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (anchorErr) {
+        console.error('[word-export] anchor download failed', anchorErr);
+        try { window.open(url, '_blank'); } catch (openErr) { /* ignore */ }
       }
-      // Keep the object URL alive long enough for the new tab / download manager.
+      // Keep the object URL alive long enough for the download manager.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
       return true;
     }

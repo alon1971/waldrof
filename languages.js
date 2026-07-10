@@ -176,7 +176,7 @@ const LANGUAGES = {
     sources_label:               'מקורות',
     source_link_label:           'קישור למקור',
     source_article_entry_label:  'לכניסה למקור המאמר',
-    typical_blocks:              'אפוקות טיפוסיות',
+    typical_blocks:              'תקופות טיפוסיות',
 
     no_teacher_folders:          'לא נמצאו תיקיות מורה',
     no_community_grade:          'אין חומרים קהילתיים לכיתה זו',

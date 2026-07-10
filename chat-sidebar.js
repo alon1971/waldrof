@@ -844,25 +844,20 @@
           fbBody + '</body></html>';
         blob = new Blob(['\ufeff' + fbHtml], { type: 'application/msword' });
       }
-      // Direct download: prefer the shared window.open trigger from the main scope
-      // (browser download manager handles the file, bypassing click restrictions).
+      // Direct download via temporary <a download="….docx"> (shared helper or local fallback).
       var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום_שיחה_עוזר_פדגוגי.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         window.triggerWordBlobDownload(blob, chatFilename);
       } else {
         var url = URL.createObjectURL(blob);
-        var opened = null;
-        try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
-        if (!opened) {
-          var link = document.createElement('a');
-          link.href = url;
-          // Hard .docx on the temporary <a> so Windows Save As treats this as Word, not Web Page.
-          link.download = /\.docx$/i.test(chatFilename) ? chatFilename : 'מסמך.docx';
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }
+        var link = document.createElement('a');
+        link.href = url;
+        // Explicit .docx on the temporary <a> so Save As treats this as Word, not Web Page.
+        link.download = /\.docx$/i.test(chatFilename) ? chatFilename : ((chatFilename || 'document') + '.docx');
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
       }
       if (typeof deps.recordWordDownload === 'function') {
