@@ -1,5 +1,6 @@
 /**
- * POST /api/pure-general-search — multi-grade search via Perplexity with Supabase cache.
+ * POST /api/pure-general-search — Phase A only: Perplexity search → JSON.
+ * No Phase B / reference-citation scan / Drive cross-check (removed; do not reintroduce).
  * Body: { query, periodBlock?: boolean }
  */
 const shared = require('./pure-api-shared');
@@ -415,77 +416,14 @@ async function runPureGeneralSearch(body, requestContext) {
         }, cached.meta || {}),
       };
     }
-
-    // Semantic (Gemini) disambiguation before spending a live Perplexity crawl.
-    // Catches word-order / grade-wording variants ("רנסנס תקופה ז" ≈ "כיתה ז רנסנס").
-    let suggestion = null;
-    try {
-      suggestion = await cache.safeArchiveLookup(
-        'general_search_suggest:' + query.slice(0, 40),
-        function () {
-          return cache.findGeneralSearchArchiveSuggestion(query, { periodBlock: periodBlock });
-        },
-        {
-          phase: 'general_search',
-          budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS,
-          onFailure: async function () {
-            // Suggestion scans many rows — if the whole scan times out, drop any
-            // exact-key hit for this query so the next request starts clean.
-            try {
-              const body = cache.buildGeneralSearchCacheBody(query, { periodBlock: periodBlock });
-              const key = cache.buildCacheKey(body);
-              if (key) await cache.purgeCorruptedCachedRow(key, 'archive_suggestion_timeout');
-            } catch (purgeErr) { /* ignore */ }
-          },
-        }
-      );
-    } catch (suggestErr) {
-      console.warn('[pure-general-search] archive suggestion failed:', suggestErr.message || suggestErr);
-      suggestion = null;
-    }
-    if (suggestion && suggestion.cacheKey) {
-      if (suggestion.matchType === 'exact' && suggestion.data) {
-        // Same concept + same grade → reuse the archive silently (no duplicate, no cost).
-        return {
-          data: normalizeGeneralSearchResponse(suggestion.data, { periodBlock: periodBlock }),
-          meta: {
-            fromCache: true,
-            source: 'general_search_semantic',
-            periodBlock: periodBlock,
-            cacheKey: suggestion.cacheKey,
-            similarity: suggestion.similarity,
-            matchedQuery: suggestion.suggestedQuery || null,
-            archived: true,
-            archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
-          },
-        };
-      }
-      // Partial (MAYBE) → ask the teacher via the existing "האם התכוונת ל…" UI.
-      return {
-        data: null,
-        meta: {
-          fromCache: false,
-          needsArchiveConfirmation: true,
-          periodBlock: periodBlock,
-          archiveSuggestion: {
-            matchType: 'partial',
-            scope: 'general-search',
-            requestedQuery: query,
-            suggestedTopic: suggestion.suggestedQuery,
-            suggestedQuery: suggestion.suggestedQuery,
-            cacheKey: suggestion.cacheKey,
-            similarity: suggestion.similarity,
-            periodBlock: periodBlock,
-          },
-        },
-      };
-    }
+    // No semantic archive suggestion / reference scan — go straight to Phase A (Perplexity).
   }
 
   const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
   const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
 
   await enforceLiveSearchQuota(body, requestContext);
+  console.log('[pure-general-search] phase-a-only — Perplexity search, no reference/citation scan');
   try {
     const parsed = await shared.callPerplexityJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
