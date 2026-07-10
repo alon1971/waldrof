@@ -390,7 +390,15 @@ async function runPureGeneralSearch(body, requestContext) {
   }
 
   if (!bypassCache) {
-    const cached = await cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
+    // Hard 4s budget: partial/corrupt archive rows must never hang the gateway.
+    // On timeout or bad payload we purge and fall through to a fresh Perplexity search.
+    const cached = await cache.safeArchiveLookup(
+      'general_search_cache:' + query.slice(0, 40),
+      function () {
+        return cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
+      },
+      { phase: 'general_search', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
+    );
     if (cached && cached.data) {
       const cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
       return {
@@ -410,9 +418,28 @@ async function runPureGeneralSearch(body, requestContext) {
     // Catches word-order / grade-wording variants ("רנסנס תקופה ז" ≈ "כיתה ז רנסנס").
     let suggestion = null;
     try {
-      suggestion = await cache.findGeneralSearchArchiveSuggestion(query, { periodBlock: periodBlock });
+      suggestion = await cache.safeArchiveLookup(
+        'general_search_suggest:' + query.slice(0, 40),
+        function () {
+          return cache.findGeneralSearchArchiveSuggestion(query, { periodBlock: periodBlock });
+        },
+        {
+          phase: 'general_search',
+          budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS,
+          onFailure: async function () {
+            // Suggestion scans many rows — if the whole scan times out, drop any
+            // exact-key hit for this query so the next request starts clean.
+            try {
+              const body = cache.buildGeneralSearchCacheBody(query, { periodBlock: periodBlock });
+              const key = cache.buildCacheKey(body);
+              if (key) await cache.purgeCorruptedCachedRow(key, 'archive_suggestion_timeout');
+            } catch (purgeErr) { /* ignore */ }
+          },
+        }
+      );
     } catch (suggestErr) {
       console.warn('[pure-general-search] archive suggestion failed:', suggestErr.message || suggestErr);
+      suggestion = null;
     }
     if (suggestion && suggestion.cacheKey) {
       if (suggestion.matchType === 'exact' && suggestion.data) {

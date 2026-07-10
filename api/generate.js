@@ -2745,7 +2745,30 @@ async function tryServeFromCachedResults(body, communityProbe) {
   const probeMeta = communityProbe || EMPTY_COMMUNITY_PROBE;
 
   const cacheOpts = isArchiveOnlyLookup(body) ? { requireEnhanced: false } : {};
-  const cached = await cacheDb.getCachedResult(body, cacheOpts);
+  const gradeId = body.currentGrade ?? body.gradeId;
+  const topic = body.topic || body.query || '';
+
+  const cached = await cacheDb.safeArchiveLookup(
+    'getCachedResult:' + String(body.phase || '') + ':' + String(topic).slice(0, 40),
+    function () {
+      return cacheDb.getCachedResult(body, cacheOpts);
+    },
+    {
+      phase: body.phase || 'topic',
+      budgetMs: cacheDb.ARCHIVE_LOOKUP_BUDGET_MS,
+      onFailure: async function () {
+        if (body.phase === 'topic' && topic && gradeId != null) {
+          try {
+            await cacheDb.deleteTopicProseArchive(gradeId, topic, {
+              gradeLabel: body.gradeLabel || null,
+            });
+          } catch (purgeErr) {
+            console.warn('[cached_results] topic prose purge after timeout failed:', purgeErr.message || purgeErr);
+          }
+        }
+      },
+    }
+  );
   if (cached) {
     console.log('[cached_results] HIT', body.phase, cached.meta.cacheKey.slice(0, 12), cached.meta.source || '');
     if (body.phase === 'topic' && cached.data) {
@@ -2760,11 +2783,31 @@ async function tryServeFromCachedResults(body, communityProbe) {
 
   if (body.phase !== 'topic') return null;
 
-  const suggestion = await cacheDb.findArchiveTopicSuggestion({
-    topic: body.topic,
-    gradeId: body.currentGrade ?? body.gradeId,
-    gradeLabel: body.gradeLabel || null,
-  });
+  const suggestion = await cacheDb.safeArchiveLookup(
+    'findArchiveTopicSuggestion:' + String(topic).slice(0, 40),
+    function () {
+      return cacheDb.findArchiveTopicSuggestion({
+        topic: body.topic,
+        gradeId: gradeId,
+        gradeLabel: body.gradeLabel || null,
+      });
+    },
+    {
+      phase: 'topic',
+      budgetMs: cacheDb.ARCHIVE_LOOKUP_BUDGET_MS,
+      onFailure: async function () {
+        if (topic && gradeId != null) {
+          try {
+            await cacheDb.deleteTopicProseArchive(gradeId, topic, {
+              gradeLabel: body.gradeLabel || null,
+            });
+          } catch (purgeErr) {
+            console.warn('[cached_results] topic suggestion purge after timeout failed:', purgeErr.message || purgeErr);
+          }
+        }
+      },
+    }
+  );
   if (suggestion && suggestion.matchType === 'grade_mismatch' && suggestion.gradeMismatch &&
       !pedagogicalScope.isPedagogicalScopeOverridden(body)) {
     console.log(

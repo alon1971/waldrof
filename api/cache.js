@@ -1478,6 +1478,165 @@ async function purgeCorruptedCachedRow(cacheKey, reason) {
   return deleteCachedRowByKey(cacheKey);
 }
 
+/** Hard budget for archive/cache lookups before falling through to a live Perplexity search. */
+const ARCHIVE_LOOKUP_BUDGET_MS = 4000;
+
+/**
+ * Race an archive/cache promise against a wall-clock budget.
+ * On timeout rejects with err.code === 'ARCHIVE_LOOKUP_TIMEOUT'.
+ */
+function withArchiveLookupBudget(promise, ms) {
+  const budget = typeof ms === 'number' && ms > 0 ? ms : ARCHIVE_LOOKUP_BUDGET_MS;
+  let timer = null;
+  let settled = false;
+  return new Promise(function (resolve, reject) {
+    timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      const err = new Error('archive_lookup_timeout');
+      err.code = 'ARCHIVE_LOOKUP_TIMEOUT';
+      reject(err);
+    }, budget);
+    Promise.resolve(promise).then(
+      function (value) {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve(value);
+      },
+      function (err) {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+/**
+ * Detect manually-truncated / incomplete archive payloads that can hang matching loops.
+ * Returns a short reason string when unsafe, or null when the payload looks usable.
+ */
+function getPartialOrCorruptArchiveReason(phase, data) {
+  const coerced = coerceCachedResultData(data);
+  if (!coerced || typeof coerced !== 'object') return 'empty_or_unparseable';
+
+  if (phase === GENERAL_SEARCH_PHASE || phase === 'pure_general_search' || phase === 'general_search_period') {
+    if (!isGeneralSearchPayload(coerced)) return 'general_search_incomplete';
+    if (Array.isArray(coerced.curriculum)) {
+      const days = coerced.curriculum;
+      if (!days.length) return 'curriculum_empty';
+      let filled = 0;
+      for (let i = 0; i < days.length; i++) {
+        const day = days[i];
+        if (!day || typeof day !== 'object') continue;
+        if (String(day.topic || day.content || day.art || '').trim()) filled++;
+      }
+      if (filled === 0) return 'curriculum_all_empty';
+      if (filled < Math.min(days.length, 5)) return 'curriculum_partially_stripped';
+    }
+    return null;
+  }
+
+  if (phase === 'topic') {
+    if (!isValidCachedPayload('topic', coerced)) return 'topic_invalid';
+    const bp = coerced.blockPlan && typeof coerced.blockPlan === 'object' ? coerced.blockPlan : null;
+    if (!bp) return 'topic_missing_block_plan';
+    const rawLen = String(bp.rawContent || '').trim().length;
+    const theorySections = bp.theory && Array.isArray(bp.theory.sections) ? bp.theory.sections.length : 0;
+    const curriculum = Array.isArray(bp.curriculum)
+      ? bp.curriculum
+      : (Array.isArray(coerced.curriculum) ? coerced.curriculum : null);
+    if (curriculum && curriculum.length) {
+      let filled = 0;
+      for (let i = 0; i < curriculum.length; i++) {
+        const day = curriculum[i];
+        if (!day || typeof day !== 'object') continue;
+        if (String(day.topic || day.content || day.art || day.title || '').trim()) filled++;
+      }
+      if (filled === 0) return 'topic_curriculum_all_empty';
+      if (filled < Math.min(curriculum.length, 5)) return 'topic_curriculum_partially_stripped';
+    }
+    if (rawLen < 80 && theorySections === 0 && !(curriculum && curriculum.length)) {
+      return 'topic_content_stripped';
+    }
+    return null;
+  }
+
+  if (!isValidCachedPayload(phase, coerced)) return 'phase_invalid';
+  return null;
+}
+
+function isPartialOrCorruptArchivePayload(phase, data) {
+  return Boolean(getPartialOrCorruptArchiveReason(phase, data));
+}
+
+/**
+ * Run an archive lookup under the 4s budget. On timeout / throw / partial payload,
+ * purge the related cache key(s) and return null so callers fall through to Perplexity.
+ */
+async function safeArchiveLookup(label, lookupFn, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const budgetMs = opts.budgetMs || ARCHIVE_LOOKUP_BUDGET_MS;
+  const phase = opts.phase || 'topic';
+  let result = null;
+  try {
+    result = await withArchiveLookupBudget(
+      typeof lookupFn === 'function' ? lookupFn() : lookupFn,
+      budgetMs
+    );
+  } catch (err) {
+    const timedOut = err && err.code === 'ARCHIVE_LOOKUP_TIMEOUT';
+    console.warn(
+      '[cached_results] archive lookup failed — skipping to live search:',
+      label || 'lookup',
+      timedOut ? 'timeout>' + budgetMs + 'ms' : (err && err.message) || err
+    );
+    const keys = [];
+    if (opts.cacheKey) keys.push(opts.cacheKey);
+    if (Array.isArray(opts.cacheKeys)) {
+      opts.cacheKeys.forEach(function (k) { if (k) keys.push(k); });
+    }
+    for (let i = 0; i < keys.length; i++) {
+      await purgeCorruptedCachedRow(keys[i], timedOut ? 'archive_lookup_timeout' : 'archive_lookup_error');
+    }
+    if (typeof opts.onFailure === 'function') {
+      try { await opts.onFailure(err); } catch (purgeErr) { /* ignore */ }
+    }
+    return null;
+  }
+
+  if (!result) return null;
+
+  const payload =
+    (result.data && typeof result.data === 'object' && result.data) ||
+    (result.resultData && typeof result.resultData === 'object' && result.resultData) ||
+    null;
+  const cacheKey =
+    (result.meta && result.meta.cacheKey) ||
+    result.cacheKey ||
+    opts.cacheKey ||
+    null;
+  if (payload) {
+    const reason = getPartialOrCorruptArchiveReason(phase, payload);
+    if (reason) {
+      console.warn(
+        '[cached_results] partial/corrupt archive payload — purging and skipping to live search:',
+        label || 'lookup',
+        reason,
+        cacheKey ? cacheKey.slice(0, 12) : ''
+      );
+      if (cacheKey) await purgeCorruptedCachedRow(cacheKey, reason);
+      if (typeof opts.onFailure === 'function') {
+        try { await opts.onFailure(new Error(reason)); } catch (purgeErr) { /* ignore */ }
+      }
+      return null;
+    }
+  }
+  return result;
+}
+
 /**
  * Parse result_data from a DB row; delete the row when JSON is irreparably corrupt.
  */
@@ -5124,6 +5283,11 @@ module.exports = {
   setArchiveBlockByPath,
   TOPIC_PROSE_ARCHIVE_PHASES,
   purgeCorruptedCachedRow,
+  ARCHIVE_LOOKUP_BUDGET_MS,
+  withArchiveLookupBudget,
+  getPartialOrCorruptArchiveReason,
+  isPartialOrCorruptArchivePayload,
+  safeArchiveLookup,
   ensureJsonObjectForStorage,
   readAndValidateCachedResultData,
   coerceArchiveLessonResultData,
