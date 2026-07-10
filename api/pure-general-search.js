@@ -9,60 +9,25 @@ const subscriptionApi = require('./subscription');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 const keyboardLayout = require('./keyboard-layout');
 
-/**
- * Strict two-phase search (Hebrew mandate — MUST appear in every Perplexity system message):
- * Phase A = full rich open-web answer first;
- * Phase B = optional ≤3s citation scan of priority Waldorf archives only.
- */
-const WALDORF_CITATIONS_HEADING = '📌 סימוכין ומקורות נוספים ממאגרי ולדורף:';
-const PHASE_B_SCAN_TIMEOUT_MS = 3000;
-const DRIVE_ROOT_FOLDER_URL =
-  'https://drive.google.com/drive/u/0/folders/1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs';
-
-const STRICT_TWO_PHASE_SEARCH_INSTRUCTION = [
-  '=== חוק מחייב — לוגיקה דו-שלבית קשיחה (חובה מוחלטת) ===',
-  'בצע קודם כל חיפוש רחב ועשיר ברשת (שלב א\').',
-  'רק לאחר מכן, בצע בדיקה מהירה של עד 3 שניות (שלב ב\') במקורות הבאים:',
-  'תיקיית גוגל דרייב ' + DRIVE_ROOT_FOLDER_URL + ',',
-  'הארכיונים rsarchive.org ו-daniel-zahavi.co.il,',
-  'והפודקאסטים \'עולמה של הילדות\', \'חידת האדם\' ו\'מסעות בחינוך\'.',
-  'בסוף התשובה חובה להציג כותרת מודגשת: \'' + WALDORF_CITATIONS_HEADING + '\'',
-  'ותחתיה הקישורים הספציפיים שנמצאו.',
-  'אם הסריקה מעכבת או לוקחת מעל 3 שניות — דלג עליה והחזר מיד רק את שלב א\'.',
-  '',
-  'פירוט ביצוע:',
-  'שלב א\' (קדימות מוחלטת): חיפוש רחב, מלא ומקיף בכל רחבי האינטרנט — אל תגביל לאתרי שלב ב\'.',
-  'בנה תשובה עשירה ומפורטת בעברית בשדות ה-JSON',
-  '(developmental_axis, core_pedagogical_emphases, recommended_literature, relevant_links — ו-curriculum כשמבוקש).',
-  'לעולם אל תדלל את שלב א\' בגלל שלב ב\'.',
-  'שלב ב\' (רק אחרי ששלב א\' מוכן): סריקת סימוכין עד 3 שניות במקורות לעיל בלבד.',
-  'אם נמצאו קישורים מאומתים — הוסף בסוף core_pedagogical_emphases את הכותרת',
-  '\'' + WALDORF_CITATIONS_HEADING + '\' ואחריה את הקישורים, וגם ל-relevant_links.',
-  'אם אין ממצאים / הסריקה איטית / דלה — אל תמציא, אל תציג הודעת שגיאה, ואל תכלול את כותרת הסימוכין.',
-  '=== סוף חוק דו-שלבי ===',
-].join(' ');
-
 const SYSTEM_PROMPT = [
-  STRICT_TWO_PHASE_SEARCH_INSTRUCTION,
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   'You are a Waldorf / anthroposophical pedagogy expert.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'developmental_axis (string: AT LEAST 2-3 comprehensive Hebrew paragraphs tracing the developmental thread across grades 1-8 — soul-spiritual milestones per age band, never brief),',
-  'core_pedagogical_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — plus grade-band lesson dynamics; never superficial; if Phase B finds matches, append the bonus citations heading and list at the very end of this string only),',
+  'core_pedagogical_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — plus grade-band lesson dynamics; never superficial),',
   'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
-  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays; plus any verified Phase B archive/podcast URLs when found).',
+  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
 ].join(' ');
 
 const PERIOD_BLOCK_SYSTEM_PROMPT = [
-  STRICT_TWO_PHASE_SEARCH_INSTRUCTION,
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   'You are a Waldorf / anthroposophical pedagogy expert specializing in main-lesson block planning.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'developmental_axis (string: 1-2 comprehensive Hebrew paragraphs on soul-spiritual developmental context for the stated grade and subject),',
-  'core_pedagogical_emphases (string: 1-2 comprehensive Hebrew paragraphs with Waldorf block rhythm, narrative arc, and teacher compass for this grade+subject; if Phase B finds matches, append the bonus citations heading and list at the very end of this string only),',
+  'core_pedagogical_emphases (string: 1-2 comprehensive Hebrew paragraphs with Waldorf block rhythm, narrative arc, and teacher compass for this grade+subject),',
   'recommended_literature (array of 3-6 objects: {title, author, note} — note MUST explain relevance to this block),',
-  'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only; plus any verified Phase B archive/podcast URLs when found),',
+  'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew lesson topic), content (Hebrew main narrative/story focus, 2-4 sentences), art (Hebrew notebook/drawing/painting/handwork activity)).',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
 ].join(' ');
@@ -105,94 +70,6 @@ function normalizeGeneralSearchResponse(parsed, options) {
     normalized.periodBlock = true;
     normalized.curriculum = coerceCurriculumDays(data.curriculum || data.days || data.blockPlan && data.blockPlan.curriculum);
   }
-  return normalized;
-}
-
-/** Race a promise against a hard timeout; resolves null on timeout (never rejects for time). */
-function withHardTimeout(promise, ms) {
-  let timer = null;
-  const timeoutPromise = new Promise(function (resolve) {
-    timer = setTimeout(function () { resolve(null); }, ms);
-  });
-  return Promise.race([
-    Promise.resolve(promise).then(function (value) {
-      if (timer) clearTimeout(timer);
-      return value;
-    }, function () {
-      if (timer) clearTimeout(timer);
-      return null;
-    }),
-    timeoutPromise,
-  ]);
-}
-
-/**
- * Server-side Phase B: quick community/Drive catalog scan (≤3s).
- * Appends the mandatory citations heading + live URLs when matches exist.
- * Skips silently on timeout / empty / already-present heading.
- */
-async function enrichWithPhaseBWaldorfCitations(normalized, query) {
-  if (!normalized || typeof normalized !== 'object') return normalized;
-  const q = String(query || '').trim();
-  if (!q) return normalized;
-
-  const emphases = String(normalized.core_pedagogical_emphases || '');
-  if (emphases.indexOf('סימוכין ומקורות נוספים ממאגרי ולדורף') >= 0) {
-    return normalized;
-  }
-
-  let probe = null;
-  try {
-    probe = await withHardTimeout(
-      cache.probeCommunityGlobalSearch(q, {
-        userMessage: q,
-        globalScan: true,
-        semanticFallback: true,
-        includeFolderBrief: false,
-        limit: 6,
-      }),
-      PHASE_B_SCAN_TIMEOUT_MS
-    );
-  } catch (scanErr) {
-    console.warn('[pure-general-search] Phase B citation scan failed:', scanErr.message || scanErr);
-    return normalized;
-  }
-  if (!probe || !probe.count || !Array.isArray(probe.matches) || !probe.matches.length) {
-    return normalized;
-  }
-
-  const links = [];
-  const seen = Object.create(null);
-  probe.matches.forEach(function (hit) {
-    if (!hit || typeof hit !== 'object') return;
-    const url = String(hit.fileUrl || hit.url || hit.googleDocsUrl || hit.google_docs_url || '').trim();
-    if (!url || !/^https?:\/\//i.test(url) || seen[url]) return;
-    seen[url] = true;
-    const title = String(hit.title || hit.fileName || hit.topic || 'מקור ממאגר ולדורף').trim();
-    links.push({ title: title || 'מקור ממאגר ולדורף', url: url });
-  });
-  if (!links.length) return normalized;
-
-  const lines = links.map(function (item) {
-    return '- ' + item.title + ': ' + item.url;
-  });
-  normalized.core_pedagogical_emphases =
-    emphases.trim() +
-    '\n\n<strong>' + WALDORF_CITATIONS_HEADING + '</strong>\n' +
-    lines.join('\n');
-
-  const existing = Array.isArray(normalized.relevant_links) ? normalized.relevant_links.slice() : [];
-  const existingUrls = Object.create(null);
-  existing.forEach(function (item) {
-    const u = String(item && item.url || '').trim();
-    if (u) existingUrls[u] = true;
-  });
-  links.forEach(function (item) {
-    if (existingUrls[item.url]) return;
-    existing.push(item);
-    existingUrls[item.url] = true;
-  });
-  normalized.relevant_links = existing;
   return normalized;
 }
 
@@ -381,20 +258,19 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
       query: query,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
-    const enriched = await enrichWithPhaseBWaldorfCitations(normalized, query);
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
-      enriched,
+      normalized,
       body,
       requestContext,
       periodBlock
     );
 
-    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, enriched);
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
 
     return {
-      data: enriched,
+      data: normalized,
       meta: {
         fromCache: false,
         source: 'archive_upgrade_synthesis',
@@ -434,20 +310,19 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
       query: query,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
-    const enriched = await enrichWithPhaseBWaldorfCitations(normalized, query);
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
-      enriched,
+      normalized,
       body,
       requestContext,
       periodBlock
     );
 
-    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, enriched);
+    const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
 
     return {
-      data: enriched,
+      data: normalized,
       meta: {
         fromCache: false,
         source: 'research_expand',
@@ -508,12 +383,8 @@ async function runPureGeneralSearch(body, requestContext) {
   if (confirmArchiveKey) {
     const confirmed = await cache.getGeneralSearchByCacheKey(confirmArchiveKey, { periodBlock: periodBlock });
     if (confirmed && confirmed.data) {
-      const confirmedData = await enrichWithPhaseBWaldorfCitations(
-        normalizeGeneralSearchResponse(confirmed.data, { periodBlock: periodBlock }),
-        query
-      );
       return {
-        data: confirmedData,
+        data: normalizeGeneralSearchResponse(confirmed.data, { periodBlock: periodBlock }),
         meta: Object.assign({
           fromCache: true,
           source: 'general_search_confirmed',
@@ -530,12 +401,8 @@ async function runPureGeneralSearch(body, requestContext) {
     const cached = await cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
     if (cached && cached.data) {
       const cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
-      const cachedData = await enrichWithPhaseBWaldorfCitations(
-        normalizeGeneralSearchResponse(cached.data, { periodBlock: periodBlock }),
-        query
-      );
       return {
-        data: cachedData,
+        data: normalizeGeneralSearchResponse(cached.data, { periodBlock: periodBlock }),
         meta: Object.assign({
           fromCache: true,
           source: 'general_search_cache',
@@ -558,12 +425,8 @@ async function runPureGeneralSearch(body, requestContext) {
     if (suggestion && suggestion.cacheKey) {
       if (suggestion.matchType === 'exact' && suggestion.data) {
         // Same concept + same grade → reuse the archive silently (no duplicate, no cost).
-        const semanticData = await enrichWithPhaseBWaldorfCitations(
-          normalizeGeneralSearchResponse(suggestion.data, { periodBlock: periodBlock }),
-          query
-        );
         return {
-          data: semanticData,
+          data: normalizeGeneralSearchResponse(suggestion.data, { periodBlock: periodBlock }),
           meta: {
             fromCache: true,
             source: 'general_search_semantic',
@@ -607,8 +470,7 @@ async function runPureGeneralSearch(body, requestContext) {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
     });
-    let normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
-    normalized = await enrichWithPhaseBWaldorfCitations(normalized, query);
+    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,

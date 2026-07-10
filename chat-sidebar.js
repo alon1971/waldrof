@@ -844,26 +844,29 @@
           fbBody + '</body></html>';
         blob = new Blob(['\ufeff' + fbHtml], { type: 'application/msword' });
       }
-      // Direct download via temporary <a download="….docx"> (same turn as user click).
-      var topicName = deps.isEnglish() ? 'pedagogy_chat_summary' : 'סיכום_שיחה_עוזר_פדגוגי';
+      // Direct download: prefer the shared window.open trigger from the main scope
+      // (browser download manager handles the file, bypassing click restrictions).
+      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום_שיחה_עוזר_פדגוגי.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
-        window.triggerWordBlobDownload(blob, (topicName || 'document') + '.docx');
+        window.triggerWordBlobDownload(blob, chatFilename);
       } else {
         var url = URL.createObjectURL(blob);
-        var element = document.createElement('a');
-        element.href = url;
-        element.download = (topicName || 'document') + '.docx';
-        element.style.display = 'none';
-        document.body.appendChild(element);
-        element.click();
-        setTimeout(function () {
-          try { if (element.parentNode) element.parentNode.removeChild(element); } catch (e) {}
-          try { URL.revokeObjectURL(url); } catch (e2) {}
-        }, 1500);
+        var opened = null;
+        try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
+        if (!opened) {
+          var link = document.createElement('a');
+          link.href = url;
+          // Hard .docx on the temporary <a> so Windows Save As treats this as Word, not Web Page.
+          link.download = /\.docx$/i.test(chatFilename) ? chatFilename : 'מסמך.docx';
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+        setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
       }
-      // Record usage after the file is triggered — never block the download.
       if (typeof deps.recordWordDownload === 'function') {
-        Promise.resolve().then(function () { return deps.recordWordDownload(); }).catch(function () {});
+        await deps.recordWordDownload();
       }
     } catch (err) {
       if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
@@ -881,16 +884,13 @@
     if (!btn) return;
     btn.disabled = false;
     btn.type = 'button';
-    btn.style.pointerEvents = 'auto';
-    btn.style.cursor = 'pointer';
-    btn.onclick = function (ev) {
-      if (ev) { try { ev.preventDefault(); } catch (e) {} }
+    btn.onclick = function (e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       downloadChatMessagesDoc();
     };
-    btn.setAttribute(
-      'onclick',
-      'window.LessonChatSidebar && window.LessonChatSidebar.downloadChatExport && window.LessonChatSidebar.downloadChatExport()'
-    );
   }
 
   function resetChatConversation() {
