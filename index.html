@@ -668,20 +668,6 @@
       background: #8B3A3A;
       color: #fff;
     }
-    .step-pill.step-pill-anthroposophy-archive {
-      opacity: 1 !important;
-      border-color: rgba(92, 125, 88, 0.55);
-      background: rgba(255, 255, 255, 0.96);
-      color: #3d5c3a;
-      font-weight: 600;
-    }
-    .step-pill.step-pill-anthroposophy-archive:hover {
-      background: rgba(92, 125, 88, 0.08);
-      border-color: rgba(92, 125, 88, 0.75);
-    }
-    .step-pill.step-pill-anthroposophy-archive i {
-      color: #5C7D58;
-    }
     .step-pill.step-pill-general-search {
       opacity: 1 !important;
       border: 2px solid rgba(92, 125, 88, 0.8);
@@ -1002,20 +988,11 @@
     }
     @media (min-width: 640px) {
       .app-top-nav-inner > .step-pill-community,
-      .app-top-nav-inner > .step-pill-anthroposophy-archive,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
         flex: 1 1 10rem;
         min-width: 10rem;
         max-width: 15rem;
-      }
-      .app-top-nav-inner > .step-pill-anthroposophy-archive {
-        flex: 1 1 14rem;
-        min-width: 12rem;
-        max-width: 22rem;
-        white-space: normal;
-        text-align: center;
-        line-height: 1.25;
       }
       .app-top-nav-inner > .step-pill-general-search {
         flex: 1 1 14rem;
@@ -1037,7 +1014,6 @@
       }
       #step-progress .step-pill,
       .app-top-nav-inner > .step-pill-community,
-      .app-top-nav-inner > .step-pill-anthroposophy-archive,
       .app-top-nav-inner > .step-pill-general-search,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
@@ -2956,140 +2932,6 @@
       color: #5C4A3A; cursor: pointer; display: flex; align-items: center; justify-content: center;
     }
     html[dir="ltr"] .app-modal-close { left: auto; right: 1rem; }
-
-    /* Isolated anthroposophy-archive chat modal */
-    #aac-modal.app-modal { z-index: 95; }
-    #aac-modal .app-modal-panel {
-      max-width: 40rem;
-      max-height: min(88vh, 44rem);
-      display: flex;
-      flex-direction: column;
-      padding: 1.25rem 1.15rem 1rem;
-      overflow: hidden;
-    }
-    #aac-modal .aac-header {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.75rem;
-      padding-inline-end: 2.5rem;
-      margin-bottom: 0.75rem;
-    }
-    #aac-modal .aac-header h2 {
-      margin: 0;
-      font-size: 1.05rem;
-      line-height: 1.35;
-      color: #6E2E2E;
-    }
-    #aac-modal .aac-header p {
-      margin: 0.35rem 0 0;
-      font-size: 0.8rem;
-      color: rgba(92, 74, 58, 0.75);
-      line-height: 1.4;
-    }
-    #aac-messages {
-      flex: 1 1 auto;
-      min-height: 12rem;
-      max-height: min(52vh, 26rem);
-      overflow-y: auto;
-      border: 1px solid rgba(201, 169, 98, 0.35);
-      border-radius: 1rem;
-      background: rgba(255, 255, 255, 0.72);
-      padding: 0.85rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    .aac-empty {
-      margin: auto;
-      text-align: center;
-      color: rgba(92, 74, 58, 0.7);
-      padding: 1.5rem 0.75rem;
-      max-width: 22rem;
-    }
-    .aac-empty i {
-      font-size: 1.5rem;
-      color: #5C7D58;
-      margin-bottom: 0.5rem;
-    }
-    .aac-empty p { margin: 0; font-size: 0.9rem; line-height: 1.45; }
-    .aac-msg { max-width: 95%; }
-    .aac-msg--user { align-self: flex-start; }
-    .aac-msg--assistant { align-self: stretch; }
-    .aac-msg-label {
-      font-size: 0.7rem;
-      font-weight: 700;
-      color: rgba(92, 74, 58, 0.65);
-      margin-bottom: 0.2rem;
-    }
-    .aac-msg-body {
-      font-size: 0.9rem;
-      line-height: 1.55;
-      color: #3d3228;
-      padding: 0.65rem 0.8rem;
-      border-radius: 0.85rem;
-      white-space: normal;
-      word-break: break-word;
-    }
-    .aac-msg--user .aac-msg-body {
-      background: rgba(110, 46, 46, 0.08);
-      border: 1px solid rgba(110, 46, 46, 0.18);
-    }
-    .aac-msg--assistant .aac-msg-body {
-      background: rgba(255, 255, 255, 0.95);
-      border: 1px solid rgba(92, 125, 88, 0.28);
-    }
-    .aac-link {
-      color: #1d4ed8 !important;
-      text-decoration: underline;
-      word-break: break-all;
-    }
-    #aac-status {
-      margin-top: 0.5rem;
-      font-size: 0.8rem;
-      color: #5C7D58;
-    }
-    #aac-status.hidden { display: none; }
-    #aac-form {
-      display: flex;
-      gap: 0.5rem;
-      margin-top: 0.75rem;
-      align-items: flex-end;
-    }
-    #aac-input {
-      flex: 1 1 auto;
-      min-height: 2.75rem;
-      max-height: 7rem;
-      resize: vertical;
-      border: 1px solid rgba(201, 169, 98, 0.5);
-      border-radius: 0.85rem;
-      padding: 0.65rem 0.8rem;
-      font-size: 0.95rem;
-      background: #fff;
-      color: #3d3228;
-      font-family: inherit;
-    }
-    #aac-input:focus {
-      outline: 2px solid rgba(92, 125, 88, 0.45);
-      outline-offset: 1px;
-    }
-    #aac-send {
-      flex: 0 0 auto;
-      min-height: 2.75rem;
-      padding: 0.55rem 1rem;
-      border-radius: 0.85rem;
-      border: none;
-      background: #5C7D58;
-      color: #fff;
-      font-weight: 700;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    #aac-send:hover:not(:disabled) { background: #4a6847; }
-    #aac-send:disabled { opacity: 0.55; cursor: wait; }
-    body.aac-modal-open { overflow: hidden; }
-
     #contact-modal .app-modal-backdrop { z-index: 0; }
     #contact-modal .app-modal-panel {
       position: relative;
@@ -5282,14 +5124,6 @@
           data-i18n-aria="nav_community_aria">
           <i class="fa-solid fa-users-rays text-base sm:text-sm"></i>
           <span data-i18n="nav_community">מאגר קהילתי</span>
-        </button>
-        <button type="button" id="btn-nav-anthroposophy-archive"
-          class="step-pill step-pill-anthroposophy-archive touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer"
-          aria-expanded="false"
-          aria-controls="aac-modal"
-          aria-label="שאלות כלליות מתוך מאגרים אנתרופוסופיים בלבד">
-          <i class="fa-solid fa-landmark text-base sm:text-sm" aria-hidden="true"></i>
-          <span>שאלות כלליות מתוך מאגרים אנתרופוסופיים בלבד</span>
         </button>
         <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
         <button type="button" id="btn-pedagogy-export-top"
@@ -14468,39 +14302,41 @@
     }
 
     /**
-     * Foolproof, browser-restriction-friendly download trigger.
-     * Primary path: open the blob URL directly via window.open(url, '_blank') — the
-     * browser hands a Word blob straight to its official download manager. Only if a
-     * popup blocker returns null do we fall back to the classic hidden-anchor click,
-     * so the download can never silently fail. Exposed globally so the sticky button
-     * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
-     * Filename must end with .docx so Windows Save As offers a Word document.
+     * Trigger a Word file download via a temporary <a download="….docx">.
+     * Prefer the anchor path so the browser gets an explicit .docx filename
+     * (window.open alone exposes a blob UUID and Save As defaults to Web Page).
+     * Blob MIME is left unchanged. Exposed globally for chat-sidebar.js etc.
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      var safeName = String(filename || 'document.docx');
+      var safeName = String(filename || 'document.docx').trim() || 'document.docx';
       if (!/\.docx$/i.test(safeName)) {
         safeName = safeName.replace(/\.doc$/i, '') + '.docx';
       }
       var url = URL.createObjectURL(blob);
-      var opened = null;
-      try { opened = window.open(url, '_blank'); } catch (openErr) { opened = null; }
-      if (!opened) {
+      var downloaded = false;
+      try {
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = safeName; // e.g. "מסמך.docx" / topic.docx — required for Windows Save As
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        downloaded = true;
+      } catch (anchorErr) {
+        console.error('[word-export] anchor download failed', anchorErr);
+      }
+      if (!downloaded) {
         try {
-          var link = document.createElement('a');
-          link.href = url;
-          link.download = safeName;
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } catch (anchorErr) {
-          console.error('[word-export] anchor fallback failed', anchorErr);
+          var opened = window.open(url, '_blank');
+          downloaded = Boolean(opened);
+        } catch (openErr) {
+          downloaded = false;
         }
       }
-      // Keep the object URL alive long enough for the new tab / download manager.
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
-      return true;
+      return downloaded;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
