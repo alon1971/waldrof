@@ -14442,9 +14442,43 @@
       return out.buffer;
     }
 
-    function buildDocxHtmlPackage(htmlContent, langCode) {
+    function escapeXmlForDocx(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    }
+
+    /** Hebrew/topic-based document title for Word properties + Save As suggestions. */
+    function resolveWordExportDocumentTitle(explicitTitle) {
+      var explicit = String(explicitTitle || '').trim().replace(/\.docx$/i, '').replace(/\.doc$/i, '');
+      if (explicit) return explicit;
+      try {
+        var fromFile = buildPedagogyDocxFilename();
+        if (fromFile) return String(fromFile).replace(/\.docx$/i, '').replace(/\.doc$/i, '');
+      } catch (e) { /* ignore */ }
+      var topic = (typeof appState !== 'undefined' && appState && appState.topic)
+        ? String(appState.topic).trim()
+        : '';
+      var grade = (typeof appState !== 'undefined' && appState && appState.gradeLabel)
+        ? String(appState.gradeLabel).trim()
+        : '';
+      if (topic || grade) {
+        if (isEnglish()) {
+          return 'Pedagogical summary' + (grade ? ' - ' + grade : '') + (topic ? ' - ' + topic : '');
+        }
+        return 'סיכום' + (grade ? ' ' + grade : '') + (topic ? ' — ' + topic : '');
+      }
+      return isEnglish() ? 'Pedagogical summary' : 'סיכום פדגוגי מהאתר';
+    }
+
+    function buildDocxHtmlPackage(htmlContent, langCode, docTitle) {
       var lang = langCode || 'he';
       var isRtl = lang !== 'en';
+      var title = resolveWordExportDocumentTitle(docTitle);
+      var safeTitle = escapeXmlForDocx(title);
       var contentTypes =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -14453,17 +14487,28 @@
         '<Default Extension="htm" ContentType="text/html"/>' +
         '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
         '<Override PartName="/word/afchunk.htm" ContentType="text/html"/>' +
+        '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
         '</Types>';
       var rootRels =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
         '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' +
         '</Relationships>';
       var docRels =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
         '<Relationship Id="htmlChunk" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="afchunk.htm"/>' +
         '</Relationships>';
+      var coreXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" ' +
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" ' +
+        'xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
+        '<dc:title>' + safeTitle + '</dc:title>' +
+        '<dc:subject>' + safeTitle + '</dc:subject>' +
+        '<dc:language>' + (isRtl ? 'he-IL' : 'en-US') + '</dc:language>' +
+        '</cp:coreProperties>';
       var bidi = isRtl ? '<w:bidi/>' : '';
       var documentXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -14480,25 +14525,28 @@
       return buildZipStore({
         '[Content_Types].xml': contentTypes,
         '_rels/.rels': rootRels,
+        'docProps/core.xml': coreXml,
         'word/document.xml': documentXml,
         'word/_rels/document.xml.rels': docRels,
         'word/afchunk.htm': htmlContent,
       });
     }
 
-    function buildSecureWordBlob(bodyHtml, langCode) {
+    function buildSecureWordBlob(bodyHtml, langCode, docTitle) {
       var lang = langCode || (isEnglish() ? 'en' : 'he');
       var dir = lang === 'en' ? 'ltr' : 'rtl';
+      var title = resolveWordExportDocumentTitle(docTitle);
       var safeBody = prepareWordExportHtml(bodyHtml == null ? '' : String(bodyHtml));
       var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
       var htmlContent =
         '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<title>' + escapeXmlForDocx(title) + '</title>' +
         '<style>body,p,span,li,h1,h2,h3,h4,div{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;}</style>' +
         '</head><body lang="' + (lang === 'en' ? 'EN-US' : 'HE') + '" dir="' + dir + '" style="' + containerStyle + '">' +
         safeBody +
         '</body></html>';
       try {
-        var zipBuf = buildDocxHtmlPackage(htmlContent, lang);
+        var zipBuf = buildDocxHtmlPackage(htmlContent, lang, title);
         return new Blob([zipBuf], {
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         });
@@ -14509,19 +14557,23 @@
     }
 
     function normalizeWordDownloadFilename(filename) {
-      var safeName = String(filename || 'document.docx');
+      var safeName = String(filename || resolveWordExportDocumentTitle() || 'document');
       // Real OOXML blobs must use .docx so Word Save As defaults to Word Document.
       safeName = safeName.replace(/\.docx$/i, '').replace(/\.doc$/i, '');
+      // Keep Hebrew letters; strip only Windows-illegal filename characters.
+      safeName = safeName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
+      if (!safeName) safeName = isEnglish() ? 'Pedagogical summary' : 'סיכום פדגוגי מהאתר';
       return safeName + '.docx';
     }
 
     /**
-     * Open a real .docx immediately. Because the blob is OOXML (not HTML),
-     * Word Save As defaults to Word Document — not Web Page.
+     * Open a real .docx immediately, and also download a Hebrew-named copy.
+     * The named download is the reliable way to get a topic-based filename;
+     * the internal doc title helps Word suggest that name on Save As.
      */
     async function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      var safeName = normalizeWordDownloadFilename(filename);
+      var safeName = normalizeWordDownloadFilename(filename || resolveWordExportDocumentTitle());
       var url = URL.createObjectURL(blob);
       var opened = null;
 
@@ -14531,23 +14583,24 @@
         opened = null;
       }
 
-      // Fallback only if popup blocked: named .docx download.
-      if (!opened) {
-        try {
-          if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
-            window.navigator.msSaveOrOpenBlob(blob, safeName);
-          } else {
-            var link = document.createElement('a');
-            link.href = url;
-            link.download = safeName;
-            link.rel = 'noopener';
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }
-        } catch (anchorErr) {
-          console.error('[word-export] download fallback failed', anchorErr);
+      // Always also save a copy under the Hebrew/topic filename (Downloads).
+      try {
+        if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
+          window.navigator.msSaveOrOpenBlob(blob, safeName);
+        } else {
+          var link = document.createElement('a');
+          link.href = url;
+          link.download = safeName;
+          link.rel = 'noopener';
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      } catch (anchorErr) {
+        console.error('[word-export] named download failed', anchorErr);
+        if (!opened) {
+          try { window.open(url, '_blank'); } catch (e2) { /* ignore */ }
         }
       }
 
@@ -14556,8 +14609,8 @@
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
-    function buildWordRtlBlob(bodyHtml, langCode) {
-      return buildSecureWordBlob(bodyHtml, langCode);
+    function buildWordRtlBlob(bodyHtml, langCode, docTitle) {
+      return buildSecureWordBlob(bodyHtml, langCode, docTitle);
     }
 
     function exportToWord(docData, langCode) {
@@ -15061,8 +15114,9 @@
             if (el.parentNode) el.parentNode.removeChild(el);
           });
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
-          var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-          var saved = await triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.docx' : 'הודעת_צ\'אט.docx');
+          var chatTitle = isEnglish() ? 'Chat message' : 'הודעת צ׳אט';
+          var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he', chatTitle);
+          var saved = await triggerWordBlobDownload(blob, chatTitle + '.docx');
           if (saved) {
             Promise.resolve()
               .then(function () { return reserveWordDownloadForExport(); })
@@ -15195,35 +15249,38 @@
         labels.forEach(function (label) { label.textContent = t('export_doc_generating'); });
 
         try {
+          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
+          try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
+          filename = normalizeWordDownloadFilename(filename);
+          var docTitle = resolveWordExportDocumentTitle(filename);
+
           var blob = null;
-          try { blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he'); }
+          try { blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he', docTitle); }
           catch (blobErr) { console.error('[word-export] secure blob build failed, using fallback', blobErr); }
           if (!blob) {
             var dir = isEnglish() ? 'ltr' : 'rtl';
             var htmlContent =
-              '<!DOCTYPE html><html><head><meta charset="utf-8"></head>' +
+              '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escapeXmlForDocx(docTitle) + '</title></head>' +
               '<body dir="' + dir + '" style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';">' +
               html + '</body></html>';
             try {
-              blob = new Blob([buildDocxHtmlPackage(htmlContent, isEnglish() ? 'en' : 'he')], {
+              blob = new Blob([buildDocxHtmlPackage(htmlContent, isEnglish() ? 'en' : 'he', docTitle)], {
                 type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
               });
             } catch (fbErr) {
               blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
             }
           }
-          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
-          try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          filename = normalizeWordDownloadFilename(filename);
 
           // Open real .docx immediately — Save As defaults to Word Document.
+          // A Hebrew/topic-named copy is also saved to Downloads.
           var saved = await triggerWordBlobDownload(blob, filename);
           if (saved) {
             try {
               showAppToast(
                 isEnglish()
-                  ? 'Opened in Word. Use Save As to choose a folder — default type is Word Document.'
-                  : 'נפתח בוורד. השתמש ב״שמור בשם״ לבחירת מיקום — ברירת המחדל היא מסמך וורד.',
+                  ? 'Opened in Word. A copy was also saved as: ' + filename
+                  : 'נפתח בוורד. נשמר גם עותק בשם: ' + filename,
                 'success'
               );
             } catch (toastOk) { /* ignore */ }

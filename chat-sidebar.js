@@ -789,14 +789,16 @@
   function buildChatWordBlob(messages) {
     var lang = deps.isEnglish() ? 'en' : 'he';
     var bodyHtml = buildChatWordBodyHtml(messages);
+    var chatTitle = deps.isEnglish() ? 'Pedagogy chat summary' : 'סיכום שיחה עוזר פדגוגי';
     if (typeof deps.buildWordExportBlob === 'function') {
-      return deps.buildWordExportBlob(bodyHtml, lang);
+      return deps.buildWordExportBlob(bodyHtml, lang, chatTitle);
     }
     var dir = lang === 'en' ? 'ltr' : 'rtl';
     var containerStyle = 'font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; direction: ' + dir + ';';
     var htmlContent =
       '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta http-equiv="Content-Type" content="application/msword; charset=utf-8"><meta charset="utf-8">' +
+      '<title>' + chatTitle + '</title>' +
       '<meta name="ProgId" content="Word.Document"><meta name="Generator" content="Microsoft Word 15"></head>' +
       '<body dir="' + dir + '" style="' + containerStyle + '">' + bodyHtml + '</body></html>';
     return new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
@@ -848,7 +850,7 @@
       }
       // Prefer shared download helper (sets .doc filename). Never window.open(blob) first —
       // that yields a UUID with no extension and Save As → Web Page.
-      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום_שיחה_עוזר_פדגוגי.docx';
+      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום שיחה עוזר פדגוגי.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         await window.triggerWordBlobDownload(blob, chatFilename);
       } else {
