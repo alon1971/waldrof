@@ -850,14 +850,14 @@
         window.triggerWordBlobDownload(blob, (topicName || 'document') + '.docx');
       } else {
         var url = URL.createObjectURL(blob);
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = (topicName || 'document') + '.docx';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
+        var element = document.createElement('a');
+        element.href = url;
+        element.download = (topicName || 'document') + '.docx';
+        element.style.display = 'none';
+        document.body.appendChild(element);
+        element.click();
         setTimeout(function () {
-          try { if (link.parentNode) link.parentNode.removeChild(link); } catch (e) {}
+          try { if (element.parentNode) element.parentNode.removeChild(element); } catch (e) {}
           try { URL.revokeObjectURL(url); } catch (e2) {}
         }, 1500);
       }
@@ -883,9 +883,14 @@
     btn.type = 'button';
     btn.style.pointerEvents = 'auto';
     btn.style.cursor = 'pointer';
-    btn.onclick = function () {
+    btn.onclick = function (ev) {
+      if (ev) { try { ev.preventDefault(); } catch (e) {} }
       downloadChatMessagesDoc();
     };
+    btn.setAttribute(
+      'onclick',
+      'window.LessonChatSidebar && window.LessonChatSidebar.downloadChatExport && window.LessonChatSidebar.downloadChatExport()'
+    );
   }
 
   function resetChatConversation() {

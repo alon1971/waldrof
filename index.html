@@ -5552,7 +5552,8 @@
         <div class="lesson-chat-panel-footer">
           <div class="lesson-chat-panel-footer-stack">
             <div id="lesson-chat-export-bar" class="lesson-chat-export-bar hidden" dir="rtl">
-              <button type="button" id="lesson-chat-export-word" class="lesson-chat-export-btn" dir="rtl">
+              <button type="button" id="lesson-chat-export-word" class="lesson-chat-export-btn" dir="rtl"
+                onclick="window.LessonChatSidebar && window.LessonChatSidebar.downloadChatExport && window.LessonChatSidebar.downloadChatExport()">
                 <i class="fa-solid fa-file-word" aria-hidden="true"></i>
                 <span class="lesson-chat-export-label" data-i18n="chat_download_word">הורד למסמך וורד (תוכן הצ'אט בלבד)</span>
               </button>
@@ -5615,7 +5616,8 @@
       <div class="lesson-chat-fullscreen-footer-wrap">
         <div class="lesson-chat-panel-footer-stack">
           <div id="lesson-chat-fullscreen-export-bar" class="lesson-chat-export-bar hidden" dir="rtl">
-            <button type="button" id="lesson-chat-fullscreen-export-word" class="lesson-chat-export-btn" dir="rtl">
+            <button type="button" id="lesson-chat-fullscreen-export-word" class="lesson-chat-export-btn" dir="rtl"
+              onclick="window.LessonChatSidebar && window.LessonChatSidebar.downloadChatExport && window.LessonChatSidebar.downloadChatExport()">
               <i class="fa-solid fa-file-word" aria-hidden="true"></i>
               <span class="lesson-chat-export-label" data-i18n="chat_download_word">הורד למסמך וורד (תוכן הצ'אט בלבד)</span>
             </button>
@@ -14381,15 +14383,15 @@
         .slice(0, 120);
       var url = URL.createObjectURL(blob);
       try {
-        var link = document.createElement('a');
-        link.href = url;
-        // Explicit .docx on the temporary <a> (required for Windows Save As).
-        link.download = (topicName || 'document') + '.docx';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
+        var element = document.createElement('a');
+        element.href = url;
+        // Hard .docx on the temporary <a> (required for Windows Save As).
+        element.download = (topicName || 'document') + '.docx';
+        element.style.display = 'none';
+        document.body.appendChild(element);
+        element.click();
         setTimeout(function () {
-          try { if (link.parentNode) link.parentNode.removeChild(link); } catch (e) {}
+          try { if (element.parentNode) element.parentNode.removeChild(element); } catch (e) {}
         }, 1500);
       } catch (anchorErr) {
         console.error('[word-export] anchor download failed', anchorErr);
@@ -14438,7 +14440,7 @@
     }
 
     function wireAllWordExportOnclicks() {
-      // Direct onclick only — no capture stopPropagation, no short-circuit guards.
+      // Direct onclick only — wired straight to the Blob export function.
       var topicSelector = [
         '#btn-phase-c-export-word',
         '#btn-phase-c-export-word-bottom',
@@ -14453,9 +14455,14 @@
         btn.type = 'button';
         btn.style.pointerEvents = 'auto';
         btn.style.cursor = 'pointer';
-        btn.onclick = function () {
-          window.downloadUnifiedTopicDocx();
+        // Bind property + attribute so the handler survives DOM clones / re-renders.
+        btn.onclick = function (ev) {
+          if (ev) { try { ev.preventDefault(); } catch (e) {} }
+          if (typeof window.downloadUnifiedTopicDocx === 'function') {
+            window.downloadUnifiedTopicDocx();
+          }
         };
+        btn.setAttribute('onclick', 'window.downloadUnifiedTopicDocx && window.downloadUnifiedTopicDocx()');
       });
       document.querySelectorAll('#lesson-chat-export-word, #lesson-chat-fullscreen-export-word').forEach(function (btn) {
         if (!btn) return;
@@ -14464,11 +14471,16 @@
         btn.type = 'button';
         btn.style.pointerEvents = 'auto';
         btn.style.cursor = 'pointer';
-        btn.onclick = function () {
+        btn.onclick = function (ev) {
+          if (ev) { try { ev.preventDefault(); } catch (e) {} }
           if (window.LessonChatSidebar && typeof window.LessonChatSidebar.downloadChatExport === 'function') {
             window.LessonChatSidebar.downloadChatExport();
           }
         };
+        btn.setAttribute(
+          'onclick',
+          'window.LessonChatSidebar && window.LessonChatSidebar.downloadChatExport && window.LessonChatSidebar.downloadChatExport()'
+        );
       });
       document.querySelectorAll('.lesson-chat-bubble-export-btn[data-chat-bubble-export-id]').forEach(function (btn) {
         if (!btn) return;
@@ -14477,9 +14489,12 @@
         btn.type = 'button';
         btn.style.pointerEvents = 'auto';
         btn.style.cursor = 'pointer';
-        btn.onclick = function () {
+        btn.onclick = function (ev) {
+          if (ev) { try { ev.preventDefault(); } catch (e) {} }
           var bubbleId = btn.getAttribute('data-chat-bubble-export-id') || '';
-          if (bubbleId) downloadChatBubbleDocx(bubbleId);
+          if (bubbleId && typeof window.downloadChatBubbleDocx === 'function') {
+            window.downloadChatBubbleDocx(bubbleId);
+          }
         };
       });
     }
@@ -14969,6 +14984,12 @@
         try { assertWordDownloadForExport(); }
         catch (gateErr) {
           if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
+            try {
+              showAppToast(
+                (gateErr && gateErr.message) || t('word_download_limit_exceeded') || t('export_doc_error'),
+                'error'
+              );
+            } catch (toastErr) { /* auth overlay already shown */ }
             return;
           }
         }
