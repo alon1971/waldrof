@@ -14367,36 +14367,43 @@
     }
 
     /**
-     * Foolproof Word download trigger via a temporary <a download="….docx">.
-     * Always set an explicit .docx filename on the download attribute so Windows
-     * Save As offers a Word document (not "Web Page" from a bare blob UUID).
-     * Exposed globally so the sticky button and modules (e.g. chat-sidebar.js) can use it.
+     * Stable Word download via temporary <a download="….docx">.
+     * Must run in the same turn as the user click (no await before this) so the
+     * browser allows the download. Filename always ends with .docx.
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      // topicName-style base: never leave the temporary <a> with a bare blob ID / no extension.
       var topicName = String(filename || 'document')
         .replace(/\.docx$/i, '')
         .replace(/\.doc$/i, '')
-        .trim();
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
       var safeName = (topicName || 'document') + '.docx';
       var url = URL.createObjectURL(blob);
+      var downloaded = false;
       try {
         var link = document.createElement('a');
         link.href = url;
-        // Explicit .docx on the temporary <a> so Save As treats this as Word, not Web Page.
-        link.download = safeName;
+        // Explicit .docx — setAttribute so Windows Save As treats this as Word, not Web Page.
+        link.setAttribute('download', safeName);
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
+        downloaded = true;
+        // Delay removal so the browser can start the download.
+        setTimeout(function () {
+          try { if (link.parentNode) link.parentNode.removeChild(link); } catch (e) {}
+        }, 1500);
       } catch (anchorErr) {
         console.error('[word-export] anchor download failed', anchorErr);
-        try { window.open(url, '_blank'); } catch (openErr) { /* ignore */ }
       }
-      // Keep the object URL alive long enough for the download manager.
+      if (!downloaded) {
+        try { downloaded = Boolean(window.open(url, '_blank')); } catch (openErr) { downloaded = false; }
+      }
       setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
-      return true;
+      return downloaded;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
 
@@ -14888,7 +14895,8 @@
           showAppToast(isEnglish() ? 'No chat content to export' : 'אין תוכן בבועה זו לייצוא', 'error');
           return;
         }
-        try { await reserveWordDownloadForExport(); }
+        // Sync gate only — never await network before the download click (loses user gesture).
+        try { assertWordDownloadForExport(); }
         catch (gateErr) {
           if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
             return;
@@ -14902,10 +14910,11 @@
           });
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
-          // Temporary <a download="….docx"> — explicit filename for Windows Save As.
-          var topicName = isEnglish() ? 'chat_message' : 'הודעת_צ\'אט';
+          var topicName = isEnglish() ? 'chat_message' : 'הודעת_צאט';
           triggerWordBlobDownload(blob, (topicName || 'document') + '.docx');
-          Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+          Promise.resolve().then(function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.recordWordDownload() : trackWordDownloadAfterExport();
+          }).catch(function () {});
         } finally {
           if (exportBtn) exportBtn.disabled = false;
         }
@@ -15005,21 +15014,16 @@
           return;
         }
 
-        // ---- 2) Paywall / download-limit gate ----
-        // This is the ONLY silent exit path: when a user hits the trial limit or is
-        // not authenticated, assertWordDownloadForExport throws WORD_DOWNLOAD_LIMIT.
-        // The gate shows its own auth/pricing modal — we ALSO surface a toast so the
-        // button never looks "dead" (clean console + no file) when it's actually
-        // being blocked on purpose.
-        try { await reserveWordDownloadForExport(); }
+        // ---- 2) Sync paywall gate only (NO await) — awaiting network before the
+        //     <a>.click() loses the user gesture and Chrome silently blocks the download.
+        try { assertWordDownloadForExport(); }
         catch (gateErr) {
           if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
             return;
           }
         }
 
-        // ---- 3) Build the Word blob and trigger download (keep buttons enabled —
-        //     disabling them left a stuck semi-transparent unclickable UI).
+        // ---- 3) Build blob + trigger download in the same turn as the click.
         exportBtns.forEach(function (b) {
           b.disabled = false;
           b.removeAttribute('disabled');
@@ -15028,8 +15032,6 @@
         });
         labels.forEach(function (label) { label.textContent = t('export_doc_generating'); });
         try {
-          // 3a. Compile the Blob (with an inline fallback so a missing/blank blob can
-          //     never silently abort the physical download).
           var blob = null;
           try { blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he'); }
           catch (blobErr) { console.error('[word-export] secure blob build failed, using fallback', blobErr); }
@@ -15042,17 +15044,16 @@
               html + '</body></html>';
             blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
           }
-          // 3b. Dynamic filename (topic/grade based), hard .docx for Windows Save As.
           var topicName = isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי';
           try {
             var dyn = buildPedagogyDocxFilename();
             if (dyn) topicName = String(dyn).replace(/\.docx$/i, '').replace(/\.doc$/i, '');
           } catch (fnErr) {}
-          var filename = (topicName || 'document') + '.docx';
-          // 3c. Temporary <a download="….docx"> — explicit filename for Windows Save As.
-          triggerWordBlobDownload(blob, filename);
-          // Fire-and-forget usage tracking — must never block or break the download.
-          Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
+          triggerWordBlobDownload(blob, (topicName || 'document') + '.docx');
+          // Usage tracking AFTER download — must never block the file save.
+          Promise.resolve().then(function () {
+            return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.recordWordDownload() : null;
+          }).catch(function () {});
         } finally {
           exportBtns.forEach(function (b) {
             b.disabled = false;
@@ -27544,7 +27545,12 @@
           onGradeCacheUpdated: syncGradeCacheFromChat,
           buildWordExportBlob: buildSecureWordBlob,
           assertWordDownloadAllowed: assertWordDownloadForExport,
-          recordWordDownload: trackWordDownloadAfterExport,
+          recordWordDownload: function () {
+            if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordWordDownload === 'function') {
+              return WaldorfAuth.recordWordDownload();
+            }
+            return Promise.resolve();
+          },
           getAccessToken: function () {
             return typeof WaldorfAuth !== 'undefined' ? WaldorfAuth.getAccessToken() : Promise.resolve(null);
           },
@@ -27660,7 +27666,12 @@
               escapeHtml: escapeHtml,
               buildWordExportBlob: typeof buildSecureWordBlob === 'function' ? buildSecureWordBlob : null,
               assertWordDownloadAllowed: typeof assertWordDownloadForExport === 'function' ? assertWordDownloadForExport : null,
-              recordWordDownload: typeof trackWordDownloadAfterExport === 'function' ? trackWordDownloadAfterExport : null,
+              recordWordDownload: function () {
+                if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.recordWordDownload === 'function') {
+                  return WaldorfAuth.recordWordDownload();
+                }
+                return Promise.resolve();
+              },
             });
           } catch (chatErr) { console.warn('[waldrof] chat init recovery:', chatErr); }
         }

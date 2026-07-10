@@ -844,25 +844,26 @@
           fbBody + '</body></html>';
         blob = new Blob(['\ufeff' + fbHtml], { type: 'application/msword' });
       }
-      // Direct download via temporary <a download="….docx"> (shared helper or local fallback).
+      // Direct download via temporary <a download="….docx"> (same turn as user click).
       var topicName = deps.isEnglish() ? 'pedagogy_chat_summary' : 'סיכום_שיחה_עוזר_פדגוגי';
-      var chatFilename = (topicName || 'document') + '.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
-        window.triggerWordBlobDownload(blob, chatFilename);
+        window.triggerWordBlobDownload(blob, (topicName || 'document') + '.docx');
       } else {
         var url = URL.createObjectURL(blob);
         var link = document.createElement('a');
         link.href = url;
-        // Explicit .docx on the temporary <a> so Save As treats this as Word, not Web Page.
-        link.download = (topicName || 'document') + '.docx';
+        link.setAttribute('download', (topicName || 'document') + '.docx');
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
-        setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+        setTimeout(function () {
+          try { if (link.parentNode) link.parentNode.removeChild(link); } catch (e) {}
+          try { URL.revokeObjectURL(url); } catch (e2) {}
+        }, 1500);
       }
+      // Record usage after the file is triggered — never block the download.
       if (typeof deps.recordWordDownload === 'function') {
-        await deps.recordWordDownload();
+        Promise.resolve().then(function () { return deps.recordWordDownload(); }).catch(function () {});
       }
     } catch (err) {
       if (err && err.code === 'WORD_DOWNLOAD_LIMIT') return;
