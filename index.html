@@ -17745,7 +17745,7 @@
 
     function communityItemSearchHaystack(item) {
       if (!item) return '';
-      return [
+      const base = [
         item.title,
         item.topic,
         item.notes,
@@ -17753,6 +17753,17 @@
         item.filePath,
         item.authorName,
       ].filter(Boolean).join(' ');
+      // Enrich with pedagogical aliases/tags so local search matches longer phrases
+      // (e.g. יוון העתיקה / עתיקה / מיתולוגיה against materials titled יוון).
+      let aliasBits = [];
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined'
+        && typeof WaldorfHebrewTopicMatch.expandHebrewSearchTerms === 'function') {
+        aliasBits = WaldorfHebrewTopicMatch.expandHebrewSearchTerms(
+          [item.topic, item.title, item.fileName].filter(Boolean).join(' '),
+          16
+        );
+      }
+      return [base].concat(aliasBits).filter(Boolean).join(' ');
     }
 
     function buildCommunityQuerySearchTerms(query) {
@@ -17778,6 +17789,11 @@
         .split(/\s+/)
         .filter(function (word) { return word.length >= 2; })
         .forEach(addTerm);
+      // Align with server: Hebrew morphology + pedagogical aliases (יוון ↔ יוון העתיקה ↔ עתיקה).
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined'
+        && typeof WaldorfHebrewTopicMatch.expandHebrewSearchTerms === 'function') {
+        WaldorfHebrewTopicMatch.expandHebrewSearchTerms(q, 16).forEach(addTerm);
+      }
       return terms;
     }
 

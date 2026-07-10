@@ -31,6 +31,11 @@ function buildGradeMismatchError(mismatch) {
 function isMisleadingArchiveSuggestion(query, suggestedTopic, score) {
   if (hebrewTopicMatch.isInvalidCrossDomainTopicSuggestion(query, suggestedTopic)) return true;
   if (score != null && score >= ARCHIVE_PARTIAL_HIGH_CONFIDENCE) return false;
+  // Pedagogical aliases (יוון העתיקה ↔ יוון) are valid longer-query → shorter-title matches.
+  if (typeof hebrewTopicMatch.sharesAllowedPedagogicalAlias === 'function'
+    && hebrewTopicMatch.sharesAllowedPedagogicalAlias(query, suggestedTopic)) {
+    return false;
+  }
   const q = hebrewTopicMatch.stableNormalize(query);
   const s = hebrewTopicMatch.stableNormalize(suggestedTopic);
   if (!q || !s || q === s) return false;

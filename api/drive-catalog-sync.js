@@ -315,6 +315,7 @@ async function walkDriveFolderTree(folderId, ctx, accessToken, stats) {
       driveFileId: item.id,
       drivePath: drivePath,
       title: item.name || catalogTopic,
+      searchTags: catalogTopics.getSearchTagsForCanonicalTopic(catalogTopic),
     });
 
     try {

@@ -82,6 +82,7 @@ const CURRICULUM_BLOCKS = [
     aliases: [].concat(
       catalogTopics.CATALOG_TOPIC_ALIAS_CLUSTERS[0] || [],
       catalogTopics.CATALOG_TOPIC_ALIAS_CLUSTERS[1] || [],
+      catalogTopics.getSearchTagsForCanonicalTopic('יוון'),
       ['מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'homer', 'greek mythology', 'ancient greece']
     ),
   },

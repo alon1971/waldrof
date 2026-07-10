@@ -4167,7 +4167,7 @@ function buildCommunitySearchTerms(query) {
   return Array.from(terms)
     .filter(function (term) { return term && term.length >= 2; })
     .sort(function (a, b) { return b.length - a.length; })
-    .slice(0, 12);
+    .slice(0, 20);
 }
 
 function resolveCommunityFileUrlFromRow(row) {
@@ -5029,12 +5029,15 @@ async function probeCommunityGlobalSearch(query, options) {
     for (let i = 0; i < terms.length; i++) {
       const term = terms[i];
       if (!term || term.length < 2) continue;
+      // Keyword-only retries — avoid re-running semantic/LLM fallback per term (felt like a hang on long phrases).
       const termProbe = await findCommunityMaterials(Object.assign({}, baseOpts, {
         query: term,
         userMessage: term,
+        semanticFallback: false,
+        includeFolderBrief: false,
       }));
       if (termProbe.count > 0) {
-        result = termProbe;
+        result = attachCommunityFolderBriefToResult(termProbe, baseOpts);
         break;
       }
     }
