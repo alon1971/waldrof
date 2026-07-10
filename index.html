@@ -13818,7 +13818,7 @@
 
     function buildGeneralSearchDocFilename(query) {
       var base = sanitizeDocxFilename(query || t('general_search_title'));
-      return base + '.docx';
+      return base + '.doc';
     }
 
     function sanitizeDocxFilename(name) {
@@ -13829,9 +13829,9 @@
       const grade = sanitizeDocxFilename(appState.gradeLabel || t('crumb_grade'));
       const topic = sanitizeDocxFilename(appState.topic || t('export_doc_no_topic'));
       var name = t('export_doc_filename', { grade: grade, topic: topic });
-      // Keep a hard .docx extension for the HTML download attribute (Windows Save As).
-      if (/\.docx$/i.test(name)) return name;
-      return String(name || 'document').replace(/\.doc$/i, '') + '.docx';
+      // HTML Word blobs must use .doc (not .docx) so Windows Save As defaults to Word, not Web Page.
+      if (/\.doc$/i.test(name) && !/\.docx$/i.test(name)) return name;
+      return String(name || 'document').replace(/\.docx$/i, '').replace(/\.doc$/i, '') + '.doc';
     }
 
     /** Export-only href resolver — keeps valid http(s) URLs for Word hyperlinks even when path/query is percent-encoded Hebrew. */
@@ -14373,13 +14373,16 @@
      * popup blocker returns null do we fall back to the classic hidden-anchor click,
      * so the download can never silently fail. Exposed globally so the sticky button
      * and any module (e.g. chat-sidebar.js) can reach it from the main scope.
-     * Filename must end with .docx so Windows Save As offers a Word document.
+     * Filename must end with .doc (HTML Word / application/msword). Using .docx here
+     * makes Word open the file but default Save As to "Web Page".
      */
     function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
-      var safeName = String(filename || 'document.docx');
-      if (!/\.docx$/i.test(safeName)) {
-        safeName = safeName.replace(/\.doc$/i, '') + '.docx';
+      var safeName = String(filename || 'document.doc');
+      // Normalize any .docx callers down to .doc to match the HTML Word blob MIME.
+      safeName = safeName.replace(/\.docx$/i, '.doc');
+      if (!/\.doc$/i.test(safeName)) {
+        safeName = safeName + '.doc';
       }
       var url = URL.createObjectURL(blob);
       var opened = null;
@@ -14388,8 +14391,8 @@
         try {
           var link = document.createElement('a');
           link.href = url;
-          // Hard .docx on the temporary <a> so Windows Save As treats this as Word, not Web Page.
-          link.download = /\.docx$/i.test(safeName) ? safeName : 'מסמך.docx';
+          // Hard .doc on the temporary <a> so Windows Save As offers Word Document.
+          link.download = /\.doc$/i.test(safeName) && !/\.docx$/i.test(safeName) ? safeName : 'מסמך.doc';
           link.style.display = 'none';
           document.body.appendChild(link);
           link.click();
@@ -14907,7 +14910,7 @@
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he');
           // Direct download via window.open (with anchor fallback) — see helper.
-          triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.docx' : 'הודעת_צ\'אט.docx');
+          triggerWordBlobDownload(blob, isEnglish() ? 'chat_message.doc' : 'הודעת_צ\'אט.doc');
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});
         } finally {
           if (exportBtn) exportBtn.disabled = false;
@@ -15045,11 +15048,12 @@
               html + '</body></html>';
             blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword;charset=utf-8' });
           }
-          // 3b. Dynamic filename (topic/grade based), hard .docx for Windows Save As.
-          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.docx';
+          // 3b. Dynamic filename (topic/grade based), hard .doc for HTML Word Save As.
+          var filename = (isEnglish() ? 'pedagogy_content' : 'תוכן_פדגוגי') + '.doc';
           try { var dyn = buildPedagogyDocxFilename(); if (dyn) filename = dyn; } catch (fnErr) {}
-          if (!/\.docx$/i.test(filename)) filename = String(filename || 'document').replace(/\.doc$/i, '') + '.docx';
-          // 3c. Temporary <a download="….docx"> — explicit filename for Windows Save As.
+          filename = String(filename || 'document').replace(/\.docx$/i, '.doc');
+          if (!/\.doc$/i.test(filename)) filename = filename + '.doc';
+          // 3c. Temporary <a download="….doc"> — explicit Word filename for Windows Save As.
           triggerWordBlobDownload(blob, filename);
           // Fire-and-forget usage tracking — must never block or break the download.
           Promise.resolve().then(trackWordDownloadAfterExport).catch(function () {});

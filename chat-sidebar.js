@@ -846,7 +846,7 @@
       }
       // Direct download: prefer the shared window.open trigger from the main scope
       // (browser download manager handles the file, bypassing click restrictions).
-      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום_שיחה_עוזר_פדגוגי.docx';
+      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.doc' : 'סיכום_שיחה_עוזר_פדגוגי.doc';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         window.triggerWordBlobDownload(blob, chatFilename);
       } else {
@@ -856,8 +856,8 @@
         if (!opened) {
           var link = document.createElement('a');
           link.href = url;
-          // Hard .docx on the temporary <a> so Windows Save As treats this as Word, not Web Page.
-          link.download = /\.docx$/i.test(chatFilename) ? chatFilename : 'מסמך.docx';
+          // Hard .doc on the temporary <a> so Windows Save As offers Word Document, not Web Page.
+          link.download = /\.doc$/i.test(chatFilename) && !/\.docx$/i.test(chatFilename) ? chatFilename : 'מסמך.doc';
           link.style.display = 'none';
           document.body.appendChild(link);
           link.click();
