@@ -10,7 +10,7 @@
     chat_sidebar_title: 'עוזר פדגוגי',
     chat_input_placeholder: 'שאל שאלה פדגוגית...',
     chat_send_btn: 'שלח שאלה',
-    meta_title: 'מתכנן תקופות לימוד - כלי פדגוגי לחיפוש חומר אנתרופוסופי וחינוך וולדורף',
+    meta_title: 'מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א\'-ח\'',
   };
   let currentLang = 'he';
   let onLanguageChange = null;
