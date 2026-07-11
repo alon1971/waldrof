@@ -14887,44 +14887,100 @@
     }
 
     /**
-     * Open a real .docx immediately, and also download a Hebrew-named copy.
-     * The named download is the reliable way to get a topic-based filename;
-     * the internal doc title helps Word suggest that name on Save As.
+     * Open .docx via the service worker under a real filename path so Word Save As
+     * suggests the Hebrew title instead of a blob UUID. Falls back to blob: open.
+     * Does NOT change the .docx bytes / Word Document default type.
+     */
+    async function openWordBlobWithPreferredName(blob, safeName) {
+      if (!blob || !safeName) return null;
+      if (!('serviceWorker' in navigator)) return null;
+      try {
+        var reg = await navigator.serviceWorker.ready;
+        var worker = reg && reg.active;
+        if (!worker) return null;
+        var id = 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        var bufferCopy = (await blob.arrayBuffer()).slice(0);
+        await new Promise(function (resolve, reject) {
+          var channel = new MessageChannel();
+          var timer = setTimeout(function () { reject(new Error('sw_word_timeout')); }, 4000);
+          channel.port1.onmessage = function (ev) {
+            clearTimeout(timer);
+            if (ev.data && ev.data.ok) resolve(ev.data);
+            else reject(new Error('sw_word_nack'));
+          };
+          worker.postMessage(
+            {
+              type: 'WALDORF_WORD_EXPORT',
+              id: id,
+              name: safeName,
+              contentType:
+                blob.type ||
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              buffer: bufferCopy,
+            },
+            [channel.port2, bufferCopy]
+          );
+        });
+        var openUrl =
+          '/__waldorf_word__/' +
+          encodeURIComponent(safeName) +
+          '?id=' +
+          encodeURIComponent(id);
+        var opened = null;
+        try { opened = window.open(openUrl, '_blank'); } catch (openErr) { opened = null; }
+        return opened;
+      } catch (err) {
+        console.warn('[word-export] named SW open failed:', err && err.message ? err.message : err);
+        return null;
+      }
+    }
+
+    /**
+     * Open a real .docx immediately with a Hebrew/topic filename when possible.
+     * Service-worker URL preserves Save As name; blob: fallback keeps open+Word type.
      */
     async function triggerWordBlobDownload(blob, filename) {
       if (!blob) return false;
       var safeName = normalizeWordDownloadFilename(filename || resolveWordExportDocumentTitle());
-      var url = URL.createObjectURL(blob);
-      var opened = null;
 
-      try {
-        opened = window.open(url, '_blank');
-      } catch (openErr) {
-        opened = null;
-      }
+      // Preferred: same-origin URL with real filename → Word Save As uses that name.
+      var opened = await openWordBlobWithPreferredName(blob, safeName);
 
-      // Always also save a copy under the Hebrew/topic filename (Downloads).
-      try {
-        if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
-          window.navigator.msSaveOrOpenBlob(blob, safeName);
-        } else {
-          var link = document.createElement('a');
-          link.href = url;
-          link.download = safeName;
-          link.rel = 'noopener';
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }
-      } catch (anchorErr) {
-        console.error('[word-export] named download failed', anchorErr);
-        if (!opened) {
-          try { window.open(url, '_blank'); } catch (e2) { /* ignore */ }
+      // Fallback: classic blob open (Save As type stays Word; name may be UUID).
+      var blobUrl = null;
+      if (!opened) {
+        try {
+          blobUrl = URL.createObjectURL(blob);
+          opened = window.open(blobUrl, '_blank');
+        } catch (openErr) {
+          opened = null;
         }
       }
 
-      setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 120000);
+      // If nothing opened (popup blocked), download the named .docx.
+      if (!opened) {
+        try {
+          if (!blobUrl) blobUrl = URL.createObjectURL(blob);
+          if (window.navigator && typeof window.navigator.msSaveOrOpenBlob === 'function') {
+            window.navigator.msSaveOrOpenBlob(blob, safeName);
+          } else {
+            var link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = safeName;
+            link.rel = 'noopener';
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+        } catch (anchorErr) {
+          console.error('[word-export] download fallback failed', anchorErr);
+        }
+      }
+
+      if (blobUrl) {
+        setTimeout(function () { try { URL.revokeObjectURL(blobUrl); } catch (e) {} }, 120000);
+      }
       return true;
     }
     window.triggerWordBlobDownload = triggerWordBlobDownload;
@@ -15601,8 +15657,8 @@
             try {
               showAppToast(
                 isEnglish()
-                  ? 'Opened in Word. A copy was also saved as: ' + filename
-                  : 'נפתח בוורד. נשמר גם עותק בשם: ' + filename,
+                  ? 'Opened in Word. Suggested Save As name: ' + filename
+                  : 'נפתח בוורד. שם מוצע בשמירה: ' + filename,
                 'success'
               );
             } catch (toastOk) { /* ignore */ }
@@ -28055,8 +28111,18 @@
     }
 
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js');
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').then(function (reg) {
+          // Ensure the updated worker (named Word export) activates promptly.
+          if (reg && reg.waiting) {
+            try { reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch (e) { /* ignore */ }
+          }
+          if (reg && typeof reg.update === 'function') {
+            try { reg.update(); } catch (e2) { /* ignore */ }
+          }
+        }).catch(function (err) {
+          console.warn('[waldrof] service worker register failed:', err);
+        });
         requestAnimationFrame(syncProductTabsStickyLayout);
       });
     }
