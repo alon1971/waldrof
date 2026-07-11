@@ -1088,7 +1088,7 @@
     }
     @media (min-width: 640px) {
       .app-top-nav-inner > .step-pill-community,
-      .app-top-nav-inner > .step-pill-directory,
+      .app-top-nav-inner > .step-pill-waldorf-sites,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
         flex: 1 1 10rem;
@@ -1115,7 +1115,7 @@
       }
       #step-progress .step-pill,
       .app-top-nav-inner > .step-pill-community,
-      .app-top-nav-inner > .step-pill-directory,
+      .app-top-nav-inner > .step-pill-waldorf-sites,
       .app-top-nav-inner > .step-pill-general-search,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
@@ -22340,6 +22340,7 @@
       if (grade) return grade;
       if (topic) return topic;
       if (isWorkspaceOpen() && isCommunityView()) return t('nav_community');
+      if (isWaldorfSitesView()) return t('nav_waldorf_sites');
       if (isGeneralSearchView()) return t('nav_general_search');
       if (isPhaseCView()) return t('step_nav_c');
       var stepIdx = Math.max(0, Math.min(STEP_NAV_KEYS.length - 1, (appState.step || 1) - 1));
@@ -23727,6 +23728,11 @@
         }
         return;
       }
+      if (navSection === 'waldorf-sites') {
+        openWaldorfSitesView();
+        if (options.restoreScroll) restoreWaldorfSitesScrollPosition();
+        return;
+      }
       if (navSection === 'general-search') {
         openGeneralSearchView();
         var gsInput = document.getElementById('general-search-input');
@@ -24038,6 +24044,13 @@
         if (!link) return;
         var href = String(link.getAttribute('href') || '').trim();
         if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+        if (isWaldorfSitesView() || (link.closest && link.closest('#waldorf-sites-view'))) {
+          ensureWaldorfSitesExternalLinks();
+          link.setAttribute('target', '_blank');
+          link.setAttribute('rel', 'noopener noreferrer');
+          saveWaldorfSitesScrollPosition();
+          return;
+        }
         pinCurrentScroll();
       }, true);
 
@@ -24078,19 +24091,33 @@
         scheduleScrollMemoryPersist();
       }, true);
 
-      // Returning from another tab / bfcache / external page.
+      // Returning from another tab / bfcache / external page / history navigation.
       window.addEventListener('pageshow', function () {
+        if (isWaldorfSitesView()) {
+          restoreWaldorfSitesScrollPosition();
+          return;
+        }
+        restorePinnedScroll();
+      });
+      window.addEventListener('popstate', function () {
+        if (isWaldorfSitesView() || appState.navSection === 'waldorf-sites') {
+          restoreWaldorfSitesScrollPosition();
+          return;
+        }
         restorePinnedScroll();
       });
       document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'hidden') {
-          pinCurrentScroll();
+          if (isWaldorfSitesView()) saveWaldorfSitesScrollPosition();
+          else pinCurrentScroll();
         } else if (document.visibilityState === 'visible') {
-          restorePinnedScroll();
+          if (isWaldorfSitesView()) restoreWaldorfSitesScrollPosition();
+          else restorePinnedScroll();
         }
       });
       window.addEventListener('focus', function () {
-        restorePinnedScroll();
+        if (isWaldorfSitesView()) restoreWaldorfSitesScrollPosition();
+        else restorePinnedScroll();
       });
     }
 
@@ -24229,6 +24256,7 @@
     function showWorkspaceShell() {
       document.getElementById('wizard').classList.add('hidden');
       hideGeneralSearchView();
+      hideWaldorfSitesView();
       document.getElementById('workspace').classList.remove('hidden');
       updateNewResearchBarVisibility();
     }
@@ -24236,6 +24264,7 @@
     function openCommunityRepo() {
       syncTopicFromInput();
       hideGeneralSearchView();
+      hideWaldorfSitesView();
       appState.navSection = 'community';
       showWorkspaceShell();
       switchTab('catalog');
@@ -24289,6 +24318,7 @@
       appState.step = n;
       appState.navSection = 'wizard';
       hideGeneralSearchView();
+      hideWaldorfSitesView();
       resetProductTabsNeutral();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
@@ -27477,6 +27507,7 @@
       if (isProductTab(id)) {
         showWorkspaceShell();
         hideGeneralSearchView();
+        hideWaldorfSitesView();
         document.getElementById('panel-catalog').classList.add('hidden');
         switchProductTab(id, options);
         return;
@@ -27540,6 +27571,7 @@
       if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.reset();
       document.getElementById('workspace').classList.add('hidden');
       hideGeneralSearchView();
+      hideWaldorfSitesView();
       document.getElementById('wizard').classList.remove('hidden');
       document.getElementById('grade-insights-panel').classList.add('hidden');
       document.getElementById('grade-insights-body').innerHTML = '';
@@ -27810,6 +27842,7 @@
       });
       bindWizardNavClick(document.getElementById('btn-nav-community'), function () { openCommunityRepo(); });
       bindWizardNavClick(document.getElementById('btn-nav-general-search'), function () { openGeneralSearchView(); });
+      bindWizardNavClick(document.getElementById('btn-nav-waldorf-sites'), function () { openWaldorfSitesView(); });
       window.addEventListener('hashchange', function () {
         repairCorruptedProductTabHash();
         var tabFromHash = readProductTabFromLocationHash();
