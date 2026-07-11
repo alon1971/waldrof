@@ -789,7 +789,9 @@
   function buildChatWordBlob(messages) {
     var lang = deps.isEnglish() ? 'en' : 'he';
     var bodyHtml = buildChatWordBodyHtml(messages);
-    var chatTitle = deps.isEnglish() ? 'Pedagogy chat summary' : 'סיכום שיחה עוזר פדגוגי';
+    var chatTitle = deps.isEnglish()
+      ? 'Pedagogical summary document - Waldorf Archive - chat summary'
+      : 'מסמך סיכום פדגוגי - ארכיון ולדורף - סיכום שיחה';
     if (typeof deps.buildWordExportBlob === 'function') {
       return deps.buildWordExportBlob(bodyHtml, lang, chatTitle);
     }
@@ -850,7 +852,9 @@
       }
       // Prefer shared download helper (sets .doc filename). Never window.open(blob) first —
       // that yields a UUID with no extension and Save As → Web Page.
-      var chatFilename = deps.isEnglish() ? 'pedagogy_chat_summary.docx' : 'סיכום שיחה עוזר פדגוגי.docx';
+      var chatFilename = deps.isEnglish()
+        ? 'Pedagogical summary document - Waldorf Archive - chat summary.docx'
+        : 'מסמך סיכום פדגוגי - ארכיון ולדורף - סיכום שיחה.docx';
       if (typeof window !== 'undefined' && typeof window.triggerWordBlobDownload === 'function') {
         await window.triggerWordBlobDownload(blob, chatFilename);
       } else {

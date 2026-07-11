@@ -687,6 +687,104 @@
       transform: translateY(-1px);
       box-shadow: 0 4px 14px rgba(92, 125, 88, 0.2);
     }
+    .step-pill.step-pill-waldorf-sites {
+      opacity: 1 !important;
+      border-color: rgba(139, 58, 58, 0.4);
+      background: rgba(255, 255, 255, 0.95);
+      color: #5C4A3A;
+      font-weight: 600;
+    }
+    .step-pill.step-pill-waldorf-sites.active {
+      background: #8B3A3A;
+      color: #fff;
+      border-color: #8B3A3A;
+    }
+    #waldorf-sites-view .waldorf-sites-intro {
+      margin-bottom: 1.5rem;
+    }
+    #waldorf-sites-view .waldorf-sites-category {
+      margin-bottom: 2rem;
+    }
+    #waldorf-sites-view .waldorf-sites-category-title {
+      font-family: inherit;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #8B3A3A;
+      margin: 0 0 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    #waldorf-sites-view .waldorf-sites-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.9rem;
+    }
+    @media (min-width: 640px) {
+      #waldorf-sites-view .waldorf-sites-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (min-width: 1024px) {
+      #waldorf-sites-view .waldorf-sites-grid {
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+    }
+    #waldorf-sites-view .waldorf-site-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding: 1rem 1.1rem;
+      border: 1px solid rgba(201, 169, 98, 0.35);
+      background: linear-gradient(160deg, rgba(255,255,255,0.98), rgba(250,246,238,0.92));
+      border-radius: 1rem;
+      min-height: 100%;
+    }
+    #waldorf-sites-view .waldorf-site-card-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+    }
+    #waldorf-sites-view .waldorf-site-icon {
+      width: 2.35rem;
+      height: 2.35rem;
+      border-radius: 0.7rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(122, 155, 118, 0.14);
+      color: #5C7D58;
+      flex-shrink: 0;
+    }
+    #waldorf-sites-view .waldorf-site-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #5C4A3A;
+      line-height: 1.35;
+    }
+    #waldorf-sites-view .waldorf-site-desc {
+      margin: 0;
+      font-size: 0.875rem;
+      line-height: 1.55;
+      color: rgba(92, 74, 58, 0.82);
+      flex: 1;
+    }
+    #waldorf-sites-view a.waldorf-site-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.25rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #5C7D58;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+    #waldorf-sites-view a.waldorf-site-link:hover,
+    #waldorf-sites-view a.waldorf-site-link:focus-visible {
+      color: #8B3A3A;
+    }
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
     .ws-crumb-link { color: #5C7D58; font-weight: 600; cursor: pointer; pointer-events: auto; }
     .ws-crumb-link:hover { text-decoration: underline; }
@@ -990,6 +1088,7 @@
     }
     @media (min-width: 640px) {
       .app-top-nav-inner > .step-pill-community,
+      .app-top-nav-inner > .step-pill-directory,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
         flex: 1 1 10rem;
@@ -1016,6 +1115,7 @@
       }
       #step-progress .step-pill,
       .app-top-nav-inner > .step-pill-community,
+      .app-top-nav-inner > .step-pill-directory,
       .app-top-nav-inner > .step-pill-general-search,
       .app-top-nav-inner > .step-pill-archive,
       .app-top-nav-inner > #search-history-open-btn {
@@ -5192,6 +5292,12 @@
           <i class="fa-solid fa-users-rays text-base sm:text-sm"></i>
           <span data-i18n="nav_community">מאגר קהילתי</span>
         </button>
+        <button type="button" id="btn-nav-waldorf-sites"
+          class="step-pill step-pill-waldorf-sites touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
+          data-i18n-aria="nav_waldorf_sites_aria">
+          <i class="fa-solid fa-globe text-base sm:text-sm"></i>
+          <span data-i18n="nav_waldorf_sites">מאגר אתרי וולדורף</span>
+        </button>
         <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
         <button type="button" id="btn-pedagogy-export-top"
           class="pedagogy-export-btn pedagogy-export-btn--nav touch-btn hidden" data-pedagogy-export
@@ -5514,6 +5620,188 @@
       </div>
       <div id="general-search-results" class="general-search-results hidden"></div>
       <div id="general-search-marketing-mount"></div>
+    </div>
+  </div>
+
+  <!-- ========== WALDORF SITES DIRECTORY (מאגר אתרי וולדורף) ========== -->
+  <div id="waldorf-sites-view" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 pb-16 box-border">
+    <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
+      <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
+        <i class="fa-solid fa-globe text-gold" aria-hidden="true"></i>
+        <span data-i18n="waldorf_sites_title">מאגר אתרי וולדורף</span>
+      </h2>
+      <p class="text-sm text-walnut/70 waldorf-sites-intro" data-i18n="waldorf_sites_desc">משאבי תוכן פדגוגיים, ארכיבים, פודקאסטים והוצאות ספרים — ללא אתרי בתי ספר או עמותות מוסדיות מקומיות. כל קישור נפתח בלשונית חדשה.</p>
+
+      <section class="waldorf-sites-category" aria-labelledby="waldorf-sites-cat-il">
+        <h3 id="waldorf-sites-cat-il" class="waldorf-sites-category-title">
+          <i class="fa-solid fa-book-open" aria-hidden="true"></i>
+          <span data-i18n="waldorf_sites_cat_il">אתרים וארכיבים בישראל</span>
+        </h3>
+        <div class="waldorf-sites-grid">
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-graduation-cap"></i></span>
+              <h4 class="waldorf-site-title">מסעות בחינוך</h4>
+            </div>
+            <p class="waldorf-site-desc">האתר הרשמי של הילה שקד ואלון ירושלמי — פודקאסט, קורסים ותוכן פדגוגי עמוק למחנכים ומחנכות בישראל.</p>
+            <a class="waldorf-site-link" href="https://www.educationpace.com" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.educationpace.com</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-people-group"></i></span>
+              <h4 class="waldorf-site-title">הפורום הארצי לחינוך ולדורף בישראל</h4>
+            </div>
+            <p class="waldorf-site-desc">האתר הרשמי של איגוד מוסדות חינוך ולדורף בארץ — מידע, עדכונים ומשאבים לקהילת המחנכים.</p>
+            <a class="waldorf-site-link" href="https://www.waldorf-forum.co.il" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.waldorf-forum.co.il</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-landmark"></i></span>
+              <h4 class="waldorf-site-title">אנתרופוסופיה בישראל</h4>
+            </div>
+            <p class="waldorf-site-desc">פורטל השער המרכזי לאנתרופוסופיה והספרייה הדיגיטלית בעברית.</p>
+            <a class="waldorf-site-link" href="https://www.anthroposophy.org.il" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.anthroposophy.org.il</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-building-columns"></i></span>
+              <h4 class="waldorf-site-title">סמינר שקד / אורניהו</h4>
+            </div>
+            <p class="waldorf-site-desc">משאבים פדגוגיים, מאמרים ומחקרים על חינוך ולדורף בישראל.</p>
+            <a class="waldorf-site-link" href="https://www.shaked-kiryat-tivon.org.il" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.shaked-kiryat-tivon.org.il</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-book"></i></span>
+              <h4 class="waldorf-site-title">הוצאת אלביון</h4>
+            </div>
+            <p class="waldorf-site-desc">ספרי יסוד ותרגומים בעברית מהמסורת האנתרופוסופית והפדגוגית.</p>
+            <a class="waldorf-site-link" href="https://www.albion-books.co.il" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.albion-books.co.il</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-seedling"></i></span>
+              <h4 class="waldorf-site-title">הוצאת תלתן</h4>
+            </div>
+            <p class="waldorf-site-desc">הוצאת ספרים פדגוגיים אנתרופוסופיים בעברית.</p>
+            <a class="waldorf-site-link" href="https://www.tiltanbooks.co.il" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.tiltanbooks.co.il</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="waldorf-sites-category" aria-labelledby="waldorf-sites-cat-podcasts">
+        <h3 id="waldorf-sites-cat-podcasts" class="waldorf-sites-category-title">
+          <i class="fa-solid fa-podcast" aria-hidden="true"></i>
+          <span data-i18n="waldorf_sites_cat_podcasts">פודקאסטים מובילים בעברית</span>
+        </h3>
+        <div class="waldorf-sites-grid">
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-headphones"></i></span>
+              <h4 class="waldorf-site-title">מסעות בחינוך</h4>
+            </div>
+            <p class="waldorf-site-desc">פודקאסט עמוק ומרתק על פדגוגיה, ולדורף והתפתחות הילד.</p>
+            <a class="waldorf-site-link" href="https://www.educationpace.com/podcast" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> educationpace.com/podcast</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-child-reaching"></i></span>
+              <h4 class="waldorf-site-title">עולמה של הילדות</h4>
+            </div>
+            <p class="waldorf-site-desc">הצצה מעמיקה לשנות הילדות הראשונות, הגן והחינוך מתוך ראייה אנתרופוסופית — בהגשת ד״ר גלעד גולדשמידט.</p>
+            <a class="waldorf-site-link" href="https://open.spotify.com/show/1OEFNY2MUo8XlacmvzEF65" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Spotify — עולמה של הילדות</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-comments"></i></span>
+              <h4 class="waldorf-site-title">חידת האדם</h4>
+            </div>
+            <p class="waldorf-site-desc">שיחות והרצאות על האדם, הרוח, והגשמת הפדגוגיה בחיי המעשה — מבית אדם עולם.</p>
+            <a class="waldorf-site-link" href="https://www.antro.co.il/podcast/podcast_adamolam.html" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> antro.co.il — חידת האדם</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-lightbulb"></i></span>
+              <h4 class="waldorf-site-title">אנתרופוסופיה פשוטה</h4>
+            </div>
+            <p class="waldorf-site-desc">מושגי יסוד באנתרופוסופיה וחינוך ולדורף בגובה העיניים — דרך מאגר הפודקאסטים של אנתרופוסופיה בישראל.</p>
+            <a class="waldorf-site-link" href="https://www.antro.co.il/podcast/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> antro.co.il/podcast</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="waldorf-sites-category" aria-labelledby="waldorf-sites-cat-intl">
+        <h3 id="waldorf-sites-cat-intl" class="waldorf-sites-category-title">
+          <i class="fa-solid fa-earth-europe" aria-hidden="true"></i>
+          <span data-i18n="waldorf_sites_cat_intl">משאבים וארכיבים בינלאומיים</span>
+        </h3>
+        <div class="waldorf-sites-grid">
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-archive"></i></span>
+              <h4 class="waldorf-site-title">Rudolf Steiner Archive (RSArchive)</h4>
+            </div>
+            <p class="waldorf-site-desc">הארכיב העולמי הגדול ביותר להרצאות וספרי שטיינר.</p>
+            <a class="waldorf-site-link" href="https://www.rsarchive.org" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.rsarchive.org</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span>
+              <h4 class="waldorf-site-title">Waldorf Resources</h4>
+            </div>
+            <p class="waldorf-site-desc">אתר משאבים ומערכי שיעור בינלאומי למורים.</p>
+            <a class="waldorf-site-link" href="https://www.waldorf-resources.org" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.waldorf-resources.org</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-mountain-sun"></i></span>
+              <h4 class="waldorf-site-title">החטיבה הפדגוגית בגתהאנום</h4>
+            </div>
+            <p class="waldorf-site-desc">המרכז הפדגוגי העולמי בשווייץ.</p>
+            <a class="waldorf-site-link" href="https://www.paedagogik-goetheanum.ch/en" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> paedagogik-goetheanum.ch</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-microphone-lines"></i></span>
+              <h4 class="waldorf-site-title">Anthroposophy Anyone?</h4>
+            </div>
+            <p class="waldorf-site-desc">פודקאסט בינלאומי באנגלית על אנתרופוסופיה וחינוך.</p>
+            <a class="waldorf-site-link" href="https://www.anthroposophyanyone.com" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.anthroposophyanyone.com</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-link"></i></span>
+              <h4 class="waldorf-site-title">The Waldorf Connection</h4>
+            </div>
+            <p class="waldorf-site-desc">פודקאסט מורים ויועצים פדגוגיים באנגלית.</p>
+            <a class="waldorf-site-link" href="https://www.thewaldorfconnection.com" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.thewaldorfconnection.com</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-compass"></i></span>
+              <h4 class="waldorf-site-title">A Waldorf Journey</h4>
+            </div>
+            <p class="waldorf-site-desc">בלוג ומשאב פדגוגי עשיר למחנכי ולדורף בבתי הספר היסודיים. כולל תוכניות לימוד, רעיונות מעשיים להוראת תקופות, ואומנות בכיתה.</p>
+            <a class="waldorf-site-link" href="https://www.awaldorfjourney.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.awaldorfjourney.com</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-palette"></i></span>
+              <h4 class="waldorf-site-title">Pepper &amp; Pine</h4>
+            </div>
+            <p class="waldorf-site-desc">אתר ומאגר השראה ויזואלי עשיר למחנכים. כולל רעיונות ליצירה, עבודות יד, ציורי לוח גיר, ומדריכים מעשיים לעיצוב ספרי תקופה.</p>
+            <a class="waldorf-site-link" href="https://pepperandpine.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> pepperandpine.com</a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-book-atlas"></i></span>
+              <h4 class="waldorf-site-title">Waldorf Publications</h4>
+            </div>
+            <p class="waldorf-site-desc">בית הוצאה לאור בינלאומי מוביל לספרות פדגוגית, מדריכים למורים, מחקרים ותוכניות לימוד מקיפות המותאמות לחינוך ולדורף.</p>
+            <a class="waldorf-site-link" href="https://www.waldorfpublications.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.waldorfpublications.org</a>
+          </article>
+        </div>
+      </section>
     </div>
   </div>
   </div>
@@ -13819,8 +14107,8 @@
     }
 
     function buildGeneralSearchDocFilename(query) {
-      var base = sanitizeDocxFilename(query || t('general_search_title'));
-      return base + '.docx';
+      var detail = sanitizeDocxFilename(query || t('general_search_title') || '');
+      return normalizeWordDownloadFilename(resolveWordExportDocumentTitle(detail));
     }
 
     function sanitizeDocxFilename(name) {
@@ -13828,11 +14116,13 @@
     }
 
     function buildPedagogyDocxFilename() {
-      const grade = sanitizeDocxFilename(appState.gradeLabel || t('crumb_grade'));
-      const topic = sanitizeDocxFilename(appState.topic || t('export_doc_no_topic'));
-      var name = t('export_doc_filename', { grade: grade, topic: topic });
-      // Real OOXML export uses .docx so Word Save As defaults to Word Document.
-      return String(name || 'document').replace(/\.docx$/i, '').replace(/\.doc$/i, '') + '.docx';
+      var grade = sanitizeDocxFilename(appState.gradeLabel || '');
+      var topic = sanitizeDocxFilename(appState.topic || '');
+      var detailParts = [];
+      if (grade) detailParts.push(grade);
+      if (topic) detailParts.push(topic);
+      var detail = detailParts.join(' - ');
+      return normalizeWordDownloadFilename(resolveWordExportDocumentTitle(detail));
     }
 
     /** Export-only href resolver — keeps valid http(s) URLs for Word hyperlinks even when path/query is percent-encoded Hebrew. */
@@ -14453,27 +14743,46 @@
         .replace(/'/g, '&apos;');
     }
 
-    /** Hebrew/topic-based document title for Word properties + Save As suggestions. */
-    function resolveWordExportDocumentTitle(explicitTitle) {
-      var explicit = String(explicitTitle || '').trim().replace(/\.docx$/i, '').replace(/\.doc$/i, '');
-      if (explicit) return explicit;
-      try {
-        var fromFile = buildPedagogyDocxFilename();
-        if (fromFile) return String(fromFile).replace(/\.docx$/i, '').replace(/\.doc$/i, '');
-      } catch (e) { /* ignore */ }
-      var topic = (typeof appState !== 'undefined' && appState && appState.topic)
-        ? String(appState.topic).trim()
-        : '';
-      var grade = (typeof appState !== 'undefined' && appState && appState.gradeLabel)
-        ? String(appState.gradeLabel).trim()
-        : '';
-      if (topic || grade) {
-        if (isEnglish()) {
-          return 'Pedagogical summary' + (grade ? ' - ' + grade : '') + (topic ? ' - ' + topic : '');
-        }
-        return 'סיכום' + (grade ? ' ' + grade : '') + (topic ? ' — ' + topic : '');
+    var WORD_EXPORT_TITLE_BASE_HE = 'מסמך סיכום פדגוגי - ארכיון ולדורף';
+    var WORD_EXPORT_TITLE_BASE_EN = 'Pedagogical summary document - Waldorf Archive';
+
+    /**
+     * Fixed archive brand title + optional request detail (grade / topic / query).
+     * Example: "מסמך סיכום פדגוגי - ארכיון ולדורף - כיתה ה׳ - תרבויות קדומות"
+     */
+    function resolveWordExportDocumentTitle(explicitDetail) {
+      var base = isEnglish() ? WORD_EXPORT_TITLE_BASE_EN : WORD_EXPORT_TITLE_BASE_HE;
+      var raw = String(explicitDetail || '').trim().replace(/\.docx$/i, '').replace(/\.doc$/i, '');
+
+      // Already a full branded title — keep it (trim only).
+      if (
+        raw.indexOf(WORD_EXPORT_TITLE_BASE_HE) === 0 ||
+        raw.indexOf(WORD_EXPORT_TITLE_BASE_EN) === 0
+      ) {
+        return raw.replace(/\s+/g, ' ').trim().slice(0, 140);
       }
-      return isEnglish() ? 'Pedagogical summary' : 'סיכום פדגוגי מהאתר';
+
+      var detail = raw;
+      if (!detail) {
+        var topic = (typeof appState !== 'undefined' && appState && appState.topic)
+          ? String(appState.topic).trim()
+          : '';
+        var grade = (typeof appState !== 'undefined' && appState && appState.gradeLabel)
+          ? String(appState.gradeLabel).trim()
+          : '';
+        var bits = [];
+        if (grade) bits.push(grade);
+        if (topic) bits.push(topic);
+        detail = bits.join(' - ');
+      }
+
+      detail = String(detail || '')
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      var full = detail ? (base + ' - ' + detail) : base;
+      return full.slice(0, 140);
     }
 
     function buildDocxHtmlPackage(htmlContent, langCode, docTitle) {
@@ -14481,6 +14790,7 @@
       var isRtl = lang !== 'en';
       var title = resolveWordExportDocumentTitle(docTitle);
       var safeTitle = escapeXmlForDocx(title);
+      var nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
       var contentTypes =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -14509,6 +14819,10 @@
         'xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
         '<dc:title>' + safeTitle + '</dc:title>' +
         '<dc:subject>' + safeTitle + '</dc:subject>' +
+        '<dc:creator>' + escapeXmlForDocx(isRtl ? 'ארכיון ולדורף' : 'Waldorf Archive') + '</dc:creator>' +
+        '<cp:lastModifiedBy>' + escapeXmlForDocx(isRtl ? 'ארכיון ולדורף' : 'Waldorf Archive') + '</cp:lastModifiedBy>' +
+        '<dcterms:created xsi:type="dcterms:W3CDTF">' + nowIso + '</dcterms:created>' +
+        '<dcterms:modified xsi:type="dcterms:W3CDTF">' + nowIso + '</dcterms:modified>' +
         '<dc:language>' + (isRtl ? 'he-IL' : 'en-US') + '</dc:language>' +
         '</cp:coreProperties>';
       var bidi = isRtl ? '<w:bidi/>' : '';
@@ -14564,7 +14878,11 @@
       safeName = safeName.replace(/\.docx$/i, '').replace(/\.doc$/i, '');
       // Keep Hebrew letters; strip only Windows-illegal filename characters.
       safeName = safeName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
-      if (!safeName) safeName = isEnglish() ? 'Pedagogical summary' : 'סיכום פדגוגי מהאתר';
+      if (!safeName) {
+        safeName = isEnglish()
+          ? 'Pedagogical summary document - Waldorf Archive'
+          : 'מסמך סיכום פדגוגי - ארכיון ולדורף';
+      }
       return safeName + '.docx';
     }
 
@@ -15116,7 +15434,9 @@
             if (el.parentNode) el.parentNode.removeChild(el);
           });
           var html = '<div dir="rtl">' + (clone.innerHTML || '').trim() + '</div>';
-          var chatTitle = isEnglish() ? 'Chat message' : 'הודעת צ׳אט';
+          var chatTitle = isEnglish()
+            ? 'Pedagogical summary document - Waldorf Archive - chat message'
+            : 'מסמך סיכום פדגוגי - ארכיון ולדורף - הודעת צ׳אט';
           var blob = buildSecureWordBlob(html, isEnglish() ? 'en' : 'he', chatTitle);
           var saved = await triggerWordBlobDownload(blob, chatTitle + '.docx');
           if (saved) {
@@ -20302,6 +20622,88 @@
       return el && !el.classList.contains('hidden');
     }
 
+    function isWaldorfSitesView() {
+      var el = document.getElementById('waldorf-sites-view');
+      return Boolean(el && !el.classList.contains('hidden'));
+    }
+
+    var WALDORF_SITES_SCROLL_STORAGE_KEY = 'waldorf_sites_directory_scroll_y';
+
+    function ensureWaldorfSitesExternalLinks() {
+      var root = document.getElementById('waldorf-sites-view');
+      if (!root) return;
+      root.querySelectorAll('a[href]').forEach(function (anchor) {
+        var href = String(anchor.getAttribute('href') || '').trim();
+        if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
+      });
+    }
+
+    function saveWaldorfSitesScrollPosition() {
+      var y = window.scrollY || window.pageYOffset || 0;
+      try {
+        sessionStorage.setItem(WALDORF_SITES_SCROLL_STORAGE_KEY, String(y));
+      } catch (e) { /* private mode */ }
+      rememberNavScrollPosition('waldorf-sites');
+      persistScrollMemoryToStorage();
+    }
+
+    function restoreWaldorfSitesScrollPosition() {
+      var y = null;
+      try {
+        var raw = sessionStorage.getItem(WALDORF_SITES_SCROLL_STORAGE_KEY);
+        if (raw != null && raw !== '') {
+          var parsed = parseInt(raw, 10);
+          if (!isNaN(parsed)) y = parsed;
+        }
+      } catch (e) { /* ignore */ }
+      if (typeof y !== 'number') {
+        restoreNavScrollPosition('waldorf-sites');
+        return;
+      }
+      runAfterLayout(function () {
+        runAfterLayout(function () {
+          try {
+            window.scrollTo({ top: y, left: 0, behavior: 'auto' });
+          } catch (e1) {
+            window.scrollTo(0, y);
+          }
+          if (document.documentElement) document.documentElement.scrollTop = y;
+          if (document.body) document.body.scrollTop = y;
+        });
+      });
+    }
+
+    function hideWaldorfSitesView() {
+      var el = document.getElementById('waldorf-sites-view');
+      if (el) el.classList.add('hidden');
+    }
+
+    function openWaldorfSitesView() {
+      if (isWaldorfSitesView()) {
+        ensureWaldorfSitesExternalLinks();
+        restoreWaldorfSitesScrollPosition();
+        updateTopNavButtons();
+        return;
+      }
+      rememberNavScrollPosition(getNavScrollKey());
+      appState.navSection = 'waldorf-sites';
+      document.getElementById('wizard').classList.add('hidden');
+      document.getElementById('workspace').classList.add('hidden');
+      hideGeneralSearchView();
+      hideAllWorkspacePanels();
+      var el = document.getElementById('waldorf-sites-view');
+      if (el) el.classList.remove('hidden');
+      ensureWaldorfSitesExternalLinks();
+      updateNewResearchBarVisibility();
+      renderStepProgress();
+      updateTopNavButtons();
+      updateWorkspaceChrome();
+      persistActiveStep();
+      restoreWaldorfSitesScrollPosition();
+    }
+
     const MARKETING_ADMIN_EMAILS = ['alon1971@gmail.com'];
     const MARKETING_ADMIN_NAMES = ['alon yerushalmy', 'אלון ירושלמי', 'אלוני ירושלמי'];
     var marketingGenerationAbort = null;
@@ -21550,6 +21952,7 @@
     function showGeneralSearchView() {
       document.getElementById('wizard').classList.add('hidden');
       document.getElementById('workspace').classList.add('hidden');
+      hideWaldorfSitesView();
       var el = document.getElementById('general-search-view');
       if (el) el.classList.remove('hidden');
       updateNewResearchBarVisibility();
@@ -21564,6 +21967,7 @@
       appState.step = 3;
       showWorkspaceShell();
       hideGeneralSearchView();
+      hideWaldorfSitesView();
       document.getElementById('panel-catalog').classList.add('hidden');
       var initialTab = normalizeLegacyProductTabId(options.initialTab) || options.initialTab || readProductTabFromLocationHash() || normalizeLegacyProductTabId(appState.activeProductTab) || appState.activeProductTab || 'narrative';
       if (appState.grade && appState.topic) {
@@ -21583,6 +21987,7 @@
       hideGeneralSearchArchiveSuggestion();
       document.getElementById('wizard').classList.add('hidden');
       document.getElementById('workspace').classList.add('hidden');
+      hideWaldorfSitesView();
       hideAllWorkspacePanels();
       var el = document.getElementById('general-search-view');
       if (el) el.classList.remove('hidden');
@@ -21857,8 +22262,10 @@
     function updateTopNavButtons() {
       const communityBtn = document.getElementById('btn-nav-community');
       const generalSearchBtn = document.getElementById('btn-nav-general-search');
+      const waldorfSitesBtn = document.getElementById('btn-nav-waldorf-sites');
       if (communityBtn) communityBtn.classList.toggle('active', isCommunityView());
       if (generalSearchBtn) generalSearchBtn.classList.toggle('active', isGeneralSearchView());
+      if (waldorfSitesBtn) waldorfSitesBtn.classList.toggle('active', isWaldorfSitesView());
     }
 
     function renderWorkspaceBreadcrumb() {
@@ -23550,6 +23957,7 @@
     }
 
     function getNavScrollKey() {
+      if (isWaldorfSitesView() || appState.navSection === 'waldorf-sites') return 'waldorf-sites';
       if (isGeneralSearchView()) return 'general-search';
       if (isPhaseCView() || (isWorkspaceOpen() && appState.navSection !== 'community')) return 'phase-c';
       if (appState.navSection === 'community') return 'community';
