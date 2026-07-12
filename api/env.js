@@ -142,11 +142,22 @@ function getMakeUpgradeWebhookUrl() {
 }
 
 /**
- * Fixed Grow checkout page — the single canonical Fallback/Grow upgrade route.
- * Mirrors GROW_UPGRADE_URL in auth-subscription.js; override via Render env GROW_UPGRADE_URL.
+ * Fixed Grow checkout pages.
+ * Annual (pro) is the default GROW_UPGRADE_URL; one-time support has a dedicated link.
  */
 function getGrowUpgradeUrl() {
   return cleanUrl(process.env.GROW_UPGRADE_URL || 'https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg');
+}
+
+function getGrowOneTimeUrl() {
+  return cleanUrl(
+    process.env.GROW_ONE_TIME_URL ||
+    'https://pay.grow.link/OTAwMDc~8e58f88e567929a25776603bb5f1ef7e-MzU5NTU4Ng'
+  );
+}
+
+function getGrowAnnualUrl() {
+  return cleanUrl(process.env.GROW_ANNUAL_URL || getGrowUpgradeUrl());
 }
 
 function getCronSecret() {
@@ -214,7 +225,9 @@ function getPublicClientConfig() {
     stripeCheckoutEnabled: isStripeCheckoutEnabled(),
     makeUpgradeWebhookUrl: getMakeUpgradeWebhookUrl(),
     growUpgradeUrl: getGrowUpgradeUrl(),
-    /** Mirrors api/tier-limits.js — revert to 3 after beta testing. */
+    growOneTimeUrl: getGrowOneTimeUrl(),
+    growAnnualUrl: getGrowAnnualUrl(),
+    /** Mirrors api/tier-limits.js — free tier live-search lifetime cap. */
     trialSearchLimit: TRIAL_LIFETIME_SEARCH_LIMIT,
   };
 }
@@ -238,6 +251,8 @@ module.exports = {
   getBillingReportEmail,
   getMakeUpgradeWebhookUrl,
   getGrowUpgradeUrl,
+  getGrowOneTimeUrl,
+  getGrowAnnualUrl,
   getCronSecret,
   getPaymentWebhookSecret,
   getSmtpHost,

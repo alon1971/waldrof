@@ -8,7 +8,12 @@
 const env = require('./env');
 const cacheDb = require('./cache');
 const authContext = require('./auth-context');
-const { TRIAL_LIFETIME_SEARCH_LIMIT, PRO_MONTHLY_SEARCH_LIMIT } = require('./tier-limits');
+const {
+  TRIAL_LIFETIME_SEARCH_LIMIT,
+  STANDARD_LIFETIME_SEARCH_LIMIT,
+  PRO_MONTHLY_SEARCH_LIMIT,
+  TRIAL_WORD_DOWNLOAD_LIMIT,
+} = require('./tier-limits');
 
 const TABLE = 'user_subscriptions';
 const LOG_PREFIX = '[subscription]';
@@ -50,10 +55,35 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
 ];
 
 const TIER_LIMITS = {
-  trial: { lifetime: TRIAL_LIFETIME_SEARCH_LIMIT, monthly: null, wordDownloads: 5, wordDownloadsMonthly: true },
-  standard: { lifetime: null, monthly: 300, wordDownloads: null },
-  pro: { lifetime: null, monthly: PRO_MONTHLY_SEARCH_LIMIT, wordDownloads: null },
+  /** Free — 1 live search + 5 Word downloads total (lifetime, at registration). */
+  trial: {
+    lifetime: TRIAL_LIFETIME_SEARCH_LIMIT,
+    monthly: null,
+    wordDownloads: TRIAL_WORD_DOWNLOAD_LIMIT,
+    wordDownloadsLifetime: true,
+    searchPeriod: 'lifetime',
+  },
+  /** One-time support (100 ₪) — 20 live searches lifetime, unlimited Word. */
+  standard: {
+    lifetime: STANDARD_LIFETIME_SEARCH_LIMIT,
+    monthly: null,
+    wordDownloads: null,
+    searchPeriod: 'lifetime',
+  },
+  /** Annual subscription (220 ₪) — 25 live searches / month, unlimited Word. */
+  pro: {
+    lifetime: null,
+    monthly: PRO_MONTHLY_SEARCH_LIMIT,
+    wordDownloads: null,
+    searchPeriod: 'monthly',
+  },
 };
+
+function isLifetimeSearchTier(tier) {
+  const plan = normalizeTier(tier);
+  const limits = TIER_LIMITS[plan] || TIER_LIMITS.trial;
+  return limits.searchPeriod === 'lifetime' || limits.lifetime != null;
+}
 
 const LEGACY_TIER_MAP = {
   educator: 'standard',
@@ -178,7 +208,8 @@ function readSearchCountFromRow(row, tier) {
   const raw = Number(
     row && (row.search_count_monthly != null ? row.search_count_monthly : row.trial_searches_used)
   ) || 0;
-  if (plan === 'trial') return raw;
+  // Lifetime pools (trial + one-time support) never reset by calendar month.
+  if (isLifetimeSearchTier(plan)) return raw;
   const month = currentMonthKey();
   const rowMonth = monthFromRow(row);
   if (row && row.monthly_searches_used != null && row.usage_month) {
@@ -437,11 +468,9 @@ async function resolveUser(req, body) {
 }
 
 function readWordDownloadsFromRow(row, tier) {
-  const month = currentMonthKey();
   const raw = Number(row && row.word_downloads_count) || 0;
-  if (tier !== 'trial') return raw;
-  const rowMonth = monthFromRow(row);
-  return rowMonth === month ? raw : 0;
+  // Trial Word downloads are a lifetime total (5), not a monthly reset.
+  return raw;
 }
 
 function isSubscriptionExpired(row) {
@@ -464,17 +493,11 @@ function readSearchLimitFromRow(row, tier) {
   const limitTier = subscription && !isTrialFromRow(subscription)
     ? planTypeFromRow(subscription)
     : (tier || 'trial');
-  if (limitTier === 'trial') {
-    const maxSearches = subscription?.search_limit_monthly || 3;
-    const n = Number(maxSearches);
-    return !Number.isNaN(n) && n >= 0 ? n : 3;
-  }
-  const stored = subscription && subscription.search_limit_monthly;
-  if (stored != null && stored !== '') {
-    const n = Number(stored);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  return (TIER_LIMITS[limitTier] || TIER_LIMITS.pro).monthly;
+  const limits = TIER_LIMITS[limitTier] || TIER_LIMITS.trial;
+  // Product caps are defined in tier-limits.js (source of truth for the 3 plans).
+  if (limits.lifetime != null) return limits.lifetime;
+  if (limits.monthly != null) return limits.monthly;
+  return null;
 }
 
 function readWordDownloadLimitFromRow(row, tier) {
@@ -482,17 +505,8 @@ function readWordDownloadLimitFromRow(row, tier) {
   const limitTier = subscription && !isTrialFromRow(subscription)
     ? planTypeFromRow(subscription)
     : (tier || 'trial');
-  if (limitTier === 'trial') {
-    const maxWordDownloads = subscription?.word_downloads_limit || 5;
-    const n = Number(maxWordDownloads);
-    return !Number.isNaN(n) && n >= 0 ? n : 5;
-  }
-  const stored = subscription && subscription.word_downloads_limit;
-  if (stored != null && stored !== '') {
-    const n = Number(stored);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  return (TIER_LIMITS[limitTier] || TIER_LIMITS.pro).wordDownloads;
+  const limits = TIER_LIMITS[limitTier] || TIER_LIMITS.trial;
+  return limits.wordDownloads != null ? limits.wordDownloads : null;
 }
 
 async function downgradeSubscriptionIfExpired(user, row, userToken) {
@@ -533,8 +547,16 @@ async function notifyCancellationRequested(user, row, expiresAt) {
 
 function buildSearchLimitError(usage) {
   const tier = usage && usage.tier ? usage.tier : 'trial';
-  if (tier === 'trial') {
-    const err = new Error('חרגתם ממכסת ' + TRIAL_LIFETIME_SEARCH_LIMIT + ' החיפושים החינמיים — שדרגו לפרו כדי להמשיך');
+  const period = usage && usage.usagePeriod ? usage.usagePeriod : (isLifetimeSearchTier(tier) ? 'lifetime' : 'monthly');
+  if (tier === 'trial' || period === 'lifetime') {
+    const limit = usage && usage.searchLimit != null
+      ? usage.searchLimit
+      : (tier === 'standard' ? STANDARD_LIFETIME_SEARCH_LIMIT : TRIAL_LIFETIME_SEARCH_LIMIT);
+    const err = new Error(
+      tier === 'trial'
+        ? ('חרגתם ממכסת ' + limit + ' החיפושים החינמיים — שדרגו כדי להמשיך')
+        : ('חרגתם ממכסת ' + limit + ' החיפושים במסלול התמיכה — שדרגו למנוי שנתי כדי להמשיך')
+    );
     err.statusCode = 429;
     err.code = 'RATE_LIMIT';
     err.usage = usage;
@@ -553,7 +575,7 @@ function buildUsagePayload(row) {
   const month = currentMonthKey();
   const used = readSearchCountFromRow(row, tier);
   const limit = readSearchLimitFromRow(row, tier);
-  const period = tier === 'trial' ? 'lifetime' : 'monthly';
+  const period = isLifetimeSearchTier(tier) ? 'lifetime' : 'monthly';
 
   const wordDownloadsUsed = readWordDownloadsFromRow(row, tier);
   const wordDownloadLimit = readWordDownloadLimitFromRow(row, tier);
@@ -1092,7 +1114,8 @@ async function incrementSearchCountForUser(user, userToken) {
   const currentCount = readSearchCountFromRow(row, tier);
   let nextCount = currentCount + 1;
 
-  if (tier !== 'trial') {
+  // Monthly plans (pro) reset at calendar month boundary; lifetime pools accumulate.
+  if (!isLifetimeSearchTier(tier)) {
     const rowMonth = monthFromRow(row);
     if (rowMonth !== month) {
       nextCount = 1;
@@ -1170,19 +1193,19 @@ async function recordWordDownload(user, userToken) {
 
   const usageBefore = buildUsagePayload(row);
   if (!usageBefore.wordDownloadsAllowed) {
-    const downloadCap = usageBefore.wordDownloadLimit != null ? usageBefore.wordDownloadLimit : 5;
-    const err = new Error('הגעתם למגבלת ' + downloadCap + ' הורדות Word בחודש במסלול החינמי. שדרגו למסלול פרו להורדות ללא הגבלה.');
+    const downloadCap = usageBefore.wordDownloadLimit != null
+      ? usageBefore.wordDownloadLimit
+      : TRIAL_WORD_DOWNLOAD_LIMIT;
+    const err = new Error(
+      'הגעתם למגבלת ' + downloadCap + ' הורדות Word בסך הכל במסלול החינמי. שדרגו להורדות ללא הגבלה.'
+    );
     err.statusCode = 429;
     err.code = 'WORD_DOWNLOAD_LIMIT';
     err.usage = usageBefore;
     throw err;
   }
 
-  const month = currentMonthKey();
-  const rowMonth = monthFromRow(row);
-  const currentDownloads = tier === 'trial' && rowMonth !== month
-    ? 0
-    : (Number(row.word_downloads_count) || 0);
+  const currentDownloads = Number(row.word_downloads_count) || 0;
 
   const updated = await updateSubscriptionRow(user.id, {
     word_downloads_count: currentDownloads + 1,
@@ -1420,7 +1443,12 @@ async function assertWordDownloadAllowedFromRequest(req) {
   }
   const usage = buildUsagePayload(row);
   if (!usage.wordDownloadsAllowed) {
-    const err = new Error('הגעתם למגבלת 5 הורדות Word בחודש במסלול החינמי. שדרגו למסלול פרו להורדות ללא הגבלה.');
+    const downloadCap = usage.wordDownloadLimit != null
+      ? usage.wordDownloadLimit
+      : TRIAL_WORD_DOWNLOAD_LIMIT;
+    const err = new Error(
+      'הגעתם למגבלת ' + downloadCap + ' הורדות Word בסך הכל במסלול החינמי. שדרגו להורדות ללא הגבלה.'
+    );
     err.statusCode = 429;
     err.code = 'WORD_DOWNLOAD_LIMIT';
     err.usage = usage;

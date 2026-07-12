@@ -26,7 +26,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712h" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20260712i" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -3888,56 +3888,97 @@
     }
 
     #free-tier-limit-modal .app-modal-panel {
-      max-width: 32rem;
+      max-width: 28rem;
+      width: calc(100% - 1.5rem);
       text-align: center;
-      padding: 2rem 1.75rem 1.75rem;
+      padding: 1.75rem 1.35rem 1.5rem;
+      background:
+        radial-gradient(ellipse 90% 70% at 12% 8%, rgba(154, 206, 220, 0.28), transparent 55%),
+        radial-gradient(ellipse 80% 60% at 92% 12%, rgba(186, 214, 168, 0.32), transparent 52%),
+        linear-gradient(165deg, #fbfdfb 0%, #f3f7f1 48%, #eef4f0 100%);
+      border: 1px solid rgba(122, 155, 118, 0.28);
+      box-shadow: 0 18px 48px rgba(61, 94, 68, 0.16);
     }
     .free-tier-limit-icon {
-      width: 3.75rem; height: 3.75rem; margin: 0 auto 1rem; border-radius: 50%;
-      background: linear-gradient(145deg, rgba(122, 155, 118, 0.18), rgba(196, 120, 90, 0.12));
-      color: #8B3A3A;
-      display: flex; align-items: center; justify-content: center; font-size: 1.55rem;
+      width: 3.5rem; height: 3.5rem; margin: 0 auto 0.85rem; border-radius: 50%;
+      background: linear-gradient(145deg, rgba(122, 155, 118, 0.22), rgba(154, 206, 220, 0.18));
+      color: #4F7355;
+      display: flex; align-items: center; justify-content: center; font-size: 1.45rem;
+    }
+    #free-tier-limit-title {
+      margin: 0 0 0.65rem;
+      color: #3D5E44;
+      font-size: 1.25rem;
+      line-height: 1.35;
+      font-weight: 700;
     }
     .free-tier-limit-message {
       margin: 0;
       color: #5C4A3A;
-      font-size: 1rem !important;
-      line-height: 1.75 !important;
+      font-size: 0.95rem !important;
+      line-height: 1.7 !important;
       text-align: center;
       white-space: pre-line;
     }
     .free-tier-limit-actions {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      margin-top: 1.5rem;
+      gap: 0.7rem;
+      margin-top: 1.35rem;
     }
-    #free-tier-limit-upgrade {
+    .upgrade-plan-btn {
       border: none;
-      border-radius: 0.85rem;
-      padding: 0.9rem 1.15rem;
+      border-radius: 0.9rem;
+      padding: 0.95rem 1.1rem;
       font-weight: 700;
+      font-size: 0.92rem;
+      line-height: 1.45;
       cursor: pointer;
-      background: linear-gradient(145deg, #7A9B76, #5C7D58);
-      color: #fff;
-      box-shadow: 0 4px 14px rgba(92, 125, 88, 0.35);
+      text-align: center;
       transition: transform 0.12s, box-shadow 0.15s;
     }
-    #free-tier-limit-upgrade:hover {
+    #upgrade-plan-one-time {
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(232, 240, 230, 0.98));
+      color: #3D5E44;
+      border: 1.5px solid rgba(122, 155, 118, 0.45);
+      box-shadow: 0 3px 12px rgba(92, 125, 88, 0.12);
+    }
+    #upgrade-plan-one-time:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 18px rgba(92, 125, 88, 0.42);
+      box-shadow: 0 5px 16px rgba(92, 125, 88, 0.2);
+      background: linear-gradient(145deg, #fff, rgba(220, 236, 218, 1));
+    }
+    #upgrade-plan-annual {
+      background: linear-gradient(135deg, #6B9470 0%, #4F7355 55%, #3D5E44 100%);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(61, 94, 68, 0.32);
+    }
+    #upgrade-plan-annual:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 7px 20px rgba(61, 94, 68, 0.4);
     }
     #free-tier-limit-close {
-      border: 1px solid rgba(201, 169, 98, 0.45);
+      border: 1px solid rgba(122, 155, 118, 0.35);
       border-radius: 0.85rem;
-      padding: 0.75rem 1rem;
+      padding: 0.7rem 1rem;
       font-weight: 600;
       cursor: pointer;
       background: transparent;
       color: rgba(92, 74, 58, 0.82);
     }
-    #free-tier-limit-close:hover { color: #5C4A3A; background: rgba(255,255,255,0.45); }
+    #free-tier-limit-close:hover { color: #3D5E44; background: rgba(255,255,255,0.45); }
     body.free-tier-limit-open { overflow: hidden; }
+    @media (max-width: 480px) {
+      #free-tier-limit-modal .app-modal-panel {
+        max-width: 100%;
+        width: calc(100% - 1rem);
+        padding: 1.4rem 1rem 1.25rem;
+        margin: 0.5rem;
+      }
+      #free-tier-limit-title { font-size: 1.1rem; }
+      .free-tier-limit-message { font-size: 0.9rem !important; }
+      .upgrade-plan-btn { font-size: 0.86rem; padding: 0.85rem 0.9rem; }
+    }
 
     /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
@@ -5262,7 +5303,7 @@
         <ul>
           <li><strong>המאגר הקהילתי (חינמי):</strong> החזון הגדול הוא יצירת כלי שיתופי. ככל שנעלה יותר חומרי עבודה – שירים, דקלומים, מערכים וכו' – נוכל לבנות יחד מאגר מידע עצום, מקצועי ומרוכז במקום אחד, המזין את כולנו.</li>
           <li><strong>חיפוש ידע ארכיוני (חינמי):</strong> גישה חופשית ומלאה לכל מערכי השיעור, הרעיונות והתכנים שכבר חיפשו ונשמרו בעבר על ידי חברי הקהילה.</li>
-          <li><strong>מחקר וחיפוש חי (3 חיפושים ראשונים חינם / מנוי PRO בעלות שנתית סמלית):</strong> כדי להביא לכם את התוצאות העמוקות והמקיפות ביותר, החיפוש החי באתר מבוסס על מנוע הבינה המלאכותית המתקדם Perplexity. מאחר שהפעלת המנוע כרוכה בעלויות טכנולוגיות גבוהות, שירות זה פתוח למנויי ה-Pro בעלות שנתית סמלית בלבד, כאשר משתמשים חדשים מקבלים 3 חיפושים חיים ראשונים להתנסות במתנה כדי לחקור, ליצור ולייצר חומרי לימוד חדשים ומותאמים אישית בזמן אמת, עבורם ועבור חברי הקהילה.</li>
+          <li><strong>מחקר וחיפוש חי (חיפוש חי אחד במתנה / מסלולי תמיכה):</strong> כדי להביא לכם את התוצאות העמוקות והמקיפות ביותר, החיפוש החי באתר מבוסס על מנוע הבינה המלאכותית המתקדם Perplexity. מאחר שהפעלת המנוע כרוכה בעלויות טכנולוגיות גבוהות, משתמשים חדשים מקבלים חיפוש חי אחד להתנסות במתנה, ולאחר מכן ניתן לבחור במסלול תמיכה חד-פעמי או במנוי שנתי כדי להמשיך במחקר חי, במחולל תקופות ובהורדות וורד ללא הגבלה.</li>
         </ul>
         <p>שתהיה עבודה פורייה ומלאת השראה.</p>
         <p>תיהנו,<br>שלכם, אלון ירושלמי</p>
@@ -5385,17 +5426,16 @@
     </div>
   </div>
 
-  <!-- Free tier limit — upgrade prompt -->
+  <!-- Free tier limit — upgrade prompt with Grow purchase options -->
   <div id="free-tier-limit-modal" class="app-modal hidden" aria-hidden="true" role="alertdialog" aria-modal="true" aria-labelledby="free-tier-limit-title">
     <div id="free-tier-limit-backdrop" class="app-modal-backdrop"></div>
     <div class="app-modal-panel">
-      <div class="free-tier-limit-icon" aria-hidden="true"><i class="fa-solid fa-leaf"></i></div>
-      <h2 id="free-tier-limit-title" class="font-display text-burgundy text-lg font-bold sr-only">הגעת למכסת השימוש החינמית</h2>
-      <p id="free-tier-limit-message" class="free-tier-limit-message" data-i18n="free_tier_limit_message">הגעת למכסת השימוש החינמית במערכת.
-באפשרותך להמשיך להשתמש במאגר הקהילתי ולשלוף חומרים קיימים ללא שום הגבלה!
-כדי להמשיך לבצע מחקרים חיים חדשים ולהוריד מסמכי Word, הנך מוזמן לשדרג למנוי השנתי שלנו וליהנות מגישה מלאה ללא הגבלה, תוך תמיכה בפיתוח והרחבת האתר עבור הקהילה.</p>
+      <div class="free-tier-limit-icon" aria-hidden="true"><i class="fa-solid fa-seedling"></i></div>
+      <h2 id="free-tier-limit-title" class="font-display" data-i18n="upgrade_modal_title">תודה על התמיכה שלך במרכז המידע!</h2>
+      <p id="free-tier-limit-message" class="free-tier-limit-message" data-i18n="upgrade_modal_body">מכסת החיפושים החינמית שלך הסתיימה. כדי להמשיך ליהנות ממחקר חי, מחולל תקופות והורדות וורד ללא הגבלה, בחר את מסלול התמיכה המתאים לך:</p>
       <div class="free-tier-limit-actions">
-        <button type="button" id="free-tier-limit-upgrade">לשדרוג למנוי שנתי</button>
+        <button type="button" id="upgrade-plan-one-time" class="upgrade-plan-btn" data-i18n="upgrade_modal_one_time_btn">תמיכה חד-פעמית (100 ש"ח) – 20 חיפושים לניצול חופשי (ללא הגבלת זמן) ווורד ללא הגבלה</button>
+        <button type="button" id="upgrade-plan-annual" class="upgrade-plan-btn" data-i18n="upgrade_modal_annual_btn">מנוי שנתי מומלץ (220 ש"ח) – 25 חיפושים מתחדשים בכל חודש ווורד ללא הגבלה</button>
         <button type="button" id="free-tier-limit-close" data-i18n="free_tier_limit_close">סגור</button>
       </div>
     </div>
@@ -6463,9 +6503,9 @@
       <p id="upload-status" class="mt-1 text-sm hidden"></p>
     </footer>
 
-  <!-- BETA: free-tier lifetime search cap (production default: 3). Revert to 3 after beta testing. -->
-  <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 3;</script>
-  <script src="auth-subscription.js?v=20260628a"></script>
+  <!-- Free-tier lifetime search cap — must match api/tier-limits.js (1 live search). -->
+  <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 1;</script>
+  <script src="auth-subscription.js?v=20260712a"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250701"></script>
   <script src="hebrew-topic-match.js?v=20250622a"></script>

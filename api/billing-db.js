@@ -294,19 +294,33 @@ async function activatePaidSubscription(options) {
   const userId = opts.userId;
   const email = opts.email;
   const planType = opts.planType || 'pro';
-  const expiresAt = opts.expiresAt;
+  const expiresAt = opts.expiresAt !== undefined ? opts.expiresAt : null;
   const autoRenew = opts.autoRenew !== false;
+  const billingCycle = opts.billingCycle || (planType === 'standard' ? 'one_time' : 'yearly');
 
   if (!userId) throw new Error('activatePaidSubscription requires userId');
 
-  const subRow = await upsertSubscriptionRow(userId, Object.assign({
+  const patch = Object.assign({
     plan_type: planType,
     is_trial: false,
     expires_at: expiresAt,
     auto_renew: autoRenew,
-  }, buildBillingContactPatch(opts)));
+  }, buildBillingContactPatch(opts));
 
-  log('activated', { userId: userId, email: email || undefined, planType: planType, expiresAt: expiresAt });
+  // Fresh paid quota after purchase (20 lifetime / 25 monthly depending on plan).
+  if (opts.searchCountMonthly != null || opts.resetSearchCount) {
+    patch.search_count_monthly = opts.searchCountMonthly != null ? opts.searchCountMonthly : 0;
+  }
+
+  const subRow = await upsertSubscriptionRow(userId, patch);
+
+  log('activated', {
+    userId: userId,
+    email: email || undefined,
+    planType: planType,
+    billingCycle: billingCycle,
+    expiresAt: expiresAt,
+  });
   return subRow;
 }
 

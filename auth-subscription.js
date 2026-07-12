@@ -16,7 +16,11 @@
   /** Permanent PRO tier — must match api/subscription.js PRO_USERS. */
   var PRO_USERS = ['alon1971@gmail.com'];
   /** Pro monthly search cap — must stay in sync with api/tier-limits.js */
-  var PRO_MONTHLY_SEARCH_LIMIT = 30;
+  var PRO_MONTHLY_SEARCH_LIMIT = 25;
+  /** One-time support lifetime search cap — must stay in sync with api/tier-limits.js */
+  var STANDARD_LIFETIME_SEARCH_LIMIT = 20;
+  /** Free-tier Word download lifetime cap */
+  var TRIAL_WORD_DOWNLOAD_LIMIT = 5;
   /** Google display names that map to a PRO account when email is absent from the session. */
   var PRO_DISPLAY_NAMES = ['alon yerushalmy'];
 
@@ -31,7 +35,7 @@
   /**
    * Free-tier lifetime search cap — must stay in sync with api/tier-limits.js
    * and window.__WALDROF_TRIAL_SEARCH_LIMIT__ in index.html.
-   * Free tier default: 3 live searches (lifetime).
+   * Free tier default: 1 live search (lifetime).
    */
   function resolveTrialLifetimeSearchLimit() {
     if (trialSearchLimitFromServer != null) return trialSearchLimitFromServer;
@@ -43,32 +47,36 @@
       var fromRuntime = Number(global.__WALDROF_RUNTIME_CONFIG__.trialSearchLimit);
       if (Number.isFinite(fromRuntime) && fromRuntime > 0) return Math.floor(fromRuntime);
     }
-    return 3;
+    return 1;
   }
 
   var TIERS = {
     trial: {
       id: 'trial',
       lifetimeLimit: resolveTrialLifetimeSearchLimit(),
-      wordDownloadLimit: 5,
-      wordDownloadPeriod: 'monthly',
+      wordDownloadLimit: TRIAL_WORD_DOWNLOAD_LIMIT,
+      wordDownloadPeriod: 'lifetime',
       monthlyLimit: null,
       displayUnlimited: false,
       prices: { monthly: 0, yearly: 0 },
     },
+    /** One-time support (100 ₪) — 20 searches lifetime, unlimited Word. */
     standard: {
       id: 'standard',
-      monthlyLimit: 300,
-      lifetimeLimit: null,
+      monthlyLimit: null,
+      lifetimeLimit: STANDARD_LIFETIME_SEARCH_LIMIT,
+      wordDownloadLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 49, yearly: 350 },
+      prices: { monthly: null, yearly: 100 },
     },
+    /** Annual subscription (220 ₪) — 25 searches/month, unlimited Word. */
     pro: {
       id: 'pro',
       monthlyLimit: PRO_MONTHLY_SEARCH_LIMIT,
       lifetimeLimit: null,
+      wordDownloadLimit: null,
       displayUnlimited: false,
-      prices: { monthly: 49, yearly: 350 },
+      prices: { monthly: null, yearly: 220 },
     },
     school: {
       id: 'school',
@@ -101,11 +109,13 @@
   var billingCheckoutUrl = '/api/billing/checkout';
   var MAKE_UPGRADE_WEBHOOK_URL = 'https://hook.eu1.make.com/atopa4q5ewidxqlwwe0e3lkyr2mzcf2g';
   /**
-   * Fixed Grow checkout page — the single, canonical Fallback/Grow upgrade route.
-   * Clicking "upgrade" navigates straight here so it always reaches a valid payment
-   * page and never fails on a dynamic webhook lookup. Keep in sync with api/env.js.
+   * Grow checkout links — one-time support (100 ₪) and annual (220 ₪).
+   * Keep in sync with api/env.js and the upgrade modal buttons.
    */
-  var GROW_UPGRADE_URL = 'https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg';
+  var GROW_ONE_TIME_URL = 'https://pay.grow.link/OTAwMDc~8e58f88e567929a25776603bb5f1ef7e-MzU5NTU4Ng';
+  var GROW_ANNUAL_URL = 'https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg';
+  /** @deprecated alias — annual Grow URL (backward compatible). */
+  var GROW_UPGRADE_URL = GROW_ANNUAL_URL;
 
   function applyRuntimeBillingConfig(cfg) {
     if (!cfg || typeof cfg !== 'object') return;
@@ -117,10 +127,16 @@
       var makeUrl = String(cfg.makeUpgradeWebhookUrl).trim();
       if (/^https?:\/\//i.test(makeUrl)) MAKE_UPGRADE_WEBHOOK_URL = makeUrl;
     }
-    // Allow Render env (GROW_UPGRADE_URL) to override the canonical Grow checkout link.
-    if (cfg.growUpgradeUrl) {
-      var growUrl = String(cfg.growUpgradeUrl).trim();
-      if (/^https?:\/\//i.test(growUrl)) GROW_UPGRADE_URL = growUrl;
+    if (cfg.growOneTimeUrl) {
+      var oneTime = String(cfg.growOneTimeUrl).trim();
+      if (/^https?:\/\//i.test(oneTime)) GROW_ONE_TIME_URL = oneTime;
+    }
+    if (cfg.growAnnualUrl || cfg.growUpgradeUrl) {
+      var annual = String(cfg.growAnnualUrl || cfg.growUpgradeUrl).trim();
+      if (/^https?:\/\//i.test(annual)) {
+        GROW_ANNUAL_URL = annual;
+        GROW_UPGRADE_URL = annual;
+      }
     }
     if (cfg.trialSearchLimit != null) {
       var n = Number(cfg.trialSearchLimit);
@@ -929,6 +945,7 @@
     }
     if (hasPaidSubscription()) {
       var paidTier = getTierConfig(authState.planType || authState.tier);
+      if (paidTier.lifetimeLimit != null) return paidTier.lifetimeLimit;
       if (paidTier.monthlyLimit != null) return paidTier.monthlyLimit;
       return null;
     }
@@ -1503,9 +1520,11 @@
   }
 
   /** Best-effort lead capture to Make — never blocks or fails the upgrade navigation. */
-  function notifyMakeUpgradeLead(email) {
+  function notifyMakeUpgradeLead(email, planKey) {
     var webhookUrl = String(MAKE_UPGRADE_WEBHOOK_URL || '').trim();
     if (!email || !/^https?:\/\//i.test(webhookUrl)) return;
+    var plan = planKey === 'one_time' ? 'one_time_support' : 'annual_pro';
+    var price = planKey === 'one_time' ? 100 : 220;
     try {
       fetch(webhookUrl, {
         method: 'POST',
@@ -1515,30 +1534,29 @@
           email: email,
           name: getUpgradeUserFullName(),
           phone: getUpgradeUserPhone() || '0500000000',
-          plan: 'annual_pro',
-          price: 350,
+          plan: plan,
+          price: price,
         }),
       }).catch(function () { /* lead capture is optional */ });
     } catch (e) { /* lead capture is optional */ }
   }
 
-  function startMakeUpgradeCheckout(userEmail, newTab) {
+  function startMakeUpgradeCheckout(userEmail, newTab, planKey) {
     var email = normalizeEmail(userEmail);
-    var checkoutUrl = String(GROW_UPGRADE_URL || '').trim();
-    // The Grow link is the single, fixed Fallback/Grow upgrade route — never derive it
-    // from a webhook response, so the click always lands on the correct payment page.
+    var plan = planKey === 'one_time' ? 'one_time' : 'annual';
+    var checkoutUrl = String(plan === 'one_time' ? GROW_ONE_TIME_URL : GROW_ANNUAL_URL || GROW_UPGRADE_URL || '').trim();
     if (!/^https?:\/\//i.test(checkoutUrl)) {
       closeCheckoutTab(newTab);
-      console.error('[upgrade] GROW_UPGRADE_URL is not configured:', checkoutUrl);
+      console.error('[upgrade] Grow checkout URL is not configured:', checkoutUrl, plan);
       return Promise.reject(new Error(t('paywall_upgrade_error')));
     }
 
-    notifyMakeUpgradeLead(email);
+    notifyMakeUpgradeLead(email, plan);
 
     var popupBlocked = !newTab;
     if (popupBlocked) {
       global.location.href = checkoutUrl;
-      return Promise.resolve({ url: checkoutUrl });
+      return Promise.resolve({ url: checkoutUrl, plan: plan });
     }
     try {
       newTab.location.href = checkoutUrl;
@@ -1547,7 +1565,24 @@
       showContactToast(t('paywall_upgrade_popup_blocked'));
       global.location.href = checkoutUrl;
     }
-    return Promise.resolve({ url: checkoutUrl });
+    return Promise.resolve({ url: checkoutUrl, plan: plan });
+  }
+
+  /** Open a Grow checkout link in a new tab (upgrade modal purchase buttons). */
+  function openGrowCheckout(planKey) {
+    var plan = planKey === 'one_time' ? 'one_time' : 'annual';
+    var checkoutUrl = String(plan === 'one_time' ? GROW_ONE_TIME_URL : GROW_ANNUAL_URL || GROW_UPGRADE_URL || '').trim();
+    if (!/^https?:\/\//i.test(checkoutUrl)) {
+      showContactToast(t('paywall_upgrade_error'), 'error');
+      return;
+    }
+    var email = getUpgradeUserEmail();
+    if (email) notifyMakeUpgradeLead(email, plan);
+    var opened = global.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      showContactToast(t('paywall_upgrade_popup_blocked'));
+      global.location.href = checkoutUrl;
+    }
   }
 
   function mockUpgrade(tierId, billingCycle) {
@@ -1584,6 +1619,9 @@
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
     var used = getSearchesUsed();
     var limit = getEffectiveLimit();
+    if (limit == null) {
+      return { allowed: true, unlimited: true, usage: used, limit: null };
+    }
     if (used >= limit) {
       return { allowed: false, reason: 'limit', usage: used, limit: limit };
     }
@@ -1667,7 +1705,8 @@
       if (data && data.fallback) {
         var usage = readUsage();
         var tier = normalizeTierId(authState.tier);
-        if (tier === 'trial') {
+        var lifetimeTier = tier === 'trial' || tier === 'standard';
+        if (lifetimeTier) {
           usage.lifetime = (Number(usage.lifetime) || 0) + 1;
           usage.count = usage.lifetime;
         } else {
@@ -1833,10 +1872,14 @@
 
   function showFreeTierLimitModal() {
     var el = document.getElementById('free-tier-limit-modal');
+    var title = document.getElementById('free-tier-limit-title');
+    if (title) title.textContent = t('upgrade_modal_title');
     var msg = document.getElementById('free-tier-limit-message');
-    if (msg) msg.textContent = t('free_tier_limit_message');
-    var upgradeBtn = document.getElementById('free-tier-limit-upgrade');
-    if (upgradeBtn) upgradeBtn.textContent = t('free_tier_limit_upgrade');
+    if (msg) msg.textContent = t('upgrade_modal_body');
+    var oneTimeBtn = document.getElementById('upgrade-plan-one-time');
+    if (oneTimeBtn) oneTimeBtn.textContent = t('upgrade_modal_one_time_btn');
+    var annualBtn = document.getElementById('upgrade-plan-annual');
+    if (annualBtn) annualBtn.textContent = t('upgrade_modal_annual_btn');
     var closeBtn = document.getElementById('free-tier-limit-close');
     if (closeBtn) closeBtn.textContent = t('free_tier_limit_close');
     if (el) {
@@ -2228,7 +2271,7 @@
     }
     var newTab = global.open('about:blank', '_blank');
     setPricingUpgradeButtonLoading(true);
-    startMakeUpgradeCheckout(userEmail, newTab)
+    startMakeUpgradeCheckout(userEmail, newTab, 'annual')
       .then(function () {
         setPricingUpgradeButtonLoading(false);
       })
@@ -2236,6 +2279,15 @@
         setPricingUpgradeButtonLoading(false);
         showContactToast(t('paywall_upgrade_error'), 'error');
       });
+  }
+
+  function handleUpgradeModalPlanClick(planKey) {
+    if (!authState.isAuthenticated) {
+      hideFreeTierLimitModal();
+      showAuthOverlay();
+      return;
+    }
+    openGrowCheckout(planKey);
   }
 
   function renderPricingComparisonTable() {
@@ -2587,10 +2639,23 @@
 
     var freeTierClose = document.getElementById('free-tier-limit-close');
     if (freeTierClose) freeTierClose.addEventListener('click', hideFreeTierLimitModal);
-    var freeTierUpgrade = document.getElementById('free-tier-limit-upgrade');
-    if (freeTierUpgrade) freeTierUpgrade.addEventListener('click', handlePricingUpgradeClick);
     var freeTierBackdrop = document.getElementById('free-tier-limit-backdrop');
     if (freeTierBackdrop) freeTierBackdrop.addEventListener('click', hideFreeTierLimitModal);
+    var upgradeOneTime = document.getElementById('upgrade-plan-one-time');
+    if (upgradeOneTime) {
+      upgradeOneTime.addEventListener('click', function () {
+        handleUpgradeModalPlanClick('one_time');
+      });
+    }
+    var upgradeAnnual = document.getElementById('upgrade-plan-annual');
+    if (upgradeAnnual) {
+      upgradeAnnual.addEventListener('click', function () {
+        handleUpgradeModalPlanClick('annual');
+      });
+    }
+    // Legacy single upgrade button (if present in older markup).
+    var freeTierUpgrade = document.getElementById('free-tier-limit-upgrade');
+    if (freeTierUpgrade) freeTierUpgrade.addEventListener('click', handlePricingUpgradeClick);
 
     var identityInput = document.getElementById('identity-email-input');
     if (identityInput) {

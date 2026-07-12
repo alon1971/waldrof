@@ -1,6 +1,7 @@
 /**
- * POST /api/webhooks/payment-success — Make.com payment gateway callback.
- * Payload: { email, name, phone, plan } (e.g. plan: "annual_pro")
+ * POST /api/webhooks/payment-success — Make.com / Grow payment gateway callback.
+ * Payload: { email, name, phone, plan }
+ *   plan examples: "annual_pro", "one_time_support", "standard", "pro"
  */
 const env = require('./env');
 const billingDb = require('./billing-db');
@@ -26,15 +27,40 @@ function assertAuthorized(req) {
   throw err;
 }
 
+/**
+ * Map Grow / Make plan labels to product tiers:
+ *   standard — one-time support (100 ₪): 20 lifetime searches, no expiry
+ *   pro      — annual subscription (220 ₪): 25 searches/month, 1-year expiry
+ */
 function parsePlan(plan) {
   const raw = String(plan || 'annual_pro').trim().toLowerCase();
-  let planType = 'pro';
 
-  if (raw.includes('standard') || raw.includes('educator')) {
-    planType = 'standard';
+  const isOneTime =
+    raw.includes('standard') ||
+    raw.includes('educator') ||
+    raw.includes('one_time') ||
+    raw.includes('onetime') ||
+    raw.includes('one-time') ||
+    raw.includes('support') ||
+    raw.includes('100');
+
+  if (isOneTime && !raw.includes('annual') && !raw.includes('year') && !raw.includes('220')) {
+    return {
+      planType: 'standard',
+      billingCycle: 'one_time',
+      autoRenew: false,
+      expiresAt: null,
+      resetSearchCount: true,
+    };
   }
 
-  return { planType: planType };
+  return {
+    planType: 'pro',
+    billingCycle: 'yearly',
+    autoRenew: true,
+    expiresAt: expiresAtOneYearFromNow(),
+    resetSearchCount: true,
+  };
 }
 
 function expiresAtOneYearFromNow() {
@@ -73,25 +99,31 @@ async function handlePaymentSuccessRequest(req, body) {
   }
 
   const parsed = parsePlan(plan);
-  const expiresAt = expiresAtOneYearFromNow();
 
-  const subRow = await billingDb.activatePaidSubscription({
+  const activateOpts = {
     userId: userId,
     email: email,
     fullName: name,
     phone: phone,
     planType: parsed.planType,
-    expiresAt: expiresAt,
-    autoRenew: true,
-  });
+    expiresAt: parsed.expiresAt,
+    autoRenew: parsed.autoRenew,
+    billingCycle: parsed.billingCycle,
+  };
+  if (parsed.resetSearchCount) {
+    activateOpts.searchCountMonthly = 0;
+  }
+
+  const subRow = await billingDb.activatePaidSubscription(activateOpts);
 
   log('activated', {
     userId: userId,
     email: email,
     plan: plan,
     planType: parsed.planType,
+    billingCycle: parsed.billingCycle,
     phone: phone || undefined,
-    expiresAt: expiresAt,
+    expiresAt: parsed.expiresAt,
   });
 
   return {
@@ -99,7 +131,8 @@ async function handlePaymentSuccessRequest(req, body) {
     userId: userId,
     email: email,
     planType: parsed.planType,
-    expiresAt: expiresAt,
+    billingCycle: parsed.billingCycle,
+    expiresAt: parsed.expiresAt,
     subscription: subRow,
   };
 }
