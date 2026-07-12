@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260712f" />
+  <meta name="waldrof-build" content="20260712g" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
@@ -26,8 +26,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712f" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
-  <script src="i18n-core.js?v=20260712f"></script>
+  <script src="languages.js?v=20260712g" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20260712g"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1122,55 +1122,68 @@
     .back-to-home-btn i {
       color: var(--home-accent-dark, #557354);
     }
-    /* Floating back — physical LEFT only. Independent of sticky chrome. */
-    #btn-back-to-home-fixed {
-      position: fixed !important;
-      top: 15px !important;
-      left: 20px !important;
-      right: auto !important;
-      inset-inline-start: auto !important;
-      inset-inline-end: auto !important;
-      z-index: 9999 !important;
-      max-width: min(42vw, 12.5rem);
-      box-shadow: 0 6px 18px rgba(63, 52, 44, 0.12);
-      background: rgba(255, 255, 255, 0.96);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-    }
-    #btn-back-to-home-fixed > span {
-      overflow: hidden;
-      text-overflow: ellipsis;
+    /* Inline navbar back button — terracotta pill, first in the RTL nav row. */
+    .nav-back-home-btn,
+    #btn-nav-back-home,
+    #header-compact-back-home {
+      appearance: none;
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      border-radius: 9999px;
+      border: 1px solid #8B4A32 !important;
+      background: linear-gradient(135deg, #C06A45 0%, #A65D3F 55%, #8F4E35 100%) !important;
+      color: #fff !important;
+      font-weight: 700 !important;
+      box-shadow: 0 2px 8px rgba(143, 78, 53, 0.28);
+      cursor: pointer;
       white-space: nowrap;
+      transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
     }
-    #btn-back-to-home-fixed.hidden,
-    body.is-home-view #btn-back-to-home-fixed {
-      display: none !important;
+    .nav-back-home-btn:hover,
+    .nav-back-home-btn:focus-visible,
+    #btn-nav-back-home:hover,
+    #btn-nav-back-home:focus-visible,
+    #header-compact-back-home:hover,
+    #header-compact-back-home:focus-visible {
+      background: linear-gradient(135deg, #A65D3F 0%, #8F4E35 100%) !important;
+      color: #fff !important;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(143, 78, 53, 0.34);
+      outline: none;
+    }
+    .nav-back-home-btn i,
+    #btn-nav-back-home i,
+    #header-compact-back-home i {
+      color: #fff !important;
+    }
+    #btn-nav-back-home {
+      padding: 0.35rem 0.85rem;
+      font-size: 0.78rem;
+      min-height: 2rem;
+      order: -1; /* first in the RTL flex row */
+    }
+    #header-compact-back-home {
+      padding: 0.28rem 0.75rem;
+      font-size: 0.72rem;
+      min-height: 1.85rem;
+      order: -1;
     }
     body.is-home-view .app-top-nav,
-    body.is-home-view #header-compact-nav {
+    body.is-home-view #header-compact-nav,
+    body.is-home-view .nav-back-home-btn {
       display: none !important;
     }
     body.is-home-view #global-word-export-bar {
       display: none !important;
     }
-    /* Keep sticky chrome below the floating action pills so they never collide. */
-    body:not(.is-home-view) .app-site-chrome {
-      top: 3.35rem;
+    /* Sticky chrome flush to the top; spacer reserves content clearance. */
+    .app-site-chrome {
+      top: 0 !important;
     }
-    body.is-home-view .app-site-chrome {
-      top: 0;
-    }
-    @media (max-width: 640px) {
-      #btn-back-to-home-fixed {
-        max-width: min(46vw, 11rem);
-        padding: 0.4rem 0.65rem;
-        font-size: 0.78rem;
-        left: 12px !important;
-        top: 12px !important;
-      }
-      body:not(.is-home-view) .app-site-chrome {
-        top: 3.1rem;
-      }
+    body:not(.is-home-view) #app-main {
+      padding-top: 0.75rem;
     }
 
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
@@ -2814,15 +2827,15 @@
       margin: 0 0 1rem 0;
       pointer-events: auto !important;
     }
-    /* Global Word export — physical RIGHT only. Independent of sticky chrome. */
+    /* Global Word export — physical top-right, below sticky chrome so it never covers nav. */
     #global-word-export-bar {
       position: fixed !important;
-      top: 15px !important;
+      top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem) !important;
       right: 20px !important;
       left: auto !important;
       inset-inline-start: auto !important;
       inset-inline-end: auto !important;
-      z-index: 9999 !important;
+      z-index: 1450 !important;
       pointer-events: auto !important;
       width: auto;
       max-width: min(42vw, 12.5rem);
@@ -2864,7 +2877,7 @@
     body.auth-required #global-word-export-bar { display: none !important; }
     @media (max-width: 640px) {
       #global-word-export-bar {
-        top: 12px !important;
+        top: calc(var(--app-site-chrome-height, 6.75rem) + 0.45rem) !important;
         bottom: auto !important;
         right: 12px !important;
         left: auto !important;
@@ -4081,8 +4094,12 @@
       display: block;
       width: 100%;
       height: var(--app-site-chrome-height, 11rem);
+      min-height: var(--app-site-chrome-height, 11rem);
       pointer-events: none;
       flex-shrink: 0;
+    }
+    body:not(.is-home-view) #app-shell {
+      padding-top: 0;
     }
     .app-shell {
       display: block;
@@ -5570,9 +5587,13 @@
     </div>
   </header>
 
-  <!-- Sticky compact navbar: full function buttons while scrolled (no back button here). -->
+  <!-- Sticky compact navbar: full function buttons while scrolled. -->
   <nav id="header-compact-nav" class="header-compact-nav" data-i18n-aria="header_compact_nav_aria" aria-hidden="true">
     <div class="header-compact-nav-inner">
+      <button type="button" id="header-compact-back-home" class="header-compact-nav-btn nav-back-home-btn touch-btn" data-back-to-home>
+        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+      </button>
       <button type="button" id="header-compact-edit-grade" class="header-compact-nav-btn touch-btn">
         <span data-i18n="header_compact_edit_grade">עריכת כיתה</span>
       </button>
@@ -5598,10 +5619,16 @@
 
   <div id="cloud-status" class="hidden max-w-6xl mx-auto px-4 pt-4"></div>
 
-  <!-- Top navigation: wizard steps + permanent repository entry (full mode only) -->
+  <!-- Top navigation: back home + wizard steps + permanent repository entry (full mode only) -->
   <nav class="app-top-nav bg-cream/95 backdrop-blur border-b border-gold/20 shadow-sm">
     <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 py-1.5 sm:py-2 safe-x">
       <div class="app-top-nav-inner">
+        <button type="button" id="btn-nav-back-home"
+          class="step-pill nav-back-home-btn touch-btn inline-flex items-center justify-center gap-1.5 rounded-full text-sm sm:text-xs cursor-pointer"
+          data-back-to-home data-i18n-aria="back_to_home">
+          <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+          <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+        </button>
         <div class="flex flex-wrap gap-2 sm:gap-2 justify-center items-stretch" id="step-progress" data-i18n-aria="nav_wizard_aria"></div>
         <button type="button" id="btn-nav-general-search"
           class="step-pill step-pill-general-search touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full text-sm sm:text-xs cursor-pointer"
@@ -5633,10 +5660,6 @@
   </nav>
   </div>
   <div id="app-site-chrome-spacer" class="app-site-chrome-spacer" aria-hidden="true"></div>
-  <button type="button" id="btn-back-to-home-fixed" class="back-to-home-btn hidden" data-back-to-home aria-label="חזרה לעמוד הבית">
-    <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
-    <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
-  </button>
 
   <div id="app-shell" class="app-shell">
   <div id="app-main" class="app-main">
@@ -21194,11 +21217,9 @@
       var onHome = isHomeView();
       document.body.classList.toggle('is-home-view', onHome);
       if (onHome) setHeaderCompact(false);
-      var fixedBtn = document.getElementById('btn-back-to-home-fixed');
-      if (fixedBtn) {
-        fixedBtn.classList.toggle('hidden', onHome);
-        fixedBtn.setAttribute('aria-hidden', onHome ? 'true' : 'false');
-      }
+      requestAnimationFrame(function () {
+        syncProductTabsStickyLayout(true);
+      });
     }
 
     function hideHomeView() {
@@ -23008,9 +23029,9 @@
       var spacer = document.getElementById('app-site-chrome-spacer');
       var tabsNav = document.getElementById('workspace-products-nav');
       if (siteChrome) {
-        /* Use bottom edge of fixed chrome (includes top offset under floating buttons). */
-        var occupied = Math.ceil(siteChrome.getBoundingClientRect().bottom);
-        if (!occupied || occupied < 1) occupied = siteChrome.offsetHeight;
+        /* Bottom edge of fixed chrome = space content must clear. */
+        var occupied = Math.max(siteChrome.offsetHeight, Math.ceil(siteChrome.getBoundingClientRect().bottom));
+        if (!occupied || occupied < 1) occupied = siteChrome.offsetHeight || 108;
         root.style.setProperty('--app-site-chrome-height', occupied + 'px');
         root.style.setProperty('--app-sticky-nav-height', occupied + 'px');
         if (spacer) spacer.style.height = occupied + 'px';
@@ -23139,7 +23160,6 @@
       var compactNav = document.getElementById('header-compact-nav');
       if (compactNav) {
         compactNav.setAttribute('aria-hidden', compact ? 'false' : 'true');
-        /* Hard-ensure the sticky function row stays painted and clickable. */
         if (compact) {
           compactNav.style.display = 'block';
           compactNav.style.visibility = 'visible';
@@ -23149,13 +23169,6 @@
           compactNav.style.visibility = '';
           compactNav.style.opacity = '';
         }
-      }
-      /* Floating back stays left forever while off-home — never hide it for compact mode. */
-      var fixedBtn = document.getElementById('btn-back-to-home-fixed');
-      if (fixedBtn) {
-        var hideFixed = isHomeView();
-        fixedBtn.classList.toggle('hidden', hideFixed);
-        fixedBtn.setAttribute('aria-hidden', hideFixed ? 'true' : 'false');
       }
       requestAnimationFrame(function () {
         var newBottom = Math.ceil(siteChrome.getBoundingClientRect().bottom);
