@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260712a" />
+  <meta name="waldrof-build" content="20260712b" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
@@ -26,8 +26,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
-  <script src="i18n-core.js?v=20260712a"></script>
+  <script src="languages.js?v=20260712b" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20260712b"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -936,6 +936,198 @@
         width: 100%;
       }
     }
+
+    /* ===== Home portal landing ===== */
+    #home-view {
+      --home-ink: #333333;
+      --home-muted: rgba(51, 51, 51, 0.78);
+      --home-accent: #6b8f6a;
+      --home-accent-dark: #557354;
+      font-family: 'Heebo', system-ui, sans-serif;
+      color: var(--home-ink);
+    }
+    #home-view .home-hero {
+      position: relative;
+      overflow: hidden;
+      border-radius: 18px;
+      padding: clamp(2rem, 5vw, 3.4rem) clamp(1.1rem, 3vw, 2.2rem) clamp(2.2rem, 5vw, 3.2rem);
+      margin-bottom: 1.35rem;
+      text-align: center;
+      background:
+        radial-gradient(ellipse 90% 70% at 12% 18%, rgba(255, 186, 140, 0.34), transparent 58%),
+        radial-gradient(ellipse 80% 65% at 88% 22%, rgba(154, 206, 220, 0.32), transparent 55%),
+        radial-gradient(ellipse 70% 55% at 48% 92%, rgba(186, 214, 168, 0.28), transparent 60%),
+        linear-gradient(165deg, #fdfbf7 0%, #f7f1e8 42%, #f3ebe1 100%);
+      box-shadow: 0 8px 28px rgba(63, 52, 44, 0.06);
+    }
+    #home-view .home-hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.45;
+      background:
+        radial-gradient(circle at 22% 40%, rgba(255, 255, 255, 0.55) 0 1.5px, transparent 2.5px),
+        radial-gradient(circle at 70% 30%, rgba(255, 255, 255, 0.4) 0 1px, transparent 2px),
+        radial-gradient(circle at 55% 70%, rgba(255, 255, 255, 0.35) 0 1.2px, transparent 2.2px);
+      background-size: 140px 140px, 180px 180px, 120px 120px;
+    }
+    #home-view .home-hero-inner {
+      position: relative;
+      z-index: 1;
+      max-width: 46rem;
+      margin: 0 auto;
+    }
+    #home-view .home-hero-title {
+      margin: 0 0 0.7rem;
+      font-family: 'Heebo', system-ui, sans-serif;
+      font-size: clamp(1.75rem, 4.4vw, 2.65rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      color: #2c2c2c;
+    }
+    #home-view .home-hero-subtitle {
+      margin: 0 auto 1.15rem;
+      max-width: 36rem;
+      font-size: clamp(1rem, 2.2vw, 1.15rem);
+      line-height: 1.65;
+      color: var(--home-muted);
+      font-weight: 500;
+    }
+    #home-view .home-hero-guide {
+      margin: 0 auto;
+      max-width: 38rem;
+      padding: 0.95rem 1.15rem;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(63, 52, 44, 0.06);
+      box-shadow: 0 2px 10px rgba(63, 52, 44, 0.04);
+      font-size: 0.95rem;
+      line-height: 1.7;
+      color: #333;
+    }
+    #home-view .home-panel-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    @media (min-width: 640px) {
+      #home-view .home-panel-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    #home-view .home-panel-card {
+      appearance: none;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.65rem;
+      width: 100%;
+      min-height: 11.5rem;
+      text-align: start;
+      padding: 1.35rem 1.4rem;
+      border: 1px solid rgba(63, 52, 44, 0.07);
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 2px 12px rgba(63, 52, 44, 0.05);
+      cursor: pointer;
+      color: inherit;
+      font-family: inherit;
+      transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+    }
+    #home-view .home-panel-card:hover,
+    #home-view .home-panel-card:focus-visible {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 28px rgba(63, 52, 44, 0.09);
+      border-color: rgba(107, 143, 106, 0.35);
+      outline: none;
+    }
+    #home-view .home-panel-icon {
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(107, 143, 106, 0.12);
+      color: var(--home-accent-dark);
+      font-size: 1.15rem;
+    }
+    #home-view .home-panel-card:nth-child(2) .home-panel-icon {
+      background: rgba(154, 206, 220, 0.22);
+      color: #3f6f7a;
+    }
+    #home-view .home-panel-card:nth-child(3) .home-panel-icon {
+      background: rgba(255, 186, 140, 0.22);
+      color: #8a5a3a;
+    }
+    #home-view .home-panel-card:nth-child(4) .home-panel-icon {
+      background: rgba(186, 214, 168, 0.28);
+      color: #4d6b48;
+    }
+    #home-view .home-panel-title {
+      margin: 0;
+      font-size: 1.12rem;
+      font-weight: 700;
+      line-height: 1.35;
+      color: #2c2c2c;
+    }
+    #home-view .home-panel-desc {
+      margin: 0;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      color: var(--home-muted);
+      flex: 1;
+    }
+    #home-view .home-panel-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.25rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--home-accent-dark);
+    }
+
+    .back-to-home-bar {
+      display: flex;
+      align-items: center;
+      margin: 0 0 1rem;
+    }
+    .back-to-home-btn {
+      appearance: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 0.95rem;
+      border-radius: 999px;
+      border: 1px solid rgba(63, 52, 44, 0.12);
+      background: #fff;
+      color: #333;
+      font-family: 'Heebo', system-ui, sans-serif;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(63, 52, 44, 0.05);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+    .back-to-home-btn:hover,
+    .back-to-home-btn:focus-visible {
+      transform: translateY(-2px);
+      border-color: rgba(107, 143, 106, 0.4);
+      background: #fdfbf7;
+      outline: none;
+      box-shadow: 0 6px 14px rgba(63, 52, 44, 0.08);
+    }
+    .back-to-home-btn i {
+      color: var(--home-accent-dark, #557354);
+    }
+    body.is-home-view .app-top-nav {
+      display: none;
+    }
+
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
     .ws-crumb-link { color: #5C7D58; font-weight: 600; cursor: pointer; pointer-events: auto; }
     .ws-crumb-link:hover { text-decoration: underline; }
@@ -5447,7 +5639,7 @@
           class="step-pill step-pill-waldorf-sites touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
           data-i18n-aria="nav_waldorf_sites_aria">
           <i class="fa-solid fa-globe text-base sm:text-sm"></i>
-          <span data-i18n="nav_waldorf_sites">מאגר אתרי וולדורף</span>
+          <span data-i18n="nav_waldorf_sites">רשימת אתרים אנתרופוסופיים</span>
         </button>
         <div id="search-history-mount" class="search-history-nav-slot" data-i18n-aria="nav_search_history_aria"></div>
         <button type="button" id="btn-pedagogy-export-top"
@@ -5474,9 +5666,51 @@
     </div>
   </div>
 
-  <!-- ========== WIZARD ========== -->
-  <div id="wizard" class="w-full max-w-6xl mx-auto px-4 sm:px-6 pb-12 box-border">
+  <!-- ========== HOME PORTAL ========== -->
+  <div id="home-view" class="w-full max-w-6xl mx-auto px-4 sm:px-6 pb-16 box-border">
+    <section class="home-hero" aria-labelledby="home-hero-title">
+      <div class="home-hero-inner">
+        <h1 id="home-hero-title" class="home-hero-title" data-i18n="home_title">אתר המידע והמשאבים האנתרופוסופיים</h1>
+        <p class="home-hero-subtitle" data-i18n="home_subtitle">למחנכים/הורים ומתעניינים בחינוך וולדרוף ואנתרופוסופיה</p>
+        <p class="home-hero-guide" data-i18n="home_guide">בחרו כלי מהפאנל למטה: חיפוש ידע לפי כיתה ונושא, בניית מבנה תקופת לימוד, מאגר חומרים קהילתי, או רשימת אתרים אנתרופוסופיים מומלצים. כל מסלול נפתח בעמוד ייעודי — ותמיד אפשר לחזור לכאן בכפתור «חזרה לעמוד הבית».</p>
+      </div>
+    </section>
+    <div class="home-panel-grid" role="navigation" aria-label="פאנל ניווט ראשי">
+      <button type="button" class="home-panel-card" id="home-panel-live-search" data-home-nav="live-search">
+        <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-magnifying-glass"></i></span>
+        <h2 class="home-panel-title" data-i18n="home_panel_live_title">חיפוש ידע חי</h2>
+        <p class="home-panel-desc" data-i18n="home_panel_live_desc">בחירת כיתה ונושא, תמונת גיל, ומחקר פדגוגי חי עם תוצרים ומהות פדגוגית.</p>
+        <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
+      </button>
+      <button type="button" class="home-panel-card" id="home-panel-general-search" data-home-nav="general-search">
+        <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-magnifying-glass-chart"></i></span>
+        <h2 class="home-panel-title" data-i18n="home_panel_general_title">חיפוש כללי והמלצה למבנה תקופת לימוד</h2>
+        <p class="home-panel-desc" data-i18n="home_panel_general_desc">מחקר כללי על נושא והמלצה למבנה תקופה מלאה — כולל אפשרות לתכנון ל־15 יום.</p>
+        <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
+      </button>
+      <button type="button" class="home-panel-card" id="home-panel-community" data-home-nav="community">
+        <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-users-rays"></i></span>
+        <h2 class="home-panel-title" data-i18n="home_panel_community_title">מאגר קהילתי</h2>
+        <p class="home-panel-desc" data-i18n="home_panel_community_desc">חומרים שיתופיים ממחנכים ומחנכות — לפי כיתה, נושא ותיקיות קהילה.</p>
+        <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
+      </button>
+      <button type="button" class="home-panel-card" id="home-panel-sites" data-home-nav="waldorf-sites">
+        <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-globe"></i></span>
+        <h2 class="home-panel-title" data-i18n="home_panel_sites_title">רשימת אתרים אנתרופוסופיים</h2>
+        <p class="home-panel-desc" data-i18n="home_panel_sites_desc">פורטלים יציבים, פודקאסטים ומשאבים בינלאומיים — ללא קישורים שבורים לבתי ספר בודדים.</p>
+        <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
+      </button>
+    </div>
+  </div>
 
+  <!-- ========== WIZARD ========== -->
+  <div id="wizard" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 pb-12 box-border">
+    <div class="back-to-home-bar">
+      <button type="button" class="back-to-home-btn" data-back-to-home>
+        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+      </button>
+    </div>
     <!-- STEP 1 -->
     <section id="step-1" class="wizard-step">
       <div id="step-a-container" class="bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full max-w-xl mx-auto text-center box-border">
@@ -5587,6 +5821,12 @@
   <!-- ========== WORKSPACE (שלב ג׳ + רובריקות עצמאיות) ========== -->
   <div id="workspace" class="hidden">
     <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 mb-4 box-border">
+      <div class="back-to-home-bar">
+        <button type="button" class="back-to-home-btn" data-back-to-home>
+          <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+          <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+        </button>
+      </div>
       <div class="bg-white/80 rounded-2xl border border-gold/40 px-3 py-2.5 sm:px-4 sm:py-3 flex flex-wrap items-center justify-between gap-3 text-sm w-full box-border">
         <nav id="ws-breadcrumb" class="flex flex-wrap items-center gap-1.5 leading-relaxed" data-i18n-aria="breadcrumb_aria">
           <button type="button" id="ws-crumb-grade" class="ws-crumb-link touch-btn px-1 py-0.5 rounded" data-i18n="crumb_grade">כיתה</button>
@@ -5722,6 +5962,12 @@
 
   <!-- ========== GENERAL SEARCH (חיפוש כללי) ========== -->
   <div id="general-search-view" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 pb-16 box-border">
+    <div class="back-to-home-bar">
+      <button type="button" class="back-to-home-btn" data-back-to-home>
+        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+      </button>
+    </div>
     <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
       <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
         <i class="fa-solid fa-magnifying-glass-chart text-gold"></i>
@@ -5774,21 +6020,26 @@
     </div>
   </div>
 
-  <!-- ========== WALDORF SITES DIRECTORY (מאגר אתרי וולדורף) ========== -->
+  <!-- ========== WALDORF SITES DIRECTORY (רשימת אתרים אנתרופוסופיים) ========== -->
   <div id="waldorf-sites-view" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 pb-16 box-border">
+    <div class="back-to-home-bar">
+      <button type="button" class="back-to-home-btn" data-back-to-home>
+        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+      </button>
+    </div>
     <div class="waldorf-sites-panel w-full box-border p-4 sm:p-6 md:p-8">
       <header class="waldorf-sites-hero">
         <h2 class="waldorf-sites-hero-title">
           <i class="fa-solid fa-globe" aria-hidden="true"></i>
-          <span data-i18n="waldorf_sites_title">מאגר אתרי וולדורף</span>
+          <span data-i18n="waldorf_sites_title">רשימת אתרים אנתרופוסופיים</span>
         </h2>
-        <p class="waldorf-sites-intro" data-i18n="waldorf_sites_desc">אוסף חם ומדויק של אתרים, פודקאסטים, ארכיבים ובתי ספר — כל מה שמחנך ולדורף צריך במקום אחד. כל קישור נפתח בלשונית חדשה.</p>
+        <p class="waldorf-sites-intro" data-i18n="waldorf_sites_desc">אוסף מדויק של פורטלים יציבים, פודקאסטים ומשאבים בינלאומיים. למיפוי מוסדות בישראל — השתמשו בכרטיסיית מפת המוסדות הרשמית. כל קישור נפתח בלשונית חדשה.</p>
         <div class="waldorf-sites-filters" role="tablist" aria-label="סינון קטגוריות במאגר">
           <button type="button" class="waldorf-sites-filter-btn is-active" data-ws-filter="all" role="tab" aria-selected="true" data-i18n="waldorf_sites_filter_all">הכל</button>
           <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="il" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_il">אתרים בישראל</button>
           <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="podcasts" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_podcasts">פודקאסטים</button>
           <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="intl" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_intl">משאבים בינלאומיים</button>
-          <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="schools" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_schools">בתי ספר</button>
         </div>
       </header>
 
@@ -5842,7 +6093,7 @@
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-feather-pointed"></i></span>
               <div>
-                <h4 class="waldorf-site-title">דניאל זהבי — אנתרופוסופיה</h4>
+                <h4 class="waldorf-site-title">דניאל זהבי — אנתרופוסופיה וארכיב תרגומים</h4>
                 <div class="waldorf-site-badges">
                   <span class="waldorf-site-badge waldorf-site-badge--depth">מאמרי עומק</span>
                 </div>
@@ -5855,7 +6106,7 @@
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-newspaper"></i></span>
               <div>
-                <h4 class="waldorf-site-title">אדם עולם</h4>
+                <h4 class="waldorf-site-title">אדם עולם — מגזין דיגיטלי</h4>
                 <div class="waldorf-site-badges">
                   <span class="waldorf-site-badge waldorf-site-badge--depth">מאמרי עומק</span>
                 </div>
@@ -5863,6 +6114,19 @@
             </div>
             <p class="waldorf-site-desc">המגזין האנתרופוסופי הדיגיטלי בישראל המכיל עשרות מאמרי עומק ופדגוגיה.</p>
             <a class="waldorf-site-link" href="https://adamolam.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
+          </article>
+          <article class="waldorf-site-card">
+            <div class="waldorf-site-card-head">
+              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-map-location-dot"></i></span>
+              <div>
+                <h4 class="waldorf-site-title">אינדקס ומפת מוסדות הוולדורף המלא בישראל</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--portal">מפה רשמית</span>
+                </div>
+              </div>
+            </div>
+            <p class="waldorf-site-desc">עמוד המפות המתעדכן רשמית של מוסדות חינוך ולדורף בישראל — במקום קישורים לבתי ספר בודדים שעלולים להישבר.</p>
+            <a class="waldorf-site-link" href="https://www.antro.co.il/study/schools.html" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
         </div>
       </section>
@@ -6068,132 +6332,7 @@
         </div>
       </section>
 
-      <section class="waldorf-sites-category" data-ws-category="schools" aria-labelledby="waldorf-sites-cat-schools">
-        <h3 id="waldorf-sites-cat-schools" class="waldorf-sites-category-title">
-          <i class="fa-solid fa-school-flag" aria-hidden="true"></i>
-          <span data-i18n="waldorf_sites_cat_schools">בתי ספר ולדורף בישראל</span>
-        </h3>
-        <div class="waldorf-sites-grid">
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-tree"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית חינוך אלומות (שוהם)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר והגנים המופעלים ע״י עמותת גנאחר באזור חבל מודיעין ושוהם.</p>
-            <a class="waldorf-site-link" href="https://www.antro.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-leaf"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית ספר הרדוף</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר המוסד החינוכי ולדורף בהרדוף — יסודי ותיכון.</p>
-            <a class="waldorf-site-link" href="https://www.harduf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-mountain"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית ספר עודד (יודפת)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר האזורי עודד ביודפת.</p>
-            <a class="waldorf-site-link" href="https://www.odedwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-building"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית ספר אדם (ירושלים)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר ולדורף אדם בירושלים.</p>
-            <a class="waldorf-site-link" href="https://www.adam-school.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-spa"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית ספר תמר (הוד השרון)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר ולדורף תמר.</p>
-            <a class="waldorf-site-link" href="https://www.tamar-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-wheat-awn"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית ספר זורע (עמק יזרעאל)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר ולדורף בקיבוץ הזורע.</p>
-            <a class="waldorf-site-link" href="https://www.zoreawaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית ספר נטף (מודיעין)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר ולדורף נטף במודיעין.</p>
-            <a class="waldorf-site-link" href="https://www.natafwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-bell"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">בית ספר ענבלים (ראש פינה)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר עמותת חינוך ולדורף גליל גולן המפעילה את המוסד.</p>
-            <a class="waldorf-site-link" href="https://www.galil-golan.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-star"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">תיכון ולדורף זיו (ירושלים)</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--school">תיכון</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר התיכון האנתרופוסופי זיו.</p>
-            <a class="waldorf-site-link" href="https://www.ziv-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-        </div>
-      </section>
-    </div>
+          </div>
   </div>
   </div>
 
@@ -7294,12 +7433,18 @@
 
       const wizard = document.getElementById('wizard');
       const workspace = document.getElementById('workspace');
+      const home = document.getElementById('home-view');
       const step1 = document.getElementById('step-1');
       const step2 = document.getElementById('step-2');
-      if (wizard) wizard.classList.remove('hidden');
+      if (home) home.classList.remove('hidden');
+      if (wizard) wizard.classList.add('hidden');
       if (workspace) workspace.classList.add('hidden');
+      hideGeneralSearchView();
+      hideWaldorfSitesView();
       if (step1) step1.classList.remove('hidden');
       if (step2) step2.classList.add('hidden');
+      appState.navSection = 'home';
+      syncHomeChrome();
 
       const insightsPanel = document.getElementById('grade-insights-panel');
       if (insightsPanel) insightsPanel.classList.add('hidden');
@@ -7374,7 +7519,7 @@
 
     const appState = {
       step: 1,
-      navSection: 'wizard',
+      navSection: 'home',
       grade: null,
       gradeLabel: null,
       topic: null,
@@ -21069,6 +21214,81 @@
       return el && !el.classList.contains('hidden');
     }
 
+    function isHomeView() {
+      var el = document.getElementById('home-view');
+      return Boolean(el && !el.classList.contains('hidden'));
+    }
+
+    function syncHomeChrome() {
+      document.body.classList.toggle('is-home-view', isHomeView());
+    }
+
+    function hideHomeView() {
+      var el = document.getElementById('home-view');
+      if (el) el.classList.add('hidden');
+      syncHomeChrome();
+    }
+
+    function openHomeView() {
+      rememberNavScrollPosition(getNavScrollKey());
+      appState.navSection = 'home';
+      hideGeneralSearchView();
+      hideWaldorfSitesView();
+      hideAllWorkspacePanels();
+      var workspace = document.getElementById('workspace');
+      if (workspace) workspace.classList.add('hidden');
+      var wizard = document.getElementById('wizard');
+      if (wizard) wizard.classList.add('hidden');
+      var home = document.getElementById('home-view');
+      if (home) home.classList.remove('hidden');
+      syncHomeChrome();
+      updateNewResearchBarVisibility();
+      renderStepProgress();
+      updateTopNavButtons();
+      updateWorkspaceChrome();
+      persistActiveStep();
+      restoreNavScrollPosition('home');
+    }
+
+    function bindHomePortalNavigation() {
+      var root = document.getElementById('home-view');
+      if (root && root.getAttribute('data-home-nav-bound') !== '1') {
+        root.setAttribute('data-home-nav-bound', '1');
+        root.addEventListener('click', function (e) {
+          var card = e.target && e.target.closest ? e.target.closest('[data-home-nav]') : null;
+          if (!card || !root.contains(card)) return;
+          e.preventDefault();
+          rememberNavScrollPosition('home');
+          var dest = String(card.getAttribute('data-home-nav') || '').trim();
+          if (dest === 'live-search') {
+            hideHomeView();
+            goToStep(1, false);
+            restoreNavScrollPosition('step-1');
+            return;
+          }
+          if (dest === 'general-search') {
+            openGeneralSearchView();
+            return;
+          }
+          if (dest === 'community') {
+            openCommunityRepo();
+            return;
+          }
+          if (dest === 'waldorf-sites') {
+            openWaldorfSitesView();
+          }
+        });
+      }
+      if (document.body.getAttribute('data-back-home-bound') === '1') return;
+      document.body.setAttribute('data-back-home-bound', '1');
+      document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('[data-back-to-home]') : null;
+        if (!btn) return;
+        e.preventDefault();
+        openHomeView();
+      });
+    }
+
     function isWaldorfSitesView() {
       var el = document.getElementById('waldorf-sites-view');
       return Boolean(el && !el.classList.contains('hidden'));
@@ -21166,6 +21386,7 @@
       }
       rememberNavScrollPosition(getNavScrollKey());
       appState.navSection = 'waldorf-sites';
+      hideHomeView();
       document.getElementById('wizard').classList.add('hidden');
       document.getElementById('workspace').classList.add('hidden');
       hideGeneralSearchView();
@@ -22443,6 +22664,7 @@
       syncTopicFromInput();
       appState.navSection = 'phase-c';
       appState.step = 3;
+      hideHomeView();
       showWorkspaceShell();
       hideGeneralSearchView();
       hideWaldorfSitesView();
@@ -22462,6 +22684,7 @@
 
     function openGeneralSearchView() {
       appState.navSection = 'general-search';
+      hideHomeView();
       hideGeneralSearchArchiveSuggestion();
       document.getElementById('wizard').classList.add('hidden');
       document.getElementById('workspace').classList.add('hidden');
@@ -22744,6 +22967,7 @@
       if (communityBtn) communityBtn.classList.toggle('active', isCommunityView());
       if (generalSearchBtn) generalSearchBtn.classList.toggle('active', isGeneralSearchView());
       if (waldorfSitesBtn) waldorfSitesBtn.classList.toggle('active', isWaldorfSitesView());
+      syncHomeChrome();
     }
 
     function renderWorkspaceBreadcrumb() {
@@ -24199,6 +24423,10 @@
       options = options || {};
       navSection = navSection || 'wizard';
       step = parseInt(step, 10);
+      if (navSection === 'home') {
+        openHomeView();
+        return;
+      }
       if (navSection === 'community') {
         openCommunityRepo();
         if (catalogState.view && catalogState.view !== 'grades') {
@@ -24442,7 +24670,8 @@
 
     function getNavScrollKey() {
       if (isWaldorfSitesView() || appState.navSection === 'waldorf-sites') return 'waldorf-sites';
-      if (isGeneralSearchView()) return 'general-search';
+      if (isHomeView() || appState.navSection === 'home') return 'home';
+      if (isGeneralSearchView() || appState.navSection === 'general-search') return 'general-search';
       if (isPhaseCView() || (isWorkspaceOpen() && appState.navSection !== 'community')) return 'phase-c';
       if (appState.navSection === 'community') return 'community';
       return 'step-' + String(appState.step || 1);
@@ -24659,6 +24888,7 @@
       appState.wizardTopicNavReady = false;
       appState.step = 1;
       appState.navSection = 'wizard';
+      hideHomeView();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
       document.querySelectorAll('.wizard-step').forEach(function (el) { el.classList.add('hidden'); });
@@ -24695,6 +24925,7 @@
     function ensureStepBWizardView() {
       appState.step = 2;
       appState.navSection = 'wizard';
+      hideHomeView();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
       document.getElementById('step-1').classList.remove('hidden');
@@ -24732,6 +24963,7 @@
     }
 
     function showWorkspaceShell() {
+      hideHomeView();
       document.getElementById('wizard').classList.add('hidden');
       hideGeneralSearchView();
       hideWaldorfSitesView();
@@ -24741,6 +24973,7 @@
 
     function openCommunityRepo() {
       syncTopicFromInput();
+      hideHomeView();
       hideGeneralSearchView();
       hideWaldorfSitesView();
       appState.navSection = 'community';
@@ -24759,6 +24992,10 @@
     function updateNewResearchBarVisibility() {
       var bar = document.getElementById('new-research-bar');
       if (!bar) return;
+      if (isHomeView()) {
+        bar.classList.add('hidden');
+        return;
+      }
       var inWorkspace = !document.getElementById('workspace').classList.contains('hidden');
       var show = inWorkspace || appState.grade || appState.step > 1;
       bar.classList.toggle('hidden', !show);
@@ -24795,6 +25032,7 @@
 
       appState.step = n;
       appState.navSection = 'wizard';
+      hideHomeView();
       hideGeneralSearchView();
       hideWaldorfSitesView();
       resetProductTabsNeutral();
@@ -28048,6 +28286,7 @@
       abortAllInlineExpansions();
       if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.reset();
       document.getElementById('workspace').classList.add('hidden');
+      hideHomeView();
       hideGeneralSearchView();
       hideWaldorfSitesView();
       document.getElementById('wizard').classList.remove('hidden');
@@ -28321,6 +28560,7 @@
       bindWizardNavClick(document.getElementById('btn-nav-community'), function () { openCommunityRepo(); });
       bindWizardNavClick(document.getElementById('btn-nav-general-search'), function () { openGeneralSearchView(); });
       bindWizardNavClick(document.getElementById('btn-nav-waldorf-sites'), function () { openWaldorfSitesView(); });
+      bindHomePortalNavigation();
       window.addEventListener('hashchange', function () {
         repairCorruptedProductTabHash();
         var tabFromHash = readProductTabFromLocationHash();
