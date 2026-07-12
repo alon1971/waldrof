@@ -26,7 +26,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712j" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20260712k" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -3827,8 +3827,10 @@
       font-size: 0.95rem;
       line-height: 1.4;
       text-align: center;
+      text-decoration: none;
       cursor: pointer;
       transition: transform 0.12s, box-shadow 0.15s;
+      box-sizing: border-box;
     }
     #pricing-plan-one-time {
       background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(232, 240, 230, 0.98));
@@ -3934,13 +3936,28 @@
       text-align: center;
       white-space: pre-line;
     }
+    .upgrade-modal-reassurance {
+      margin: 0.95rem 0 0;
+      padding: 0.7rem 0.85rem;
+      border-radius: 0.75rem;
+      background: rgba(122, 155, 118, 0.14);
+      border: 1px solid rgba(122, 155, 118, 0.28);
+      color: #3D5E44;
+      font-size: 0.92rem;
+      font-weight: 700;
+      line-height: 1.55;
+      text-align: center;
+    }
     .free-tier-limit-actions {
       display: flex;
       flex-direction: column;
       gap: 0.7rem;
-      margin-top: 1.35rem;
+      margin-top: 1.15rem;
     }
     .upgrade-plan-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
       border: none;
       border-radius: 0.9rem;
       padding: 0.95rem 1.1rem;
@@ -3949,7 +3966,9 @@
       line-height: 1.45;
       cursor: pointer;
       text-align: center;
+      text-decoration: none;
       transition: transform 0.12s, box-shadow 0.15s;
+      box-sizing: border-box;
     }
     #upgrade-plan-one-time {
       background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(232, 240, 230, 0.98));
@@ -5417,8 +5436,8 @@
       <p id="pricing-modal-notice" class="pricing-modal-notice hidden" role="status" aria-live="polite"></p>
       <div id="pricing-comparison-wrap" class="pricing-comparison-wrap"></div>
       <div class="pricing-paywall-actions" id="pricing-purchase-actions">
-        <button type="button" id="pricing-plan-one-time" class="pricing-plan-buy-btn" data-i18n="pricing_buy_one_time">רכישת מסלול חד-פעמי (100 ש"ח)</button>
-        <button type="button" id="pricing-plan-annual" class="pricing-plan-buy-btn" data-i18n="pricing_buy_annual">הרשמה למנוי שנתי (220 ש"ח)</button>
+        <a id="pricing-plan-one-time" class="pricing-plan-buy-btn" data-i18n="pricing_buy_one_time" href="https://pay.grow.link/OTAwMDc~8e58f88e567929a25776603bb5f1ef7e-MzU5NTU4Ng" target="_blank" rel="noopener noreferrer">רכישת מסלול חד-פעמי (100 ש"ח)</a>
+        <a id="pricing-plan-annual" class="pricing-plan-buy-btn" data-i18n="pricing_buy_annual" href="https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg" target="_blank" rel="noopener noreferrer">הרשמה למנוי שנתי (220 ש"ח)</a>
         <button type="button" id="pricing-modal-dismiss" data-i18n="paywall_dismiss">חזרה לארכיון החינמי</button>
       </div>
     </div>
@@ -5445,9 +5464,10 @@
       <div class="free-tier-limit-icon" aria-hidden="true"><i class="fa-solid fa-seedling"></i></div>
       <h2 id="free-tier-limit-title" class="font-display" data-i18n="upgrade_modal_title">תודה על התמיכה שלך במרכז המידע!</h2>
       <p id="free-tier-limit-message" class="free-tier-limit-message" data-i18n="upgrade_modal_body">מכסת החיפושים החינמית שלך הסתיימה. כדי להמשיך ליהנות ממחקר חי, מחולל תקופות והורדות וורד ללא הגבלה, בחר את מסלול התמיכה המתאים לך:</p>
+      <p id="upgrade-modal-reassurance" class="upgrade-modal-reassurance" data-i18n="upgrade_modal_reassurance">ניתן להמשיך וליהנות מהארכיון החינמי וממאגר המורים הקהילתי.</p>
       <div class="free-tier-limit-actions">
-        <button type="button" id="upgrade-plan-one-time" class="upgrade-plan-btn" data-i18n="pricing_buy_one_time">רכישת מסלול חד-פעמי (100 ש"ח)</button>
-        <button type="button" id="upgrade-plan-annual" class="upgrade-plan-btn" data-i18n="pricing_buy_annual">הרשמה למנוי שנתי (220 ש"ח)</button>
+        <a id="upgrade-plan-one-time" class="upgrade-plan-btn" data-i18n="pricing_buy_one_time" href="https://pay.grow.link/OTAwMDc~8e58f88e567929a25776603bb5f1ef7e-MzU5NTU4Ng" target="_blank" rel="noopener noreferrer">רכישת מסלול חד-פעמי (100 ש"ח)</a>
+        <a id="upgrade-plan-annual" class="upgrade-plan-btn" data-i18n="pricing_buy_annual" href="https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg" target="_blank" rel="noopener noreferrer">הרשמה למנוי שנתי (220 ש"ח)</a>
         <button type="button" id="free-tier-limit-close" data-i18n="free_tier_limit_close">סגור</button>
       </div>
     </div>
@@ -6517,7 +6537,7 @@
 
   <!-- Free-tier lifetime search cap — must match api/tier-limits.js (1 live search). -->
   <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 1;</script>
-  <script src="auth-subscription.js?v=20260712b"></script>
+  <script src="auth-subscription.js?v=20260712c"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250701"></script>
   <script src="hebrew-topic-match.js?v=20250622a"></script>
