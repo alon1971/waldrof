@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260712d" />
+  <meta name="waldrof-build" content="20260712e" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
@@ -26,8 +26,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712d" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
-  <script src="i18n-core.js?v=20260712d"></script>
+  <script src="languages.js?v=20260712e" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20260712e"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1122,15 +1122,16 @@
     .back-to-home-btn i {
       color: var(--home-accent-dark, #557354);
     }
-    /* Physical left (not inline-start) so RTL never stacks this over the Word button. */
+    /* Physical left — never use inset-inline (RTL would flip it onto the Word button). */
     #btn-back-to-home-fixed {
-      position: fixed;
-      top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem);
-      left: max(0.75rem, env(safe-area-inset-left, 0px));
-      right: auto;
-      inset-inline: auto;
+      position: fixed !important;
+      top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem) !important;
+      left: max(0.75rem, env(safe-area-inset-left, 0px)) !important;
+      right: auto !important;
+      inset-inline-start: auto !important;
+      inset-inline-end: auto !important;
       z-index: 1450;
-      max-width: min(44vw, 13.5rem);
+      max-width: min(42vw, 12.5rem);
       box-shadow: 0 6px 18px rgba(63, 52, 44, 0.12);
       background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(8px);
@@ -1141,27 +1142,29 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    #btn-back-to-home-fixed.hidden {
+    #btn-back-to-home-fixed.hidden,
+    body.is-home-view #btn-back-to-home-fixed,
+    body.header-is-compact #btn-back-to-home-fixed {
       display: none !important;
     }
-    body.is-home-view .app-top-nav {
-      display: none;
+    body.is-home-view .app-top-nav,
+    body.is-home-view #header-compact-nav {
+      display: none !important;
     }
-    body.is-home-view #btn-back-to-home-fixed,
     body.is-home-view #global-word-export-bar {
       display: none !important;
     }
-    /* Reserve a clear band under the chrome so floating actions never cover copy. */
-    body:not(.is-home-view) #app-main {
+    /* Space for floating back/Word only when they sit under the full header. */
+    body:not(.is-home-view):not(.header-is-compact) #app-main {
       padding-top: 3.1rem;
     }
     @media (max-width: 640px) {
       #btn-back-to-home-fixed {
-        max-width: min(58vw, 12.5rem);
+        max-width: min(48vw, 11.5rem);
         padding: 0.45rem 0.7rem;
         font-size: 0.8rem;
       }
-      body:not(.is-home-view) #app-main {
+      body:not(.is-home-view):not(.header-is-compact) #app-main {
         padding-top: 2.85rem;
       }
     }
@@ -2807,17 +2810,18 @@
       margin: 0 0 1rem 0;
       pointer-events: auto !important;
     }
-    /* Global Word export — physical top-right, mirrored from the home button on the left. */
+    /* Global Word export — physical top-right only (mirrored from back-home on the left). */
     #global-word-export-bar {
-      position: fixed;
-      top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem);
-      right: max(0.75rem, env(safe-area-inset-right, 0px));
-      left: auto;
-      inset-inline: auto;
+      position: fixed !important;
+      top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem) !important;
+      right: max(0.75rem, env(safe-area-inset-right, 0px)) !important;
+      left: auto !important;
+      inset-inline-start: auto !important;
+      inset-inline-end: auto !important;
       z-index: 1450;
       pointer-events: auto !important;
       width: auto;
-      max-width: min(44vw, 13.5rem);
+      max-width: min(42vw, 12.5rem);
     }
     #global-word-export-bar .phase-c-unified-export-btn,
     #btn-phase-c-export-word {
@@ -2858,11 +2862,11 @@
       /* Keep Word on the physical top-right (never full-bleed) so it cannot collide
          with the fixed back button on the top-left or with page copy. */
       #global-word-export-bar {
-        top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem);
-        bottom: auto;
-        right: max(0.75rem, env(safe-area-inset-right, 0px));
-        left: auto;
-        max-width: min(58vw, 12.5rem);
+        top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem) !important;
+        bottom: auto !important;
+        right: max(0.75rem, env(safe-area-inset-right, 0px)) !important;
+        left: auto !important;
+        max-width: min(48vw, 11.5rem);
       }
       #global-word-export-bar .phase-c-unified-export-btn,
       #btn-phase-c-export-word {
@@ -3988,32 +3992,77 @@
       padding: 0.15rem 0.45rem;
       font-size: 0.7rem !important;
     }
+    /* ── Unified sticky navbar (scroll-compact mode only) ─────────────── */
     .header-compact-nav {
       display: none;
+      width: 100%;
+      box-sizing: border-box;
+      border-bottom: 1px solid rgba(201, 169, 98, 0.28);
+      background: rgba(247, 243, 235, 0.98);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 70;
+    }
+    .header-compact-nav-inner {
+      display: flex;
+      flex-direction: row;
+      direction: ltr; /* physical LTR order: Back | Steps | Shortcuts */
+      align-items: center;
+      justify-content: flex-start;
+      flex-wrap: nowrap;
+      gap: 0.35rem;
+      width: 100%;
+      max-width: 72rem;
+      margin: 0 auto;
+      padding: 0.35rem 0.75rem;
+      box-sizing: border-box;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .header-compact-group {
+      display: inline-flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 0.28rem;
+      flex: 0 0 auto;
+    }
+    .header-compact-divider {
+      flex: 0 0 auto;
+      width: 1px;
+      height: 1.15rem;
+      background: rgba(201, 169, 98, 0.45);
+      margin: 0 0.15rem;
     }
     .header-compact-nav-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0.15rem 0.45rem;
+      gap: 0.3rem;
+      padding: 0.22rem 0.55rem;
       border-radius: 9999px;
       border: 1px solid rgba(201, 169, 98, 0.45);
-      background: rgba(255, 255, 255, 0.75);
+      background: rgba(255, 255, 255, 0.88);
       color: #5C4A3A;
+      font-family: 'Heebo', system-ui, sans-serif;
       font-size: 0.68rem;
       font-weight: 600;
-      line-height: 1.25;
+      line-height: 1.2;
       cursor: pointer;
       white-space: nowrap;
       flex-shrink: 0;
-      min-height: 1.6rem;
-      transition: background 0.15s ease;
+      min-height: 1.7rem;
+      max-width: none;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      direction: rtl;
+      unicode-bidi: isolate;
     }
     .header-compact-nav-btn:hover:not(:disabled) {
-      background: rgba(122, 155, 118, 0.12);
+      background: rgba(122, 155, 118, 0.14);
+      border-color: rgba(122, 155, 118, 0.5);
     }
     .header-compact-nav-btn:disabled {
-      opacity: 0.45;
+      opacity: 0.42;
       cursor: not-allowed;
     }
     .header-compact-nav-btn.active {
@@ -4022,149 +4071,26 @@
       color: #4A5D48;
       font-weight: 700;
     }
-    .header-compact-context-label {
-      font-size: 0.68rem;
-      font-weight: 600;
-      color: rgba(92, 74, 58, 0.65);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      min-width: 0;
-      max-width: 5.5rem;
-      text-align: center;
-      flex-shrink: 1;
+    .header-compact-nav-btn.header-compact-back {
+      background: rgba(255, 255, 255, 0.96);
+      border-color: rgba(63, 52, 44, 0.14);
+      font-weight: 700;
+      color: #333;
+    }
+    .header-compact-nav-btn.header-compact-back i {
+      color: var(--home-accent-dark, #557354);
+      font-size: 0.72rem;
     }
     .app-site-chrome.header-compact {
-      box-shadow: 0 1px 6px rgba(92, 74, 58, 0.1);
+      box-shadow: 0 2px 10px rgba(92, 74, 58, 0.12);
+      z-index: 1200;
     }
-    .app-site-chrome.header-compact header {
-      border-bottom-color: rgba(201, 169, 98, 0.25);
-    }
-    .app-site-chrome.header-compact header > .max-w-6xl {
-      padding-top: 0.2rem !important;
-      padding-bottom: 0.2rem !important;
-    }
-    .app-site-chrome.header-compact header .app-brand-title,
-    .app-site-chrome.header-compact header .app-chrome-subtitle,
-    .app-site-chrome.header-compact header .app-chrome-tagline {
-      display: none !important;
-    }
-    /* Keep the wizard/context step row sticky while scrolled — never hide it. */
+    .app-site-chrome.header-compact > header.app-chrome-header,
     .app-site-chrome.header-compact .app-top-nav {
-      display: block !important;
-      border-top: 1px solid rgba(201, 169, 98, 0.22);
-      background: rgba(247, 243, 235, 0.98);
-      box-shadow: 0 4px 12px rgba(92, 74, 58, 0.06);
-    }
-    .app-site-chrome.header-compact .app-top-nav > .max-w-6xl {
-      padding-top: 0.35rem !important;
-      padding-bottom: 0.35rem !important;
-    }
-    .app-site-chrome.header-compact header .app-chrome-tagline-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0 !important;
-      min-height: 2.75rem;
-      max-height: 3.5rem;
-      flex-wrap: nowrap;
-    }
-    .app-site-chrome.header-compact .app-chrome-actions-row {
-      display: contents;
-    }
-    .app-site-chrome.header-compact #user-account-bar {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      flex-shrink: 0;
-      position: relative;
-      z-index: 4;
-    }
-    .app-site-chrome.header-compact .header-user-identity {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      flex-shrink: 0;
-      min-width: 0;
-      max-width: 42%;
-    }
-    .app-site-chrome.header-compact .header-user-identity #user-display-name {
-      font-size: 0.75rem !important;
-      max-width: 8.5rem;
-    }
-    .app-site-chrome.header-compact .header-user-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-      flex-shrink: 0;
-      margin-inline-start: auto;
-      position: relative;
-      z-index: 5;
-      pointer-events: auto;
+      display: none !important;
     }
     .app-site-chrome.header-compact .header-compact-nav {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 0.25rem;
-      flex: 1 1 auto;
-      min-width: 0;
-      max-width: 100%;
-      padding-inline: 0.15rem;
-      pointer-events: auto;
-    }
-    .app-site-chrome.header-compact #search-usage-label,
-    .app-site-chrome.header-compact .search-usage-track,
-    .app-site-chrome.header-compact #user-tier-badge:not(.user-tier-badge--pro-user),
-    .app-site-chrome.header-compact #btn-user-settings {
-      display: none !important;
-    }
-    .app-site-chrome.header-compact .header-pro-explicit-actions {
-      display: inline-flex !important;
-      pointer-events: auto;
-      position: relative;
-      z-index: 6;
-    }
-    .app-site-chrome.header-compact .header-explicit-action {
-      display: inline-flex !important;
-      pointer-events: auto;
-      min-height: 1.6rem;
-      padding: 0.15rem 0.45rem;
-      font-size: 0.68rem !important;
-    }
-    body.is-pro-user .app-site-chrome.header-compact #btn-auth-signout {
-      display: none !important;
-    }
-    .app-site-chrome.header-compact #user-tier-badge.user-tier-badge--pro-user {
-      display: inline-flex !important;
-      align-items: center;
-      font-size: 0.68rem !important;
-      padding: 0.1rem 0.45rem;
-    }
-    .app-site-chrome.header-compact #search-usage-meter:not(.hidden) {
-      display: inline-flex !important;
-      align-items: center;
-      gap: 0.2rem;
-      padding: 0;
-      border: none;
-      background: transparent;
-      font-size: 0.7rem !important;
-    }
-    .app-site-chrome.header-compact .user-action-btn {
-      min-height: 1.6rem;
-      padding: 0.15rem 0.4rem;
-      font-size: 0.68rem !important;
-    }
-    .app-site-chrome.header-compact .user-action-btn span {
-      display: inline;
-    }
-    .app-site-chrome.header-compact .lang-toggle {
-      min-width: 2rem;
-      min-height: 1.6rem;
-      padding: 0.1rem 0.4rem;
-      font-size: 0.68rem !important;
-      flex-shrink: 0;
+      display: block;
     }
     .app-site-chrome-spacer {
       display: block;
@@ -5593,25 +5519,10 @@
   </div>
 
   <div id="app-site-chrome" class="app-site-chrome">
-  <header class="border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
+  <header class="app-chrome-header border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 py-2 sm:py-2.5">
       <div class="app-chrome-tagline-row flex flex-wrap items-center justify-between gap-2 mb-1">
         <p class="app-chrome-tagline text-sage-dark text-sm font-medium"><i class="fa-solid fa-seedling icon-inline"></i> <span data-i18n="header_tagline">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א-ח</span></p>
-        <nav id="header-compact-nav" class="header-compact-nav" data-i18n-aria="header_compact_nav_aria" aria-hidden="true">
-          <button type="button" id="header-compact-edit-grade" class="header-compact-nav-btn touch-btn">
-            <span data-i18n="header_compact_edit_grade">עריכת כיתה</span>
-          </button>
-          <span id="header-compact-context-label" class="header-compact-context-label" aria-hidden="true"></span>
-          <button type="button" id="header-compact-edit-topic" class="header-compact-nav-btn touch-btn">
-            <span data-i18n="header_compact_edit_topic">עריכת נושא</span>
-          </button>
-          <button type="button" id="header-compact-phase-c" class="header-compact-nav-btn touch-btn">
-            <span data-i18n="step_nav_c">ג׳ תוצרים ומהות פדגוגית</span>
-          </button>
-          <button type="button" id="header-compact-general-search" class="header-compact-nav-btn touch-btn">
-            <span data-i18n="nav_general_search">חיפוש כללי ובניית תקופת לימוד</span>
-          </button>
-        </nav>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
           <div id="identity-email-bar" class="identity-email-bar hidden">
             <label for="identity-email-input" class="identity-email-label" data-i18n="identity_email_label">דוא״ל לגישה</label>
@@ -5673,11 +5584,46 @@
       <p class="app-chrome-subtitle mt-0.5 text-walnut/75 text-xs max-w-3xl" data-i18n="header_subtitle">כיתה ← נושא | מאגר קהילתי</p>
     </div>
   </header>
+
+  <!-- Unified sticky navbar: shown only while scrolled (header-compact). Physical LTR order. -->
+  <nav id="header-compact-nav" class="header-compact-nav" data-i18n-aria="header_compact_nav_aria" aria-hidden="true">
+    <div class="header-compact-nav-inner">
+      <button type="button" id="header-compact-back-home" class="header-compact-nav-btn header-compact-back touch-btn" data-back-to-home>
+        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+        <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+      </button>
+      <span class="header-compact-divider" aria-hidden="true"></span>
+      <div class="header-compact-group" role="group" data-i18n-aria="nav_wizard_aria">
+        <button type="button" id="header-compact-edit-grade" class="header-compact-nav-btn touch-btn">
+          <span data-i18n="header_compact_step_a">שלב א׳</span>
+        </button>
+        <button type="button" id="header-compact-edit-topic" class="header-compact-nav-btn touch-btn">
+          <span data-i18n="header_compact_step_b">שלב ב׳</span>
+        </button>
+        <button type="button" id="header-compact-phase-c" class="header-compact-nav-btn touch-btn">
+          <span data-i18n="header_compact_step_c">שלב ג׳</span>
+        </button>
+      </div>
+      <span class="header-compact-divider" aria-hidden="true"></span>
+      <div class="header-compact-group" role="group">
+        <button type="button" id="header-compact-general-search" class="header-compact-nav-btn touch-btn">
+          <span data-i18n="header_compact_general">חיפוש כללי</span>
+        </button>
+        <button type="button" id="header-compact-community" class="header-compact-nav-btn touch-btn">
+          <span data-i18n="header_compact_community">מאגר קהילתי</span>
+        </button>
+        <button type="button" id="header-compact-sites" class="header-compact-nav-btn touch-btn">
+          <span data-i18n="header_compact_sites">רשימת אתרים</span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
   <div id="page-focus-sentinel" tabindex="-1" aria-hidden="true" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
 
   <div id="cloud-status" class="hidden max-w-6xl mx-auto px-4 pt-4"></div>
 
-  <!-- Top navigation: wizard steps + permanent repository entry -->
+  <!-- Top navigation: wizard steps + permanent repository entry (full mode only) -->
   <nav class="app-top-nav bg-cream/95 backdrop-blur border-b border-gold/20 shadow-sm">
     <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 py-1.5 sm:py-2 safe-x">
       <div class="app-top-nav-inner">
@@ -5713,7 +5659,7 @@
   </div>
   <div id="app-site-chrome-spacer" class="app-site-chrome-spacer" aria-hidden="true"></div>
   <button type="button" id="btn-back-to-home-fixed" class="back-to-home-btn hidden" data-back-to-home aria-label="חזרה לעמוד הבית">
-    <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
     <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
   </button>
 
@@ -21272,10 +21218,12 @@
     function syncHomeChrome() {
       var onHome = isHomeView();
       document.body.classList.toggle('is-home-view', onHome);
+      if (onHome) setHeaderCompact(false);
       var fixedBtn = document.getElementById('btn-back-to-home-fixed');
       if (fixedBtn) {
-        fixedBtn.classList.toggle('hidden', onHome);
-        fixedBtn.setAttribute('aria-hidden', onHome ? 'true' : 'false');
+        var hideFixed = onHome || document.body.classList.contains('header-is-compact');
+        fixedBtn.classList.toggle('hidden', hideFixed);
+        fixedBtn.setAttribute('aria-hidden', hideFixed ? 'true' : 'false');
       }
     }
 
@@ -23096,39 +23044,21 @@
       }
     }
 
-    var HEADER_COMPACT_SCROLL_THRESHOLD = 100;
+    var HEADER_COMPACT_SCROLL_THRESHOLD = 72;
     /** Extra scroll offset so sticky nav + "מחקר חדש" stay visible when switching wizard tabs. */
     var SCROLL_INTO_VIEW_EXTRA_OFFSET = 120;
     var headerCompactScrollBound = false;
 
-    function getHeaderCompactContextLabel() {
-      var grade = appState.gradeLabel || appState.grade || '';
-      var topic = appState.topic || '';
-      if (grade && topic) return grade + ' · ' + topic;
-      if (grade) return grade;
-      if (topic) return topic;
-      if (isWorkspaceOpen() && isCommunityView()) return t('nav_community');
-      if (isWaldorfSitesView()) return t('nav_waldorf_sites');
-      if (isGeneralSearchView()) return t('nav_general_search');
-      if (isPhaseCView()) return t('step_nav_c');
-      var stepIdx = Math.max(0, Math.min(STEP_NAV_KEYS.length - 1, (appState.step || 1) - 1));
-      var stepKey = STEP_NAV_KEYS[stepIdx];
-      return stepKey ? (t('step_prefix') + ' ' + t(stepKey)) : '';
-    }
-
     function updateHeaderCompactNav() {
       var nav = document.getElementById('header-compact-nav');
-      var labelEl = document.getElementById('header-compact-context-label');
       var gradeBtn = document.getElementById('header-compact-edit-grade');
       var topicBtn = document.getElementById('header-compact-edit-topic');
       var phaseCBtn = document.getElementById('header-compact-phase-c');
       var generalSearchBtn = document.getElementById('header-compact-general-search');
-      var labelText = getHeaderCompactContextLabel();
-      if (labelEl) {
-        labelEl.textContent = labelText;
-        labelEl.setAttribute('aria-hidden', labelText ? 'false' : 'true');
-      }
-      if (topicBtn) topicBtn.disabled = false;
+      var communityBtn = document.getElementById('header-compact-community');
+      var sitesBtn = document.getElementById('header-compact-sites');
+      var inWs = isWorkspaceOpen();
+      if (topicBtn) topicBtn.disabled = !canNavigateToStep(2);
       if (phaseCBtn) {
         phaseCBtn.disabled = !canNavigateToStep(3);
         phaseCBtn.classList.toggle('active', isPhaseCView());
@@ -23136,11 +23066,18 @@
       if (generalSearchBtn) {
         generalSearchBtn.classList.toggle('active', isGeneralSearchView());
       }
+      if (communityBtn) {
+        communityBtn.classList.toggle('active', isCommunityView());
+      }
+      if (sitesBtn) {
+        sitesBtn.classList.toggle('active', isWaldorfSitesView());
+      }
       if (gradeBtn) {
-        gradeBtn.classList.toggle('active', !isWorkspaceOpen() && !isGeneralSearchView() && appState.step === 1);
+        gradeBtn.disabled = false;
+        gradeBtn.classList.toggle('active', !inWs && !isGeneralSearchView() && !isWaldorfSitesView() && appState.step === 1);
       }
       if (topicBtn) {
-        topicBtn.classList.toggle('active', !isWorkspaceOpen() && !isGeneralSearchView() && appState.step === 2);
+        topicBtn.classList.toggle('active', (!inWs && !isGeneralSearchView() && !isWaldorfSitesView() && appState.step === 2) || (inWs && !isCommunityView() && !isPhaseCView() && appState.navSection === 'wizard'));
       }
       if (nav) {
         nav.setAttribute('aria-label', t('header_compact_nav_aria'));
@@ -23212,27 +23149,42 @@
     function setHeaderCompact(compact) {
       var siteChrome = document.getElementById('app-site-chrome');
       if (!siteChrome) return;
+      if (compact && isHomeView()) compact = false;
       var isCompact = siteChrome.classList.contains('header-compact');
-      if (isCompact === compact) return;
+      if (isCompact === compact) {
+        document.body.classList.toggle('header-is-compact', compact);
+        return;
+      }
       var scrollY = window.scrollY || window.pageYOffset || 0;
       var oldHeight = siteChrome.offsetHeight;
       if (compact) updateHeaderCompactNav();
       siteChrome.classList.toggle('header-compact', compact);
+      document.body.classList.toggle('header-is-compact', compact);
       var compactNav = document.getElementById('header-compact-nav');
       if (compactNav) compactNav.setAttribute('aria-hidden', compact ? 'false' : 'true');
+      var fixedBtn = document.getElementById('btn-back-to-home-fixed');
+      if (fixedBtn) {
+        var hideFixed = compact || isHomeView();
+        fixedBtn.classList.toggle('hidden', hideFixed);
+        fixedBtn.setAttribute('aria-hidden', hideFixed ? 'true' : 'false');
+      }
       requestAnimationFrame(function () {
         var newHeight = siteChrome.offsetHeight;
-        syncProductTabsStickyLayout();
+        syncProductTabsStickyLayout(true);
         if (compact && scrollY > 0 && newHeight < oldHeight) {
-          window.scrollTo(0, scrollY - (oldHeight - newHeight));
+          window.scrollTo(0, Math.max(0, scrollY - (oldHeight - newHeight)));
         }
       });
     }
 
     function onHeaderCompactScroll() {
       if (isProgrammaticScrollActive()) return;
+      if (isHomeView()) {
+        setHeaderCompact(false);
+        return;
+      }
       var y = window.scrollY || window.pageYOffset || 0;
-      if (y === 0) {
+      if (y <= 8) {
         setHeaderCompact(false);
       } else if (y > HEADER_COMPACT_SCROLL_THRESHOLD) {
         setHeaderCompact(true);
@@ -28747,6 +28699,12 @@
       });
       bindWizardNavClick(document.getElementById('header-compact-general-search'), function () {
         openGeneralSearchView();
+      });
+      bindWizardNavClick(document.getElementById('header-compact-community'), function () {
+        openCommunityRepo();
+      });
+      bindWizardNavClick(document.getElementById('header-compact-sites'), function () {
+        openWaldorfSitesView();
       });
       bindWizardNavClick(document.getElementById('ws-crumb-community'), function () { openCommunityRepo(); });
       var gradeSelectEl = document.getElementById('grade-select');
