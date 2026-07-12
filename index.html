@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260712g" />
+  <meta name="waldrof-build" content="20260712h" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
@@ -26,8 +26,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712g" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
-  <script src="i18n-core.js?v=20260712g"></script>
+  <script src="languages.js?v=20260712h" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1631,8 +1631,9 @@
         justify-content: center;
       }
       header .app-brand-title {
-        font-size: 1.35rem !important;
-        line-height: 1.3;
+        font-size: 0.95rem !important;
+        line-height: 1.4;
+        max-width: 100%;
       }
     }
     /* Server cache wipe — never visible unless injected for verified admin identity */
@@ -3959,26 +3960,25 @@
       --app-brand-title-size: 17px;
     }
     @media (min-width: 640px) {
-      .app-site-chrome { --app-brand-title-size: 19px; }
+      .app-site-chrome { --app-brand-title-size: 18px; }
     }
     .app-site-chrome header > .max-w-6xl {
-      padding-top: 0.4rem !important;
-      padding-bottom: 0.35rem !important;
+      padding-top: 0.55rem !important;
+      padding-bottom: 0.5rem !important;
     }
     .app-site-chrome header .app-brand-title {
       margin: 0;
+      max-width: min(100%, 38rem);
+      color: #5C7D58 !important;
+      font-size: var(--app-brand-title-size) !important;
+      line-height: 1.4 !important;
+      font-weight: 700;
+      letter-spacing: 0.01em;
     }
     .app-site-chrome header .app-chrome-tagline-row {
-      margin-bottom: 0.15rem !important;
-    }
-    .app-site-chrome header .app-chrome-tagline-row p {
-      font-size: 0.7rem !important;
-      line-height: 1.25 !important;
-    }
-    .app-site-chrome header .app-chrome-subtitle {
-      margin-top: 0.1rem !important;
-      font-size: 0.7rem !important;
-      line-height: 1.3 !important;
+      margin-bottom: 0 !important;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
     }
     .app-site-chrome .app-top-nav > .max-w-6xl {
       padding-top: 0.3rem !important;
@@ -5523,8 +5523,8 @@
   <div id="app-site-chrome" class="app-site-chrome">
   <header class="app-chrome-header border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 py-2 sm:py-2.5">
-      <div class="app-chrome-tagline-row flex flex-wrap items-center justify-between gap-2 mb-1">
-        <p class="app-chrome-tagline text-sage-dark text-sm font-medium"><i class="fa-solid fa-seedling icon-inline"></i> <span data-i18n="header_tagline">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א-ח</span></p>
+      <div class="app-chrome-tagline-row flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h1 class="app-brand-title app-chrome-tagline font-display font-bold text-sage-dark" data-i18n="header_tagline">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א-ח</h1>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
           <div id="identity-email-bar" class="identity-email-bar hidden">
             <label for="identity-email-input" class="identity-email-label" data-i18n="identity_email_label">דוא״ל לגישה</label>
@@ -5582,8 +5582,6 @@
           </button>
         </div>
       </div>
-      <h1 class="app-brand-title font-display font-bold text-burgundy" data-i18n="header_title">מתכנן תקופות לימוד אנתרופוסופי</h1>
-      <p class="app-chrome-subtitle mt-0.5 text-walnut/75 text-xs max-w-3xl" data-i18n="header_subtitle">כיתה ← נושא | מאגר קהילתי</p>
     </div>
   </header>
 
