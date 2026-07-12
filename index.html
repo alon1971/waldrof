@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260712b" />
+  <meta name="waldrof-build" content="20260712c" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
@@ -26,8 +26,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712b" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
-  <script src="i18n-core.js?v=20260712b"></script>
+  <script src="languages.js?v=20260712c" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20260712c"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1092,9 +1092,7 @@
     }
 
     .back-to-home-bar {
-      display: flex;
-      align-items: center;
-      margin: 0 0 1rem;
+      display: none; /* replaced by the global fixed back button */
     }
     .back-to-home-btn {
       appearance: none;
@@ -1124,8 +1122,24 @@
     .back-to-home-btn i {
       color: var(--home-accent-dark, #557354);
     }
+    #btn-back-to-home-fixed {
+      position: fixed;
+      top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem);
+      inset-inline-start: max(0.75rem, env(safe-area-inset-left, 0px));
+      z-index: 1400;
+      box-shadow: 0 6px 18px rgba(63, 52, 44, 0.12);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #btn-back-to-home-fixed.hidden {
+      display: none !important;
+    }
     body.is-home-view .app-top-nav {
       display: none;
+    }
+    body.is-home-view #btn-back-to-home-fixed {
+      display: none !important;
     }
 
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
@@ -5653,6 +5667,10 @@
   </nav>
   </div>
   <div id="app-site-chrome-spacer" class="app-site-chrome-spacer" aria-hidden="true"></div>
+  <button type="button" id="btn-back-to-home-fixed" class="back-to-home-btn hidden" data-back-to-home aria-label="חזרה לעמוד הבית">
+    <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+    <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+  </button>
 
   <div id="app-shell" class="app-shell">
   <div id="app-main" class="app-main">
@@ -6235,7 +6253,7 @@
               </div>
             </div>
             <p class="waldorf-site-desc">המרכז הפדגוגי העולמי בשווייץ.</p>
-            <a class="waldorf-site-link" href="https://www.paedagogik-goetheanum.ch/en" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
+            <a class="waldorf-site-link" href="https://www.goetheanum-paedagogik.ch/en/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
@@ -6315,19 +6333,6 @@
             </div>
             <p class="waldorf-site-desc">בית הוצאה לאור בינלאומי לספרות פדגוגית ומדריכי מורים מקיפים.</p>
             <a class="waldorf-site-link" href="https://www.waldorfpublications.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-sun"></i></span>
-              <div>
-                <h4 class="waldorf-site-title">Sunday Varieties</h4>
-                <div class="waldorf-site-badges">
-                  <span class="waldorf-site-badge waldorf-site-badge--world">מערכי שיעור</span>
-                </div>
-              </div>
-            </div>
-            <p class="waldorf-site-desc">אתר משאבים ובלוג פדגוגי עולמי מוערך למערכי שיעור ותוכניות לימוד ולדורף.</p>
-            <a class="waldorf-site-link" href="https://www.sundayvarieties.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
         </div>
       </section>
@@ -21220,7 +21225,13 @@
     }
 
     function syncHomeChrome() {
-      document.body.classList.toggle('is-home-view', isHomeView());
+      var onHome = isHomeView();
+      document.body.classList.toggle('is-home-view', onHome);
+      var fixedBtn = document.getElementById('btn-back-to-home-fixed');
+      if (fixedBtn) {
+        fixedBtn.classList.toggle('hidden', onHome);
+        fixedBtn.setAttribute('aria-hidden', onHome ? 'true' : 'false');
+      }
     }
 
     function hideHomeView() {
@@ -21229,7 +21240,8 @@
       syncHomeChrome();
     }
 
-    function openHomeView() {
+    function openHomeView(opts) {
+      opts = opts || {};
       rememberNavScrollPosition(getNavScrollKey());
       appState.navSection = 'home';
       hideGeneralSearchView();
@@ -21247,7 +21259,15 @@
       updateTopNavButtons();
       updateWorkspaceChrome();
       persistActiveStep();
-      restoreNavScrollPosition('home');
+      if (opts.skipScrollRestore || shouldSuppressScrollRestore()) {
+        try {
+          window.scrollTo(0, 0);
+          if (document.documentElement) document.documentElement.scrollTop = 0;
+          if (document.body) document.body.scrollTop = 0;
+        } catch (eTop) { /* ignore */ }
+      } else {
+        restoreNavScrollPosition('home');
+      }
     }
 
     function bindHomePortalNavigation() {
@@ -22698,6 +22718,7 @@
       updateTopNavButtons();
       updateWorkspaceChrome();
       persistActiveStep();
+      restoreNavScrollPosition('general-search');
       var input = document.getElementById('general-search-input');
       if (input) {
         requestAnimationFrame(function () {
@@ -24506,65 +24527,93 @@
       options = options || {};
       var saved = readPersistedActiveStep();
       var snapshot = readPersistedLessonSnapshot();
-
-      if (shouldResetWizardStepViewOnLoad(options)) {
-        resetWizardStepViewToPhaseA(options);
-        return;
-      }
+      var landOnHome = Boolean(options.landOnHome || options.forceHomeLanding || shouldResetWizardStepViewOnLoad(options));
 
       if (snapshot && !appState.aiGeneratedPlan) {
         applyPersistedLessonSnapshot(snapshot);
+      }
+
+      if (saved) {
+        var step = parseInt(saved.step, 10);
+        if (step >= 1 && step <= 3) {
+          if (!(options.preferMemory && appState.step >= step && appState.grade)) {
+            if (saved.grade) {
+              appState.grade = saved.grade;
+              appState.gradeLabel = saved.gradeLabel || getGradeLabelById(saved.grade);
+            }
+            if (saved.topic) appState.topic = saved.topic;
+            if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
+            if (saved.gradeCacheKey) appState.gradeCacheKey = saved.gradeCacheKey;
+            if (saved.generalSearchCacheKey) appState.generalSearchCacheKey = saved.generalSearchCacheKey;
+            if (typeof saved.topicResearchCompleted === 'boolean') {
+              appState.topicResearchCompleted = saved.topicResearchCompleted;
+            }
+            if (saved.activeProductTab) {
+              appState.activeProductTab = normalizeLegacyProductTabId(saved.activeProductTab) || saved.activeProductTab;
+            }
+            if (!landOnHome) {
+              appState.step = step;
+              appState.navSection = saved.navSection || 'wizard';
+            } else {
+              appState.step = step;
+            }
+            restoreCatalogFromSaved(saved);
+          }
+        }
+        var topicInput = document.getElementById('topic-input');
+        if (topicInput) {
+          topicInput.value = String(saved.topicInput || saved.topic || appState.topic || '').trim();
+        }
+        var gradeSelHydrate = document.getElementById('grade-select');
+        if (gradeSelHydrate && appState.grade) {
+          gradeSelHydrate.value = appState.grade;
+          var btnGradeHydrate = document.getElementById('btn-grade-submit');
+          if (btnGradeHydrate) btnGradeHydrate.disabled = false;
+        }
+        if (saved.generalSearchQuery) {
+          var gsInputHydrate = document.getElementById('general-search-input');
+          if (gsInputHydrate) gsInputHydrate.value = saved.generalSearchQuery;
+        }
+        if (typeof saved.generalSearchPeriodBlock === 'boolean') {
+          setGeneralSearchPeriodBlockEnabled(Boolean(saved.generalSearchPeriodBlock));
+        }
+      }
+
+      if (landOnHome) {
+        openHomeView({ skipScrollRestore: true });
+        renderStepProgress();
+        updateWorkspaceChrome();
+        updateNewResearchBarVisibility();
+        persistActiveStep();
+        return;
       }
 
       if (!saved) {
         if (appState.step > 1 || isTopicResearchLoadingUi() || isWorkspaceOpen()) {
           restoreWizardStepView(appState.step, appState.navSection, options);
+        } else {
+          openHomeView();
         }
         return;
       }
 
-      var step = parseInt(saved.step, 10);
-      if (!(step >= 1 && step <= 3)) return;
-
-      if (options.preferMemory && appState.step >= step && appState.grade) {
-        step = appState.step;
-      } else {
-        if (saved.grade) {
-          appState.grade = saved.grade;
-          appState.gradeLabel = saved.gradeLabel || getGradeLabelById(saved.grade);
-        }
-        if (saved.topic) appState.topic = saved.topic;
-        if (saved.lessonCacheKey) appState.lessonCacheKey = saved.lessonCacheKey;
-        if (saved.gradeCacheKey) appState.gradeCacheKey = saved.gradeCacheKey;
-        if (saved.generalSearchCacheKey) appState.generalSearchCacheKey = saved.generalSearchCacheKey;
-        if (typeof saved.topicResearchCompleted === 'boolean') {
-          appState.topicResearchCompleted = saved.topicResearchCompleted;
-        }
-        if (saved.activeProductTab) {
-          appState.activeProductTab = normalizeLegacyProductTabId(saved.activeProductTab) || saved.activeProductTab;
-        }
-        appState.step = step;
-        appState.navSection = saved.navSection || 'wizard';
-        restoreCatalogFromSaved(saved);
+      var restoreStep = parseInt(saved.step, 10);
+      if (options.preferMemory && appState.step >= 1) {
+        restoreStep = appState.step;
+      }
+      if (!(restoreStep >= 1 && restoreStep <= 3)) {
+        openHomeView();
+        return;
       }
 
-      var topicInput = document.getElementById('topic-input');
-      if (topicInput) {
-        topicInput.value = String(saved.topicInput || saved.topic || appState.topic || '').trim();
-      }
-
-      if (saved.topicResearchLoading && step < 2) {
-        step = 2;
+      if (saved.topicResearchLoading && restoreStep < 2 && !options.preferMemory) {
+        restoreStep = 2;
         appState.step = 2;
         appState.navSection = 'wizard';
       }
 
-      if (snapshot && !appState.aiGeneratedPlan) {
-        applyPersistedLessonSnapshot(snapshot);
-      }
-
-      restoreWizardStepView(step, appState.navSection, Object.assign({}, options, {
-        activeProductTab: saved.activeProductTab || appState.activeProductTab,
+      restoreWizardStepView(restoreStep, appState.navSection || saved.navSection || 'wizard', Object.assign({}, options, {
+        activeProductTab: appState.activeProductTab || saved.activeProductTab,
         generalSearchQuery: saved.generalSearchQuery || '',
         generalSearchPeriodBlock: Boolean(saved.generalSearchPeriodBlock),
         saved: saved,
@@ -24641,6 +24690,15 @@
     var navScrollMemory = Object.create(null);
     var scrollMemorySaveTimer = null;
     var scrollRestorationBound = false;
+    var suppressScrollRestoreUntil = 0;
+
+    function shouldSuppressScrollRestore() {
+      return Date.now() < suppressScrollRestoreUntil;
+    }
+
+    function armScrollRestoreSuppression(ms) {
+      suppressScrollRestoreUntil = Date.now() + (typeof ms === 'number' ? ms : 1200);
+    }
 
     function loadScrollMemoryFromStorage() {
       try {
@@ -24735,15 +24793,38 @@
       function pinCurrentScroll() {
         rememberNavScrollPosition(getNavScrollKey());
         persistScrollMemoryToStorage();
+        try {
+          sessionStorage.setItem('waldorf_last_scroll_view', getNavScrollKey());
+          sessionStorage.setItem('waldorf_last_scroll_y', String(capturePageScrollY()));
+        } catch (e) { /* private mode */ }
       }
 
       function restorePinnedScroll() {
-        restoreNavScrollPosition(getNavScrollKey());
+        if (shouldSuppressScrollRestore()) return;
+        var key = getNavScrollKey();
+        try {
+          var lastKey = sessionStorage.getItem('waldorf_last_scroll_view');
+          var lastY = parseInt(sessionStorage.getItem('waldorf_last_scroll_y') || '', 10);
+          if (lastKey && lastKey === key && !isNaN(lastY)) {
+            navScrollMemory[key] = lastY;
+          }
+        } catch (e) { /* ignore */ }
+        restoreNavScrollPosition(key);
       }
 
       window.addEventListener('scroll', function () {
         rememberNavScrollPosition(getNavScrollKey());
       }, { passive: true });
+
+      window.addEventListener('pagehide', function () {
+        pinCurrentScroll();
+      });
+      window.addEventListener('beforeunload', function () {
+        pinCurrentScroll();
+      });
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') pinCurrentScroll();
+      });
 
       // Leaving for an external link (new tab or same tab): freeze scrollY in sessionStorage.
       document.addEventListener('click', function (e) {
@@ -24751,14 +24832,13 @@
         if (!link) return;
         var href = String(link.getAttribute('href') || '').trim();
         if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+        pinCurrentScroll();
         if (isWaldorfSitesView() || (link.closest && link.closest('#waldorf-sites-view'))) {
           ensureWaldorfSitesExternalLinks();
           link.setAttribute('target', '_blank');
           link.setAttribute('rel', 'noopener noreferrer');
           saveWaldorfSitesScrollPosition();
-          return;
         }
-        pinCurrentScroll();
       }, true);
 
       // Capture scroll before <details> open/close layout shift.
@@ -24987,6 +25067,7 @@
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
+      restoreNavScrollPosition('community');
     }
 
     function updateNewResearchBarVisibility() {
@@ -28917,7 +28998,9 @@
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
       try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
-      try { hydrateActiveStepFromStorage(); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
+      try { hydrateActiveStepFromStorage({ landOnHome: true }); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
+      try { armScrollRestoreSuppression(1500); } catch (e) { /* ignore */ }
+      try { openHomeView({ skipScrollRestore: true }); } catch (e) { console.warn('[waldrof] openHomeView:', e); }
       try { repairCorruptedProductTabHash(); } catch (e) { console.warn('[waldrof] repairCorruptedProductTabHash:', e); }
       const gradeSelAfterPopulate = document.getElementById('grade-select');
       if (gradeSelAfterPopulate && !appState.grade) {
@@ -29090,9 +29173,11 @@
         pageLoadFocusGuard = true;
         bindPageLoadScrollGuards();
         defocusGradeSelectDuringPageLoad();
-        try { hydrateActiveStepFromStorage({ forceStepAReset: true }); } catch (err) {
+        try { armScrollRestoreSuppression(1500); } catch (eArm) { /* ignore */ }
+        try { hydrateActiveStepFromStorage({ landOnHome: true }); } catch (err) {
           console.warn('[waldrof] pageshow hydrateActiveStepFromStorage:', err);
         }
+        try { openHomeView({ skipScrollRestore: true }); } catch (errHome) { console.warn('[waldrof] pageshow openHomeView:', errHome); }
         ensurePageAtTop();
         scheduleInitialPageScrollReset();
         return;
