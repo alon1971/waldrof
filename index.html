@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260712c" />
+  <meta name="waldrof-build" content="20260712d" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
@@ -26,8 +26,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712c" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
-  <script src="i18n-core.js?v=20260712c"></script>
+  <script src="languages.js?v=20260712d" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20260712d"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1122,15 +1122,24 @@
     .back-to-home-btn i {
       color: var(--home-accent-dark, #557354);
     }
+    /* Physical left (not inline-start) so RTL never stacks this over the Word button. */
     #btn-back-to-home-fixed {
       position: fixed;
       top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem);
-      inset-inline-start: max(0.75rem, env(safe-area-inset-left, 0px));
-      z-index: 1400;
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      right: auto;
+      inset-inline: auto;
+      z-index: 1450;
+      max-width: min(44vw, 13.5rem);
       box-shadow: 0 6px 18px rgba(63, 52, 44, 0.12);
       background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
+    }
+    #btn-back-to-home-fixed > span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     #btn-back-to-home-fixed.hidden {
       display: none !important;
@@ -1138,8 +1147,23 @@
     body.is-home-view .app-top-nav {
       display: none;
     }
-    body.is-home-view #btn-back-to-home-fixed {
+    body.is-home-view #btn-back-to-home-fixed,
+    body.is-home-view #global-word-export-bar {
       display: none !important;
+    }
+    /* Reserve a clear band under the chrome so floating actions never cover copy. */
+    body:not(.is-home-view) #app-main {
+      padding-top: 3.1rem;
+    }
+    @media (max-width: 640px) {
+      #btn-back-to-home-fixed {
+        max-width: min(58vw, 12.5rem);
+        padding: 0.45rem 0.7rem;
+        font-size: 0.8rem;
+      }
+      body:not(.is-home-view) #app-main {
+        padding-top: 2.85rem;
+      }
     }
 
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
@@ -2783,24 +2807,25 @@
       margin: 0 0 1rem 0;
       pointer-events: auto !important;
     }
-    /* Global, always-visible Word export button (body-level, outside every tab panel).
-       Fixed so it persists across all tabs and while scrolling. The chat FAB lives on
-       the left edge, so this is pinned to the top-right to avoid any overlap. */
+    /* Global Word export — physical top-right, mirrored from the home button on the left. */
     #global-word-export-bar {
       position: fixed;
-      top: 92px;
-      right: 12px;
-      z-index: 100000;
+      top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem);
+      right: max(0.75rem, env(safe-area-inset-right, 0px));
+      left: auto;
+      inset-inline: auto;
+      z-index: 1450;
       pointer-events: auto !important;
       width: auto;
-      max-width: min(92vw, 22rem);
+      max-width: min(44vw, 13.5rem);
     }
     #global-word-export-bar .phase-c-unified-export-btn,
     #btn-phase-c-export-word {
       width: auto !important;
-      max-width: min(92vw, 22rem);
+      max-width: 100%;
       white-space: nowrap;
-      overflow: visible;
+      overflow: hidden;
+      text-overflow: ellipsis;
       opacity: 1 !important;
       pointer-events: auto !important;
       cursor: pointer !important;
@@ -2830,12 +2855,22 @@
     body.auth-locked #global-word-export-bar,
     body.auth-required #global-word-export-bar { display: none !important; }
     @media (max-width: 640px) {
-      #global-word-export-bar { top: auto; bottom: 16px; right: 12px; left: 12px; max-width: none; }
+      /* Keep Word on the physical top-right (never full-bleed) so it cannot collide
+         with the fixed back button on the top-left or with page copy. */
+      #global-word-export-bar {
+        top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem);
+        bottom: auto;
+        right: max(0.75rem, env(safe-area-inset-right, 0px));
+        left: auto;
+        max-width: min(58vw, 12.5rem);
+      }
       #global-word-export-bar .phase-c-unified-export-btn,
       #btn-phase-c-export-word {
-        width: 100% !important;
-        max-width: none;
+        width: auto !important;
+        max-width: 100%;
         justify-content: center;
+        padding: 0.45rem 0.7rem;
+        font-size: 0.8rem;
       }
     }
     /* Bottom / in-page Word export — full-width solid control, never washed out */
@@ -4011,9 +4046,19 @@
     }
     .app-site-chrome.header-compact header .app-brand-title,
     .app-site-chrome.header-compact header .app-chrome-subtitle,
-    .app-site-chrome.header-compact header .app-chrome-tagline,
-    .app-site-chrome.header-compact .app-top-nav {
+    .app-site-chrome.header-compact header .app-chrome-tagline {
       display: none !important;
+    }
+    /* Keep the wizard/context step row sticky while scrolled — never hide it. */
+    .app-site-chrome.header-compact .app-top-nav {
+      display: block !important;
+      border-top: 1px solid rgba(201, 169, 98, 0.22);
+      background: rgba(247, 243, 235, 0.98);
+      box-shadow: 0 4px 12px rgba(92, 74, 58, 0.06);
+    }
+    .app-site-chrome.header-compact .app-top-nav > .max-w-6xl {
+      padding-top: 0.35rem !important;
+      padding-bottom: 0.35rem !important;
     }
     .app-site-chrome.header-compact header .app-chrome-tagline-row {
       display: flex;
@@ -5703,7 +5748,7 @@
       <button type="button" class="home-panel-card" id="home-panel-general-search" data-home-nav="general-search">
         <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-magnifying-glass-chart"></i></span>
         <h2 class="home-panel-title" data-i18n="home_panel_general_title">חיפוש כללי והמלצה למבנה תקופת לימוד</h2>
-        <p class="home-panel-desc" data-i18n="home_panel_general_desc">מחקר כללי על נושא והמלצה למבנה תקופה מלאה — כולל אפשרות לתכנון ל־15 יום.</p>
+        <p class="home-panel-desc" data-i18n="home_panel_general_desc">מחקר רוחב כללי על כל נושא לימודי או אנתרופוסופי ו/או בקשה לקבלת מידע כללי על נושא ספציפי כולל המלצה לתכנון מבנה תקופה של 15 יום.</p>
         <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
       </button>
       <button type="button" class="home-panel-card" id="home-panel-community" data-home-nav="community">
@@ -5991,7 +6036,7 @@
         <i class="fa-solid fa-magnifying-glass-chart text-gold"></i>
         <span data-i18n="general_search_title">חיפוש כללי ובניית תקופת לימוד</span>
       </h2>
-      <p class="text-sm text-walnut/70 mb-5" data-i18n="general_search_desc">ניתן לבצע מחקר כללי על נושא נבחר והתפתחותו לאורך השנים, או לחקור נושא ספציפי על פי גיל/כיתה ולבקש לבנות עבורו תוכנית תקופה מלאה ל-15 יום</p>
+      <p class="text-sm text-walnut/70 mb-5" data-i18n="general_search_desc">מחקר רוחב כללי על כל נושא לימודי או אנתרופוסופי ו/או בקשה לקבלת מידע כללי על נושא ספציפי כולל המלצה לתכנון מבנה תקופה של 15 יום.</p>
       <div class="flex flex-col gap-2 mb-2">
         <input type="text" id="general-search-input" maxlength="300"
           class="w-full rounded-xl border border-gold/40 bg-cream px-4 py-3 text-base focus:ring-2 focus:ring-sage/40 outline-none"
