@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260624a" />
+  <meta name="waldrof-build" content="20260712a" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
@@ -26,8 +26,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260711a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
-  <script src="i18n-core.js?v=20260711a"></script>
+  <script src="languages.js?v=20260712a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="i18n-core.js?v=20260712a"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -699,26 +699,107 @@
       color: #fff;
       border-color: #8B3A3A;
     }
+    #waldorf-sites-view {
+      --ws-cream: #fdfbf7;
+      --ws-ink: #3f342c;
+      --ws-muted: rgba(63, 52, 44, 0.72);
+      --ws-accent: #6b8f6a;
+      --ws-accent-dark: #557354;
+      background: var(--ws-cream);
+      border-radius: 1.25rem;
+      font-family: 'Heebo', system-ui, sans-serif;
+      color: var(--ws-ink);
+    }
+    #waldorf-sites-view .waldorf-sites-panel {
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      padding: 0.25rem 0 0.5rem;
+    }
+    #waldorf-sites-view .waldorf-sites-hero {
+      text-align: center;
+      padding: 0.5rem 0.25rem 1.35rem;
+      margin-bottom: 0.35rem;
+    }
+    #waldorf-sites-view .waldorf-sites-hero-title {
+      margin: 0 0 0.55rem;
+      font-family: 'Heebo', system-ui, sans-serif;
+      font-size: clamp(1.55rem, 3.2vw, 2.05rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ws-ink);
+      line-height: 1.25;
+    }
+    #waldorf-sites-view .waldorf-sites-hero-title i {
+      color: var(--ws-accent);
+      margin-inline-end: 0.35rem;
+    }
     #waldorf-sites-view .waldorf-sites-intro {
-      margin-bottom: 1.5rem;
+      margin: 0 auto 1.15rem;
+      max-width: 40rem;
+      font-size: 0.98rem;
+      line-height: 1.65;
+      color: var(--ws-muted);
+      font-weight: 400;
+    }
+    #waldorf-sites-view .waldorf-sites-filters {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.5rem;
+      margin: 0 auto;
+      max-width: 52rem;
+    }
+    #waldorf-sites-view .waldorf-sites-filter-btn {
+      appearance: none;
+      border: 1px solid rgba(63, 52, 44, 0.12);
+      background: #fff;
+      color: var(--ws-ink);
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      line-height: 1.2;
+      padding: 0.55rem 0.95rem;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 1px 2px rgba(63, 52, 44, 0.04);
+    }
+    #waldorf-sites-view .waldorf-sites-filter-btn:hover,
+    #waldorf-sites-view .waldorf-sites-filter-btn:focus-visible {
+      border-color: rgba(107, 143, 106, 0.45);
+      color: var(--ws-accent-dark);
+      outline: none;
+    }
+    #waldorf-sites-view .waldorf-sites-filter-btn.is-active {
+      background: var(--ws-accent);
+      border-color: var(--ws-accent);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(107, 143, 106, 0.22);
     }
     #waldorf-sites-view .waldorf-sites-category {
       margin-bottom: 2rem;
     }
+    #waldorf-sites-view .waldorf-sites-category.is-filter-hidden {
+      display: none;
+    }
     #waldorf-sites-view .waldorf-sites-category-title {
-      font-family: inherit;
-      font-size: 1.1rem;
+      font-family: 'Heebo', system-ui, sans-serif;
+      font-size: 1.05rem;
       font-weight: 700;
-      color: #8B3A3A;
-      margin: 0 0 0.85rem;
+      color: var(--ws-ink);
+      margin: 0 0 0.95rem;
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
+    #waldorf-sites-view .waldorf-sites-category-title i {
+      color: var(--ws-accent);
+    }
     #waldorf-sites-view .waldorf-sites-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 0.9rem;
+      gap: 1rem;
     }
     @media (min-width: 640px) {
       #waldorf-sites-view .waldorf-sites-grid {
@@ -733,57 +814,127 @@
     #waldorf-sites-view .waldorf-site-card {
       display: flex;
       flex-direction: column;
-      gap: 0.55rem;
-      padding: 1rem 1.1rem;
-      border: 1px solid rgba(201, 169, 98, 0.35);
-      background: linear-gradient(160deg, rgba(255,255,255,0.98), rgba(250,246,238,0.92));
-      border-radius: 1rem;
+      gap: 0.65rem;
+      padding: 1.15rem 1.2rem 1.2rem;
+      border: 1px solid rgba(63, 52, 44, 0.06);
+      background: #ffffff;
+      border-radius: 12px;
       min-height: 100%;
+      box-shadow: 0 2px 10px rgba(63, 52, 44, 0.045);
+      transition: transform 0.22s ease, box-shadow 0.22s ease;
+    }
+    #waldorf-sites-view .waldorf-site-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 24px rgba(63, 52, 44, 0.08);
     }
     #waldorf-sites-view .waldorf-site-card-head {
       display: flex;
       align-items: flex-start;
-      gap: 0.7rem;
+      gap: 0.75rem;
     }
     #waldorf-sites-view .waldorf-site-icon {
-      width: 2.35rem;
-      height: 2.35rem;
-      border-radius: 0.7rem;
+      width: 2.4rem;
+      height: 2.4rem;
+      border-radius: 10px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: rgba(122, 155, 118, 0.14);
-      color: #5C7D58;
+      background: rgba(107, 143, 106, 0.12);
+      color: var(--ws-accent-dark);
       flex-shrink: 0;
     }
     #waldorf-sites-view .waldorf-site-title {
       margin: 0;
-      font-size: 1rem;
+      font-family: 'Heebo', system-ui, sans-serif;
+      font-size: 1.02rem;
       font-weight: 700;
-      color: #5C4A3A;
+      color: var(--ws-ink);
       line-height: 1.35;
+    }
+    #waldorf-sites-view .waldorf-site-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.35rem;
+    }
+    #waldorf-sites-view .waldorf-site-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      padding: 0.22rem 0.55rem;
+      border-radius: 999px;
+      line-height: 1.2;
+    }
+    #waldorf-sites-view .waldorf-site-badge--listen {
+      background: #e8f3ef;
+      color: #3f6f62;
+    }
+    #waldorf-sites-view .waldorf-site-badge--world {
+      background: #eaf1f8;
+      color: #3f5f7a;
+    }
+    #waldorf-sites-view .waldorf-site-badge--depth {
+      background: #f4eee6;
+      color: #7a5c3e;
+    }
+    #waldorf-sites-view .waldorf-site-badge--portal {
+      background: #eef5ea;
+      color: #4d6b48;
+    }
+    #waldorf-sites-view .waldorf-site-badge--school {
+      background: #f7efe8;
+      color: #8a6348;
+    }
+    #waldorf-sites-view .waldorf-site-badge--visual {
+      background: #f3eef7;
+      color: #6a5578;
+    }
+    #waldorf-sites-view .waldorf-site-badge--publish {
+      background: #f6f0e4;
+      color: #7a6840;
     }
     #waldorf-sites-view .waldorf-site-desc {
       margin: 0;
       font-size: 0.875rem;
-      line-height: 1.55;
-      color: rgba(92, 74, 58, 0.82);
+      line-height: 1.6;
+      color: var(--ws-muted);
       flex: 1;
     }
     #waldorf-sites-view a.waldorf-site-link {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      margin-top: 0.25rem;
-      font-size: 0.82rem;
+      justify-content: center;
+      gap: 0.45rem;
+      margin-top: 0.35rem;
+      align-self: flex-start;
+      font-size: 0.84rem;
       font-weight: 600;
-      color: #5C7D58;
-      text-decoration: underline;
-      word-break: break-all;
+      color: #fff;
+      text-decoration: none;
+      background: var(--ws-accent);
+      border-radius: 10px;
+      padding: 0.55rem 0.95rem;
+      border: none;
+      box-shadow: 0 2px 8px rgba(107, 143, 106, 0.2);
+      transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+      word-break: normal;
     }
     #waldorf-sites-view a.waldorf-site-link:hover,
     #waldorf-sites-view a.waldorf-site-link:focus-visible {
-      color: #8B3A3A;
+      color: #fff;
+      background: var(--ws-accent-dark);
+      box-shadow: 0 6px 14px rgba(85, 115, 84, 0.24);
+      outline: none;
+    }
+    @media (max-width: 639px) {
+      #waldorf-sites-view .waldorf-sites-filters {
+        justify-content: flex-start;
+      }
+      #waldorf-sites-view a.waldorf-site-link {
+        width: 100%;
+      }
     }
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
     .ws-crumb-link { color: #5C7D58; font-weight: 600; cursor: pointer; pointer-events: auto; }
@@ -5625,14 +5776,23 @@
 
   <!-- ========== WALDORF SITES DIRECTORY (מאגר אתרי וולדורף) ========== -->
   <div id="waldorf-sites-view" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 pb-16 box-border">
-    <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
-      <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
-        <i class="fa-solid fa-globe text-gold" aria-hidden="true"></i>
-        <span data-i18n="waldorf_sites_title">מאגר אתרי וולדורף</span>
-      </h2>
-      <p class="text-sm text-walnut/70 waldorf-sites-intro" data-i18n="waldorf_sites_desc">משאבי תוכן פדגוגיים, ארכיבים, פודקאסטים, הוצאות ספרים ואתרי בתי ספר ולדורף בישראל. כל קישור נפתח בלשונית חדשה.</p>
+    <div class="waldorf-sites-panel w-full box-border p-4 sm:p-6 md:p-8">
+      <header class="waldorf-sites-hero">
+        <h2 class="waldorf-sites-hero-title">
+          <i class="fa-solid fa-globe" aria-hidden="true"></i>
+          <span data-i18n="waldorf_sites_title">מאגר אתרי וולדורף</span>
+        </h2>
+        <p class="waldorf-sites-intro" data-i18n="waldorf_sites_desc">אוסף חם ומדויק של אתרים, פודקאסטים, ארכיבים ובתי ספר — כל מה שמחנך ולדורף צריך במקום אחד. כל קישור נפתח בלשונית חדשה.</p>
+        <div class="waldorf-sites-filters" role="tablist" aria-label="סינון קטגוריות במאגר">
+          <button type="button" class="waldorf-sites-filter-btn is-active" data-ws-filter="all" role="tab" aria-selected="true" data-i18n="waldorf_sites_filter_all">הכל</button>
+          <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="il" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_il">אתרים בישראל</button>
+          <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="podcasts" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_podcasts">פודקאסטים</button>
+          <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="intl" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_intl">משאבים בינלאומיים</button>
+          <button type="button" class="waldorf-sites-filter-btn" data-ws-filter="schools" role="tab" aria-selected="false" data-i18n="waldorf_sites_filter_schools">בתי ספר</button>
+        </div>
+      </header>
 
-      <section class="waldorf-sites-category" aria-labelledby="waldorf-sites-cat-il">
+      <section class="waldorf-sites-category" data-ws-category="il" aria-labelledby="waldorf-sites-cat-il">
         <h3 id="waldorf-sites-cat-il" class="waldorf-sites-category-title">
           <i class="fa-solid fa-book-open" aria-hidden="true"></i>
           <span data-i18n="waldorf_sites_cat_il">אתרים וארכיבים בישראל</span>
@@ -5641,47 +5801,73 @@
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-graduation-cap"></i></span>
-              <h4 class="waldorf-site-title">מסעות בחינוך</h4>
+              <div>
+                <h4 class="waldorf-site-title">מסעות בחינוך</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--portal">תוכן פדגוגי</span>
+                  <span class="waldorf-site-badge waldorf-site-badge--listen">להאזנה</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">האתר הרשמי של הילה שקד ואלון ירושלמי — פודקאסט, קורסים ותוכן פדגוגי עמוק למחנכים ומחנכות בישראל.</p>
-            <a class="waldorf-site-link" href="https://www.educationpace.com" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.educationpace.com</a>
+            <a class="waldorf-site-link" href="https://www.educationpace.com" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-landmark"></i></span>
-              <h4 class="waldorf-site-title">אנתרופוסופיה בישראל</h4>
+              <div>
+                <h4 class="waldorf-site-title">אנתרופוסופיה בישראל</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--portal">פורטל מרכזי</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">השער המרכזי לאנתרופוסופיה, מאמרים, חומרי לימוד והוצאת אלביון.</p>
-            <a class="waldorf-site-link" href="https://www.antro.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.antro.co.il</a>
+            <a class="waldorf-site-link" href="https://www.antro.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-people-group"></i></span>
-              <h4 class="waldorf-site-title">הפורום הארצי לחינוך ולדורף בישראל</h4>
+              <div>
+                <h4 class="waldorf-site-title">הפורום הארצי לחינוך ולדורף בישראל</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--portal">ארגון גג</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">האתר הרשמי של ארגון הגג למוסדות והכשרות ולדורף בארץ.</p>
-            <a class="waldorf-site-link" href="https://www.waldorf.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.waldorf.co.il</a>
+            <a class="waldorf-site-link" href="https://www.waldorf.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-feather-pointed"></i></span>
-              <h4 class="waldorf-site-title">דניאל זהבי — אנתרופוסופיה</h4>
+              <div>
+                <h4 class="waldorf-site-title">דניאל זהבי — אנתרופוסופיה</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--depth">מאמרי עומק</span>
+                </div>
+              </div>
             </div>
-            <p class="waldorf-site-desc">אתר התוכן הרשמי של דניאל זהבי, הכולל חנות ספרים, ארכיב הרצאות מתורגמות של רודולף שטיינר ומאמרי עומק פילוסופיים.</p>
-            <a class="waldorf-site-link" href="https://daniel-zahavi.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> daniel-zahavi.co.il</a>
+            <p class="waldorf-site-desc">אתר התוכן הרשמי של דניאל זהבי, הכולל חנות ספרים, ארכיב הרצאות מתורגמות של רודולף שטיינר ומאמרי עומק.</p>
+            <a class="waldorf-site-link" href="https://daniel-zahavi.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-newspaper"></i></span>
-              <h4 class="waldorf-site-title">אדם עולם</h4>
+              <div>
+                <h4 class="waldorf-site-title">אדם עולם</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--depth">מאמרי עומק</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">המגזין האנתרופוסופי הדיגיטלי בישראל המכיל עשרות מאמרי עומק ופדגוגיה.</p>
-            <a class="waldorf-site-link" href="https://adamolam.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> adamolam.co.il</a>
+            <a class="waldorf-site-link" href="https://adamolam.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
         </div>
       </section>
 
-      <section class="waldorf-sites-category" aria-labelledby="waldorf-sites-cat-podcasts">
+      <section class="waldorf-sites-category" data-ws-category="podcasts" aria-labelledby="waldorf-sites-cat-podcasts">
         <h3 id="waldorf-sites-cat-podcasts" class="waldorf-sites-category-title">
           <i class="fa-solid fa-podcast" aria-hidden="true"></i>
           <span data-i18n="waldorf_sites_cat_podcasts">פודקאסטים מובילים בעברית</span>
@@ -5690,39 +5876,59 @@
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-headphones"></i></span>
-              <h4 class="waldorf-site-title">מסעות בחינוך</h4>
+              <div>
+                <h4 class="waldorf-site-title">מסעות בחינוך</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--listen">להאזנה</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">פודקאסט עמוק ומרתק על פדגוגיה, ולדורף והתפתחות הילד.</p>
-            <a class="waldorf-site-link" href="https://www.educationpace.com/podcast" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> educationpace.com/podcast</a>
+            <a class="waldorf-site-link" href="https://www.educationpace.com/podcast" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-child-reaching"></i></span>
-              <h4 class="waldorf-site-title">עולמה של הילדות</h4>
+              <div>
+                <h4 class="waldorf-site-title">עולמה של הילדות</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--listen">להאזנה</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">הצצה מעמיקה לשנות הילדות הראשונות, הגן והחינוך מתוך ראייה אנתרופוסופית.</p>
-            <a class="waldorf-site-link" href="https://childhoodworld.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> childhoodworld.co.il</a>
+            <a class="waldorf-site-link" href="https://childhoodworld.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-comments"></i></span>
-              <h4 class="waldorf-site-title">חידת האדם</h4>
+              <div>
+                <h4 class="waldorf-site-title">חידת האדם</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--listen">להאזנה</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">שיחות והרצאות על האדם, הרוח, והגשמת הפדגוגיה בחיי המעשה.</p>
-            <a class="waldorf-site-link" href="https://adamolam.podbean.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> adamolam.podbean.com</a>
+            <a class="waldorf-site-link" href="https://adamolam.podbean.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-lightbulb"></i></span>
-              <h4 class="waldorf-site-title">אנתרופוסופיה פשוטה</h4>
+              <div>
+                <h4 class="waldorf-site-title">אנתרופוסופיה פשוטה</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--listen">להאזנה</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">מושגי יסוד באנתרופוסופיה וחינוך ולדורף בגובה העיניים.</p>
-            <a class="waldorf-site-link" href="https://www.antro.co.il/podcast/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> antro.co.il/podcast</a>
+            <a class="waldorf-site-link" href="https://www.antro.co.il/podcast/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
         </div>
       </section>
 
-      <section class="waldorf-sites-category" aria-labelledby="waldorf-sites-cat-intl">
+      <section class="waldorf-sites-category" data-ws-category="intl" aria-labelledby="waldorf-sites-cat-intl">
         <h3 id="waldorf-sites-cat-intl" class="waldorf-sites-category-title">
           <i class="fa-solid fa-earth-europe" aria-hidden="true"></i>
           <span data-i18n="waldorf_sites_cat_intl">משאבים וארכיבים בינלאומיים</span>
@@ -5731,87 +5937,138 @@
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-archive"></i></span>
-              <h4 class="waldorf-site-title">Rudolf Steiner Archive (RSArchive)</h4>
+              <div>
+                <h4 class="waldorf-site-title">Rudolf Steiner Archive (RSArchive)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--world">מאגר עולמי</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">הארכיב העולמי הגדול ביותר להרצאות וספרי שטיינר.</p>
-            <a class="waldorf-site-link" href="https://www.rsarchive.org" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.rsarchive.org</a>
+            <a class="waldorf-site-link" href="https://www.rsarchive.org" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span>
-              <h4 class="waldorf-site-title">Waldorf Resources</h4>
+              <div>
+                <h4 class="waldorf-site-title">Waldorf Resources</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--world">מערכי שיעור</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר משאבים ומערכי שיעור בינלאומי רשמי למורים.</p>
-            <a class="waldorf-site-link" href="https://www.waldorf-resources.org" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.waldorf-resources.org</a>
+            <a class="waldorf-site-link" href="https://www.waldorf-resources.org" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-mountain-sun"></i></span>
-              <h4 class="waldorf-site-title">החטיבה הפדגוגית בגתהאנום</h4>
+              <div>
+                <h4 class="waldorf-site-title">החטיבה הפדגוגית בגתהאנום</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--world">מרכז עולמי</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">המרכז הפדגוגי העולמי בשווייץ.</p>
-            <a class="waldorf-site-link" href="https://www.paedagogik-goetheanum.ch/en" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> paedagogik-goetheanum.ch/en</a>
+            <a class="waldorf-site-link" href="https://www.paedagogik-goetheanum.ch/en" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-chalkboard-user"></i></span>
-              <h4 class="waldorf-site-title">Live Education!</h4>
+              <div>
+                <h4 class="waldorf-site-title">Live Education!</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--world">תוכניות לימוד</span>
+                </div>
+              </div>
             </div>
-            <p class="waldorf-site-desc">פורטל פדגוגי עולמי מוביל המציע תוכניות לימוד מפורטות, חומרי עזר ומדריכים מעמיקים לפי כיתות א׳–ח׳.</p>
-            <a class="waldorf-site-link" href="https://www.live-education.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.live-education.com</a>
+            <p class="waldorf-site-desc">פורטל פדגוגי עולמי מוביל המציע תוכניות לימוד מפורטות וחומרי עזר לפי כיתות א׳–ח׳.</p>
+            <a class="waldorf-site-link" href="https://www.live-education.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-school"></i></span>
-              <h4 class="waldorf-site-title">Emerson Waldorf Resource Hub</h4>
+              <div>
+                <h4 class="waldorf-site-title">Emerson Waldorf Resource Hub</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--depth">מאמרי עומק</span>
+                </div>
+              </div>
             </div>
-            <p class="waldorf-site-desc">מרכז משאבים, מאמרים פדגוגיים, בלוג מקצועי והרצאות מבית אחד ממוסדות חינוך הוולדורף המובילים בעולם.</p>
-            <a class="waldorf-site-link" href="https://www.emersonwaldorf.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.emersonwaldorf.org</a>
+            <p class="waldorf-site-desc">מרכז משאבים, מאמרים פדגוגיים ובלוג מקצועי מבית אחד ממוסדות חינוך הוולדורף המובילים בעולם.</p>
+            <a class="waldorf-site-link" href="https://www.emersonwaldorf.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-compass"></i></span>
-              <h4 class="waldorf-site-title">A Waldorf Journey &amp; The Waldorf Connection</h4>
+              <div>
+                <h4 class="waldorf-site-title">A Waldorf Journey &amp; The Waldorf Connection</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--listen">להאזנה</span>
+                  <span class="waldorf-site-badge waldorf-site-badge--portal">משאבים</span>
+                </div>
+              </div>
             </div>
-            <p class="waldorf-site-desc">פורטל המשאבים, הבלוג והפודקאסט המאוחד של קלי אהרנפלד למחנכים בבתי ספר יסודיים.</p>
-            <a class="waldorf-site-link" href="https://www.awaldorfjourney.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.awaldorfjourney.com</a>
+            <p class="waldorf-site-desc">פורטל המשאבים, הבלוג והפודקאסט המאוחד של קלי אהרנפלד למחנכים.</p>
+            <a class="waldorf-site-link" href="https://www.awaldorfjourney.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-podcast"></i></span>
-              <h4 class="waldorf-site-title">Waldorfy</h4>
+              <div>
+                <h4 class="waldorf-site-title">Waldorfy</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--listen">להאזנה</span>
+                </div>
+              </div>
             </div>
-            <p class="waldorf-site-desc">הפודקאסט הבינלאומי המוביל והפופולרי ביותר להנגשת פדגוגיית ולדורף ומערכי שיעור.</p>
-            <a class="waldorf-site-link" href="https://waldorfy.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> waldorfy.com</a>
+            <p class="waldorf-site-desc">הפודקאסט הבינלאומי המוביל והפופולרי ביותר להנגשת פדגוגיית ולדורף.</p>
+            <a class="waldorf-site-link" href="https://waldorfy.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-palette"></i></span>
-              <h4 class="waldorf-site-title">Pepper &amp; Pine</h4>
+              <div>
+                <h4 class="waldorf-site-title">Pepper &amp; Pine</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--visual">השראה ויזואלית</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">מאגר השראה ויזואלי עשיר למחנכים הכולל ציורי לוח גיר, עבודות יד ועיצוב ספרי תקופה.</p>
-            <a class="waldorf-site-link" href="https://pepperandpine.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> pepperandpine.com</a>
+            <a class="waldorf-site-link" href="https://pepperandpine.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-book-atlas"></i></span>
-              <h4 class="waldorf-site-title">Waldorf Publications</h4>
+              <div>
+                <h4 class="waldorf-site-title">Waldorf Publications</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--publish">הוצאה לאור</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">בית הוצאה לאור בינלאומי לספרות פדגוגית ומדריכי מורים מקיפים.</p>
-            <a class="waldorf-site-link" href="https://www.waldorfpublications.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.waldorfpublications.org</a>
+            <a class="waldorf-site-link" href="https://www.waldorfpublications.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-sun"></i></span>
-              <h4 class="waldorf-site-title">Sunday Varieties</h4>
+              <div>
+                <h4 class="waldorf-site-title">Sunday Varieties</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--world">מערכי שיעור</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר משאבים ובלוג פדגוגי עולמי מוערך למערכי שיעור ותוכניות לימוד ולדורף.</p>
-            <a class="waldorf-site-link" href="https://www.sundayvarieties.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.sundayvarieties.com</a>
+            <a class="waldorf-site-link" href="https://www.sundayvarieties.com/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
         </div>
       </section>
 
-      <section class="waldorf-sites-category" aria-labelledby="waldorf-sites-cat-schools">
+      <section class="waldorf-sites-category" data-ws-category="schools" aria-labelledby="waldorf-sites-cat-schools">
         <h3 id="waldorf-sites-cat-schools" class="waldorf-sites-category-title">
           <i class="fa-solid fa-school-flag" aria-hidden="true"></i>
           <span data-i18n="waldorf_sites_cat_schools">בתי ספר ולדורף בישראל</span>
@@ -5820,106 +6077,119 @@
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-tree"></i></span>
-              <h4 class="waldorf-site-title">בית ספר אורים (הכפר הירוק)</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית חינוך אלומות (שוהם)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
-            <p class="waldorf-site-desc">אתר בית הספר היסודי והתיכון אורים.</p>
-            <a class="waldorf-site-link" href="https://urim-waldorf.co.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> urim-waldorf.co.il</a>
+            <p class="waldorf-site-desc">אתר בית הספר והגנים המופעלים ע״י עמותת גנאחר באזור חבל מודיעין ושוהם.</p>
+            <a class="waldorf-site-link" href="https://www.antro.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-leaf"></i></span>
-              <h4 class="waldorf-site-title">בית ספר הרדוף</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית ספר הרדוף</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר המוסד החינוכי ולדורף בהרדוף — יסודי ותיכון.</p>
-            <a class="waldorf-site-link" href="https://www.harduf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.harduf.org.il</a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-seedling"></i></span>
-              <h4 class="waldorf-site-title">בית ספר שקד (קריית טבעון)</h4>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר שקד בטבעון.</p>
-            <a class="waldorf-site-link" href="https://www.shakedwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.shakedwaldorf.org.il</a>
+            <a class="waldorf-site-link" href="https://www.harduf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-mountain"></i></span>
-              <h4 class="waldorf-site-title">בית ספר עודד (יודפת)</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית ספר עודד (יודפת)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר בית הספר האזורי עודד ביודפת.</p>
-            <a class="waldorf-site-link" href="https://www.odedwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.odedwaldorf.org.il</a>
+            <a class="waldorf-site-link" href="https://www.odedwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-building"></i></span>
-              <h4 class="waldorf-site-title">בית ספר אדם (ירושלים)</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית ספר אדם (ירושלים)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר בית הספר ולדורף אדם בירושלים.</p>
-            <a class="waldorf-site-link" href="https://www.adam-school.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.adam-school.org</a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-apple-whole"></i></span>
-              <h4 class="waldorf-site-title">בית ספר רימון (פרדס חנה)</h4>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר רימון בפרדס חנה.</p>
-            <a class="waldorf-site-link" href="https://www.rimon-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.rimon-waldorf.org.il</a>
+            <a class="waldorf-site-link" href="https://www.adam-school.org/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-spa"></i></span>
-              <h4 class="waldorf-site-title">בית ספר תמר (הוד השרון)</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית ספר תמר (הוד השרון)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר בית הספר ולדורף תמר.</p>
-            <a class="waldorf-site-link" href="https://www.tamar-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.tamar-waldorf.org.il</a>
+            <a class="waldorf-site-link" href="https://www.tamar-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-wheat-awn"></i></span>
-              <h4 class="waldorf-site-title">בית ספר זורע (עמק יזרעאל)</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית ספר זורע (עמק יזרעאל)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר בית הספר ולדורף בקיבוץ הזורע.</p>
-            <a class="waldorf-site-link" href="https://www.zoreawaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.zoreawaldorf.org.il</a>
+            <a class="waldorf-site-link" href="https://www.zoreawaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span>
-              <h4 class="waldorf-site-title">בית ספר נטף (מודיעין)</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית ספר נטף (מודיעין)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר בית הספר ולדורף נטף במודיעין.</p>
-            <a class="waldorf-site-link" href="https://www.natafwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.natafwaldorf.org.il</a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-house-chimney"></i></span>
-              <h4 class="waldorf-site-title">בית ספר אלומות (מרחביה)</h4>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר ולדורף אלומות בעמק יזרעאל.</p>
-            <a class="waldorf-site-link" href="https://www.alumot-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.alumot-waldorf.org.il</a>
+            <a class="waldorf-site-link" href="https://www.natafwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-bell"></i></span>
-              <h4 class="waldorf-site-title">בית ספר ענבלים (ראש פינה)</h4>
+              <div>
+                <h4 class="waldorf-site-title">בית ספר ענבלים (ראש פינה)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">בית ספר</span>
+                </div>
+              </div>
             </div>
-            <p class="waldorf-site-desc">אתר בית הספר ולדורף ענבלים בגליל העליון.</p>
-            <a class="waldorf-site-link" href="https://www.inbalim-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.inbalim-waldorf.org.il</a>
-          </article>
-          <article class="waldorf-site-card">
-            <div class="waldorf-site-card-head">
-              <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-water"></i></span>
-              <h4 class="waldorf-site-title">בית ספר גליל (קיבוץ תובל)</h4>
-            </div>
-            <p class="waldorf-site-desc">אתר בית הספר האזורי גליל.</p>
-            <a class="waldorf-site-link" href="https://www.galilwaldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.galilwaldorf.org.il</a>
+            <p class="waldorf-site-desc">אתר עמותת חינוך ולדורף גליל גולן המפעילה את המוסד.</p>
+            <a class="waldorf-site-link" href="https://www.galil-golan.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
           <article class="waldorf-site-card">
             <div class="waldorf-site-card-head">
               <span class="waldorf-site-icon" aria-hidden="true"><i class="fa-solid fa-star"></i></span>
-              <h4 class="waldorf-site-title">תיכון ולדורף זיו (ירושלים)</h4>
+              <div>
+                <h4 class="waldorf-site-title">תיכון ולדורף זיו (ירושלים)</h4>
+                <div class="waldorf-site-badges">
+                  <span class="waldorf-site-badge waldorf-site-badge--school">תיכון</span>
+                </div>
+              </div>
             </div>
             <p class="waldorf-site-desc">אתר התיכון האנתרופוסופי זיו.</p>
-            <a class="waldorf-site-link" href="https://www.ziv-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> www.ziv-waldorf.org.il</a>
+            <a class="waldorf-site-link" href="https://www.ziv-waldorf.org.il/" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> <span data-i18n="waldorf_sites_visit">מעבר לאתר</span></a>
           </article>
         </div>
       </section>
@@ -20817,6 +21087,35 @@
       });
     }
 
+    function applyWaldorfSitesFilter(filterKey) {
+      var root = document.getElementById('waldorf-sites-view');
+      if (!root) return;
+      var key = String(filterKey || 'all').trim() || 'all';
+      root.querySelectorAll('[data-ws-category]').forEach(function (section) {
+        var cat = String(section.getAttribute('data-ws-category') || '').trim();
+        var show = key === 'all' || cat === key;
+        section.classList.toggle('is-filter-hidden', !show);
+      });
+      root.querySelectorAll('.waldorf-sites-filter-btn').forEach(function (btn) {
+        var active = String(btn.getAttribute('data-ws-filter') || '') === key;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+    }
+
+    function bindWaldorfSitesFilters() {
+      var root = document.getElementById('waldorf-sites-view');
+      if (!root || root.getAttribute('data-ws-filters-bound') === '1') return;
+      root.setAttribute('data-ws-filters-bound', '1');
+      root.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('.waldorf-sites-filter-btn') : null;
+        if (!btn || !root.contains(btn)) return;
+        e.preventDefault();
+        applyWaldorfSitesFilter(btn.getAttribute('data-ws-filter') || 'all');
+      });
+      applyWaldorfSitesFilter('all');
+    }
+
     function saveWaldorfSitesScrollPosition() {
       var y = window.scrollY || window.pageYOffset || 0;
       try {
@@ -20860,6 +21159,7 @@
     function openWaldorfSitesView() {
       if (isWaldorfSitesView()) {
         ensureWaldorfSitesExternalLinks();
+        bindWaldorfSitesFilters();
         restoreWaldorfSitesScrollPosition();
         updateTopNavButtons();
         return;
@@ -20873,6 +21173,7 @@
       var el = document.getElementById('waldorf-sites-view');
       if (el) el.classList.remove('hidden');
       ensureWaldorfSitesExternalLinks();
+      bindWaldorfSitesFilters();
       updateNewResearchBarVisibility();
       renderStepProgress();
       updateTopNavButtons();
