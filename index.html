@@ -26,7 +26,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712i" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20260712j" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -3807,38 +3807,52 @@
     .pricing-paywall-actions {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      gap: 0.65rem;
+      align-items: stretch;
+      gap: 0.7rem;
       margin-top: 0.5rem;
-      padding-top: 0.25rem;
+      padding-top: 0.85rem;
       border-top: 1px solid rgba(201, 169, 98, 0.35);
+      width: 100%;
+      max-width: 28rem;
+      margin-inline: auto;
     }
-    .pricing-paywall-cta {
-      display: inline-flex;
+    .pricing-plan-buy-btn {
+      display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
       width: 100%;
-      max-width: 22rem;
-      padding: 0.85rem 1.25rem;
-      border-radius: 0.85rem;
+      padding: 0.95rem 1.15rem;
+      border-radius: 0.9rem;
       font-weight: 700;
-      text-decoration: none;
-      background: linear-gradient(145deg, #7A9B76, #5C7D58);
+      font-size: 0.95rem;
+      line-height: 1.4;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.15s;
+    }
+    #pricing-plan-one-time {
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(232, 240, 230, 0.98));
+      color: #3D5E44;
+      border: 1.5px solid rgba(122, 155, 118, 0.5);
+      box-shadow: 0 3px 12px rgba(92, 125, 88, 0.12);
+    }
+    #pricing-plan-one-time:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 16px rgba(92, 125, 88, 0.2);
+    }
+    #pricing-plan-annual {
+      background: linear-gradient(135deg, #6B9470 0%, #4F7355 55%, #3D5E44 100%);
       color: #fff;
       border: none;
-      box-shadow: 0 6px 20px rgba(92, 125, 88, 0.25);
-      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 4px 16px rgba(61, 94, 68, 0.32);
     }
-    .pricing-paywall-cta:hover {
+    #pricing-plan-annual:hover {
       transform: translateY(-1px);
-      box-shadow: 0 8px 24px rgba(92, 125, 88, 0.3);
+      box-shadow: 0 7px 20px rgba(61, 94, 68, 0.4);
       color: #fff;
     }
-    .pricing-paywall-cta:disabled {
-      opacity: 0.65;
-      cursor: wait;
-      transform: none;
+    .pricing-paywall-cta {
+      display: none !important;
     }
     .pricing-paywall-contact {
       font-size: 0.8rem;
@@ -5402,11 +5416,9 @@
       </div>
       <p id="pricing-modal-notice" class="pricing-modal-notice hidden" role="status" aria-live="polite"></p>
       <div id="pricing-comparison-wrap" class="pricing-comparison-wrap"></div>
-      <div class="pricing-paywall-actions">
-        <button type="button" id="pricing-upgrade-btn" class="pricing-paywall-cta">
-          <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
-          <span data-i18n="paywall_cta">שדרג לפרו</span>
-        </button>
+      <div class="pricing-paywall-actions" id="pricing-purchase-actions">
+        <button type="button" id="pricing-plan-one-time" class="pricing-plan-buy-btn" data-i18n="pricing_buy_one_time">רכישת מסלול חד-פעמי (100 ש"ח)</button>
+        <button type="button" id="pricing-plan-annual" class="pricing-plan-buy-btn" data-i18n="pricing_buy_annual">הרשמה למנוי שנתי (220 ש"ח)</button>
         <button type="button" id="pricing-modal-dismiss" data-i18n="paywall_dismiss">חזרה לארכיון החינמי</button>
       </div>
     </div>
@@ -5434,8 +5446,8 @@
       <h2 id="free-tier-limit-title" class="font-display" data-i18n="upgrade_modal_title">תודה על התמיכה שלך במרכז המידע!</h2>
       <p id="free-tier-limit-message" class="free-tier-limit-message" data-i18n="upgrade_modal_body">מכסת החיפושים החינמית שלך הסתיימה. כדי להמשיך ליהנות ממחקר חי, מחולל תקופות והורדות וורד ללא הגבלה, בחר את מסלול התמיכה המתאים לך:</p>
       <div class="free-tier-limit-actions">
-        <button type="button" id="upgrade-plan-one-time" class="upgrade-plan-btn" data-i18n="upgrade_modal_one_time_btn">תמיכה חד-פעמית (100 ש"ח) – 20 חיפושים לניצול חופשי (ללא הגבלת זמן) ווורד ללא הגבלה</button>
-        <button type="button" id="upgrade-plan-annual" class="upgrade-plan-btn" data-i18n="upgrade_modal_annual_btn">מנוי שנתי מומלץ (220 ש"ח) – 25 חיפושים מתחדשים בכל חודש ווורד ללא הגבלה</button>
+        <button type="button" id="upgrade-plan-one-time" class="upgrade-plan-btn" data-i18n="pricing_buy_one_time">רכישת מסלול חד-פעמי (100 ש"ח)</button>
+        <button type="button" id="upgrade-plan-annual" class="upgrade-plan-btn" data-i18n="pricing_buy_annual">הרשמה למנוי שנתי (220 ש"ח)</button>
         <button type="button" id="free-tier-limit-close" data-i18n="free_tier_limit_close">סגור</button>
       </div>
     </div>
@@ -6505,7 +6517,7 @@
 
   <!-- Free-tier lifetime search cap — must match api/tier-limits.js (1 live search). -->
   <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 1;</script>
-  <script src="auth-subscription.js?v=20260712a"></script>
+  <script src="auth-subscription.js?v=20260712b"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250701"></script>
   <script src="hebrew-topic-match.js?v=20250622a"></script>

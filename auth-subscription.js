@@ -1877,9 +1877,9 @@
     var msg = document.getElementById('free-tier-limit-message');
     if (msg) msg.textContent = t('upgrade_modal_body');
     var oneTimeBtn = document.getElementById('upgrade-plan-one-time');
-    if (oneTimeBtn) oneTimeBtn.textContent = t('upgrade_modal_one_time_btn');
+    if (oneTimeBtn) oneTimeBtn.textContent = t('pricing_buy_one_time');
     var annualBtn = document.getElementById('upgrade-plan-annual');
-    if (annualBtn) annualBtn.textContent = t('upgrade_modal_annual_btn');
+    if (annualBtn) annualBtn.textContent = t('pricing_buy_annual');
     var closeBtn = document.getElementById('free-tier-limit-close');
     if (closeBtn) closeBtn.textContent = t('free_tier_limit_close');
     if (el) {
@@ -2248,37 +2248,24 @@
   }
 
   function setPricingUpgradeButtonLoading(loading) {
-    var btn = document.getElementById('pricing-upgrade-btn');
-    if (!btn) return;
-    btn.disabled = loading;
-    var label = btn.querySelector('[data-i18n="paywall_cta"]') || btn.querySelector('span');
-    if (label) {
-      label.textContent = loading ? t('paywall_upgrade_loading') : t('paywall_cta');
-    }
+    // Legacy no-op — single CTA replaced by two Grow plan buttons.
+    void loading;
   }
 
   function handlePricingUpgradeClick() {
+    // Legacy fallback — route to annual Grow checkout.
+    handlePricingPlanClick('annual');
+  }
+
+  function handlePricingPlanClick(planKey) {
     if (isProUser()) return;
-    hideFreeTierLimitModal();
     if (!authState.isAuthenticated) {
+      hidePricingModal();
+      hideFreeTierLimitModal();
       showAuthOverlay();
       return;
     }
-    var userEmail = getUpgradeUserEmail();
-    if (!userEmail) {
-      showAuthOverlay();
-      return;
-    }
-    var newTab = global.open('about:blank', '_blank');
-    setPricingUpgradeButtonLoading(true);
-    startMakeUpgradeCheckout(userEmail, newTab, 'annual')
-      .then(function () {
-        setPricingUpgradeButtonLoading(false);
-      })
-      .catch(function () {
-        setPricingUpgradeButtonLoading(false);
-        showContactToast(t('paywall_upgrade_error'), 'error');
-      });
+    openGrowCheckout(planKey);
   }
 
   function handleUpgradeModalPlanClick(planKey) {
@@ -2329,11 +2316,14 @@
       '</div>' +
       '<p class="pricing-auto-renew-disclaimer">' + escapeHtml(t('pricing_auto_renew_disclaimer')) + '</p>';
 
-    var upgradeBtn = document.getElementById('pricing-upgrade-btn');
-    if (upgradeBtn) {
-      upgradeBtn.classList.toggle('hidden', isProUser());
-      setPricingUpgradeButtonLoading(false);
+    var purchaseActions = document.getElementById('pricing-purchase-actions');
+    if (purchaseActions) {
+      purchaseActions.classList.toggle('hidden', isProUser() || hasPaidAccess());
     }
+    var oneTimeBtn = document.getElementById('pricing-plan-one-time');
+    if (oneTimeBtn) oneTimeBtn.textContent = t('pricing_buy_one_time');
+    var annualBtn = document.getElementById('pricing-plan-annual');
+    if (annualBtn) annualBtn.textContent = t('pricing_buy_annual');
   }
 
   function renderPricingCards() {
@@ -2605,8 +2595,18 @@
     var pricingBackdrop = document.getElementById('pricing-modal-backdrop');
     if (pricingBackdrop) pricingBackdrop.addEventListener('click', hidePricingModal);
 
-    var pricingUpgradeBtn = document.getElementById('pricing-upgrade-btn');
-    if (pricingUpgradeBtn) pricingUpgradeBtn.addEventListener('click', handlePricingUpgradeClick);
+    var pricingOneTime = document.getElementById('pricing-plan-one-time');
+    if (pricingOneTime) {
+      pricingOneTime.addEventListener('click', function () {
+        handlePricingPlanClick('one_time');
+      });
+    }
+    var pricingAnnual = document.getElementById('pricing-plan-annual');
+    if (pricingAnnual) {
+      pricingAnnual.addEventListener('click', function () {
+        handlePricingPlanClick('annual');
+      });
+    }
 
     var checkoutClose = document.getElementById('checkout-soon-close');
     if (checkoutClose) checkoutClose.addEventListener('click', hideCheckoutSoonModal);
