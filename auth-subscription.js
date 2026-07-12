@@ -1508,7 +1508,9 @@
         parsed.checkoutUrl ||
         parsed.payment_url ||
         parsed.paymentUrl ||
-        (parsed.data && (parsed.data.url || parsed.data.checkoutUrl || parsed.data.payment_url)) ||
+        parsed.paymentLink ||
+        parsed.payment_link ||
+        (parsed.data && (parsed.data.url || parsed.data.checkoutUrl || parsed.data.payment_url || parsed.data.paymentLink)) ||
         (parsed.data && parsed.data.data && parsed.data.data.url) ||
         ''
       ).trim();
@@ -1520,67 +1522,57 @@
     return match ? match[0].trim() : '';
   }
 
-  /** Best-effort lead capture to Make — never blocks or fails the upgrade navigation. */
-  function notifyMakeUpgradeLead(email, planKey) {
+  function fallbackGrowCheckoutUrl(planKey) {
+    var plan = planKey === 'one_time' ? 'one_time' : 'annual';
+    return String(plan === 'one_time' ? GROW_ONE_TIME_URL : GROW_ANNUAL_URL || GROW_UPGRADE_URL || '').trim();
+  }
+
+  /**
+   * Ask Make for a dynamic Grow checkout URL (paymentLinkProcessId).
+   * This request must NEVER activate a subscription — Supabase upgrades only via
+   * POST /api/webhooks/payment-success after Grow confirms a real charge.
+   */
+  function requestMakeCheckoutUrl(email, planKey) {
     var webhookUrl = String(MAKE_UPGRADE_WEBHOOK_URL || '').trim();
-    if (!email || !/^https?:\/\//i.test(webhookUrl)) return;
     var plan = planKey === 'one_time' ? 'one_time_support' : 'annual_pro';
     var price = planKey === 'one_time' ? 100 : 220;
-    try {
-      fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        keepalive: true,
-        body: JSON.stringify({
-          email: email,
-          name: getUpgradeUserFullName(),
-          phone: getUpgradeUserPhone() || '0500000000',
-          plan: plan,
-          price: price,
-        }),
-      }).catch(function () { /* lead capture is optional */ });
-    } catch (e) { /* lead capture is optional */ }
+    var fallbackUrl = fallbackGrowCheckoutUrl(planKey);
+
+    if (!email || !/^https?:\/\//i.test(webhookUrl)) {
+      return Promise.resolve(fallbackUrl);
+    }
+
+    return fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        name: getUpgradeUserFullName(),
+        phone: getUpgradeUserPhone() || '0500000000',
+        plan: plan,
+        price: price,
+        // Explicit intent so Make must NOT call /api/webhooks/payment-success here.
+        intent: 'checkout_link',
+        event: 'checkout_link_request',
+      }),
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        var fromMake = extractMakeCheckoutUrl(text);
+        if (/^https?:\/\//i.test(fromMake)) return fromMake;
+        if (!res.ok) {
+          console.warn('[upgrade] Make checkout webhook returned', res.status, '— using static Grow URL');
+        }
+        return fallbackUrl;
+      });
+    }).catch(function (err) {
+      console.warn('[upgrade] Make checkout webhook failed — using static Grow URL', err && err.message);
+      return fallbackUrl;
+    });
   }
 
-  function startMakeUpgradeCheckout(userEmail, newTab, planKey) {
-    var email = normalizeEmail(userEmail);
-    var plan = planKey === 'one_time' ? 'one_time' : 'annual';
-    var checkoutUrl = String(plan === 'one_time' ? GROW_ONE_TIME_URL : GROW_ANNUAL_URL || GROW_UPGRADE_URL || '').trim();
-    if (!/^https?:\/\//i.test(checkoutUrl)) {
-      closeCheckoutTab(newTab);
-      console.error('[upgrade] Grow checkout URL is not configured:', checkoutUrl, plan);
-      return Promise.reject(new Error(t('paywall_upgrade_error')));
-    }
-
-    notifyMakeUpgradeLead(email, plan);
-
-    var popupBlocked = !newTab;
-    if (popupBlocked) {
-      global.location.href = checkoutUrl;
-      return Promise.resolve({ url: checkoutUrl, plan: plan });
-    }
-    try {
-      newTab.location.href = checkoutUrl;
-    } catch (assignErr) {
-      closeCheckoutTab(newTab);
-      showContactToast(t('paywall_upgrade_popup_blocked'));
-      global.location.href = checkoutUrl;
-    }
-    return Promise.resolve({ url: checkoutUrl, plan: plan });
-  }
-
-  /** Open a Grow checkout link in a new tab — never navigate away from this site. */
-  function openGrowCheckout(planKey) {
-    var plan = planKey === 'one_time' ? 'one_time' : 'annual';
-    var checkoutUrl = String(plan === 'one_time' ? GROW_ONE_TIME_URL : GROW_ANNUAL_URL || GROW_UPGRADE_URL || '').trim();
-    if (!/^https?:\/\//i.test(checkoutUrl)) {
-      showContactToast(t('paywall_upgrade_error'), 'error');
-      return false;
-    }
-    var email = getUpgradeUserEmail();
-    if (email) notifyMakeUpgradeLead(email, plan);
-
-    // Prefer a real <a target="_blank"> click so the current tab always stays on the site.
+  /** Open a checkout URL in a new tab — never navigate this site away, never touch Supabase. */
+  function openCheckoutUrlInNewTab(checkoutUrl) {
+    if (!/^https?:\/\//i.test(checkoutUrl)) return false;
     try {
       var anchor = document.createElement('a');
       anchor.href = checkoutUrl;
@@ -1597,9 +1589,56 @@
         try { opened.opener = null; } catch (openerErr) { /* ignore */ }
         return true;
       }
-      showContactToast(t('paywall_upgrade_popup_blocked'), 'error');
       return false;
     }
+  }
+
+  /**
+   * Checkout flow: Make webhook → open Grow link only.
+   * Do NOT refreshSubscriptionFromServer / setTier / write Supabase here.
+   */
+  function startMakeUpgradeCheckout(userEmail, newTab, planKey) {
+    var email = normalizeEmail(userEmail);
+    var plan = planKey === 'one_time' ? 'one_time' : 'annual';
+
+    return requestMakeCheckoutUrl(email, plan).then(function (checkoutUrl) {
+      if (!/^https?:\/\//i.test(checkoutUrl)) {
+        closeCheckoutTab(newTab);
+        console.error('[upgrade] Grow checkout URL is not configured:', checkoutUrl, plan);
+        return Promise.reject(new Error(t('paywall_upgrade_error')));
+      }
+
+      if (newTab) {
+        try {
+          newTab.location.href = checkoutUrl;
+        } catch (assignErr) {
+          closeCheckoutTab(newTab);
+          if (!openCheckoutUrlInNewTab(checkoutUrl)) {
+            showContactToast(t('paywall_upgrade_popup_blocked'), 'error');
+            global.location.href = checkoutUrl;
+          }
+        }
+      } else if (!openCheckoutUrlInNewTab(checkoutUrl)) {
+        showContactToast(t('paywall_upgrade_popup_blocked'), 'error');
+        global.location.href = checkoutUrl;
+      }
+
+      // Intentionally no subscription refresh — Pro activates only after Grow payment webhook.
+      return { url: checkoutUrl, plan: plan };
+    });
+  }
+
+  /** Open Grow checkout via Make dynamic link (fallback: static Grow URL). */
+  function openGrowCheckout(planKey) {
+    var email = getUpgradeUserEmail();
+    if (!email) {
+      showAuthOverlay();
+      return false;
+    }
+    startMakeUpgradeCheckout(email, null, planKey === 'one_time' ? 'one_time' : 'annual').catch(function () {
+      showContactToast(t('paywall_upgrade_error'), 'error');
+    });
+    return true;
   }
 
   function syncGrowCheckoutLinkElements() {
@@ -2307,15 +2346,17 @@
       showAuthOverlay();
       return;
     }
-    // Authenticated: let native <a target="_blank"> open Grow, and still fire lead capture.
+    // Authenticated: stop the static <a href>, request dynamic Make→Grow link, open it.
+    // Never upgrade Supabase here — that happens only via Grow payment-success webhook.
+    if (event) event.preventDefault();
     var email = getUpgradeUserEmail();
-    if (email) notifyMakeUpgradeLead(email, planKey === 'one_time' ? 'one_time' : 'annual');
-    syncGrowCheckoutLinkElements();
-    // If the element is not an anchor (legacy), open explicitly.
-    if (event && event.currentTarget && event.currentTarget.tagName !== 'A') {
-      if (event) event.preventDefault();
-      openGrowCheckout(planKey);
+    if (!email) {
+      showAuthOverlay();
+      return;
     }
+    startMakeUpgradeCheckout(email, null, planKey === 'one_time' ? 'one_time' : 'annual').catch(function () {
+      showContactToast(t('paywall_upgrade_error'), 'error');
+    });
   }
 
   function handleUpgradeModalPlanClick(planKey, event) {
@@ -2325,13 +2366,15 @@
       showAuthOverlay();
       return;
     }
+    if (event) event.preventDefault();
     var email = getUpgradeUserEmail();
-    if (email) notifyMakeUpgradeLead(email, planKey === 'one_time' ? 'one_time' : 'annual');
-    syncGrowCheckoutLinkElements();
-    if (event && event.currentTarget && event.currentTarget.tagName !== 'A') {
-      if (event) event.preventDefault();
-      openGrowCheckout(planKey);
+    if (!email) {
+      showAuthOverlay();
+      return;
     }
+    startMakeUpgradeCheckout(email, null, planKey === 'one_time' ? 'one_time' : 'annual').catch(function () {
+      showContactToast(t('paywall_upgrade_error'), 'error');
+    });
   }
 
   function renderPricingComparisonTable() {
