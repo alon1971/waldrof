@@ -14812,7 +14812,7 @@
         return html || escapeHtml(resolveFriendlyLinkDisplayLabel(label, url));
       });
       work = work.replace(/https?:\/\/[^\s<>"']+/gi, function (url) {
-        if (url.length < 48 && !/%D7[0-9A-Fa-f]{2}/i.test(url)) return url;
+        if (url.length < 48 && !/%D7%[0-9A-Fa-f]{2}/i.test(url)) return url;
         var html = buildWordExportLinkHtml('', url);
         return html || escapeHtml(resolveFriendlyLinkDisplayLabel('', url));
       });
@@ -14949,7 +14949,7 @@
         var looksLikeRawHref = !innerText ||
           innerText === hrefMatch[1] ||
           /^https?:\/\//i.test(innerText) ||
-          /%D7[0-9A-Fa-f]{2}/i.test(innerText) ||
+          /%D7%[0-9A-Fa-f]{2}/i.test(innerText) ||
           (innerText.length > 80 && /%[0-9A-Fa-f]{2}/i.test(innerText));
         var display = looksLikeRawHref
           ? resolveFriendlyLinkDisplayLabel('', href)
@@ -20261,10 +20261,17 @@
         }
         var anchor = document.createElement('a');
         anchor.href = url;
-        anchor.textContent = url;
+        var decodedLabel = '';
+        try {
+          if (/%[0-9A-Fa-f]{2}/.test(url) && typeof readableLabelFromEncodedUrl === 'function') {
+            decodedLabel = readableLabelFromEncodedUrl(url);
+          }
+        } catch (decodeErr) { /* ignore */ }
+        anchor.textContent = decodedLabel || url;
         anchor.target = '_blank';
         anchor.rel = 'noopener noreferrer';
         anchor.className = 'auto-linkified prose-source-link';
+        if (decodedLabel && decodedLabel !== url) anchor.title = url;
         frag.appendChild(anchor);
         lastIndex = match.index + url.length;
         changed = true;
@@ -20475,6 +20482,28 @@
       try { return decodeURIComponent(s.replace(/\+/g, ' ')); } catch (e) { return s; }
     }
 
+    /** Readable Hebrew/UTF-8 anchor text from a percent-encoded path (href stays encoded). */
+    function readableLabelFromEncodedUrl(url) {
+      try {
+        var parsed = new URL(String(url || '').trim());
+        var segments = (parsed.pathname || '').split('/').filter(Boolean);
+        if (!segments.length) return parsed.hostname.replace(/^www\./i, '') || '';
+        var tail = segments[segments.length - 1];
+        var readable = decodeUriComponentSafe(tail)
+          .replace(/[-_]+/g, ' ')
+          .replace(/\.[a-z0-9]{2,5}$/i, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (readable.length > 80) readable = readable.slice(0, 77).trim() + '…';
+        if (readable.length >= 2 && (/[\u0590-\u05FF]/.test(readable) || /[a-zA-Z]{3,}/.test(readable))) {
+          return readable;
+        }
+        return parsed.hostname.replace(/^www\./i, '') || '';
+      } catch (e) {
+        return '';
+      }
+    }
+
     function sanitizeMarkdownLinkUrl(url) {
       return sanitizeExternalLinkUrl(url);
     }
@@ -20498,15 +20527,26 @@
     }
 
     function hasLongPercentEncodedHebrewPath(url) {
-      try {
-        var parsed = new URL(String(url || '').trim());
-        var pathQuery = (parsed.pathname || '') + (parsed.search || '');
-        if (!/%D7[0-9A-Fa-f]{2}/i.test(pathQuery)) return false;
-        var encodedRuns = pathQuery.match(/%D7[0-9A-Fa-f]{2}/gi);
-        return pathQuery.length > 60 || (encodedRuns && encodedRuns.length >= 3);
-      } catch (e) {
-        return false;
+      var raw = String(url || '').trim();
+      // Real UTF-8 Hebrew bytes are encoded as %D7%XX (two escapes), not %D7XX.
+      if (/%D7%[0-9A-Fa-f]{2}/i.test(raw)) {
+        var encodedRuns = raw.match(/%D7%[0-9A-Fa-f]{2}/gi);
+        return raw.length > 60 || Boolean(encodedRuns && encodedRuns.length >= 3);
       }
+      try {
+        var parsed = new URL(raw);
+        var pathQuery = (parsed.pathname || '') + (parsed.search || '');
+        if (/[\u0590-\u05FF]/.test(pathQuery)) {
+          var heChars = pathQuery.match(/[\u0590-\u05FF]/g);
+          return pathQuery.length > 20 || Boolean(heChars && heChars.length >= 3);
+        }
+        var decodedPath = decodeUriComponentSafe(pathQuery);
+        if (/[\u0590-\u05FF]/.test(decodedPath)) {
+          var heDecoded = decodedPath.match(/[\u0590-\u05FF]/g);
+          return decodedPath.length > 20 || Boolean(heDecoded && heDecoded.length >= 3);
+        }
+      } catch (e) { /* ignore */ }
+      return false;
     }
 
     function isValidExternalSourceUrl(url) {
@@ -20522,16 +20562,7 @@
         if (!host || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/i.test(host)) {
           return false;
         }
-        var pathQuery = (parsed.pathname || '') + (parsed.search || '');
-        if (/%D7[0-9A-Fa-f]{2}/i.test(pathQuery)) {
-          return false;
-        }
-        if (pathQuery.length > 160 && /%[0-9A-Fa-f]{2}/i.test(pathQuery)) {
-          return false;
-        }
-        if (/[\u0590-\u05FF]/.test(pathQuery)) {
-          return false;
-        }
+        // Percent-encoded Hebrew / UTF-8 paths are valid deep links — never reject them here.
         return true;
       } catch (e) {
         return false;
@@ -20643,7 +20674,7 @@
       return true;
     }
 
-    var MARKDOWN_LINK_PATTERN = /\[([^\]]*)\]\(\s*([^)]*)\s*\)/;
+    var MARKDOWN_LINK_PATTERN = /\[([^\]]{0,2000})\]\(\s*((?:https?:\/\/)?[^)\s]+)\s*\)/;
 
     function formatMarkdownLinkDisplay(label) {
       var text = String(label || '').trim();
@@ -20818,6 +20849,8 @@
           clean.length <= 80) {
         return clean;
       }
+      var decoded = readableLabelFromEncodedUrl(href);
+      if (decoded) return decoded;
       if (href) {
         try {
           var host = new URL(href).hostname.replace(/^www\./i, '');
@@ -20877,13 +20910,13 @@
       }
       var text = String(source).trim();
       if (!text) return null;
-      var md = text.match(/\[([^\]]*)\]\(\s*(https?:\/\/[^)\s]+)\s*\)/i);
+      var md = text.match(/\[([^\]]{0,2000})\]\(\s*((?:https?:\/\/)?[^)\s]+)\s*\)/i);
       if (md) {
         var mdUrl = sanitizeMarkdownLinkUrl(md[2]);
         var mdLabel = cleanSourceLabelText(text.replace(md[0], '').trim() || md[1]);
         return { label: mdLabel, url: mdUrl };
       }
-      var titleUrl = text.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+      var titleUrl = text.match(/^(.+?)\s*(?:[—–:])\s*(https?:\/\/\S+)\s*$/i);
       if (titleUrl) {
         return { label: cleanSourceLabelText(titleUrl[1]), url: sanitizeMarkdownLinkUrl(titleUrl[2]) };
       }
@@ -20916,24 +20949,22 @@
       var href = String(url || '').trim();
       var clean = cleanSourceLabelText(label);
       if (clean && !/^https?:\/\//i.test(clean) && !/%[0-9A-Fa-f]{2}/i.test(clean) &&
-          !/[\u0590-\u05FF]/.test(clean) && !isDeadSourceLinkLabel(clean) && clean.length <= 120) {
+          !isDeadSourceLinkLabel(clean) && clean.length <= 120) {
         return clean;
       }
+      var decoded = readableLabelFromEncodedUrl(href);
+      if (decoded) return decoded;
       if (href) {
         try {
           var parsed = new URL(href);
           var path = String(parsed.pathname || '').toLowerCase();
-          if (/\.pdf(?:$|[?#])/i.test(path) || (isTrustedWaldorfUploadUrl(href) && hasLongPercentEncodedHebrewPath(href))) {
+          if (/\.pdf(?:$|[?#])/i.test(path)) {
             return isEnglish()
               ? '[Pedagogical source — PDF]'
               : '[קישור למקור פדגוגי - PDF]';
           }
-          if (hasLongPercentEncodedHebrewPath(href) || /%D7[0-9A-Fa-f]{2}/i.test(href)) {
-            return isEnglish() ? '[Pedagogical source]' : '[קישור למקור פדגוגי]';
-          }
-          if (isTrustedWaldorfUploadUrl(href)) {
-            return isEnglish() ? '[Pedagogical source]' : '[קישור למקור פדגוגי]';
-          }
+          var host = parsed.hostname.replace(/^www\./i, '');
+          if (host && !/google\.(com|co\.\w+)$/i.test(host)) return host;
         } catch (e) { /* ignore */ }
       }
       if (/^https?:\/\//i.test(clean) || /%[0-9A-Fa-f]{2}/i.test(clean)) {
@@ -21068,7 +21099,7 @@
           html.push('<p>' + buildPhaseCTabAnchorHtml(trimmed, '') + '</p>');
           return;
         }
-        var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+        var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–:])\s*(https?:\/\/\S+)\s*$/i);
         if (titleUrlMatch) {
           var titleUrlHref = sanitizeExternalLinkUrl(titleUrlMatch[2]);
           if (titleUrlHref) {
@@ -21097,7 +21128,7 @@
             inOl = true;
           }
           var olBody = olMatch[1];
-          var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+          var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–:])\s*(https?:\/\/\S+)\s*$/i);
           if (olTitleUrl) {
             html.push('<li>' + buildPhaseCTabAnchorHtml(olTitleUrl[2], olTitleUrl[1]) + '</li>');
           } else {
@@ -21113,7 +21144,7 @@
             inUl = true;
           }
           var ulBody = ulMatch[1];
-          var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+          var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–:])\s*(https?:\/\/\S+)\s*$/i);
           if (ulTitleUrl) {
             html.push('<li>' + buildPhaseCTabAnchorHtml(ulTitleUrl[2], ulTitleUrl[1]) + '</li>');
           } else {
@@ -21165,7 +21196,7 @@
           html.push('<p>' + buildProseSourceLinkHtml(trimmed, '') + '</p>');
           return;
         }
-        var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+        var titleUrlMatch = trimmed.match(/^(.+?)\s*(?:[—–:])\s*(https?:\/\/\S+)\s*$/i);
         if (titleUrlMatch && !narrativeOnly) {
           var titleUrlHref = sanitizeExternalLinkUrl(titleUrlMatch[2]);
           if (titleUrlHref) {
@@ -21195,7 +21226,7 @@
           }
           var olBody = olMatch[1];
           if (!narrativeOnly) {
-            var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+            var olTitleUrl = olBody.match(/^(.+?)\s*(?:[—–:])\s*(https?:\/\/\S+)\s*$/i);
             if (olTitleUrl) {
               html.push('<li>' + buildProseSourceLinkHtml(olTitleUrl[2], olTitleUrl[1]) + '</li>');
               return;
@@ -21213,7 +21244,7 @@
           }
           var ulBody = ulMatch[1];
           if (!narrativeOnly) {
-            var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)\s*$/i);
+            var ulTitleUrl = ulBody.match(/^(.+?)\s*(?:[—–:])\s*(https?:\/\/\S+)\s*$/i);
             if (ulTitleUrl) {
               html.push('<li>' + buildProseSourceLinkHtml(ulTitleUrl[2], ulTitleUrl[1]) + '</li>');
               return;

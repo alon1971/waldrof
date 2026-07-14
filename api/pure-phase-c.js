@@ -252,15 +252,27 @@ function isTrustedWaldorfUploadUrl(url) {
 }
 
 function hasLongPercentEncodedHebrewPath(url) {
-  try {
-    const parsed = new URL(String(url || '').trim());
-    const pathQuery = (parsed.pathname || '') + (parsed.search || '');
-    if (!/%D7[0-9A-Fa-f]{2}/i.test(pathQuery)) return false;
-    const encodedRuns = pathQuery.match(/%D7[0-9A-Fa-f]{2}/gi);
-    return pathQuery.length > 60 || Boolean(encodedRuns && encodedRuns.length >= 3);
-  } catch (e) {
-    return false;
+  const raw = String(url || '').trim();
+  // Real UTF-8 Hebrew bytes are encoded as %D7%XX (two escapes), not %D7XX.
+  if (/%D7%[0-9A-Fa-f]{2}/i.test(raw)) {
+    const encodedRuns = raw.match(/%D7%[0-9A-Fa-f]{2}/gi);
+    return raw.length > 60 || Boolean(encodedRuns && encodedRuns.length >= 3);
   }
+  try {
+    const parsed = new URL(raw);
+    const pathQuery = (parsed.pathname || '') + (parsed.search || '');
+    if (/[\u0590-\u05FF]/.test(pathQuery)) {
+      const heChars = pathQuery.match(/[\u0590-\u05FF]/g);
+      return pathQuery.length > 20 || Boolean(heChars && heChars.length >= 3);
+    }
+    // Node may leave pathname encoded — decode and re-check.
+    const decodedPath = decodeUriComponentSafe(pathQuery);
+    if (/[\u0590-\u05FF]/.test(decodedPath)) {
+      const heChars = decodedPath.match(/[\u0590-\u05FF]/g);
+      return decodedPath.length > 20 || Boolean(heChars && heChars.length >= 3);
+    }
+  } catch (e) { /* ignore */ }
+  return false;
 }
 
 function isValidPhaseCExternalUrl(url) {
@@ -280,13 +292,42 @@ function isValidPhaseCExternalUrl(url) {
     if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/i.test(host)) {
       return false;
     }
-    const pathQuery = (parsed.pathname || '') + (parsed.search || '');
-    if (/%D7[0-9A-Fa-f]{2}/i.test(pathQuery)) return false;
-    if (pathQuery.length > 160 && /%[0-9A-Fa-f]{2}/i.test(pathQuery)) return false;
-    if (/[\u0590-\u05FF]/.test(pathQuery)) return false;
+    // Percent-encoded Hebrew / UTF-8 paths are valid deep links (keep href intact).
     return true;
   } catch (e) {
     return false;
+  }
+}
+
+function decodeUriComponentSafe(value) {
+  const s = String(value || '');
+  if (!/%[0-9A-Fa-f]{2}/.test(s)) return s;
+  try {
+    return decodeURIComponent(s.replace(/\+/g, ' '));
+  } catch (e) {
+    return s;
+  }
+}
+
+/** Readable Hebrew/UTF-8 anchor text from a percent-encoded URL path (href stays encoded). */
+function readableLabelFromEncodedUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const segments = (parsed.pathname || '').split('/').filter(Boolean);
+    if (!segments.length) return parsed.hostname.replace(/^www\./i, '') || '';
+    const tail = segments[segments.length - 1];
+    let readable = decodeUriComponentSafe(tail)
+      .replace(/[-_]+/g, ' ')
+      .replace(/\.[a-z0-9]{2,5}$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (readable.length > 80) readable = readable.slice(0, 77).trim() + '…';
+    if (readable.length >= 2 && (/[\u0590-\u05FF]/.test(readable) || /[a-zA-Z]{3,}/.test(readable))) {
+      return readable;
+    }
+    return parsed.hostname.replace(/^www\./i, '') || '';
+  } catch (e) {
+    return '';
   }
 }
 
@@ -294,22 +335,19 @@ function resolvePhaseCFriendlyLinkTitle(label, url) {
   const href = String(url || '').trim();
   const clean = String(label || '').trim();
   if (clean && !/^https?:\/\//i.test(clean) && !/%[0-9A-Fa-f]{2}/i.test(clean) &&
-      !/[\u0590-\u05FF]/.test(clean) && clean.length <= 120) {
+      clean.length <= 120) {
     return clean;
   }
+  const decoded = readableLabelFromEncodedUrl(href);
+  if (decoded) return decoded;
   try {
     const parsed = new URL(href);
     const path = String(parsed.pathname || '').toLowerCase();
     if (/\.pdf(?:$|[?#])/i.test(path) || (isTrustedWaldorfUploadUrl(href) && hasLongPercentEncodedHebrewPath(href))) {
       return '[קישור למקור פדגוגי - PDF]';
     }
-    if (hasLongPercentEncodedHebrewPath(href) || /%D7[0-9A-Fa-f]{2}/i.test(href)) {
-      return '[קישור למקור פדגוגי]';
-    }
     const host = parsed.hostname.replace(/^www\./i, '');
-    if (PHASE_C_TRUSTED_ROOT_DOMAINS.test(host)) {
-      return '[קישור למקור פדגוגי]';
-    }
+    if (host) return host;
   } catch (e) { /* ignore */ }
   if (/^https?:\/\//i.test(clean) || /%[0-9A-Fa-f]{2}/i.test(clean)) {
     return '[קישור למקור פדגוגי]';
@@ -339,7 +377,6 @@ const PHASE_C_DEAD_URL_PATTERNS = [
   /ViewPage\.asp/i,
   /edupage\.org\/.*login/i,
   /google\.com\/search/i,
-  /%D7[0-9A-Fa-f]{2}/i,
 ];
 
 const PHASE_C_THEORY_URL_HINTS = /rsarchive|waldorflibrary|steiner|anthroposoph|gesamtausgabe|\bga[\d_]|lecture|archive|library|essay|article|journal|research|pdf|anthro/i;
@@ -478,14 +515,18 @@ function normalizeToTrustedPortalRoot(url) {
 
 function isShallowReliablePhaseCUrl(url) {
   try {
-    const parsed = new URL(String(url || '').trim());
+    const raw = String(url || '').trim();
+    const parsed = new URL(raw);
     const host = String(parsed.hostname || '').replace(/^www\./i, '');
     const path = String(parsed.pathname || '');
-    if (/%[0-9A-Fa-f]{2}/i.test(path) || /%D7/i.test(path)) return false;
+    // Real Hebrew deep links (raw %D7… or decoded Hebrew path) — keep them.
+    if (/%D7%[0-9A-Fa-f]{2}/i.test(raw) || /[\u0590-\u05FF]/.test(path) || hasLongPercentEncodedHebrewPath(raw)) {
+      return Boolean(host && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/i.test(host));
+    }
     const segments = path.split('/').filter(Boolean);
     if (PHASE_C_TRUSTED_ROOT_DOMAINS.test(host) || isTrustedEducationalDomain(url)) {
       if (segments.length <= 2) return true;
-      return segments.length <= 3 && !/%[0-9A-Fa-f]{2}/i.test(path);
+      return segments.length <= 3 && !/%[0-9A-Fa-f]{2}/i.test(raw);
     }
     if (/pinterest\.com/i.test(host)) return segments.length >= 1 && segments.length <= 4;
     return segments.length <= 1;
@@ -745,12 +786,14 @@ function inferHarvestedLinkTitle(url, raw, topic) {
     const heTitle = windowText.match(/"title"\s*:\s*"([^"]*[\u0590-\u05FF][^"]{1,160})"/);
     if (heTitle && heTitle[1]) return unescapeJsonStringFragment(heTitle[1]);
   }
+  const decoded = readableLabelFromEncodedUrl(u);
+  if (decoded) {
+    const topicStr = String(topic || '').trim();
+    return decoded + (topicStr && decoded.indexOf(topicStr) < 0 ? ' — ' + topicStr : '');
+  }
   try {
     const host = new URL(u).hostname.replace(/^www\./i, '');
-    const tail = (new URL(u).pathname || '').split('/').filter(Boolean).pop() || '';
-    const readable = decodeURIComponent(tail).replace(/[-_]+/g, ' ').replace(/\.[a-z0-9]+$/i, '').trim();
     const topicStr = String(topic || '').trim();
-    if (readable && readable.length > 2) return readable + (topicStr ? ' — ' + topicStr : '');
     return host + (topicStr ? ' — ' + topicStr : '');
   } catch (e) {
     return u;
@@ -1599,8 +1642,10 @@ function getCoreEmphasesHeadings(grade) {
 }
 
 const FALLBACK_DOMAIN_PATTERN = /\b((?:www\.)?[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a-z0-9]*)+\.(?:org|com|edu|net|il)(?:\/[^\s,.;:)}\]"']*)?)/gi;
-const FALLBACK_MARKDOWN_LINK_PATTERN = /\[([^\]]{2,160})\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
-const FALLBACK_TITLE_URL_PATTERN = /([^\n]{4,140}?)\s*(?:[—–\-:])\s*(https?:\/\/\S+)/gi;
+/** Allow long percent-encoded labels — do not cap at 160 (Hebrew paths exceed that easily). */
+const FALLBACK_MARKDOWN_LINK_PATTERN = /\[([^\]]{1,2000})\]\(\s*((?:https?:\/\/)?[^)\s]+)\s*\)/gi;
+/** Never treat ASCII hyphen as a title/URL separator — it splits hosts like daniel-zahavi.co.il. */
+const FALLBACK_TITLE_URL_PATTERN = /([^\n]{4,140}?)\s*(?:[—–:])\s*(https?:\/\/\S+)/gi;
 const FALLBACK_BARE_URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
 const PHASE_C_BROKEN_HTTPS_LINK_PATTERN = /(?:^|[\s*•\-])\[?\s*HTTPS\s*\]?\s*\(\s*(https?:\/\/[^)\s]+)\s*\)/gi;
 const PHASE_C_SOURCE_LINK_CLASS = 'prose-source-link text-blue-600 underline hover:text-blue-800';
@@ -1610,9 +1655,11 @@ function buildFallbackAnchorHtml(url, label) {
   const href = cleanHarvestedUrl(url);
   if (!href || isDeadPhaseCFallbackUrl(href)) return escapeHtmlForFallback(label || url);
   let display = String(label || '').trim();
-  if (!display || /^https?$/i.test(display) || /^HTTPS$/i.test(display)) {
-    display = PHASE_C_SOURCE_LINK_LABEL;
+  if (!display || /^https?$/i.test(display) || /^HTTPS$/i.test(display) ||
+      /^https?:\/\//i.test(display) || /%[0-9A-Fa-f]{2}/i.test(display)) {
+    display = resolvePhaseCFriendlyLinkTitle(display, href);
   }
+  if (!display) display = PHASE_C_SOURCE_LINK_LABEL;
   return '<a href="' + escapeHtmlForFallback(href) + '" target="_blank" rel="noopener noreferrer" class="' +
     PHASE_C_SOURCE_LINK_CLASS + '">' + escapeHtmlForFallback(display) + '</a>';
 }
@@ -1776,8 +1823,11 @@ function linkifyFallbackSegment(text, topic) {
     return stashLink(url, '') || url;
   });
   work = work.replace(/(?:^|\s)[*•\-]\s*HTTPS\b/gi, ' ');
-  work = work.replace(FALLBACK_DOMAIN_PATTERN, function (domain) {
+  work = work.replace(FALLBACK_DOMAIN_PATTERN, function (domain, _g1, offset, full) {
     if (/^https?:\/\//i.test(domain)) return domain;
+    const before = String(full || '').slice(Math.max(0, offset - 12), offset);
+    // Never split a full https://host/... URL by re-matching the hostname mid-string.
+    if (/https?:\/\/$/i.test(before) || /:\/\/$/i.test(before)) return domain;
     return stashLink(domain, domain) || domain;
   });
 
@@ -3503,6 +3553,8 @@ module.exports = {
   isNonEducationalSpamUrl,
   isDeadPhaseCFallbackUrl,
   isValidPhaseCExternalUrl,
+  cleanHarvestedUrl,
+  readableLabelFromEncodedUrl,
   isHistoryZionismTopicContext,
   violatesPedagogicalTopicContext,
   isPinterestPhaseCUrl,
