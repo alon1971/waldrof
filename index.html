@@ -7642,8 +7642,11 @@
     const ACTIVE_STEP_STORAGE_KEY = 'waldorf_active_step';
     const LESSON_SNAPSHOT_STORAGE_KEY = 'waldorf_lesson_snapshot';
     const SCROLL_MEMORY_STORAGE_KEY = 'waldorf_scroll_positions';
+    const LAST_SCROLL_VIEW_STORAGE_KEY = 'waldorf_last_scroll_view';
+    const LAST_SCROLL_Y_STORAGE_KEY = 'waldorf_last_scroll_y';
+    const SITES_DIRECTORY_SCROLL_STORAGE_KEY = 'waldorf_sites_directory_scroll_y';
     var persistStepTimer = null;
-    /** One-shot: hard refresh must reopen Step A while keeping cached form fields. */
+    /** One-shot: hard refresh (F5) clears session wizard state and lands on home. */
     var resetWizardStepViewOnThisLoad = false;
 
     function shouldResetWizardStepViewOnLoad(options) {
@@ -7669,15 +7672,10 @@
       } catch (e) { /* ignore */ }
     }
 
+    /** Wizard state lives in sessionStorage so Back restores it, but F5 can wipe it. */
     function readWizardStorageItem(key) {
       try {
-        var raw = localStorage.getItem(key);
-        if (raw) return raw;
-        raw = sessionStorage.getItem(key);
-        if (!raw) return null;
-        localStorage.setItem(key, raw);
-        sessionStorage.removeItem(key);
-        return raw;
+        return sessionStorage.getItem(key);
       } catch (e) {
         return null;
       }
@@ -7685,8 +7683,8 @@
 
     function writeWizardStorageItem(key, value) {
       try {
-        localStorage.setItem(key, value);
-        sessionStorage.removeItem(key);
+        sessionStorage.setItem(key, value);
+        try { localStorage.removeItem(key); } catch (eLocal) { /* ignore */ }
       } catch (e) { /* quota / private mode */ }
     }
 
@@ -7695,6 +7693,39 @@
         sessionStorage.removeItem(key);
         localStorage.removeItem(key);
       } catch (e) { /* ignore */ }
+    }
+
+    function clearWizardScrollSessionMemory() {
+      try {
+        sessionStorage.removeItem(SCROLL_MEMORY_STORAGE_KEY);
+        sessionStorage.removeItem(LAST_SCROLL_VIEW_STORAGE_KEY);
+        sessionStorage.removeItem(LAST_SCROLL_Y_STORAGE_KEY);
+        sessionStorage.removeItem(SITES_DIRECTORY_SCROLL_STORAGE_KEY);
+      } catch (e) { /* ignore */ }
+    }
+
+    /** Hard refresh: drop all in-tab wizard memory so the app boots to a clean home. */
+    function resetWizardStateForHardReload() {
+      clearPersistedActiveStep();
+      clearWizardScrollSessionMemory();
+      clearLegacyWizardStorage();
+      try { resetWizardSessionState(); } catch (e) { /* ignore */ }
+      try {
+        var gradeSel = document.getElementById('grade-select');
+        if (gradeSel) {
+          gradeSel.value = '';
+          gradeSel.selectedIndex = 0;
+        }
+        var btnGrade = document.getElementById('btn-grade-submit');
+        if (btnGrade) btnGrade.disabled = true;
+        var topicInput = document.getElementById('topic-input');
+        if (topicInput) topicInput.value = '';
+        var gsInput = document.getElementById('general-search-input');
+        if (gsInput) gsInput.value = '';
+        if (typeof setGeneralSearchPeriodBlockEnabled === 'function') {
+          setGeneralSearchPeriodBlockEnabled(false);
+        }
+      } catch (eDom) { /* ignore */ }
     }
 
     function resetWizardSessionState() {
@@ -24594,9 +24625,18 @@
 
     function hydrateActiveStepFromStorage(options) {
       options = options || {};
+      var landOnHome = Boolean(options.landOnHome || options.forceHomeLanding || shouldResetWizardStepViewOnLoad(options));
+      // Hard reload must not rehydrate fields/steps from a previous session in this tab.
+      if (landOnHome && shouldResetWizardStepViewOnLoad(options)) {
+        openHomeView({ skipScrollRestore: true });
+        renderStepProgress();
+        updateWorkspaceChrome();
+        updateNewResearchBarVisibility();
+        return;
+      }
+
       var saved = readPersistedActiveStep();
       var snapshot = readPersistedLessonSnapshot();
-      var landOnHome = Boolean(options.landOnHome || options.forceHomeLanding || shouldResetWizardStepViewOnLoad(options));
 
       if (snapshot && !appState.aiGeneratedPlan) {
         applyPersistedLessonSnapshot(snapshot);
@@ -28948,6 +28988,10 @@
     async function init() {
       var pageReloaded = isHardPageReload();
       resetWizardStepViewOnThisLoad = pageReloaded;
+      try { clearLegacyWizardStorage(); } catch (e) { /* ignore */ }
+      if (pageReloaded) {
+        try { resetWizardStateForHardReload(); } catch (e) { console.warn('[waldrof] resetWizardStateForHardReload:', e); }
+      }
       try { purgeStaleNonGrade1ClientState(); } catch (e) { console.warn('[waldrof] purgeStaleNonGrade1ClientState:', e); }
       try { resetCommunityClientStateOnReload(); } catch (e) { console.warn('[waldrof] resetCommunityClientStateOnReload:', e); }
       try {
@@ -29073,9 +29117,12 @@
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
       try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
-      try { hydrateActiveStepFromStorage({ landOnHome: true }); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
-      try { armScrollRestoreSuppression(1500); } catch (e) { /* ignore */ }
-      try { openHomeView({ skipScrollRestore: true }); } catch (e) { console.warn('[waldrof] openHomeView:', e); }
+      if (pageReloaded) {
+        try { armScrollRestoreSuppression(1500); } catch (e) { /* ignore */ }
+        try { openHomeView({ skipScrollRestore: true }); } catch (e) { console.warn('[waldrof] openHomeView:', e); }
+      } else {
+        try { hydrateActiveStepFromStorage({ restoreScroll: true }); } catch (e) { console.warn('[waldrof] hydrateActiveStepFromStorage:', e); }
+      }
       try { repairCorruptedProductTabHash(); } catch (e) { console.warn('[waldrof] repairCorruptedProductTabHash:', e); }
       const gradeSelAfterPopulate = document.getElementById('grade-select');
       if (gradeSelAfterPopulate && !appState.grade) {
@@ -29248,10 +29295,15 @@
         pageLoadFocusGuard = true;
         bindPageLoadScrollGuards();
         defocusGradeSelectDuringPageLoad();
-        try { armScrollRestoreSuppression(1500); } catch (eArm) { /* ignore */ }
-        try { hydrateActiveStepFromStorage({ landOnHome: true }); } catch (err) {
-          console.warn('[waldrof] pageshow hydrateActiveStepFromStorage:', err);
+        // Storage wipe already ran in init(); here only re-assert a clean home shell.
+        try {
+          clearPersistedActiveStep();
+          clearWizardScrollSessionMemory();
+          clearLegacyWizardStorage();
+        } catch (errReset) {
+          console.warn('[waldrof] pageshow hard-reload storage clear:', errReset);
         }
+        try { armScrollRestoreSuppression(1500); } catch (eArm) { /* ignore */ }
         try { openHomeView({ skipScrollRestore: true }); } catch (errHome) { console.warn('[waldrof] pageshow openHomeView:', errHome); }
         ensurePageAtTop();
         scheduleInitialPageScrollReset();
