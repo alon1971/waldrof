@@ -25,6 +25,7 @@
 
       window.__WALDROF_MOBILE_BLOCKED__ = true;
 
+      // Temporary flash-prevention only — removed when the card is rendered on full load.
       var hideStyle = document.createElement('style');
       hideStyle.id = 'waldrof-mobile-block-hide';
       hideStyle.textContent =
@@ -33,36 +34,93 @@
       (document.head || document.documentElement).appendChild(hideStyle);
 
       function showMobileBlock() {
+        if (window.__WALDROF_MOBILE_BLOCK_RENDERED__) return;
+        window.__WALDROF_MOBILE_BLOCK_RENDERED__ = true;
+
+        // Strip competing stylesheets/styles so nothing can hide the card.
+        var head = document.head || document.documentElement;
+        Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"], style')).forEach(function (el) {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        });
+
+        var override = document.createElement('style');
+        override.id = 'waldrof-mobile-block-override';
+        override.textContent =
+          'html,body{margin:0!important;padding:0!important;width:100%!important;height:100%!important;' +
+          'overflow:hidden!important;background:#f7f9fc!important;}' +
+          'body{display:flex!important;align-items:center!important;justify-content:center!important;' +
+          'min-height:100vh!important;min-height:100dvh!important;' +
+          'font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;' +
+          'direction:rtl!important;-webkit-text-size-adjust:100%!important;}' +
+          '#waldrof-mobile-block,#waldrof-mobile-block *{' +
+          'visibility:visible!important;opacity:1!important;display:revert;' +
+          'pointer-events:auto!important;}' +
+          '#waldrof-mobile-block{display:block!important;visibility:visible!important;opacity:1!important;' +
+          'width:100%!important;max-width:420px!important;margin:0 auto!important;' +
+          'background:#ffffff!important;border-radius:16px!important;' +
+          'box-shadow:0 8px 32px rgba(44,62,80,0.08)!important;' +
+          'padding:clamp(24px,6vw,40px)!important;text-align:center!important;' +
+          'box-sizing:border-box!important;position:relative!important;z-index:2147483647!important;}' +
+          '#waldrof-mobile-block h2{display:block!important;margin:0 0 16px!important;' +
+          'font-size:clamp(1.15rem,4.5vw,1.5rem)!important;font-weight:700!important;' +
+          'line-height:1.45!important;color:#2c3e50!important;font-family:inherit!important;}' +
+          '#waldrof-mobile-block p{display:block!important;margin:0 0 24px!important;' +
+          'font-size:clamp(0.95rem,3.8vw,1.05rem)!important;font-weight:400!important;' +
+          'line-height:1.7!important;color:#7f8c8d!important;font-family:inherit!important;}' +
+          '#waldrof-mobile-block .waldrof-mobile-badge{display:inline-block!important;' +
+          'background:#e8f4fd!important;color:#2980b9!important;' +
+          'font-size:clamp(0.85rem,3.5vw,0.95rem)!important;font-weight:600!important;' +
+          'line-height:1.4!important;padding:10px 18px!important;border-radius:999px!important;' +
+          'font-family:inherit!important;}';
+        head.appendChild(override);
+
         document.documentElement.lang = 'he';
         document.documentElement.dir = 'rtl';
-        document.documentElement.style.overflow = 'hidden';
-        document.documentElement.style.height = '100%';
+        document.documentElement.style.cssText =
+          'overflow:hidden!important;height:100%!important;margin:0!important;padding:0!important;' +
+          'background:#f7f9fc!important;';
 
+        document.body.className = '';
+        document.body.removeAttribute('class');
         document.body.style.cssText =
-          'margin:0;padding:0;min-height:100vh;min-height:100dvh;height:100%;' +
-          'overflow:hidden;display:flex;align-items:center;justify-content:center;' +
-          'background:#f7f9fc;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
-          'direction:rtl;-webkit-text-size-adjust:100%;box-sizing:border-box;' +
-          'padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) ' +
-          'max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));';
+          'margin:0!important;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) ' +
+          'max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))!important;' +
+          'min-height:100vh!important;min-height:100dvh!important;height:100%!important;' +
+          'width:100%!important;overflow:hidden!important;display:flex!important;' +
+          'align-items:center!important;justify-content:center!important;' +
+          'background:#f7f9fc!important;' +
+          'font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;' +
+          'direction:rtl!important;-webkit-text-size-adjust:100%!important;box-sizing:border-box!important;' +
+          'visibility:visible!important;opacity:1!important;';
 
         document.body.innerHTML =
-          '<div role="main" aria-live="polite" style="' +
-            'width:100%;max-width:420px;background:#fff;border-radius:16px;' +
-            'box-shadow:0 8px 32px rgba(44,62,80,0.08);padding:clamp(24px,6vw,40px);' +
-            'text-align:center;box-sizing:border-box;' +
+          '<div id="waldrof-mobile-block" role="main" aria-live="polite" style="' +
+            'display:block!important;visibility:visible!important;opacity:1!important;' +
+            'width:100%!important;max-width:420px!important;margin:0 auto!important;' +
+            'background:#ffffff!important;border-radius:16px!important;' +
+            'box-shadow:0 8px 32px rgba(44,62,80,0.08)!important;' +
+            'padding:clamp(24px,6vw,40px)!important;text-align:center!important;' +
+            'box-sizing:border-box!important;position:relative!important;z-index:2147483647!important;' +
+            'font-family:system-ui,-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif!important;' +
+            'direction:rtl!important;' +
           '">' +
-            '<h2 style="margin:0 0 16px;font-size:clamp(1.15rem,4.5vw,1.5rem);font-weight:700;' +
-              'line-height:1.45;color:#2c3e50;font-family:inherit;">' +
+            '<h2 style="display:block!important;visibility:visible!important;opacity:1!important;' +
+              'margin:0 0 16px!important;font-size:clamp(1.15rem,4.5vw,1.5rem)!important;' +
+              'font-weight:700!important;line-height:1.45!important;color:#2c3e50!important;' +
+              'font-family:inherit!important;">' +
               'לנוחות מירבית יש להיכנס דרך המחשב' +
             '</h2>' +
-            '<p style="margin:0 0 24px;font-size:clamp(0.95rem,3.8vw,1.05rem);font-weight:400;' +
-              'line-height:1.7;color:#7f8c8d;font-family:inherit;">' +
+            '<p style="display:block!important;visibility:visible!important;opacity:1!important;' +
+              'margin:0 0 24px!important;font-size:clamp(0.95rem,3.8vw,1.05rem)!important;' +
+              'font-weight:400!important;line-height:1.7!important;color:#7f8c8d!important;' +
+              'font-family:inherit!important;">' +
               'מנוע החיפוש החכם, תכנון התקופות והמאגר הקהילתי שלנו מותאמים ומעוצבים לעבודה נוחה ומלאה על גבי מסכים גדולים בלבד.' +
             '</p>' +
-            '<span style="display:inline-block;background:#e8f4fd;color:#2980b9;' +
-              'font-size:clamp(0.85rem,3.5vw,0.95rem);font-weight:600;line-height:1.4;' +
-              'padding:10px 18px;border-radius:999px;font-family:inherit;">' +
+            '<span class="waldrof-mobile-badge" style="display:inline-block!important;' +
+              'visibility:visible!important;opacity:1!important;background:#e8f4fd!important;' +
+              'color:#2980b9!important;font-size:clamp(0.85rem,3.5vw,0.95rem)!important;' +
+              'font-weight:600!important;line-height:1.4!important;padding:10px 18px!important;' +
+              'border-radius:999px!important;font-family:inherit!important;">' +
               'מחכים לכם בדפדפן במחשב!' +
             '</span>' +
           '</div>';
@@ -71,11 +129,15 @@
         document.addEventListener('wheel', function (e) { e.preventDefault(); }, { passive: false });
       }
 
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', showMobileBlock);
-      } else {
-        showMobileBlock();
+      function runWhenFullyLoaded() {
+        if (document.readyState === 'complete') {
+          showMobileBlock();
+        } else {
+          window.addEventListener('load', showMobileBlock);
+        }
       }
+
+      runWhenFullyLoaded();
     })();
   </script>
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
