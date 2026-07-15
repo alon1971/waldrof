@@ -12,6 +12,72 @@
   </script>
   <meta name="waldrof-build" content="20260712h" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <script>
+    (function () {
+      function isMobileDevice() {
+        var ua = navigator.userAgent || navigator.vendor || '';
+        var mobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS|Silk/i.test(ua);
+        var narrow = (window.innerWidth || document.documentElement.clientWidth || 0) < 768;
+        return mobileUA || narrow;
+      }
+
+      if (!isMobileDevice()) return;
+
+      window.__WALDROF_MOBILE_BLOCKED__ = true;
+
+      var hideStyle = document.createElement('style');
+      hideStyle.id = 'waldrof-mobile-block-hide';
+      hideStyle.textContent =
+        'html,body{overflow:hidden!important;height:100%!important;margin:0!important;padding:0!important}' +
+        'body>*{visibility:hidden!important}';
+      (document.head || document.documentElement).appendChild(hideStyle);
+
+      function showMobileBlock() {
+        document.documentElement.lang = 'he';
+        document.documentElement.dir = 'rtl';
+        document.documentElement.style.overflow = 'hidden';
+        document.documentElement.style.height = '100%';
+
+        document.body.style.cssText =
+          'margin:0;padding:0;min-height:100vh;min-height:100dvh;height:100%;' +
+          'overflow:hidden;display:flex;align-items:center;justify-content:center;' +
+          'background:#f7f9fc;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+          'direction:rtl;-webkit-text-size-adjust:100%;box-sizing:border-box;' +
+          'padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) ' +
+          'max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));';
+
+        document.body.innerHTML =
+          '<div role="main" aria-live="polite" style="' +
+            'width:100%;max-width:420px;background:#fff;border-radius:16px;' +
+            'box-shadow:0 8px 32px rgba(44,62,80,0.08);padding:clamp(24px,6vw,40px);' +
+            'text-align:center;box-sizing:border-box;' +
+          '">' +
+            '<h2 style="margin:0 0 16px;font-size:clamp(1.15rem,4.5vw,1.5rem);font-weight:700;' +
+              'line-height:1.45;color:#2c3e50;font-family:inherit;">' +
+              'לנוחות מירבית יש להיכנס דרך המחשב' +
+            '</h2>' +
+            '<p style="margin:0 0 24px;font-size:clamp(0.95rem,3.8vw,1.05rem);font-weight:400;' +
+              'line-height:1.7;color:#7f8c8d;font-family:inherit;">' +
+              'מנוע החיפוש החכם, תכנון התקופות והמאגר הקהילתי שלנו מותאמים ומעוצבים לעבודה נוחה ומלאה על גבי מסכים גדולים בלבד.' +
+            '</p>' +
+            '<span style="display:inline-block;background:#e8f4fd;color:#2980b9;' +
+              'font-size:clamp(0.85rem,3.5vw,0.95rem);font-weight:600;line-height:1.4;' +
+              'padding:10px 18px;border-radius:999px;font-family:inherit;">' +
+              'מחכים לכם בדפדפן במחשב!' +
+            '</span>' +
+          '</div>';
+
+        document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener('wheel', function (e) { e.preventDefault(); }, { passive: false });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', showMobileBlock);
+      } else {
+        showMobileBlock();
+      }
+    })();
+  </script>
   <meta name="description" data-i18n-content="meta_description" content="מרכז המידע הפדגוגי המוביל למורי הוולדורף בישראל לבתי ספר יסודיים (א'-ח'). כלי מתקדם לתכנון תקופות לימוד, מערכי שיעור, חומרי למידה אנתרופוסופיים ומשאבים פדגוגיים לקהילת חינוך ולדורף." />
   <meta name="keywords" content="תכנון תקופות אנתרופוסופי, חומר למורי וולדורף, חינוך ולדורף, מורי וולדורף בישראל, אנתרופוסופיה, מערכי שיעור ולדורף, בית ספר אנתרופוסופי, תוכניות לימוד ולדורף" />
   <meta property="og:title" content="מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'" />
