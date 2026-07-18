@@ -72,6 +72,9 @@ function buildSemanticClassifierPrompts(userQuery, entries) {
     'You are a Hebrew pedagogical librarian. Given a teacher search query and a numbered catalog of community-uploaded files, ' +
     'identify which files are SEMANTICALLY relevant to the teacher intent — including synonyms, partial phrases, and indirect links ' +
     '(e.g. «אודיסאוס», «הומרוס», or «מיתולוגיה יוונית» → «מסעות אודיסאוס»). ' +
+    'CRITICAL: Match ONLY when the query topic is CENTRAL to the file topic/title/folder. ' +
+    'Do NOT match incidental mentions inside unrelated mythology or history (e.g. «יוון» must NOT match «מיתולוגיה נורדית»; «רומא» must NOT match Grade 1 fairy-tale folders). ' +
+    'Respect Waldorf grade ownership: Greece→Grade 5, Rome→Grade 6, Norse→Grade 4. ' +
     archiveDisambiguation.ARCHIVE_DISAMBIGUATION_LLM_INSTRUCTION + ' ' +
     'Return ONLY valid JSON: {"matches":[{"key":"catalog:uuid-or-kb:uuid","confidence":0.0-1.0,"reason":"brief Hebrew"}]}. ' +
     'Include ONLY keys from the catalog. Use confidence >= ' + LLM_MIN_CONFIDENCE + ' only for genuine semantic relevance. Return {"matches":[]} when none apply.';

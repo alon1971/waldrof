@@ -11,6 +11,10 @@ const CATALOG_TOPIC_ALIAS_CLUSTERS = [
     'אולימפיאדה', 'אולימפיה', 'olympics', 'olympic',
   ],
   ['מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey'],
+  [
+    'רומא', 'רומא העתיקה', 'האימפריה הרומית', 'היסטוריה רומית', 'רומאית',
+    'rome', 'roman', 'roman empire', 'roman history', 'ancient rome',
+  ],
 ];
 
 /**
@@ -21,6 +25,7 @@ const CATALOG_TOPIC_ALIAS_CLUSTERS = [
 const CATALOG_TOPIC_SEARCH_TAGS = {
   // Prefer "מיתולוגיה יוונית" over bare "מיתולוגיה" so Norse searches are not polluted.
   יוון: ['עתיקה', 'מיתולוגיה יוונית', 'היסטוריה יוונית', 'greek mythology', 'אלכסנדר הגדול', 'אולימפיאדה', 'אולימפיה'],
+  רומא: ['האימפריה הרומית', 'היסטוריה רומית', 'roman empire', 'roman history', 'ancient rome'],
 };
 
 function stableNormalize(value) {

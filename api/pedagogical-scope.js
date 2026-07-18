@@ -480,27 +480,65 @@ function hitMatchesExactTopicName(query, hit) {
   return false;
 }
 
+function resolveHitGradeId(hit) {
+  return String(
+    (hit && (hit.gradeId || hit.grade_id || hit.grade_level)) || ''
+  ).trim();
+}
+
+function resolveHitTopicText(hit) {
+  if (!hit || typeof hit !== 'object') return '';
+  return String(
+    hit.catalogTopic || hit.bundleTopic || hit.topic || hit.subject || hit.title || hit.fileName || ''
+  ).trim();
+}
+
+/**
+ * Hard pedagogical gate for community search:
+ * - Query maps to a curriculum block (e.g. רומא→6, יוון→5) → keep only that grade
+ *   (and "general"). Empty/missing grade is NOT a free pass.
+ * - Hits whose own topic maps to a different curriculum block are rejected
+ *   (e.g. מיתולוגיה נורדית must never satisfy a יוון query).
+ */
 function filterCommunityHitsByCurriculumGrade(query, hits) {
   const block = inferTopicCurriculumBlock(query);
   if (!block || !block.gradeId || !Array.isArray(hits) || !hits.length) {
     return { hits: hits || [], block: block || null, filtered: false };
   }
   const gradeId = String(block.gradeId).trim();
+  const queryBlockLabel = String(block.blockLabel || '').trim();
+
   const aligned = hits.filter(function (hit) {
-    const hitGrade = String(
-      (hit && (hit.gradeId || hit.grade_id || hit.grade_level)) || ''
-    ).trim();
-    return !hitGrade || hitGrade === gradeId;
-  });
-  if (!aligned.length) {
-    const allHadGrade = hits.every(function (hit) {
-      return String((hit && (hit.gradeId || hit.grade_id || hit.grade_level)) || '').trim();
-    });
-    if (allHadGrade) {
-      return { hits: [], block: block, filtered: true };
+    const hitGrade = resolveHitGradeId(hit);
+    if (hitGrade && hitGrade !== 'general' && hitGrade !== gradeId) {
+      return false;
     }
-    return { hits: hits, block: block, filtered: false };
-  }
+
+    const hitTopicText = resolveHitTopicText(hit);
+    const hitBlock = hitTopicText ? inferTopicCurriculumBlock(hitTopicText) : null;
+    if (hitBlock && hitBlock.gradeId && String(hitBlock.gradeId) !== gradeId) {
+      return false;
+    }
+    if (
+      hitBlock &&
+      queryBlockLabel &&
+      hitBlock.blockLabel &&
+      String(hitBlock.blockLabel) !== queryBlockLabel
+    ) {
+      // Same grade can host multiple blocks (e.g. יוון vs בוטניקה in ה׳).
+      return false;
+    }
+
+    // Ghost / ungraded rows: only keep when the hit itself clearly belongs
+    // to this curriculum block (central topic name), never as a wildcard.
+    if (!hitGrade || hitGrade === 'general') {
+      return hitMatchesExactTopicName(query, hit)
+        || Boolean(hitBlock && String(hitBlock.gradeId) === gradeId);
+    }
+
+    return true;
+  });
+
   return {
     hits: aligned,
     block: block,
@@ -533,5 +571,7 @@ module.exports = {
   buildScopeMismatchGenerateResult,
   buildContextualCatalogRoute,
   hitMatchesExactTopicName,
+  resolveHitGradeId,
+  resolveHitTopicText,
   filterCommunityHitsByCurriculumGrade,
 };

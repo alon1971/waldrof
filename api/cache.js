@@ -4631,64 +4631,158 @@ function buildCommunityHitHaystack(hit, row) {
   ].filter(Boolean).join(' ');
 }
 
+/**
+ * Central pedagogical fields only — title/topic/folder/path.
+ * Body content & free-form notes are excluded so an incidental mention
+ * (e.g. "יוון" inside a Norse mythology text) cannot create a hit.
+ */
+function buildCommunityCentralHaystack(hit, row) {
+  const aliasTerms = catalogTopics.expandCatalogTopicAliases([
+    hit && hit.catalogTopic,
+    hit && hit.bundleTopic,
+    hit && hit.topic,
+    hit && hit.subfolderTopic,
+    hit && hit.fileName,
+    hit && hit.pathLabels,
+  ]);
+  return stableNormalize([
+    hit && hit.displayTitle,
+    hit && hit.title,
+    hit && hit.topic,
+    hit && hit.subject,
+    hit && hit.catalogTopic,
+    hit && hit.bundleTopic,
+    hit && hit.subfolderTopic,
+    hit && hit.fileName,
+    hit && hit.internalFileName,
+    hit && hit.pathLabels,
+    hit && hit.drivePath,
+    hit && hit.filePath,
+    row && row.file_name,
+    row && row.file_path,
+    row && row.topic,
+    row && row.title,
+    aliasTerms.join(' '),
+  ].filter(Boolean).join(' '));
+}
+
+function communityTermsMatchHaystack(terms, haystack) {
+  const normalizedHaystack = stableNormalize(haystack);
+  if (!normalizedHaystack) return false;
+  return (terms || []).some(function (term) {
+    const normalizedTerm = stableNormalize(term);
+    return normalizedTerm.length >= 2 && normalizedHaystack.indexOf(normalizedTerm) >= 0;
+  });
+}
+
+/** Generic tokens that must not alone prove topical centrality. */
+const WEAK_COMMUNITY_CENTRAL_SEEDS = new Set([
+  'עתיקה', 'mythology', 'history', 'היסטוריה', 'מיתולוגיה', 'סיפור', 'סיפורי',
+  'ancient', 'empire', 'תקופה', 'תקופת',
+]);
+
+/**
+ * True when the query is central to the hit's topic/title/folder —
+ * not merely present in body text.
+ */
+function isCentralCommunityTopicMatch(query, hit, row) {
+  const central = buildCommunityCentralHaystack(hit, row);
+  if (!central) return false;
+  const seed = String(query || '').trim();
+  if (!seed) return false;
+
+  const queryBlock = pedagogicalScope.inferTopicCurriculumBlock(seed);
+  const hitTopic = pedagogicalScope.resolveHitTopicText(hit);
+  const hitBlock = hitTopic ? pedagogicalScope.inferTopicCurriculumBlock(hitTopic) : null;
+
+  // Same curriculum block (e.g. query יוון + folder יוון העתיקה / אודיסאוס).
+  if (
+    queryBlock &&
+    hitBlock &&
+    String(queryBlock.blockLabel || '') === String(hitBlock.blockLabel || '') &&
+    String(queryBlock.gradeId) === String(hitBlock.gradeId)
+  ) {
+    return true;
+  }
+
+  const seeds = new Set();
+  const cleaned = sanitizeCommunitySearchTerm(normalizeTopicQuery(seed));
+  if (cleaned && cleaned.length >= 2) seeds.add(cleaned);
+  seed.replace(/[״"'`׳\-–—_,.;:!?؟()[\]{}]/g, ' ')
+    .split(/\s+/)
+    .filter(function (word) { return word.length >= 2; })
+    .forEach(function (word) {
+      const c = sanitizeCommunitySearchTerm(word);
+      if (c && c.length >= 2 && !WEAK_COMMUNITY_CENTRAL_SEEDS.has(stableNormalize(c))) {
+        seeds.add(c);
+      }
+    });
+
+  // Distinctive curriculum aliases only (skip weak tags like עתיקה / מיתולוגיה).
+  if (queryBlock && Array.isArray(queryBlock.aliases)) {
+    queryBlock.aliases.forEach(function (alias) {
+      const a = sanitizeCommunitySearchTerm(alias);
+      const aNorm = stableNormalize(a);
+      if (!a || a.length < 3 || WEAK_COMMUNITY_CENTRAL_SEEDS.has(aNorm)) return;
+      seeds.add(a);
+    });
+  }
+
+  const catalogSeed = catalogTopics.resolveCatalogTopicFromFolderName(seed);
+  if (catalogSeed) {
+    seeds.add(catalogSeed);
+    const cluster = (catalogTopics.CATALOG_TOPIC_ALIAS_CLUSTERS || []).find(function (c) {
+      return c[0] === catalogSeed;
+    });
+    if (cluster) {
+      cluster.forEach(function (alias) {
+        const a = sanitizeCommunitySearchTerm(alias);
+        const aNorm = stableNormalize(a);
+        if (a && a.length >= 3 && !WEAK_COMMUNITY_CENTRAL_SEEDS.has(aNorm)) seeds.add(a);
+      });
+    }
+  }
+
+  return communityTermsMatchHaystack(Array.from(seeds), central);
+}
+
 function keywordSubstringMatchCommunity(query, materialRows, kbRows, options) {
   const opts = options || {};
   const limit = opts.limit || 8;
   const terms = buildCommunitySearchTerms(query);
   if (!terms.length) return [];
+  const queryBlock = pedagogicalScope.inferTopicCurriculumBlock(query);
 
   const hits = [];
 
   (materialRows || []).forEach(function (row) {
     const hit = formatCommunityMaterialRow(row);
-    const haystack = stableNormalize([
-      buildCommunityHitHaystack(hit, row),
-      row.file_name,
-      row.file_path,
-      row.topic,
-      row.notes,
-    ].filter(Boolean).join(' '));
-    if (!haystack) return;
-    const matched = terms.some(function (term) {
-      const normalizedTerm = stableNormalize(term);
-      return normalizedTerm.length >= 2 && haystack.indexOf(normalizedTerm) >= 0;
-    });
-    if (matched) {
-      hit.similarity = 0.88;
-      const pathHit = terms.some(function (term) {
-        const normalizedTerm = stableNormalize(term);
-        return normalizedTerm.length >= 2
-          && stableNormalize(hit.pathLabels || '').indexOf(normalizedTerm) >= 0;
-      });
-      hit.matchType = pathHit ? 'nested_path_match' : 'keyword_substring';
-      if (pathHit && hit.catalogTopic) {
-        hit.matchedInBundle = true;
-        hit.alertText = 'נמצא חומר רלוונטי בתוך התיקייה «' + hit.catalogTopic + '» במאגר הקהילתי!';
-      }
-      hits.push(hit);
+    // Curriculum queries: central match only. Free-text: central haystack + terms.
+    if (queryBlock) {
+      if (!isCentralCommunityTopicMatch(query, hit, row)) return;
+    } else if (!communityTermsMatchHaystack(terms, buildCommunityCentralHaystack(hit, row))) {
+      return;
     }
+    hit.similarity = 0.88;
+    const pathHit = communityTermsMatchHaystack(terms, hit.pathLabels || '');
+    hit.matchType = pathHit ? 'nested_path_match' : 'keyword_substring';
+    if (pathHit && hit.catalogTopic) {
+      hit.matchedInBundle = true;
+      hit.alertText = 'נמצא חומר רלוונטי בתוך התיקייה «' + hit.catalogTopic + '» במאגר הקהילתי!';
+    }
+    hits.push(hit);
   });
 
   (kbRows || []).forEach(function (row) {
     const hit = scoreCommunityKnowledgeHit(query, row);
-    const haystack = stableNormalize([
-      buildCommunityHitHaystack(hit, row),
-      row.file_name,
-      row.file_path,
-      row.topic,
-      row.title,
-      row.content,
-    ].filter(Boolean).join(' '));
-    if (!haystack) return;
-    const matched = terms.some(function (term) {
-      const normalizedTerm = stableNormalize(term);
-      return normalizedTerm.length >= 2 && haystack.indexOf(normalizedTerm) >= 0;
-    });
-    if (matched) {
-      hit.similarity = Math.max(hit.similarity || 0, 0.88);
-      hit.matchType = hit.matchedInBundle ? 'nested_in_bundle' : 'keyword_substring';
-      hits.push(hit);
+    if (queryBlock) {
+      if (!isCentralCommunityTopicMatch(query, hit, row)) return;
+    } else if (!communityTermsMatchHaystack(terms, buildCommunityCentralHaystack(hit, row))) {
+      return;
     }
+    hit.similarity = Math.max(hit.similarity || 0, 0.88);
+    hit.matchType = hit.matchedInBundle ? 'nested_in_bundle' : 'keyword_substring';
+    hits.push(hit);
   });
 
   return dedupeCommunityHits(hits)
@@ -4805,20 +4899,42 @@ async function fetchGradeCommunityRows(gradeId) {
   };
 }
 
+function scoreCommunityCentralSimilarity(query, hit, row) {
+  const central = buildCommunityCentralHaystack(hit, row);
+  if (!central) return 0;
+  // Score only against central fields — ignore body content for ranking gates.
+  return scoreTopicSimilarity(query, central, '');
+}
+
 function pickBestCommunityHits(materialRows, kbRows, query, options) {
   const opts = options || {};
   const limit = opts.limit || 8;
-  const minScore = opts.minScore != null ? opts.minScore : 0.45;
+  const queryBlock = pedagogicalScope.inferTopicCurriculumBlock(query);
+  // Curriculum-scoped queries need a stronger topical signal than free text.
+  const minScore = opts.minScore != null
+    ? opts.minScore
+    : (queryBlock ? 0.55 : 0.45);
   const hits = [];
 
   (materialRows || []).forEach(function (row) {
     const hit = formatCommunityMaterialRow(row);
-    hit.similarity = scoreCommunityHitSimilarity(query, hit);
+    if (queryBlock && !isCentralCommunityTopicMatch(query, hit, row)) return;
+    hit.similarity = Math.max(
+      scoreCommunityCentralSimilarity(query, hit, row),
+      queryBlock ? 0 : scoreCommunityHitSimilarity(query, hit)
+    );
     if (hit.similarity >= minScore) hits.push(hit);
   });
 
   (kbRows || []).forEach(function (row) {
     const hit = scoreCommunityKnowledgeHit(query, row);
+    if (queryBlock && !isCentralCommunityTopicMatch(query, hit, row)) return;
+    if (queryBlock) {
+      hit.similarity = Math.max(
+        hit.similarity || 0,
+        scoreCommunityCentralSimilarity(query, hit, row)
+      );
+    }
     if (hit.similarity >= minScore) hits.push(hit);
   });
 
@@ -5114,9 +5230,11 @@ async function findCommunityMaterials(options) {
   });
 
   if (!matches.length && (materialRows.length || kbRows.length)) {
+    const queryBlock = pedagogicalScope.inferTopicCurriculumBlock(query);
     matches = pickBestCommunityHits(materialRows, kbRows, query, {
       limit: opts.limit || 8,
-      minScore: 0.35,
+      // Avoid loose fuzzy matches for clear curriculum topics (יוון/רומא/…).
+      minScore: queryBlock ? 0.55 : 0.35,
     });
     if (matches.length) matchMethod = 'keyword_fuzzy';
   }
@@ -5142,7 +5260,13 @@ async function findCommunityMaterials(options) {
       const enrichedKb = await enrichKnowledgeRowsWithBundleMaterials(kbRows);
       const catalog = buildSemanticCatalogEntries(materialRows, enrichedKb);
       if (catalog.length) {
-        const semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(semanticQuery, catalog);
+        let semanticHits = await communitySemanticMatch.findSemanticCommunityMatches(semanticQuery, catalog);
+        const semanticBlock = pedagogicalScope.inferTopicCurriculumBlock(semanticQuery);
+        if (semanticBlock && semanticHits.length) {
+          semanticHits = semanticHits.filter(function (hit) {
+            return isCentralCommunityTopicMatch(semanticQuery, hit, null);
+          });
+        }
         if (semanticHits.length) {
           matches = semanticHits.slice(0, opts.limit || 8);
           matchMethod = semanticHits[0].matchType || 'semantic';
@@ -5158,6 +5282,22 @@ async function findCommunityMaterials(options) {
   matches = gradeFilter.hits;
   if (gradeFilter.filtered) {
     matchMethod = matches.length ? (matchMethod + '_grade_aligned') : 'none';
+  }
+
+  // Stamp canonical curriculum grade onto ungraded / general hits so the UI
+  // never routes רומא/יוון into the wrong classroom folder.
+  if (gradeFilter.block && gradeFilter.block.gradeId) {
+    const canonicalGrade = String(gradeFilter.block.gradeId).trim();
+    const canonicalLabel = pedagogicalScope.GRADE_LABEL_BY_ID[canonicalGrade] || '';
+    matches = matches.map(function (hit) {
+      const hitGrade = pedagogicalScope.resolveHitGradeId(hit);
+      if (hitGrade && hitGrade !== 'general') return hit;
+      return Object.assign({}, hit, {
+        gradeId: canonicalGrade,
+        grade_level: canonicalGrade,
+        gradeLabel: canonicalLabel || hit.gradeLabel || null,
+      });
+    });
   }
 
   const hasExactName = matches.some(function (hit) {
@@ -5341,6 +5481,8 @@ module.exports = {
   buildSemanticCatalogEntries,
   keywordSubstringMatchCommunity,
   buildCommunitySearchTerms,
+  isCentralCommunityTopicMatch,
+  buildCommunityCentralHaystack,
   looksLikeUserChatQuestion,
   resolveCommunityCatalogTopic,
   withCatalogNavigationFields,

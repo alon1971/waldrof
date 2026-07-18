@@ -6668,7 +6668,7 @@
   <script src="auth-subscription.js?v=20260712c"></script>
   <script src="share-materials.js?v=20250619"></script>
   <script src="search-history.js?v=20250701"></script>
-  <script src="hebrew-topic-match.js?v=20250622a"></script>
+  <script src="hebrew-topic-match.js?v=20260718a"></script>
   <script src="waldorf-query-generation.js?v=20250621i"></script>
   <script src="waldorf-web-seed.js?v=20250621i"></script>
   <script src="research-client.js?v=20250621g"></script>
@@ -19221,25 +19221,57 @@
 
     function communityItemSearchHaystack(item) {
       if (!item) return '';
+      // Central fields only — notes/body must not create incidental keyword hits
+      // (e.g. «יוון» mentioned inside a Norse mythology file).
       const base = [
         item.title,
         item.topic,
-        item.notes,
         item.fileName,
         item.filePath,
-        item.authorName,
       ].filter(Boolean).join(' ');
-      // Enrich with pedagogical aliases/tags so local search matches longer phrases
-      // (e.g. יוון העתיקה / עתיקה / מיתולוגיה against materials titled יוון).
       let aliasBits = [];
       if (typeof WaldorfHebrewTopicMatch !== 'undefined'
         && typeof WaldorfHebrewTopicMatch.expandHebrewSearchTerms === 'function') {
         aliasBits = WaldorfHebrewTopicMatch.expandHebrewSearchTerms(
           [item.topic, item.title, item.fileName].filter(Boolean).join(' '),
           16
-        );
+        ).filter(function (term) {
+          const t = normalizeTopicKey(term);
+          return t && t !== 'מיתולוגיה' && t !== 'עתיקה' && t !== 'היסטוריה';
+        });
       }
       return [base].concat(aliasBits).filter(Boolean).join(' ');
+    }
+
+    function communityItemMatchesCurriculumQuery(query, item) {
+      const q = String(query || '').trim();
+      if (!q || !item) return true;
+      if (typeof WaldorfHebrewTopicMatch === 'undefined'
+        || typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock !== 'function') {
+        return true;
+      }
+      const queryBlock = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(q);
+      if (!queryBlock || !queryBlock.gradeId) return true;
+
+      const itemGrade = resolveCommunityGradeIdFromAny(item.gradeLevel || item.gradeId || '');
+      if (itemGrade && itemGrade !== 'general' && itemGrade !== String(queryBlock.gradeId)) {
+        return false;
+      }
+
+      const itemTopic = String(item.topic || item.title || item.fileName || '').trim();
+      const itemBlock = itemTopic ? WaldorfHebrewTopicMatch.findCurriculumTopicBlock(itemTopic) : null;
+      if (itemBlock && itemBlock.gradeId && String(itemBlock.gradeId) !== String(queryBlock.gradeId)) {
+        return false;
+      }
+      if (
+        itemBlock &&
+        queryBlock.blockLabel &&
+        itemBlock.blockLabel &&
+        String(itemBlock.blockLabel) !== String(queryBlock.blockLabel)
+      ) {
+        return false;
+      }
+      return true;
     }
 
     function buildCommunityQuerySearchTerms(query) {
@@ -19287,20 +19319,31 @@
       const q = String(query || '').trim();
       if (!q || !Array.isArray(appState.communityCache)) return [];
       const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '');
-      const pool = scopedGrade
-        ? filterByGrade(appState.communityCache, scopedGrade).filter(function (i) { return !i.isDemo; })
+      let curriculumGrade = '';
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined'
+        && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+        const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(q);
+        if (block && block.gradeId) curriculumGrade = String(block.gradeId);
+      }
+      // When the query itself implies a Waldorf grade (רומא→6, יוון→5), search
+      // that grade — never the UI grade that may host ghost folders.
+      const effectiveGrade = curriculumGrade || scopedGrade;
+      const pool = effectiveGrade
+        ? filterByGrade(appState.communityCache, effectiveGrade).filter(function (i) { return !i.isDemo; })
         : appState.communityCache.filter(function (i) { return !i.isDemo; });
       return pool.filter(function (item) {
+        if (!communityItemMatchesCurriculumQuery(q, item)) return false;
         return queryMatchesCommunityHaystack(q, communityItemSearchHaystack(item));
       }).map(function (item) {
+        const resolvedGrade = curriculumGrade || item.gradeLevel || scopedGrade || null;
         return {
           id: item.id || item.dbId,
           source: 'catalog',
           title: item.title || item.fileName || item.topic || 'חומר קהילתי',
           topic: item.topic || '',
           catalogTopic: item.topic || '',
-          gradeId: item.gradeLevel || scopedGrade || null,
-          grade_level: item.gradeLevel || scopedGrade || null,
+          gradeId: resolvedGrade,
+          grade_level: resolvedGrade,
           fileName: item.fileName || '',
           fileUrl: item.fileUrl || resolveCommunityFileUrl(item),
           description: item.notes || '',
@@ -19897,16 +19940,36 @@
       }
       showCatalogStatus('מחפש במאגר הקהילתי…', 'info');
       const scopeGradeId = resolveCommunityGradeIdFromAny(catalogState.gradeId || '') || '';
-      const localItems = searchCommunityCacheByQuery(q, scopeGradeId);
-      const probed = await probeCommunityTopicMatch(q, scopeGradeId);
+      // Prefer curriculum grade implied by the query over the currently open UI grade.
+      let curriculumGradeId = '';
+      if (typeof WaldorfHebrewTopicMatch !== 'undefined'
+        && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+        const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(q);
+        if (block && block.gradeId) curriculumGradeId = String(block.gradeId);
+      }
+      const probeGradeId = curriculumGradeId || scopeGradeId;
+      const localItems = searchCommunityCacheByQuery(q, probeGradeId);
+      const probed = await probeCommunityTopicMatch(q, probeGradeId);
       let serverMatches = probed.matches || [];
-      if (scopeGradeId) {
+      if (curriculumGradeId) {
+        serverMatches = serverMatches.filter(function (match) {
+          const matchGrade = resolveCommunityGradeIdFromAny(match.gradeId || match.grade_level || '');
+          return !matchGrade || matchGrade === 'general' || matchGrade === curriculumGradeId;
+        });
+      } else if (scopeGradeId) {
         serverMatches = serverMatches.filter(function (match) {
           const matchGrade = resolveCommunityGradeIdFromAny(match.gradeId || match.grade_level || '');
           return !matchGrade || matchGrade === scopeGradeId;
         });
       }
-      const matches = mergeCommunityMatches(localItems, serverMatches);
+      const matches = mergeCommunityMatches(localItems, serverMatches).filter(function (match) {
+        return communityItemMatchesCurriculumQuery(q, {
+          topic: match.catalogTopic || match.topic,
+          title: match.title || match.displayTitle,
+          fileName: match.fileName,
+          gradeLevel: match.gradeId || match.grade_level,
+        });
+      });
       let html = '<h4 class="font-bold text-burgundy mb-3 text-sm">תוצאות חיפוש עבור «' + escapeHtml(q) + '»</h4>';
       const primary = matches.length ? matches[0] : null;
       const folderCtx = primary ? resolveParentFolderFromMatch(primary, q) : { gradeId: '', catalogTopic: '', fileTitle: '' };
@@ -20293,7 +20356,16 @@
         });
       }
       return items.filter(function (i) {
-        return !i.gradeLevel || i.gradeLevel === gid || i.gradeLevel === String(gid);
+        const level = String(i.gradeLevel || '').trim();
+        if (level) return level === gid || level === String(gid);
+        // Ungraded rows must not leak into every classroom when the topic
+        // clearly belongs to another Waldorf grade (e.g. רומא → ו׳ only).
+        if (typeof WaldorfHebrewTopicMatch !== 'undefined'
+          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(i.topic || '');
+          if (block && block.gradeId && String(block.gradeId) !== gid) return false;
+        }
+        return true;
       });
     }
 
@@ -27428,9 +27500,18 @@
 
     function getDynamicTopicsForGrade(gradeId) {
       const map = {};
+      const gid = String(gradeId || '').trim();
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
         if (!t) return;
+        // Hide curriculum ghost folders parked under the wrong grade
+        // (e.g. empty «רומא» under כיתה א׳ — belongs to כיתה ו׳).
+        if (gid && gid !== 'general'
+          && typeof WaldorfHebrewTopicMatch !== 'undefined'
+          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(t);
+          if (block && block.gradeId && String(block.gradeId) !== gid) return;
+        }
         const key = normalizeTopicKey(t);
         if (!map[key]) map[key] = { id: t, label: t, count: 0 };
         map[key].count++;
