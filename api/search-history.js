@@ -170,6 +170,11 @@ async function executeSearchHistory(req) {
   if (action === 'probe_community') {
     const topic = String((body && body.topic) || '').trim();
     const userMessage = String((body && body.userMessage) || '').trim();
+    const catalogTopic = String(
+      (body && (body.catalogTopic || body.selectedTopic)) || ''
+    ).trim();
+    // Search keywords: prefer userMessage. Do not treat the keyword itself as the
+    // selected catalog folder unless catalogTopic was explicitly provided.
     const query = userMessage || topic;
     if (!query) {
       const err = new Error('חסר נושא או שאלה לבדיקת מאגר קהילתי');
@@ -177,8 +182,10 @@ async function executeSearchHistory(req) {
       throw err;
     }
     const probe = await cacheDb.probeCommunityGlobalSearch(query, {
-      topic: topic || null,
-      userMessage: userMessage || null,
+      // Selected folder topic only — never the raw search string.
+      topic: catalogTopic || null,
+      catalogTopic: catalogTopic || null,
+      userMessage: userMessage || query,
       gradeId: body && body.gradeId,
       currentGrade: body && body.currentGrade,
       globalScan: body && body.globalScan,
@@ -186,6 +193,7 @@ async function executeSearchHistory(req) {
       repositorySearch: true,
       phase: 'topic',
       limit: 8,
+      driveSearch: body && body.driveSearch !== false,
     });
     return {
       ok: true,
@@ -196,6 +204,8 @@ async function executeSearchHistory(req) {
       matchMethod: probe.matchMethod || 'none',
       folderBrief: probe.folderBrief || null,
       contextualRoute: probe.contextualRoute || null,
+      driveScoped: probe.driveScoped || false,
+      driveScope: probe.driveScope || null,
     };
   }
 

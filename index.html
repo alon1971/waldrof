@@ -19801,9 +19801,10 @@
       bindCommunityFoundAlert(el, matches);
     }
 
-    async function probeCommunityTopicMatch(query, gradeId) {
+    async function probeCommunityTopicMatch(query, gradeId, options) {
       const q = String(query || '').trim();
       if (!q) return { matches: [], folderBrief: null };
+      const opts = options || {};
       const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
         ? location.origin + '/api/search-history'
         : '/api/search-history';
@@ -19814,12 +19815,20 @@
       }
       if (token) headers.Authorization = 'Bearer ' + token;
       const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '');
+      const selectedTopic = String(
+        opts.catalogTopic || opts.topic || catalogState.topic || ''
+      ).trim();
       const body = {
         action: 'probe_community',
-        topic: q,
         userMessage: q,
+        // Keep legacy `topic` as the search string for older servers; catalog folder
+        // scope is sent separately so Drive search can apply a strict folder filter.
+        topic: q,
+        catalogTopic: selectedTopic && selectedTopic !== '__general__' ? selectedTopic : '',
+        selectedTopic: selectedTopic && selectedTopic !== '__general__' ? selectedTopic : '',
         globalScan: !scopedGrade,
         repositorySearch: true,
+        driveSearch: true,
       };
       if (scopedGrade) {
         body.gradeId = scopedGrade;
@@ -19840,6 +19849,7 @@
           matches: Array.isArray(payload.matches) ? payload.matches : [],
           folderBrief: payload.folderBrief || null,
           matchMethod: payload.matchMethod || 'none',
+          driveScoped: Boolean(payload.driveScoped),
         };
       } catch (probeErr) {
         console.warn('[community-probe] failed:', probeErr);
@@ -19948,8 +19958,12 @@
         if (block && block.gradeId) curriculumGradeId = String(block.gradeId);
       }
       const probeGradeId = curriculumGradeId || scopeGradeId;
-      const localItems = searchCommunityCacheByQuery(q, probeGradeId);
-      const probed = await probeCommunityTopicMatch(q, probeGradeId);
+      const selectedCatalogTopic = String(catalogState.topic || '').trim();
+      const probed = await probeCommunityTopicMatch(q, probeGradeId, {
+        catalogTopic: selectedCatalogTopic && selectedCatalogTopic !== '__general__'
+          ? selectedCatalogTopic
+          : '',
+      });
       let serverMatches = probed.matches || [];
       if (curriculumGradeId) {
         serverMatches = serverMatches.filter(function (match) {
@@ -19962,6 +19976,11 @@
           return !matchGrade || matchGrade === scopeGradeId;
         });
       }
+      // Drive fullText/name search is authoritative — skip shallow local cache merge
+      // so incidental Supabase rows cannot override scoped Drive hits.
+      const drivePrimary = String(probed.matchMethod || '').indexOf('drive_') === 0
+        || probed.driveScoped === true;
+      const localItems = drivePrimary ? [] : searchCommunityCacheByQuery(q, probeGradeId);
       const matches = mergeCommunityMatches(localItems, serverMatches).filter(function (match) {
         return communityItemMatchesCurriculumQuery(q, {
           topic: match.catalogTopic || match.topic,

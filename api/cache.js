@@ -5206,6 +5206,50 @@ async function findCommunityMaterials(options) {
   const semanticQuery = String(opts.userMessage || opts.query || query).trim();
   if (!query) return { matches: [], count: 0, query: '', matchMethod: 'none' };
 
+  // Primary path: live Google Drive name + fullText search, strictly scoped
+  // to the relevant grade/topic folder in the shared teacher catalog.
+  if (opts.driveSearch !== false && driveCatalogSync.isDriveCatalogSyncConfigured()) {
+    try {
+      const driveResult = await driveCatalogSync.searchDriveCommunityCatalog(query, {
+        userMessage: semanticQuery,
+        gradeId: gradeId || opts.gradeId || opts.currentGrade || '',
+        currentGrade: opts.currentGrade || gradeId || '',
+        topic: opts.topic || opts.catalogTopic || '',
+        catalogTopic: opts.catalogTopic || opts.topic || '',
+        limit: opts.limit || 8,
+      });
+      if (driveResult && driveResult.count > 0) {
+        const navQuery = String(opts.userMessage || opts.query || query || '').trim();
+        let driveMatches = driveResult.matches || [];
+        const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(
+          navQuery,
+          driveMatches
+        );
+        driveMatches = gradeFilter.hits;
+        const result = {
+          matches: driveMatches.map(function (hit) {
+            return withCatalogNavigationFields(hit, navQuery);
+          }),
+          count: driveMatches.length,
+          query: query,
+          matchMethod: driveMatches.length
+            ? (driveResult.matchMethod || 'drive_fulltext')
+            : 'none',
+          contextualRoute: driveMatches.length
+            ? null
+            : pedagogicalScope.buildContextualCatalogRoute(navQuery),
+          driveScoped: true,
+          driveScope: driveResult.scope || null,
+        };
+        if (result.count > 0) {
+          return attachCommunityFolderBriefToResult(result, opts);
+        }
+      }
+    } catch (driveErr) {
+      console.warn('[community] Drive search failed, falling back to catalog:', driveErr.message || driveErr);
+    }
+  }
+
   let materialRows = [];
   let kbRows = [];
   let matchMethod = 'keyword_substring';
@@ -5335,7 +5379,8 @@ async function probeCommunityGlobalSearch(query, options) {
   const baseOpts = {
     query: userMessage,
     userMessage: userMessage,
-    topic: opts.topic || null,
+    topic: opts.catalogTopic || opts.topic || null,
+    catalogTopic: opts.catalogTopic || opts.topic || null,
     gradeId: useGlobalScan ? '' : scopedGrade,
     currentGrade: useGlobalScan ? '' : scopedGrade,
     globalScan: useGlobalScan,
@@ -5344,6 +5389,7 @@ async function probeCommunityGlobalSearch(query, options) {
     repositorySearch: opts.repositorySearch === true,
     phase: opts.phase || 'topic',
     limit: opts.limit || 8,
+    driveSearch: opts.driveSearch !== false,
   };
 
   let result = await findCommunityMaterials(baseOpts);
@@ -5490,6 +5536,7 @@ module.exports = {
   backgroundFetchDriveCatalog: driveCatalogSync.backgroundFetchDriveCatalogAsync,
   syncCommunityDriveCatalog: driveCatalogSync.syncCommunityDriveCatalog,
   isDriveCatalogSyncConfigured: driveCatalogSync.isDriveCatalogSyncConfigured,
+  searchDriveCommunityCatalog: driveCatalogSync.searchDriveCommunityCatalog,
   COMMUNITY_MATERIALS_TABLE,
   COMMUNITY_KB_TABLE,
 };
