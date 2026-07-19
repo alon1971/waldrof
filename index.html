@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260719a" />
+  <meta name="waldrof-build" content="20260719d" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <script>
     (function () {
@@ -180,21 +180,29 @@
   <style>
     :root {
       --app-body-size: 15px;
-      --app-body-line: 1.55;
-      --app-subhead-size: 17px;
-      --app-page-title-size: 18px;
-      --app-brand-title-size: 22px;
+      --app-body-line: 1.5;
+      /* Headings / main buttons: exactly 15% smaller than prior desktop scale */
+      --app-h1-size: 19px;          /* was ~22.5px brand-scale */
+      --app-h2-size: 16.5px;        /* was ~19.4px */
+      --app-subhead-size: 14.45px;  /* was 17px */
+      --app-page-title-size: 15.3px;/* was 18px */
+      --app-brand-title-size: 18.7px;/* was 22px */
+      --app-nav-label-size: 0.765rem; /* was 0.9rem */
+      --app-main-btn-size: 0.85rem;   /* was 1rem on .touch-btn */
+      --app-main-btn-size-sm: 0.797rem; /* was 0.9375rem */
       --app-content-size: 1.0625rem;
-      --app-content-line: 1.55;
-      --app-content-h3-size: 1.375rem;
-      --app-content-h4-size: 1.25rem;
-      --app-content-h5-size: 1.1875rem;
-      --app-content-h6-size: 1.125rem;
-      --app-page-pad-y: 0.75rem;
-      --app-section-gap: 0.85rem;
+      --app-content-line: 1.5;
+      --app-content-h3-size: 1.17rem;
+      --app-content-h4-size: 1.06rem;
+      --app-content-h5-size: 1.01rem;
+      --app-content-h6-size: 0.96rem;
+      /* Inner spacing: exactly 20% tighter (local padding/margins only) */
+      --app-page-pad-y: 0.6rem;     /* was 0.75rem */
+      --app-section-gap: 0.68rem;   /* was 0.85rem */
+      --app-block-pad: 0.7rem;
     }
     @media (min-width: 640px) {
-      :root { --app-brand-title-size: 23px; }
+      :root { --app-brand-title-size: 19.55px; } /* was 23px */
     }
     body.app-typography {
       font-family: 'Heebo', sans-serif;
@@ -262,7 +270,23 @@
       font-size: 0.8125rem !important;
       line-height: 1.4 !important;
     }
-    /* כותרות פנימיות עדינות — 18px */
+    /* Compact headings — h1/h2/h3 scaled ~15% down; margins ~20% tighter */
+    body.app-typography h1 {
+      font-size: var(--app-h1-size) !important;
+      font-weight: 700;
+      line-height: 1.2 !important;
+      font-family: 'Frank Ruhl Libre', serif;
+      margin-top: 0.55rem;
+      margin-bottom: 0.35rem;
+    }
+    body.app-typography h2 {
+      font-size: var(--app-h2-size) !important;
+      font-weight: 700;
+      line-height: 1.25 !important;
+      font-family: 'Frank Ruhl Libre', serif;
+      margin-top: 0.55rem;
+      margin-bottom: 0.35rem;
+    }
     body.app-typography h3,
     body.app-typography h4,
     body.app-typography h5,
@@ -276,22 +300,49 @@
     body.app-typography .prose-ai h6 {
       font-size: var(--app-subhead-size) !important;
       font-weight: 700;
-      line-height: 1.45;
+      line-height: 1.35;
       font-family: 'Frank Ruhl Libre', serif;
-      margin-top: 0.75rem;
-      margin-bottom: 0.5rem;
+      margin-top: 0.6rem;
+      margin-bottom: 0.4rem;
     }
     body.app-typography h1.app-brand-title {
       font-size: var(--app-brand-title-size) !important;
-      line-height: 1.3 !important;
+      line-height: 1.25 !important;
       font-weight: 700;
+      margin-top: 0;
+      margin-bottom: 0;
     }
     body.app-typography h2.app-page-title,
     body.app-typography .app-page-title {
       font-size: var(--app-page-title-size) !important;
-      line-height: 1.4 !important;
+      line-height: 1.3 !important;
       font-weight: 700;
       font-family: 'Frank Ruhl Libre', serif;
+    }
+    /* Navigation + main button labels — exactly 15% smaller */
+    body.app-typography .step-pill,
+    body.app-typography .step-pill span,
+    body.app-typography .header-compact-nav-btn,
+    body.app-typography .header-compact-nav-btn span,
+    body.app-typography .nav-back-home-btn,
+    body.app-typography .nav-back-home-btn span,
+    body.app-typography .back-to-home-btn,
+    body.app-typography .back-to-home-btn span {
+      font-size: var(--app-nav-label-size) !important;
+      line-height: 1.2 !important;
+    }
+    body.app-typography .touch-btn,
+    body.app-typography .touch-btn span,
+    body.app-typography .home-panel-cta,
+    body.app-typography .home-panel-cta span {
+      font-size: var(--app-main-btn-size) !important;
+      line-height: 1.25 !important;
+    }
+    @media (min-width: 640px) {
+      body.app-typography .touch-btn,
+      body.app-typography .touch-btn span {
+        font-size: var(--app-main-btn-size-sm) !important;
+      }
     }
     body.app-typography .product-tab-btn {
       font-size: var(--app-body-size) !important;
@@ -848,27 +899,27 @@
     }
     #waldorf-sites-view .waldorf-sites-hero {
       text-align: center;
-      padding: 0.5rem 0.25rem 1.35rem;
-      margin-bottom: 0.35rem;
+      padding: 0.4rem 0.2rem 1.08rem;
+      margin-bottom: 0.28rem;
     }
     #waldorf-sites-view .waldorf-sites-hero-title {
-      margin: 0 0 0.55rem;
+      margin: 0 0 0.44rem;
       font-family: 'Heebo', system-ui, sans-serif;
-      font-size: clamp(1.55rem, 3.2vw, 2.05rem);
+      font-size: clamp(1.32rem, 2.72vw, 1.74rem);
       font-weight: 700;
       letter-spacing: -0.02em;
       color: var(--ws-ink);
-      line-height: 1.25;
+      line-height: 1.18;
     }
     #waldorf-sites-view .waldorf-sites-hero-title i {
       color: var(--ws-accent);
-      margin-inline-end: 0.35rem;
+      margin-inline-end: 0.28rem;
     }
     #waldorf-sites-view .waldorf-sites-intro {
-      margin: 0 auto 1.15rem;
+      margin: 0 auto 0.92rem;
       max-width: 40rem;
-      font-size: 0.98rem;
-      line-height: 1.65;
+      font-size: 0.88rem;
+      line-height: 1.5;
       color: var(--ws-muted);
       font-weight: 400;
     }
@@ -908,20 +959,20 @@
       box-shadow: 0 4px 12px rgba(107, 143, 106, 0.22);
     }
     #waldorf-sites-view .waldorf-sites-category {
-      margin-bottom: 2rem;
+      margin-bottom: 1.6rem;
     }
     #waldorf-sites-view .waldorf-sites-category.is-filter-hidden {
       display: none;
     }
     #waldorf-sites-view .waldorf-sites-category-title {
       font-family: 'Heebo', system-ui, sans-serif;
-      font-size: 1.05rem;
+      font-size: 0.9rem;
       font-weight: 700;
       color: var(--ws-ink);
-      margin: 0 0 0.95rem;
+      margin: 0 0 0.76rem;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
     #waldorf-sites-view .waldorf-sites-category-title i {
       color: var(--ws-accent);
@@ -929,7 +980,7 @@
     #waldorf-sites-view .waldorf-sites-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 1rem;
+      gap: 0.8rem;
     }
     @media (min-width: 640px) {
       #waldorf-sites-view .waldorf-sites-grid {
@@ -944,8 +995,8 @@
     #waldorf-sites-view .waldorf-site-card {
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-      padding: 1.15rem 1.2rem 1.2rem;
+      gap: 0.52rem;
+      padding: 0.92rem 0.96rem 0.96rem;
       border: 1px solid rgba(63, 52, 44, 0.06);
       background: #ffffff;
       border-radius: 12px;
@@ -1068,6 +1119,7 @@
     }
 
     /* ===== Home portal landing ===== */
+    /* No display/flex/min-height on #home-view — those overrode .hidden and stacked routes below the fold. */
     #home-view {
       --home-ink: #333333;
       --home-muted: rgba(51, 51, 51, 0.78);
@@ -1076,20 +1128,26 @@
       font-family: 'Heebo', system-ui, sans-serif;
       color: var(--home-ink);
       box-sizing: border-box;
-      min-height: calc(100vh - var(--app-site-chrome-height, 6.75rem));
-      min-height: calc(100dvh - var(--app-site-chrome-height, 6.75rem));
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-start;
-      padding-top: 0.35rem;
-      padding-bottom: 0.75rem;
+      padding-top: 0.28rem;
+      padding-bottom: 0.6rem;
+    }
+    /* Never let home-view display rules beat Tailwind .hidden — that trapped routing below the fold. */
+    #home-view.hidden {
+      display: none !important;
+    }
+    /* Same routing guarantee for sibling route roots (padding-only containers; no flex locks). */
+    #wizard.hidden,
+    #workspace.hidden,
+    #general-search-view.hidden,
+    #waldorf-sites-view.hidden {
+      display: none !important;
     }
     #home-view .home-hero {
       position: relative;
       overflow: hidden;
-      border-radius: 14px;
-      padding: clamp(0.7rem, 1.6vw, 1.15rem) clamp(0.9rem, 2.4vw, 1.6rem) clamp(0.75rem, 1.7vw, 1.2rem);
-      margin-bottom: 0.65rem;
+      border-radius: 12px;
+      padding: clamp(0.56rem, 1.28vw, 0.92rem) clamp(0.72rem, 1.92vw, 1.28rem) clamp(0.6rem, 1.36vw, 0.96rem);
+      margin-bottom: 0.52rem;
       text-align: center;
       background:
         radial-gradient(ellipse 90% 70% at 12% 18%, rgba(255, 186, 140, 0.34), transparent 58%),
@@ -1097,7 +1155,6 @@
         radial-gradient(ellipse 70% 55% at 48% 92%, rgba(186, 214, 168, 0.28), transparent 60%),
         linear-gradient(165deg, #fdfbf7 0%, #f7f1e8 42%, #f3ebe1 100%);
       box-shadow: 0 6px 20px rgba(63, 52, 44, 0.05);
-      flex-shrink: 0;
     }
     #home-view .home-hero::before {
       content: '';
@@ -1118,43 +1175,39 @@
       margin: 0 auto;
     }
     #home-view .home-hero-title {
-      margin: 0 0 0.35rem;
+      margin: 0 0 0.28rem;
       font-family: 'Heebo', system-ui, sans-serif;
-      /* ~15% smaller than previous clamp(1.75rem, 4.4vw, 2.65rem) */
-      font-size: clamp(1.49rem, 3.74vw, 2.25rem);
+      font-size: clamp(1.27rem, 3.18vw, 1.91rem);
       font-weight: 800;
       letter-spacing: -0.03em;
-      line-height: 1.08;
+      line-height: 1.06;
       color: #2c2c2c;
     }
     #home-view .home-hero-subtitle {
-      margin: 0 auto 0.55rem;
+      margin: 0 auto 0.44rem;
       max-width: 36rem;
-      font-size: clamp(0.9rem, 1.9vw, 1.02rem);
-      line-height: 1.4;
+      font-size: clamp(0.82rem, 1.7vw, 0.92rem);
+      line-height: 1.35;
       color: var(--home-muted);
       font-weight: 500;
     }
     #home-view .home-hero-guide {
       margin: 0 auto;
       max-width: 38rem;
-      padding: 0.5rem 0.85rem;
+      padding: 0.4rem 0.68rem;
       border-radius: 10px;
       background: rgba(255, 255, 255, 0.72);
       border: 1px solid rgba(63, 52, 44, 0.06);
       box-shadow: 0 2px 8px rgba(63, 52, 44, 0.03);
-      font-size: 0.86rem;
-      line-height: 1.45;
+      font-size: 0.78rem;
+      line-height: 1.4;
       color: #333;
     }
     #home-view .home-panel-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 0.65rem;
+      gap: 0.52rem;
       margin-bottom: 0;
-      flex: 1 1 auto;
-      min-height: 0;
-      align-content: start;
     }
     @media (min-width: 640px) {
       #home-view .home-panel-grid {
@@ -1166,11 +1219,10 @@
       display: flex;
       flex-direction: column;
       align-items: flex-start;
-      gap: 0.4rem;
+      gap: 0.32rem;
       width: 100%;
-      min-height: 0;
       text-align: start;
-      padding: 0.85rem 1rem;
+      padding: 0.68rem 0.8rem;
       border: 1px solid rgba(63, 52, 44, 0.07);
       border-radius: 12px;
       background: #fff;
@@ -1188,15 +1240,15 @@
       outline: none;
     }
     #home-view .home-panel-icon {
-      width: 2.2rem;
-      height: 2.2rem;
-      border-radius: 10px;
+      width: 1.9rem;
+      height: 1.9rem;
+      border-radius: 9px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       background: rgba(107, 143, 106, 0.12);
       color: var(--home-accent-dark);
-      font-size: 1rem;
+      font-size: 0.9rem;
     }
     #home-view .home-panel-card:nth-child(2) .home-panel-icon {
       background: rgba(154, 206, 220, 0.22);
@@ -1212,24 +1264,24 @@
     }
     #home-view .home-panel-title {
       margin: 0;
-      font-size: 1rem;
+      font-size: 0.85rem;
       font-weight: 700;
-      line-height: 1.25;
+      line-height: 1.2;
       color: #2c2c2c;
     }
     #home-view .home-panel-desc {
       margin: 0;
-      font-size: 0.82rem;
-      line-height: 1.4;
+      font-size: 0.74rem;
+      line-height: 1.35;
       color: var(--home-muted);
       flex: 1;
     }
     #home-view .home-panel-cta {
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
-      margin-top: 0.1rem;
-      font-size: 0.78rem;
+      gap: 0.24rem;
+      margin-top: 0.05rem;
+      font-size: 0.7rem;
       font-weight: 700;
       color: var(--home-accent-dark);
     }
@@ -1326,23 +1378,15 @@
       top: 0 !important;
     }
     body:not(.is-home-view) #app-main {
-      padding-top: 0.4rem;
+      padding-top: 0.32rem;
     }
-    /* Global core-page density: pull content up under the sticky chrome */
+    /* Compact page density: padding only — never touch display (keeps routing intact). */
     #wizard,
-    #workspace,
-    #community-view,
-    #waldorf-sites-view,
-    #general-search-view {
-      padding-top: 0.25rem;
+    #general-search-view,
+    #waldorf-sites-view {
       box-sizing: border-box;
-    }
-    #wizard.pb-12,
-    #workspace,
-    #community-view,
-    #waldorf-sites-view,
-    #general-search-view {
-      padding-bottom: 1.25rem !important;
+      padding-top: var(--app-page-pad-y);
+      padding-bottom: calc(var(--app-page-pad-y) * 1.5) !important;
     }
 
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
@@ -1369,16 +1413,16 @@
       color: #3d5c3a;
       font-weight: 700;
       box-shadow: 0 4px 14px rgba(92, 125, 88, 0.14);
-      min-height: 48px;
-      padding: 0.75rem 1.25rem;
-      font-size: 0.9rem;
+      min-height: 0;
+      padding: 0.6rem 1rem;
+      font-size: var(--app-nav-label-size);
     }
     @media (min-width: 640px) {
       .step-pill.step-pill-history,
       #search-history-open-btn.step-pill-history {
-        min-height: 44px;
-        padding: 0.65rem 1.15rem;
-        font-size: 0.875rem;
+        min-height: 0;
+        padding: 0.52rem 0.92rem;
+        font-size: var(--app-nav-label-size);
       }
     }
     .step-pill.step-pill-history:hover,
@@ -2450,7 +2494,8 @@
       align-items: flex-start;
       justify-content: center;
       padding: 1rem;
-      overflow-y: auto;
+      /* Page/router containers must not inherit scroll locks — only the dialog scrolls. */
+      overflow: hidden;
     }
     .catalog-upload-modal:not(.hidden) {
       pointer-events: auto !important;
@@ -2470,6 +2515,8 @@
       position: relative;
       z-index: 2;
       width: min(100%, 42rem);
+      max-height: 85vh;
+      max-height: 85dvh;
       margin: auto;
       pointer-events: auto !important;
       background: #fff;
@@ -2477,6 +2524,9 @@
       border: 1px solid rgba(201, 169, 98, 0.45);
       box-shadow: 0 20px 50px rgba(92, 74, 58, 0.22);
       animation: catalogModalIn 0.28s ease;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     @keyframes catalogModalIn {
       from { opacity: 0; transform: translateY(12px) scale(0.98); }
@@ -2523,6 +2573,10 @@
       pointer-events: auto !important;
       position: relative;
       z-index: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      flex: 1 1 auto;
+      min-height: 0;
     }
     .catalog-upload-modal-body .catalog-upload-form {
       margin-bottom: 0;
@@ -4190,55 +4244,55 @@
       box-sizing: border-box;
       background: linear-gradient(180deg, rgba(247, 243, 235, 0.99) 0%, rgba(250, 248, 244, 0.98) 100%);
       box-shadow: 0 2px 10px rgba(92, 74, 58, 0.08);
-      --app-brand-title-size: 15px;
+      --app-brand-title-size: 12.75px;
     }
     @media (min-width: 640px) {
-      .app-site-chrome { --app-brand-title-size: 16px; }
+      .app-site-chrome { --app-brand-title-size: 13.6px; }
     }
     .app-site-chrome header > .max-w-6xl {
-      padding-top: 0.35rem !important;
-      padding-bottom: 0.3rem !important;
+      padding-top: 0.28rem !important;
+      padding-bottom: 0.24rem !important;
     }
     .app-site-chrome header .app-brand-title {
       margin: 0;
       max-width: min(100%, 38rem);
       color: #5C7D58 !important;
       font-size: var(--app-brand-title-size) !important;
-      line-height: 1.25 !important;
+      line-height: 1.2 !important;
       font-weight: 700;
       letter-spacing: 0.01em;
     }
     .app-site-chrome header .app-chrome-tagline-row {
       margin-bottom: 0 !important;
       align-items: center;
-      gap: 0.45rem 0.9rem;
+      gap: 0.36rem 0.72rem;
     }
     .app-site-chrome .app-top-nav > .max-w-6xl {
-      padding-top: 0.2rem !important;
-      padding-bottom: 0.25rem !important;
+      padding-top: 0.16rem !important;
+      padding-bottom: 0.2rem !important;
     }
     .app-site-chrome .app-top-nav-inner {
-      gap: 0.35rem;
+      gap: 0.28rem;
     }
     .app-site-chrome .step-pill {
       min-height: 0 !important;
-      padding: 0.3rem 0.55rem !important;
-      font-size: 0.7rem !important;
-      line-height: 1.25 !important;
+      padding: 0.24rem 0.44rem !important;
+      font-size: var(--app-nav-label-size) !important;
+      line-height: 1.2 !important;
     }
     .app-site-chrome .user-action-btn {
-      min-height: 1.75rem;
-      padding: 0.2rem 0.45rem;
-      font-size: 0.7rem !important;
+      min-height: 1.55rem;
+      padding: 0.16rem 0.36rem;
+      font-size: 0.6rem !important;
     }
     .app-site-chrome #search-usage-meter {
-      font-size: 0.65rem !important;
+      font-size: 0.55rem !important;
     }
     .app-site-chrome .lang-toggle {
-      min-width: 2.25rem;
-      min-height: 1.75rem;
-      padding: 0.15rem 0.45rem;
-      font-size: 0.7rem !important;
+      min-width: 2rem;
+      min-height: 1.55rem;
+      padding: 0.12rem 0.36rem;
+      font-size: 0.6rem !important;
     }
     /* ── Sticky compact navbar: keeps ALL function buttons visible while scrolled ─ */
     .header-compact-nav {
@@ -4257,31 +4311,31 @@
       flex-wrap: wrap;
       align-items: center;
       justify-content: center;
-      gap: 0.35rem;
+      gap: 0.28rem;
       width: 100%;
       max-width: 72rem;
       margin: 0 auto;
-      padding: 0.4rem 0.75rem;
+      padding: 0.32rem 0.6rem;
       box-sizing: border-box;
     }
     .header-compact-nav-btn {
       display: inline-flex !important;
       align-items: center;
       justify-content: center;
-      gap: 0.3rem;
-      padding: 0.28rem 0.7rem;
+      gap: 0.24rem;
+      padding: 0.22rem 0.56rem;
       border-radius: 9999px;
       border: 1px solid rgba(201, 169, 98, 0.5);
       background: rgba(255, 255, 255, 0.92);
       color: #5C4A3A;
       font-family: 'Heebo', system-ui, sans-serif;
-      font-size: 0.72rem;
+      font-size: var(--app-nav-label-size);
       font-weight: 600;
-      line-height: 1.25;
+      line-height: 1.2;
       cursor: pointer;
       white-space: nowrap;
       flex: 0 1 auto;
-      min-height: 1.85rem;
+      min-height: 1.55rem;
       max-width: none;
       opacity: 1 !important;
       visibility: visible !important;
@@ -19349,24 +19403,16 @@
     function searchCommunityCacheByQuery(query, gradeId) {
       const q = String(query || '').trim();
       if (!q || !Array.isArray(appState.communityCache)) return [];
+      // Hard UI/grade-page lock: never expand local cache search into other grades.
       const scopedGrade = resolveCommunityGradeIdFromAny(gradeId || '');
-      let curriculumGrade = '';
-      if (typeof WaldorfHebrewTopicMatch !== 'undefined'
-        && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-        const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(q);
-        if (block && block.gradeId) curriculumGrade = String(block.gradeId);
-      }
-      // When the query itself implies a Waldorf grade (רומא→6, יוון→5), search
-      // that grade — never the UI grade that may host ghost folders.
-      const effectiveGrade = curriculumGrade || scopedGrade;
-      const pool = effectiveGrade
-        ? filterByGrade(appState.communityCache, effectiveGrade).filter(function (i) { return !i.isDemo; })
+      const pool = scopedGrade
+        ? filterByGrade(appState.communityCache, scopedGrade).filter(function (i) { return !i.isDemo; })
         : appState.communityCache.filter(function (i) { return !i.isDemo; });
       return pool.filter(function (item) {
         if (!communityItemMatchesCurriculumQuery(q, item)) return false;
         return queryMatchesCommunityHaystack(q, communityItemSearchHaystack(item));
       }).map(function (item) {
-        const resolvedGrade = curriculumGrade || item.gradeLevel || scopedGrade || null;
+        const resolvedGrade = item.gradeLevel || scopedGrade || null;
         return {
           id: item.id || item.dbId,
           source: 'catalog',
@@ -19857,7 +19903,8 @@
         topic: q,
         catalogTopic: selectedTopic && selectedTopic !== '__general__' ? selectedTopic : '',
         selectedTopic: selectedTopic && selectedTopic !== '__general__' ? selectedTopic : '',
-        globalScan: !scopedGrade,
+        // Never allow a global cross-grade scan from the catalog UI.
+        globalScan: false,
         repositorySearch: true,
         driveSearch: true,
       };
@@ -19980,33 +20027,28 @@
         try { await loadCommunity(); } catch (e) { /* ignore */ }
       }
       showCatalogStatus('מחפש במאגר הקהילתי…', 'info');
-      const scopeGradeId = resolveCommunityGradeIdFromAny(catalogState.gradeId || '') || '';
-      // Prefer curriculum grade implied by the query over the currently open UI grade.
-      let curriculumGradeId = '';
-      if (typeof WaldorfHebrewTopicMatch !== 'undefined'
-        && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-        const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(q);
-        if (block && block.gradeId) curriculumGradeId = String(block.gradeId);
+      // Hard-lock to the open grade page (catalogState) — never let curriculum inference
+      // expand search into another classroom.
+      const scopeGradeId = resolveCommunityGradeIdFromAny(
+        catalogState.gradeId || appState.grade || ''
+      ) || '';
+      const probeGradeId = scopeGradeId;
+      if (!probeGradeId) {
+        showCatalogStatus('בחרו כיתה כדי לחפש במאגר הקהילתי', 'info');
+        resultsEl.classList.remove('hidden');
+        resultsEl.innerHTML = '<p class="text-sm text-walnut/80">החיפוש במאגר הקהילתי מוגבל לכיתה שנבחרה. פתחו כיתה ואז חפשו.</p>';
+        return false;
       }
-      const probeGradeId = curriculumGradeId || scopeGradeId;
       const selectedCatalogTopic = String(catalogState.topic || '').trim();
       const probed = await probeCommunityTopicMatch(q, probeGradeId, {
         catalogTopic: selectedCatalogTopic && selectedCatalogTopic !== '__general__'
           ? selectedCatalogTopic
           : '',
       });
-      let serverMatches = probed.matches || [];
-      if (curriculumGradeId) {
-        serverMatches = serverMatches.filter(function (match) {
-          const matchGrade = resolveCommunityGradeIdFromAny(match.gradeId || match.grade_level || '');
-          return !matchGrade || matchGrade === 'general' || matchGrade === curriculumGradeId;
-        });
-      } else if (scopeGradeId) {
-        serverMatches = serverMatches.filter(function (match) {
-          const matchGrade = resolveCommunityGradeIdFromAny(match.gradeId || match.grade_level || '');
-          return !matchGrade || matchGrade === scopeGradeId;
-        });
-      }
+      let serverMatches = (probed.matches || []).filter(function (match) {
+        const matchGrade = resolveCommunityGradeIdFromAny(match.gradeId || match.grade_level || '');
+        return matchGrade === probeGradeId;
+      });
       // Drive fullText/name search is authoritative — skip shallow local cache merge
       // so incidental Supabase rows cannot override scoped Drive hits.
       const drivePrimary = String(probed.matchMethod || '').indexOf('drive_') === 0
@@ -21606,7 +21648,11 @@
 
     function hideHomeView() {
       var el = document.getElementById('home-view');
-      if (el) el.classList.add('hidden');
+      if (el) {
+        el.classList.add('hidden');
+        /* CSS #home-view.hidden { display:none !important } — do not set display/flex here. */
+      }
+      document.body.classList.remove('is-home-view');
       syncHomeChrome();
     }
 
@@ -21653,19 +21699,20 @@
           if (dest === 'live-search') {
             hideHomeView();
             goToStep(1, false);
-            restoreNavScrollPosition('step-1');
+            resetMainViewScroll();
+            runAfterLayout(resetMainViewScroll);
             return;
           }
           if (dest === 'general-search') {
-            openGeneralSearchView();
+            openGeneralSearchView({ resetScroll: true });
             return;
           }
           if (dest === 'community') {
-            openCommunityRepo();
+            openCommunityRepo({ resetScroll: true });
             return;
           }
           if (dest === 'waldorf-sites') {
-            openWaldorfSitesView();
+            openWaldorfSitesView({ resetScroll: true });
           }
         });
       }
@@ -21766,14 +21813,17 @@
       if (el) el.classList.add('hidden');
     }
 
-    function openWaldorfSitesView() {
+    function openWaldorfSitesView(opts) {
+      opts = opts || {};
       if (isWaldorfSitesView()) {
         ensureWaldorfSitesExternalLinks();
         bindWaldorfSitesFilters();
-        restoreWaldorfSitesScrollPosition();
+        if (opts.resetScroll) resetMainViewScroll();
+        else restoreWaldorfSitesScrollPosition();
         updateTopNavButtons();
         return;
       }
+      var fromHome = isHomeView() || appState.navSection === 'home';
       rememberNavScrollPosition(getNavScrollKey());
       appState.navSection = 'waldorf-sites';
       hideHomeView();
@@ -21790,7 +21840,12 @@
       updateTopNavButtons();
       updateWorkspaceChrome();
       persistActiveStep();
-      restoreWaldorfSitesScrollPosition();
+      if (opts.resetScroll || fromHome) {
+        resetMainViewScroll();
+        runAfterLayout(resetMainViewScroll);
+      } else {
+        restoreWaldorfSitesScrollPosition();
+      }
     }
 
     const MARKETING_ADMIN_EMAILS = ['alon1971@gmail.com'];
@@ -23072,7 +23127,9 @@
       persistActiveStep();
     }
 
-    function openGeneralSearchView() {
+    function openGeneralSearchView(opts) {
+      opts = opts || {};
+      var fromHome = isHomeView() || appState.navSection === 'home';
       appState.navSection = 'general-search';
       hideHomeView();
       hideGeneralSearchArchiveSuggestion();
@@ -23088,7 +23145,12 @@
       updateTopNavButtons();
       updateWorkspaceChrome();
       persistActiveStep();
-      restoreNavScrollPosition('general-search');
+      if (opts.resetScroll || fromHome) {
+        resetMainViewScroll();
+        runAfterLayout(resetMainViewScroll);
+      } else {
+        restoreNavScrollPosition('general-search');
+      }
       var input = document.getElementById('general-search-input');
       if (input) {
         requestAnimationFrame(function () {
@@ -25441,7 +25503,9 @@
       updateNewResearchBarVisibility();
     }
 
-    function openCommunityRepo() {
+    function openCommunityRepo(opts) {
+      opts = opts || {};
+      var fromHome = isHomeView() || appState.navSection === 'home';
       syncTopicFromInput();
       hideHomeView();
       hideGeneralSearchView();
@@ -25457,7 +25521,12 @@
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
-      restoreNavScrollPosition('community');
+      if (opts.resetScroll || fromHome) {
+        resetMainViewScroll();
+        runAfterLayout(resetMainViewScroll);
+      } else {
+        restoreNavScrollPosition('community');
+      }
     }
 
     function updateNewResearchBarVisibility() {
