@@ -10,7 +10,7 @@
     gtag('js', new Date());
     gtag('config', 'G-55NVT1E0CD');
   </script>
-  <meta name="waldrof-build" content="20260712h" />
+  <meta name="waldrof-build" content="20260719a" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <script>
     (function () {
@@ -179,20 +179,22 @@
   </script>
   <style>
     :root {
-      --app-body-size: 16px;
-      --app-body-line: 1.65;
-      --app-subhead-size: 18px;
-      --app-page-title-size: 20px;
-      --app-brand-title-size: 24px;
-      --app-content-size: 1.125rem;
-      --app-content-line: 1.65;
-      --app-content-h3-size: 1.5rem;
-      --app-content-h4-size: 1.3125rem;
-      --app-content-h5-size: 1.25rem;
-      --app-content-h6-size: 1.1875rem;
+      --app-body-size: 15px;
+      --app-body-line: 1.55;
+      --app-subhead-size: 17px;
+      --app-page-title-size: 18px;
+      --app-brand-title-size: 22px;
+      --app-content-size: 1.0625rem;
+      --app-content-line: 1.55;
+      --app-content-h3-size: 1.375rem;
+      --app-content-h4-size: 1.25rem;
+      --app-content-h5-size: 1.1875rem;
+      --app-content-h6-size: 1.125rem;
+      --app-page-pad-y: 0.75rem;
+      --app-section-gap: 0.85rem;
     }
     @media (min-width: 640px) {
-      :root { --app-brand-title-size: 26px; }
+      :root { --app-brand-title-size: 23px; }
     }
     body.app-typography {
       font-family: 'Heebo', sans-serif;
@@ -1073,20 +1075,29 @@
       --home-accent-dark: #557354;
       font-family: 'Heebo', system-ui, sans-serif;
       color: var(--home-ink);
+      box-sizing: border-box;
+      min-height: calc(100vh - var(--app-site-chrome-height, 6.75rem));
+      min-height: calc(100dvh - var(--app-site-chrome-height, 6.75rem));
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding-top: 0.35rem;
+      padding-bottom: 0.75rem;
     }
     #home-view .home-hero {
       position: relative;
       overflow: hidden;
-      border-radius: 18px;
-      padding: clamp(2rem, 5vw, 3.4rem) clamp(1.1rem, 3vw, 2.2rem) clamp(2.2rem, 5vw, 3.2rem);
-      margin-bottom: 1.35rem;
+      border-radius: 14px;
+      padding: clamp(0.7rem, 1.6vw, 1.15rem) clamp(0.9rem, 2.4vw, 1.6rem) clamp(0.75rem, 1.7vw, 1.2rem);
+      margin-bottom: 0.65rem;
       text-align: center;
       background:
         radial-gradient(ellipse 90% 70% at 12% 18%, rgba(255, 186, 140, 0.34), transparent 58%),
         radial-gradient(ellipse 80% 65% at 88% 22%, rgba(154, 206, 220, 0.32), transparent 55%),
         radial-gradient(ellipse 70% 55% at 48% 92%, rgba(186, 214, 168, 0.28), transparent 60%),
         linear-gradient(165deg, #fdfbf7 0%, #f7f1e8 42%, #f3ebe1 100%);
-      box-shadow: 0 8px 28px rgba(63, 52, 44, 0.06);
+      box-shadow: 0 6px 20px rgba(63, 52, 44, 0.05);
+      flex-shrink: 0;
     }
     #home-view .home-hero::before {
       content: '';
@@ -1107,39 +1118,43 @@
       margin: 0 auto;
     }
     #home-view .home-hero-title {
-      margin: 0 0 0.7rem;
+      margin: 0 0 0.35rem;
       font-family: 'Heebo', system-ui, sans-serif;
-      font-size: clamp(1.75rem, 4.4vw, 2.65rem);
+      /* ~15% smaller than previous clamp(1.75rem, 4.4vw, 2.65rem) */
+      font-size: clamp(1.49rem, 3.74vw, 2.25rem);
       font-weight: 800;
       letter-spacing: -0.03em;
-      line-height: 1.2;
+      line-height: 1.08;
       color: #2c2c2c;
     }
     #home-view .home-hero-subtitle {
-      margin: 0 auto 1.15rem;
+      margin: 0 auto 0.55rem;
       max-width: 36rem;
-      font-size: clamp(1rem, 2.2vw, 1.15rem);
-      line-height: 1.65;
+      font-size: clamp(0.9rem, 1.9vw, 1.02rem);
+      line-height: 1.4;
       color: var(--home-muted);
       font-weight: 500;
     }
     #home-view .home-hero-guide {
       margin: 0 auto;
       max-width: 38rem;
-      padding: 0.95rem 1.15rem;
-      border-radius: 12px;
+      padding: 0.5rem 0.85rem;
+      border-radius: 10px;
       background: rgba(255, 255, 255, 0.72);
       border: 1px solid rgba(63, 52, 44, 0.06);
-      box-shadow: 0 2px 10px rgba(63, 52, 44, 0.04);
-      font-size: 0.95rem;
-      line-height: 1.7;
+      box-shadow: 0 2px 8px rgba(63, 52, 44, 0.03);
+      font-size: 0.86rem;
+      line-height: 1.45;
       color: #333;
     }
     #home-view .home-panel-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 1rem;
-      margin-bottom: 1.5rem;
+      gap: 0.65rem;
+      margin-bottom: 0;
+      flex: 1 1 auto;
+      min-height: 0;
+      align-content: start;
     }
     @media (min-width: 640px) {
       #home-view .home-panel-grid {
@@ -1151,11 +1166,11 @@
       display: flex;
       flex-direction: column;
       align-items: flex-start;
-      gap: 0.65rem;
+      gap: 0.4rem;
       width: 100%;
-      min-height: 11.5rem;
+      min-height: 0;
       text-align: start;
-      padding: 1.35rem 1.4rem;
+      padding: 0.85rem 1rem;
       border: 1px solid rgba(63, 52, 44, 0.07);
       border-radius: 12px;
       background: #fff;
@@ -1173,15 +1188,15 @@
       outline: none;
     }
     #home-view .home-panel-icon {
-      width: 2.75rem;
-      height: 2.75rem;
-      border-radius: 12px;
+      width: 2.2rem;
+      height: 2.2rem;
+      border-radius: 10px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       background: rgba(107, 143, 106, 0.12);
       color: var(--home-accent-dark);
-      font-size: 1.15rem;
+      font-size: 1rem;
     }
     #home-view .home-panel-card:nth-child(2) .home-panel-icon {
       background: rgba(154, 206, 220, 0.22);
@@ -1197,24 +1212,24 @@
     }
     #home-view .home-panel-title {
       margin: 0;
-      font-size: 1.12rem;
+      font-size: 1rem;
       font-weight: 700;
-      line-height: 1.35;
+      line-height: 1.25;
       color: #2c2c2c;
     }
     #home-view .home-panel-desc {
       margin: 0;
-      font-size: 0.9rem;
-      line-height: 1.55;
+      font-size: 0.82rem;
+      line-height: 1.4;
       color: var(--home-muted);
       flex: 1;
     }
     #home-view .home-panel-cta {
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
-      margin-top: 0.25rem;
-      font-size: 0.82rem;
+      gap: 0.3rem;
+      margin-top: 0.1rem;
+      font-size: 0.78rem;
       font-weight: 700;
       color: var(--home-accent-dark);
     }
@@ -1311,7 +1326,23 @@
       top: 0 !important;
     }
     body:not(.is-home-view) #app-main {
-      padding-top: 0.75rem;
+      padding-top: 0.4rem;
+    }
+    /* Global core-page density: pull content up under the sticky chrome */
+    #wizard,
+    #workspace,
+    #community-view,
+    #waldorf-sites-view,
+    #general-search-view {
+      padding-top: 0.25rem;
+      box-sizing: border-box;
+    }
+    #wizard.pb-12,
+    #workspace,
+    #community-view,
+    #waldorf-sites-view,
+    #general-search-view {
+      padding-bottom: 1.25rem !important;
     }
 
     .ws-crumb-active { color: #8B3A3A; font-weight: 700; }
@@ -4143,7 +4174,7 @@
 
     /* ── App shell (main content only — chat is a fixed overlay) ─────────── */
     :root {
-      --app-site-chrome-height: 6.75rem;
+      --app-site-chrome-height: 5.75rem;
       --app-sticky-nav-height: var(--app-site-chrome-height);
       --lesson-chat-panel-width: 360px;
       --lesson-chat-layout-inset: 360px;
@@ -4159,32 +4190,32 @@
       box-sizing: border-box;
       background: linear-gradient(180deg, rgba(247, 243, 235, 0.99) 0%, rgba(250, 248, 244, 0.98) 100%);
       box-shadow: 0 2px 10px rgba(92, 74, 58, 0.08);
-      --app-brand-title-size: 17px;
+      --app-brand-title-size: 15px;
     }
     @media (min-width: 640px) {
-      .app-site-chrome { --app-brand-title-size: 18px; }
+      .app-site-chrome { --app-brand-title-size: 16px; }
     }
     .app-site-chrome header > .max-w-6xl {
-      padding-top: 0.55rem !important;
-      padding-bottom: 0.5rem !important;
+      padding-top: 0.35rem !important;
+      padding-bottom: 0.3rem !important;
     }
     .app-site-chrome header .app-brand-title {
       margin: 0;
       max-width: min(100%, 38rem);
       color: #5C7D58 !important;
       font-size: var(--app-brand-title-size) !important;
-      line-height: 1.4 !important;
+      line-height: 1.25 !important;
       font-weight: 700;
       letter-spacing: 0.01em;
     }
     .app-site-chrome header .app-chrome-tagline-row {
       margin-bottom: 0 !important;
       align-items: center;
-      gap: 0.75rem 1.25rem;
+      gap: 0.45rem 0.9rem;
     }
     .app-site-chrome .app-top-nav > .max-w-6xl {
-      padding-top: 0.3rem !important;
-      padding-bottom: 0.35rem !important;
+      padding-top: 0.2rem !important;
+      padding-bottom: 0.25rem !important;
     }
     .app-site-chrome .app-top-nav-inner {
       gap: 0.35rem;
@@ -5872,7 +5903,7 @@
   </div>
 
   <!-- ========== HOME PORTAL ========== -->
-  <div id="home-view" class="w-full max-w-6xl mx-auto px-4 sm:px-6 pb-16 box-border">
+  <div id="home-view" class="w-full max-w-6xl mx-auto px-4 sm:px-6 box-border">
     <section class="home-hero" aria-labelledby="home-hero-title">
       <div class="home-hero-inner">
         <h1 id="home-hero-title" class="home-hero-title" data-i18n="home_title">אתר המידע והמשאבים האנתרופוסופיים</h1>
