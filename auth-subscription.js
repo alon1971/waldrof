@@ -786,7 +786,7 @@
   }
 
   function getWordDownloadLimit() {
-    var tier = normalizeTierId(authState.tier);
+    var tier = normalizeTierId(authState.planType || authState.tier);
     var cfg = getTierConfig(tier);
     if (cfg && Object.prototype.hasOwnProperty.call(cfg, 'wordDownloadLimit')) {
       if (cfg.wordDownloadLimit == null) return null;
@@ -2104,6 +2104,14 @@
     }
   }
 
+  function setUserSettingsMeterFill(fillEl, used, limit) {
+    if (!fillEl) return;
+    var pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+    fillEl.style.width = pct + '%';
+    fillEl.classList.toggle('user-settings-meter-fill--warning', limit > 0 && used >= limit * 0.85);
+    fillEl.classList.toggle('user-settings-meter-fill--danger', limit > 0 && used >= limit);
+  }
+
   function showUserSettingsModal() {
     if (!authState.isAuthenticated) {
       showAuthOverlay();
@@ -2112,16 +2120,51 @@
     var el = document.getElementById('user-settings-modal');
     var tierEl = document.getElementById('user-settings-tier');
     var usageEl = document.getElementById('user-settings-usage');
+    var wordRow = document.getElementById('user-settings-word-row');
+    var wordUsageEl = document.getElementById('user-settings-word-usage');
+    var searchMeter = document.getElementById('user-settings-search-meter');
+    var searchFill = document.getElementById('user-settings-search-fill');
+    var wordMeter = document.getElementById('user-settings-word-meter');
+    var wordFill = document.getElementById('user-settings-word-fill');
     var renewEl = document.getElementById('user-settings-renew');
     var cancelBtn = document.getElementById('btn-cancel-subscription');
+    var upgradeAnnualBtn = document.getElementById('btn-upgrade-to-annual');
     var state = getPublicState();
     var paid = state.hasPaidSubscription;
     var displayPlan = paid ? (state.planType || state.tier) : state.tier;
+    var planId = normalizeTierId(displayPlan);
+    var isStandard = paid && planId === 'standard';
     if (tierEl) tierEl.textContent = tierLabel(displayPlan);
     if (usageEl) {
-      usageEl.textContent = state.searchLimit != null
-        ? (state.searchesUsed + ' / ' + state.searchLimit)
-        : String(state.searchesUsed);
+      if (state.searchLimit != null) {
+        usageEl.textContent = isStandard
+          ? t('user_settings_usage_of', { used: state.searchesUsed, limit: state.searchLimit })
+          : (state.searchesUsed + ' / ' + state.searchLimit);
+      } else {
+        usageEl.textContent = String(state.searchesUsed);
+      }
+    }
+    if (searchMeter) {
+      searchMeter.classList.toggle('hidden', !isStandard || state.searchLimit == null);
+      searchMeter.setAttribute('aria-hidden', (!isStandard || state.searchLimit == null) ? 'true' : 'false');
+      if (isStandard && state.searchLimit != null) {
+        setUserSettingsMeterFill(searchFill, Number(state.searchesUsed) || 0, Number(state.searchLimit) || 0);
+      }
+    }
+    if (wordRow) {
+      wordRow.classList.toggle('hidden', !isStandard);
+    }
+    if (isStandard && wordUsageEl) {
+      var wordUsed = Number(state.wordDownloadsUsed) || 0;
+      var wordLimit = state.wordDownloadLimit != null
+        ? Number(state.wordDownloadLimit)
+        : STANDARD_WORD_DOWNLOAD_LIMIT;
+      wordUsageEl.textContent = t('user_settings_word_usage_of', {
+        used: wordUsed,
+        limit: wordLimit,
+      });
+      if (wordMeter) wordMeter.classList.remove('hidden');
+      setUserSettingsMeterFill(wordFill, wordUsed, wordLimit);
     }
     if (renewEl) {
       renewEl.textContent = !paid
@@ -2141,10 +2184,14 @@
         expiresEl.textContent = '—';
       }
     }
+    if (upgradeAnnualBtn) {
+      upgradeAnnualBtn.classList.toggle('hidden', !isStandard);
+      upgradeAnnualBtn.textContent = t('user_settings_upgrade_annual');
+    }
     if (cancelBtn) {
-      cancelBtn.classList.toggle('hidden', !paid);
-      cancelBtn.disabled = !paid;
-      if (paid && state.autoRenew === false) {
+      cancelBtn.classList.toggle('hidden', !paid || isStandard);
+      cancelBtn.disabled = !paid || isStandard;
+      if (paid && !isStandard && state.autoRenew === false) {
         cancelBtn.classList.add('hidden');
       }
     }
@@ -2726,6 +2773,13 @@
 
     var cancelOpen = document.getElementById('btn-cancel-subscription');
     if (cancelOpen) cancelOpen.addEventListener('click', showCancelSubscriptionModal);
+    var upgradeAnnualOpen = document.getElementById('btn-upgrade-to-annual');
+    if (upgradeAnnualOpen) {
+      upgradeAnnualOpen.addEventListener('click', function (ev) {
+        hideUserSettingsModal();
+        handleUpgradeModalPlanClick('annual', ev);
+      });
+    }
     var cancelDismiss = document.getElementById('cancel-subscription-dismiss');
     if (cancelDismiss) cancelDismiss.addEventListener('click', hideCancelSubscriptionModal);
     var cancelBackdrop = document.getElementById('cancel-subscription-backdrop');

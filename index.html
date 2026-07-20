@@ -3675,6 +3675,58 @@
     .user-action-btn--danger { border-color: rgba(139, 58, 58, 0.45); color: #8B3A3A; }
     .user-action-btn--danger:hover { background: rgba(139, 58, 58, 0.08); }
     .user-settings-list dt { color: rgba(92, 74, 58, 0.75); }
+    .user-settings-usage-block {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.35rem;
+      min-width: 0;
+    }
+    .user-settings-usage-block .user-settings-usage-text {
+      font-weight: 600;
+      text-align: end;
+    }
+    .user-settings-meter-track {
+      width: 7.5rem;
+      max-width: 40vw;
+      height: 0.4rem;
+      border-radius: 9999px;
+      background: rgba(92, 74, 58, 0.12);
+      overflow: hidden;
+    }
+    .user-settings-meter-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 9999px;
+      background: linear-gradient(90deg, #7A9B76, #5C7D58);
+      transition: width 0.3s ease, background 0.2s;
+    }
+    .user-settings-meter-fill--warning { background: linear-gradient(90deg, #C9A962, #C4785A); }
+    .user-settings-meter-fill--danger { background: linear-gradient(90deg, #C4785A, #8B3A3A); }
+    #btn-upgrade-to-annual {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      width: 100%;
+      margin-top: 1.15rem;
+      padding: 0.95rem 1.15rem;
+      border: none;
+      border-radius: 0.9rem;
+      font-weight: 700;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, #6B9470 0%, #4F7355 55%, #3D5E44 100%);
+      box-shadow: 0 4px 16px rgba(61, 94, 68, 0.32);
+      transition: transform 0.12s, box-shadow 0.15s;
+    }
+    #btn-upgrade-to-annual:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 18px rgba(61, 94, 68, 0.4);
+    }
+    #btn-upgrade-to-annual.hidden { display: none !important; }
     #search-usage-meter {
       display: flex; align-items: center; gap: 0.5rem;
       padding: 0.35rem 0.65rem; border-radius: 9999px;
@@ -5714,7 +5766,21 @@
         </div>
         <div class="flex justify-between gap-3 border-b border-gold/20 pb-2">
           <dt data-i18n="user_settings_usage">ניצול חיפושים</dt>
-          <dd id="user-settings-usage" class="font-semibold">—</dd>
+          <dd class="user-settings-usage-block">
+            <span id="user-settings-usage" class="user-settings-usage-text">—</span>
+            <div id="user-settings-search-meter" class="user-settings-meter-track hidden" aria-hidden="true">
+              <div id="user-settings-search-fill" class="user-settings-meter-fill"></div>
+            </div>
+          </dd>
+        </div>
+        <div id="user-settings-word-row" class="flex justify-between gap-3 border-b border-gold/20 pb-2 hidden">
+          <dt data-i18n="user_settings_word_usage">ניצול הורדות Word</dt>
+          <dd class="user-settings-usage-block">
+            <span id="user-settings-word-usage" class="user-settings-usage-text">—</span>
+            <div id="user-settings-word-meter" class="user-settings-meter-track" aria-hidden="false">
+              <div id="user-settings-word-fill" class="user-settings-meter-fill"></div>
+            </div>
+          </dd>
         </div>
         <div class="flex justify-between gap-3 border-b border-gold/20 pb-2">
           <dt data-i18n="user_settings_renew">חידוש אוטומטי</dt>
@@ -5725,6 +5791,9 @@
           <dd id="user-settings-expires" class="font-medium text-walnut/75">—</dd>
         </div>
       </dl>
+      <button type="button" id="btn-upgrade-to-annual" class="hidden" data-i18n="user_settings_upgrade_annual">
+        שדרג למנוי שנתי (Pro)
+      </button>
       <button type="button" id="btn-cancel-subscription" class="user-action-btn user-action-btn--danger w-full mt-5 justify-center">
         <i class="fa-solid fa-ban" aria-hidden="true"></i>
         <span data-i18n="user_settings_cancel_btn">ביטול מנוי</span>
