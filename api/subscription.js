@@ -46,7 +46,10 @@ const SUBSCRIPTION_WRITE_COLUMNS = [
   'plan_type',
   'is_trial',
   'search_count_monthly',
+  'search_limit_monthly',
   'word_downloads_count',
+  'word_downloads_limit',
+  'usage_month',
   'auto_renew',
   'expires_at',
   'user_email',
@@ -198,9 +201,65 @@ function planTypeFromRow(row) {
 }
 
 function monthFromRow(row) {
-  if (row && row.usage_month) return String(row.usage_month);
+  if (row && row.usage_month) return String(row.usage_month).slice(0, 7);
+  // Legacy fallback only when usage_month was never stamped.
   if (row && row.updated_at) return String(row.updated_at).slice(0, 7);
   return currentMonthKey();
+}
+
+/**
+ * At calendar-month boundary for pro: hard-reset search_count_monthly to 0 and
+ * stamp usage_month + search_limit_monthly=25. Never carry leftover quota forward.
+ */
+async function resetMonthlySearchUsageIfNeeded(user, row, userToken) {
+  if (!row || !user || !user.id) return row;
+  const tier = effectiveTierFromRow(row);
+  const month = currentMonthKey();
+  const rowMonth = monthFromRow(row);
+  const isMonthly = !isLifetimeSearchTier(tier);
+  const hasUsageMonthCol = Object.prototype.hasOwnProperty.call(row, 'usage_month');
+
+  if (!isMonthly) {
+    // Still align stored DB caps for lifetime paid tiers when they drift.
+    if (tier === 'standard') {
+      const wantLimit = STANDARD_LIFETIME_SEARCH_LIMIT;
+      const wantWord = STANDARD_WORD_DOWNLOAD_LIMIT;
+      const limitOk = Number(row.search_limit_monthly) === wantLimit;
+      const wordOk = Number(row.word_downloads_limit) === wantWord;
+      if (limitOk && wordOk) return row;
+      return updateSubscriptionRow(user.id, {
+        search_limit_monthly: wantLimit,
+        word_downloads_limit: wantWord,
+      }, row, user, userToken);
+    }
+    return row;
+  }
+
+  const needsMonthReset = Boolean(rowMonth) && rowMonth !== month;
+  const needsLimitSync = Number(row.search_limit_monthly) !== PRO_MONTHLY_SEARCH_LIMIT;
+  const needsUsageMonthInit = hasUsageMonthCol && (row.usage_month == null || row.usage_month === '');
+
+  if (!needsMonthReset && !needsLimitSync && !needsUsageMonthInit) return row;
+
+  const patch = {
+    search_limit_monthly: PRO_MONTHLY_SEARCH_LIMIT,
+    word_downloads_limit: null,
+  };
+  if (hasUsageMonthCol) {
+    patch.usage_month = month;
+  }
+  if (needsMonthReset) {
+    // Overwrite used count — do not add 25 on top of previous remaining.
+    patch.search_count_monthly = 0;
+    logUsage('monthly_reset', {
+      user_id: user.id,
+      from_month: rowMonth,
+      to_month: month,
+      previous_count: Number(row.search_count_monthly) || 0,
+    });
+  }
+
+  return updateSubscriptionRow(user.id, patch, row, user, userToken);
 }
 
 /** Read live search count from production or legacy column names. */
@@ -214,7 +273,9 @@ function readSearchCountFromRow(row, tier) {
   const month = currentMonthKey();
   const rowMonth = monthFromRow(row);
   if (row && row.monthly_searches_used != null && row.usage_month) {
-    return row.usage_month === month ? (Number(row.monthly_searches_used) || 0) : 0;
+    return String(row.usage_month).slice(0, 7) === month
+      ? (Number(row.monthly_searches_used) || 0)
+      : 0;
   }
   return rowMonth === month ? raw : 0;
 }
@@ -776,9 +837,18 @@ function subscriptionRowFromPatch(user, patch, existing) {
     plan_type: tier,
     is_trial: isTrial,
     search_count_monthly: nextCount,
+    search_limit_monthly: (patch && patch.search_limit_monthly != null)
+      ? patch.search_limit_monthly
+      : (prev.search_limit_monthly != null ? prev.search_limit_monthly : undefined),
     word_downloads_count: (patch && patch.word_downloads_count) != null
       ? patch.word_downloads_count
       : (Number(prev.word_downloads_count) || 0),
+    word_downloads_limit: (patch && Object.prototype.hasOwnProperty.call(patch, 'word_downloads_limit'))
+      ? patch.word_downloads_limit
+      : (prev.word_downloads_limit !== undefined ? prev.word_downloads_limit : undefined),
+    usage_month: (patch && patch.usage_month != null)
+      ? patch.usage_month
+      : (prev.usage_month || undefined),
     auto_renew: (patch && patch.auto_renew) != null
       ? patch.auto_renew
       : (prev.auto_renew !== false),
@@ -1025,6 +1095,7 @@ async function ensureSubscription(user, userToken) {
     }
   }
   row = await downgradeSubscriptionIfExpired(user, row, userToken);
+  row = await resetMonthlySearchUsageIfNeeded(user, row, userToken);
   if (row) setCachedSubscriptionRow(user.id, user.email, row);
   return row;
 }
@@ -1116,6 +1187,7 @@ async function incrementSearchCountForUser(user, userToken) {
   let nextCount = currentCount + 1;
 
   // Monthly plans (pro) reset at calendar month boundary; lifetime pools accumulate.
+  // Hard overwrite to 1 for the new month — never add remaining from last month.
   if (!isLifetimeSearchTier(tier)) {
     const rowMonth = monthFromRow(row);
     if (rowMonth !== month) {
@@ -1127,6 +1199,19 @@ async function incrementSearchCountForUser(user, userToken) {
     plan_type: tier,
     search_count_monthly: nextCount,
   };
+  if (!isLifetimeSearchTier(tier)) {
+    if (Object.prototype.hasOwnProperty.call(row, 'usage_month')) {
+      patch.usage_month = month;
+    }
+    patch.search_limit_monthly = PRO_MONTHLY_SEARCH_LIMIT;
+    patch.word_downloads_limit = null;
+  } else if (tier === 'standard') {
+    patch.search_limit_monthly = STANDARD_LIFETIME_SEARCH_LIMIT;
+    patch.word_downloads_limit = STANDARD_WORD_DOWNLOAD_LIMIT;
+  } else if (tier === 'trial') {
+    patch.search_limit_monthly = TRIAL_LIFETIME_SEARCH_LIMIT;
+    patch.word_downloads_limit = TRIAL_WORD_DOWNLOAD_LIMIT;
+  }
 
   const updated = await updateSubscriptionRow(user.id, patch, row, user, userToken);
   const usage = buildUsagePayload(updated);

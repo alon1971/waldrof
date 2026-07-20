@@ -3,6 +3,13 @@
  * Uses service role for webhook/cron writes.
  */
 const env = require('./env');
+const {
+  TRIAL_LIFETIME_SEARCH_LIMIT,
+  STANDARD_LIFETIME_SEARCH_LIMIT,
+  PRO_MONTHLY_SEARCH_LIMIT,
+  TRIAL_WORD_DOWNLOAD_LIMIT,
+  STANDARD_WORD_DOWNLOAD_LIMIT,
+} = require('./tier-limits');
 
 const SUBSCRIPTIONS_TABLE = 'user_subscriptions';
 const PROFILES_TABLE = 'profiles';
@@ -13,7 +20,10 @@ const BILLING_WRITE_COLUMNS = [
   'plan_type',
   'is_trial',
   'search_count_monthly',
+  'search_limit_monthly',
   'word_downloads_count',
+  'word_downloads_limit',
+  'usage_month',
   'auto_renew',
   'expires_at',
   'user_email',
@@ -21,6 +31,25 @@ const BILLING_WRITE_COLUMNS = [
   'user_phone',
   'updated_at',
 ];
+
+function currentMonthKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+function searchLimitForPlan(planType) {
+  const plan = String(planType || 'trial').toLowerCase();
+  if (plan === 'pro') return PRO_MONTHLY_SEARCH_LIMIT;
+  if (plan === 'standard') return STANDARD_LIFETIME_SEARCH_LIMIT;
+  return TRIAL_LIFETIME_SEARCH_LIMIT;
+}
+
+function wordDownloadLimitForPlan(planType) {
+  const plan = String(planType || 'trial').toLowerCase();
+  if (plan === 'pro') return null;
+  if (plan === 'standard') return STANDARD_WORD_DOWNLOAD_LIMIT;
+  return TRIAL_WORD_DOWNLOAD_LIMIT;
+}
 
 function log(event, detail) {
   try {
@@ -171,42 +200,132 @@ async function fetchSubscriptionByStripeId(stripeSubscriptionId) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
+function isUniqueViolation(err) {
+  const msg = String((err && err.message) || err || '');
+  return /duplicate key|unique constraint|23505/i.test(msg);
+}
+
+async function patchSubscriptionByUserId(rowKey, writePatch) {
+  const params = new URLSearchParams();
+  params.set('user_id', 'eq.' + String(rowKey).trim());
+  const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
+    method: 'PATCH',
+    body: JSON.stringify(writePatch),
+  });
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+async function patchSubscriptionByEmail(email, writePatch) {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return null;
+  const params = new URLSearchParams();
+  params.set('user_email', 'eq.' + normalized);
+  const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
+    method: 'PATCH',
+    body: JSON.stringify(writePatch),
+  });
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+async function deleteSubscriptionByUserId(rowKey) {
+  const params = new URLSearchParams();
+  params.set('user_id', 'eq.' + String(rowKey).trim());
+  await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  });
+}
+
+/**
+ * Upsert subscription by email when present (unique user_email), else by user_id.
+ * Never fails with 409 on an existing teacher email — updates the existing row instead.
+ */
 async function upsertSubscriptionRow(userId, patch) {
   const email = String((patch && patch.user_email) || '').trim().toLowerCase();
-  let existing = await fetchSubscriptionByUserId(userId);
-  if (!existing && email) {
-    existing = await fetchSubscriptionByEmail(email);
-  }
+  const targetId = String(userId || '').trim();
+  const byEmail = email ? await fetchSubscriptionByEmail(email) : null;
+  const byUserId = targetId ? await fetchSubscriptionByUserId(targetId) : null;
 
-  const row = pickBillingFields(Object.assign({
-    user_id: userId,
+  // Prefer email match so unique(user_email) is never violated by a second insert/patch.
+  let existing = byEmail || byUserId;
+
+  const writePatch = pickBillingFields(Object.assign({
     updated_at: new Date().toISOString(),
   }, patch));
-  if (email) row.user_email = email;
+  if (email) writePatch.user_email = email;
+
+  // Two rows for the same teacher (auth user_id vs email) — consolidate onto auth user_id.
+  if (
+    byEmail &&
+    byUserId &&
+    String(byEmail.user_id || '').trim() !== String(byUserId.user_id || '').trim()
+  ) {
+    const orphanKey = String(byEmail.user_id || '').trim();
+    const survivorKey = targetId;
+    try {
+      // Free unique(user_email) on the orphan, then drop it.
+      await patchSubscriptionByUserId(orphanKey, {
+        user_email: null,
+        updated_at: new Date().toISOString(),
+      });
+      await deleteSubscriptionByUserId(orphanKey);
+    } catch (consolidateErr) {
+      log('upsert_consolidate_orphan', {
+        orphanKey: orphanKey,
+        survivorKey: survivorKey,
+        message: consolidateErr.message || String(consolidateErr),
+      });
+    }
+    existing = byUserId;
+  }
 
   if (existing) {
-    // Patch the existing row identity (may differ from current auth user_id when matched by email).
-    const rowKey = String(existing.user_id || userId).trim();
-    const params = new URLSearchParams();
-    params.set('user_id', 'eq.' + rowKey);
-    const writePatch = Object.assign({}, row);
-    // Align to the active auth user when possible.
-    writePatch.user_id = userId;
-    writePatch.updated_at = new Date().toISOString();
+    const rowKey = String(existing.user_id || targetId).trim();
+    const patchBody = Object.assign({}, writePatch);
+
+    // Align PK to auth user when the target id is free (or already this row).
+    const canAlignUserId =
+      rowKey === targetId ||
+      !byUserId ||
+      String(byUserId.user_id || '').trim() === rowKey;
+    if (canAlignUserId && targetId) {
+      patchBody.user_id = targetId;
+    } else {
+      delete patchBody.user_id;
+    }
+
     try {
-      const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
-        method: 'PATCH',
-        body: JSON.stringify(writePatch),
-      });
-      return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, existing, writePatch);
+      const updated = await patchSubscriptionByUserId(rowKey, patchBody);
+      return updated || Object.assign({}, existing, patchBody);
     } catch (patchErr) {
-      // If user_id align conflicts, update fields without changing primary key.
-      delete writePatch.user_id;
-      const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
-        method: 'PATCH',
-        body: JSON.stringify(writePatch),
-      });
-      return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, existing, writePatch);
+      // Retry without PK change (user_id / email unique conflicts).
+      if (patchBody.user_id !== undefined && patchBody.user_id !== rowKey) {
+        delete patchBody.user_id;
+        try {
+          const updated = await patchSubscriptionByUserId(rowKey, patchBody);
+          return updated || Object.assign({}, existing, patchBody);
+        } catch (retryErr) {
+          if (!isUniqueViolation(retryErr)) throw retryErr;
+        }
+      }
+      if (email) {
+        const noIdPatch = Object.assign({}, patchBody);
+        delete noIdPatch.user_id;
+        const updated = await patchSubscriptionByEmail(email, noIdPatch);
+        if (updated) return updated;
+        return Object.assign({}, existing, noIdPatch);
+      }
+      if (!isUniqueViolation(patchErr)) throw patchErr;
+      // Unique conflict with no email handle — re-fetch and patch in place.
+      const again = (email && (await fetchSubscriptionByEmail(email))) ||
+        (targetId && (await fetchSubscriptionByUserId(targetId)));
+      if (again) {
+        const noIdPatch = Object.assign({}, writePatch);
+        delete noIdPatch.user_id;
+        const updated = await patchSubscriptionByUserId(String(again.user_id).trim(), noIdPatch);
+        return updated || Object.assign({}, again, noIdPatch);
+      }
+      throw patchErr;
     }
   }
 
@@ -216,9 +335,15 @@ async function upsertSubscriptionRow(userId, patch) {
     auto_renew: true,
     plan_type: 'trial',
   };
-  const insertRow = pickBillingFields(Object.assign(defaults, { user_id: userId }, patch));
+  const insertRow = pickBillingFields(Object.assign(
+    defaults,
+    { user_id: targetId, updated_at: new Date().toISOString() },
+    patch
+  ));
   if (email) insertRow.user_email = email;
-  const conflictTarget = insertRow.user_email ? 'user_email' : 'user_id';
+
+  // PostgREST upsert: onConflict email when known, otherwise user_id.
+  const conflictTarget = email ? 'user_email' : 'user_id';
   try {
     const rows = await supabaseRequest(
       '/rest/v1/' + SUBSCRIPTIONS_TABLE + '?on_conflict=' + encodeURIComponent(conflictTarget),
@@ -230,19 +355,22 @@ async function upsertSubscriptionRow(userId, patch) {
     );
     return Array.isArray(rows) && rows.length ? rows[0] : insertRow;
   } catch (upsertErr) {
-    // Unique email conflict — update the existing email row.
-    if (email) {
-      const byEmail = await fetchSubscriptionByEmail(email);
-      if (byEmail) {
-        const params = new URLSearchParams();
-        params.set('user_id', 'eq.' + String(byEmail.user_id).trim());
-        const writePatch = Object.assign({}, insertRow);
-        delete writePatch.user_id;
-        const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
-          method: 'PATCH',
-          body: JSON.stringify(writePatch),
-        });
-        return Array.isArray(rows) && rows.length ? rows[0] : Object.assign({}, byEmail, writePatch);
+    // Race / unique conflict — select existing row and update (never 409 to callers).
+    const again = (email && (await fetchSubscriptionByEmail(email))) ||
+      (targetId && (await fetchSubscriptionByUserId(targetId)));
+    if (again) {
+      const retryPatch = Object.assign({}, insertRow);
+      delete retryPatch.user_id;
+      try {
+        const updated = await patchSubscriptionByUserId(String(again.user_id).trim(), retryPatch);
+        return updated || Object.assign({}, again, retryPatch);
+      } catch (retryErr) {
+        if (email) {
+          const updated = await patchSubscriptionByEmail(email, retryPatch);
+          if (updated) return updated;
+        }
+        if (!isUniqueViolation(retryErr)) throw retryErr;
+        return Object.assign({}, again, retryPatch);
       }
     }
     throw upsertErr;
@@ -293,25 +421,39 @@ async function activatePaidSubscription(options) {
   const opts = options || {};
   const userId = opts.userId;
   const email = opts.email;
-  const planType = opts.planType || 'pro';
+  const planType = String(opts.planType || 'pro').trim().toLowerCase();
   const expiresAt = opts.expiresAt !== undefined ? opts.expiresAt : null;
   const autoRenew = opts.autoRenew !== false;
   const billingCycle = opts.billingCycle || (planType === 'standard' ? 'one_time' : 'yearly');
 
   if (!userId) throw new Error('activatePaidSubscription requires userId');
 
+  // Hard product caps — always overwrite legacy DB limits on paid activation.
+  // standard: search_limit_monthly=20, word_downloads_limit=20
+  // pro:      search_limit_monthly=25, word_downloads_limit=null (unlimited)
   const patch = Object.assign({
     plan_type: planType,
     is_trial: false,
     expires_at: expiresAt,
     auto_renew: autoRenew,
+    search_limit_monthly: searchLimitForPlan(planType),
+    word_downloads_limit: wordDownloadLimitForPlan(planType),
   }, buildBillingContactPatch(opts));
 
   // Fresh paid quota after purchase (20 lifetime / 25 monthly depending on plan).
+  // Always overwrite the counter — never add remaining quota from a previous plan/month.
   if (opts.searchCountMonthly != null || opts.resetSearchCount) {
     patch.search_count_monthly = opts.searchCountMonthly != null ? opts.searchCountMonthly : 0;
   }
 
+  // Stamp usage_month when the column exists (added by plan_quotas_2026 migration).
+  const existing = (email ? await fetchSubscriptionByEmail(email) : null)
+    || (await fetchSubscriptionByUserId(userId));
+  if (existing && Object.prototype.hasOwnProperty.call(existing, 'usage_month')) {
+    patch.usage_month = currentMonthKey();
+  }
+
+  // Upsert by email (onConflict user_email) / update existing — never 409 for known teachers.
   const subRow = await upsertSubscriptionRow(userId, patch);
 
   log('activated', {
@@ -320,6 +462,8 @@ async function activatePaidSubscription(options) {
     planType: planType,
     billingCycle: billingCycle,
     expiresAt: expiresAt,
+    search_limit_monthly: patch.search_limit_monthly,
+    word_downloads_limit: patch.word_downloads_limit,
   });
   return subRow;
 }
