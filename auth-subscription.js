@@ -21,6 +21,8 @@
   var STANDARD_LIFETIME_SEARCH_LIMIT = 20;
   /** Free-tier Word download lifetime cap */
   var TRIAL_WORD_DOWNLOAD_LIMIT = 5;
+  /** One-time support Word download lifetime cap — must stay in sync with api/tier-limits.js */
+  var STANDARD_WORD_DOWNLOAD_LIMIT = 20;
   /** Google display names that map to a PRO account when email is absent from the session. */
   var PRO_DISPLAY_NAMES = ['alon yerushalmy'];
 
@@ -60,12 +62,12 @@
       displayUnlimited: false,
       prices: { monthly: 0, yearly: 0 },
     },
-    /** One-time support (100 ₪) — 20 searches lifetime, unlimited Word. */
+    /** One-time support (100 ₪) — 20 searches lifetime, 20 Word downloads. */
     standard: {
       id: 'standard',
       monthlyLimit: null,
       lifetimeLimit: STANDARD_LIFETIME_SEARCH_LIMIT,
-      wordDownloadLimit: null,
+      wordDownloadLimit: STANDARD_WORD_DOWNLOAD_LIMIT,
       displayUnlimited: false,
       prices: { monthly: null, yearly: 100 },
     },
@@ -785,9 +787,14 @@
 
   function getWordDownloadLimit() {
     var tier = normalizeTierId(authState.tier);
-    if (tier !== 'trial') return null;
+    var cfg = getTierConfig(tier);
+    if (cfg && Object.prototype.hasOwnProperty.call(cfg, 'wordDownloadLimit')) {
+      if (cfg.wordDownloadLimit == null) return null;
+      if (authState.wordDownloadLimit != null) return authState.wordDownloadLimit;
+      return cfg.wordDownloadLimit;
+    }
     if (authState.wordDownloadLimit != null) return authState.wordDownloadLimit;
-    return getTierConfig('trial').wordDownloadLimit || 5;
+    return null;
   }
 
   function readUsage() {
@@ -831,7 +838,11 @@
       authState.wordDownloadsUsed = Number(usage.wordDownloadsUsed) || 0;
       writeWordDownloads(authState.wordDownloadsUsed);
     }
-    if (usage.wordDownloadLimit != null) authState.wordDownloadLimit = usage.wordDownloadLimit;
+    if (Object.prototype.hasOwnProperty.call(usage, 'wordDownloadLimit')) {
+      authState.wordDownloadLimit = usage.wordDownloadLimit == null
+        ? null
+        : (Number(usage.wordDownloadLimit) || 0);
+    }
     var tier = normalizeTierId(authState.tier);
     if (tier === 'trial' && !hasPaidSubscription()) {
       writeUsage({ count: authState.searchesUsed, lifetime: authState.searchesUsed });
@@ -1705,19 +1716,9 @@
   function canPerformWordDownload() {
     if (isProUser()) return { allowed: true, unlimited: true, proUser: true };
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
-    if (hasPaidSubscription()) {
-      var paidDlLimit = authState.wordDownloadLimit;
-      if (paidDlLimit == null) return { allowed: true, unlimited: true };
-      var paidDlUsed = getWordDownloadsUsed();
-      if (paidDlUsed >= paidDlLimit) {
-        return { allowed: false, reason: 'word_limit', usage: paidDlUsed, limit: paidDlLimit };
-      }
-      return { allowed: true, usage: paidDlUsed, limit: paidDlLimit };
-    }
-    var tier = normalizeTierId(authState.tier);
-    if (tier !== 'trial') return { allowed: true, unlimited: true };
-    var used = getWordDownloadsUsed();
     var limit = getWordDownloadLimit();
+    if (limit == null) return { allowed: true, unlimited: true };
+    var used = getWordDownloadsUsed();
     if (used >= limit) {
       return { allowed: false, reason: 'word_limit', usage: used, limit: limit };
     }
@@ -1738,8 +1739,12 @@
   }
 
   function recordWordDownload() {
-    var tier = normalizeTierId(authState.tier);
-    if (isProUser() || hasPaidSubscription() || tier !== 'trial') {
+    if (isProUser()) {
+      return Promise.resolve(getWordDownloadsUsed());
+    }
+    var limit = getWordDownloadLimit();
+    // Unlimited (pro) — no counter increment.
+    if (limit == null) {
       return Promise.resolve(getWordDownloadsUsed());
     }
     return fetchSubscriptionAction('record_word_download').then(function (data) {

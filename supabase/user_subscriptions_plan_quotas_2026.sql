@@ -1,6 +1,6 @@
 -- Align product quotas with the 3 support plans (safe to re-run).
 -- Free (trial): 1 live search lifetime + 5 Word downloads total
--- One-time support (standard): 20 live searches lifetime, unlimited Word
+-- One-time support (standard): 20 live searches lifetime, 20 Word downloads
 -- Annual (pro): 25 live searches / month, unlimited Word
 
 alter table public.user_subscriptions
@@ -12,7 +12,7 @@ alter table public.user_subscriptions
 comment on column public.user_subscriptions.search_limit_monthly is
   'Max live searches: trial/standard = lifetime cap; pro = monthly cap';
 comment on column public.user_subscriptions.word_downloads_limit is
-  'Max Word downloads for trial (lifetime total); NULL = unlimited for paid plans';
+  'Max Word downloads: trial=5, standard=20 (lifetime); NULL = unlimited (pro)';
 
 -- Update trial rows still on legacy free caps (2/3 searches, 17 downloads).
 update public.user_subscriptions

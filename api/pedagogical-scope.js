@@ -546,6 +546,25 @@ function filterCommunityHitsByCurriculumGrade(query, hits) {
   };
 }
 
+/**
+ * Hard classroom lock for community search: keep only hits explicitly tagged
+ * with the current grade_id / grade_level. Never admit other grades or untagged rows.
+ */
+function filterCommunityHitsByStrictGrade(hits, gradeId) {
+  const gid = String(gradeId || '').trim();
+  if (!gid || !Array.isArray(hits) || !hits.length) {
+    return { hits: hits || [], filtered: false, gradeId: gid };
+  }
+  const aligned = hits.filter(function (hit) {
+    return resolveHitGradeId(hit) === gid;
+  });
+  return {
+    hits: aligned,
+    filtered: aligned.length !== hits.length,
+    gradeId: gid,
+  };
+}
+
 module.exports = {
   GRADE_LABEL_BY_ID,
   GRADE_TOPIC_SUGGESTIONS,
@@ -574,4 +593,5 @@ module.exports = {
   resolveHitGradeId,
   resolveHitTopicText,
   filterCommunityHitsByCurriculumGrade,
+  filterCommunityHitsByStrictGrade,
 };

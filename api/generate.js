@@ -1215,20 +1215,50 @@ function formatCommunityMatchForPrompt(match, index) {
   return line;
 }
 
+function filterCommunityProbeToCurrentGrade(probe, body) {
+  const source = probe && typeof probe === 'object' ? probe : {};
+  const matches = Array.isArray(source.matches) ? source.matches : [];
+  const gradeId = String(
+    (body && (body.currentGrade || body.gradeId)) || source.gradeId || ''
+  ).trim();
+  if (!gradeId || !matches.length) {
+    return Object.assign({}, source, {
+      matches: gradeId ? [] : matches,
+      count: gradeId ? 0 : matches.length,
+      gradeId: gradeId || source.gradeId || '',
+      scope: gradeId ? 'grade_locked' : (source.scope || 'unscoped'),
+    });
+  }
+  const filtered = pedagogicalScope.filterCommunityHitsByStrictGrade(matches, gradeId).hits;
+  return Object.assign({}, source, {
+    matches: filtered,
+    count: filtered.length,
+    gradeId: gradeId,
+    scope: 'grade_locked',
+    matchMethod: filtered.length
+      ? (source.matchMethod || 'grade_locked')
+      : 'none',
+  });
+}
+
 function buildCommunityMatchCriticalSystemBlock(probe, body) {
   const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
   if (!matches.length) return '';
 
   const matchedFile = matches[0];
   const openingLine = buildCommunityMatchOpening(probe, body);
+  const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
 
   return (
     '\n=== CRITICAL INSTRUCTION — COMMUNITY DATABASE MATCH ===\n' +
-    'A relevant file was found in the community database (global scan — keyword/semantic, ignoring UI grade/topic).\n' +
+    'A relevant file was found in the community database (STRICT GRADE SCOPE' +
+    (gradeId ? ' — currentGrade=' + gradeId : '') +
+    '; keyword/semantic within this grade only).\n' +
     'You MUST start your Hebrew response verbatim with this exact opening sentence:\n' +
     '«' + openingLine + '»\n' +
     'STRICT RULES WHEN THIS MATCH EXISTS:\n' +
     '- The verified community upload is the primary answer — announce it clearly in the opening, including the grade where it was found.\n' +
+    '- Use ONLY materials from the current grade payload — never cite or invent content from other grades.\n' +
     '- Do NOT invent details about commercial plays (e.g. Roee Chen / רואי חן), publishers, or external internet productions.\n' +
     '- Do NOT substitute web-search play or curriculum recommendations when this community file already answers the teacher.\n' +
     '- Focus first on telling the teacher this specific file exists in the community database and the exact catalog path (grade → subject). Do NOT paste raw URLs.\n' +
@@ -1258,48 +1288,61 @@ function buildCommunityRagExcerptBlock(body) {
 function buildCommunityMaterialsContextBlock(probe, body, options) {
   const opts = options && typeof options === 'object' ? options : {};
   const suppressMandatoryOpening = Boolean(opts.suppressMandatoryOpening);
-  const matches = probe && Array.isArray(probe.matches) ? probe.matches : [];
+  const scoped = filterCommunityProbeToCurrentGrade(probe, body);
+  const matches = Array.isArray(scoped.matches) ? scoped.matches : [];
   const teacherName = resolveTeacherFirstName(body);
-  const query = probe && probe.query ? String(probe.query).trim() : '';
+  const query = scoped.query ? String(scoped.query).trim() : '';
+  const gradeId = String(
+    (body && (body.currentGrade || body.gradeId)) || scoped.gradeId || ''
+  ).trim();
+  const gradeLabel = gradeId
+    ? (pedagogicalScope.GRADE_LABEL_BY_ID[gradeId] || ('כיתה ' + gradeId))
+    : '';
 
   if (!matches.length) {
     return (
-      '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base + cached_results — GLOBAL SCAN) ===\n' +
-      'חיפוש גלובלי במאגר הקהילתי' + (query ? ' עבור «' + query + '»' : '') + ' לא מצא התאמה (ללא סינון לפי כיתה/נושא מהממשק).\n' +
+      '\n=== COMMUNITY MATERIALS DATABASE (STRICT GRADE SCOPE) ===\n' +
+      'Grade-scoped community search' +
+      (gradeId ? ' for currentGrade=' + gradeId + (gradeLabel ? ' («' + gradeLabel + '»)' : '') : '') +
+      (query ? ' query «' + query + '»' : '') +
+      ' returned no matches. Do NOT invent or cite community materials from other grades.\n' +
       (suppressMandatoryOpening
-        ? 'רקע פנימי בלבד — אל תציין זאת בתשובה (המורה כבר קיבל/ה הודעת מאגר בשיחה זו).\n'
-        : 'המשך עם ידע פדגוגי מ-Gemini — אין צורך בפתיחה חגיגית.\n') +
+        ? 'Internal background only — do not mention empty catalog status in the reply.\n'
+        : 'Continue with pedagogical synthesis for this grade only.\n') +
       '=== END COMMUNITY MATERIALS DATABASE ===\n\n'
     );
   }
 
   const primary = matches[0];
   const primaryTitle = primary.displayTitle || primary.title || primary.topic || 'חומר קהילתי';
-  const gradeLabel = resolveCommunityMatchGradeLabel(primary, body);
-  const mandatoryOpening = buildCommunityMatchOpening(probe, body);
+  const matchGradeLabel = resolveCommunityMatchGradeLabel(primary, body) || gradeLabel;
+  const mandatoryOpening = buildCommunityMatchOpening(scoped, body);
   const lines = matches.slice(0, 6).map(formatCommunityMatchForPrompt);
-  const matchMethod = probe && probe.matchMethod ? String(probe.matchMethod) : '';
+  const matchMethod = scoped.matchMethod ? String(scoped.matchMethod) : '';
   const semanticNote = matchMethod.indexOf('semantic') >= 0
-    ? 'Match method: SEMANTIC (' + matchMethod + ') — teacher intent was linked to catalog material even without identical wording.\n'
-    : (matchMethod && matchMethod !== 'keyword_fuzzy'
-      ? 'Match method: ' + matchMethod + ' (global scan — UI grade/topic ignored).\n'
-      : 'Match method: global keyword scan (UI grade/topic ignored).\n');
+    ? 'Match method: SEMANTIC (' + matchMethod + ') — within currentGrade only.\n'
+    : (matchMethod
+      ? 'Match method: ' + matchMethod + ' (strict grade scope — currentGrade only).\n'
+      : 'Match method: grade-scoped keyword/semantic search.\n');
 
   const openingLines = suppressMandatoryOpening
-    ? 'BACKGROUND ONLY — do NOT repeat archive greetings or catalog intros; the teacher already received them in this session.\n' +
-      'Use matched metadata silently to enrich your pedagogical answer.\n\n'
+    ? 'BACKGROUND ONLY — grade-filtered community metadata for synthesis enrichment.\n' +
+      'Use matched metadata silently; do NOT cite materials from other grades.\n\n'
     : 'MANDATORY OPENING (first sentence of your Hebrew reply — ABSOLUTE, keyword OR semantic match):\n' +
       '«' + mandatoryOpening + '»\n' +
       'Do NOT invent commercial plays, external productions, or internet sources when this community file exists. ' +
       'Lead with the community database file and the grade where it was found; only add brief grounded follow-up if supported by matched metadata.\n\n';
 
   return (
-    '\n=== COMMUNITY MATERIALS DATABASE (community_materials + community_knowledge_base + cached_results — GLOBAL SCAN) ===\n' +
-    'COMMUNITY MATCH FOUND — ' + matches.length + ' material(s) for this question.\n' +
+    '\n=== COMMUNITY MATERIALS DATABASE (STRICT GRADE SCOPE — currentGrade only) ===\n' +
+    'COMMUNITY MATCH FOUND — ' + matches.length + ' material(s) tagged for this grade' +
+    (gradeId ? ' (currentGrade=' + gradeId + ')' : '') + '.\n' +
     semanticNote +
     'Teacher first name for opening: «' + teacherName + '»\n' +
-    'Matched grade (from repository, NOT UI selection): «' + gradeLabel + '»\n' +
+    'Matched grade (strict UI/currentGrade lock): «' + matchGradeLabel + '»\n' +
     'Best match title for opening: «' + primaryTitle + '»\n' +
+    'CRITICAL: This payload contains ONLY documents for the current grade and topic. ' +
+    'Never mix, invent, or reference community content from other grades.\n' +
     openingLines +
     'Matched materials:\n' +
     lines.join('\n') +
@@ -2682,6 +2725,8 @@ async function probeGlobalCommunityForChat(body) {
       userMessage: userMsg,
       includeFolderBrief: false,
       limit: 8,
+      // Pedagogical chat remains an explicit opt-in global scan (not grade-page search).
+      globalScan: true,
     });
 
     if (result.count > 0 && result.matchMethod) {
@@ -2702,10 +2747,14 @@ async function probeCommunityMaterialsForBody(body) {
     return { matches: [], count: 0, query: '', matchMethod: 'none' };
   }
 
-  const gradeId = body.currentGrade || body.gradeId;
+  const gradeId = String(body.currentGrade || body.gradeId || '').trim();
   const resolved = resolveCommunityProbeQuery(body);
   if (!resolved.query) {
-    return { matches: [], count: 0, query: '', matchMethod: 'none' };
+    return { matches: [], count: 0, query: '', matchMethod: 'none', gradeId: gradeId };
+  }
+  if (!gradeId) {
+    // Refuse unscoped community probes for AI synthesis — prevents cross-grade pollution.
+    return { matches: [], count: 0, query: resolved.query, matchMethod: 'none', scope: 'grade_required' };
   }
   const enableSemantic = false;
   const baseOpts = {
@@ -2713,6 +2762,8 @@ async function probeCommunityMaterialsForBody(body) {
     topic: resolved.topic,
     userMessage: resolved.userMessage,
     gradeId: gradeId,
+    currentGrade: gradeId,
+    globalScan: false,
     limit: 8,
     semanticFallback: enableSemantic,
     globalSemantic: false,
@@ -2722,13 +2773,14 @@ async function probeCommunityMaterialsForBody(body) {
   };
   try {
     let result = await cacheDb.findCommunityMaterials(baseOpts);
+    result = filterCommunityProbeToCurrentGrade(result, body);
     if (result.count > 0 && result.matchMethod) {
-      console.log('[community] probe matched via', result.matchMethod, '—', result.count, 'material(s)');
+      console.log('[community] probe matched via', result.matchMethod, '—', result.count, 'material(s) for grade', gradeId);
     }
     return result;
   } catch (probeErr) {
     console.warn('[community] probe failed:', probeErr.message || probeErr);
-    return { matches: [], count: 0, query: '', matchMethod: 'none' };
+    return { matches: [], count: 0, query: '', matchMethod: 'none', gradeId: gradeId };
   }
 }
 
@@ -3407,7 +3459,10 @@ async function executeGenerate(body, apiKey, requestContext, streamHooks) {
     if (cachedFast) return cachedFast;
   }
 
-  const communityProbe = await probeCommunityMaterialsForBody(body);
+  const communityProbe = filterCommunityProbeToCurrentGrade(
+    await probeCommunityMaterialsForBody(body),
+    body
+  );
 
   if (body.phase === 'enrichment_links') {
     const enrichmentBody = normalizeEnrichmentRequestBody(body);
@@ -3539,7 +3594,12 @@ async function executeGenerate(body, apiKey, requestContext, streamHooks) {
   const isChatExpansion = chatApi.isChatPedagogicalExpansionRequest(body);
   const isFirstChatTurn = isChatFollowup ? chatApi.isFirstChatTurnInSession(body) : undefined;
   const chatContinuation = isChatFollowup ? chatApi.isChatContinuationTurn(body) : false;
-  const communityCriticalBlock = '';
+  // Inject only a clean, grade-filtered community payload — never cross-grade docs.
+  const communityCriticalBlock = (!isChatFollowup && communityProbe.count > 0)
+    ? buildCommunityMaterialsContextBlock(communityProbe, body, {
+      suppressMandatoryOpening: isDecoupledGen || isOnDemandExpansion || body.phase === 'grade' || body.phase === 'topic',
+    })
+    : '';
   const extraSystem =
     gradeLockSystem +
     scopeGuardSystem +

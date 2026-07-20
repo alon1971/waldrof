@@ -30,8 +30,11 @@ assert(romeScope.gradeId === '6', 'רומא → grade 6');
 assert(romeScope.topic === 'רומא', 'רומא → topic רומא');
 
 const greeceScope = drive.resolveDriveSearchScope('יוון', { gradeId: '1' });
-assert(greeceScope.gradeId === '5', 'curriculum grade wins over UI grade 1');
+assert(greeceScope.gradeId === '1', 'UI grade lock wins over curriculum grade');
 assert(greeceScope.topic === 'יוון', 'יוון → topic יוון');
+
+const greeceCurriculumOnly = drive.resolveDriveSearchScope('יוון', {});
+assert(greeceCurriculumOnly.gradeId === '5', 'without UI grade, curriculum still maps יוון → 5');
 
 const uiScope = drive.resolveDriveSearchScope('חשבון', { gradeId: '3', topic: 'חשבון' });
 assert(uiScope.gradeId === '3', 'non-curriculum query keeps UI grade');

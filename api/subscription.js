@@ -13,6 +13,7 @@ const {
   STANDARD_LIFETIME_SEARCH_LIMIT,
   PRO_MONTHLY_SEARCH_LIMIT,
   TRIAL_WORD_DOWNLOAD_LIMIT,
+  STANDARD_WORD_DOWNLOAD_LIMIT,
 } = require('./tier-limits');
 
 const TABLE = 'user_subscriptions';
@@ -63,11 +64,11 @@ const TIER_LIMITS = {
     wordDownloadsLifetime: true,
     searchPeriod: 'lifetime',
   },
-  /** One-time support (100 ₪) — 20 live searches lifetime, unlimited Word. */
+  /** One-time support (100 ₪) — 20 live searches lifetime, 20 Word downloads. */
   standard: {
     lifetime: STANDARD_LIFETIME_SEARCH_LIMIT,
     monthly: null,
-    wordDownloads: null,
+    wordDownloads: STANDARD_WORD_DOWNLOAD_LIMIT,
     searchPeriod: 'lifetime',
   },
   /** Annual subscription (220 ₪) — 25 live searches / month, unlimited Word. */
@@ -1181,23 +1182,25 @@ async function recordWordDownload(user, userToken) {
 
   const row = await ensureSubscription(user, userToken);
   const tier = effectiveTierFromRow(row);
+  const usageBefore = buildUsagePayload(row);
 
-  if (tier !== 'trial') {
+  // Unlimited Word (pro / null wordDownloads) — do not increment.
+  if (usageBefore.wordDownloadLimit == null) {
     return {
       ok: true,
       action: 'record_word_download',
-      usage: buildUsagePayload(row),
+      usage: usageBefore,
       unlimited: true,
     };
   }
 
-  const usageBefore = buildUsagePayload(row);
   if (!usageBefore.wordDownloadsAllowed) {
     const downloadCap = usageBefore.wordDownloadLimit != null
       ? usageBefore.wordDownloadLimit
-      : TRIAL_WORD_DOWNLOAD_LIMIT;
+      : (tier === 'standard' ? STANDARD_WORD_DOWNLOAD_LIMIT : TRIAL_WORD_DOWNLOAD_LIMIT);
+    const planLabel = tier === 'standard' ? 'במסלול התמיכה החד-פעמי' : 'במסלול החינמי';
     const err = new Error(
-      'הגעתם למגבלת ' + downloadCap + ' הורדות Word בסך הכל במסלול החינמי. שדרגו להורדות ללא הגבלה.'
+      'הגעתם למגבלת ' + downloadCap + ' הורדות Word בסך הכל ' + planLabel + '. שדרגו להורדות ללא הגבלה.'
     );
     err.statusCode = 429;
     err.code = 'WORD_DOWNLOAD_LIMIT';
@@ -1438,16 +1441,20 @@ async function assertWordDownloadAllowedFromRequest(req) {
   const user = applyLocalDemoUserIdMapping(await resolveUser(req, body));
   const row = await ensureSubscription(user, userToken);
   const tier = effectiveTierFromRow(row);
-  if (tier !== 'trial') {
-    return { allowed: true, unlimited: true, usage: buildUsagePayload(row) };
-  }
   const usage = buildUsagePayload(row);
+
+  // Unlimited Word (pro / null wordDownloads).
+  if (usage.wordDownloadLimit == null) {
+    return { allowed: true, unlimited: true, usage: usage, user: user };
+  }
+
   if (!usage.wordDownloadsAllowed) {
     const downloadCap = usage.wordDownloadLimit != null
       ? usage.wordDownloadLimit
-      : TRIAL_WORD_DOWNLOAD_LIMIT;
+      : (tier === 'standard' ? STANDARD_WORD_DOWNLOAD_LIMIT : TRIAL_WORD_DOWNLOAD_LIMIT);
+    const planLabel = tier === 'standard' ? 'במסלול התמיכה החד-פעמי' : 'במסלול החינמי';
     const err = new Error(
-      'הגעתם למגבלת ' + downloadCap + ' הורדות Word בסך הכל במסלול החינמי. שדרגו להורדות ללא הגבלה.'
+      'הגעתם למגבלת ' + downloadCap + ' הורדות Word בסך הכל ' + planLabel + '. שדרגו להורדות ללא הגבלה.'
     );
     err.statusCode = 429;
     err.code = 'WORD_DOWNLOAD_LIMIT';
