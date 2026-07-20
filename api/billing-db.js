@@ -144,11 +144,12 @@ function extractFullNameFromAuthUser(authUser) {
   return String(meta.full_name || meta.name || '').trim();
 }
 
-function subscriptionStatusLabel(planType) {
-  const tier = String(planType || 'trial').toLowerCase();
-  if (tier === 'pro' || tier === 'standard') return 'Pro User';
-  return 'Trial';
-}
+  function subscriptionStatusLabel(planType) {
+    const tier = String(planType || 'trial').toLowerCase();
+    if (tier === 'pro') return 'Pro User';
+    if (tier === 'standard') return 'Standard';
+    return 'Trial';
+  }
 
 async function findUserIdByEmail(email) {
   const normalized = String(email || '').trim().toLowerCase();
