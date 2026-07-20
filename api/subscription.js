@@ -650,8 +650,9 @@ function buildUsagePayload(row) {
 
   return {
     tier: tier,
-    planType: planTypeFromRow(row),
-    isTrial: isTrialFromRow(row),
+    // Must match effective access so the client never keeps a stale 'pro' label.
+    planType: tier,
+    isTrial: isTrialFromRow(row) || tier === 'trial',
     autoRenew: row.auto_renew !== false,
     expiresAt: row && row.expires_at ? row.expires_at : null,
     subscriptionExpired: expired,
@@ -1369,16 +1370,10 @@ async function executeSubscription(req) {
 
   if (isProUserEmail(email)) {
     const usage = buildProUserUsagePayload(email);
+    // Quota bypass only for write/increment actions — status must reflect real plan_type from DB.
     if (action === 'record_search' || action === 'record_word_download') {
       return { ok: true, action: action, usage: usage, proUser: true };
     }
-    return {
-      ok: true,
-      action: action,
-      subscription: { tier: 'pro', billingCycle: null, autoRenew: true },
-      usage: usage,
-      proUser: true,
-    };
   }
 
   const userToken = extractUserToken(req);

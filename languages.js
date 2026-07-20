@@ -531,7 +531,7 @@ const LANGUAGES = {
     auth_confirm_email:          'נשלח אימייל לאימות — אשרו את החשבון ואז התחברו',
 
     tier_trial_name:             'חינם',
-    tier_standard_name:          'מנוי סטנדרט',
+    tier_standard_name:          'סטנדרט',
     tier_pro_name:               'פרו',
     tier_school_name:            'צוותי',
     tier_school_price_label:     'פנו אלינו להצעת מחיר',
@@ -1243,7 +1243,7 @@ const LANGUAGES = {
     auth_confirm_email:          'Confirmation email sent — verify your account, then sign in',
 
     tier_trial_name:             'Free',
-    tier_standard_name:          'Standard subscription',
+    tier_standard_name:          'Standard',
     tier_pro_name:               'Pro',
     tier_school_name:            'School team',
     tier_school_price_label:     'Custom pricing for your entire faculty',

@@ -310,9 +310,32 @@
     return Boolean(value);
   }
 
+  /**
+   * Display / product plan from server-backed authState.
+   * Never invents 'pro' — unknown values fall back via normalizeTierId to 'trial'.
+   */
+  function resolvePlanType() {
+    if (authState.planType) return normalizeTierId(authState.planType);
+    if (authState.tier) return normalizeTierId(authState.tier);
+    return 'trial';
+  }
+
+  function isAnnualProPlan() {
+    return resolvePlanType() === 'pro';
+  }
+
+  function isStandardPlan() {
+    return resolvePlanType() === 'standard';
+  }
+
   function applySubscriptionFields(subscription, usage) {
     if (usage) {
-      if (usage.planType != null) authState.planType = normalizeTierId(usage.planType);
+      if (usage.planType != null) {
+        authState.planType = normalizeTierId(usage.planType);
+      } else if (usage.tier != null) {
+        // Older payloads may omit planType — never leave a stale 'pro' from localStorage.
+        authState.planType = normalizeTierId(usage.tier);
+      }
       if (usage.isTrial != null) authState.isTrial = parseIsTrialFlag(usage.isTrial);
       if (usage.tier != null) authState.tier = normalizeTierId(usage.tier);
       if (usage.autoRenew != null) authState.autoRenew = usage.autoRenew !== false;
@@ -321,7 +344,11 @@
       if (usage.usagePeriod != null) authState.usagePeriod = usage.usagePeriod;
     }
     if (subscription) {
-      if (subscription.planType != null) authState.planType = normalizeTierId(subscription.planType);
+      if (subscription.planType != null) {
+        authState.planType = normalizeTierId(subscription.planType);
+      } else if (subscription.tier != null) {
+        authState.planType = normalizeTierId(subscription.tier);
+      }
       if (subscription.isTrial != null) authState.isTrial = parseIsTrialFlag(subscription.isTrial);
       if (subscription.tier != null) authState.tier = normalizeTierId(subscription.tier);
       if (subscription.autoRenew != null) authState.autoRenew = subscription.autoRenew !== false;
@@ -329,12 +356,20 @@
     }
     if (authState.isTrial === false && authState.planType) {
       authState.tier = authState.planType;
+    } else if (authState.isTrial === true) {
+      authState.planType = 'trial';
+      authState.tier = 'trial';
     }
   }
 
   function applyProUserTierIfEligible() {
+    // Whitelist bypass is for quotas only — do not override a real DB plan_type
+    // (e.g. standard) that was already applied from /api/subscription.
     if (!isProUser()) return;
+    if (authState.isAuthenticated && (isStandardPlan() || isAnnualProPlan())) return;
     authState.tier = 'pro';
+    authState.planType = 'pro';
+    authState.isTrial = false;
     authState.searchLimit = null;
     authState.usagePeriod = 'monthly';
     authState.searchesUsed = authState.searchesUsed != null ? authState.searchesUsed : 0;
@@ -342,6 +377,9 @@
 
   function applyProUserUsageFromServer(usage) {
     if (usage && (usage.proUser || usage.whitelisted)) {
+      authState.planType = 'pro';
+      authState.tier = 'pro';
+      authState.isTrial = false;
       applyProUserTierIfEligible();
       authState.searchesUsed = 0;
       authState.searchLimit = null;
@@ -681,13 +719,15 @@
     authState.isAuthenticated = true;
     authState.provider = 'supabase';
     authState.user = mapSupabaseUser(user);
+    // Reset plan before server sync so a stale localStorage 'pro' cannot win.
     authState.tier = 'trial';
+    authState.planType = 'trial';
+    authState.isTrial = true;
     if (authState.user.email) writeIdentityEmail(authState.user.email);
     else {
       var mappedPro = resolveProEmailFromUser(authState.user);
       if (mappedPro) writeIdentityEmail(mappedPro);
     }
-    applyProUserTierIfEligible();
     hideAuthOverlay();
     return refreshSubscriptionFromServer().finally(function () {
       persistAuth();
@@ -828,10 +868,7 @@
   function applyServerUsage(usage) {
     if (!usage) return;
     if (applyProUserUsageFromServer(usage)) return;
-    if (isProUser()) {
-      applyProUserTierIfEligible();
-      return;
-    }
+    // Always apply backend plan/usage — never discard plan_type (e.g. standard) for whitelist emails.
     applySubscriptionFields(null, usage);
     authState.searchesUsed = Number(usage.searchesUsed) || 0;
     if (usage.wordDownloadsUsed != null) {
@@ -843,7 +880,12 @@
         ? null
         : (Number(usage.wordDownloadLimit) || 0);
     }
-    var tier = normalizeTierId(authState.tier);
+    // Whitelist: unlimited search quota only when not on a capped standard plan.
+    if (isProUser() && !isStandardPlan()) {
+      authState.searchLimit = null;
+      authState.usagePeriod = 'monthly';
+    }
+    var tier = normalizeTierId(authState.planType || authState.tier);
     if (tier === 'trial' && !hasPaidSubscription()) {
       writeUsage({ count: authState.searchesUsed, lifetime: authState.searchesUsed });
     } else {
@@ -931,15 +973,15 @@
     authState.wordDownloadsUsed = null;
     return fetchSubscriptionAction('status').then(function (data) {
       if (!data) return null;
-      applyProUserTierIfEligible();
-      if (data.proUser || data.whitelisted) {
-        applyProUserUsageFromServer(data.usage || { proUser: true });
-      } else if (data.usage) {
+      // Prefer real usage/subscription from DB. Only honor explicit proUser when there is
+      // no usage payload (legacy whitelist-only responses).
+      if (data.usage) {
         applyServerUsage(data.usage);
       } else if (data.subscription) {
         applySubscriptionFields(data.subscription, null);
+      } else if (data.proUser || data.whitelisted) {
+        applyProUserUsageFromServer(data.usage || { proUser: true });
       }
-      applyProUserTierIfEligible();
       persistAuth();
       notifyListeners();
       return data;
@@ -951,7 +993,7 @@
   }
 
   function getEffectiveLimit(tierId) {
-    if (isProUser()) return null;
+    if (isProUser() && !isStandardPlan()) return null;
     if (authState.searchLimit != null) {
       return authState.searchLimit;
     }
@@ -1031,16 +1073,16 @@
   }
 
   function getPublicState() {
-    applyProUserTierIfEligible();
     var usage = readUsage();
     var displayLimit = getDisplayLimit();
     var used = getSearchesUsed();
-  var effectiveLimit = getEffectiveLimit();
+    var effectiveLimit = getEffectiveLimit();
+    var planType = resolvePlanType();
     return {
       isAuthenticated: authState.isAuthenticated,
       user: authState.user ? Object.assign({}, authState.user) : null,
-      tier: normalizeTierId(authState.tier),
-      planType: normalizeTierId(authState.planType || authState.tier),
+      tier: planType,
+      planType: planType,
       isTrial: authState.isTrial,
       hasPaidSubscription: hasPaidSubscription(),
       provider: authState.provider,
@@ -1048,7 +1090,7 @@
       autoRenew: authState.autoRenew,
       billingCycle: authState.billingCycle,
       expiresAt: authState.expiresAt,
-      usagePeriod: authState.usagePeriod || (normalizeTierId(authState.tier) === 'trial' ? 'lifetime' : 'monthly'),
+      usagePeriod: authState.usagePeriod || (planType === 'trial' ? 'lifetime' : 'monthly'),
       searchesToday: used,
       searchesUsed: used,
       dailyLimit: displayLimit,
@@ -1062,7 +1104,7 @@
         if (limit == null) return null;
         return Math.max(0, limit - getWordDownloadsUsed());
       })(),
-      tierConfig: getTierConfig(authState.tier),
+      tierConfig: getTierConfig(planType),
       isProUser: isProUser(),
       identityEmail: getIdentityEmail(),
     };
@@ -1698,7 +1740,7 @@
   /* ── Rate limiter ────────────────────────────────────────────────────── */
 
   function canPerformSearch() {
-    if (isProUser()) {
+    if (isProUser() && !isStandardPlan()) {
       return { allowed: true, unlimited: true, proUser: true, usage: 0, limit: null };
     }
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
@@ -1714,7 +1756,7 @@
   }
 
   function canPerformWordDownload() {
-    if (isProUser()) return { allowed: true, unlimited: true, proUser: true };
+    if (isProUser() && !isStandardPlan()) return { allowed: true, unlimited: true, proUser: true };
     if (!authState.isAuthenticated) return { allowed: false, reason: 'auth' };
     var limit = getWordDownloadLimit();
     if (limit == null) return { allowed: true, unlimited: true };
@@ -1739,7 +1781,7 @@
   }
 
   function recordWordDownload() {
-    if (isProUser()) {
+    if (isProUser() && !isStandardPlan()) {
       return Promise.resolve(getWordDownloadsUsed());
     }
     var limit = getWordDownloadLimit();
@@ -1768,8 +1810,7 @@
   }
 
   function recordSearch() {
-    if (isProUser()) {
-      applyProUserTierIfEligible();
+    if (isProUser() && !isStandardPlan()) {
       notifyListeners();
       updateHeaderUi();
       updateSearchMeterUi();
@@ -2131,8 +2172,8 @@
     var upgradeAnnualBtn = document.getElementById('btn-upgrade-to-annual');
     var state = getPublicState();
     var paid = state.hasPaidSubscription;
-    var displayPlan = paid ? (state.planType || state.tier) : state.tier;
-    var planId = normalizeTierId(displayPlan);
+    var displayPlan = resolvePlanType();
+    var planId = displayPlan;
     var isStandard = paid && planId === 'standard';
     if (tierEl) tierEl.textContent = tierLabel(displayPlan);
     if (usageEl) {
@@ -2493,20 +2534,42 @@
 
   function syncAuthBodyClass() {
     if (!document.body) return;
+    var plan = resolvePlanType();
+    var paid = hasPaidSubscription() || isProUser();
     document.body.classList.toggle('is-authenticated', Boolean(authState.isAuthenticated));
-    document.body.classList.toggle('is-pro-user', hasPaidAccess());
+    // Pro chrome only for annual pro (or whitelist without a capped standard plan).
+    document.body.classList.toggle('is-pro-user', isAnnualProPlan() || (isProUser() && !isStandardPlan()));
+    document.body.classList.toggle('is-standard-user', isStandardPlan());
+    document.body.classList.toggle('has-paid-access', paid);
   }
 
   function syncProUserDomState() {
     syncAuthBodyClass();
-    var paid = hasPaidAccess();
+    var plan = resolvePlanType();
     var accountBar = document.getElementById('user-account-bar');
-    if (accountBar) accountBar.classList.toggle('user-account-bar--pro', paid);
-    if (paid) setSearchUsageMeterHidden(true);
+    if (accountBar) {
+      accountBar.classList.toggle('user-account-bar--pro', isAnnualProPlan());
+      accountBar.classList.toggle('user-account-bar--standard', isStandardPlan());
+    }
+    // Hide header meter only for annual Pro (unlimited Word / monthly pool UX).
+    if (isAnnualProPlan() || (isProUser() && !isStandardPlan())) {
+      setSearchUsageMeterHidden(true);
+    }
+  }
+
+  function updateHeaderTierBadge(tierEl) {
+    if (!tierEl) return;
+    var plan = resolvePlanType();
+    tierEl.textContent = tierLabel(plan);
+    tierEl.className = 'user-tier-badge user-tier-badge--' + plan;
+    // Green "פרו" only for annual pro — never for standard.
+    tierEl.classList.toggle('user-tier-badge--pro-user', plan === 'pro');
+    if (plan === 'standard') {
+      tierEl.classList.remove('user-tier-badge--pro', 'user-tier-badge--pro-user');
+    }
   }
 
   function updateHeaderUi() {
-    applyProUserTierIfEligible();
     syncProUserDomState();
     var bar = document.getElementById('user-account-bar');
     var identityBar = document.getElementById('identity-email-bar');
@@ -2520,20 +2583,11 @@
       var tierEl = document.getElementById('user-tier-badge');
       var upgradeBtn = document.getElementById('btn-open-pricing');
       if (nameEl) setHeaderDisplayName(nameEl);
-      if (tierEl) {
-        var displayTier = hasPaidAccess()
-          ? (isProUser() ? 'pro' : (authState.planType || authState.tier))
-          : (authState.planType || authState.tier);
-        tierEl.textContent = hasPaidAccess() && (displayTier === 'pro' || displayTier === 'standard')
-          ? tierLabel(displayTier)
-          : tierLabel(displayTier);
-        tierEl.className = 'user-tier-badge user-tier-badge--' + (typeof WaldorfAuth.normalizeTierId === 'function'
-          ? WaldorfAuth.normalizeTierId(displayTier)
-          : displayTier);
-        tierEl.classList.toggle('user-tier-badge--pro-user', isProUser());
-      }
-      if (upgradeBtn) upgradeBtn.classList.toggle('hidden', hasPaidAccess());
-      setSearchUsageMeterHidden(hasPaidAccess());
+      updateHeaderTierBadge(tierEl);
+      var plan = resolvePlanType();
+      if (upgradeBtn) upgradeBtn.classList.toggle('hidden', hasPaidSubscription() || isProUser());
+      // Standard keeps usage meters visible; Pro hides them.
+      setSearchUsageMeterHidden(plan === 'pro' || (isProUser() && plan !== 'standard') || !authState.isAuthenticated);
       var signOutBtn = document.getElementById('btn-auth-signout');
       var settingsBtn = document.getElementById('btn-user-settings');
       if (signOutBtn) signOutBtn.classList.remove('hidden');
@@ -2549,7 +2603,7 @@
       var proSettingsBtn = document.getElementById('btn-user-settings');
       if (proNameEl) setHeaderDisplayName(proNameEl);
       if (proTierEl) {
-        proTierEl.textContent = t('pro_user_badge');
+        proTierEl.textContent = t('tier_pro_name');
         proTierEl.className = 'user-tier-badge user-tier-badge--pro user-tier-badge--pro-user';
       }
       if (proUpgradeBtn) proUpgradeBtn.classList.add('hidden');
@@ -2577,7 +2631,9 @@
     syncProUserDomState();
     var meter = document.getElementById('search-usage-meter');
     if (!meter) return;
-    if (hasPaidAccess() || !authState.isAuthenticated) {
+    var plan = resolvePlanType();
+    // Annual Pro (and whitelist without standard): hide. Trial + standard: show.
+    if (!authState.isAuthenticated || plan === 'pro' || (isProUser() && plan !== 'standard')) {
       setSearchUsageMeterHidden(true);
       return;
     }
@@ -2587,16 +2643,15 @@
     var countEl = document.getElementById('search-usage-count');
     var labelEl = document.getElementById('search-usage-label');
     var fillEl = document.getElementById('search-usage-fill');
-    var tier = normalizeTierId(authState.planType || authState.tier);
     if (countEl) {
       countEl.textContent = displayLimit != null
         ? used + ' / ' + displayLimit
         : String(used);
     }
     if (labelEl) {
-      labelEl.textContent = tier === 'trial'
+      labelEl.textContent = plan === 'trial'
         ? t('search_usage_label_trial')
-        : t('search_usage_label_monthly');
+        : (plan === 'standard' ? t('search_usage_label_trial') : t('search_usage_label_monthly'));
     }
     if (fillEl) {
       var pct = displayLimit ? Math.min(100, (used / displayLimit) * 100) : 0;
@@ -3007,6 +3062,9 @@
     hasPaidAccess: hasPaidAccess,
     isProUserEmail: isProUserEmail,
     PRO_USERS: PRO_USERS,
+    resolvePlanType: resolvePlanType,
+    isStandardPlan: isStandardPlan,
+    isAnnualProPlan: isAnnualProPlan,
     normalizeTierId: normalizeTierId,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

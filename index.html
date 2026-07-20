@@ -3569,7 +3569,9 @@
       display: none;
     }
     body.is-authenticated .app-site-chrome,
-    body.is-pro-user .app-site-chrome {
+    body.is-pro-user .app-site-chrome,
+    body.is-standard-user .app-site-chrome,
+    body.has-paid-access .app-site-chrome {
       pointer-events: auto !important;
       opacity: 1 !important;
       filter: none !important;
@@ -3581,7 +3583,9 @@
       gap: 0.35rem;
       flex-shrink: 0;
     }
-    body.is-pro-user .header-pro-explicit-actions {
+    body.is-pro-user .header-pro-explicit-actions,
+    body.is-standard-user .header-pro-explicit-actions,
+    body.has-paid-access .header-pro-explicit-actions {
       display: inline-flex !important;
     }
     .header-explicit-action {
@@ -3591,20 +3595,30 @@
       text-decoration: none;
       white-space: nowrap;
     }
-    body.is-pro-user .header-explicit-action {
+    body.is-pro-user .header-explicit-action,
+    body.is-standard-user .header-explicit-action,
+    body.has-paid-access .header-explicit-action {
       display: inline-flex !important;
     }
     body.is-pro-user #btn-auth-signout,
-    body.is-pro-user #btn-user-settings {
+    body.is-pro-user #btn-user-settings,
+    body.is-standard-user #btn-auth-signout,
+    body.is-standard-user #btn-user-settings,
+    body.has-paid-access #btn-auth-signout,
+    body.has-paid-access #btn-user-settings {
       display: none !important;
     }
-    body.is-pro-user #btn-header-contact-inline {
+    body.is-pro-user #btn-header-contact-inline,
+    body.is-standard-user #btn-header-contact-inline,
+    body.has-paid-access #btn-header-contact-inline {
       display: none !important;
     }
-    body.is-pro-user #btn-header-contact-guest {
+    body.is-pro-user #btn-header-contact-guest,
+    body.is-standard-user #btn-header-contact-guest,
+    body.has-paid-access #btn-header-contact-guest {
       display: none !important;
     }
-    body:not(.is-pro-user) #btn-header-contact {
+    body:not(.is-pro-user):not(.is-standard-user):not(.has-paid-access) #btn-header-contact {
       display: none !important;
     }
     #user-account-bar:not(.hidden) ~ #btn-header-contact-guest {
@@ -3616,13 +3630,17 @@
     }
     .user-tier-badge--trial { background: rgba(201, 169, 98, 0.2); color: #5C4A3A; }
     .user-tier-badge--standard,
-    .user-tier-badge--educator { background: rgba(122, 155, 118, 0.2); color: #5C7D58; }
+    .user-tier-badge--educator {
+      background: rgba(92, 74, 58, 0.1);
+      color: #5C4A3A;
+      box-shadow: 0 0 0 1px rgba(92, 74, 58, 0.18);
+    }
     .user-tier-badge--pro,
-    .user-tier-badge--expert { background: rgba(139, 58, 58, 0.12); color: #8B3A3A; }
+    .user-tier-badge--expert,
     .user-tier-badge--pro-user {
-      background: linear-gradient(135deg, rgba(139, 58, 58, 0.18), rgba(201, 169, 98, 0.22));
-      color: #8B3A3A;
-      box-shadow: 0 0 0 1px rgba(201, 169, 98, 0.35);
+      background: rgba(122, 155, 118, 0.22);
+      color: #3D5E44;
+      box-shadow: 0 0 0 1px rgba(122, 155, 118, 0.35);
       letter-spacing: 0.02em;
     }
     .identity-email-bar {
@@ -3737,6 +3755,10 @@
     body.is-pro-user #search-usage-meter,
     .user-account-bar--pro #search-usage-meter {
       display: none !important;
+    }
+    body.is-standard-user #search-usage-meter:not(.hidden),
+    .user-account-bar--standard #search-usage-meter:not(.hidden) {
+      display: flex !important;
     }
     .search-usage-track {
       width: 4rem; height: 0.35rem; border-radius: 9999px;
