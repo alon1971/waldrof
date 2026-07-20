@@ -785,7 +785,7 @@ async function searchCommunityByContent(query, body, matchCount) {
   }).slice(0, matchCount || COMMUNITY_MATCH_COUNT);
 }
 
-async function searchRecentCommunityUploads(matchCount) {
+async function searchRecentCommunityUploads(matchCount, body) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key) return [];
 
@@ -796,6 +796,14 @@ async function searchRecentCommunityUploads(matchCount) {
   );
   params.set('order', 'created_at.desc');
   params.set('limit', String(matchCount || RECENT_COMMUNITY_UPLOAD_LIMIT));
+  const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
+  // Never pull recent uploads across grades when a classroom is locked.
+  if (gradeId && !(body && body.chatGlobalScan)) {
+    params.set('grade_id', 'eq.' + gradeId);
+  } else if (!(body && body.chatGlobalScan)) {
+    // Unscoped recent uploads can pollute synthesis — skip unless explicit global chat scan.
+    return [];
+  }
 
   const res = await fetch(cfg.url + '/rest/v1/' + COMMUNITY_TABLE_NAME + '?' + params.toString(), {
     headers: {
@@ -813,6 +821,16 @@ async function searchRecentCommunityUploads(matchCount) {
       source_type: 'community_archive',
       score: 14 - index * 0.15,
     });
+  });
+}
+
+function filterCommunityChunksByGrade(chunks, body) {
+  const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
+  if (!gradeId || (body && body.chatGlobalScan) || !Array.isArray(chunks) || !chunks.length) {
+    return chunks || [];
+  }
+  return chunks.filter(function (chunk) {
+    return String((chunk && chunk.grade_id) || '').trim() === gradeId;
   });
 }
 
@@ -841,18 +859,23 @@ function scoreCommunityChunkRelevance(chunk, query, body) {
 async function searchCommunityKnowledgeEnrichment(query, body, matchCount) {
   const expandedQuery = buildExpandedCommunitySearchQuery(query, body);
   const methods = [];
+  const gradeId = String((body && (body.currentGrade || body.gradeId)) || '').trim();
+  // Without a grade lock (and outside explicit chat global scan), refuse broad community RAG.
+  if (!gradeId && !(body && body.chatGlobalScan)) {
+    return { chunks: [], method: 'none', expandedQuery: expandedQuery };
+  }
 
   const parallel = await Promise.all([
     searchCommunitySemantic(expandedQuery, matchCount).catch(function () { return []; }),
     searchCommunityKeywords(expandedQuery, matchCount * 3).catch(function () { return []; }),
     searchCommunityByContent(expandedQuery, body, matchCount).catch(function () { return []; }),
-    searchRecentCommunityUploads(RECENT_COMMUNITY_UPLOAD_LIMIT).catch(function () { return []; }),
+    searchRecentCommunityUploads(RECENT_COMMUNITY_UPLOAD_LIMIT, body).catch(function () { return []; }),
   ]);
 
-  const semanticChunks = parallel[0];
-  const keywordChunks = parallel[1] || [];
-  const contentChunks = parallel[2] || [];
-  const recentChunks = parallel[3] || [];
+  const semanticChunks = filterCommunityChunksByGrade(parallel[0], body);
+  const keywordChunks = filterCommunityChunksByGrade(parallel[1] || [], body);
+  const contentChunks = filterCommunityChunksByGrade(parallel[2] || [], body);
+  const recentChunks = filterCommunityChunksByGrade(parallel[3] || [], body);
 
   if (semanticChunks.length) methods.push('semantic');
   if (keywordChunks.length) methods.push('keywords');

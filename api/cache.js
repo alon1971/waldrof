@@ -5197,12 +5197,13 @@ async function findCachedResultsGlobalMatch(query, options) {
 
 async function findCommunityMaterials(options) {
   const opts = options || {};
-  const query = opts.globalScan === true
+  const lockedGradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  // When a grade is present, always enforce it — ignore client globalScan.
+  const allowGlobalScan = opts.globalScan === true && !lockedGradeId;
+  const query = allowGlobalScan
     ? String(opts.userMessage || opts.query || '').trim()
     : buildCommunitySearchQuery(opts);
-  const gradeId = opts.globalScan === true
-    ? ''
-    : String(opts.gradeId || opts.currentGrade || '').trim();
+  const gradeId = allowGlobalScan ? '' : lockedGradeId;
   const semanticQuery = String(opts.userMessage || opts.query || query).trim();
   if (!query) return { matches: [], count: 0, query: '', matchMethod: 'none' };
 
@@ -5212,8 +5213,8 @@ async function findCommunityMaterials(options) {
     try {
       const driveResult = await driveCatalogSync.searchDriveCommunityCatalog(query, {
         userMessage: semanticQuery,
-        gradeId: gradeId || opts.gradeId || opts.currentGrade || '',
-        currentGrade: opts.currentGrade || gradeId || '',
+        gradeId: gradeId || '',
+        currentGrade: gradeId || '',
         topic: opts.topic || opts.catalogTopic || '',
         catalogTopic: opts.catalogTopic || opts.topic || '',
         limit: opts.limit || 8,
@@ -5221,11 +5222,18 @@ async function findCommunityMaterials(options) {
       if (driveResult && driveResult.count > 0) {
         const navQuery = String(opts.userMessage || opts.query || query || '').trim();
         let driveMatches = driveResult.matches || [];
-        const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(
-          navQuery,
-          driveMatches
-        );
-        driveMatches = gradeFilter.hits;
+        if (gradeId) {
+          driveMatches = pedagogicalScope.filterCommunityHitsByStrictGrade(
+            driveMatches,
+            gradeId
+          ).hits;
+        } else {
+          const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(
+            navQuery,
+            driveMatches
+          );
+          driveMatches = gradeFilter.hits;
+        }
         const result = {
           matches: driveMatches.map(function (hit) {
             return withCatalogNavigationFields(hit, navQuery);
@@ -5256,14 +5264,10 @@ async function findCommunityMaterials(options) {
 
   if (isSupabaseCacheEnabled()) {
     try {
+      // Strict grade WHERE: never fall back to an unscoped global catalog fetch.
       const catalogRows = await fetchCommunityCatalogRows(gradeId, { limit: 300 });
       materialRows = catalogRows.materialRows;
       kbRows = catalogRows.kbRows;
-      if (!materialRows.length && !kbRows.length && gradeId && !opts.globalScan) {
-        const globalRows = await fetchCommunityCatalogRows('', { limit: 300 });
-        materialRows = globalRows.materialRows;
-        kbRows = globalRows.kbRows;
-      }
     } catch (err) {
       console.warn('[community] catalog fetch failed:', err.message || err);
     }
@@ -5322,26 +5326,35 @@ async function findCommunityMaterials(options) {
   }
 
   const navQuery = String(opts.userMessage || opts.query || query || '').trim();
-  const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(navQuery, matches);
-  matches = gradeFilter.hits;
-  if (gradeFilter.filtered) {
-    matchMethod = matches.length ? (matchMethod + '_grade_aligned') : 'none';
-  }
+  if (gradeId) {
+    // Hard classroom lock — only explicitly tagged hits for this grade.
+    const strictFilter = pedagogicalScope.filterCommunityHitsByStrictGrade(matches, gradeId);
+    matches = strictFilter.hits;
+    if (strictFilter.filtered) {
+      matchMethod = matches.length ? (matchMethod + '_grade_locked') : 'none';
+    }
+  } else {
+    const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(navQuery, matches);
+    matches = gradeFilter.hits;
+    if (gradeFilter.filtered) {
+      matchMethod = matches.length ? (matchMethod + '_grade_aligned') : 'none';
+    }
 
-  // Stamp canonical curriculum grade onto ungraded / general hits so the UI
-  // never routes רומא/יוון into the wrong classroom folder.
-  if (gradeFilter.block && gradeFilter.block.gradeId) {
-    const canonicalGrade = String(gradeFilter.block.gradeId).trim();
-    const canonicalLabel = pedagogicalScope.GRADE_LABEL_BY_ID[canonicalGrade] || '';
-    matches = matches.map(function (hit) {
-      const hitGrade = pedagogicalScope.resolveHitGradeId(hit);
-      if (hitGrade && hitGrade !== 'general') return hit;
-      return Object.assign({}, hit, {
-        gradeId: canonicalGrade,
-        grade_level: canonicalGrade,
-        gradeLabel: canonicalLabel || hit.gradeLabel || null,
+    // Stamp canonical curriculum grade onto ungraded / general hits so the UI
+    // never routes רומא/יוון into the wrong classroom folder.
+    if (gradeFilter.block && gradeFilter.block.gradeId) {
+      const canonicalGrade = String(gradeFilter.block.gradeId).trim();
+      const canonicalLabel = pedagogicalScope.GRADE_LABEL_BY_ID[canonicalGrade] || '';
+      matches = matches.map(function (hit) {
+        const hitGrade = pedagogicalScope.resolveHitGradeId(hit);
+        if (hitGrade && hitGrade !== 'general') return hit;
+        return Object.assign({}, hit, {
+          gradeId: canonicalGrade,
+          grade_level: canonicalGrade,
+          gradeLabel: canonicalLabel || hit.gradeLabel || null,
+        });
       });
-    });
+    }
   }
 
   const hasExactName = matches.some(function (hit) {
@@ -5363,8 +5376,8 @@ async function findCommunityMaterials(options) {
 }
 
 /**
- * Global community probe — same hybrid keyword + semantic path as pedagogical chat.
- * Ignores UI grade/topic scope so partial terms and synonyms (e.g. אודיסאוס → מסעות אודיסאוס) resolve.
+ * Community probe — hybrid keyword + semantic path.
+ * When gradeId/currentGrade is present, search is strictly locked to that grade.
  */
 async function probeCommunityGlobalSearch(query, options) {
   const opts = options || {};
@@ -5374,15 +5387,16 @@ async function probeCommunityGlobalSearch(query, options) {
   }
 
   const scopedGrade = String(opts.gradeId || opts.currentGrade || '').trim();
-  const useGlobalScan = opts.globalScan === true || (!scopedGrade && opts.globalScan !== false);
+  // Grade lock always wins — never open a cross-grade global scan when a grade is set.
+  const useGlobalScan = !scopedGrade && opts.globalScan === true;
 
   const baseOpts = {
     query: userMessage,
     userMessage: userMessage,
     topic: opts.catalogTopic || opts.topic || null,
     catalogTopic: opts.catalogTopic || opts.topic || null,
-    gradeId: useGlobalScan ? '' : scopedGrade,
-    currentGrade: useGlobalScan ? '' : scopedGrade,
+    gradeId: scopedGrade,
+    currentGrade: scopedGrade,
     globalScan: useGlobalScan,
     semanticFallback: true,
     includeFolderBrief: opts.includeFolderBrief !== false,

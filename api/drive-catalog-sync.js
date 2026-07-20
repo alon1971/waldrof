@@ -758,8 +758,8 @@ function resolveDriveSearchScope(query, options) {
   const uiTopic = String(opts.topic || opts.catalogTopic || '').trim();
 
   const block = pedagogicalScope.inferTopicCurriculumBlock(q);
-  // Curriculum ownership wins over the currently open UI grade.
-  const strictGradeId = (block && block.gradeId) || uiGrade || '';
+  // UI / grade-page lock wins — never expand Drive search into another classroom.
+  const strictGradeId = uiGrade || (block && block.gradeId) || '';
 
   let strictTopic = uiTopic;
   if (!strictTopic) {

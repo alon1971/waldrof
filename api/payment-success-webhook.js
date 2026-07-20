@@ -106,8 +106,8 @@ function assertGrowPaymentConfirmed(payload) {
 
 /**
  * Map Grow / Make plan labels to product tiers:
- *   standard — one-time support (100 ₪): 20 lifetime searches, no expiry
- *   pro      — annual subscription (220 ₪): 25 searches/month, 1-year expiry
+ *   standard — one-time support (100 ₪): 20 lifetime searches, 20 Word downloads, no expiry
+ *   pro      — annual subscription (220 ₪): 25 searches/month, unlimited Word, 1-year expiry
  */
 function parsePlan(plan) {
   const raw = String(plan || 'annual_pro').trim().toLowerCase();

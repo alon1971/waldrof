@@ -22,14 +22,16 @@ set
   search_limit_monthly = coalesce(
     search_limit_monthly,
     case
-      when lower(coalesce(plan_type, 'trial')) in ('pro', 'standard') then 30
+      when lower(coalesce(plan_type, 'trial')) = 'pro' then 25
+      when lower(coalesce(plan_type, 'trial')) = 'standard' then 20
       else 2
     end
   ),
   word_downloads_limit = coalesce(
     word_downloads_limit,
     case
-      when lower(coalesce(plan_type, 'trial')) in ('pro', 'standard') then null
+      when lower(coalesce(plan_type, 'trial')) = 'pro' then null
+      when lower(coalesce(plan_type, 'trial')) = 'standard' then 20
       else 17
     end
   ),

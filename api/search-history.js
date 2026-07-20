@@ -181,14 +181,23 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
+    const scopedGrade = String(
+      (body && (body.gradeId || body.currentGrade)) || ''
+    ).trim();
+    if (!scopedGrade) {
+      const err = new Error('חסרה כיתה לחיפוש במאגר הקהילתי — החיפוש מוגבל לכיתה שנבחרה');
+      err.statusCode = 400;
+      throw err;
+    }
     const probe = await cacheDb.probeCommunityGlobalSearch(query, {
       // Selected folder topic only — never the raw search string.
       topic: catalogTopic || null,
       catalogTopic: catalogTopic || null,
       userMessage: userMessage || query,
-      gradeId: body && body.gradeId,
-      currentGrade: body && body.currentGrade,
-      globalScan: body && body.globalScan,
+      gradeId: scopedGrade,
+      currentGrade: scopedGrade,
+      // Hard grade lock — never honor client globalScan for catalog probe.
+      globalScan: false,
       includeFolderBrief: true,
       repositorySearch: true,
       phase: 'topic',
