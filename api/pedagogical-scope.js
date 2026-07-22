@@ -16,6 +16,7 @@ const GRADE_LABEL_BY_ID = {
   '6': 'כיתה ו׳',
   '7': 'כיתה ז׳',
   '8': 'כיתה ח׳',
+  general: 'כללי',
 };
 
 /** Grade-appropriate topic suggestions when redirecting after a mismatch. */
