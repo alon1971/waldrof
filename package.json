@@ -13,7 +13,13 @@
     "upload-knowledge": "node scripts/upload-text.js",
     "sync-render": "node scripts/sync-render-env.js",
     "upgrade-archive": "node scripts/upgradeArchive.js",
-    "rollback-archive": "node scripts/rollbackArchiveToTimestamp.js"
+    "rollback-archive": "node scripts/rollbackArchiveToTimestamp.js",
+    "organize-drive": "node scripts/organize-and-convert.js --from-community --default-grade=7 --default-topic=כללי",
+    "organize-drive:apply": "node scripts/organize-and-convert.js --apply --from-community --default-grade=7 --default-topic=כללי --min-pdf-bytes=0",
+    "drive-oauth-setup": "node scripts/google-drive-oauth-setup.js --write-env",
+    "upload-community-drive": "node scripts/upload-community-to-drive.js",
+    "upload-community-drive:apply": "node scripts/upload-community-to-drive.js --apply --summarize",
+    "summarize-community-drive": "node scripts/upload-community-to-drive.js --summarize-only"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

@@ -36,9 +36,19 @@ assert(greeceScope.topic === 'יוון', 'יוון → topic יוון');
 const greeceCurriculumOnly = drive.resolveDriveSearchScope('יוון', {});
 assert(greeceCurriculumOnly.gradeId === '5', 'without UI grade, curriculum still maps יוון → 5');
 
+const broadGreece = drive.resolveDriveSearchScope('יוון', { globalScan: true });
+assert(broadGreece.gradeId === '', 'broad/global scan does not invent a grade lock');
+assert(broadGreece.topic === 'יוון', 'broad scan still resolves topic');
+
 const uiScope = drive.resolveDriveSearchScope('חשבון', { gradeId: '3', topic: 'חשבון' });
 assert(uiScope.gradeId === '3', 'non-curriculum query keeps UI grade');
 assert(uiScope.topic === 'חשבון', 'selected topic is preserved');
+
+const qScopedParents = drive.buildDriveKeywordSearchQuery('רומא', {
+  parentFolderIds: ['rome', 'geo'],
+});
+assert(qScopedParents.indexOf("'rome' in parents") >= 0, 'multi-parent scope includes rome');
+assert(qScopedParents.indexOf("'geo' in parents") >= 0, 'multi-parent scope includes geo');
 
 // --- Folder allow-list filter ---
 const fakeIndex = {
@@ -65,7 +75,47 @@ assert(!romeFolders.has('g1'), 'Rome scope excludes grade 1');
 const grade6Only = drive.resolveStrictDriveScopeFolderIds(fakeIndex, '6', '');
 assert(grade6Only.has('rome') && grade6Only.has('geo') && grade6Only.has('g6'), 'Grade-only scope keeps all grade-6 folders');
 
+const broadAll = drive.resolveStrictDriveScopeFolderIds(fakeIndex, '', '');
+assert(broadAll.has('rome') && broadAll.has('g1') && broadAll.has('g5'), 'empty grade+topic allow-list keeps all graded folders');
+assert(!broadAll.has('root'), 'root without grade is excluded from broad allow-list');
+
 assert(drive.topicsStrictlyCompatible('רומא', 'רומא העתיקה') === true, 'Rome aliases compatible');
 assert(drive.topicsStrictlyCompatible('יוון', 'מיתולוגיה נורדית') === false, 'Greece ≠ Norse');
+assert(drive.topicsStrictlyCompatible('מיתולוגיה נורדית', 'מיתולוגיה יוונית') === false, 'Norse excludes Greek mythology');
+assert(drive.topicsStrictlyCompatible('מיתולוגיה נורדית', 'רומא') === false, 'Norse excludes Rome');
+assert(drive.topicsStrictlyCompatible('תזונה', 'אדם-עולם') === true, 'תזונה ↔ אדם-עולם (hyphen)');
+assert(drive.topicsStrictlyCompatible('תזונה', 'תזונה ובריאות') === true, 'תזונה includes substring folder');
+assert(drive.nameMatchesTopicCentrally('תזונה ונשימה מחברת תלמיד .pdf', 'תזונה', 'תזונה') === true, 'fuzzy name match תזונה');
+assert(drive.nameMatchesTopicCentrally('תזונת הטמפרמנטים.docx', 'תזונה', 'תזונה') === true, 'תזונת* matches תזונה');
+assert(drive.parseGradeIdFromFolderName('כיתה ז תשפו') === '7', 'parse grade from כיתה ז תשפו');
+assert(drive.parseGradeIdFromFolderName("כיתה-ז'") === '7', 'parse grade from כיתה-ז');
+
+const catalogTopics = require('../api/catalog-topics');
+assert(catalogTopics.extractGradeIdFromQuery("פיזיקה כיתה ו'") === '6', 'extract grade from פיזיקה כיתה ו');
+assert(catalogTopics.extractGradeIdFromQuery('התפתחות המדעים') === '', 'cross-cutting has no embedded grade');
+assert(catalogTopics.isCrossCuttingTopic('התפתחות המדעים') === true, 'התפתחות המדעים is cross-cutting');
+assert(catalogTopics.isCrossCuttingTopic('התפתחות השפה') === true, 'התפתחות השפה is cross-cutting');
+
+const nutritionAliases = catalogTopics.expandCatalogTopicAliases(['תזונה']);
+assert(nutritionAliases.some(function (a) { return /אדם עולם|adam olam/i.test(a); }), 'תזונה expands to אדם עולם');
+assert(nutritionAliases.some(function (a) { return a === 'בריאות'; }), 'תזונה expands to בריאות');
+
+const explorersAliases = catalogTopics.expandCatalogTopicAliases(['מגלי עולם']);
+assert(
+  !explorersAliases.some(function (a) { return a === 'תזונה' || a === 'בריאות'; }),
+  'מגלי עולם must not expand into תזונה/בריאות'
+);
+
+const crossScope = drive.resolveDriveSearchScope('התפתחות המדעים', {});
+assert(crossScope.broadScan === true, 'cross-cutting without grade → broadScan');
+assert(crossScope.gradeId === '', 'cross-cutting without grade → no grade lock');
+
+const physicsStrict = drive.resolveDriveSearchScope("פיזיקה כיתה ו'", {});
+assert(physicsStrict.gradeId === '6', 'פיזיקה כיתה ו → strict grade 6');
+assert(physicsStrict.broadScan === false, 'explicit query grade is not broad');
+
+const norseExclude = catalogTopics.getExcludedTermsForQuery('מיתולוגיה נורדית');
+assert(norseExclude.some(function (t) { return /יוון|greek/i.test(t); }), 'Norse excludes Greek terms');
+assert(norseExclude.some(function (t) { return /רומא|roman/i.test(t); }), 'Norse excludes Roman terms');
 
 console.log('OK drive-community-search tests');

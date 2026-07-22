@@ -2234,6 +2234,8 @@ function validatePhaseResult(phase, data, body) {
 
 function isBillableLiveSearchResult(parsedBody, result) {
   if (!result || !result.meta) return false;
+  // Digital assistant / technical chat must never consume search credits.
+  if (parsedBody && parsedBody.phase === 'chat_followup') return false;
   if (result.meta.fromCache || result.meta.communityRouted || result.meta.needsArchiveConfirmation) return false;
   if (isClearTopicProsePhase(parsedBody)) return false;
   if (result.data == null && !result.meta.asyncAccepted) return false;
@@ -2682,7 +2684,7 @@ function buildGenerateHttpPayload(result) {
 }
 
 function shouldProbeCommunityMaterials(phase) {
-  return phase === 'topic';
+  return phase === 'topic' || phase === 'grade' || phase === 'topic_master';
 }
 
 /** Follow-up asks for more materials / deeper ideas — skip community re-match and alert loop. */
@@ -3051,7 +3053,12 @@ async function handleGeneratePost(parsedBody, requestContext, streamHooks) {
     console.log('[generate] PRO user — rate limits bypassed for', proEmail);
   }
 
-  if (!clearTopicProse && typeof subscriptionApi.assertSearchAllowedFromRequest === 'function') {
+  // Chat assistant is free technical/system guidance — never gate or bill it as a search credit.
+  if (
+    !clearTopicProse &&
+    parsedBody.phase !== 'chat_followup' &&
+    typeof subscriptionApi.assertSearchAllowedFromRequest === 'function'
+  ) {
     try {
       const cacheWillHit = await probeWouldServeFromCache(parsedBody);
       if (!cacheWillHit) {
@@ -3454,15 +3461,29 @@ async function executeGenerate(body, apiKey, requestContext, streamHooks) {
     chatApi.clearCommunityArchiveContextForExpansion(body);
   }
 
+  // Hybrid: archive lookup + community/Drive probe run in parallel so cache hits
+  // still surface repository matches and live generation is never folder-only.
+  let communityProbe = EMPTY_COMMUNITY_PROBE;
   if (body.phase !== 'chat_followup' && body.phase !== 'enrichment_links') {
-    const cachedFast = await tryServeFromCachedResults(body, EMPTY_COMMUNITY_PROBE);
-    if (cachedFast) return cachedFast;
+    const parallelLookup = await Promise.all([
+      tryServeFromCachedResults(body, EMPTY_COMMUNITY_PROBE),
+      probeCommunityMaterialsForBody(body).catch(function (probeErr) {
+        console.warn('[generate] community probe failed:', probeErr && probeErr.message ? probeErr.message : probeErr);
+        return EMPTY_COMMUNITY_PROBE;
+      }),
+    ]);
+    const cachedFast = parallelLookup[0];
+    communityProbe = filterCommunityProbeToCurrentGrade(parallelLookup[1], body);
+    if (cachedFast) {
+      cachedFast.meta = attachCommunityMeta(cachedFast.meta || {}, communityProbe);
+      return cachedFast;
+    }
+  } else {
+    communityProbe = filterCommunityProbeToCurrentGrade(
+      await probeCommunityMaterialsForBody(body),
+      body
+    );
   }
-
-  const communityProbe = filterCommunityProbeToCurrentGrade(
-    await probeCommunityMaterialsForBody(body),
-    body
-  );
 
   if (body.phase === 'enrichment_links') {
     const enrichmentBody = normalizeEnrichmentRequestBody(body);

@@ -4,6 +4,11 @@
 const perplexityClient = require('./perplexity-client');
 const jsonRepair = require('./json-repair');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
+const communitySearch = require('./community-search');
+
+const EMPTY_COMMUNITY_PROBE = communitySearch.EMPTY_COMMUNITY_PROBE;
+const probeCommunityForHybridSearch = communitySearch.probeCommunityForHybridSearch;
+const attachCommunityHybridMeta = communitySearch.attachCommunityHybridMeta;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -331,4 +336,7 @@ module.exports = {
   PROFESSIONAL_LINKS_INSTRUCTION,
   STRUCTURAL_COMPLETENESS_INSTRUCTION,
   PEDAGOGICAL_DEPTH_INSTRUCTION,
+  EMPTY_COMMUNITY_PROBE,
+  probeCommunityForHybridSearch,
+  attachCommunityHybridMeta,
 };

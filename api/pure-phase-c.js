@@ -3309,6 +3309,9 @@ async function runPurePhaseC(body, requestContext) {
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
 
+  // Community Drive summarization is decoupled — see /api/community-summarizer.
+  // Live topic research is web/archive only.
+
   let teacher = null;
   try {
     teacher = await authContext.resolveVerifiedUser(
@@ -3349,11 +3352,19 @@ async function runPurePhaseC(body, requestContext) {
   }
 
   if (body.researchExpand && body.historicPayload && typeof body.historicPayload === 'object') {
-    return runResearchExpandPhaseC(body, requestContext, teacher);
+    const expanded = await runResearchExpandPhaseC(body, requestContext, teacher);
+    return {
+      data: expanded.data,
+      meta: expanded.meta || {},
+    };
   }
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
-    return runArchiveUpgradePhaseC(body, requestContext, teacher);
+    const upgraded = await runArchiveUpgradePhaseC(body, requestContext, teacher);
+    return {
+      data: upgraded.data,
+      meta: upgraded.meta || {},
+    };
   }
 
   if (gradeId && shouldBypassTopicMasterCache(body)) {
@@ -3395,6 +3406,7 @@ async function runPurePhaseC(body, requestContext) {
 
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
+    console.log('[pure-phase-c] live web research (community summary decoupled)');
     const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
       phase: 'topic_master',
       grade: grade,

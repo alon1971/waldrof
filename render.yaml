@@ -45,6 +45,15 @@ services:
         value: Waldorfplanner@gmail.com
       - key: MAKE_UPGRADE_WEBHOOK_URL
         sync: false
+      # Community Google Drive catalog (waldorfplanner drive)
+      - key: GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID
+        value: "1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs"
+      - key: DRIVE_ROOT_FOLDER_ID
+        value: "1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs"
+      - key: GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
 
   - type: cron
     name: waldrof-billing-report

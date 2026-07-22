@@ -3,6 +3,7 @@
  * Uses service role for webhook/cron writes.
  */
 const env = require('./env');
+const authContext = require('./auth-context');
 const {
   TRIAL_LIFETIME_SEARCH_LIMIT,
   STANDARD_LIFETIME_SEARCH_LIMIT,
@@ -167,9 +168,12 @@ async function findUserIdByEmail(email) {
 }
 
 async function fetchSubscriptionByUserId(userId) {
+  const id = String(userId || '').trim();
+  // Production user_id is uuid — never filter with "email:…" synthetic keys.
+  if (!id || !authContext.isUuidShaped(id)) return null;
   const params = new URLSearchParams();
   params.set('select', '*');
-  params.set('user_id', 'eq.' + userId);
+  params.set('user_id', 'eq.' + id);
   params.set('limit', '1');
   const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), { method: 'GET' });
   return Array.isArray(rows) && rows.length ? rows[0] : null;
@@ -207,8 +211,10 @@ function isUniqueViolation(err) {
 }
 
 async function patchSubscriptionByUserId(rowKey, writePatch) {
+  const id = String(rowKey || '').trim();
+  if (!id || !authContext.isUuidShaped(id)) return null;
   const params = new URLSearchParams();
-  params.set('user_id', 'eq.' + String(rowKey).trim());
+  params.set('user_id', 'eq.' + id);
   const rows = await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
     method: 'PATCH',
     body: JSON.stringify(writePatch),
@@ -229,8 +235,10 @@ async function patchSubscriptionByEmail(email, writePatch) {
 }
 
 async function deleteSubscriptionByUserId(rowKey) {
+  const id = String(rowKey || '').trim();
+  if (!id || !authContext.isUuidShaped(id)) return;
   const params = new URLSearchParams();
-  params.set('user_id', 'eq.' + String(rowKey).trim());
+  params.set('user_id', 'eq.' + id);
   await supabaseRequest('/rest/v1/' + SUBSCRIPTIONS_TABLE + '?' + params.toString(), {
     method: 'DELETE',
     headers: { Prefer: 'return=minimal' },
@@ -242,8 +250,9 @@ async function deleteSubscriptionByUserId(rowKey) {
  * Never fails with 409 on an existing teacher email — updates the existing row instead.
  */
 async function upsertSubscriptionRow(userId, patch) {
-  const email = String((patch && patch.user_email) || '').trim().toLowerCase();
-  const targetId = String(userId || '').trim();
+  const email = String((patch && patch.user_email) || '').trim().toLowerCase()
+    || authContext.extractEmailFromUserKey(userId);
+  const targetId = authContext.mapUserIdForSupabaseQuery(userId, email) || '';
   const byEmail = email ? await fetchSubscriptionByEmail(email) : null;
   const byUserId = targetId ? await fetchSubscriptionByUserId(targetId) : null;
 
@@ -336,9 +345,22 @@ async function upsertSubscriptionRow(userId, patch) {
     auto_renew: true,
     plan_type: 'trial',
   };
+  let insertUserId = targetId;
+  if (!insertUserId && email) {
+    try {
+      insertUserId = await findUserIdByEmail(email) || '';
+    } catch (e) {
+      insertUserId = '';
+    }
+  }
+  if (!insertUserId || !authContext.isUuidShaped(insertUserId)) {
+    log('upsert:skip_insert_no_uuid', { email: email || undefined, raw_user_id: userId });
+    if (byEmail) return byEmail;
+    throw new Error('Cannot create subscription without a valid auth user id');
+  }
   const insertRow = pickBillingFields(Object.assign(
     defaults,
-    { user_id: targetId, updated_at: new Date().toISOString() },
+    { user_id: insertUserId, updated_at: new Date().toISOString() },
     patch
   ));
   if (email) insertRow.user_email = email;

@@ -5,7 +5,10 @@
 const env = require('./env');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Accept any RFC-4122-shaped UUID for DB filters (incl. nil / local demo mock). */
+const UUID_SHAPE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOCAL_DEMO_USER_KEY = 'email:demo.user@gmail.com';
+const LOCAL_DEMO_EMAIL = 'demo.user@gmail.com';
 const LOCAL_DEMO_MOCK_UUID = '00000000-0000-0000-0000-000000000000';
 
 /** True only on local dev — never on Render/production hosts. */
@@ -17,25 +20,70 @@ function isLocalDevServer() {
 }
 
 /**
- * Map local demo identifier to a valid UUID before Supabase queries (local dev only).
- * Production users with real JWT UUIDs pass through unchanged.
+ * Strip synthetic `email:` user keys (e.g. "email:a@b.com" → "a@b.com").
+ * Returns '' when the value is not an email-prefixed key.
+ */
+function extractEmailFromUserKey(userId) {
+  const id = String(userId || '').trim();
+  const match = /^email:(.+)$/i.exec(id);
+  return match ? String(match[1] || '').trim().toLowerCase() : '';
+}
+
+/** True when value looks like a UUID Postgres will accept (not "email:…"). */
+function isUuidShaped(value) {
+  return UUID_SHAPE_RE.test(String(value || '').trim());
+}
+
+/**
+ * Map a client/auth user id to a value safe for Supabase UUID columns.
+ * - Real JWT UUIDs pass through.
+ * - Local demo key maps to LOCAL_DEMO_MOCK_UUID.
+ * - `email:…` / other non-UUID strings return null (callers must query by email).
  */
 function mapUserIdForSupabaseQuery(userId, email) {
   const id = String(userId || '').trim();
-  const em = String(email || '').trim();
-  if (!isLocalDevServer()) return id || null;
-  if (id === LOCAL_DEMO_USER_KEY || em === LOCAL_DEMO_USER_KEY) {
-    return LOCAL_DEMO_MOCK_UUID;
+  const em = String(email || '').trim().toLowerCase();
+  const emailFromKey = extractEmailFromUserKey(id);
+
+  if (isLocalDevServer()) {
+    if (
+      id === LOCAL_DEMO_USER_KEY
+      || em === LOCAL_DEMO_USER_KEY
+      || em === LOCAL_DEMO_EMAIL
+      || emailFromKey === LOCAL_DEMO_EMAIL
+    ) {
+      return LOCAL_DEMO_MOCK_UUID;
+    }
   }
-  return id || null;
+
+  if (id && isUuidShaped(id) && !isMockUserId(id)) {
+    return id;
+  }
+
+  // Never send "email:…" or free-text into uuid filters/columns.
+  return null;
 }
 
-/** Map demo user id on a teacher/subscription object before Supabase reads/writes. */
+/** Map demo / non-UUID user id on a teacher/subscription object before Supabase reads/writes. */
 function mapUserForSupabaseQuery(user) {
   if (!user || typeof user !== 'object') return user;
   const mappedId = mapUserIdForSupabaseQuery(user.id, user.email);
-  if (!mappedId || mappedId === user.id) return user;
-  return Object.assign({}, user, { id: mappedId });
+  const emailFromKey = extractEmailFromUserKey(user.id);
+  const next = Object.assign({}, user);
+  let changed = false;
+  if (mappedId && mappedId !== user.id) {
+    next.id = mappedId;
+    changed = true;
+  } else if (!mappedId && user.id) {
+    // Drop synthetic non-UUID ids so callers fall back to email lookups.
+    next.id = null;
+    changed = true;
+  }
+  if (!next.email && emailFromKey) {
+    next.email = emailFromKey;
+    changed = true;
+  }
+  return changed ? next : user;
 }
 
 function isValidAuthUuid(value) {
@@ -117,14 +165,16 @@ async function resolveTeacherUser(req, body, options) {
 
   const fromBody = body && body.teacherUser;
   if (fromBody && (fromBody.id || fromBody.email)) {
-    const id = fromBody.id ? String(fromBody.id).trim() : null;
-    if (opts.requireUuidForId && id && !isValidAuthUuid(id)) {
+    const rawId = fromBody.id ? String(fromBody.id).trim() : null;
+    if (opts.requireUuidForId && rawId && !isValidAuthUuid(rawId)) {
       return null;
     }
+    const emailFromKey = extractEmailFromUserKey(rawId);
+    const mappedId = mapUserIdForSupabaseQuery(rawId, fromBody.email || emailFromKey);
     return {
-      id: id,
-      email: String(fromBody.email || '').trim(),
-      name: fromBody.name || fromBody.displayName || fromBody.email || '',
+      id: mappedId || (rawId && isUuidShaped(rawId) ? rawId : null),
+      email: String(fromBody.email || emailFromKey || '').trim(),
+      name: fromBody.name || fromBody.displayName || fromBody.email || emailFromKey || '',
       displayName: fromBody.displayName || fromBody.name || '',
       verified: false,
     };
@@ -170,11 +220,14 @@ function pickCachedUserId(body) {
 
 module.exports = {
   isValidAuthUuid,
+  isUuidShaped,
   isMockUserId,
   isLocalDevServer,
+  extractEmailFromUserKey,
   mapUserIdForSupabaseQuery,
   mapUserForSupabaseQuery,
   LOCAL_DEMO_USER_KEY,
+  LOCAL_DEMO_EMAIL,
   LOCAL_DEMO_MOCK_UUID,
   extractBearerToken,
   verifySupabaseToken,

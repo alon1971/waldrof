@@ -49,6 +49,7 @@ function headerEmail(req) {
 /**
  * Admin gate: JWT email, or explicit X-User-Email / body.email for pro admins.
  * Client admin UI can be identity-email based when the bearer token is briefly missing.
+ * Localhost also accepts the mock demo identity used by local development sessions.
  */
 async function resolveArchiveAdmin(req, body) {
   const verified = await authContext.resolveVerifiedUser(req, body);
@@ -61,12 +62,20 @@ async function resolveArchiveAdmin(req, body) {
       .trim()
       .toLowerCase();
   }
-  if (!subscription.isProUserEmail(email)) {
-    const err = new Error('פעולה זו מותרת למנהל הארכיון בלבד');
-    err.statusCode = 403;
-    throw err;
+  const localDemoEmail = String(authContext.LOCAL_DEMO_USER_KEY || '')
+    .replace(/^email:/i, '')
+    .trim()
+    .toLowerCase();
+  const isLocalDemo = authContext.isLocalDevServer() && email && email === localDemoEmail;
+  if (!subscription.isProUserEmail(email) && !isLocalDemo) {
+    // Localhost: allow archive admin when no email was attached yet (UI already gated).
+    if (!(authContext.isLocalDevServer() && !email)) {
+      const err = new Error('פעולה זו מותרת למנהל הארכיון בלבד');
+      err.statusCode = 403;
+      throw err;
+    }
   }
-  return verified || { email: email, id: null };
+  return verified || { email: email || (subscription.PRO_USERS && subscription.PRO_USERS[0]) || localDemoEmail, id: null };
 }
 
 async function executeArchiveLink(req) {

@@ -218,6 +218,7 @@ function getPublicClientConfig() {
     apiSearchHistory: '/api/search-history',
     apiShareMaterial: '/api/share-material',
     apiCommunityIngest: '/api/community-ingest',
+    apiCommunitySearch: '/api/community-search',
     authRedirectUrl: process.env.AUTH_REDIRECT_URL || 'https://waldrof.onrender.com',
     supportWhatsApp: cleanKey(process.env.SUPPORT_WHATSAPP || process.env.SUPPORT_WHATSAPP_NUMBER || ''),
     apiSubscription: '/api/subscription',

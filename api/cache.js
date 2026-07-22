@@ -17,6 +17,7 @@ const generalSearchClassifier = require('./general-search-classifier');
 const embeddings = require('./embeddings');
 const catalogTopics = require('./catalog-topics');
 const driveCatalogSync = require('./drive-catalog-sync');
+const driveQueryExpand = require('./drive-query-expand');
 const enrichmentLinks = require('./enrichment-links');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 const pedagogicalScope = require('./pedagogical-scope');
@@ -2098,7 +2099,7 @@ function pickBestArchiveTopicRow(rows, query, options) {
   (rows || []).forEach(function (row) {
     if (!row || !row.result_data) return;
     const data = coerceCachedResultData(row.result_data);
-    if (!data || !isValidCachedPayload('topic', data)) return;
+    if (!data || !isArchivableTopicPayload(data)) return;
     const candidateTopic = archiveTopicDisplayName(row, data, query);
     if (strongOnly && isMisleadingArchiveAutoLoad(query, candidateTopic)) return;
     const score = strongOnly
@@ -2117,6 +2118,15 @@ function pickBestArchiveTopicRow(rows, query, options) {
   return best;
 }
 
+/** True when a cached topic row is usable for archive probe / credit-gate (global, any owner). */
+function isArchivableTopicPayload(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (isValidCachedPayload('topic', data)) return true;
+  if (isSearchHistoryResultData(data)) return true;
+  if (isTopicMasterPayload(data)) return true;
+  return false;
+}
+
 async function findArchiveTopicByNormalizedText(topic, gradeId) {
   const topicBody = { phase: 'topic', topic: topic, currentGrade: gradeId, gradeId: gradeId };
   const wanted = normalizeTopicQuery(topic);
@@ -2128,14 +2138,17 @@ async function findArchiveTopicByNormalizedText(topic, gradeId) {
       const row = rows[i];
       if (!row || !row.result_data) continue;
       const data = coerceCachedResultData(row.result_data);
-      if (!data || !isValidCachedPayload('topic', data)) continue;
+      if (!data || !isArchivableTopicPayload(data)) continue;
       if (!topicCacheTextsMatch(topicBody, row, data)) continue;
-      return finalizeArchiveTopicMatch(formatExactArchiveTopicMatch({
+      // Credit-gate / probe: accept any valid archived payload (not only "enhanced").
+      const formatted = formatExactArchiveTopicMatch({
         row: row,
         data: data,
         topic: archiveTopicDisplayName(row, data, topic),
         score: 1,
-      }, gradeId));
+      }, gradeId, { requireEnhanced: false });
+      if (!formatted) continue;
+      return finalizeArchiveTopicMatch(formatted);
     }
     return null;
   }
@@ -2156,14 +2169,14 @@ async function findArchiveTopicByNormalizedText(topic, gradeId) {
     if (fallbackMatch || !row || row.phase !== 'topic' || !row.result_data) return;
     if (String(row.grade_id || '').trim() !== String(gradeId || '').trim()) return;
     const data = coerceCachedResultData(row.result_data);
-    if (!data || !isValidCachedPayload('topic', data)) return;
+    if (!data || !isArchivableTopicPayload(data)) return;
     if (!topicCacheTextsMatch(topicBody, row, data)) return;
     fallbackMatch = formatExactArchiveTopicMatch({
       row: row,
       data: data,
       topic: archiveTopicDisplayName(row, data),
       score: 1,
-    }, gradeId);
+    }, gradeId, { requireEnhanced: false });
   });
   if (fallbackMatch) return finalizeArchiveTopicMatch(fallbackMatch);
   return null;
@@ -2215,7 +2228,7 @@ async function findArchiveTopicByQueryPrefix(topic, gradeId) {
 
   rows.forEach(function (row) {
     const data = coerceCachedResultData(row.result_data);
-    if (!data || !isValidCachedPayload('topic', data)) return;
+    if (!data || !isArchivableTopicPayload(data)) return;
     const candidateTopic = archiveTopicDisplayName(row, data, topic);
     if (!candidateTopic || isMisleadingArchiveAutoLoad(topic, candidateTopic)) return;
 
@@ -2261,7 +2274,11 @@ function formatExactArchiveTopicMatch(best, gradeId, options) {
   if (!best || !best.row) return null;
   const payload = cloneJsonSafe(best.data) || best.data;
   if (!payload) return null;
-  if (!isEnhancedCachedPayload('topic', payload)) return null;
+  // Default false: archive probe / credit-gate must match global cache rows even when they are
+  // hybrid / non-baseline. generate.js still decides whether to auto-serve vs regenerate.
+  const requireEnhanced = options.requireEnhanced === true;
+  if (requireEnhanced && !isEnhancedCachedPayload('topic', payload)) return null;
+  if (!requireEnhanced && !isArchivableTopicPayload(payload)) return null;
   return {
     matchType: 'exact',
     similarity: best.score,
@@ -2297,7 +2314,8 @@ async function fetchArchiveTopicRowsForGrade(gradeId, topic, withTermFilter) {
 
   const params = new URLSearchParams();
   params.set('select', LEGACY_ROW_SELECT);
-  params.set('phase', 'eq.topic');
+  // Global archive: topic + topic_master, any user_id (no owner filter).
+  params.set('phase', 'in.(topic,' + TOPIC_MASTER_PHASE + ')');
   params.set('grade_id', 'eq.' + gradeId);
   params.set('order', 'hit_count.desc,created_at.desc');
   params.set('limit', '80');
@@ -2420,8 +2438,9 @@ async function findTopicMasterArchiveSuggestion(gradeId, topic) {
   const gid = String(gradeId || '').trim();
   const topicStr = String(topic || '').trim();
   if (!gid || !topicStr) return null;
-  if (hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topicStr)) return null;
 
+  // Exact topic_master hits must always win — even when semantic suggestions are blocked
+  // (definitive skill titles like «חשבון»). Missing this caused credit modals on archived topics.
   const exactBody = buildTopicMasterCacheBody(gid, null, topicStr);
   const exactCached = await getCachedResult(exactBody, { requireEnhanced: false });
   if (exactCached && exactCached.data && isTopicMasterPayload(exactCached.data)) {
@@ -2438,6 +2457,9 @@ async function findTopicMasterArchiveSuggestion(gradeId, topic) {
       archiveSource: 'topic_master',
     };
   }
+
+  // Semantic / alias matching only — never block an exact cache hit above.
+  if (hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topicStr)) return null;
 
   const semantic = await findSemanticTopicMasterMatch(gid, topicStr);
   if (!semantic || !semantic.data || !isTopicMasterPayload(semantic.data)) return null;
@@ -2507,9 +2529,11 @@ async function findArchiveTopicSuggestion(options) {
     };
   }
 
+  // Archive probe must serve ANY valid cached lesson — not only "enhanced" Perplexity baselines.
+  // requireEnhanced:true would miss hybrid / topic_master-era rows and falsely trigger the credit modal.
   const topicBody = { phase: 'topic', topic: topic, currentGrade: gradeId, gradeId: gradeId };
-  const cached = await getCachedResult(topicBody);
-  if (cached && cached.data && isValidCachedPayload('topic', cached.data)) {
+  const cached = await getCachedResult(topicBody, { requireEnhanced: false });
+  if (cached && cached.data && isArchivableTopicPayload(cached.data)) {
     return finalizeArchiveTopicMatch({
       matchType: 'exact',
       similarity: 1,
@@ -2528,6 +2552,12 @@ async function findArchiveTopicSuggestion(options) {
     return normalizedMatch;
   }
 
+  // Exact topic_master (Step B→C / tab-narrative) BEFORE any semantic bypass early-exit.
+  const topicMasterSuggestion = await findTopicMasterArchiveSuggestion(gradeId, topic);
+  if (topicMasterSuggestion && topicMasterSuggestion.matchType === 'exact') {
+    return topicMasterSuggestion;
+  }
+
   const bypassSemanticGuess = hebrewTopicMatch.shouldBypassSemanticArchiveSuggestion(topic);
 
   if (!bypassSemanticGuess) {
@@ -2541,7 +2571,10 @@ async function findArchiveTopicSuggestion(options) {
       console.log('[cached_results] skipped misleading strong archive match:', strongBest.topic);
     } else {
       return finalizeArchiveTopicMatch(
-        formatExactArchiveTopicMatch(strongBest, gradeId, { requestedTopic: topic })
+        formatExactArchiveTopicMatch(strongBest, gradeId, {
+          requestedTopic: topic,
+          requireEnhanced: false,
+        })
       );
     }
   }
@@ -2551,7 +2584,7 @@ async function findArchiveTopicSuggestion(options) {
     return null;
   }
 
-  const topicMasterSuggestion = await findTopicMasterArchiveSuggestion(gradeId, topic);
+  // Partial / semantic topic_master suggestions (exact already returned above).
   if (topicMasterSuggestion) return topicMasterSuggestion;
 
   const canonicalSuggestion = await findCanonicalGradeArchiveSuggestion(gradeId, topic);
@@ -3303,32 +3336,85 @@ async function getGeneralSearchCache(query, options) {
   if (!isSupabaseCacheEnabled()) return null;
 
   try {
+    // 1) Exact query_text match (global — no user_id filter).
     const exactQuery = encodeURIComponent(q);
-    const res = await supabaseRequest(
+    let res = await supabaseRequest(
       '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
-      '&query_text=eq.' + exactQuery + '&select=cache_key,result_data,hit_count&limit=1',
+      '&query_text=eq.' + exactQuery + '&select=cache_key,query_text,topic,result_data,hit_count&limit=5',
       { method: 'GET' }
     );
-    if (!res.ok) return null;
-    const rows = await res.json();
-    if (!Array.isArray(rows) || !rows.length || !rows[0].result_data) return null;
-    const data = coerceCachedResultData(rows[0].result_data);
-    if (!isGeneralSearchPayload(data)) return null;
-    if (!generalSearchCacheVariantMatches(data, periodBlock)) return null;
-    bumpHitCountAsync(rows[0].cache_key, rows[0].hit_count);
-    return {
-      data: cloneJsonSafe(data),
-      meta: {
-        fromCache: true,
-        cacheKey: rows[0].cache_key,
-        table: TABLE_NAME,
-        source: 'general_search_exact',
-      },
-    };
+    if (res.ok) {
+      const rows = await res.json();
+      if (Array.isArray(rows)) {
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || !row.result_data) continue;
+          const data = coerceCachedResultData(row.result_data);
+          if (!isGeneralSearchPayload(data)) continue;
+          if (!generalSearchCacheVariantMatches(data, periodBlock)) continue;
+          bumpHitCountAsync(row.cache_key, row.hit_count);
+          return {
+            data: cloneJsonSafe(data),
+            meta: {
+              fromCache: true,
+              cacheKey: row.cache_key,
+              table: TABLE_NAME,
+              source: 'general_search_exact',
+            },
+          };
+        }
+      }
+    }
+
+    // 2) Global ilike / topic column match for the same prompt (still no user filter).
+    const safeIlike = String(q)
+      .replace(/[%*,()]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
+    if (safeIlike.length >= 2) {
+      const ilikeTerm = postgrestFilterValue(safeIlike);
+      res = await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
+        '&or=(query_text.ilike.*' + ilikeTerm + '*,topic.ilike.*' + ilikeTerm + '*)' +
+        '&select=cache_key,query_text,topic,result_data,hit_count&order=hit_count.desc,created_at.desc&limit=20',
+        { method: 'GET' }
+      );
+      if (res.ok) {
+        const rows = await res.json();
+        const conceptKey = normalizeGeneralSearchConceptKey(q);
+        if (Array.isArray(rows)) {
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || !row.result_data) continue;
+            const data = coerceCachedResultData(row.result_data);
+            if (!isGeneralSearchPayload(data)) continue;
+            if (!generalSearchCacheVariantMatches(data, periodBlock)) continue;
+            const candidate = String(row.query_text || row.topic || data.query || '').trim();
+            if (!candidate) continue;
+            const exactNorm = stableNormalize(candidate) === stableNormalize(q);
+            const conceptHit = conceptKey && normalizeGeneralSearchConceptKey(candidate) === conceptKey;
+            const coreHit = generalSearchCoreSupersetMatch(q, candidate);
+            if (!exactNorm && !conceptHit && !coreHit) continue;
+            bumpHitCountAsync(row.cache_key, row.hit_count);
+            return {
+              data: cloneJsonSafe(data),
+              meta: {
+                fromCache: true,
+                cacheKey: row.cache_key,
+                table: TABLE_NAME,
+                source: 'general_search_global_match',
+              },
+            };
+          }
+        }
+      }
+    }
   } catch (lookupErr) {
     console.warn('[cached_results] general_search exact lookup failed:', lookupErr.message || lookupErr);
     return null;
   }
+  return null;
 }
 
 async function setGeneralSearchCache(query, payload, options) {
@@ -3788,8 +3874,13 @@ function searchHistoryFetchLimit(displayLimit) {
   return Math.min(Math.max(limit * 5, 80), 200);
 }
 
-function listFallbackTeacherHistory(teacher, limit) {
+function listFallbackTeacherHistory(teacher, limit, options) {
   loadFallbackStore();
+  const opts = options || {};
+  const globalScope = opts.globalScope === true
+    || opts.community === true
+    || opts.ignoreUserId === true
+    || opts.repositorySearch === true;
   const userId = String(teacher && teacher.id || '').trim();
   const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
   const fetchLimit = searchHistoryFetchLimit(limit);
@@ -3797,9 +3888,11 @@ function listFallbackTeacherHistory(teacher, limit) {
     .filter(function (row) {
       if (!row || !row.result_data) return false;
       if (row.phase !== 'topic' && row.phase !== TOPIC_MASTER_PHASE) return false;
+      // Community / shared archive rows (any owner) stay available for matching.
+      if (globalScope) return true;
       if (userId && row.user_id === userId) return true;
       if (userEmail && String(row.user_email || '').toLowerCase() === userEmail) return true;
-      return false;
+      return Boolean(row.result_data);
     })
     .sort(function (a, b) {
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
@@ -3808,9 +3901,13 @@ function listFallbackTeacherHistory(teacher, limit) {
 
   return dedupeSearchHistoryItems(
     rows
-      .filter(function (row) { return row && isSearchHistoryResultData(row.result_data); })
+      .filter(function (row) {
+        return row && (
+          isSearchHistoryResultData(row.result_data) || isArchivableTopicPayload(row.result_data)
+        );
+      })
       .map(formatHistoryItem)
-      .filter(function (item) { return item && item.hasLessonPlan; }),
+      .filter(function (item) { return item && (item.hasLessonPlan || item.resultData || item.cacheKey); }),
     limit || 20
   );
 }
@@ -3835,7 +3932,8 @@ function isSearchHistoryResultData(data) {
 
 function buildTeacherHistoryCacheKey(teacher, sourceCacheKey) {
   const userId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email) || '';
-  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase()
+    || authContext.extractEmailFromUserKey(teacher && teacher.id);
   const owner = userId || userEmail;
   const sourceKey = String(sourceCacheKey || '').trim();
   if (!owner || !sourceKey) return null;
@@ -3878,7 +3976,8 @@ async function linkArchiveToTeacherHistory(teacher, sourceCacheKey, options) {
   const sourceKey = String(sourceCacheKey || '').trim();
   if (!sourceKey || !teacher) return null;
 
-  const userEmail = String(teacher.email || '').trim().toLowerCase();
+  const userEmail = String(teacher.email || '').trim().toLowerCase()
+    || authContext.extractEmailFromUserKey(teacher.id);
   const userId = authContext.mapUserIdForSupabaseQuery(teacher.id, teacher.email) || '';
   if (!userId && !userEmail) return null;
 
@@ -3972,7 +4071,7 @@ function formatHistoryItem(row, options) {
   const opts = options || {};
   const rawData = coerceCachedResultData(row.result_data) || row.result_data || {};
   const data = coerceArchiveLessonResultData(rawData) || rawData;
-  const hasPlan = isSearchHistoryResultData(data);
+  const hasPlan = isSearchHistoryResultData(data) || isArchivableTopicPayload(data);
   const includeResult = opts.includeResultData !== false;
   return {
     cacheKey: row.cache_key,
@@ -4022,12 +4121,20 @@ async function queryTeacherHistoryRows(filterParams, fetchLimit) {
 }
 
 async function listTeacherSearchHistory(teacher, options) {
-  const limit = (options && options.limit) || 20;
+  const opts = options || {};
+  const limit = opts.limit || 20;
   const fetchLimit = searchHistoryFetchLimit(limit);
-  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
-  const userId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email) || '';
+  const globalScope = opts.globalScope === true
+    || opts.community === true
+    || opts.ignoreUserId === true
+    || opts.repositorySearch === true;
+  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase()
+    || authContext.extractEmailFromUserKey(teacher && teacher.id);
+  const mappedUserId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email);
+  const userId = mappedUserId || '';
 
-  if (!userId && !userEmail) {
+  // Community / drive-cache / global archive: identity is optional — never require userId.
+  if (!globalScope && !userId && !userEmail) {
     console.warn('[search-history][debug] missing teacher identity — empty history');
     return [];
   }
@@ -4045,21 +4152,32 @@ async function listTeacherSearchHistory(teacher, options) {
         });
       }
 
-      if (userId) {
-        mergeRows(await queryTeacherHistoryRows({
-          user_id: 'eq.' + postgrestFilterValue(userId),
-        }, fetchLimit));
-      }
-      if (userEmail) {
-        mergeRows(await queryTeacherHistoryRows({
-          user_email: 'ilike.' + postgrestFilterValue(userEmail),
-        }, fetchLimit));
+      if (globalScope) {
+        // Community repository / drive cache: ignore user_id completely (global scope).
+        mergeRows(await queryTeacherHistoryRows({}, fetchLimit));
+      } else {
+        // Personal history first (owned rows), then global community/archive rows from ANY owner.
+        // Critical: do NOT stop at user_id is.null — shared archive rows usually keep the
+        // generating teacher's user_id and must still be visible for community summaries.
+        if (userId) {
+          mergeRows(await queryTeacherHistoryRows({
+            user_id: 'eq.' + postgrestFilterValue(userId),
+          }, fetchLimit));
+        }
+        if (userEmail) {
+          mergeRows(await queryTeacherHistoryRows({
+            user_email: 'ilike.' + postgrestFilterValue(userEmail),
+          }, fetchLimit));
+        }
+        mergeRows(await queryTeacherHistoryRows({}, Math.min(fetchLimit, 80)));
       }
 
       console.log('[search-history][debug] supabase raw rows', {
-        userId: userId || null,
-        userEmail: userEmail || null,
+        userId: globalScope ? null : (userId || null),
+        userEmail: globalScope ? null : (userEmail || null),
+        globalScope: globalScope,
         rawCount: allRows.length,
+        rowCount: allRows.length,
         phases: allRows.slice(0, 8).map(function (row) {
           return {
             phase: row.phase,
@@ -4071,12 +4189,23 @@ async function listTeacherSearchHistory(teacher, options) {
       });
 
       const items = allRows
-        .filter(function (row) { return row && row.result_data && isSearchHistoryResultData(row.result_data); })
-        .map(formatHistoryItem);
+        .filter(function (row) {
+          if (!row || !row.result_data) return false;
+          // Prefer full lesson payloads; also keep any archivable topic payload so
+          // global/community cache rows aren't dropped by strict blockPlan-only filtering.
+          return isSearchHistoryResultData(row.result_data) || isArchivableTopicPayload(row.result_data);
+        })
+        .map(formatHistoryItem)
+        .filter(function (item) {
+          // formatHistoryItem sets hasLessonPlan from isSearchHistoryResultData;
+          // keep archivable global rows even when hasLessonPlan is false.
+          return item && (item.hasLessonPlan || item.resultData || item.cacheKey);
+        });
 
       console.log('[search-history][debug] after lesson filter', {
-        userId: userId || null,
-        userEmail: userEmail || null,
+        userId: globalScope ? null : (userId || null),
+        userEmail: globalScope ? null : (userEmail || null),
+        globalScope: globalScope,
         itemCount: items.length,
       });
 
@@ -4088,7 +4217,12 @@ async function listTeacherSearchHistory(teacher, options) {
     console.warn('[search-history][debug] supabase cache disabled — using local fallback only');
   }
 
-  return listFallbackTeacherHistory(teacher, limit);
+  return listFallbackTeacherHistory(teacher, limit, {
+    globalScope: globalScope,
+    community: opts.community,
+    ignoreUserId: opts.ignoreUserId,
+    repositorySearch: opts.repositorySearch,
+  });
 }
 
 function formatChatHistoryItem(row) {
@@ -4139,7 +4273,8 @@ function listFallbackTeacherChatHistory(teacher, limit, filters) {
 async function listTeacherChatHistory(teacher, options) {
   const opts = options || {};
   const limit = Math.min(Number(opts.limit) || 30, 50);
-  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase();
+  const userEmail = String(teacher && teacher.email || '').trim().toLowerCase()
+    || authContext.extractEmailFromUserKey(teacher && teacher.id);
   const userId = authContext.mapUserIdForSupabaseQuery(teacher && teacher.id, teacher && teacher.email) || '';
   const gradeId = opts.gradeId ? String(opts.gradeId) : '';
   const topic = opts.topic ? String(opts.topic).trim() : '';
@@ -4281,10 +4416,19 @@ const COMMUNITY_STORAGE_BUCKET = 'community-uploads';
 
 function buildCommunitySearchQuery(options) {
   const parts = [];
-  if (options && options.userMessage) parts.push(String(options.userMessage).trim());
-  if (options && options.topic) parts.push(String(options.topic).trim());
-  if (options && options.query) parts.push(String(options.query).trim());
-  return parts.filter(Boolean).join(' ').trim();
+  const seen = new Set();
+  function pushPart(value) {
+    const cleaned = String(value || '').trim();
+    if (!cleaned) return;
+    const key = cleaned.toLowerCase().replace(/\s+/g, ' ');
+    if (seen.has(key)) return;
+    seen.add(key);
+    parts.push(cleaned);
+  }
+  if (options && options.userMessage) pushPart(options.userMessage);
+  if (options && options.topic) pushPart(options.topic);
+  if (options && options.query) pushPart(options.query);
+  return parts.join(' ').trim();
 }
 
 function sanitizeCommunitySearchTerm(term) {
@@ -4331,6 +4475,13 @@ function buildCommunitySearchTerms(query) {
     || qNorm.indexOf('אולימפ') >= 0
     || qNorm.indexOf('greek') >= 0) {
     terms.delete('מיתולוגיה');
+  }
+
+  // Active rival-topic exclude after synonym / catalog expansion.
+  if (typeof catalogTopics.stripExcludedSearchTerms === 'function') {
+    const cleaned = catalogTopics.stripExcludedSearchTerms(q, Array.from(terms));
+    terms.clear();
+    cleaned.forEach(function (term) { terms.add(term); });
   }
 
   return Array.from(terms)
@@ -4853,6 +5004,10 @@ function withCatalogNavigationFields(hit, query) {
     gradeId: gradeId,
     gradeLabel: gradeLabel,
     materialId: hit.sourceMaterialId || hit.id || hit.materialId || null,
+    locationPath: hit.locationPath
+      || (gradeLabel && safeTopic ? (gradeLabel + ' > ' + safeTopic) : ''),
+    webViewLink: hit.webViewLink || hit.fileUrl || '',
+    fileUrl: hit.fileUrl || hit.webViewLink || '',
   });
 }
 
@@ -5195,30 +5350,86 @@ async function findCachedResultsGlobalMatch(query, options) {
   }
 }
 
+function annotateCommunityProbeStatus(result, extras) {
+  const base = result && typeof result === 'object' ? result : {};
+  const info = extras || {};
+  const count = Array.isArray(base.matches) ? base.matches.length : (base.count || 0);
+  let status = base.communityStatus || info.communityStatus || '';
+  if (!status) {
+    if (count > 0) status = info.driveFailed ? 'degraded' : 'ok';
+    else if (info.driveFailed) status = 'unavailable';
+    else if (info.driveConfigured === false) status = 'not_configured';
+    else status = 'empty';
+  }
+  base.count = count;
+  base.communityStatus = status;
+  if (info.driveConfigured != null) base.driveConfigured = Boolean(info.driveConfigured);
+  else if (base.driveConfigured == null) {
+    base.driveConfigured = driveCatalogSync.isDriveCatalogSyncConfigured();
+  }
+  if (info.communityError) base.communityError = String(info.communityError);
+  return base;
+}
+
 async function findCommunityMaterials(options) {
   const opts = options || {};
-  const lockedGradeId = String(opts.gradeId || opts.currentGrade || '').trim();
-  // When a grade is present, always enforce it — ignore client globalScan.
-  const allowGlobalScan = opts.globalScan === true && !lockedGradeId;
+  const semanticQuery = String(opts.userMessage || opts.query || '').trim();
+  const gradePolicy = typeof catalogTopics.resolveCommunityGradeScanPolicy === 'function'
+    ? catalogTopics.resolveCommunityGradeScanPolicy(semanticQuery, opts)
+    : {
+      lockedGradeId: String(opts.gradeId || opts.currentGrade || '').trim(),
+      allowBroadScan: opts.globalScan === true && !String(opts.gradeId || opts.currentGrade || '').trim(),
+      crossCutting: false,
+    };
+  const lockedGradeId = String(gradePolicy.lockedGradeId || '').trim();
+  // When a grade is present (UI or explicit in query), always enforce it.
+  // Cross-cutting topics without a hard grade may scan all community layers.
+  const allowGlobalScan = Boolean(gradePolicy.allowBroadScan) && !lockedGradeId;
   const query = allowGlobalScan
     ? String(opts.userMessage || opts.query || '').trim()
     : buildCommunitySearchQuery(opts);
   const gradeId = allowGlobalScan ? '' : lockedGradeId;
-  const semanticQuery = String(opts.userMessage || opts.query || query).trim();
-  if (!query) return { matches: [], count: 0, query: '', matchMethod: 'none' };
+  if (!query) {
+    return annotateCommunityProbeStatus(
+      { matches: [], count: 0, query: '', matchMethod: 'none' },
+      { communityStatus: 'empty' }
+    );
+  }
+
+  const driveConfigured = driveCatalogSync.isDriveCatalogSyncConfigured();
+  let driveFailed = false;
+  let driveError = '';
+  let driveStatus = '';
+  let priorDriveDebug = null;
+  let priorDriveScope = null;
 
   // Primary path: live Google Drive name + fullText search, strictly scoped
   // to the relevant grade/topic folder in the shared teacher catalog.
-  if (opts.driveSearch !== false && driveCatalogSync.isDriveCatalogSyncConfigured()) {
+  // Global / broad scans (no grade lock) search across the whole catalog tree.
+  if (opts.driveSearch !== false && driveConfigured) {
     try {
       const driveResult = await driveCatalogSync.searchDriveCommunityCatalog(query, {
-        userMessage: semanticQuery,
+        userMessage: semanticQuery || query,
         gradeId: gradeId || '',
         currentGrade: gradeId || '',
         topic: opts.topic || opts.catalogTopic || '',
         catalogTopic: opts.catalogTopic || opts.topic || '',
         limit: opts.limit || 8,
+        globalScan: allowGlobalScan,
+        broadScan: allowGlobalScan || opts.broadScan === true || Boolean(gradePolicy.crossCutting && !gradeId),
+        phase: opts.phase || '',
+        navigationSearch: opts.navigationSearch === true,
+        requireCentralMatch: opts.requireCentralMatch === true,
+        skipGeminiExpand: opts.skipGeminiExpand === true,
       });
+      if (driveResult && driveResult.communityStatus === 'unavailable') {
+        driveFailed = true;
+        driveError = driveResult.communityError || 'Drive search unavailable';
+        driveStatus = 'unavailable';
+      } else if (driveResult && driveResult.communityStatus === 'not_configured') {
+        driveFailed = false;
+        driveStatus = 'not_configured';
+      }
       if (driveResult && driveResult.count > 0) {
         const navQuery = String(opts.userMessage || opts.query || query || '').trim();
         let driveMatches = driveResult.matches || [];
@@ -5227,12 +5438,18 @@ async function findCommunityMaterials(options) {
             driveMatches,
             gradeId
           ).hits;
-        } else {
+        } else if (!allowGlobalScan) {
           const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(
             navQuery,
             driveMatches
           );
           driveMatches = gradeFilter.hits;
+        }
+        if (typeof pedagogicalScope.filterCommunityHitsByTopicExclude === 'function') {
+          driveMatches = pedagogicalScope.filterCommunityHitsByTopicExclude(
+            navQuery,
+            driveMatches
+          ).hits;
         }
         const result = {
           matches: driveMatches.map(function (hit) {
@@ -5248,14 +5465,26 @@ async function findCommunityMaterials(options) {
             : pedagogicalScope.buildContextualCatalogRoute(navQuery),
           driveScoped: true,
           driveScope: driveResult.scope || null,
+          driveDebug: driveResult.debug || null,
         };
         if (result.count > 0) {
-          return attachCommunityFolderBriefToResult(result, opts);
+          return annotateCommunityProbeStatus(
+            attachCommunityFolderBriefToResult(result, opts),
+            { communityStatus: 'ok', driveConfigured: true }
+          );
         }
+        // Keep debug from empty Drive scan for summarizer / server logs.
+        priorDriveDebug = driveResult.debug || null;
+        priorDriveScope = driveResult.scope || null;
       }
     } catch (driveErr) {
-      console.warn('[community] Drive search failed, falling back to catalog:', driveErr.message || driveErr);
+      driveFailed = true;
+      driveError = String(driveErr.message || driveErr);
+      driveStatus = 'unavailable';
+      console.warn('[community] Drive search failed, falling back to catalog:', driveError);
     }
+  } else if (opts.driveSearch !== false && !driveConfigured) {
+    driveStatus = 'not_configured';
   }
 
   let materialRows = [];
@@ -5333,7 +5562,7 @@ async function findCommunityMaterials(options) {
     if (strictFilter.filtered) {
       matchMethod = matches.length ? (matchMethod + '_grade_locked') : 'none';
     }
-  } else {
+  } else if (!allowGlobalScan) {
     const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(navQuery, matches);
     matches = gradeFilter.hits;
     if (gradeFilter.filtered) {
@@ -5357,6 +5586,14 @@ async function findCommunityMaterials(options) {
     }
   }
 
+  if (typeof pedagogicalScope.filterCommunityHitsByTopicExclude === 'function') {
+    const excludeFilter = pedagogicalScope.filterCommunityHitsByTopicExclude(navQuery, matches);
+    matches = excludeFilter.hits;
+    if (excludeFilter.filtered && !matches.length) {
+      matchMethod = 'none';
+    }
+  }
+
   const hasExactName = matches.some(function (hit) {
     return pedagogicalScope.hitMatchesExactTopicName(navQuery, hit);
   });
@@ -5365,14 +5602,38 @@ async function findCommunityMaterials(options) {
     contextualRoute = pedagogicalScope.buildContextualCatalogRoute(navQuery);
   }
 
+  const navigationMode = opts.navigationSearch === true
+    || opts.requireCentralMatch === true
+    || String(opts.phase || '').indexOf('community_catalog') === 0
+    || String(opts.phase || '') === 'probe_community';
+  let finalMatches = matches.map(function (hit) { return withCatalogNavigationFields(hit, navQuery); });
+  if (navigationMode) {
+    const expansion = driveQueryExpand.expandDriveNavigationQueryLocal(navQuery || query);
+    finalMatches = finalMatches.filter(function (hit) {
+      return driveQueryExpand.isCentralDriveHitRelevant(navQuery || query, hit, expansion);
+    });
+  }
+
   const result = {
-    matches: matches.map(function (hit) { return withCatalogNavigationFields(hit, navQuery); }),
-    count: matches.length,
+    matches: finalMatches,
+    count: finalMatches.length,
     query: query,
-    matchMethod: matches.length ? matchMethod : 'none',
+    matchMethod: finalMatches.length ? matchMethod : 'none',
     contextualRoute: contextualRoute,
+    driveDebug: priorDriveDebug,
+    driveScope: priorDriveScope,
   };
-  return attachCommunityFolderBriefToResult(result, opts);
+  return annotateCommunityProbeStatus(
+    attachCommunityFolderBriefToResult(result, opts),
+    {
+      driveConfigured: driveConfigured,
+      driveFailed: driveFailed,
+      communityError: driveError || undefined,
+      communityStatus: finalMatches.length
+        ? (driveFailed ? 'degraded' : 'ok')
+        : (driveStatus || (driveFailed ? 'unavailable' : (driveConfigured ? 'empty' : 'not_configured'))),
+    }
+  );
 }
 
 /**
@@ -5383,12 +5644,36 @@ async function probeCommunityGlobalSearch(query, options) {
   const opts = options || {};
   const userMessage = String(opts.userMessage || query || '').trim();
   if (!userMessage) {
-    return { matches: [], count: 0, query: '', matchMethod: 'none' };
+    return annotateCommunityProbeStatus(
+      { matches: [], count: 0, query: '', matchMethod: 'none' },
+      { communityStatus: 'empty' }
+    );
   }
 
-  const scopedGrade = String(opts.gradeId || opts.currentGrade || '').trim();
-  // Grade lock always wins — never open a cross-grade global scan when a grade is set.
-  const useGlobalScan = !scopedGrade && opts.globalScan === true;
+  const gradePolicy = typeof catalogTopics.resolveCommunityGradeScanPolicy === 'function'
+    ? catalogTopics.resolveCommunityGradeScanPolicy(userMessage, opts)
+    : {
+      lockedGradeId: String(opts.gradeId || opts.currentGrade || '').trim(),
+      allowBroadScan: !String(opts.gradeId || opts.currentGrade || '').trim() && opts.globalScan === true,
+      crossCutting: false,
+    };
+  const scopedGrade = String(gradePolicy.lockedGradeId || '').trim();
+  // Grade lock (UI or explicit in query) always wins — cross-cutting without grade may broaden.
+  const useGlobalScan = !scopedGrade && (
+    opts.globalScan === true
+    || opts.broadScan === true
+    || Boolean(gradePolicy.allowBroadScan)
+  );
+  const priorStatus = {
+    communityStatus: '',
+    communityError: '',
+    driveConfigured: driveCatalogSync.isDriveCatalogSyncConfigured(),
+  };
+
+  const navigationMode = opts.navigationSearch === true
+    || opts.requireCentralMatch === true
+    || String(opts.phase || '').indexOf('community_catalog') === 0
+    || String(opts.phase || '') === 'probe_community';
 
   const baseOpts = {
     query: userMessage,
@@ -5398,17 +5683,26 @@ async function probeCommunityGlobalSearch(query, options) {
     gradeId: scopedGrade,
     currentGrade: scopedGrade,
     globalScan: useGlobalScan,
-    semanticFallback: true,
-    includeFolderBrief: opts.includeFolderBrief !== false,
+    broadScan: useGlobalScan || opts.broadScan === true || Boolean(gradePolicy.crossCutting && !scopedGrade),
+    semanticFallback: !navigationMode,
+    includeFolderBrief: navigationMode ? false : (opts.includeFolderBrief !== false),
     repositorySearch: opts.repositorySearch === true,
     phase: opts.phase || 'topic',
     limit: opts.limit || 8,
     driveSearch: opts.driveSearch !== false,
+    navigationSearch: navigationMode,
+    requireCentralMatch: navigationMode,
+    skipGeminiExpand: opts.skipGeminiExpand === true,
   };
 
   let result = await findCommunityMaterials(baseOpts);
+  if (result) {
+    priorStatus.communityStatus = result.communityStatus || '';
+    priorStatus.communityError = result.communityError || '';
+    if (result.driveConfigured != null) priorStatus.driveConfigured = result.driveConfigured;
+  }
 
-  if (!result.count) {
+  if (!result.count && !navigationMode) {
     const terms = buildCommunitySearchTerms(userMessage);
     for (let i = 0; i < terms.length; i++) {
       const term = terms[i];
@@ -5424,30 +5718,56 @@ async function probeCommunityGlobalSearch(query, options) {
         result = attachCommunityFolderBriefToResult(termProbe, baseOpts);
         break;
       }
+      if (
+        (!priorStatus.communityStatus || priorStatus.communityStatus === 'empty') &&
+        termProbe.communityStatus &&
+        termProbe.communityStatus !== 'empty'
+      ) {
+        priorStatus.communityStatus = termProbe.communityStatus;
+        priorStatus.communityError = termProbe.communityError || priorStatus.communityError;
+      }
     }
   }
 
+  // Global cached_results fallback — never scoped to the requesting teacher (any user_id).
+  // Used for both pedagogical hybrid summaries and navigation/community catalog probes.
   if (!result.count) {
     try {
       const archiveHits = await findCachedResultsGlobalMatch(userMessage, { limit: baseOpts.limit || 8 });
       if (archiveHits.count > 0) {
-        result = Object.assign({}, archiveHits, {
-          query: userMessage,
-          matchMethod: archiveHits.matchMethod || 'cached_archive_global',
-        });
+        let archiveMatches = archiveHits.matches || [];
+        if (scopedGrade) {
+          archiveMatches = pedagogicalScope.filterCommunityHitsByStrictGrade(
+            archiveMatches,
+            scopedGrade
+          ).hits;
+        }
+        if (archiveMatches.length) {
+          result = Object.assign({}, archiveHits, {
+            matches: archiveMatches,
+            count: archiveMatches.length,
+            query: userMessage,
+            matchMethod: archiveHits.matchMethod || 'cached_archive_global',
+          });
+        }
       }
     } catch (archiveErr) {
-      console.warn('[community] general_search archive probe failed:', archiveErr.message || archiveErr);
+      console.warn('[community] global archive probe failed:', archiveErr.message || archiveErr);
     }
   }
 
-  // Re-apply curriculum grade alignment + contextual Drive hint after term/archive retries.
+  // Re-apply curriculum grade alignment only when a classroom is locked.
+  // Broad general-search scans keep cross-grade community hits visible.
   if (result && Array.isArray(result.matches)) {
-    const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(userMessage, result.matches);
-    result.matches = gradeFilter.hits;
-    result.count = result.matches.length;
-    if (gradeFilter.filtered && !result.count) {
-      result.matchMethod = 'none';
+    if (scopedGrade || !useGlobalScan) {
+      const gradeFilter = pedagogicalScope.filterCommunityHitsByCurriculumGrade(userMessage, result.matches);
+      result.matches = gradeFilter.hits;
+      result.count = result.matches.length;
+      if (gradeFilter.filtered && !result.count) {
+        result.matchMethod = 'none';
+      }
+    } else {
+      result.count = result.matches.length;
     }
     const hasExactName = result.matches.some(function (hit) {
       return pedagogicalScope.hitMatchesExactTopicName(userMessage, hit);
@@ -5461,7 +5781,15 @@ async function probeCommunityGlobalSearch(query, options) {
     result.contextualRoute = pedagogicalScope.buildContextualCatalogRoute(userMessage);
   }
 
-  return result;
+  return annotateCommunityProbeStatus(result, {
+    driveConfigured: priorStatus.driveConfigured,
+    communityError: priorStatus.communityError || undefined,
+    communityStatus: (result && result.count > 0)
+      ? ((priorStatus.communityStatus === 'unavailable' || priorStatus.communityStatus === 'degraded')
+        ? 'degraded'
+        : 'ok')
+      : (priorStatus.communityStatus || undefined),
+  });
 }
 
 module.exports = {
@@ -5550,6 +5878,7 @@ module.exports = {
   backgroundFetchDriveCatalog: driveCatalogSync.backgroundFetchDriveCatalogAsync,
   syncCommunityDriveCatalog: driveCatalogSync.syncCommunityDriveCatalog,
   isDriveCatalogSyncConfigured: driveCatalogSync.isDriveCatalogSyncConfigured,
+  logDriveConfigStatus: driveCatalogSync.logDriveConfigStatus,
   searchDriveCommunityCatalog: driveCatalogSync.searchDriveCommunityCatalog,
   COMMUNITY_MATERIALS_TABLE,
   COMMUNITY_KB_TABLE,

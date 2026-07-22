@@ -79,12 +79,19 @@ async function resolveArchiveAdmin(req, body) {
       .trim()
       .toLowerCase();
   }
-  if (!subscription.isProUserEmail(email)) {
-    const err = new Error('פעולה זו מותרת למנהל הארכיון בלבד');
-    err.statusCode = 403;
-    throw err;
+  const localDemoEmail = String(authContext.LOCAL_DEMO_USER_KEY || '')
+    .replace(/^email:/i, '')
+    .trim()
+    .toLowerCase();
+  const isLocalDemo = authContext.isLocalDevServer() && email && email === localDemoEmail;
+  if (!subscription.isProUserEmail(email) && !isLocalDemo) {
+    if (!(authContext.isLocalDevServer() && !email)) {
+      const err = new Error('פעולה זו מותרת למנהל הארכיון בלבד');
+      err.statusCode = 403;
+      throw err;
+    }
   }
-  return verified || { email: email, id: null };
+  return verified || { email: email || (subscription.PRO_USERS && subscription.PRO_USERS[0]) || localDemoEmail, id: null };
 }
 
 async function resolveTeacher(req, body) {
@@ -110,6 +117,101 @@ async function executeSearchHistory(req) {
   const body = req.method === 'GET' ? null : parseRequestBody(req);
   const action = body && body.action ? String(body.action).trim() : 'list';
 
+  if (action === 'probe_grade') {
+    const gradeId = String((body && (body.gradeId || body.currentGrade || body.grade)) || '').trim();
+    if (!gradeId) {
+      const err = new Error('חסרה כיתה לבדיקת ארכיון');
+      err.statusCode = 400;
+      throw err;
+    }
+    const cached = await cacheDb.getCachedResult({
+      phase: 'grade',
+      currentGrade: gradeId,
+      gradeId: gradeId,
+      gradeLabel: (body && body.gradeLabel) || null,
+    }, { requireEnhanced: false });
+    return {
+      ok: true,
+      action: 'probe_grade',
+      hit: Boolean(cached && cached.data),
+      fromCache: Boolean(cached && cached.data),
+      isArchiveHit: Boolean(cached && cached.data),
+      cacheKey: cached && cached.meta ? cached.meta.cacheKey : null,
+    };
+  }
+
+  if (action === 'probe_general_search') {
+    const query = String((body && (body.query || body.topic || body.q)) || '').trim();
+    if (!query) {
+      const err = new Error('חסרה שאילתה לבדיקת ארכיון חיפוש כללי');
+      err.statusCode = 400;
+      throw err;
+    }
+    const periodBlock = Boolean(body && (body.periodBlock || body.buildPeriodPlan || body.period_block));
+    let cached = await cacheDb.getGeneralSearchCache(query, { periodBlock: periodBlock });
+    let resolvedPeriodBlock = periodBlock;
+    // Same query archived under the other period-block variant still counts as a Cache Hit
+    // for credit bypass — serve that payload rather than prompting for a paid live search.
+    if (!cached || !cached.data) {
+      const alt = await cacheDb.getGeneralSearchCache(query, { periodBlock: !periodBlock });
+      if (alt && alt.data) {
+        cached = alt;
+        resolvedPeriodBlock = !periodBlock;
+      }
+    }
+    // Global concept match (word-order / filler variants) — still no user_id constraint.
+    if (!cached || !cached.data) {
+      try {
+        const suggestion = await cacheDb.findGeneralSearchArchiveSuggestion(query, {
+          periodBlock: periodBlock,
+        });
+        if (suggestion && suggestion.matchType === 'exact' && suggestion.data) {
+          cached = {
+            data: suggestion.data,
+            meta: {
+              fromCache: true,
+              cacheKey: suggestion.cacheKey,
+              source: 'general_search_concept',
+              suggestedQuery: suggestion.suggestedQuery || null,
+            },
+          };
+          resolvedPeriodBlock = periodBlock;
+        }
+      } catch (suggestErr) {
+        console.warn('[search-history] general_search concept probe failed:', suggestErr.message || suggestErr);
+      }
+    }
+    const hasHit = Boolean(cached && cached.data);
+    console.log('[search-history][debug] probe_general_search', {
+      query: query.slice(0, 80),
+      periodBlock: periodBlock,
+      resolvedPeriodBlock: resolvedPeriodBlock,
+      hit: hasHit,
+      cacheKey: cached && cached.meta && cached.meta.cacheKey
+        ? String(cached.meta.cacheKey).slice(0, 12)
+        : null,
+      source: cached && cached.meta ? cached.meta.source : null,
+    });
+    return {
+      ok: true,
+      action: 'probe_general_search',
+      hit: hasHit,
+      fromCache: hasHit,
+      isArchiveHit: hasHit,
+      cacheKey: cached && cached.meta ? cached.meta.cacheKey : null,
+      periodBlock: resolvedPeriodBlock,
+      // Exact archive payload for immediate client render (Cache Hit — no live path / questions).
+      resultData: hasHit ? cached.data : null,
+      meta: hasHit
+        ? Object.assign({
+          fromCache: true,
+          periodBlock: resolvedPeriodBlock,
+          archived: true,
+        }, cached.meta || {})
+        : null,
+    };
+  }
+
   if (action === 'probe_topic') {
     const topic = String((body && body.topic) || '').trim();
     const gradeId = String((body && (body.gradeId || body.currentGrade)) || '').trim();
@@ -118,10 +220,19 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
+    // Global archive probe — never scoped to the requesting teacher (credit-gate pre-check).
     const match = await cacheDb.findArchiveTopicSuggestion({
       topic: topic,
       gradeId: gradeId,
       gradeLabel: (body && body.gradeLabel) || null,
+      requireEnhanced: false,
+    });
+    console.log('[search-history][debug] probe_topic', {
+      topic: topic.slice(0, 80),
+      gradeId: gradeId,
+      matchType: match ? match.matchType : null,
+      cacheKey: match && match.cacheKey ? String(match.cacheKey).slice(0, 12) : null,
+      hasResultData: Boolean(match && match.resultData),
     });
     if (match && match.matchType === 'grade_mismatch') {
       return {
@@ -189,32 +300,47 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
-    const probe = await cacheDb.probeCommunityGlobalSearch(query, {
-      // Selected folder topic only — never the raw search string.
+    // Catalog tab = Direct Drive Search (navigation citations only, no Gemini summary).
+    // Community / Drive cache is ALWAYS global — never scoped to the signed-in userId.
+    const communitySearch = require('./community-search');
+    console.log('[search-history][debug] probe_community global scope', {
+      query: query.slice(0, 80),
+      gradeId: scopedGrade,
+      catalogTopic: catalogTopic.slice(0, 60) || null,
+      ignoreUserId: true,
+    });
+    const probe = await communitySearch.runNavigationCommunitySearch(query, {
       topic: catalogTopic || null,
       catalogTopic: catalogTopic || null,
-      userMessage: userMessage || query,
       gradeId: scopedGrade,
       currentGrade: scopedGrade,
-      // Hard grade lock — never honor client globalScan for catalog probe.
       globalScan: false,
-      includeFolderBrief: true,
-      repositorySearch: true,
-      phase: 'topic',
+      phase: 'community_catalog',
       limit: 8,
       driveSearch: body && body.driveSearch !== false,
+      repositorySearch: true,
+      ignoreUserId: true,
     });
     return {
       ok: true,
       action: 'probe_community',
+      communityMode: communitySearch.MODE_NAVIGATION,
       matches: probe.matches || [],
+      citations: probe.communityCitations || [],
+      communityCitations: probe.communityCitations || [],
       count: probe.count || 0,
       query: probe.query || query,
       matchMethod: probe.matchMethod || 'none',
-      folderBrief: probe.folderBrief || null,
+      folderBrief: null,
       contextualRoute: probe.contextualRoute || null,
       driveScoped: probe.driveScoped || false,
       driveScope: probe.driveScope || null,
+      communityStatus: probe.communityStatus
+        || ((probe.matches || []).length ? 'ok' : 'empty'),
+      communityError: probe.communityError || null,
+      driveConfigured: probe.driveConfigured != null
+        ? Boolean(probe.driveConfigured)
+        : undefined,
     };
   }
 
@@ -411,24 +537,48 @@ async function executeSearchHistory(req) {
     40
   );
 
+  // Community repository / drive-cache list requests must ignore the signed-in userId
+  // and return global archive rows (any owner).
+  const communityListScope = Boolean(
+    body && (
+      body.repositorySearch
+      || body.community
+      || body.communitySearch
+      || body.globalScope
+      || body.ignoreUserId
+      || String(body.scope || '').trim().toLowerCase() === 'global'
+      || String(body.scope || '').trim().toLowerCase() === 'community'
+    )
+  );
+
   try {
     console.log('[search-history][debug] list request', {
       action: action,
       teacherId: teacher && teacher.id,
       teacherEmail: teacher && teacher.email,
       limit: limit,
+      globalScope: communityListScope,
+      ignoreUserId: communityListScope,
     });
-    const items = await cacheDb.listTeacherSearchHistory(teacher, { limit: limit });
+    const items = await cacheDb.listTeacherSearchHistory(teacher, {
+      limit: limit,
+      globalScope: communityListScope,
+      repositorySearch: communityListScope,
+      community: communityListScope,
+      ignoreUserId: communityListScope,
+    });
     console.log('[search-history][debug] list response', {
-      teacherId: teacher && teacher.id,
+      teacherId: communityListScope ? null : (teacher && teacher.id),
       teacherEmail: teacher && teacher.email,
       count: items.length,
+      globalScope: communityListScope,
     });
     return {
       ok: true,
       action: 'list',
       count: items.length,
       items: items,
+      globalScope: communityListScope,
       teacher: { id: teacher.id, email: teacher.email },
     };
   } catch (listErr) {
@@ -439,6 +589,7 @@ async function executeSearchHistory(req) {
       count: 0,
       items: [],
       degraded: true,
+      globalScope: communityListScope,
       teacher: { id: teacher.id, email: teacher.email },
     };
   }

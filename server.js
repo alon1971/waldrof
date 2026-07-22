@@ -26,6 +26,8 @@ const shareMaterialApi = require('./api/share-material');
 const communityIngestApi = require('./api/community-ingest-api');
 const communityUploadApi = require('./api/community-upload');
 const communityMaterialsApi = require('./api/community-materials');
+const communitySearchApi = require('./api/community-search');
+const communitySummarizerApi = require('./api/community-summarizer');
 const searchHistoryApi = require('./api/search-history');
 const archiveLinkApi = require('./api/archive-link');
 const subscriptionApi = require('./api/subscription');
@@ -428,6 +430,69 @@ async function handleApiCommunityMaterials(req, res) {
   }
 }
 
+async function handleApiCommunitySearch(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    applyLongRunningRouteTimeout(req, res);
+    await communitySearchApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+        communitySummaryHeading: null,
+        communitySummary: null,
+        communityStatus: 'unavailable',
+      });
+    }
+  }
+}
+
+async function handleApiCommunitySummarizer(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    applyLongRunningRouteTimeout(req, res);
+    await communitySummarizerApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+        success: false,
+        communitySummaryHeading: communitySummarizerApi.COMMUNITY_SUMMARY_HEADING,
+        communitySummary: communitySummarizerApi.COMMUNITY_SUMMARY_EMPTY,
+        communityStatus: 'unavailable',
+      });
+    }
+  }
+}
+
 async function handleApiCommunityIngest(req, res) {
   const apiRes = createApiResponse(res);
   try {
@@ -782,6 +847,14 @@ const server = http.createServer(async function (req, res) {
     return handleApiCommunityIngest(req, res);
   }
 
+  if (pathname === '/api/community-search') {
+    return handleApiCommunitySearch(req, res);
+  }
+
+  if (pathname === '/api/community-summarizer') {
+    return handleApiCommunitySummarizer(req, res);
+  }
+
   if (pathname === '/api/community-upload') {
     return handleApiCommunityUpload(req, res);
   }
@@ -856,17 +929,44 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_SERVICE_ROLE_KEY:', env.getSupabaseServiceRoleKey() ? 'set' : (env.getSupabaseAnonKey() ? 'anon only' : 'MISSING'));
-  console.log('[env] GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID:', process.env.GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID ? 'set' : 'MISSING');
+  console.log(
+    '[env] GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID:',
+    process.env.GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID ? 'set' : 'MISSING'
+  );
+  console.log(
+    '[env] GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON:',
+    process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON ? 'set' : 'MISSING'
+  );
   console.log('[cache] Supabase cached_results:', cacheDb.isSupabaseCacheEnabled() ? 'enabled' : 'local fallback only');
+  try {
+    if (typeof cacheDb.logDriveConfigStatus === 'function') {
+      cacheDb.logDriveConfigStatus('[drive]');
+    }
+  } catch (driveLogErr) {
+    console.warn('[drive] status check failed:', driveLogErr.message || driveLogErr);
+  }
   knowledgeSeed.seedKnowledgeBaseIfEmptyAsync();
-  if (process.env.DRIVE_CATALOG_SYNC_ON_BOOT === '1' && cacheDb.isDriveCatalogSyncConfigured()) {
-    console.log('[drive-catalog-sync] scheduling background fetch on boot');
-    cacheDb.backgroundFetchDriveCatalog();
+  if (process.env.DRIVE_CATALOG_SYNC_ON_BOOT === '1') {
+    if (cacheDb.isDriveCatalogSyncConfigured()) {
+      console.log('[drive-catalog-sync] scheduling background fetch on boot');
+      try {
+        cacheDb.backgroundFetchDriveCatalog();
+      } catch (bootSyncErr) {
+        console.warn(
+          '[drive-catalog-sync] boot sync could not start (server continues):',
+          bootSyncErr.message || bootSyncErr
+        );
+      }
+    } else {
+      console.warn(
+        '[drive-catalog-sync] DRIVE_CATALOG_SYNC_ON_BOOT=1 but Drive env is incomplete — skipping boot sync (see docs/google-drive-setup.md)'
+      );
+    }
   }
 });
 

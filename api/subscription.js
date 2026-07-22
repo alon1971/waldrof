@@ -331,10 +331,12 @@ function shouldRefreshSubscriptionContact(row, contactPatch) {
 
 async function enrichUserFromProfile(user, userToken) {
   if (!user || !user.id) return user;
+  const profileId = mapSupabaseUserId(user.id, user.email);
+  if (!profileId) return user;
   try {
     const params = new URLSearchParams();
     params.set('select', 'email,display_name');
-    params.set('id', 'eq.' + mapSupabaseUserId(user.id, user.email));
+    params.set('id', 'eq.' + profileId);
     params.set('limit', '1');
     const res = await supabaseRequest(
       '/rest/v1/profiles?' + params.toString(),
@@ -490,8 +492,19 @@ function applyLocalDemoUserIdMapping(user) {
   return authContext.mapUserForSupabaseQuery(user);
 }
 
+/**
+ * UUID-safe user_id for Supabase filters/writes.
+ * Returns '' when the client only has an email:… synthetic id — callers must use user_email.
+ */
 function mapSupabaseUserId(userId, email) {
-  return authContext.mapUserIdForSupabaseQuery(userId, email) || String(userId || '').trim();
+  return authContext.mapUserIdForSupabaseQuery(userId, email) || '';
+}
+
+/** Prefer explicit email, else strip email: prefix from synthetic ids. */
+function resolveLookupEmail(userId, emailHint) {
+  const fromHint = normalizeEmail(emailHint);
+  if (fromHint) return fromHint;
+  return normalizeEmail(authContext.extractEmailFromUserKey(userId));
 }
 
 async function resolveUser(req, body) {
@@ -695,8 +708,17 @@ function dedupeSubscriptionRows(rows) {
 async function listSubscriptionRows(queryParams, userToken) {
   const params = new URLSearchParams();
   params.set('select', '*');
-  Object.keys(queryParams || {}).forEach(function (key) {
-    params.set(key, queryParams[key]);
+  const qp = Object.assign({}, queryParams || {});
+  if (qp.user_id) {
+    const raw = String(qp.user_id).replace(/^eq\./i, '').trim();
+    if (!authContext.isUuidShaped(raw)) {
+      // Never send "email:…" (or other text) into a uuid column filter.
+      delete qp.user_id;
+    }
+  }
+  if (!Object.keys(qp).length) return [];
+  Object.keys(qp).forEach(function (key) {
+    params.set(key, qp[key]);
   });
   params.set('limit', '5');
   const res = await supabaseRequest(
@@ -711,6 +733,8 @@ async function listSubscriptionRows(queryParams, userToken) {
 async function alignSubscriptionUserId(row, authUserId, user, userToken) {
   if (!row || !authUserId) return row;
   const targetId = mapSupabaseUserId(authUserId, user && user.email);
+  // Non-UUID auth ids (email:…) cannot be written into uuid user_id — skip quietly.
+  if (!targetId) return row;
   const rowId = String(row.user_id || '').trim();
   if (!rowId || rowId === targetId) return row;
 
@@ -723,6 +747,7 @@ async function alignSubscriptionUserId(row, authUserId, user, userToken) {
       .filter(function (id) { return id && id !== String(best.user_id || '').trim(); });
     for (let i = 0; i < dropIds.length; i++) {
       try {
+        if (!authContext.isUuidShaped(dropIds[i])) continue;
         const delParams = new URLSearchParams();
         delParams.set('user_id', 'eq.' + dropIds[i]);
         const delRes = await supabaseRequest('/rest/v1/' + TABLE + '?' + delParams.toString(), {
@@ -749,7 +774,9 @@ async function alignSubscriptionUserId(row, authUserId, user, userToken) {
     is_trial: row.is_trial,
   });
   const params = new URLSearchParams();
-  params.set('user_id', 'eq.' + String(row.user_id || rowId).trim());
+  const alignFromId = String(row.user_id || rowId).trim();
+  if (!authContext.isUuidShaped(alignFromId)) return row;
+  params.set('user_id', 'eq.' + alignFromId);
   try {
     const res = await supabaseRequest('/rest/v1/' + TABLE + '?' + params.toString(), {
       method: 'PATCH',
@@ -768,16 +795,17 @@ async function alignSubscriptionUserId(row, authUserId, user, userToken) {
 
 async function fetchSubscriptionRow(userId, userToken, emailHint) {
   const pk = mapSupabaseUserId(userId, emailHint);
-  const email = normalizeEmail(emailHint);
+  const email = resolveLookupEmail(userId, emailHint);
 
   const cached = getCachedSubscriptionRow(userId, emailHint);
   if (cached) {
-    logUsage('fetch:cache_hit', { user_id: pk, plan_type: cached.plan_type });
+    logUsage('fetch:cache_hit', { user_id: pk || email || null, plan_type: cached.plan_type });
     return cached;
   }
 
-  logUsage('fetch:before', { user_id: pk, raw_user_id: userId, email: email || undefined });
+  logUsage('fetch:before', { user_id: pk || null, raw_user_id: userId, email: email || undefined });
 
+  // Only query uuid user_id when pk is a real UUID — never "email:…".
   const idRows = pk ? await listSubscriptionRows({ user_id: 'eq.' + pk }, userToken) : [];
   let emailRows = [];
   // Always resolve by email when present so the same teacher never gets a second row.
@@ -834,7 +862,8 @@ function subscriptionRowFromPatch(user, patch, existing) {
   }
 
   return pickSubscriptionWriteFields({
-    user_id: user.id,
+    user_id: mapSupabaseUserId(user && user.id, user && user.email)
+      || (prev.user_id && authContext.isUuidShaped(prev.user_id) ? String(prev.user_id).trim() : undefined),
     plan_type: tier,
     is_trial: isTrial,
     search_count_monthly: nextCount,
@@ -893,9 +922,10 @@ async function insertSubscriptionRow(user, patch, userToken) {
     }
   }
 
-  const byId = await listSubscriptionRows({
-    user_id: 'eq.' + mapSupabaseUserId(user.id, user.email),
-  }, userToken);
+  const mappedId = mapSupabaseUserId(user.id, user.email);
+  const byId = mappedId
+    ? await listSubscriptionRows({ user_id: 'eq.' + mappedId }, userToken)
+    : [];
   if (byId.length) {
     return updateSubscriptionRow(user.id, patch, byId[0], user, userToken);
   }
@@ -906,6 +936,34 @@ async function insertSubscriptionRow(user, patch, userToken) {
     auto_renew: true,
   }, patch || {}), null);
   if (email) row.user_email = email;
+
+  // Cannot insert into uuid user_id without a real UUID — try Auth admin lookup by email.
+  if (!row.user_id && email) {
+    try {
+      const billingDb = require('./billing-db');
+      if (billingDb.isEnabled && billingDb.isEnabled()) {
+        const resolvedId = await billingDb.findUserIdByEmail(email);
+        if (resolvedId && authContext.isUuidShaped(resolvedId)) {
+          row.user_id = resolvedId;
+          user = Object.assign({}, user, { id: resolvedId });
+          logUsage('insert:resolved_uuid_from_email', { email: email, user_id: resolvedId });
+        }
+      }
+    } catch (resolveErr) {
+      logUsage('insert:resolve_uuid_failed', { email: email, message: resolveErr.message || resolveErr });
+    }
+  }
+  if (!row.user_id) {
+    if (email) {
+      logUsage('insert:skip_no_uuid', { email: email, raw_user_id: user.id });
+      const err = new Error('Cannot create subscription without a valid auth user id');
+      err.statusCode = 401;
+      throw err;
+    }
+    const err = new Error('Cannot create subscription without user id or email');
+    err.statusCode = 400;
+    throw err;
+  }
 
   // Prefer email conflict target when present (requires unique on user_email).
   const conflictTargets = row.user_email ? ['user_email', 'user_id'] : ['user_id'];
@@ -964,15 +1022,17 @@ async function insertSubscriptionRow(user, patch, userToken) {
 async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   const pk = mapSupabaseUserId(userId, user && user.email);
   // Always patch the existing row's primary key — never invent a second row for the same email.
-  const rowKey = existing && existing.user_id
+  let rowKey = existing && existing.user_id
     ? String(existing.user_id).trim()
     : pk;
+  // Guard: never PATCH with a non-UUID filter value.
+  if (rowKey && !authContext.isUuidShaped(rowKey)) {
+    rowKey = pk;
+  }
   invalidateSubscriptionCache(userId, user && user.email);
   if (existing && existing.user_email) {
     invalidateSubscriptionCache(existing.user_id, existing.user_email);
   }
-  const params = new URLSearchParams();
-  params.set('user_id', 'eq.' + rowKey);
 
   const mergedRow = user
     ? subscriptionRowFromPatch(user, patch, existing)
@@ -984,9 +1044,20 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
   // Keep the row identity stable during PATCH; align user_id separately when needed.
   delete writePatch.user_id;
 
+  const params = new URLSearchParams();
+  const emailKey = resolveLookupEmail(userId, (user && user.email) || (existing && existing.user_email));
+  if (rowKey && authContext.isUuidShaped(rowKey)) {
+    params.set('user_id', 'eq.' + rowKey);
+  } else if (emailKey) {
+    params.set('user_email', 'eq.' + emailKey);
+  } else {
+    logUsage('update:skip_no_key', { user_id: userId, email: emailKey || null });
+    return existing || null;
+  }
+
   logUsage('update:before', {
     user_id: pk,
-    row_key: rowKey,
+    row_key: rowKey || emailKey,
     patch: writePatch,
     before_count: existing ? readSearchCountFromRow(existing) : null,
   });
@@ -1002,7 +1073,7 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
 
   logUsage('update:after', {
     user_id: pk,
-    row_key: rowKey,
+    row_key: rowKey || emailKey,
     rows_affected: rowsAffected,
     response: rows,
   });
@@ -1038,6 +1109,10 @@ async function updateSubscriptionRow(userId, patch, existing, user, userToken) {
       } catch (emailUpsertErr) {
         logUsage('update:upsert_email_failed', { message: emailUpsertErr.message || emailUpsertErr });
       }
+    }
+    if (!merged.user_id) {
+      logUsage('update:upsert_skip_no_uuid', { email: merged.user_email || null });
+      return existing;
     }
     logUsage('update:upsert_fallback', { user_id: pk, merged: merged });
     const upsertRes = await supabaseRequest('/rest/v1/' + TABLE + '?on_conflict=user_id', {

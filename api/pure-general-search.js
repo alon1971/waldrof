@@ -1,6 +1,6 @@
 /**
- * POST /api/pure-general-search — Phase A only: Perplexity search → JSON.
- * No Phase B / reference-citation scan / Drive cross-check (removed; do not reintroduce).
+ * POST /api/pure-general-search — Phase A Perplexity web search + parallel community/Drive probe.
+ * Community matches are returned in meta (communityMatches / communityStatus) for a separate UI block.
  * Body: { query, periodBlock?: boolean }
  */
 const shared = require('./pure-api-shared');
@@ -497,12 +497,23 @@ async function runPureGeneralSearch(body, requestContext) {
     body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade || body.researchExpand
   );
 
+  // Community Drive summarization is decoupled — see /api/community-summarizer.
+  // Live general search is web/archive only.
+
   if (body.researchExpand && body.historicPayload && typeof body.historicPayload === 'object') {
-    return runResearchExpandGeneralSearch(body, requestContext, teacher);
+    const expanded = await runResearchExpandGeneralSearch(body, requestContext, teacher);
+    return {
+      data: expanded.data,
+      meta: expanded.meta || {},
+    };
   }
 
   if (body.archiveUpgrade && body.historicPayload && typeof body.historicPayload === 'object') {
-    return runArchiveUpgradeGeneralSearch(body, requestContext, teacher);
+    const upgraded = await runArchiveUpgradeGeneralSearch(body, requestContext, teacher);
+    return {
+      data: upgraded.data,
+      meta: upgraded.meta || {},
+    };
   }
 
   // "כן, התכוונתי" — the teacher confirmed a suggested archive match: serve it directly.
@@ -555,7 +566,7 @@ async function runPureGeneralSearch(body, requestContext) {
   const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
 
   await enforceLiveSearchQuota(body, requestContext);
-  console.log('[pure-general-search] phase-a-only — Perplexity search, no reference/citation scan');
+  console.log('[pure-general-search] live web search (community summary decoupled)');
   try {
     const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',

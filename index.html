@@ -1955,6 +1955,312 @@
       max-width: 100%;
       box-sizing: border-box;
     }
+    .hybrid-community-summary {
+      margin-top: 1.25rem;
+      padding: 1.15rem 1.25rem;
+      border: 1px solid rgba(140, 122, 96, 0.28);
+      border-radius: 0.85rem;
+      background: linear-gradient(160deg, rgba(255,252,246,0.98), rgba(241,233,214,0.72));
+      box-sizing: border-box;
+      width: 100%;
+    }
+    .hybrid-community-summary h3 {
+      margin: 0 0 0.75rem;
+      font-family: var(--font-display, Georgia, serif);
+      font-size: 1.15rem;
+      color: var(--color-walnut, #5c4a3a);
+      line-height: 1.35;
+    }
+    .hybrid-community-summary-body {
+      color: rgba(92, 74, 58, 0.92);
+      font-size: 0.98rem;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+    .hybrid-community-summary-body p {
+      margin: 0 0 0.7rem;
+    }
+    .hybrid-community-summary-body p:last-child {
+      margin-bottom: 0;
+    }
+    .hybrid-community-summary.is-empty .hybrid-community-summary-body {
+      color: rgba(92, 74, 58, 0.72);
+      font-style: italic;
+    }
+    .hybrid-community-summary.is-summarizing .hybrid-community-summary-body {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-style: normal;
+    }
+    .community-summarizer-btn {
+      border-color: rgba(107, 142, 107, 0.45) !important;
+      background: linear-gradient(160deg, rgba(255,252,246,0.98), rgba(232,242,232,0.75));
+      color: #3f5d3f;
+    }
+    .community-summarizer-btn:hover {
+      background: rgba(107, 142, 107, 0.12) !important;
+    }
+    #community-summarizer-modal .app-modal-panel {
+      max-width: 36rem;
+    }
+    .community-summarizer-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      margin-top: 0.75rem;
+    }
+    .community-summarizer-form label {
+      display: block;
+      margin-bottom: 0.35rem;
+      font-size: 0.92rem;
+      color: #5c4a3a;
+      font-weight: 600;
+    }
+    .community-summarizer-form select,
+    .community-summarizer-form input[type="text"] {
+      width: 100%;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      border-radius: 0.75rem;
+      background: #fffdf8;
+      padding: 0.7rem 0.9rem;
+      font-size: 1rem;
+      color: #5c4a3a;
+      outline: none;
+    }
+    .community-summarizer-form select:focus,
+    .community-summarizer-form input[type="text"]:focus {
+      border-color: rgba(107, 142, 107, 0.65);
+      box-shadow: 0 0 0 3px rgba(107, 142, 107, 0.15);
+    }
+    .community-summarizer-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      margin-top: 0.35rem;
+    }
+    .community-summarizer-submit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      border: none;
+      border-radius: 0.85rem;
+      background: #6b8e6b;
+      color: #fff;
+      font-weight: 600;
+      padding: 0.75rem 1.15rem;
+      cursor: pointer;
+    }
+    .community-summarizer-submit:hover { background: #5a7a5a; }
+    .community-summarizer-submit:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+    .community-summarizer-cancel {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      border-radius: 0.85rem;
+      background: rgba(255,255,255,0.85);
+      color: #5c4a3a;
+      padding: 0.75rem 1.15rem;
+      cursor: pointer;
+    }
+    .community-summarizer-return-home {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      margin-top: 0.85rem;
+      border: 1px solid rgba(107, 142, 107, 0.45);
+      border-radius: 0.85rem;
+      background: linear-gradient(160deg, rgba(255,252,246,0.98), rgba(232,242,232,0.88));
+      color: #3f5d3f;
+      font-weight: 600;
+      padding: 0.8rem 1.15rem;
+      cursor: pointer;
+      text-align: center;
+      line-height: 1.35;
+    }
+    .community-summarizer-return-home:hover {
+      background: rgba(107, 142, 107, 0.14);
+      border-color: rgba(107, 142, 107, 0.65);
+    }
+    .community-summarizer-return-home:focus-visible {
+      outline: 2px solid #6b8e6b;
+      outline-offset: 2px;
+    }
+    #community-summarizer-loading {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      border-radius: 0.85rem;
+      border: 1px solid rgba(107, 142, 107, 0.3);
+      background: rgba(107, 142, 107, 0.08);
+      color: #3f5d3f;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    #community-summarizer-loading.hidden { display: none !important; }
+    #community-summarizer-result {
+      margin-top: 1rem;
+      max-height: min(55vh, 28rem);
+      overflow-y: auto;
+    }
+    #community-summarizer-result:empty { display: none; }
+    #community-summarizer-export-word {
+      display: none;
+      width: 100%;
+      margin-top: 1rem;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      border: 1px solid rgba(107, 142, 107, 0.4);
+      background: linear-gradient(160deg, #6b8e6b, #5a7a5a);
+      color: #fffdf8;
+      border-radius: 0.85rem;
+      padding: 0.85rem 1rem;
+      font-size: 0.98rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #community-summarizer-export-word.is-visible {
+      display: inline-flex;
+    }
+    #community-summarizer-export-word:hover {
+      background: linear-gradient(160deg, #5a7a5a, #4d6b4d);
+    }
+    #community-summarizer-export-word:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    #community-summarizer-bg-indicator {
+      position: fixed;
+      z-index: 2147482500;
+      bottom: 1.35rem;
+      inset-inline-start: 1.25rem;
+      max-width: min(92vw, 22rem);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.75rem 0.95rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(107, 142, 107, 0.45);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.98), rgba(232, 242, 232, 0.95));
+      color: #3f5d3f;
+      box-shadow: 0 10px 28px rgba(47, 69, 56, 0.22);
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      line-height: 1.35;
+      text-align: start;
+      direction: inherit;
+      transition: opacity 0.22s ease, transform 0.22s ease;
+    }
+    #community-summarizer-bg-indicator.hidden {
+      display: none !important;
+    }
+    #community-summarizer-bg-indicator:hover {
+      transform: translateY(-2px);
+      border-color: rgba(107, 142, 107, 0.7);
+    }
+    #community-summarizer-bg-indicator:focus-visible {
+      outline: 2px solid #6b8e6b;
+      outline-offset: 3px;
+    }
+    #community-summarizer-bg-indicator .community-summarizer-bg-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      min-width: 0;
+    }
+    #community-summarizer-bg-indicator .community-summarizer-bg-view {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #5a7a5a;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    #community-summarizer-bg-indicator.is-ready {
+      border-color: rgba(107, 142, 107, 0.65);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(214, 232, 214, 0.96));
+    }
+    #community-summarizer-bg-indicator.is-ready .community-summarizer-bg-icon {
+      color: #3f5d3f;
+    }
+    .hybrid-community-citations {
+      margin-top: 1rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid rgba(140, 122, 96, 0.22);
+    }
+    .hybrid-community-citations h4 {
+      margin: 0 0 0.5rem;
+      font-size: 0.95rem;
+      color: var(--color-walnut, #5c4a3a);
+    }
+    .hybrid-community-citations ul {
+      margin: 0;
+      padding: 0 1.1rem 0 0;
+      list-style: disc;
+    }
+    .hybrid-community-citations li {
+      margin: 0.35rem 0;
+      line-height: 1.45;
+    }
+    .hybrid-community-citations a {
+      color: var(--color-sage-dark, #4f6f52);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .catalog-drive-citations {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .catalog-drive-citation {
+      display: block;
+      margin: 0;
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+    .catalog-drive-citation-link,
+    a.catalog-drive-hit-card {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.85rem 1rem;
+      border: 1px solid rgba(140, 122, 96, 0.25);
+      border-radius: 0.75rem;
+      background: rgba(255, 252, 246, 0.95);
+      color: var(--color-walnut, #5c4a3a);
+      font-size: 0.98rem;
+      font-weight: 600;
+      text-decoration: none;
+      line-height: 1.35;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .catalog-drive-citation-link:hover,
+    a.catalog-drive-hit-card:hover {
+      border-color: rgba(79, 111, 82, 0.55);
+      background: rgba(241, 247, 240, 0.95);
+      color: var(--color-sage-dark, #4f6f52);
+    }
+    .catalog-drive-citation-main {
+      display: none;
+    }
+    .catalog-drive-citation-name {
+      display: none;
+    }
+    .catalog-drive-citation-path {
+      display: none;
+    }
     .phase-c-tab3-root {
       width: 100%;
       max-width: none;
@@ -2357,7 +2663,8 @@
       border-color: rgba(92, 125, 88, 0.45);
     }
     #topic-research-loading,
-    #general-search-loading { border-color: rgba(196, 120, 90, 0.45); }
+    #general-search-loading,
+    #phase-c-loading { border-color: rgba(196, 120, 90, 0.45); }
     [dir="ltr"] .icon-inline { margin-inline-end: 0.25rem; margin-inline-start: 0; }
     [dir="ltr"] .curriculum-card-toggle { text-align: left; }
     [dir="ltr"] #ws-breadcrumb .text-walnut\/45 { transform: scaleX(-1); display: inline-block; }
@@ -3061,26 +3368,32 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      opacity: 1 !important;
-      pointer-events: auto !important;
-      cursor: pointer !important;
       background: #5C7D58 !important;
       color: #fff !important;
       border: 1px solid #4a6847 !important;
       box-shadow: 0 6px 20px rgba(92, 125, 88, 0.35);
     }
-    #global-word-export-bar .phase-c-unified-export-btn:hover,
-    #btn-phase-c-export-word:hover {
+    #global-word-export-bar .phase-c-unified-export-btn:not(:disabled),
+    #btn-phase-c-export-word:not(:disabled) {
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      cursor: pointer !important;
+    }
+    #global-word-export-bar .phase-c-unified-export-btn:hover:not(:disabled),
+    #btn-phase-c-export-word:hover:not(:disabled) {
       background: #4a6847 !important;
       color: #fff !important;
     }
     #global-word-export-bar .phase-c-unified-export-btn:disabled,
     #btn-phase-c-export-word:disabled,
     #btn-phase-c-export-word-bottom:disabled,
-    #btn-general-search-export-word:disabled {
-      opacity: 1 !important;
-      cursor: pointer !important;
-      filter: none;
+    #btn-general-search-export-word:disabled,
+    [data-unified-topic-export]:disabled {
+      opacity: 0.45 !important;
+      cursor: not-allowed !important;
+      filter: grayscale(0.35);
+      pointer-events: none !important;
+      box-shadow: none !important;
     }
     #global-word-export-bar .phase-c-unified-export-btn i,
     #btn-phase-c-export-word i {
@@ -3117,14 +3430,17 @@
       min-height: 3rem;
       white-space: nowrap;
       overflow: visible;
-      opacity: 1 !important;
-      pointer-events: auto !important;
-      cursor: pointer !important;
       background: #5C7D58 !important;
       color: #fff !important;
       border: 1px solid #4a6847 !important;
       border-radius: 0.85rem !important;
       box-shadow: 0 4px 14px rgba(92, 125, 88, 0.28);
+    }
+    #btn-phase-c-export-word-bottom:not(:disabled),
+    #btn-general-search-export-word:not(:disabled) {
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      cursor: pointer !important;
     }
     #btn-phase-c-export-word-bottom:hover,
     #btn-general-search-export-word:hover {
@@ -5602,7 +5918,7 @@
        (Overview / Topic Edit / מידע והשראה) and while scrolling. Keeps the original
        id (#btn-phase-c-export-word) so all existing JS wiring keeps working. -->
   <div id="global-word-export-bar" dir="rtl">
-    <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="window.downloadUnifiedTopicDocx && window.downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד">
+    <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="window.downloadUnifiedTopicDocx && window.downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד" disabled>
       <i class="fa-solid fa-file-word" aria-hidden="true"></i>
       <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
     </button>
@@ -5711,6 +6027,56 @@
     </div>
   </div>
 
+  <!-- Community topic summarizer (decoupled from live web search) -->
+  <div id="community-summarizer-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="community-summarizer-title">
+    <div id="community-summarizer-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel" dir="rtl">
+      <button type="button" id="community-summarizer-close" class="app-modal-close" data-i18n-aria="community_summarizer_close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+      <h2 id="community-summarizer-title" class="font-display text-xl text-walnut m-0" data-i18n="community_summarizer_btn">סיכום נושא מתוך המאגר הקהילתי</h2>
+      <p class="text-sm text-walnut/75 mt-2 mb-0" data-i18n="community_summarizer_desc">בחרו כיתה ונושא — המערכת תבדוק את הארכיון הציבורי ותסכם חומרים מהמאגר הקהילתי בדרייב.</p>
+      <form id="community-summarizer-form" class="community-summarizer-form" autocomplete="off">
+        <div>
+          <label for="community-summarizer-grade" data-i18n="community_summarizer_grade">כיתה</label>
+          <select id="community-summarizer-grade" name="gradeId" required>
+            <option value="" data-i18n="grade_placeholder">— בחרו כיתה —</option>
+          </select>
+        </div>
+        <div>
+          <label for="community-summarizer-topic" data-i18n="community_summarizer_topic">נושא</label>
+          <input type="text" id="community-summarizer-topic" name="topic" required maxlength="200" data-i18n-placeholder="community_summarizer_topic_ph" placeholder="למשל: מיתולוגיה יוונית" />
+        </div>
+        <div class="community-summarizer-actions">
+          <button type="submit" id="community-summarizer-submit" class="community-summarizer-submit touch-btn">
+            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+            <span data-i18n="community_summarizer_run">הפק סיכום</span>
+          </button>
+          <button type="button" id="community-summarizer-cancel" class="community-summarizer-cancel touch-btn" data-i18n="community_summarizer_close">סגור</button>
+        </div>
+      </form>
+      <button type="button" id="community-summarizer-return-home" class="community-summarizer-return-home touch-btn">
+        <i class="fa-solid fa-house" aria-hidden="true"></i>
+        <span data-i18n="community_summarizer_return_home">חזרה לעמוד הראשי (הסיכום ימשיך ברקע)</span>
+      </button>
+      <div id="community-summarizer-loading" class="hidden" role="status" aria-live="polite" aria-busy="true">
+        <i class="fa-solid fa-spinner fa-spin text-lg" aria-hidden="true"></i>
+        <span id="community-summarizer-loading-text" data-i18n="community_summarizer_loading">סורק את המאגר הקהילתי ומסכם…</span>
+      </div>
+      <div id="community-summarizer-result" aria-live="polite"></div>
+      <button type="button" id="community-summarizer-export-word" class="touch-btn" dir="rtl" aria-hidden="true" data-i18n-aria="community_summarizer_export_word" aria-label="הורד למסמך Word">
+        <i class="fa-solid fa-file-word" aria-hidden="true"></i>
+        <span data-i18n="community_summarizer_export_word">הורד למסמך Word</span>
+      </button>
+    </div>
+  </div>
+
+  <button type="button" id="community-summarizer-bg-indicator" class="hidden touch-btn" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי">
+    <i class="fa-solid fa-spinner fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
+    <span class="community-summarizer-bg-copy">
+      <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מפיק סיכום קהילתי ברקע…</span>
+      <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לחץ לצפייה</span>
+    </span>
+  </button>
+
   <!-- Pricing / upgrade modal -->
   <div id="pricing-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pricing-title">
     <div id="pricing-modal-backdrop" class="app-modal-backdrop"></div>
@@ -5726,6 +6092,20 @@
         <a id="pricing-plan-one-time" class="pricing-plan-buy-btn" data-i18n="pricing_buy_one_time" href="https://pay.grow.link/OTAwMDc~8e58f88e567929a25776603bb5f1ef7e-MzU5NTU4Ng" target="_blank" rel="noopener noreferrer">רכישת מסלול חד-פעמי (100 ש"ח)</a>
         <a id="pricing-plan-annual" class="pricing-plan-buy-btn" data-i18n="pricing_buy_annual" href="https://pay.grow.link/OTAwMDc~af378d4d544c172796f6cc566245c781-MzU5OTYxMg" target="_blank" rel="noopener noreferrer">הרשמה למנוי שנתי (220 ש"ח)</a>
         <button type="button" id="pricing-modal-dismiss" data-i18n="paywall_dismiss">חזרה לארכיון החינמי</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Credit confirmation before paid search/AI -->
+  <div id="credit-confirm-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="credit-confirm-title">
+    <div id="credit-confirm-backdrop" class="app-modal-backdrop"></div>
+    <div class="app-modal-panel">
+      <div class="rate-limit-icon" aria-hidden="true">🧮</div>
+      <h2 id="credit-confirm-title" class="font-display text-burgundy text-lg font-bold" data-i18n="credit_confirm_title">אישור שימוש בקרדיט</h2>
+      <p id="credit-confirm-message" class="text-walnut/80 text-sm mt-2"></p>
+      <div class="rate-limit-actions">
+        <button type="button" id="credit-confirm-ok" data-i18n="credit_confirm_ok">המשך</button>
+        <button type="button" id="credit-confirm-cancel" data-i18n="credit_confirm_cancel">ביטול</button>
       </div>
     </div>
   </div>
@@ -5978,7 +6358,7 @@
         <span data-i18n="step_nav_c">ג׳ תוצרים ומהות פדגוגית</span>
       </button>
       <button type="button" id="header-compact-general-search" class="header-compact-nav-btn touch-btn">
-        <span data-i18n="nav_general_search">חיפוש כללי ובניית תקופת לימוד</span>
+        <span data-i18n="nav_general_search">חיפוש כללי ובניית תקופה</span>
       </button>
       <button type="button" id="header-compact-community" class="header-compact-nav-btn touch-btn">
         <span data-i18n="nav_community">מאגר קהילתי</span>
@@ -6008,13 +6388,19 @@
           class="step-pill step-pill-general-search touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full text-sm sm:text-xs cursor-pointer"
           data-i18n-aria="nav_general_search_aria">
           <i class="fa-solid fa-magnifying-glass-chart text-base sm:text-sm"></i>
-          <span data-i18n="nav_general_search">חיפוש כללי ובניית תקופת לימוד</span>
+          <span data-i18n="nav_general_search">חיפוש כללי ובניית תקופה</span>
         </button>
         <button type="button" id="btn-nav-community"
           class="step-pill step-pill-community touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
           data-i18n-aria="nav_community_aria">
           <i class="fa-solid fa-users-rays text-base sm:text-sm"></i>
           <span data-i18n="nav_community">מאגר קהילתי</span>
+        </button>
+        <button type="button" id="btn-nav-community-summarizer"
+          class="step-pill community-summarizer-btn touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer"
+          data-i18n-aria="community_summarizer_btn_aria">
+          <i class="fa-solid fa-book-open-reader text-base sm:text-sm"></i>
+          <span data-i18n="community_summarizer_btn">סיכום נושא מתוך המאגר הקהילתי</span>
         </button>
         <button type="button" id="btn-nav-waldorf-sites"
           class="step-pill step-pill-waldorf-sites touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
@@ -6065,8 +6451,8 @@
       </button>
       <button type="button" class="home-panel-card" id="home-panel-general-search" data-home-nav="general-search">
         <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-magnifying-glass-chart"></i></span>
-        <h2 class="home-panel-title" data-i18n="home_panel_general_title">חיפוש כללי והמלצה למבנה תקופת לימוד</h2>
-        <p class="home-panel-desc" data-i18n="home_panel_general_desc">מחקר רוחב כללי על כל נושא לימודי או אנתרופוסופי ו/או בקשה לקבלת מידע כללי על נושא ספציפי כולל המלצה לתכנון מבנה תקופה של 15 יום.</p>
+        <h2 class="home-panel-title" data-i18n="home_panel_general_title">חיפוש כללי ובניית תקופה</h2>
+        <p class="home-panel-desc" data-i18n="home_panel_general_desc">חיפוש נושאים כלליים, התפתחות לאורך השנים ואפשרות להמלצה למבנה תקופה</p>
         <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
       </button>
       <button type="button" class="home-panel-card" id="home-panel-community" data-home-nav="community">
@@ -6184,12 +6570,13 @@
           <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
             <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
               <i class="fa-solid fa-spinner fa-spin text-xl text-sage" aria-hidden="true"></i>
-              <span id="topic-research-loading-text" data-i18n="topic_research_deep">מחקר מעמיק: נושא, תיאוריה, 15 ימי לימוד והשראה ויזואלית...</span>
+              <span id="topic-research-loading-text" data-i18n="topic_research_deep">חיפוש חי ברשת — מחקר מהות פדגוגית: נושא, התאמה לגיל וסקירת מהות...</span>
             </p>
             <button type="button" id="btn-topic-research-cancel" class="touch-btn shrink-0 px-5 py-3 rounded-xl w-full sm:w-auto">
               <span data-i18n="topic_research_cancel">ביטול ועריכה מחדש 🛑</span>
             </button>
           </div>
+          <div id="topic-research-loading-community" class="mt-4" aria-hidden="false"></div>
         </div>
         <div id="web-research-result" class="hidden mt-6 p-4 rounded-xl bg-parchment/80 border border-sage/25 text-sm"></div>
         <div id="topic-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
@@ -6236,16 +6623,17 @@
       </div>
     </div>
 
-    <div id="phase-c-loading" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 mb-3 p-4 rounded-xl bg-parchment/90 border border-sage/25 text-sm text-sage-dark" role="status" aria-live="polite">
+    <div id="phase-c-loading" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 mb-3 p-4 sm:p-5 rounded-xl bg-parchment/90 border-2 text-sm" role="status" aria-live="polite" aria-busy="true">
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
         <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
-          <i class="fa-solid fa-spinner fa-spin ml-1 text-xl text-sage" aria-hidden="true"></i>
-          <span id="phase-c-loading-text" data-i18n="phase_c_loading">מפיק תוצרים ומהות פדגוגית...</span>
+          <i class="fa-solid fa-spinner fa-spin text-xl text-sage" aria-hidden="true"></i>
+          <span id="phase-c-loading-text" data-i18n="topic_research_deep">חיפוש חי ברשת — מחקר מהות פדגוגית: נושא, התאמה לגיל וסקירת מהות...</span>
         </p>
         <button type="button" id="btn-phase-c-upgrade-cancel" class="touch-btn shrink-0 px-5 py-3 rounded-xl w-full sm:w-auto hidden">
           <span data-i18n="topic_research_cancel">ביטול ועריכה מחדש 🛑</span>
         </button>
       </div>
+      <div id="phase-c-loading-community" class="mt-4" aria-hidden="false"></div>
     </div>
 
     <div class="workspace-layout w-full max-w-6xl mx-auto px-4 sm:px-6 box-border">
@@ -6287,6 +6675,7 @@
         </div>
         <div id="phase-c-empty" class="text-sm text-walnut/65 py-6 text-center hidden" data-i18n="phase_c_empty">טענו נושא בשלב ב׳ כדי לראות את תוצרי שלב ג׳.</div>
         <div id="phase-c-unified-root" class="phase-c-unified-root w-full box-border hidden" dir="rtl">
+          <div id="phase-c-community-summary-mount" class="mb-6"></div>
           <div id="phase-c-narrative-root" class="phase-c-narrative-root w-full space-y-8">
             <section class="phase-c-unified-section bg-white/85 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border" aria-labelledby="phase-c-section-theory-heading">
               <h3 id="phase-c-section-theory-heading" class="app-page-title font-display font-bold text-burgundy mb-4 flex items-center gap-2">
@@ -6329,7 +6718,7 @@
           </div>
         </div>
         <div id="phase-c-bottom-export-bar" class="mt-6 mb-2" dir="rtl">
-          <button type="button" id="btn-phase-c-export-word-bottom" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="window.downloadUnifiedTopicDocx && window.downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד">
+          <button type="button" id="btn-phase-c-export-word-bottom" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="window.downloadUnifiedTopicDocx && window.downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד" disabled>
             <i class="fa-solid fa-file-word" aria-hidden="true"></i>
             <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
           </button>
@@ -6382,12 +6771,13 @@
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
           <p class="text-sage-dark flex items-center justify-center gap-2 flex-wrap m-0">
             <i class="fa-solid fa-spinner fa-spin text-xl text-sage" aria-hidden="true"></i>
-            <span data-i18n="general_search_loading">מחפש ומנתח...</span>
+            <span id="general-search-loading-text" data-i18n="general_search_loading">חיפוש חי ברשת — סורק ומנתח...</span>
           </p>
           <button type="button" id="btn-general-search-cancel" class="touch-btn shrink-0 px-5 py-3 rounded-xl w-full sm:w-auto">
             <span data-i18n="topic_research_cancel">ביטול ועריכה מחדש 🛑</span>
           </button>
         </div>
+        <div id="general-search-loading-community" class="mt-4" aria-hidden="false"></div>
       </div>
       <div id="general-search-archive-suggestion" class="hidden mt-3 p-4 rounded-xl border border-sage/40 bg-sage/5 text-sm" role="dialog" aria-live="polite">
         <p id="general-search-archive-suggestion-text" class="text-walnut font-medium m-0"></p>
@@ -6930,7 +7320,7 @@
     const USE_DIRECT_PERPLEXITY = false;
     const PERPLEXITY_API_KEY_DIRECT = '';
     /** Cache-first grade/topic: Supabase hit returns instantly; cache miss triggers Perplexity Sonar via /api/generate. */
-    const ARCHIVE_ONLY_MODE = true;
+    const ARCHIVE_ONLY_MODE = false;
     const AI_GENERATE_ENDPOINT = '/api/generate';
     const PURE_PHASE_C_ENDPOINT = '/api/pure-phase-c';
     const PURE_GENERAL_SEARCH_ENDPOINT = '/api/pure-general-search';
@@ -7919,8 +8309,22 @@
       gradeFromArchive: false,
       generalSearchFromArchive: false,
       generalSearchQuery: '',
+      generalSearchMeta: null,
       archiveRejectedSuggestions: [],
       topicCommunityMatches: [],
+      topicCommunityMeta: null,
+      communitySummarizerAbort: null,
+      communitySummarizerRequestId: 0,
+      communitySummarizerLoading: false,
+      /** Dedicated background/foreground summarizer busy flag — never blocks archive search UI. */
+      isSummarizing: false,
+      /** Dedicated topic/archive search busy flag — independent from community summarizer. */
+      isSearching: false,
+      communitySummarizerResult: null,
+      communitySummarizerGradeId: '',
+      communitySummarizerTopic: '',
+      communitySummarizerModalOpen: false,
+      communitySummarizerBgPending: false,
       isSubmitting: false,
       purePhaseC: null,
       generalSearchResult: null,
@@ -8719,24 +9123,24 @@
         return;
       }
       if (scope === 'general-search') {
-        setGeneralSearchLoadingUi(loading);
+        setGeneralSearchLoadingUi(loading, { fromArchive: false });
         return;
       }
       if (scope === 'phase-c') {
         var phaseText = document.getElementById('phase-c-loading-text');
         var phaseCancel = document.getElementById('btn-phase-c-upgrade-cancel');
         if (phaseText) {
-          phaseText.textContent = loading ? t('archive_upgrade_loading') : t('phase_c_loading');
+          phaseText.textContent = loading ? t('archive_upgrade_loading') : (t('topic_research_deep') || getLiveSearchLoadingText());
         }
         if (phaseCancel) phaseCancel.classList.toggle('hidden', !loading);
-        setPhaseCLoadingUi(loading);
+        setPhaseCLoadingUi(loading, { fromArchive: false, preserveText: true });
         return;
       }
       var topicText = document.getElementById('topic-research-loading-text');
       if (topicText) {
-        topicText.textContent = loading ? t('archive_upgrade_loading') : t('topic_research_loading_archive');
+        topicText.textContent = loading ? t('archive_upgrade_loading') : getLiveSearchLoadingText();
       }
-      setTopicResearchLoadingUi(loading);
+      setTopicResearchLoadingUi(loading, { fromArchive: false });
     }
 
     function cancelArchiveUpgrade(e) {
@@ -8893,7 +9297,8 @@
 
         appState.generalSearchFromArchive = false;
         appState.generalSearchResult = response.data;
-        renderGeneralSearchResults(response.data);
+        appState.generalSearchMeta = response.meta || null;
+        renderGeneralSearchResults(response.data, response.meta);
       } catch (err) {
         if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isGeneralSearchAbortError(err)) return;
         var resultsEl = document.getElementById('general-search-results');
@@ -16634,19 +17039,46 @@
       );
     }
 
+    function hasWordExportableContent() {
+      try {
+        var html = '';
+        try { html = buildMergedWordExportHtml() || ''; } catch (e) { html = ''; }
+        var plain = String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (plain.length >= 80) return true;
+        var ids = [
+          'phase-c-unified-root', 'phase-c-narrative-root', 'panel-narrative',
+          'grade-insights-body', 'web-research-result', 'general-search-results'
+        ];
+        for (var i = 0; i < ids.length; i++) {
+          var el = document.getElementById(ids[i]);
+          if (!el) continue;
+          var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+          if (style && (style.display === 'none' || style.visibility === 'hidden')) continue;
+          if (el.classList && el.classList.contains('hidden')) continue;
+          var text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (text.length >= 80) return true;
+        }
+        return false;
+      } catch (err) {
+        return false;
+      }
+    }
+
     function updatePhaseCExportButtons() {
       var panelBtns = document.querySelectorAll(
-        '#btn-phase-c-export-word, #btn-phase-c-export-word-bottom, [data-unified-topic-export]'
+        '#btn-phase-c-export-word, #btn-phase-c-export-word-bottom, #btn-general-search-export-word, [data-unified-topic-export]'
       );
+      var canExport = hasWordExportableContent();
       panelBtns.forEach(function (panelBtn) {
         if (!panelBtn) return;
         panelBtn.classList.remove('hidden');
-        panelBtn.disabled = false;
-        panelBtn.removeAttribute('disabled');
         panelBtn.type = 'button';
-        panelBtn.style.pointerEvents = 'auto';
-        panelBtn.style.opacity = '1';
-        panelBtn.style.cursor = 'pointer';
+        panelBtn.disabled = !canExport;
+        if (canExport) panelBtn.removeAttribute('disabled');
+        else panelBtn.setAttribute('disabled', 'disabled');
+        panelBtn.style.pointerEvents = canExport ? 'auto' : 'none';
+        panelBtn.style.opacity = canExport ? '1' : '0.45';
+        panelBtn.style.cursor = canExport ? 'pointer' : 'not-allowed';
         if (!panelBtn.getAttribute('onclick')) {
           panelBtn.setAttribute('onclick', 'window.downloadUnifiedTopicDocx && window.downloadUnifiedTopicDocx()');
         }
@@ -16655,8 +17087,7 @@
           panelBtn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
-            panelBtn.disabled = false;
-            panelBtn.removeAttribute('disabled');
+            if (panelBtn.disabled || !hasWordExportableContent()) return;
             if (typeof window.downloadUnifiedTopicDocx === 'function') {
               window.downloadUnifiedTopicDocx();
             }
@@ -17372,7 +17803,7 @@
       var runId = ++topicResearchRunId;
       var ac = new AbortController();
       topicResearchAbort = ac;
-      setTopicResearchLoadingUi(true);
+      setTopicResearchLoadingUi(true, { fromArchive: false });
       try {
         await runTopicResearchGeneration(topicStr, runId, ac.signal);
         return true;
@@ -17392,10 +17823,22 @@
       ).trim();
       try {
         let item = match.item;
+        if (!item && match.resultData) {
+          item = {
+            cacheKey: match.cacheKey,
+            phase: 'topic',
+            gradeId: match.gradeId || appState.grade,
+            gradeLabel: match.gradeLabel || appState.gradeLabel,
+            topic: match.suggestedTopic || match.topic || userQuery,
+            resultData: match.resultData,
+            hasLessonPlan: true,
+          };
+        }
         if (!item && match.cacheKey) {
           item = await reloadArchiveLessonItem(match.cacheKey);
         }
         if (!item || !item.resultData) {
+          if (options.allowLiveFallback === false) return false;
           return await fallbackToLiveTopicResearch(userQuery);
         }
         let normalized = null;
@@ -17406,6 +17849,7 @@
           normalized = null;
         }
         if (!normalized || !normalized.blockPlan) {
+          if (options.allowLiveFallback === false) return false;
           return await fallbackToLiveTopicResearch(userQuery);
         }
         item = Object.assign({}, item, { resultData: normalized });
@@ -20005,19 +20449,24 @@
         try {
           json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
         } catch (parseErr) {
-          return { matches: [], folderBrief: null };
+          return { matches: [], citations: [], folderBrief: null };
         }
-        if (!res.ok || json.error) return { matches: [], folderBrief: null };
+        if (!res.ok || json.error) return { matches: [], citations: [], folderBrief: null };
         const payload = json.data || json;
         return {
           matches: Array.isArray(payload.matches) ? payload.matches : [],
+          citations: Array.isArray(payload.citations || payload.communityCitations)
+            ? (payload.citations || payload.communityCitations)
+            : [],
           folderBrief: payload.folderBrief || null,
           matchMethod: payload.matchMethod || 'none',
           driveScoped: Boolean(payload.driveScoped),
+          communityMode: payload.communityMode || 'navigation',
+          communityStatus: payload.communityStatus || '',
         };
       } catch (probeErr) {
         console.warn('[community-probe] failed:', probeErr);
-        return { matches: [], folderBrief: null };
+        return { matches: [], citations: [], folderBrief: null };
       }
     }
 
@@ -20099,6 +20548,78 @@
       });
     }
 
+    function buildDriveCitationLocation(match) {
+      if (!match) return '';
+      if (match.locationPath) return String(match.locationPath).trim();
+      var gradeLabel = String(match.gradeLabel || getGradeLabelById(match.gradeId || match.grade_level || '') || '').trim();
+      var topic = String(match.catalogTopic || match.parentCatalogTopic || match.topic || '').trim();
+      if (gradeLabel && topic && topic !== '__general__') return gradeLabel + ' > ' + topic;
+      var raw = String(match.drivePath || match.pathLabels || match.filePath || '').trim();
+      if (!raw) return gradeLabel || topic || '';
+      var parts = raw.split(/\s*\/\s*|\s*>\s*/).map(function (p) { return String(p || '').trim(); }).filter(Boolean);
+      var fileName = String(match.fileName || match.title || match.displayTitle || '').trim();
+      if (fileName && parts.length && parts[parts.length - 1] === fileName) parts.pop();
+      return parts.join(' > ');
+    }
+
+    function resolveMatchWebViewLink(match) {
+      if (!match) return '';
+      return String(match.webViewLink || match.fileUrl || match.url || '').trim();
+    }
+
+    function renderCatalogDriveCitationList(citations, matches) {
+      var items = Array.isArray(citations) && citations.length
+        ? citations
+        : (matches || []).map(function (match) {
+          return {
+            fileName: match.fileName || match.title || match.displayTitle || match.catalogTopic || 'קובץ Drive',
+            locationPath: buildDriveCitationLocation(match),
+            webViewLink: resolveMatchWebViewLink(match),
+            isFolder: match.isFolder === true || /folder/i.test(String(match.mimeType || '')),
+          };
+        });
+      if (!items.length) return '';
+      return '<ul class="catalog-drive-citations" dir="rtl">' + items.map(function (cite) {
+        var name = String(cite.fileName || cite.catalogTopic || cite.locationPath || 'פריט Drive').trim();
+        // Prefer the leaf folder/file name only — no path captions or link labels.
+        if (cite.isFolder && cite.locationPath) {
+          var parts = String(cite.locationPath).split(/\s*>\s*/);
+          if (parts.length) name = parts[parts.length - 1] || name;
+        }
+        var link = String(cite.webViewLink || cite.fileUrl || '').trim();
+        if (!link) return '';
+        return '<li class="catalog-drive-citation">' +
+          '<a class="catalog-drive-hit-card" href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' +
+          escapeHtml(name) +
+          '</a></li>';
+      }).filter(Boolean).join('') + '</ul>';
+    }
+
+    function renderHybridCommunityCitationsHtml(meta) {
+      var citations = (meta && Array.isArray(meta.communityCitations) && meta.communityCitations.length)
+        ? meta.communityCitations
+        : ((meta && meta.communityMatches) || []).map(function (match) {
+          return {
+            fileName: match.fileName || match.title || match.displayTitle || 'קובץ Drive',
+            locationPath: buildDriveCitationLocation(match),
+            webViewLink: resolveMatchWebViewLink(match),
+          };
+        });
+      if (!citations.length) return '';
+      return '<div class="hybrid-community-citations" dir="rtl">' +
+        '<h4>מראי מקום</h4>' +
+        '<ul>' + citations.map(function (cite, idx) {
+          var name = escapeHtml(String(cite.fileName || ('מקור ' + (idx + 1))));
+          var loc = escapeHtml(String(cite.locationPath || ''));
+          var link = String(cite.webViewLink || cite.fileUrl || '').trim();
+          var label = name + (loc ? ' — ' + loc : '');
+          if (link) {
+            return '<li><a href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + label + '</a></li>';
+          }
+          return '<li>' + label + '</li>';
+        }).join('') + '</ul></div>';
+    }
+
     async function runCatalogDeepSearch(query, searchInput) {
       const q = String(query || '').trim();
       const resultsEl = document.getElementById('catalog-search-results');
@@ -20141,6 +20662,10 @@
         || probed.driveScoped === true;
       const localItems = drivePrimary ? [] : searchCommunityCacheByQuery(q, probeGradeId);
       const matches = mergeCommunityMatches(localItems, serverMatches).filter(function (match) {
+        const matchGrade = resolveCommunityGradeIdFromAny(match.gradeId || match.grade_level || '');
+        if (matchGrade && matchGrade !== probeGradeId) return false;
+        // Drive navigation results are already relevance-filtered server-side.
+        if (drivePrimary) return true;
         return communityItemMatchesCurriculumQuery(q, {
           topic: match.catalogTopic || match.topic,
           title: match.title || match.displayTitle,
@@ -20148,50 +20673,19 @@
           gradeLevel: match.gradeId || match.grade_level,
         });
       });
-      let html = '<h4 class="font-bold text-burgundy mb-3 text-sm">תוצאות חיפוש עבור «' + escapeHtml(q) + '»</h4>';
-      const primary = matches.length ? matches[0] : null;
-      const folderCtx = primary ? resolveParentFolderFromMatch(primary, q) : { gradeId: '', catalogTopic: '', fileTitle: '' };
-      const hasParentFolderCard = Boolean(probed.folderBrief) || Boolean(folderCtx.gradeId && folderCtx.catalogTopic);
-      const hasResults = matches.length > 0 || hasParentFolderCard;
-      if (probed.folderBrief) {
-        html += buildCatalogFolderBriefHtml(probed.folderBrief);
-      } else if (folderCtx.gradeId && folderCtx.catalogTopic) {
-        html += buildCatalogParentFolderCardHtml(folderCtx.gradeId, folderCtx.catalogTopic, {
-          fileTitle: folderCtx.fileTitle,
-          gradeLabel: folderCtx.gradeLabel,
-        });
-      }
-      if (matches.length) {
-        html += '<div class="space-y-3 mb-3">' + matches.slice(0, 8).map(function (match) {
-          return renderCommunityPreviewCard({
-            id: match.id || match.materialId,
-            title: match.title || match.displayTitle || match.fileName || match.topic,
-            topic: match.catalogTopic || match.topic,
-            fileName: match.fileName || '',
-            fileUrl: match.fileUrl || '',
-            gradeLevel: match.gradeId || match.grade_level,
-            notes: match.description || match.alertText || '',
-            createdAt: match.createdAt || null,
-          });
-        }).join('') + '</div>';
-        const navGrade = folderCtx.gradeId || catalogState.gradeId;
-        const navTopic = folderCtx.catalogTopic;
-        if (navGrade && navTopic && !hasParentFolderCard) {
-          html += '<button type="button" class="touch-btn text-sm text-sage-dark hover:text-burgundy font-medium catalog-search-open-folder" data-grade="' + escapeHtml(String(navGrade)) + '" data-topic="' + escapeHtml(String(navTopic)) + '"><i class="fa-solid fa-folder-open"></i> פתיחת תיקיית «' + escapeHtml(String(navTopic)) + '»</button>';
-        }
-      } else if (!probed.folderBrief) {
+      let html = '';
+      const citationsHtml = renderCatalogDriveCitationList(probed.citations, matches);
+      const hasResults = matches.length > 0 || (probed.citations && probed.citations.length > 0);
+      if (citationsHtml) {
+        html += citationsHtml;
+      } else if (matches.length) {
+        html += renderCatalogDriveCitationList([], matches);
+      } else {
         html += '<p class="text-sm text-walnut/60 py-2">לא נמצאו חומרים תואמים במאגר הקהילתי.</p>';
       }
       mutateCatalogDom(function () {
         resultsEl.innerHTML = html;
         resultsEl.classList.remove('hidden');
-        bindCatalogFolderBriefActions(resultsEl);
-        const openBtn = resultsEl.querySelector('.catalog-search-open-folder');
-        if (openBtn) {
-          openBtn.addEventListener('click', function () {
-            renderCatalog('materials', openBtn.getAttribute('data-grade'), openBtn.getAttribute('data-topic'));
-          });
-        }
       });
       showCatalogStatus('', '');
       if (hasResults && searchInput) {
@@ -22702,6 +23196,9 @@
 
       if (phaseCIsStaleRender(token)) return;
 
+      var communityMount = document.getElementById('phase-c-community-summary-mount');
+      if (communityMount) communityMount.innerHTML = '';
+
       renderTheory();
       if (phaseCIsStaleRender(token)) return;
       var theoryMount = document.getElementById('theoretical-content');
@@ -22942,7 +23439,426 @@
       });
     }
 
-    function renderGeneralSearchResults(data) {
+    function renderHybridCommunitySummaryBlock(meta) {
+      var heading = (meta && meta.communitySummaryHeading)
+        ? String(meta.communitySummaryHeading)
+        : t('community_summarizer_heading');
+      var status = meta && meta.communityStatus ? String(meta.communityStatus) : 'empty';
+      var summary = '';
+      if (meta && meta.communitySummary != null && String(meta.communitySummary).trim()) {
+        summary = String(meta.communitySummary).trim();
+      } else if (status === 'unavailable') {
+        summary = t('hybrid_community_unavailable');
+      } else if (status === 'not_configured') {
+        summary = t('hybrid_community_not_configured');
+      } else if (status === 'degraded') {
+        summary = t('hybrid_community_degraded');
+      } else {
+        summary = t('community_summarizer_empty');
+      }
+      var isEmpty = status === 'empty'
+        || summary === t('community_summarizer_empty')
+        || summary === t('hybrid_community_empty')
+        || /אין חומר מהארכיון/.test(summary)
+        || /כרגע אין חומר רלוונטי/.test(summary);
+      var isSummarizing = status === 'summarizing'
+        || summary === t('community_summarizer_loading')
+        || summary === t('hybrid_community_summarizing')
+        || /מסכם חומר מהמאגר הקהילתי/.test(summary)
+        || /סורק את המאגר הקהילתי/.test(summary);
+      var bodyHtml = isSummarizing
+        ? ('<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>' + escapeHtml(summary) + '</span>')
+        : (formatInspirationAiMarkdown(summary) || ('<p>' + escapeHtml(summary) + '</p>'));
+      var citationsHtml = (isEmpty || isSummarizing) ? '' : renderHybridCommunityCitationsHtml(meta);
+      // Avoid duplicating a Gemini-authored «מראי מקום» section when we already append links.
+      if (citationsHtml && /מראי מקום/.test(summary) && /https?:\/\//.test(summary)) {
+        citationsHtml = '';
+      }
+      return '<aside class="hybrid-community-summary' + (isEmpty || isSummarizing ? ' is-empty' : '') + (isSummarizing ? ' is-summarizing' : '') + '" dir="rtl" aria-label="' + escapeHtml(heading) + '" aria-busy="' + (isSummarizing ? 'true' : 'false') + '">' +
+        '<h3><i class="fa-solid fa-people-roof text-sage ml-1" aria-hidden="true"></i> ' + escapeHtml(heading) + '</h3>' +
+        '<div class="hybrid-community-summary-body">' + bodyHtml + '</div>' +
+        citationsHtml +
+        '</aside>';
+    }
+
+    /** Shared live-search loading copy — identical for Step B topic and בניית תקופה. */
+    function getLiveSearchLoadingText() {
+      return t('topic_research_scanning') || t('general_search_loading');
+    }
+
+    function renderLiveSearchCommunityLoadingPlaceholder() {
+      return '';
+    }
+
+    function setResearchLoadingCommunityPlaceholder(mountId, loading, fromArchive) {
+      var mount = document.getElementById(mountId);
+      if (!mount) return;
+      mount.innerHTML = '';
+      if (!loading) mount.classList.add('hidden');
+    }
+
+    function populateCommunitySummarizerGradeSelect() {
+      var select = document.getElementById('community-summarizer-grade');
+      if (!select) return;
+      var previous = String(select.value || '').trim();
+      var placeholder = t('grade_placeholder') || '— בחרו כיתה —';
+      var html = '<option value="">' + escapeHtml(placeholder) + '</option>';
+      GRADES.forEach(function (g) {
+        html += '<option value="' + escapeHtml(g.id) + '">' + escapeHtml(getGradeLabelById(g.id) || g.label) + '</option>';
+      });
+      select.innerHTML = html;
+      var preferred = previous
+        || String(appState.communitySummarizerGradeId || '').trim()
+        || String(appState.grade || '').trim();
+      if (preferred && Array.prototype.some.call(select.options, function (opt) { return opt.value === preferred; })) {
+        select.value = preferred;
+      }
+    }
+
+    function setCommunitySummarizerLoading(loading) {
+      var busy = Boolean(loading);
+      appState.communitySummarizerLoading = busy;
+      appState.isSummarizing = busy;
+      var loadingEl = document.getElementById('community-summarizer-loading');
+      var submitBtn = document.getElementById('community-summarizer-submit');
+      var gradeEl = document.getElementById('community-summarizer-grade');
+      var topicEl = document.getElementById('community-summarizer-topic');
+      if (loadingEl) {
+        loadingEl.classList.toggle('hidden', !busy);
+        loadingEl.setAttribute('aria-busy', busy ? 'true' : 'false');
+      }
+      // Only disable controls inside the summarizer modal — never the archive search UI.
+      if (submitBtn) submitBtn.disabled = busy;
+      if (gradeEl) gradeEl.disabled = busy;
+      if (topicEl) topicEl.disabled = busy;
+      if (busy) syncCommunitySummarizerExportButton(null);
+      else syncCommunitySummarizerExportButton(appState.communitySummarizerResult);
+      syncCommunitySummarizerBgIndicator();
+      // Keep topic/archive search interactive while summarizer runs in the background.
+      if (!appState.isSearching) ensureArchiveSearchControlsUnlocked();
+    }
+
+    function ensureArchiveSearchControlsUnlocked() {
+      // Never let community summarizer (isSummarizing) lock archive/topic search controls.
+      if (appState.isSearching) return;
+      var topicInput = document.getElementById('topic-input');
+      var topicBtn = document.getElementById('btn-topic-research');
+      if (topicInput) topicInput.disabled = false;
+      if (topicBtn) {
+        topicBtn.disabled = false;
+        if (typeof updateTopicResearchButton === 'function') updateTopicResearchButton();
+      }
+    }
+
+    function isCommunitySummarizerModalOpen() {
+      var modal = document.getElementById('community-summarizer-modal');
+      return Boolean(modal && !modal.classList.contains('hidden'));
+    }
+
+    function isCommunitySummarizerSummaryReady(data) {
+      if (!data) return false;
+      var status = data.communityStatus ? String(data.communityStatus) : '';
+      var summary = data.communitySummary != null ? String(data.communitySummary).trim() : '';
+      if (!summary) return false;
+      if (status === 'empty' || status === 'unavailable' || status === 'not_configured' || status === 'summarizing') {
+        return false;
+      }
+      if (
+        summary === t('community_summarizer_empty')
+        || summary === t('hybrid_community_empty')
+        || summary === t('community_summarizer_loading')
+        || summary === t('hybrid_community_summarizing')
+        || /אין חומר מהארכיון/.test(summary)
+        || /כרגע אין חומר רלוונטי/.test(summary)
+        || /סורק את המאגר הקהילתי/.test(summary)
+      ) {
+        return false;
+      }
+      return status === 'ok' || status === 'degraded' || Boolean(summary);
+    }
+
+    function syncCommunitySummarizerExportButton(data) {
+      var btn = document.getElementById('community-summarizer-export-word');
+      if (!btn) return;
+      var ready = isCommunitySummarizerSummaryReady(data)
+        && !appState.isSummarizing
+        && !appState.communitySummarizerLoading;
+      btn.classList.toggle('is-visible', ready);
+      btn.setAttribute('aria-hidden', ready ? 'false' : 'true');
+      btn.disabled = !ready;
+    }
+
+    function renderCommunitySummarizerResult(data) {
+      var resultEl = document.getElementById('community-summarizer-result');
+      if (!resultEl) return;
+      if (!data) {
+        resultEl.innerHTML = '';
+        syncCommunitySummarizerExportButton(null);
+        return;
+      }
+      resultEl.innerHTML = renderHybridCommunitySummaryBlock(data);
+      syncCommunitySummarizerExportButton(data);
+    }
+
+    async function downloadCommunitySummarizerWord() {
+      var data = appState.communitySummarizerResult;
+      if (!isCommunitySummarizerSummaryReady(data)) {
+        if (typeof showAppToast === 'function') {
+          showAppToast(t('community_summarizer_export_need'));
+        }
+        return;
+      }
+      var summaryText = String(data.communitySummary || '').trim();
+      var heading = String(
+        data.communitySummaryHeading || t('community_summarizer_heading') || ''
+      ).trim();
+      var bodyHtml = '';
+      if (heading) {
+        bodyHtml += '<h1>' + escapeHtml(heading) + '</h1>';
+      }
+      bodyHtml += formatInspirationAiMarkdown(summaryText)
+        || ('<p>' + escapeHtml(summaryText).replace(/\n/g, '<br>') + '</p>');
+
+      try {
+        if (typeof assertWordDownloadForExport === 'function') {
+          assertWordDownloadForExport();
+        }
+      } catch (gateErr) {
+        if (gateErr && (gateErr.code === 'WORD_DOWNLOAD_LIMIT' || gateErr.code === 'AUTH_REQUIRED')) {
+          return;
+        }
+        if (typeof WaldorfAuth !== 'undefined' && !WaldorfAuth.getState().isAuthenticated) {
+          WaldorfAuth.showAuthOverlay();
+          return;
+        }
+      }
+
+      var topicLabel = String(appState.communitySummarizerTopic || data.topic || heading || 'community-summary').trim();
+      var filename = normalizeWordDownloadFilename(
+        (isEnglish() ? 'Community_summary_' : 'סיכום_קהילתי_') + topicLabel
+      );
+      var blob = buildSecureWordBlob(bodyHtml, isEnglish() ? 'en' : 'he', filename);
+      await triggerWordBlobDownload(blob, filename);
+      try {
+        if (typeof reserveWordDownloadForExport === 'function') {
+          await reserveWordDownloadForExport();
+        }
+      } catch (trackErr) {
+        console.warn('[community-summarizer] word usage track failed', trackErr);
+      }
+    }
+
+    function syncCommunitySummarizerModalFromState() {
+      setCommunitySummarizerLoading(Boolean(appState.isSummarizing || appState.communitySummarizerLoading));
+      renderCommunitySummarizerResult(appState.communitySummarizerResult);
+      var gradeEl = document.getElementById('community-summarizer-grade');
+      var topicEl = document.getElementById('community-summarizer-topic');
+      if (gradeEl && appState.communitySummarizerGradeId) {
+        gradeEl.value = appState.communitySummarizerGradeId;
+      }
+      if (topicEl && appState.communitySummarizerTopic) {
+        topicEl.value = appState.communitySummarizerTopic;
+      }
+    }
+
+    function syncCommunitySummarizerBgIndicator() {
+      var badge = document.getElementById('community-summarizer-bg-indicator');
+      if (!badge) return;
+      var modalOpen = isCommunitySummarizerModalOpen();
+      var summarizing = Boolean(appState.isSummarizing || appState.communitySummarizerLoading);
+      var show = Boolean(appState.communitySummarizerBgPending) && !modalOpen
+        && (summarizing || appState.communitySummarizerResult);
+      var ready = show && !summarizing && Boolean(appState.communitySummarizerResult);
+      var statusEl = document.getElementById('community-summarizer-bg-status');
+      var iconEl = badge.querySelector('.community-summarizer-bg-icon');
+      badge.classList.toggle('hidden', !show);
+      badge.classList.toggle('is-ready', ready);
+      badge.setAttribute('aria-hidden', show ? 'false' : 'true');
+      if (statusEl) {
+        statusEl.setAttribute('data-i18n', ready ? 'community_summarizer_bg_ready' : 'community_summarizer_bg_working');
+        statusEl.textContent = ready ? t('community_summarizer_bg_ready') : t('community_summarizer_bg_working');
+      }
+      if (iconEl) {
+        iconEl.className = ready
+          ? 'fa-solid fa-circle-check community-summarizer-bg-icon'
+          : 'fa-solid fa-spinner fa-spin community-summarizer-bg-icon';
+      }
+    }
+
+    function openCommunitySummarizerModal() {
+      var modal = document.getElementById('community-summarizer-modal');
+      if (!modal) return;
+      populateCommunitySummarizerGradeSelect();
+      var topicEl = document.getElementById('community-summarizer-topic');
+      if (topicEl && !String(topicEl.value || '').trim()) {
+        var preferredTopic = appState.communitySummarizerTopic || appState.topic;
+        if (preferredTopic) topicEl.value = String(preferredTopic).trim();
+      }
+      appState.communitySummarizerModalOpen = true;
+      appState.communitySummarizerBgPending = false;
+      syncCommunitySummarizerModalFromState();
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('pricing-modal-open');
+      syncCommunitySummarizerBgIndicator();
+      if (topicEl && !appState.isSummarizing) {
+        try { topicEl.focus(); } catch (e) { /* ignore */ }
+      }
+    }
+
+    function closeCommunitySummarizerModal(options) {
+      options = options || {};
+      var modal = document.getElementById('community-summarizer-modal');
+      if (!modal) return;
+      // Keep the in-flight request alive; only surface a background indicator.
+      if (appState.isSummarizing || appState.communitySummarizerLoading) {
+        appState.communitySummarizerBgPending = true;
+      } else if (appState.communitySummarizerResult) {
+        // Keep result available on reopen; no floating badge once the user has closed after viewing.
+        appState.communitySummarizerBgPending = false;
+      }
+      appState.communitySummarizerModalOpen = false;
+      modal.classList.add('hidden');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('pricing-modal-open');
+      syncCommunitySummarizerBgIndicator();
+      ensureArchiveSearchControlsUnlocked();
+      if (options.goHome) {
+        openHomeView({ skipScrollRestore: true });
+      }
+    }
+
+    function returnHomeFromCommunitySummarizer() {
+      closeCommunitySummarizerModal({ goHome: true });
+    }
+
+    async function runCommunityTopicSummarizer() {
+      var gradeEl = document.getElementById('community-summarizer-grade');
+      var topicEl = document.getElementById('community-summarizer-topic');
+      var resultEl = document.getElementById('community-summarizer-result');
+      var gradeId = gradeEl ? String(gradeEl.value || '').trim() : '';
+      var topic = topicEl ? String(topicEl.value || '').trim() : '';
+      if (!gradeId) {
+        if (resultEl) {
+          resultEl.innerHTML = '<p class="text-burgundy text-sm m-0">' + escapeHtml(t('research_need_grade')) + '</p>';
+        }
+        return;
+      }
+      if (!topic) {
+        if (resultEl) {
+          resultEl.innerHTML = '<p class="text-burgundy text-sm m-0">' + escapeHtml(t('community_summarizer_need_topic')) + '</p>';
+        }
+        return;
+      }
+      appState.communitySummarizerGradeId = gradeId;
+      appState.communitySummarizerTopic = topic;
+      appState.communitySummarizerResult = null;
+      appState.communitySummarizerBgPending = false;
+      renderCommunitySummarizerResult(null);
+      setCommunitySummarizerLoading(true);
+      ensureArchiveSearchControlsUnlocked();
+      if (appState.communitySummarizerAbort) {
+        try { appState.communitySummarizerAbort.abort(); } catch (e) { /* ignore */ }
+      }
+      var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      appState.communitySummarizerAbort = controller;
+      var requestId = (appState.communitySummarizerRequestId = (appState.communitySummarizerRequestId || 0) + 1);
+      try {
+        var response = await invokePureApi('/api/community-summarizer', {
+          topic: topic,
+          gradeId: gradeId,
+          currentGrade: gradeId,
+        }, controller && controller.signal);
+        if (requestId !== appState.communitySummarizerRequestId) return;
+        var data = response && response.data ? response.data : response;
+        appState.communitySummarizerResult = data || {};
+        if (isCommunitySummarizerModalOpen()) {
+          renderCommunitySummarizerResult(appState.communitySummarizerResult);
+        } else {
+          appState.communitySummarizerBgPending = true;
+        }
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        if (requestId !== appState.communitySummarizerRequestId) return;
+        var message = (err && err.message) ? String(err.message) : t('hybrid_community_unavailable');
+        appState.communitySummarizerResult = {
+          communitySummaryHeading: t('community_summarizer_heading'),
+          communityStatus: 'unavailable',
+          communitySummary: message,
+        };
+        if (isCommunitySummarizerModalOpen()) {
+          renderCommunitySummarizerResult(appState.communitySummarizerResult);
+        } else {
+          appState.communitySummarizerBgPending = true;
+        }
+      } finally {
+        if (requestId === appState.communitySummarizerRequestId) {
+          appState.communitySummarizerAbort = null;
+          setCommunitySummarizerLoading(false);
+          ensureArchiveSearchControlsUnlocked();
+        }
+      }
+    }
+
+    function bindCommunitySummarizerModal() {
+      var form = document.getElementById('community-summarizer-form');
+      var closeBtn = document.getElementById('community-summarizer-close');
+      var cancelBtn = document.getElementById('community-summarizer-cancel');
+      var returnHomeBtn = document.getElementById('community-summarizer-return-home');
+      var exportBtn = document.getElementById('community-summarizer-export-word');
+      var backdrop = document.getElementById('community-summarizer-backdrop');
+      var bgBadge = document.getElementById('community-summarizer-bg-indicator');
+      if (form && !form._communitySummarizerBound) {
+        form._communitySummarizerBound = true;
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          runCommunityTopicSummarizer();
+        });
+      }
+      if (exportBtn && !exportBtn._communitySummarizerBound) {
+        exportBtn._communitySummarizerBound = true;
+        exportBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          downloadCommunitySummarizerWord();
+        });
+      }
+      if (closeBtn && !closeBtn._communitySummarizerBound) {
+        closeBtn._communitySummarizerBound = true;
+        closeBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          closeCommunitySummarizerModal();
+        });
+      }
+      if (cancelBtn && !cancelBtn._communitySummarizerBound) {
+        cancelBtn._communitySummarizerBound = true;
+        cancelBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          closeCommunitySummarizerModal();
+        });
+      }
+      if (returnHomeBtn && !returnHomeBtn._communitySummarizerBound) {
+        returnHomeBtn._communitySummarizerBound = true;
+        returnHomeBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          returnHomeFromCommunitySummarizer();
+        });
+      }
+      if (backdrop && !backdrop._communitySummarizerBound) {
+        backdrop._communitySummarizerBound = true;
+        backdrop.addEventListener('click', function () {
+          closeCommunitySummarizerModal();
+        });
+      }
+      if (bgBadge && !bgBadge._communitySummarizerBound) {
+        bgBadge._communitySummarizerBound = true;
+        bgBadge.addEventListener('click', function (e) {
+          e.preventDefault();
+          openCommunitySummarizerModal();
+        });
+      }
+    }
+
+    function renderGeneralSearchResults(data, meta) {
       var resultsEl = document.getElementById('general-search-results');
       if (!resultsEl) return;
       if (!data) {
@@ -22975,14 +23891,44 @@
       updateAdminResearchToolsVisibility();
     }
 
-    function setPhaseCLoadingUi(loading) {
+    function setPhaseCLoadingUi(loading, options) {
+      options = options || {};
+      var fromArchive = Boolean(options.fromArchive);
       var el = document.getElementById('phase-c-loading');
-      if (el) el.classList.toggle('hidden', !loading);
+      var textEl = document.getElementById('phase-c-loading-text');
+      if (textEl && !options.preserveText) {
+        textEl.textContent = fromArchive
+          ? t('topic_research_loading_archive')
+          : (t('topic_research_deep') || getLiveSearchLoadingText());
+      }
+      holdPageScroll(function () {
+        if (el) {
+          el.classList.toggle('hidden', !loading);
+          el.setAttribute('aria-busy', loading ? 'true' : 'false');
+        }
+      });
+      setResearchLoadingCommunityPlaceholder('phase-c-loading-community', loading, fromArchive);
+      if (!loading) ensurePageScrollUnlocked();
     }
 
-    function setGeneralSearchLoadingUi(loading) {
+    function setGeneralSearchLoadingUi(loading, options) {
+      options = options || {};
+      var fromArchive = Boolean(options.fromArchive);
       var el = document.getElementById('general-search-loading');
-      if (el) el.classList.toggle('hidden', !loading);
+      var textEl = document.getElementById('general-search-loading-text');
+      if (textEl) {
+        textEl.textContent = fromArchive
+          ? t('topic_research_loading_archive')
+          : getLiveSearchLoadingText();
+      }
+      holdPageScroll(function () {
+        if (el) {
+          el.classList.toggle('hidden', !loading);
+          el.setAttribute('aria-busy', loading ? 'true' : 'false');
+        }
+      });
+      setResearchLoadingCommunityPlaceholder('general-search-loading-community', loading, fromArchive);
+      if (!loading) ensurePageScrollUnlocked();
     }
 
     async function invokePureApi(endpoint, payload, signal) {
@@ -23317,7 +24263,8 @@
 
     /**
      * Shared execution path for general search. `options` may carry confirmArchiveKey
-     * (the "כן" path) or bypassCache (the "לא" → live Perplexity path).
+     * (the "כן" path), bypassCache (the "לא" → live Perplexity path), or fromArchiveHit
+     * (exact Cache Hit — load immediately, never show suggestion questions).
      */
     async function performGeneralSearch(query, options) {
       var opts = options || {};
@@ -23328,12 +24275,51 @@
       generalSearchAbort = controller;
       var signal = controller.signal;
       var periodBlock = opts.periodBlock != null ? Boolean(opts.periodBlock) : isGeneralSearchPeriodBlockEnabled();
+      var fromArchiveHit = Boolean(opts.fromArchiveHit || opts.confirmArchiveKey);
       hideGeneralSearchArchiveSuggestion();
-      setGeneralSearchLoadingUi(true);
+      setGeneralSearchLoadingUi(true, { fromArchive: fromArchiveHit });
       if (btn) btn.disabled = true;
       if (input) input.disabled = true;
       setGeneralSearchPeriodToggleDisabled(true);
       try {
+        // Exact Cache Hit with payload already from probe — render immediately (no round-trip delay).
+        if (opts.cachedData && fromArchiveHit) {
+          var instantMeta = Object.assign({
+            fromCache: true,
+            periodBlock: periodBlock,
+            archived: true,
+          }, opts.cachedMeta || {});
+          if (opts.confirmArchiveKey) instantMeta.cacheKey = opts.confirmArchiveKey;
+          appState.generalSearchQuery = query;
+          appState.generalSearchFromArchive = true;
+          if (instantMeta.cacheKey) appState.generalSearchCacheKey = instantMeta.cacheKey;
+          appState.generalSearchResult = opts.cachedData;
+          appState.generalSearchMeta = instantMeta;
+          renderGeneralSearchResults(opts.cachedData, instantMeta);
+          // Still refresh via confirmArchiveKey so archive metadata stays in sync.
+          if (opts.confirmArchiveKey) {
+            try {
+              var refresh = await fetchPureGeneralSearch(query, signal, {
+                periodBlock: periodBlock,
+                confirmArchiveKey: opts.confirmArchiveKey,
+              });
+              if (!signal.aborted && refresh && refresh.data) {
+                var refreshMeta = refresh.meta || instantMeta;
+                appState.generalSearchFromArchive = Boolean(refreshMeta.fromCache);
+                if (refreshMeta.cacheKey) appState.generalSearchCacheKey = refreshMeta.cacheKey;
+                appState.generalSearchResult = refresh.data;
+                appState.generalSearchMeta = refreshMeta;
+                renderGeneralSearchResults(refresh.data, refreshMeta);
+              }
+            } catch (refreshErr) {
+              if (!isGeneralSearchAbortError(refreshErr) && !isBenignStreamAbortError(refreshErr)) {
+                console.warn('[general-search] archive community refresh failed:', refreshErr);
+              }
+            }
+          }
+          return;
+        }
+
         var fetchOpts = { periodBlock: periodBlock };
         if (opts.bypassCache) fetchOpts.bypassCache = true;
         if (opts.confirmArchiveKey) fetchOpts.confirmArchiveKey = opts.confirmArchiveKey;
@@ -23342,23 +24328,33 @@
         appState.generalSearchQuery = query;
 
         var meta = response.meta || {};
-        if (meta.needsArchiveConfirmation && meta.archiveSuggestion) {
+        // Exact archive loads never present suggestion questions — only Cache Miss live path may.
+        if (!fromArchiveHit && meta.needsArchiveConfirmation && meta.archiveSuggestion) {
           if (showGeneralSearchArchiveSuggestion(meta.archiveSuggestion, {
             onConfirm: function () {
+              // Confirmed archive suggestion — free load, no credit modal.
               performGeneralSearch(query, {
                 periodBlock: periodBlock,
                 confirmArchiveKey: meta.archiveSuggestion.cacheKey,
+                fromArchiveHit: true,
               }).catch(function (err) {
                 if (isBenignStreamAbortError(err)) return;
                 alert(err.message || String(err));
               });
             },
             onReject: function () {
-              performGeneralSearch(query, { periodBlock: periodBlock, bypassCache: true })
-                .catch(function (err) {
-                  if (isBenignStreamAbortError(err)) return;
-                  alert(err.message || String(err));
-                });
+              // Reject archive → live search is billable.
+              confirmPaidSearchAction({
+                phase: 'general_search',
+                isArchiveHit: false,
+                fromCache: false,
+              }).then(function (ok) {
+                if (!ok) return;
+                return performGeneralSearch(query, { periodBlock: periodBlock, bypassCache: true });
+              }).catch(function (err) {
+                if (isBenignStreamAbortError(err)) return;
+                alert(err.message || String(err));
+              });
             },
           })) {
             return;
@@ -23372,7 +24368,8 @@
         appState.generalSearchFromArchive = Boolean(meta.fromCache);
         if (meta.cacheKey) appState.generalSearchCacheKey = meta.cacheKey;
         appState.generalSearchResult = response.data;
-        renderGeneralSearchResults(response.data);
+        appState.generalSearchMeta = meta || null;
+        renderGeneralSearchResults(response.data, meta);
       } catch (err) {
         // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
         if (isGeneralSearchAbortError(err) || isBenignStreamAbortError(err) || signal.aborted) return;
@@ -23403,6 +24400,56 @@
         if (input) input.focus();
         return;
       }
+      var periodBlock = isGeneralSearchPeriodBlockEnabled();
+      // 1) Archive/cache check FIRST — never open credit modal or ask questions before this.
+      var archiveCheck = await checkArchiveHit('general_search', {
+        query: query,
+        periodBlock: periodBlock,
+      });
+      // 2) Exact archive hit → load + display immediately (Cache Hit), no credit modal, no questions.
+      if (archiveCheck.isArchiveHit) {
+        var probe = archiveCheck.probe || {};
+        var probePayload = probe.data || {};
+        var cacheKey = probe.cacheKey || probePayload.cacheKey || null;
+        var cachedData = probePayload.resultData || null;
+        var cachedMeta = probePayload.meta || null;
+        // Prefer the periodBlock variant that actually matched in the archive.
+        var hitPeriodBlock = (probePayload.periodBlock != null)
+          ? Boolean(probePayload.periodBlock)
+          : (cachedMeta && cachedMeta.periodBlock != null)
+            ? Boolean(cachedMeta.periodBlock)
+            : periodBlock;
+        ensureGeneralSearchArchiveSuggestionEvents();
+        hideGeneralSearchArchiveSuggestion();
+        try {
+          await performGeneralSearch(query, {
+            periodBlock: hitPeriodBlock,
+            confirmArchiveKey: cacheKey || undefined,
+            fromArchiveHit: true,
+            cachedData: cachedData || undefined,
+            cachedMeta: cachedMeta || undefined,
+          });
+        } catch (err) {
+          if (isBenignStreamAbortError(err) || isGeneralSearchAbortError(err)) return;
+          var hitResultsEl = document.getElementById('general-search-results');
+          if (hitResultsEl) {
+            hitResultsEl.classList.remove('hidden');
+            hitResultsEl.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+              escapeHtml(err && err.message ? err.message : String(err)) + '</p>';
+          }
+        }
+        return;
+      }
+      // 3) Confirmed cache miss → credit confirm only before a live search.
+      // Skip credit when the probe failed — the live path may still hit global archive/cache.
+      if (!archiveCheck.isArchiveHit && !archiveCheck.probeFailed) {
+        var confirmed = await confirmPaidSearchAction({
+          phase: 'general_search',
+          isArchiveHit: false,
+          fromCache: false,
+        });
+        if (!confirmed) return;
+      }
       ensureGeneralSearchArchiveSuggestionEvents();
       try {
         await performGeneralSearch(query, {});
@@ -23427,6 +24474,7 @@
       setGeneralSearchLoadingUi(false);
       appState.generalSearchQuery = '';
       appState.generalSearchResult = null;
+      appState.generalSearchMeta = null;
       appState.generalSearchFromArchive = false;
       appState.generalSearchCacheKey = '';
       var input = document.getElementById('general-search-input');
@@ -23489,6 +24537,136 @@
 
     function isCommunityView() {
       return isWorkspaceOpen() && appState.navSection === 'community';
+    }
+
+    async function confirmPaidSearchAction(options) {
+      var opts = options || {};
+      // Archive/cache hits and free system actions never show the credit modal.
+      // Callers MUST run checkArchiveHit first; this is a hard safety net only.
+      if (opts.skipConfirm || opts.isArchiveHit || opts.fromCache || opts.free === true) {
+        return true;
+      }
+      if (opts.phase === 'chat_followup') return true;
+      if (typeof WaldorfAuth === 'undefined' || typeof WaldorfAuth.confirmCreditUsage !== 'function') {
+        return true;
+      }
+      try {
+        return await WaldorfAuth.confirmCreditUsage(opts);
+      } catch (err) {
+        return false;
+      }
+    }
+
+    async function probeArchiveCacheHit(action, payload) {
+      const apiUrl = (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:')
+        ? location.origin + '/api/search-history'
+        : '/api/search-history';
+      const headers = { 'Content-Type': 'application/json' };
+      let token = null;
+      if (typeof WaldorfAuth !== 'undefined' && WaldorfAuth.getState().isAuthenticated) {
+        try { token = await WaldorfAuth.getAccessToken(); } catch (e) { /* ignore */ }
+      }
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const body = Object.assign({ action: action }, payload || {});
+      if (typeof WaldorfAuth !== 'undefined') {
+        const contributor = WaldorfAuth.getContributorProfile();
+        if (contributor) body.teacherUser = contributor;
+      }
+      try {
+        const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+        const bodyText = await res.text();
+        let json;
+        try {
+          json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
+        } catch (parseErr) {
+          return { hit: false, probeFailed: true };
+        }
+        if (!res.ok || json.error) return { hit: false, probeFailed: true };
+        const data = json.data || json;
+        return {
+          hit: Boolean(data.hit || data.isArchiveHit || data.fromCache),
+          cacheKey: data.cacheKey || null,
+          data: data,
+          probeFailed: false,
+        };
+      } catch (err) {
+        console.warn('[archive-probe]', action, 'failed:', err);
+        return { hit: false, probeFailed: true };
+      }
+    }
+
+    async function probeGradeArchiveHit(gradeId) {
+      return probeArchiveCacheHit('probe_grade', {
+        gradeId: gradeId,
+        currentGrade: gradeId,
+        gradeLabel: appState.gradeLabel || getGradeLabelById(gradeId) || null,
+      });
+    }
+
+    async function probeGeneralSearchArchiveHit(query, periodBlock) {
+      return probeArchiveCacheHit('probe_general_search', {
+        query: query,
+        periodBlock: Boolean(periodBlock),
+      });
+    }
+
+    /**
+     * Archive/cache gate — MUST run before any credit modal.
+     * Returns { isArchiveHit, isPartial, match, probe, kind }.
+     */
+    async function checkArchiveHit(kind, params) {
+      params = params || {};
+      if (kind === 'grade') {
+        var gradeProbe = await probeGradeArchiveHit(params.gradeId);
+        return {
+          kind: 'grade',
+          isArchiveHit: Boolean(gradeProbe && gradeProbe.hit),
+          isPartial: false,
+          probe: gradeProbe,
+          match: null,
+          probeFailed: Boolean(gradeProbe && gradeProbe.probeFailed),
+        };
+      }
+      if (kind === 'general_search') {
+        var generalProbe = await probeGeneralSearchArchiveHit(params.query, params.periodBlock);
+        var generalHit = Boolean(
+          generalProbe &&
+          (generalProbe.hit ||
+            (generalProbe.data && (generalProbe.data.resultData || generalProbe.data.hit || generalProbe.data.fromCache)))
+        );
+        return {
+          kind: 'general_search',
+          isArchiveHit: generalHit,
+          isPartial: false,
+          probe: generalProbe,
+          match: null,
+          probeFailed: Boolean(generalProbe && generalProbe.probeFailed),
+        };
+      }
+      if (kind === 'topic') {
+        var topicMatch = null;
+        var topicProbeFailed = false;
+        try {
+          topicMatch = await probeArchiveTopicMatch(params.topic, params.gradeId);
+        } catch (probeErr) {
+          topicProbeFailed = true;
+          console.warn('[archive-probe] checkArchiveHit topic failed:', probeErr);
+        }
+        var isExact = Boolean(
+          topicMatch &&
+          topicMatch.matchType === 'exact' &&
+          (topicMatch.resultData || topicMatch.historicPayload || topicMatch.cacheKey)
+        );
+        return {
+          kind: 'topic',
+          isArchiveHit: isExact,
+          isPartial: Boolean(topicMatch && topicMatch.matchType === 'partial'),
+          probe: null,
+          match: topicMatch,
+          probeFailed: topicProbeFailed,
+        };
+      }
+      return { kind: kind || '', isArchiveHit: false, isPartial: false, probe: null, match: null, probeFailed: false };
     }
 
     function updateTopNavButtons() {
@@ -24206,7 +25384,8 @@
           if (gsController.signal.aborted) return;
           appState.generalSearchFromArchive = false;
           appState.generalSearchResult = gsResponse.data;
-          renderGeneralSearchResults(gsResponse.data);
+          appState.generalSearchMeta = gsResponse.meta || null;
+          renderGeneralSearchResults(gsResponse.data, gsResponse.meta);
           if (typeof WaldorfSearchHistory !== 'undefined') WaldorfSearchHistory.invalidate();
           return;
         }
@@ -25801,6 +26980,19 @@
       const grade = document.getElementById('grade-select').value;
       if (!grade) return;
 
+      // 1) Archive/cache check FIRST — never open credit modal before this.
+      var archiveCheck = await checkArchiveHit('grade', { gradeId: grade });
+      // 2) Exact archive hit (or probe failure — may still be a cache hit) → no credit modal.
+      // 3) Confirmed cache miss → credit confirm only before a live search.
+      if (!archiveCheck.isArchiveHit && !archiveCheck.probeFailed) {
+        var creditOk = await confirmPaidSearchAction({
+          phase: 'grade',
+          isArchiveHit: false,
+          fromCache: false,
+        });
+        if (!creditOk) return;
+      }
+
       if (gradeResearchAbort) gradeResearchAbort.abort();
       const runId = ++gradeResearchRunId;
       gradeResearchAbort = new AbortController();
@@ -25897,21 +27089,34 @@
       }
     }
 
-    function setTopicResearchLoadingUi(loading) {
+    function setTopicResearchLoadingUi(loading, options) {
+      options = options || {};
+      var fromArchive = Boolean(options.fromArchive);
+      var busy = Boolean(loading);
+      appState.isSearching = busy;
       const loadingEl = document.getElementById('topic-research-loading');
       const loadingText = document.getElementById('topic-research-loading-text');
       const btn = document.getElementById('btn-topic-research');
+      const topicInput = document.getElementById('topic-input');
       if (loadingText) {
-        loadingText.textContent = t('topic_research_loading_archive');
+        loadingText.textContent = fromArchive
+          ? t('topic_research_loading_archive')
+          : (t('topic_research_deep') || getLiveSearchLoadingText());
       }
       holdPageScroll(function () {
         if (loadingEl) {
-          loadingEl.classList.toggle('hidden', !loading);
-          loadingEl.setAttribute('aria-busy', loading ? 'true' : 'false');
+          loadingEl.classList.toggle('hidden', !busy);
+          loadingEl.setAttribute('aria-busy', busy ? 'true' : 'false');
         }
-        if (btn) btn.disabled = loading;
+        // Archive/topic search UI is gated only by isSearching — never by isSummarizing.
+        if (btn) btn.disabled = busy;
+        if (topicInput && !busy) topicInput.disabled = false;
       });
-      if (!loading) ensurePageScrollUnlocked();
+      setResearchLoadingCommunityPlaceholder('topic-research-loading-community', busy, fromArchive);
+      if (!busy) {
+        ensurePageScrollUnlocked();
+        ensureArchiveSearchControlsUnlocked();
+      }
       persistActiveStep();
     }
 
@@ -26109,11 +27314,11 @@
       const runId = ++topicResearchRunId;
       topicResearchAbort = new AbortController();
       const signal = topicResearchAbort.signal;
-      setTopicResearchLoadingUi(true);
+      setTopicResearchLoadingUi(true, { fromArchive: false });
       var btn = document.getElementById('btn-topic-research');
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_loading_archive')) + '</span>';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(getLiveSearchLoadingText()) + '</span>';
       }
       await runPurePhaseCFromStepB(topic, runId, signal, {
         bypassCache: true,
@@ -26124,15 +27329,26 @@
     }
 
     async function runFreshArchiveBypassResearch(topic) {
+      // Rejecting an archive suggestion → live research is billable.
+      var creditOk = await confirmPaidSearchAction({ phase: 'topic', isArchiveHit: false });
+      if (!creditOk) {
+        setTopicResearchLoadingUi(false);
+        var cancelBtn = document.getElementById('btn-topic-research');
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+          updateTopicResearchButton();
+        }
+        return;
+      }
       if (topicResearchAbort) topicResearchAbort.abort();
       const runId = ++topicResearchRunId;
       topicResearchAbort = new AbortController();
       const signal = topicResearchAbort.signal;
-      setTopicResearchLoadingUi(true);
+      setTopicResearchLoadingUi(true, { fromArchive: false });
       var btn = document.getElementById('btn-topic-research');
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_loading_archive')) + '</span>';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(getLiveSearchLoadingText()) + '</span>';
       }
       await runPurePhaseCFromStepB(topic, runId, signal, {
         bypassCache: true,
@@ -26150,7 +27366,13 @@
       }
 
       const match = normalizeArchiveSuggestionMatch(archiveMatch);
-      if (!match || !match.cacheKey || !match.suggestedTopic) return false;
+      if (!match || !match.cacheKey) return false;
+      // Exact archive hits may omit suggestedTopic in older payloads — still auto-load.
+      if (!match.suggestedTopic && match.matchType === 'exact') {
+        match.suggestedTopic = match.topic || String(topic || '').trim();
+        match.topic = match.topic || match.suggestedTopic;
+      }
+      if (!match.suggestedTopic) return false;
       if (isArchiveSuggestionRejected(match)) {
         clearArchiveClarificationState();
         return false;
@@ -26249,12 +27471,12 @@
           topicResearchAbort.abort();
           topicResearchAbort = null;
         }
-        setTopicResearchLoadingUi(true);
+        setTopicResearchLoadingUi(true, { fromArchive: false });
         const rejectBtn = document.getElementById('btn-topic-research');
         if (rejectBtn) {
           rejectBtn.disabled = true;
           rejectBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' +
-            escapeHtml(t('topic_research_loading_archive')) + '</span>';
+            escapeHtml(getLiveSearchLoadingText()) + '</span>';
         }
         loadArchiveHistoricPayload(match).then(function (historicPayload) {
           if (!historicPayload) {
@@ -26395,6 +27617,10 @@
       appState.topicResearchCompleted = true;
       appState.lessonFromArchive = Boolean(meta.fromCache);
       if (meta.cacheKey) appState.lessonCacheKey = meta.cacheKey;
+      appState.topicCommunityMeta = meta || null;
+      if (Array.isArray(meta.communityMatches)) {
+        appState.topicCommunityMatches = meta.communityMatches;
+      }
 
       var summaryHtml = buildStepBSummaryHtmlFromPurePhaseC(data);
       var citationItems = collectPhaseCLinkItemsClient(data);
@@ -26549,11 +27775,107 @@
         hideTopicGradeMismatchNotice();
       }
 
+      // Explicit live-only paths (reject archive / force refresh / scope override).
+      // Do NOT treat topicResearchCompleted as force-live — archive hits must stay free.
       const forceCacheBypass = Boolean(
         genOpts.forceRefresh || genOpts.bypassCache ||
         appState.archiveFreshSearchPending ||
-        appState.topicResearchCompleted
+        shouldForceLiveArchiveBypass(topic, currentGrade)
       );
+      const skipArchiveProbe = Boolean(genOpts.scopeOverride || forceCacheBypass);
+
+      let preArchiveMatch = null;
+      let archiveHandled = false;
+
+      if (!skipArchiveProbe) {
+        // 1) Archive/cache check FIRST — never open credit modal before this.
+        var archiveCheck = await checkArchiveHit('topic', {
+          topic: topic,
+          gradeId: currentGrade,
+        });
+        preArchiveMatch = archiveCheck.match;
+        if (preArchiveMatch && preArchiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
+          presentGradeMismatchNotice(preArchiveMatch.gradeMismatch);
+          return;
+        }
+
+        // 2) Exact archive hit → load + display immediately, no credit modal.
+        if (archiveCheck.isArchiveHit && preArchiveMatch) {
+          appState.topic = topic;
+          appState.lessonFromArchive = true;
+          appState.purePhaseC = null;
+          document.getElementById('api-hint-step2').classList.add('hidden');
+          setTopicResearchLoadingUi(true, { fromArchive: true });
+          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
+            return;
+          }
+          // presentArchivePartialMatch could not auto-load — try direct payload apply.
+          try {
+            var directLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
+            if (directLoaded) return;
+            if (preArchiveMatch.resultData || preArchiveMatch.item) {
+              var applied = await applyArchiveTopicMatch(preArchiveMatch, {
+                closeChat: false,
+                userQuery: topic,
+                allowLiveFallback: false,
+              });
+              if (applied) return;
+            }
+            if (preArchiveMatch.cacheKey) {
+              var histItem = await reloadArchiveLessonItem(preArchiveMatch.cacheKey);
+              if (histItem) {
+                await applyLessonPlanFromHistory(histItem, { userQuery: topic });
+                return;
+              }
+            }
+          } catch (archiveLoadErr) {
+            if (isBenignStreamAbortError(archiveLoadErr)) return;
+            console.warn('[archive-probe] exact hit direct load failed:', archiveLoadErr);
+          }
+          // Matching archived record exists — never open the credit modal.
+          // Stop here rather than reclassifying as a miss (which would bill the teacher).
+          setTopicResearchLoadingUi(false);
+          var archiveBtn = document.getElementById('btn-topic-research');
+          if (archiveBtn) {
+            archiveBtn.disabled = false;
+            updateTopicResearchButton();
+          }
+          return;
+        }
+
+        // Partial suggestion UI is free — credit only if teacher later chooses live search.
+        if (archiveCheck.isPartial && preArchiveMatch) {
+          appState.topic = topic;
+          document.getElementById('api-hint-step2').classList.add('hidden');
+          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
+            return;
+          }
+        }
+
+        // 3) Confirmed cache miss → credit confirm only before a live search.
+        // Never bill when probe failed (global archive may still hit on the live path).
+        if (
+          !archiveCheck.isArchiveHit &&
+          !archiveCheck.probeFailed &&
+          !genOpts.skipCreditConfirm
+        ) {
+          var creditOk = await confirmPaidSearchAction({
+            phase: 'topic',
+            isArchiveHit: false,
+            fromCache: false,
+          });
+          if (!creditOk) return;
+        }
+        archiveHandled = Boolean(archiveCheck.isPartial && preArchiveMatch);
+      } else if (!genOpts.skipCreditConfirm) {
+        // Explicit live bypass — billable.
+        var creditOkLive = await confirmPaidSearchAction({
+          phase: 'topic',
+          isArchiveHit: false,
+          fromCache: false,
+        });
+        if (!creditOkLive) return;
+      }
 
       document.getElementById('api-hint-step2').classList.add('hidden');
       if (topicResearchAbort) topicResearchAbort.abort();
@@ -26573,8 +27895,8 @@
       if (topicSlot) { topicSlot.classList.add('hidden'); topicSlot.innerHTML = ''; }
       if (topicAlert) { topicAlert.classList.add('hidden'); topicAlert.innerHTML = ''; }
 
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(t('topic_research_loading_archive')) + '</span>';
-      setTopicResearchLoadingUi(true);
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin icon-inline"></i> <span>' + escapeHtml(getLiveSearchLoadingText()) + '</span>';
+      setTopicResearchLoadingUi(true, { fromArchive: false });
       btn.disabled = true;
 
       if (!isResearchAvailable()) {
@@ -26594,16 +27916,16 @@
       }
 
       try {
-        const skipArchiveProbe = Boolean(
-          genOpts.scopeOverride || forceCacheBypass || shouldForceLiveArchiveBypass(topic, currentGrade)
-        );
-        if (!skipArchiveProbe) {
-          let archiveMatch = null;
-          try {
-            archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-          } catch (probeErr) {
-            if (isBenignStreamAbortError(probeErr)) return;
-            console.warn('[archive-probe] topic search failed:', probeErr);
+        // Archive already gated above; only re-probe if we skipped the credit-gate path.
+        if (!skipArchiveProbe && !archiveHandled) {
+          let archiveMatch = preArchiveMatch;
+          if (!archiveMatch) {
+            try {
+              archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
+            } catch (probeErr) {
+              if (isBenignStreamAbortError(probeErr)) return;
+              console.warn('[archive-probe] topic search failed:', probeErr);
+            }
           }
           if (runId !== topicResearchRunId || signal.aborted) {
             setTopicResearchLoadingUi(false);
@@ -28899,10 +30221,13 @@
         archiveFreshSearchPending: false,
         archiveRejectedSuggestions: [],
         topicCommunityMatches: [],
+        topicCommunityMeta: null,
         wizardTopicNavReady: false,
       });
       appState.purePhaseC = null;
       appState.generalSearchResult = null;
+      appState.generalSearchMeta = null;
+      appState.topicCommunityMeta = null;
       appState.activeProductTab = null;
       appState.productTabsRendered = freshProductTabsRendered();
       resetProductTabsNeutral();
@@ -29185,8 +30510,10 @@
         onStepNavClick(parseInt(btn.getAttribute('data-step-nav'), 10), e);
       });
       bindWizardNavClick(document.getElementById('btn-nav-community'), function () { openCommunityRepo(); });
+      bindWizardNavClick(document.getElementById('btn-nav-community-summarizer'), function () { openCommunitySummarizerModal(); });
       bindWizardNavClick(document.getElementById('btn-nav-general-search'), function () { openGeneralSearchView(); });
       bindWizardNavClick(document.getElementById('btn-nav-waldorf-sites'), function () { openWaldorfSitesView(); });
+      bindCommunitySummarizerModal();
       bindHomePortalNavigation();
       window.addEventListener('hashchange', function () {
         repairCorruptedProductTabHash();
@@ -29354,8 +30681,10 @@
       updateTopicResearchButton();
       const loadingText = document.getElementById('topic-research-loading-text');
       const cancelLabel = document.querySelector('#btn-topic-research-cancel [data-i18n]');
-      if (loadingText) loadingText.textContent = t('topic_research_loading_archive');
+      if (loadingText) loadingText.textContent = getLiveSearchLoadingText();
       if (cancelLabel) cancelLabel.textContent = t('topic_research_cancel');
+      const generalLoadingText = document.getElementById('general-search-loading-text');
+      if (generalLoadingText) generalLoadingText.textContent = getLiveSearchLoadingText();
       const catalogPanel = document.getElementById('panel-catalog');
       if (isWorkspaceOpen() && catalogPanel && !catalogPanel.classList.contains('hidden')) {
         renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);

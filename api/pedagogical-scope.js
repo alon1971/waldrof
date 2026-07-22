@@ -72,7 +72,8 @@ const CURRICULUM_BLOCKS = [
     gradeId: '4',
     blockLabel: 'אדם וממלכת החי',
     aliases: [
-      'אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי',
+      'אדם וחיות', 'אדם חיות', 'אדם חיה', 'האדם וחיות', 'האדם חיות',
+      'אדם וממלכת החי', 'האדם וממלכת החי', 'האדם בממלכת החי',
       'ממלכת החי', 'human and animal', 'kingdom of nature',
     ],
   },
@@ -565,6 +566,32 @@ function filterCommunityHitsByStrictGrade(hits, gradeId) {
   };
 }
 
+/**
+ * Active semantic exclude — drop rival mythology / epoch hits
+ * (e.g. Norse query must never keep Greek/Roman folders).
+ */
+function filterCommunityHitsByTopicExclude(query, hits) {
+  if (!Array.isArray(hits) || !hits.length) {
+    return { hits: hits || [], filtered: false };
+  }
+  if (typeof catalogTopics.topicsAreMutuallyExcluded !== 'function') {
+    return { hits: hits, filtered: false };
+  }
+  const q = String(query || '').trim();
+  if (!q) return { hits: hits, filtered: false };
+
+  const aligned = hits.filter(function (hit) {
+    const hay = resolveHitTopicText(hit)
+      + ' '
+      + String((hit && (hit.fileName || hit.title || hit.locationPath || hit.drivePath)) || '');
+    return !catalogTopics.topicsAreMutuallyExcluded(q, hay);
+  });
+  return {
+    hits: aligned,
+    filtered: aligned.length !== hits.length,
+  };
+}
+
 module.exports = {
   GRADE_LABEL_BY_ID,
   GRADE_TOPIC_SUGGESTIONS,
@@ -594,4 +621,5 @@ module.exports = {
   resolveHitTopicText,
   filterCommunityHitsByCurriculumGrade,
   filterCommunityHitsByStrictGrade,
+  filterCommunityHitsByTopicExclude,
 };

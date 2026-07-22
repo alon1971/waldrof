@@ -15,6 +15,8 @@
 
   /** Permanent PRO tier — must match api/subscription.js PRO_USERS. */
   var PRO_USERS = ['alon1971@gmail.com'];
+  /** Local mock Google demo email (upgraded to PRO_USERS[0] on localhost). */
+  var LOCAL_DEMO_EMAIL = 'demo.user@gmail.com';
   /** Pro monthly search cap — must stay in sync with api/tier-limits.js */
   var PRO_MONTHLY_SEARCH_LIMIT = 25;
   /** One-time support lifetime search cap — must stay in sync with api/tier-limits.js */
@@ -24,7 +26,7 @@
   /** One-time support Word download lifetime cap — must stay in sync with api/tier-limits.js */
   var STANDARD_WORD_DOWNLOAD_LIMIT = 20;
   /** Google display names that map to a PRO account when email is absent from the session. */
-  var PRO_DISPLAY_NAMES = ['alon yerushalmy'];
+  var PRO_DISPLAY_NAMES = ['alon yerushalmy', 'אלון ירושלמי', 'אלוני ירושלמי'];
 
   var LEGACY_TIER_MAP = {
     educator: 'standard',
@@ -263,6 +265,12 @@
   }
 
   function getIdentityEmail() {
+    // Localhost: prefer pinned PRO admin identity so archive/admin API headers work
+    // even when a stale mock/demo session email is still in memory.
+    if (isLocalDevHost()) {
+      var localPinned = readIdentityEmail();
+      if (isProUserEmail(localPinned)) return localPinned;
+    }
     if (authState.isAuthenticated && authState.user) {
       var sessionEmail = normalizeEmail(authState.user.email);
       if (sessionEmail) return sessionEmail;
@@ -399,6 +407,56 @@
     } catch (e) {
       return false;
     }
+  }
+
+  function isLocalDemoEmail(email) {
+    return normalizeEmail(email) === LOCAL_DEMO_EMAIL;
+  }
+
+  function getLocalDevAdminEmail() {
+    return PRO_USERS[0];
+  }
+
+  function getLocalDevAdminDisplayName() {
+    return prefersHebrewUi() ? 'אלון ירושלמי' : 'Alon Yerushalmy';
+  }
+
+  /**
+   * Localhost-only: pin the active session / identity to the permanent PRO admin
+   * so archive wipe, research tools, and related UI gates match production admin access.
+   */
+  function ensureLocalDevAdminPrivileges() {
+    if (!isLocalDevHost()) return false;
+    var adminEmail = getLocalDevAdminEmail();
+    var adminName = getLocalDevAdminDisplayName();
+    var currentIdentity = readIdentityEmail();
+    var currentUserEmail = authState.user ? normalizeEmail(authState.user.email) : '';
+    var alreadyAdmin = currentIdentity === adminEmail &&
+      (!authState.isAuthenticated || currentUserEmail === adminEmail || isProUserEmail(currentUserEmail)) &&
+      normalizeTierId(authState.tier) === 'pro';
+    if (alreadyAdmin) return true;
+
+    writeIdentityEmail(adminEmail);
+
+    if (authState.isAuthenticated && authState.user) {
+      var email = normalizeEmail(authState.user.email);
+      var userId = String(authState.user.id || '');
+      var isMockSession = isMockProvider(authState.provider) ||
+        isLocalDemoEmail(email) ||
+        userId.indexOf('google_demo_') === 0 ||
+        userId.indexOf('mock_') === 0 ||
+        userId === 'local_admin_dev';
+      if (isMockSession || !email || isLocalDemoEmail(email)) {
+        authState.user = Object.assign({}, authState.user, {
+          email: adminEmail,
+          displayName: adminName,
+        });
+      }
+    }
+
+    applyProUserTierIfEligible();
+    if (authState.isAuthenticated) persistAuth();
+    return true;
   }
 
   function resolveAuthRedirectUrl(explicit) {
@@ -1222,25 +1280,27 @@
   }
 
   function mockGoogleSignIn() {
-    console.log('[WaldorfAuth] Google sign-in clicked — mock/demo mode (Supabase Google not enabled yet)');
+    console.log('[WaldorfAuth] Google sign-in clicked — local mock admin mode');
     setAuthLoading(true, 'google');
     return new Promise(function (resolve) {
       setTimeout(function () {
         authState.isAuthenticated = true;
         authState.provider = 'mock-google';
         authState.user = {
-          id: 'google_demo_' + Date.now(),
-          email: 'demo.user@gmail.com',
-          displayName: (typeof global.isEnglish === 'function' && global.isEnglish())
-            ? 'Google Demo User'
-            : 'משתמש גוגל (הדגמה)',
+          id: 'local_admin_dev',
+          email: getLocalDevAdminEmail(),
+          displayName: getLocalDevAdminDisplayName(),
         };
-        authState.tier = 'trial';
+        authState.tier = 'pro';
+        authState.planType = 'pro';
+        authState.isTrial = false;
+        authState.searchLimit = null;
+        ensureLocalDevAdminPrivileges();
         persistAuth();
         hideAuthOverlay();
         notifyListeners();
         setAuthLoading(false, 'google');
-        console.log('[WaldorfAuth] Mock Google login successful', getPublicState());
+        console.log('[WaldorfAuth] Local mock admin login successful', getPublicState());
         resolve(getPublicState());
       }, 700);
     });
@@ -1897,6 +1957,89 @@
       throw err;
     }
     return check;
+  }
+
+  function getSearchesRemainingDisplay() {
+    var check = canPerformSearch();
+    if (!check.allowed) return 0;
+    if (check.unlimited || check.limit == null) return null;
+    var used = Number(check.usage) || 0;
+    var limit = Number(check.limit) || 0;
+    return Math.max(0, limit - used);
+  }
+
+  /**
+   * Show confirmation before a credit-consuming search/AI action.
+   * Resolves true on confirm, false on cancel. Does not bill — server bills on success.
+   */
+  function confirmCreditUsage(options) {
+    var opts = options || {};
+    // Chat / system help / archive-cache hits must never show a payment/credit modal.
+    // Callers must run checkArchiveHit first; these flags are a hard safety net.
+    if (opts.skipConfirm || opts.phase === 'chat_followup' || opts.free === true ||
+        opts.isArchiveHit || opts.fromCache || opts.hit === true) {
+      return Promise.resolve(true);
+    }
+    var check;
+    try {
+      check = assertSearchAllowed();
+    } catch (err) {
+      return Promise.resolve(false);
+    }
+    var remaining = getSearchesRemainingDisplay();
+    var modal = document.getElementById('credit-confirm-modal');
+    var msgEl = document.getElementById('credit-confirm-message');
+    var okBtn = document.getElementById('credit-confirm-ok');
+    var cancelBtn = document.getElementById('credit-confirm-cancel');
+    var backdrop = document.getElementById('credit-confirm-backdrop');
+    if (!modal || !msgEl || !okBtn || !cancelBtn) {
+      // Fallback when modal markup is missing — proceed after quota gate.
+      return Promise.resolve(true);
+    }
+    var bodyKey = remaining == null ? 'credit_confirm_unlimited' : 'credit_confirm_body';
+    var creditsLabel = remaining == null
+      ? (isEnglishUi() ? 'unlimited' : 'ללא הגבלה')
+      : String(remaining);
+    msgEl.textContent = t(bodyKey, { credits: creditsLabel });
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    return new Promise(function (resolve) {
+      function cleanup(result) {
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        if (backdrop) backdrop.removeEventListener('click', onCancel);
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      }
+      function onOk(e) {
+        if (e) e.preventDefault();
+        cleanup(true);
+      }
+      function onCancel(e) {
+        if (e) e.preventDefault();
+        cleanup(false);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') onCancel(e);
+      }
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      if (backdrop) backdrop.addEventListener('click', onCancel);
+      document.addEventListener('keydown', onKey);
+      try { okBtn.focus(); } catch (focusErr) { /* ignore */ }
+    });
+  }
+
+  function isEnglishUi() {
+    try {
+      if (typeof global.getUiLang === 'function') return global.getUiLang() === 'en';
+      if (document && document.documentElement) {
+        return String(document.documentElement.lang || '').toLowerCase().indexOf('en') === 0;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
   }
 
   function wrapResearchCall(fn) {
@@ -2905,6 +3048,9 @@
     authRedirectUrl = options.authRedirectUrl || '';
     useMockGoogleAuth = options.useMockGoogleAuth === true && isLocalDevHost();
     bindAuthUi();
+    if (isLocalDevHost()) {
+      ensureLocalDevAdminPrivileges();
+    }
     applyProUserTierIfEligible();
     updateIdentityEmailUi();
     if (isProUser()) hideAuthOverlay();
@@ -2916,6 +3062,7 @@
       var client = options.supabaseClient || getSupabaseClient();
       initSupabaseAuth(client).then(function (session) {
         setAuthLoading(false, 'session');
+        if (isLocalDevHost()) ensureLocalDevAdminPrivileges();
         if (session && session.user) {
           hideAuthOverlay();
           refreshSubscriptionFromServer();
@@ -2924,9 +3071,11 @@
         } else {
           hideAuthOverlay();
         }
+        notifyListeners();
       }).catch(function (e) {
         console.warn('[Auth] Supabase session check failed', e);
         setAuthLoading(false, 'session');
+        if (isLocalDevHost()) ensureLocalDevAdminPrivileges();
         if (!isProUser()) showAuthOverlay();
         else hideAuthOverlay();
         authState.sessionReady = true;
@@ -2936,6 +3085,7 @@
     }
 
     var restored = shouldAllowMockAuth() && loadPersistedAuth();
+    if (restored && isLocalDevHost()) ensureLocalDevAdminPrivileges();
     authState.sessionReady = true;
     if (options.firebaseAuth) initFirebaseAuth(options.firebaseAuth);
     if (!restored && !authState.isAuthenticated && !isProUser()) showAuthOverlay();
@@ -3016,6 +3166,8 @@
     getState: getPublicState,
     canPerformSearch: canPerformSearch,
     assertSearchAllowed: assertSearchAllowed,
+    confirmCreditUsage: confirmCreditUsage,
+    getSearchesRemainingDisplay: getSearchesRemainingDisplay,
     canPerformWordDownload: canPerformWordDownload,
     assertWordDownloadAllowed: assertWordDownloadAllowed,
     recordSearch: recordSearch,
@@ -3061,6 +3213,8 @@
     hasPaidSubscription: hasPaidSubscription,
     hasPaidAccess: hasPaidAccess,
     isProUserEmail: isProUserEmail,
+    isLocalDevHost: isLocalDevHost,
+    ensureLocalDevAdminPrivileges: ensureLocalDevAdminPrivileges,
     PRO_USERS: PRO_USERS,
     resolvePlanType: resolvePlanType,
     isStandardPlan: isStandardPlan,

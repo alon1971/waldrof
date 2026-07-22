@@ -148,4 +148,18 @@ assert(
   'Grade-6 Rome material must survive'
 );
 
+const norseExcludeFilter = pedagogicalScope.filterCommunityHitsByTopicExclude('מיתולוגיה נורדית', [
+  { id: 'norse-ok', gradeId: '4', catalogTopic: 'מיתולוגיה נורדית', title: 'סיפורי הצפון' },
+  { id: 'greek-bad', gradeId: '5', catalogTopic: 'יוון', title: 'מיתולוגיה יוונית' },
+  { id: 'rome-bad', gradeId: '6', catalogTopic: 'רומא', title: 'מיתולוגיה רומית' },
+]);
+assert(norseExcludeFilter.filtered === true, 'Norse exclude filter drops rivals');
+assert(norseExcludeFilter.hits.length === 1 && norseExcludeFilter.hits[0].id === 'norse-ok', 'Only Norse hit remains');
+
+const strictPhysics = pedagogicalScope.filterCommunityHitsByStrictGrade([
+  { id: 'g6', gradeId: '6', topic: 'פיזיקה' },
+  { id: 'g7', gradeId: '7', topic: 'פיזיקה' },
+], '6');
+assert(strictPhysics.hits.length === 1 && strictPhysics.hits[0].id === 'g6', 'Strict grade keeps only כיתה ו');
+
 console.log('OK community-search-relevance tests');

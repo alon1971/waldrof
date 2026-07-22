@@ -54,7 +54,8 @@
     {
       label: 'אדם וחיות / ממלכת החי',
       aliases: [
-        'אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי',
+        'אדם וחיות', 'אדם חיות', 'אדם חיה', 'האדם וחיות', 'האדם חיות',
+        'אדם וממלכת החי', 'האדם וממלכת החי', 'האדם בממלכת החי',
         'ממלכת החי', 'human and animal', 'kingdom of nature',
       ],
       gradeIds: ['4', '5'],
@@ -77,7 +78,7 @@
     { gradeId: '2', blockLabel: 'משלי חיות וסיפורי צדיקים', aliases: ['משלי חיות', 'משל חיות', 'fables', 'animal fables', 'סיפורי צדיקים', 'צדיקים', 'saints', 'saint stories'] },
     { gradeId: '3', blockLabel: 'תנ״ך וחקלאות', aliases: ['תנ״ך', 'תנך', 'מקרא', 'בראשית', 'נח', 'חקלאות', 'בית בנין', 'בניית בית', 'old testament', 'bible stories'] },
     { gradeId: '4', blockLabel: 'מיתולוגיה נורדית', aliases: ['נורדית', 'נורד', 'נורדים', 'אסגארד', 'אודין', 'תור', 'thor', 'odin', 'norse', 'norse mythology', 'גיאוגרפיה מקומית', 'local geography'] },
-    { gradeId: '4', blockLabel: 'אדם וממלכת החי', aliases: ['אדם וחיות', 'האדם וחיות', 'אדם וממלכת החי', 'האדם וממלכת החי', 'ממלכת החי', 'human and animal', 'kingdom of nature'] },
+    { gradeId: '4', blockLabel: 'אדם וממלכת החי', aliases: ['אדם וחיות', 'אדם חיות', 'אדם חיה', 'האדם וחיות', 'האדם חיות', 'אדם וממלכת החי', 'האדם וממלכת החי', 'האדם בממלכת החי', 'ממלכת החי', 'human and animal', 'kingdom of nature'] },
     { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'אודיסאוס', 'היסטוריה יוונית', 'אלכסנדר הגדול', 'אולימפיאדה', 'אולימפיה', 'greek mythology', 'ancient greece'] },
     { gradeId: '5', blockLabel: 'בוטניקה', aliases: ['בוטניקה', 'צמחים', 'צמח', 'botany', 'plants'] },
     { gradeId: '6', blockLabel: 'רומא וימי ביניים', aliases: ['רומא', 'רומאית', 'rome', 'roman', 'roman history', 'ימי ביניים', 'medieval', 'middle ages', 'גיאולוגיה', 'geology', 'mineralogy'] },
@@ -157,6 +158,16 @@
     ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'עתיקה', 'היסטוריה יוונית', 'אלכסנדר הגדול', 'אולימפיאדה', 'אולימפיה', 'greek mythology', 'ancient greece'],
     ['מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey'],
     ['רומא', 'רומא העתיקה', 'האימפריה הרומית', 'היסטוריה רומית', 'רומאית', 'rome', 'roman', 'roman empire', 'roman history', 'ancient rome'],
+    [
+      'אדם וחיות', 'אדם חיות', 'אדם חיה', 'האדם וחיות', 'האדם חיות',
+      'אדם וממלכת החי', 'האדם וממלכת החי', 'האדם בממלכת החי', 'ממלכת החי',
+      'human and animal', 'kingdom of nature',
+    ],
+    [
+      'אדם עולם', 'אדם-עולם', 'adam olam', 'adam-olam',
+      'תזונה', 'בריאות', 'תזונה ובריאות', 'תזונה וולדורף',
+      'nutrition', 'health', 'waldorf nutrition',
+    ],
     ['משלי חיות', 'fables', 'animal fables'],
     ['סיפורי צדיקים', 'saints', 'saint stories'],
   ];
@@ -181,6 +192,7 @@
     ['מיתולוגיה', 'מיתוס', 'מיתוסים', 'אגדות', 'אגדה', 'סיפורי'],
     ['פיזיקה', 'מכניקה', 'אנרגיה', 'חשמל', 'אור'],
     ['כימיה', 'יסודות', 'חומרים', 'תגובות'],
+    ['תזונה', 'בריאות', 'תזונתי', 'בריאותי'],
   ];
 
   var clusterIndex = null;
@@ -349,7 +361,53 @@
     if (textNorm === aliasNorm) return true;
     if (aliasNorm.length >= 3 && textNorm.indexOf(aliasNorm) >= 0) return true;
     if (textNorm.length >= 4 && aliasNorm.indexOf(textNorm) >= 0) return true;
+    // Multi-token soft match: «אדם חיה» ↔ «אדם וחיות» / «האדם בממלכת החי»
+    if (aliasMatchesQueryByTokens(textNorm, aliasNorm)) return true;
     return false;
+  }
+
+  function hebrewTokensRelated(tokenA, tokenB) {
+    var a = normalizeHebrewWord(tokenA);
+    var b = normalizeHebrewWord(tokenB);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (isKnownFalseMorphologyPair(a, b)) return false;
+    if (a.length >= 3 && b.length >= 3 && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0)) return true;
+    var stemA = stripHebrewAffixes(a);
+    var stemB = stripHebrewAffixes(b);
+    if (stemA && stemB && stemA === stemB) return true;
+    if (stemA.length >= 3 && stemB.length >= 3 && (stemA.indexOf(stemB) >= 0 || stemB.indexOf(stemA) >= 0)) {
+      return true;
+    }
+    var skA = consonantSkeleton(a);
+    var skB = consonantSkeleton(b);
+    if (skA.length >= 3 && skA === skB) return true;
+    var idx = buildClusterIndex();
+    var hitsA = idx.get(a) || idx.get(stemA) || [];
+    var hitsB = idx.get(b) || idx.get(stemB) || [];
+    for (var i = 0; i < hitsA.length; i++) {
+      for (var j = 0; j < hitsB.length; j++) {
+        if (hitsA[i].id === hitsB[j].id) return true;
+      }
+    }
+    return false;
+  }
+
+  function aliasMatchesQueryByTokens(queryNorm, aliasNorm) {
+    var queryTokens = extractMeaningfulTokens(queryNorm);
+    var aliasTokens = extractMeaningfulTokens(aliasNorm);
+    if (queryTokens.length < 2 || aliasTokens.length < 2) return false;
+    // Every query token must relate to some alias token (חיה↔חיות, אדם↔האדם).
+    var allMatched = queryTokens.every(function (qt) {
+      return aliasTokens.some(function (at) { return hebrewTokensRelated(qt, at); });
+    });
+    if (!allMatched) return false;
+    // Require solid overlap so a single shared stop-ish token cannot hijack the match.
+    var matchedAlias = 0;
+    aliasTokens.forEach(function (at) {
+      if (queryTokens.some(function (qt) { return hebrewTokensRelated(qt, at); })) matchedAlias += 1;
+    });
+    return matchedAlias >= Math.min(2, aliasTokens.length);
   }
 
   function displayEpochTopicLabel(topicText, epochEntry) {
@@ -740,8 +798,9 @@
     });
 
     // Expand pedagogical aliases (e.g. יוון העתיקה ↔ יוון ↔ עתיקה).
-    // Match exact or "seed contains alias" only — avoid bare מיתולוגיה → מיתולוגיה נורדית.
+    // Match exact, "seed contains alias", or multi-token soft match (אדם חיה ↔ אדם וחיות).
     var seedTerms = Array.from(terms);
+    seedTerms.push(raw);
     seedTerms.forEach(function (seed) {
       var seedNorm = stableNormalize(seed);
       if (!seedNorm) return;
@@ -752,7 +811,8 @@
           var aliasNorm = stableNormalize(cluster[j]);
           if (!aliasNorm) continue;
           if (aliasNorm === seedNorm
-            || (aliasNorm.length >= 3 && seedNorm.indexOf(aliasNorm) >= 0)) {
+            || (aliasNorm.length >= 3 && seedNorm.indexOf(aliasNorm) >= 0)
+            || aliasMatchesQueryByTokens(seedNorm, aliasNorm)) {
             hit = true;
             break;
           }
@@ -794,6 +854,37 @@
       terms.add('יוון');
       terms.add('יוון העתיקה');
       terms.delete('מיתולוגיה');
+    }
+
+    // Active rival-mythology exclude (Norse ↔ Greek/Roman) after synonym expansion.
+    var excludeTerms = [];
+    try {
+      var catalogTopics = require('./api/catalog-topics');
+      if (catalogTopics && typeof catalogTopics.getExcludedTermsForQuery === 'function') {
+        excludeTerms = catalogTopics.getExcludedTermsForQuery(raw) || [];
+      }
+    } catch (e) {
+      excludeTerms = [];
+    }
+    if (excludeTerms.length) {
+      Array.from(terms).forEach(function (term) {
+        var tn = stableNormalize(term);
+        for (var ei = 0; ei < excludeTerms.length; ei++) {
+          var ex = stableNormalize(excludeTerms[ei]);
+          if (!ex) continue;
+          if (tn === ex || (ex.length >= 3 && tn.indexOf(ex) >= 0) || (tn.length >= 4 && ex.indexOf(tn) >= 0)) {
+            terms.delete(term);
+            break;
+          }
+        }
+      });
+      // Bare "מיתולוגיה" is too weak once a specific mythology family is active.
+      if (raw.indexOf('נורד') >= 0 || raw.indexOf('norse') >= 0
+        || raw.indexOf('יוון') >= 0 || raw.indexOf('greek') >= 0
+        || raw.indexOf('רומא') >= 0 || raw.indexOf('roman') >= 0) {
+        terms.delete('מיתולוגיה');
+        terms.delete('mythology');
+      }
     }
 
     return Array.from(terms)
@@ -863,6 +954,8 @@
     consonantSkeleton: consonantSkeleton,
     wordsMorphologicallyRelated: wordsMorphologicallyRelated,
     expandHebrewSearchTerms: expandHebrewSearchTerms,
+    hebrewTokensRelated: hebrewTokensRelated,
+    aliasMatchesQueryByTokens: aliasMatchesQueryByTokens,
     scoreMorphologicalTopicMatch: scoreMorphologicalTopicMatch,
     scoreHebrewTopicSimilarity: scoreHebrewTopicSimilarity,
     getGradeCanonicalArchiveTopic: getGradeCanonicalArchiveTopic,
