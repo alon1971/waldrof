@@ -1726,6 +1726,55 @@ function resolveStrictDriveScopeFolderIds(index, gradeId, topic) {
   return allowed;
 }
 
+/** True when folderId is the ancestorId itself or a nested descendant. */
+function isDriveFolderUnderAncestor(index, folderId, ancestorId) {
+  const want = String(ancestorId || '').trim();
+  let cur = String(folderId || '').trim();
+  if (!want || !cur || !index || !index.byFolderId) return false;
+  let guard = 0;
+  while (cur && guard++ < 48) {
+    if (cur === want) return true;
+    const meta = index.byFolderId[cur];
+    if (!meta) break;
+    cur = String(meta.parentId || '').trim();
+  }
+  return false;
+}
+
+/**
+ * Collect a parent folder and every indexed descendant under that branch.
+ * Used to lock Drive keyword search to a single grade/topic folder tree.
+ */
+function resolveDescendantFolderIds(index, parentFolderId) {
+  const allowed = new Set();
+  const rootId = String(parentFolderId || '').trim();
+  if (!index || !index.byFolderId || !rootId) return allowed;
+  Object.keys(index.byFolderId).forEach(function (folderId) {
+    if (isDriveFolderUnderAncestor(index, folderId, rootId)) {
+      allowed.add(folderId);
+    }
+  });
+  // Include the parent even if the index walk missed registering it.
+  if (!allowed.size && rootId) allowed.add(rootId);
+  else if (rootId) allowed.add(rootId);
+  return allowed;
+}
+
+/**
+ * Resolve the Drive parent folder that should own a grade-locked search.
+ * Prefer an explicit client/server parentFolderId; otherwise use the grade root.
+ */
+function resolveDriveParentFolderId(index, options) {
+  const opts = options || {};
+  const explicit = String(opts.parentFolderId || opts.folderId || '').trim();
+  if (explicit) return explicit;
+  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  if (gradeId && index && index.gradeRootFolders && index.gradeRootFolders[gradeId]) {
+    return String(index.gradeRootFolders[gradeId]).trim();
+  }
+  return '';
+}
+
 function resolveFileScopeFromParents(file, index) {
   const parents = Array.isArray(file && file.parents) ? file.parents : [];
   for (let i = 0; i < parents.length; i++) {
@@ -1945,15 +1994,39 @@ async function searchDriveCommunityCatalog(query, options) {
     };
   }
 
+  const parentFolderId = resolveDriveParentFolderId(index, Object.assign({}, opts, {
+    gradeId: scope.gradeId || opts.gradeId || opts.currentGrade || '',
+  }));
+  const branchFolderIds = parentFolderId
+    ? resolveDescendantFolderIds(index, parentFolderId)
+    : new Set();
+
   const allowedFolderIds = resolveStrictDriveScopeFolderIds(
     index,
     scope.gradeId,
     scope.topic
   );
 
-  // If a topic lock produced zero folders, fall back to grade-only (still strict on grade).
-  let effectiveAllowed = allowedFolderIds;
+  // Prefer the explicit grade/topic parent branch so Drive queries stay inside
+  // that subtree (nested subfolders included) instead of scanning the whole catalog.
+  let effectiveAllowed = new Set();
   let topicRelaxed = false;
+  if (branchFolderIds.size) {
+    if (scope.topic && allowedFolderIds.size) {
+      allowedFolderIds.forEach(function (folderId) {
+        if (branchFolderIds.has(folderId)) effectiveAllowed.add(folderId);
+      });
+    }
+    if (!effectiveAllowed.size) {
+      // Topic lock under this parent found nothing — keep the whole grade branch.
+      branchFolderIds.forEach(function (folderId) { effectiveAllowed.add(folderId); });
+      topicRelaxed = Boolean(scope.topic);
+    }
+  } else {
+    effectiveAllowed = allowedFolderIds;
+  }
+
+  // If a topic lock produced zero folders, fall back to grade-only (still strict on grade).
   if (!effectiveAllowed.size && scope.gradeId && scope.topic) {
     effectiveAllowed = resolveStrictDriveScopeFolderIds(index, scope.gradeId, '');
     topicRelaxed = true;
@@ -1973,7 +2046,10 @@ async function searchDriveCommunityCatalog(query, options) {
       driveScoped: true,
       communityStatus: 'empty',
       driveConfigured: true,
-      scope: scope,
+      scope: Object.assign({}, scope, {
+        parentFolderId: parentFolderId || '',
+        gradeFolderId: parentFolderId || '',
+      }),
     };
   }
 
@@ -2010,9 +2086,12 @@ async function searchDriveCommunityCatalog(query, options) {
   const nameOnlyFirstPass = navigationMode === true;
   const debugInfo = {
     scannedFolderCount: parentIdList.length,
-    gradeFolderIds: scope.gradeId && index.gradeRootFolders
-      ? [index.gradeRootFolders[scope.gradeId]].filter(Boolean)
-      : [],
+    parentFolderId: parentFolderId || '',
+    gradeFolderIds: parentFolderId
+      ? [parentFolderId]
+      : (scope.gradeId && index.gradeRootFolders
+        ? [index.gradeRootFolders[scope.gradeId]].filter(Boolean)
+        : []),
     gradeTopicFolders: scope.gradeId && index.topicFolders && index.topicFolders[scope.gradeId]
       ? Object.keys(index.topicFolders[scope.gradeId])
       : [],
@@ -2081,7 +2160,9 @@ async function searchDriveCommunityCatalog(query, options) {
   // When the grade has no matching topic folder (or scoped search is empty), also
   // search the catalog root / ungraded layers by bare topic name — materials like
   // «תזונה ונשימה…» often live as root shortcuts outside כיתה folders.
-  const needsUngradedPass = topicRelaxed || !rawFiles.length;
+  // Skip this entirely when a parentFolderId branch lock is active (catalog UI).
+  const branchLocked = Boolean(parentFolderId);
+  const needsUngradedPass = !branchLocked && (topicRelaxed || !rawFiles.length);
   let ungradedPassRan = false;
   if (needsUngradedPass && scope.topic) {
     ungradedPassRan = true;
@@ -2110,6 +2191,9 @@ async function searchDriveCommunityCatalog(query, options) {
         topic: scope.topic,
         topicRelaxed: topicRelaxed,
         broadScan: broadScan,
+        parentFolderId: parentFolderId || '',
+        gradeFolderId: parentFolderId || '',
+        branchLocked: branchLocked,
       },
     };
   }
@@ -2315,6 +2399,9 @@ async function searchDriveCommunityCatalog(query, options) {
       broadScan: broadScan,
       navigationMode: navigationMode,
       ungradedPassRan: ungradedPassRan,
+      parentFolderId: parentFolderId || '',
+      gradeFolderId: parentFolderId || '',
+      branchLocked: branchLocked,
     },
   };
 }
@@ -2632,6 +2719,9 @@ module.exports = {
   buildDriveFolderIndex,
   getDriveFolderIndex,
   resolveStrictDriveScopeFolderIds,
+  resolveDescendantFolderIds,
+  resolveDriveParentFolderId,
+  isDriveFolderUnderAncestor,
   resolveDriveSearchScope,
   topicsStrictlyCompatible,
   nameMatchesTopicCentrally,

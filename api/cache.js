@@ -5412,6 +5412,8 @@ async function findCommunityMaterials(options) {
         userMessage: semanticQuery || query,
         gradeId: gradeId || '',
         currentGrade: gradeId || '',
+        parentFolderId: opts.parentFolderId || opts.folderId || '',
+        folderId: opts.parentFolderId || opts.folderId || '',
         topic: opts.topic || opts.catalogTopic || '',
         catalogTopic: opts.catalogTopic || opts.topic || '',
         limit: opts.limit || 8,
@@ -5675,6 +5677,7 @@ async function probeCommunityGlobalSearch(query, options) {
     || String(opts.phase || '').indexOf('community_catalog') === 0
     || String(opts.phase || '') === 'probe_community';
 
+  const parentFolderId = String(opts.parentFolderId || opts.folderId || '').trim();
   const baseOpts = {
     query: userMessage,
     userMessage: userMessage,
@@ -5682,6 +5685,8 @@ async function probeCommunityGlobalSearch(query, options) {
     catalogTopic: opts.catalogTopic || opts.topic || null,
     gradeId: scopedGrade,
     currentGrade: scopedGrade,
+    parentFolderId: parentFolderId || null,
+    folderId: parentFolderId || null,
     globalScan: useGlobalScan,
     broadScan: useGlobalScan || opts.broadScan === true || Boolean(gradePolicy.crossCutting && !scopedGrade),
     semanticFallback: !navigationMode,

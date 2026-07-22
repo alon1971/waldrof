@@ -300,12 +300,16 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
+    const parentFolderId = String(
+      (body && (body.parentFolderId || body.folderId)) || ''
+    ).trim();
     // Catalog tab = Direct Drive Search (navigation citations only, no Gemini summary).
     // Community / Drive cache is ALWAYS global — never scoped to the signed-in userId.
     const communitySearch = require('./community-search');
-    console.log('[search-history][debug] probe_community global scope', {
+    console.log('[search-history][debug] probe_community grade folder scope', {
       query: query.slice(0, 80),
       gradeId: scopedGrade,
+      parentFolderId: parentFolderId || null,
       catalogTopic: catalogTopic.slice(0, 60) || null,
       ignoreUserId: true,
     });
@@ -314,6 +318,8 @@ async function executeSearchHistory(req) {
       catalogTopic: catalogTopic || null,
       gradeId: scopedGrade,
       currentGrade: scopedGrade,
+      parentFolderId: parentFolderId || null,
+      folderId: parentFolderId || null,
       globalScan: false,
       phase: 'community_catalog',
       limit: 8,
@@ -321,6 +327,12 @@ async function executeSearchHistory(req) {
       repositorySearch: true,
       ignoreUserId: true,
     });
+    const driveScope = probe.driveScope || null;
+    const resolvedParentFolderId = String(
+      (driveScope && (driveScope.parentFolderId || driveScope.gradeFolderId))
+      || parentFolderId
+      || ''
+    ).trim();
     return {
       ok: true,
       action: 'probe_community',
@@ -334,7 +346,8 @@ async function executeSearchHistory(req) {
       folderBrief: null,
       contextualRoute: probe.contextualRoute || null,
       driveScoped: probe.driveScoped || false,
-      driveScope: probe.driveScope || null,
+      driveScope: driveScope,
+      parentFolderId: resolvedParentFolderId || null,
       communityStatus: probe.communityStatus
         || ((probe.matches || []).length ? 'ok' : 'empty'),
       communityError: probe.communityError || null,
