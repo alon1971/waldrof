@@ -6834,11 +6834,6 @@
     </div>
   </div>
 
-  <footer class="border-t border-gold/20 bg-parchment/50 py-5 text-center text-xs text-walnut/60">
-      <button type="button" id="refresh-community" class="touch-target text-sage-dark hover:underline px-4 py-3 text-sm"><i class="fa-solid fa-arrows-rotate icon-inline"></i> <span data-i18n="refresh_cloud">רענן מהענן</span></button>
-      <p id="upload-status" class="mt-1 text-sm hidden"></p>
-    </footer>
-
   <!-- Free-tier lifetime search cap — must match api/tier-limits.js (1 live search). -->
   <script>window.__WALDROF_TRIAL_SEARCH_LIMIT__ = 1;</script>
   <script src="auth-subscription.js?v=20260712c"></script>
@@ -21657,14 +21652,6 @@
       if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
       return (b / 1048576).toFixed(1) + ' MB';
     }
-    function showUploadStatus(msg, type) {
-      const el = document.getElementById('upload-status');
-      if (!el) return;
-      el.textContent = msg;
-      el.className = 'mt-2 text-sm ' + (type === 'success' ? 'text-sage-dark' : 'text-terracotta');
-      el.classList.remove('hidden');
-      setTimeout(function () { el.classList.add('hidden'); }, 4000);
-    }
     function updateCloudBanner() {
       const el = document.getElementById('cloud-status');
       if (!el) return;
@@ -29347,26 +29334,6 @@
       ensurePedagogySuggestionEvents();
       ensureArchiveUpgradeQueryEvents();
       setupThemeActionButtons();
-
-      document.getElementById('refresh-community').addEventListener('click', async function () {
-        try {
-          await loadCommunity();
-          appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-          renderCommunityMaterials();
-          renderTopicCommunitySlot();
-          renderGradeCommunityList();
-          updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
-          if (!document.getElementById('panel-catalog').classList.contains('hidden')) {
-            renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
-          }
-          if (appState.topic && appState.grade && (
-            appState.topicResearchCompleted || appState.purePhaseC || appState.aiGeneratedPlan
-          )) {
-            await refreshPurePhaseCFromCloud();
-          }
-          showUploadStatus('עודכן', 'success');
-        } catch (e) { showUploadStatus(e.message, 'error'); }
-      });
     }
 
     function updateTopicResearchButton() {
