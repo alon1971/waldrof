@@ -56,13 +56,38 @@ function driveIsConfigured() {
     : false;
 }
 
+function citationsFromFileRefs(fileRefs) {
+  if (typeof communitySearch.buildCommunityCitations === 'function') {
+    return communitySearch.buildCommunityCitations((fileRefs || []).map(function (ref) {
+      return {
+        fileName: communityDriveArchive.shortCitationDisplayName
+          ? communityDriveArchive.shortCitationDisplayName(ref.name || ref.fileName, 'קובץ Drive')
+          : (ref.name || ref.fileName || 'קובץ Drive'),
+        title: ref.name || ref.fileName || '',
+        displayTitle: ref.name || ref.fileName || '',
+        locationPath: '',
+        webViewLink: ref.webViewLink || ref.fileUrl || '',
+        fileUrl: ref.fileUrl || ref.webViewLink || '',
+        driveFileId: ref.driveFileId || '',
+        mimeType: ref.mimeType || '',
+        gradeId: ref.gradeId || '',
+        catalogTopic: ref.folder || ref.catalogTopic || '',
+      };
+    }));
+  }
+  return [];
+}
+
 /**
  * Full on-demand community topic summary (public archive + root Drive scan).
+ * Instant archive hit (topic + grade) skips Drive listing and Gemini entirely
+ * unless forceRefresh is set.
  */
 async function runCommunityTopicSummary(options) {
   const opts = options || {};
   const topic = String(opts.topic || opts.query || opts.userMessage || '').trim();
   const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  const forceRefresh = opts.forceRefresh === true || opts.refresh === true;
 
   if (!topic) {
     const err = new Error('topic is required');
@@ -85,6 +110,64 @@ async function runCommunityTopicSummary(options) {
     : { lockedGradeId: gradeId, allowBroadScan: false, crossCutting: false };
   const lockedGradeId = String(gradePolicy.lockedGradeId || gradeId).trim();
   const configured = driveIsConfigured();
+
+  // ── Aggressive cache: return archived summary BEFORE any Drive/Gemini work ──
+  if (!forceRefresh && typeof communityDriveArchive.tryInstantArchiveRetrieval === 'function') {
+    try {
+      const instant = await communityDriveArchive.tryInstantArchiveRetrieval(topic, {
+        gradeId: lockedGradeId,
+        currentGrade: lockedGradeId,
+        topic: topic,
+        catalogTopic: topic,
+        phase: SUMMARIZER_PHASE,
+      });
+      if (instant && instant.summary) {
+        const citations = citationsFromFileRefs(instant.fileRefs);
+        let summaryText = String(instant.summary).trim();
+        if (
+          citations.length
+          && typeof communitySearch.appendCitationsMarkdown === 'function'
+          && !(/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))
+        ) {
+          summaryText = communitySearch.appendCitationsMarkdown(summaryText, citations);
+        }
+        if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
+          summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
+        }
+        console.log(
+          '[community-summarizer] returning INSTANT archived summary for',
+          JSON.stringify(topic),
+          'grade',
+          lockedGradeId
+        );
+        return {
+          success: true,
+          topic: topic,
+          gradeId: lockedGradeId,
+          communityStatus: 'ok',
+          communitySummaryHeading: instant.heading || COMMUNITY_SUMMARY_HEADING,
+          communitySummary: summaryText,
+          communityMatchCount: (instant.fileRefs || []).length,
+          communityMatches: [],
+          communityCitations: citations,
+          communitySummaryFromArchive: true,
+          communitySummaryDeltaUpdated: false,
+          communityArchiveKey: instant.archiveKey || null,
+          communitySummaryModel: instant.model || null,
+          communityDriveConfigured: configured,
+          communityError: null,
+          fromArchive: true,
+          deltaUpdated: false,
+          instantArchiveHit: true,
+        };
+      }
+    } catch (instantErr) {
+      console.warn(
+        '[community-summarizer] instant archive check failed — continuing to Drive:',
+        instantErr && instantErr.message ? instantErr.message : instantErr
+      );
+    }
+  }
 
   // Prefer a full listing of every file under the grade/topic folder tree
   // (incl. shortcut targets) so Gemini receives a multi-file merge — not a
@@ -225,6 +308,7 @@ async function runCommunityTopicSummary(options) {
       catalogTopic: topic,
       phase: SUMMARIZER_PHASE,
       citations: citations,
+      forceRefresh: forceRefresh,
     }
   );
 
@@ -237,6 +321,9 @@ async function runCommunityTopicSummary(options) {
     && typeof communitySearch.appendCitationsMarkdown === 'function'
   ) {
     summaryText = communitySearch.appendCitationsMarkdown(summaryText, citations);
+  }
+  if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
+    summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
   }
 
   const status = summary.communityStatus === 'ok' || summary.communityStatus === 'degraded'
@@ -261,6 +348,7 @@ async function runCommunityTopicSummary(options) {
     communityError: summary.communityError || probeError || null,
     fromArchive: Boolean(summary.fromArchive),
     deltaUpdated: Boolean(summary.deltaUpdated),
+    instantArchiveHit: false,
   };
 }
 
@@ -276,6 +364,7 @@ async function executeCommunitySummarizer(req) {
     gradeId: body.gradeId || body.currentGrade,
     currentGrade: body.currentGrade || body.gradeId,
     limit: body.limit,
+    forceRefresh: body.forceRefresh === true || body.refresh === true,
   });
 }
 

@@ -1975,13 +1975,20 @@
       color: rgba(92, 74, 58, 0.92);
       font-size: 0.98rem;
       line-height: 1.7;
-      white-space: pre-wrap;
+      white-space: normal;
     }
     .hybrid-community-summary-body p {
       margin: 0 0 0.7rem;
     }
     .hybrid-community-summary-body p:last-child {
       margin-bottom: 0;
+    }
+    .hybrid-community-summary-body a,
+    .hybrid-community-citations a {
+      color: #0563C1 !important;
+      text-decoration: underline !important;
+      text-underline-offset: 2px;
+      font-weight: 500;
     }
     .hybrid-community-summary.is-empty .hybrid-community-summary-body {
       color: rgba(92, 74, 58, 0.72);
@@ -2197,23 +2204,29 @@
       border-top: 1px solid rgba(140, 122, 96, 0.22);
     }
     .hybrid-community-citations h4 {
-      margin: 0 0 0.5rem;
+      margin: 0 0 0.65rem;
       font-size: 0.95rem;
       color: var(--color-walnut, #5c4a3a);
     }
     .hybrid-community-citations ul {
       margin: 0;
-      padding: 0 1.1rem 0 0;
-      list-style: disc;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
     }
     .hybrid-community-citations li {
-      margin: 0.35rem 0;
-      line-height: 1.45;
+      margin: 0;
+      padding: 0.15rem 0;
+      line-height: 1.5;
     }
     .hybrid-community-citations a {
-      color: var(--color-sage-dark, #4f6f52);
+      color: #0563C1;
       text-decoration: underline;
       text-underline-offset: 2px;
+      display: inline-block;
+      padding: 0.1rem 0;
     }
     .catalog-drive-citations {
       list-style: none;
@@ -16192,7 +16205,7 @@
       var htmlContent =
         '<!DOCTYPE html><html><head><meta charset="utf-8">' +
         '<title>' + escapeXmlForDocx(title) + '</title>' +
-        '<style>body,p,span,li,h1,h2,h3,h4,div{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;}</style>' +
+        '<style>body,p,span,li,h1,h2,h3,h4,div{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;}a{color:#0563C1;text-decoration:underline;}</style>' +
         '</head><body lang="' + (lang === 'en' ? 'EN-US' : 'HE') + '" dir="' + dir + '" style="' + containerStyle + '">' +
         safeBody +
         '</body></html>';
@@ -20595,13 +20608,51 @@
       }).filter(Boolean).join('') + '</ul>';
     }
 
+    function shortCommunityCitationName(value, fallback) {
+      var s = String(value == null ? '' : value).trim();
+      if (!s) return String(fallback || 'קובץ Drive');
+      s = s.replace(/^\d+[\.\)]\s*/, '').trim();
+      var dashSplit = s.split(/\s*[—–]\s+/);
+      if (dashSplit.length > 1 && dashSplit[0].trim()) s = dashSplit[0].trim();
+      if (/[>\/]/.test(s)) {
+        var parts = s.split(/\s*>\s*|\s*\/\s*/).map(function (p) {
+          return String(p || '').trim();
+        }).filter(Boolean);
+        if (parts.length) s = parts[parts.length - 1];
+      }
+      return s || String(fallback || 'קובץ Drive');
+    }
+
+    /** Turn literal "\\n" sequences into real line breaks before HTML/DOCX render. */
+    function normalizeEscapedNewlinesForDisplay(text) {
+      var s = String(text == null ? '' : text);
+      if (!s) return '';
+      if (s.indexOf('\\n') !== -1 || s.indexOf('\\r') !== -1 || s.indexOf('\\t') !== -1) {
+        s = s
+          .replace(/\\r\\n/g, '\n')
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\n')
+          .replace(/\\t/g, '\t');
+      }
+      return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    }
+
+    function sanitizeCommunitySummaryForDisplay(text) {
+      var s = normalizeEscapedNewlinesForDisplay(text);
+      if (!s) return '';
+      s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label, url) {
+        return '[' + shortCommunityCitationName(label, label) + '](' + url + ')';
+      });
+      s = s.replace(/(\]\(https?:\/\/[^)\s]+\))\s*[—–-]\s*[^\n]+/g, '$1');
+      return s.trim();
+    }
+
     function renderHybridCommunityCitationsHtml(meta) {
       var citations = (meta && Array.isArray(meta.communityCitations) && meta.communityCitations.length)
         ? meta.communityCitations
         : ((meta && meta.communityMatches) || []).map(function (match) {
           return {
             fileName: match.fileName || match.title || match.displayTitle || 'קובץ Drive',
-            locationPath: buildDriveCitationLocation(match),
             webViewLink: resolveMatchWebViewLink(match),
           };
         });
@@ -20609,14 +20660,15 @@
       return '<div class="hybrid-community-citations" dir="rtl">' +
         '<h4>מראי מקום</h4>' +
         '<ul>' + citations.map(function (cite, idx) {
-          var name = escapeHtml(String(cite.fileName || ('מקור ' + (idx + 1))));
-          var loc = escapeHtml(String(cite.locationPath || ''));
+          var name = escapeHtml(shortCommunityCitationName(
+            cite.fileName || cite.name || '',
+            'מקור ' + (idx + 1)
+          ));
           var link = String(cite.webViewLink || cite.fileUrl || '').trim();
-          var label = name + (loc ? ' — ' + loc : '');
           if (link) {
-            return '<li><a href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + label + '</a></li>';
+            return '<li><a href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + name + '</a></li>';
           }
-          return '<li>' + label + '</li>';
+          return '<li>' + name + '</li>';
         }).join('') + '</ul></div>';
     }
 
@@ -21947,7 +21999,7 @@
 
     function formatInspirationAiMarkdown(text) {
       if (!text) return '';
-      text = normalizeRawAnchorsToCitations(text);
+      text = sanitizeCommunitySummaryForDisplay(normalizeRawAnchorsToCitations(text));
       var lines = String(text).split(/\r?\n/);
       var html = [];
       var inOl = false;
@@ -23466,9 +23518,10 @@
         || summary === t('hybrid_community_summarizing')
         || /מסכם חומר מהמאגר הקהילתי/.test(summary)
         || /סורק את המאגר הקהילתי/.test(summary);
+      summary = sanitizeCommunitySummaryForDisplay(summary);
       var bodyHtml = isSummarizing
         ? ('<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>' + escapeHtml(summary) + '</span>')
-        : (formatInspirationAiMarkdown(summary) || ('<p>' + escapeHtml(summary) + '</p>'));
+        : (formatInspirationAiMarkdown(summary) || ('<p>' + escapeHtml(summary).replace(/\n/g, '<br>') + '</p>'));
       var citationsHtml = (isEmpty || isSummarizing) ? '' : renderHybridCommunityCitationsHtml(meta);
       // Avoid duplicating a Gemini-authored «מראי מקום» section when we already append links.
       if (citationsHtml && /מראי מקום/.test(summary) && /https?:\/\//.test(summary)) {
@@ -23503,8 +23556,12 @@
       var previous = String(select.value || '').trim();
       var placeholder = t('grade_placeholder') || '— בחרו כיתה —';
       var html = '<option value="">' + escapeHtml(placeholder) + '</option>';
-      GRADES.forEach(function (g) {
-        html += '<option value="' + escapeHtml(g.id) + '">' + escapeHtml(getGradeLabelById(g.id) || g.label) + '</option>';
+      // Grades א׳–ח׳ plus «כללי» for cross-grade / school pedagogy.
+      CATALOG_GRADES.forEach(function (g) {
+        var label = g.isGeneral
+          ? (t('catalog_general') || g.label || 'כללי')
+          : (getGradeLabelById(g.id) || g.label);
+        html += '<option value="' + escapeHtml(g.id) + '">' + escapeHtml(label) + '</option>';
       });
       select.innerHTML = html;
       var preferred = previous
@@ -23608,7 +23665,7 @@
         }
         return;
       }
-      var summaryText = String(data.communitySummary || '').trim();
+      var summaryText = sanitizeCommunitySummaryForDisplay(String(data.communitySummary || '').trim());
       var heading = String(
         data.communitySummaryHeading || t('community_summarizer_heading') || ''
       ).trim();
@@ -23618,6 +23675,11 @@
       }
       bodyHtml += formatInspirationAiMarkdown(summaryText)
         || ('<p>' + escapeHtml(summaryText).replace(/\n/g, '<br>') + '</p>');
+      // Dedicated blue underlined reference block for Word (leaf names only).
+      if (data.communityCitations && data.communityCitations.length
+        && !(/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))) {
+        bodyHtml += renderHybridCommunityCitationsHtml(data);
+      }
 
       try {
         if (typeof assertWordDownloadForExport === 'function') {

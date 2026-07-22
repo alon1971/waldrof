@@ -457,6 +457,11 @@ function parseGradeIdFromFolderName(name) {
   const s = String(name || '').trim();
   if (!s) return '';
 
+  // Cross-grade / school-wide pedagogy folder
+  if (/^(כללי|general)$/iu.test(s) || /^תיקי[יה]\s+כללי/iu.test(s)) {
+    return 'general';
+  }
+
   const digit = s.match(/(?:^|\s)(\d)(?:\s|$)/) || s.match(/^(\d)$/);
   if (digit) return digit[1];
 

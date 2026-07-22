@@ -114,23 +114,29 @@ function buildLocationPathFromMatch(match) {
  * Precise Drive citations for catalog / navigation lists.
  */
 function buildCommunityCitations(matches) {
+  const shortName = typeof communityDriveArchive.shortCitationDisplayName === 'function'
+    ? communityDriveArchive.shortCitationDisplayName
+    : function (value, fallback) {
+      return String(value || fallback || 'קובץ Drive').trim();
+    };
   const seen = new Set();
   const citations = [];
   (matches || []).forEach(function (match) {
     if (!match) return;
-    const fileName = String(
-      match.fileName || match.title || match.displayTitle || match.name || ''
-    ).trim();
-    const locationPath = buildLocationPathFromMatch(match);
+    const fileName = shortName(
+      match.fileName || match.title || match.displayTitle || match.name || '',
+      'קובץ Drive'
+    );
     const webViewLink = resolveWebViewLink(match);
     const driveFileId = String(match.driveFileId || '').trim()
       || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
-    const key = (driveFileId || webViewLink || (fileName + '|' + locationPath)).toLowerCase();
+    const key = (driveFileId || webViewLink || fileName).toLowerCase();
     if (!key || seen.has(key)) return;
     seen.add(key);
     citations.push({
       fileName: fileName || 'קובץ Drive',
-      locationPath: locationPath,
+      // Keep path for internal use only — UI/DOCX must not render hierarchy.
+      locationPath: '',
       webViewLink: webViewLink,
       fileUrl: webViewLink,
       driveFileId: driveFileId || null,
@@ -150,13 +156,17 @@ function appendCitationsMarkdown(summary, citations) {
   if (/מראי מקום/.test(body) && /https?:\/\//.test(body)) {
     return body;
   }
+  const shortName = typeof communityDriveArchive.shortCitationDisplayName === 'function'
+    ? communityDriveArchive.shortCitationDisplayName
+    : function (value, fallback) {
+      return String(value || fallback || 'קובץ Drive').trim();
+    };
   const lines = list.map(function (cite, idx) {
-    const name = cite.fileName || ('מקור ' + (idx + 1));
-    const loc = cite.locationPath ? (' — ' + cite.locationPath) : '';
+    const name = shortName(cite.fileName || '', 'מקור ' + (idx + 1));
     if (cite.webViewLink) {
-      return (idx + 1) + '. [' + name + '](' + cite.webViewLink + ')' + loc;
+      return (idx + 1) + '. [' + name + '](' + cite.webViewLink + ')';
     }
-    return (idx + 1) + '. ' + name + loc;
+    return (idx + 1) + '. ' + name;
   });
   return body
     + (body ? '\n\n' : '')

@@ -201,6 +201,108 @@ async function fetchArchiveRow(archiveKey) {
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
 
+/**
+ * Convert literal escaped newlines ("\\n") into real line breaks so UI/DOCX
+ * never render the characters "\n" as visible text.
+ */
+function normalizeEscapedNewlines(text) {
+  let s = String(text == null ? '' : text);
+  if (!s) return '';
+  // Double-encoded JSON residue: "\\n" → real newline
+  if (s.indexOf('\\n') !== -1 || s.indexOf('\\r') !== -1 || s.indexOf('\\t') !== -1) {
+    s = s
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\n')
+      .replace(/\\t/g, '\t');
+  }
+  // Normalize real CRLF
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return s;
+}
+
+/** Leaf file/folder name only — strip "נתיב > תיקייה > …" hierarchies. */
+function shortCitationDisplayName(value, fallback) {
+  let s = String(value == null ? '' : value).trim();
+  if (!s) return String(fallback || 'קובץ Drive');
+  s = s.replace(/^\d+[\.\)]\s*/, '').trim();
+  // Prefer text before an em-dash path caption
+  const dashSplit = s.split(/\s*[—–]\s+/);
+  if (dashSplit.length > 1 && dashSplit[0].trim()) {
+    s = dashSplit[0].trim();
+  }
+  if (/[>\/]/.test(s)) {
+    const parts = s.split(/\s*>\s*|\s*\/\s*/).map(function (p) {
+      return String(p || '').trim();
+    }).filter(Boolean);
+    if (parts.length) s = parts[parts.length - 1];
+  }
+  return s || String(fallback || 'קובץ Drive');
+}
+
+/**
+ * Shorten markdown link labels and strip trailing path captions in «מראי מקום».
+ */
+function sanitizeCommunitySummaryMarkdown(summary) {
+  let s = normalizeEscapedNewlines(summary);
+  if (!s) return '';
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label, url) {
+    return '[' + shortCitationDisplayName(label, label) + '](' + url + ')';
+  });
+  // Drop " — long folder path" after a markdown link on the same line
+  s = s.replace(/(\]\(https?:\/\/[^)\s]+\))\s*[—–-]\s*[^\n]+/g, '$1');
+  return s.trim();
+}
+
+/**
+ * Instant archive hit by topic + grade — no Drive scan, no Gemini.
+ * Used when the UI asks for a previously archived classroom/topic summary.
+ */
+async function tryInstantArchiveRetrieval(query, options) {
+  const opts = options || {};
+  if (opts.forceRefresh === true || opts.refresh === true) return null;
+  const q = String(query || '').trim();
+  if (!q) return null;
+  const archiveKey = buildArchiveKey(q, opts);
+  let existing = null;
+  try {
+    existing = await fetchArchiveRow(archiveKey);
+  } catch (lookupErr) {
+    console.warn('[community-drive-archive] instant lookup failed:', lookupErr.message || lookupErr);
+    return null;
+  }
+  if (
+    !existing
+    || existing.community_status !== 'ok'
+    || !String(existing.summary_md || '').trim()
+  ) {
+    return null;
+  }
+  const summary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
+  if (!summary) return null;
+  console.log(
+    '[community-drive-archive] INSTANT archive hit — skipping Drive + Gemini',
+    '| key:',
+    archiveKey.slice(0, 12),
+    '| topic:',
+    String(opts.topic || q).slice(0, 60),
+    '| grade:',
+    String(opts.gradeId || opts.currentGrade || '')
+  );
+  return {
+    heading: COMMUNITY_SUMMARY_HEADING,
+    summary: summary,
+    communityStatus: 'ok',
+    fromArchive: true,
+    deltaUpdated: false,
+    archiveKey: archiveKey,
+    fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : [],
+    sourceFingerprint: String(existing.source_fingerprint || ''),
+    model: existing.model || null,
+    instantHit: true,
+  };
+}
+
 async function upsertArchiveRow(record) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key) {
@@ -506,8 +608,8 @@ async function callGeminiModel(model, systemPrompt, userParts) {
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: parts }],
       generationConfig: {
-        temperature: 0.35,
-        maxOutputTokens: 8192,
+        temperature: 0.45,
+        maxOutputTokens: 16384,
         responseMimeType: 'application/json',
       },
     }),
@@ -535,27 +637,44 @@ async function callGeminiModel(model, systemPrompt, userParts) {
   }
   const text = extractGeminiText(payload);
   if (!text) throw new Error('Gemini ' + model + ' returned an empty summary');
-  return parseGeminiSummaryJson(text);
+  return sanitizeCommunitySummaryMarkdown(parseGeminiSummaryJson(text));
 }
 
 function buildCommunitySummarySystemPrompt() {
   return [
-    'אתה עוזר פדגוגי וולדורפי.',
-    'תפקידך לסכם חומרים מהמאגר הקהילתי ב-Google Drive בלבד.',
+    'אתה עוזר פדגוגי בכיר במסורת החינוך הוולדורפי (שטיינר).',
+    'תפקידך להפיק סיכום עמוק, מקיף ומנוסח ברמה מקצועית גבוהה מתוך חומרי המאגר הקהילתי ב-Google Drive בלבד.',
     'אסור להסתמך על ידע חיצוני או על חיפוש ברשת — רק על הטקסטים/המסמכים שסופקו.',
-    'כתוב בעברית פדגוגית עשירה, מקיפה ומאוחדת.',
-    'בסוף הסיכום הוסף סעיף «מראי מקום» עם שמות הקבצים, נתיב התיקייה בדרייב, והקישורים הישירים שסופקו.',
-    'החזר JSON נקי בלבד — אובייקט אחד במבנה {"summary":"..."} ללא טקסט לפני או אחרי, ללא Markdown, ללא ```json.',
+    'כתוב בעברית פדגוגית עשירה, רהוטה ומדויקת — לא רשימות דלות או תקציר שטחי.',
+    'הסיכום חייב להיות מפורט: רקע רעיוני, רציונל פדגוגי וולדורפי, יישומים מעשיים בכיתה, קצב/מבנה שיעור או תקופה כשמופיע במקורות, והמלצות למורה.',
+    'מבנה Markdown חובה בתוך שדה summary: כותרת ראשית (#), כותרות משנה (## / ###), נקודות־תבליט, והדגשת מושגי מפתח ב־**מודגש**.',
+    'בסוף הסיכום הוסף סעיף «### מראי מקום».',
+    'במראי מקום הצג רק את שם הקובץ או שם התיקייה הישיר (למשל «עבודת רנסנס.pdf») — אסור לציין נתיבי תיקיות ארוכים עם «>».',
+    'כל מראה מקום בשורה נפרדת כקישור Markdown: [שם הקובץ](url).',
+    'החזר JSON נקי בלבד — אובייקט אחד במבנה {"summary":"..."} ללא טקסט לפני או אחרי, ללא עטיפת ```json.',
+    'בתוך ערך summary השתמש בתווי שורה אמיתיים (JSON escaped \\n) — לא במחרוזת גלויה של התווים backslash-n.',
   ].join(' ');
+}
+
+function resolveGradeLabelForPrompt(gradeId) {
+  const gid = String(gradeId || '').trim();
+  if (!gid) return '';
+  if (gid === 'general') return 'כללי (פדגוגיה כללית / חוצה־כיתות)';
+  const map = {
+    '1': "כיתה א׳", '2': "כיתה ב׳", '3': "כיתה ג׳", '4': "כיתה ד׳",
+    '5': "כיתה ה׳", '6': "כיתה ו׳", '7': "כיתה ז׳", '8': "כיתה ח׳",
+  };
+  return map[gid] || ('כיתה ' + gid);
 }
 
 function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMeta) {
   const opts = options || {};
+  const gradeLabel = resolveGradeLabelForPrompt(opts.gradeId || opts.currentGrade);
   const sourcesBlock = (fileBundles || []).map(function (bundle, idx) {
+    const leafName = shortCitationDisplayName(bundle.name, 'קובץ Drive');
     return [
       '=== מקור טקסט ' + (idx + 1) + ' ===',
-      'שם קובץ: ' + (bundle.name || ''),
-      'תיקייה / נתיב בדרייב: ' + (bundle.folderPath || bundle.folder || ''),
+      'שם קובץ להצגה במראי מקום: ' + leafName,
       bundle.webViewLink ? ('קישור Drive: ' + bundle.webViewLink) : '',
       'תוכן:',
       String(bundle.text || '').slice(0, MAX_CHARS_PER_FILE),
@@ -564,27 +683,28 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
 
   const mediaBlock = (mediaMeta || []).map(function (item, idx) {
     const ref = item.ref || {};
+    const leafName = shortCitationDisplayName(ref.name, 'קובץ Drive');
     return [
       '=== מסמך/תמונה מצורפת ' + (idx + 1) + ' ===',
-      'שם קובץ: ' + (ref.name || ''),
-      'תיקייה / נתיב בדרייב: ' + (ref.folderPath || ref.folder || ''),
+      'שם קובץ להצגה במראי מקום: ' + leafName,
       ref.webViewLink || ref.fileUrl ? ('קישור Drive: ' + (ref.webViewLink || ref.fileUrl)) : '',
       'סוג: ' + (item.mimeType || ref.mimeType || ''),
-      'הוראה: קרא/י את המסמך או התמונה המצורפים (PDF סרוק / תמונה) וחלץ מהם את התוכן הפדגוגי לסיכום.',
+      'הוראה: קרא/י את המסמך או התמונה המצורפים (PDF סרוק / תמונה) וחלץ מהם את התוכן הפדגוגי לסיכום המעמיק.',
     ].filter(Boolean).join('\n');
   }).join('\n\n');
 
   return [
     'נושא החיפוש: ' + String(query || '').trim(),
-    opts.gradeId ? ('שכבת גיל / כיתה: ' + opts.gradeId) : '',
+    gradeLabel ? ('שכבת גיל / כיתה: ' + gradeLabel) : '',
     opts.topic ? ('נושא קטלוג: ' + opts.topic) : '',
     '',
-    'הפק סיכום פדגוגי ארוך ומאוחד של החומרים הבאים.',
+    'הפק סיכום פדגוגי עמוק, מקיף ומאוחד של החומרים הבאים — לא תקציר קצר.',
+    'שלב בין המקורות לכתיבה קוהרנטית אחת: רציונל פדגוגי, מושגי מפתח מודגשים, ויישומים מעשיים.',
     'הכותרת הראשית של הסיכום חייבת להיות:',
     COMMUNITY_SUMMARY_HEADING,
     '',
-    'פורמט פלט חובה: החזר רק JSON תקין במבנה {"summary":"<טקסט הסיכום בעברית>"}.',
-    'אין לעטוף ב-```json או בכל Markdown אחר.',
+    'פורמט פלט חובה: החזר רק JSON תקין במבנה {"summary":"<טקסט הסיכום בעברית עם Markdown>"}.',
+    'אין לעטוף ב-```json או בכל Markdown אחר מחוץ לשדה summary.',
     '',
     sourcesBlock,
     mediaBlock,
@@ -786,10 +906,12 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       existing.source_fingerprint === fingerprint &&
       String(existing.summary_md || '').trim() &&
       existing.community_status === 'ok'
+      && opts.forceRefresh !== true
+      && opts.refresh !== true
     ) {
       return {
         heading: COMMUNITY_SUMMARY_HEADING,
-        summary: String(existing.summary_md).trim(),
+        summary: sanitizeCommunitySummaryMarkdown(existing.summary_md),
         communityStatus: 'ok',
         fromArchive: true,
         deltaUpdated: false,
@@ -891,13 +1013,14 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     topic: opts.topic || opts.catalogTopic || '',
   });
 
+  const cleanedSummary = sanitizeCommunitySummaryMarkdown(generated.summary);
   const record = {
     archive_key: archiveKey,
     search_query: q,
     query_text: q,
     grade_id: String(opts.gradeId || opts.currentGrade || '').trim(),
     topic: String(opts.topic || opts.catalogTopic || '').trim(),
-    summary_md: generated.summary,
+    summary_md: cleanedSummary,
     community_status: 'ok',
     source_fingerprint: fingerprint,
     source_file_ids: fileRefs.map(function (ref) { return ref.driveFileId; }),
@@ -913,7 +1036,7 @@ async function resolveCommunityDriveSummary(query, matches, options) {
 
   return {
     heading: COMMUNITY_SUMMARY_HEADING,
-    summary: generated.summary,
+    summary: cleanedSummary,
     communityStatus: 'ok',
     fromArchive: false,
     deltaUpdated: true,
@@ -935,6 +1058,10 @@ module.exports = {
   buildArchiveKey,
   buildSourceFingerprint,
   normalizeFileRefsFromMatches,
+  normalizeEscapedNewlines,
+  sanitizeCommunitySummaryMarkdown,
+  shortCitationDisplayName,
+  tryInstantArchiveRetrieval,
   resolveCommunityDriveSummary,
   emptySummaryResult,
   resolveMultimodalMime,
