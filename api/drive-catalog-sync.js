@@ -32,6 +32,11 @@ const DEFAULT_CATALOG_ROOT_FOLDER_ID = '1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs';
  *   3) Catalog root lives in a Shared Drive and SA is Content Manager.
  */
 const MATERIALS_TABLE = 'community_materials';
+const DRIVE_OAUTH_TABLE = 'drive_oauth_credentials';
+/** In-process cache for refresh token loaded from Supabase (live OAuth connect). */
+let _oauthRefreshTokenCache = '';
+let _oauthAccountEmailCache = '';
+let _oauthSupabaseLoadPromise = null;
 const MAX_FOLDER_DEPTH = 12;
 const LIST_PAGE_SIZE = 200;
 const SEARCH_PAGE_SIZE = 50;
@@ -149,6 +154,7 @@ function cleanEnvValue(value) {
 /**
  * User OAuth (installed / desktop or web client) — files are owned by the human
  * user and consume their Drive quota (fixes SA storageQuotaExceeded on My Drive).
+ * Reads env first, then in-process cache (filled from Supabase / live OAuth callback).
  */
 function getDriveOauthUserCredentials() {
   const clientId = cleanEnvValue(
@@ -158,10 +164,149 @@ function getDriveOauthUserCredentials() {
     process.env.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET
   );
   const refreshToken = cleanEnvValue(
-    process.env.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN || process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+    process.env.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN
+    || process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+    || _oauthRefreshTokenCache
   );
   if (!clientId || !clientSecret || !refreshToken) return null;
   return { clientId: clientId, clientSecret: clientSecret, refreshToken: refreshToken };
+}
+
+function getCachedDriveOauthAccountEmail() {
+  return cleanEnvValue(_oauthAccountEmailCache);
+}
+
+function getSupabaseRestConfig() {
+  const url = cleanEnvValue(env.getSupabaseUrl()).replace(/\/$/, '');
+  const key = cleanEnvValue(env.getSupabaseServiceRoleKey() || env.getSupabaseServerKey());
+  if (!url || !key) return null;
+  return { url: url, key: key };
+}
+
+/**
+ * Load refresh_token from public.drive_oauth_credentials (id=1) into memory + process.env.
+ * No-op when env already has a refresh token. Safe if table is missing.
+ */
+async function ensureOauthRefreshTokenLoaded() {
+  const existing = cleanEnvValue(
+    process.env.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN
+    || process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+    || _oauthRefreshTokenCache
+  );
+  if (existing) {
+    if (!_oauthRefreshTokenCache) _oauthRefreshTokenCache = existing;
+    return existing;
+  }
+
+  if (_oauthSupabaseLoadPromise) return _oauthSupabaseLoadPromise;
+
+  _oauthSupabaseLoadPromise = (async function () {
+    const cfg = getSupabaseRestConfig();
+    if (!cfg) return '';
+    try {
+      const res = await fetch(
+        cfg.url
+          + '/rest/v1/'
+          + DRIVE_OAUTH_TABLE
+          + '?id=eq.1&select=refresh_token,account_email&limit=1',
+        {
+          headers: {
+            apikey: cfg.key,
+            Authorization: 'Bearer ' + cfg.key,
+          },
+        }
+      );
+      const text = await res.text();
+      if (!res.ok) {
+        if (res.status !== 404 && !/relation|does not exist|PGRST205/i.test(text)) {
+          console.warn(
+            '[drive-catalog-sync] drive_oauth_credentials fetch failed:',
+            res.status,
+            text.slice(0, 200)
+          );
+        }
+        return '';
+      }
+      const rows = text ? JSON.parse(text) : [];
+      const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+      const token = cleanEnvValue(row && row.refresh_token);
+      if (!token) return '';
+      _oauthRefreshTokenCache = token;
+      _oauthAccountEmailCache = cleanEnvValue(row && row.account_email);
+      process.env.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN = token;
+      console.log(
+        '[drive-catalog-sync] loaded Drive OAuth refresh_token from Supabase'
+        + (_oauthAccountEmailCache ? ' (' + _oauthAccountEmailCache + ')' : '')
+      );
+      return token;
+    } catch (err) {
+      console.warn(
+        '[drive-catalog-sync] drive_oauth_credentials load error:',
+        err && err.message ? err.message : err
+      );
+      return '';
+    } finally {
+      _oauthSupabaseLoadPromise = null;
+    }
+  })();
+
+  return _oauthSupabaseLoadPromise;
+}
+
+/**
+ * Persist refresh token from live /api/auth/google-drive/callback.
+ * Writes Supabase (best-effort) + process.env + in-memory cache.
+ */
+async function saveDriveOauthCredentials(options) {
+  const opts = options || {};
+  const refreshToken = cleanEnvValue(opts.refreshToken);
+  const accountEmail = cleanEnvValue(opts.accountEmail);
+  if (!refreshToken) {
+    throw new Error('refreshToken is required');
+  }
+
+  _oauthRefreshTokenCache = refreshToken;
+  if (accountEmail) _oauthAccountEmailCache = accountEmail;
+  process.env.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN = refreshToken;
+
+  const result = { supabase: false, memory: true };
+  const cfg = getSupabaseRestConfig();
+  if (!cfg) {
+    result.error = 'Supabase service role not configured';
+    return result;
+  }
+
+  const payload = {
+    id: 1,
+    refresh_token: refreshToken,
+    account_email: accountEmail || null,
+    updated_at: new Date().toISOString(),
+  };
+  const res = await fetch(
+    cfg.url + '/rest/v1/' + DRIVE_OAUTH_TABLE + '?on_conflict=id',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: cfg.key,
+        Authorization: 'Bearer ' + cfg.key,
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    const hint = /relation|does not exist|PGRST205/i.test(text)
+      ? ' — run supabase/drive_oauth_credentials.sql'
+      : '';
+    throw new Error(
+      'drive_oauth_credentials upsert failed (' + res.status + ')' + hint + ': '
+      + text.slice(0, 300)
+    );
+  }
+  result.supabase = true;
+  return result;
 }
 
 /** Workspace domain-wide delegation: SA JWT `sub` = human user email. */
@@ -256,6 +401,9 @@ async function resolveDriveAccessToken(options) {
   const scope = wantWrite
     ? DRIVE_WRITE_SCOPE
     : (opts.scope || DRIVE_SCOPE);
+
+  // Prefer live-site / Supabase refresh token when env is incomplete.
+  await ensureOauthRefreshTokenLoaded();
 
   // 1) User OAuth — preferred for writes (uses the owner's storage quota).
   const oauth = getDriveOauthUserCredentials();
@@ -2470,6 +2618,9 @@ module.exports = {
   describeDriveAuthMode,
   hasDriveUserWriteAuth,
   getDriveOauthUserCredentials,
+  getCachedDriveOauthAccountEmail,
+  ensureOauthRefreshTokenLoaded,
+  saveDriveOauthCredentials,
   getDriveDelegateEmail,
   escapeDriveQueryLiteral,
   buildDriveKeywordSearchQuery,

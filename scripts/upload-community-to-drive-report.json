@@ -1,0 +1,572 @@
+{
+  "mode": "dry-run",
+  "rootFolderId": "1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs",
+  "generatedAt": "2026-07-22T19:17:04.000Z",
+  "stats": {
+    "scanned": 32,
+    "uploaded": 0,
+    "shortcuts": 0,
+    "linkDocs": 0,
+    "skippedExisting": 0,
+    "skippedUnsupported": 0,
+    "errors": 0
+  },
+  "tree": {
+    "כיתה א׳": {
+      "gradeId": "1",
+      "topics": {
+        "מאגר סיפורים בינלאומי": [
+          {
+            "materialId": "8e00690e-57ba-450e-9eeb-09eccc5f1558",
+            "fileName": "קישור שיתוף",
+            "kind": "external_url"
+          }
+        ],
+        "מזמור אביב/לאה גולדברג": [
+          {
+            "materialId": "c1952c14-5f90-4514-b342-ba13838168a8",
+            "fileName": "מִזְמוֹר אָבִיב.docx",
+            "kind": "storage"
+          }
+        ],
+        "שירים ודקלומים": [
+          {
+            "materialId": "2450fdc0-b620-4f4c-9a81-08fc1b11de1c",
+            "fileName": "קישור Google Docs",
+            "kind": "docs"
+          }
+        ]
+      }
+    },
+    "כיתה ב׳": {
+      "gradeId": "2",
+      "topics": {
+        "משפט האלמנה והרוח": [
+          {
+            "materialId": "6060c52f-c0d6-48e2-94a8-495435202d25",
+            "fileName": "קישור שיתוף",
+            "kind": "external_url"
+          }
+        ]
+      }
+    },
+    "כיתה ג׳": {
+      "gradeId": "3",
+      "topics": {
+        "הצגת בראשית - דליה פז": [
+          {
+            "materialId": "0dcf4f68-05f2-4e7f-873e-59c947404e63",
+            "fileName": "הצגת בראשית - דליה פז.pdf",
+            "kind": "storage"
+          }
+        ],
+        "מעשה באופה - דקלום הצגה לכיתה ג": [
+          {
+            "materialId": "c31e82af-5be2-46bc-bf6f-d3153e271009",
+            "fileName": "מעשה באופה - דקלום הצגה לכיתה ג.pdf",
+            "kind": "storage"
+          }
+        ],
+        "פתחו את השער - קדיה מולודובסקי": [
+          {
+            "materialId": "c71c6676-5f26-43f4-b893-08e7f600db84",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_file"
+          }
+        ]
+      }
+    },
+    "כיתה ד׳": {
+      "gradeId": "4",
+      "topics": {
+        "התקופה המצרית": [
+          {
+            "materialId": "b72c64f2-b0fb-42da-bb6b-1204885880a6",
+            "fileName": "קישור Google Docs",
+            "kind": "docs"
+          }
+        ],
+        "ילדיו של אודין- הספר": [
+          {
+            "materialId": "549b9368-27d7-4514-ae1c-0ecadf304943",
+            "fileName": "THE CHILDREN OF ODIN.docx",
+            "kind": "storage"
+          }
+        ],
+        "מיתולוגיה נורדית - ניל גיימן": [
+          {
+            "materialId": "8611b535-61ec-4a2c-a0b2-619d672cb0cc",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_file"
+          }
+        ],
+        "תקיית חומרים לכיתה ד": [
+          {
+            "materialId": "ee876da4-ea10-42e3-9d37-c3d01434dc87",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ],
+        "תקיית כיתה ד'": [
+          {
+            "materialId": "ae410be2-c3cf-4cd6-8e65-a7797e163e55",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ]
+      }
+    },
+    "כיתה ה׳": {
+      "gradeId": "5",
+      "topics": {
+        "גלגמש-שטיינר": [
+          {
+            "materialId": "4a628c84-4f4c-4488-8243-06e6525d193e",
+            "fileName": "קישור Google Docs",
+            "kind": "docs"
+          }
+        ],
+        "מסעות אודיסאוס": [
+          {
+            "materialId": "4c0acc76-c04e-4756-ba4f-93c1e10b6f4c",
+            "fileName": "אודיסאוס-מחזה (1).docx",
+            "kind": "storage"
+          }
+        ],
+        "פתיח לבלוק היסטוריה כיתה ה'": [
+          {
+            "materialId": "42a6b8e5-366e-4d83-94e6-8972a78e1067",
+            "fileName": "קישור Google Docs",
+            "kind": "docs"
+          }
+        ],
+        "תקיית כיתה ה'": [
+          {
+            "materialId": "0ba2e91d-9748-484d-aaeb-0b47938abbde",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ]
+      }
+    },
+    "כיתה ו׳": {
+      "gradeId": "6",
+      "topics": {
+        "גבעול ועלים": [
+          {
+            "materialId": "4ee3d808-be44-40b6-bcb0-d1723beb3328",
+            "fileName": "דף עבודה - גבעול ועלים.docx",
+            "kind": "storage"
+          }
+        ],
+        "חוברת גאומטריה לכיתה ו'": [
+          {
+            "materialId": "a4919d3b-9a7d-4997-aed4-d2036937d68c",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_file"
+          }
+        ],
+        "כיתה ו'": [
+          {
+            "materialId": "2c7f5751-5829-4c61-9ecd-87cded72ea57",
+            "fileName": "כיתה ו- אפיונים ודרכי עבודה.docx",
+            "kind": "storage"
+          }
+        ],
+        "תקיית כיתה ו": [
+          {
+            "materialId": "62b5eb60-2d09-4fb0-a09a-b254635de958",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ]
+      }
+    },
+    "כיתה ז׳": {
+      "gradeId": "7",
+      "topics": {
+        "הנחיות ביוגרפיה לקיץ": [
+          {
+            "materialId": "f232817b-5c97-43f4-8dcb-2957f0c0bb76",
+            "fileName": "הנחיות לעבודת ביוגרפיה מתוקן.docx",
+            "kind": "storage"
+          }
+        ],
+        "תזונה": [
+          {
+            "materialId": "2a8510fc-b7a2-471d-ba59-b03a2b31af68",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ],
+        "תקייה עם המון נושאים שעלו בכנס קיץ 2026 כולל מחברות סרוקות": [
+          {
+            "materialId": "65b48576-33b9-41f0-b4ba-e3b78b53650b",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ],
+        "תקיית כיתה ז": [
+          {
+            "materialId": "4b29b91b-db1e-4f41-b050-c4f7708c7641",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ]
+      }
+    },
+    "כיתה ח׳": {
+      "gradeId": "8",
+      "topics": {
+        "ביוגרפיה בסוף כיתה ז": [
+          {
+            "materialId": "b009811b-d70e-480d-a527-f9f0a54d2ab0",
+            "fileName": "הנחיות לעבודת ביוגרפיה מתוקן.docx",
+            "kind": "storage"
+          }
+        ],
+        "מחזות לכיתה ח": [
+          {
+            "materialId": "7ffb6171-3916-4634-ba3b-eec0f0cf3838",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ],
+        "תקיית חומרים כיתה ח": [
+          {
+            "materialId": "41364c52-f879-4358-b111-247615144fd1",
+            "fileName": "קישור Google Drive",
+            "kind": "drive_folder"
+          }
+        ]
+      }
+    },
+    "כללי / בין-כיתתי": {
+      "gradeId": "general",
+      "topics": {
+        "ברכה להתבוננות": [
+          {
+            "materialId": "5dc1adb6-bb30-4ded-900e-2f85f3374c62",
+            "fileName": "ברכה להתבוננות.docx",
+            "kind": "storage"
+          }
+        ],
+        "התבוננות בבית הספר כישות": [
+          {
+            "materialId": "5ad03164-7d78-4c36-844e-3d995202b9f0",
+            "fileName": "התבוננות בית ספרית.docx",
+            "kind": "storage"
+          }
+        ],
+        "התבוננות בילד": [
+          {
+            "materialId": "344f31bd-0e12-4dd3-8b50-3805fedad203",
+            "fileName": "התבוננות בילד מעודכן.docx",
+            "kind": "storage"
+          }
+        ],
+        "התבוננות הכיתה": [
+          {
+            "materialId": "c95ca665-eeaa-4f60-8a41-31ff69a9520a",
+            "fileName": "התבוננות בכיתה.docx",
+            "kind": "storage"
+          }
+        ],
+        "התבוננות והרמוניה סוציאלית": [
+          {
+            "materialId": "44d2b4ce-c149-42d3-a670-37fedcc1b306",
+            "fileName": "התבוננות והרמוניה סוציאלית.docx",
+            "kind": "storage"
+          }
+        ]
+      }
+    }
+  },
+  "summarizer": [
+    {
+      "gradeId": "1",
+      "topic": "מאגר סיפורים בינלאומי",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "1",
+      "topic": "מזמור אביב/לאה גולדברג",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "1",
+      "topic": "שירים ודקלומים",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "2",
+      "topic": "משפט האלמנה והרוח",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "3",
+      "topic": "הצגת בראשית - דליה פז",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "3",
+      "topic": "מעשה באופה - דקלום הצגה לכיתה ג",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "3",
+      "topic": "פתחו את השער - קדיה מולודובסקי",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "4",
+      "topic": "התקופה המצרית",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "4",
+      "topic": "ילדיו של אודין- הספר",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "4",
+      "topic": "מיתולוגיה נורדית - ניל גיימן",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "4",
+      "topic": "תקיית חומרים לכיתה ד",
+      "status": "ok",
+      "matchCount": 30,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "4",
+      "topic": "תקיית כיתה ד'",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "5",
+      "topic": "גלגמש-שטיינר",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "5",
+      "topic": "מסעות אודיסאוס",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "5",
+      "topic": "פתיח לבלוק היסטוריה כיתה ה'",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "5",
+      "topic": "תקיית כיתה ה'",
+      "status": "degraded",
+      "matchCount": 2,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "6",
+      "topic": "גבעול ועלים",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "6",
+      "topic": "חוברת גאומטריה לכיתה ו'",
+      "status": "ok",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "6",
+      "topic": "כיתה ו'",
+      "status": "ok",
+      "matchCount": 30,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "6",
+      "topic": "תקיית כיתה ו",
+      "status": "ok",
+      "matchCount": 30,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "7",
+      "topic": "הנחיות ביוגרפיה לקיץ",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "7",
+      "topic": "תזונה",
+      "status": "ok",
+      "matchCount": 30,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "7",
+      "topic": "תקייה עם המון נושאים שעלו בכנס קיץ 2026 כולל מחברות סרוקות",
+      "status": "ok",
+      "matchCount": 30,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "7",
+      "topic": "תקיית כיתה ז",
+      "status": "ok",
+      "matchCount": 30,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "8",
+      "topic": "ביוגרפיה בסוף כיתה ז",
+      "status": "degraded",
+      "matchCount": 2,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "8",
+      "topic": "מחזות לכיתה ח",
+      "status": "ok",
+      "matchCount": 30,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "8",
+      "topic": "תקיית חומרים כיתה ח",
+      "status": "ok",
+      "matchCount": 25,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "general",
+      "topic": "ברכה להתבוננות",
+      "status": "degraded",
+      "matchCount": 1,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "general",
+      "topic": "התבוננות בבית הספר כישות",
+      "status": "error",
+      "error": "Gemini gemini-1.5-flash error 404: models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods."
+    },
+    {
+      "gradeId": "general",
+      "topic": "התבוננות בילד",
+      "status": "ok",
+      "matchCount": 4,
+      "fromArchive": false,
+      "deltaUpdated": true,
+      "error": null
+    },
+    {
+      "gradeId": "general",
+      "topic": "התבוננות הכיתה",
+      "status": "degraded",
+      "matchCount": 4,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    },
+    {
+      "gradeId": "general",
+      "topic": "התבוננות והרמוניה סוציאלית",
+      "status": "degraded",
+      "matchCount": 4,
+      "fromArchive": false,
+      "deltaUpdated": false,
+      "error": "Drive text extraction failed; multimodal fallback unavailable or over size limit"
+    }
+  ]
+}

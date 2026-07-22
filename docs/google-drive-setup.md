@@ -29,9 +29,36 @@ Service Accounts have **no storage quota on personal My Drive**. Creating folder
 
 Pick **one** of these (recommended: A):
 
-#### A) User OAuth (works with personal Gmail / My Drive)
+#### A) User OAuth — live site (recommended on Render)
 
-Uploads run as the folder owner and use that account’s quota.
+Uploads run as the folder owner and use that account’s quota. Refresh token is stored in Supabase (`drive_oauth_credentials`) so it survives restarts without pasting into Render env.
+
+1. Google Cloud Console → APIs & Services: enable **Google Drive API**, create an **OAuth client** of type **Web application**
+2. Authorized redirect URI:
+   `https://waldrof.onrender.com/api/auth/google-drive/callback`
+3. On Render, set:
+   - `GOOGLE_DRIVE_OAUTH_CLIENT_ID`
+   - `GOOGLE_DRIVE_OAUTH_CLIENT_SECRET`
+   - `CRON_SECRET` (same secret used for cron routes)
+4. Run once in Supabase SQL editor: `supabase/drive_oauth_credentials.sql`
+5. Open (replace the secret):
+
+```
+https://waldrof.onrender.com/api/auth/google-drive?secret=YOUR_CRON_SECRET
+```
+
+6. Sign in as the **owner** of `waldorfplanner drive`
+7. After success, run catalog sync:
+
+```
+https://waldrof.onrender.com/api/cron/drive-catalog-sync?secret=YOUR_CRON_SECRET
+```
+
+Status check: `https://waldrof.onrender.com/api/auth/google-drive/status?secret=YOUR_CRON_SECRET`
+
+There is **no** button in the main teacher UI — this is an admin URL protected by `CRON_SECRET`.
+
+#### A2) User OAuth — local CLI
 
 1. In Google Cloud Console → APIs & Services: enable **Google Drive API**, create an **OAuth client** (Desktop app, or Web with redirect `http://127.0.0.1:53682/oauth2callback`)
 2. Put the client id/secret in `.env` (or pass flags), then run:
@@ -84,13 +111,14 @@ PowerShell pipe:
 Get-Content .\my-sa.json -Raw | node scripts/format-env-json.js
 ```
 
-## 3. Supabase community Drive archive
+## 3. Supabase community Drive archive + OAuth store
 
 Run once in the Supabase SQL editor:
 
-- `supabase/community_drive_archive.sql`
+- `supabase/community_drive_archive.sql` — Gemini community summaries (separate from Perplexity `cached_results`)
+- `supabase/drive_oauth_credentials.sql` — refresh token from live `/api/auth/google-drive` connect
 
-This table stores Gemini community summaries separately from the Perplexity `cached_results` archive. Every hybrid search (including Perplexity cache hits) re-checks Drive for new/changed files and refreshes the summary only on delta.
+Every hybrid search (including Perplexity cache hits) re-checks Drive for new/changed files and refreshes the summary only on delta.
 
 ## 4. Initial catalog sweep
 

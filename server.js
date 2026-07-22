@@ -40,6 +40,7 @@ const testCancellationAlert = require('./api/test-cancellation-alert');
 const billingReport = require('./api/billing-report');
 const purePhaseCApi = require('./api/pure-phase-c');
 const pureGeneralSearchApi = require('./api/pure-general-search');
+const googleDriveOauthApi = require('./api/google-drive-oauth');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
   console.error('api/generate.js must export handleGeneratePost for Render Node hosting.');
@@ -899,6 +900,17 @@ const server = http.createServer(async function (req, res) {
     return handleApiDriveCatalogSyncCron(req, res);
   }
 
+  if (
+    pathname === '/api/auth/google-drive'
+    || pathname === '/api/auth/google-drive/'
+    || pathname === '/api/auth/google-drive/callback'
+    || pathname === '/api/auth/google-drive/status'
+  ) {
+    const parsedAuthUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    const authQuery = Object.fromEntries(parsedAuthUrl.searchParams.entries());
+    return googleDriveOauthApi.handleRequest(req, res, pathname, authQuery);
+  }
+
   if (pathname === '/api/cron/test-cancellation-alert') {
     return handleApiTestCancellationAlertCron(req, res);
   }
@@ -929,7 +941,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET /api/auth/google-drive | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
@@ -942,6 +954,16 @@ server.listen(PORT, HOST, function () {
     '[env] GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON:',
     process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON ? 'set' : 'MISSING'
   );
+  console.log(
+    '[env] GOOGLE_DRIVE_OAUTH_CLIENT:',
+    (process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID) ? 'set' : 'MISSING'
+  );
+  console.log(
+    '[env] GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN:',
+    (process.env.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN || process.env.GOOGLE_OAUTH_REFRESH_TOKEN)
+      ? 'set'
+      : 'MISSING (live connect: /api/auth/google-drive?secret=CRON_SECRET)'
+  );
   console.log('[cache] Supabase cached_results:', cacheDb.isSupabaseCacheEnabled() ? 'enabled' : 'local fallback only');
   try {
     if (typeof cacheDb.logDriveConfigStatus === 'function') {
@@ -949,6 +971,20 @@ server.listen(PORT, HOST, function () {
     }
   } catch (driveLogErr) {
     console.warn('[drive] status check failed:', driveLogErr.message || driveLogErr);
+  }
+  // Best-effort: hydrate OAuth refresh token from Supabase (live connect flow).
+  try {
+    const driveSync = require('./api/drive-catalog-sync');
+    if (typeof driveSync.ensureOauthRefreshTokenLoaded === 'function') {
+      driveSync.ensureOauthRefreshTokenLoaded().catch(function (oauthLoadErr) {
+        console.warn(
+          '[drive] oauth token hydrate skipped:',
+          oauthLoadErr && oauthLoadErr.message ? oauthLoadErr.message : oauthLoadErr
+        );
+      });
+    }
+  } catch (oauthBootErr) {
+    console.warn('[drive] oauth hydrate init failed:', oauthBootErr.message || oauthBootErr);
   }
   knowledgeSeed.seedKnowledgeBaseIfEmptyAsync();
   if (process.env.DRIVE_CATALOG_SYNC_ON_BOOT === '1') {

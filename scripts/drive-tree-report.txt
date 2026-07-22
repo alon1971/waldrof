@@ -1,0 +1,80 @@
+ROOT: waldorfplanner drive (1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs)
+mimeType: application/vnd.google-apps.folder
+driveId: (none)
+teamDriveId: (none)
+shared: true
+looksLikeSharedDrive: false
+
+GRADE: כיתה א׳ (13W-KM1pIR5fsoGVftQ5irdoGBP6eKWmY)
+  TOPIC: מאגר סיפורים בינלאומי (1bjWppa_zYkhYM0D10zZ-gdz4cs5a0gvN) — 0 file(s)
+  TOPIC: מזמור אביב/לאה גולדברג (1-Q3i0BWx1TECthcVCEcbuDZrxICpDA-F) — 0 file(s)
+  TOPIC: שירים ודקלומים (1IZnADJaIbj2RQeaOUzcw2l_5Y19m43Km) — 1 file(s)
+    - שירים ודקלומים | application/vnd.google-apps.document | 1qJCNp6EJbj7B-BVLS51A9PmMu0kCz41wC7dPgOgYi1I
+
+GRADE: כיתה ב׳ (1z697HXSzQDGu8egjAHTSm1jk8XbfLJv9)
+  TOPIC: משפט האלמנה והרוח (1Kh4lTNwMT6Fe7mjEFNKPIYnOBRSsSz1D) — 0 file(s)
+
+GRADE: כיתה ג׳ (1ttYsmJqoUWGMkvBP6mH8p4BvmdV2rPKL)
+  TOPIC: הצגת בראשית - דליה פז (1KAfK_KpayoGze3NQmNS4-gflThn72IS4) — 0 file(s)
+  TOPIC: מעשה באופה - דקלום הצגה לכיתה ג (1n6sQvX8T7nqm0FwQpRl8HP_cGDzT5-yX) — 0 file(s)
+  TOPIC: פתחו את השער - קדיה מולודובסקי (1EIAGW1PbvqIZvAssmgiUwgXMaVgnA7NZ) — 1 file(s)
+    - פתחו את השער - קדיה מולודובסקי | application/pdf | 1-MsNl-A9twqz3E5KyIopMcNy8h19n-At
+
+GRADE: כיתה ד׳ (1dEA7wCt1z-Ef1gCOoKGqqlVSeQw5AjmQ)
+  TOPIC: התקופה המצרית (1gQw1lmpQCrftRST4KJTbQYRkJiqDgbNi) — 1 file(s)
+    - התקופה המצרית | application/vnd.openxmlformats-officedocument.wordprocessingml.document | 1H5zXv6RB1xzwjKOqspl4U-AYHVN-zXuZ
+  TOPIC: ילדיו של אודין- הספר (1ad-csMzWlkFir9FRjXuA08B2cV1d8TXB) — 0 file(s)
+  TOPIC: מיתולוגיה נורדית - ניל גיימן (1FMLJ-MztY6VdUPZm-UoP5uD9QLApVnPb) — 1 file(s)
+    - מיתולוגיה נורדית - ניל גיימן | application/pdf | 1u4jLVM-L-BmcgfnKbDEaE_ESN5Oj8lBQ
+  TOPIC: תקיית חומרים לכיתה ד (1FVIQYK01lh8PHUTfCb_bEEVgSb2L-G37) — 0 file(s), 1 subfolder(s)
+    [subfolder] תקיית חומרים לכיתה ד (תיקייה) | application/vnd.google-apps.folder | 1wNQfcnNIcTXxxkne75PZYD4pJAeo2eGT
+  TOPIC: תקיית כיתה ד' (14eirYkhTHg2zBeP2RV0ukg9BcUAU_ISR) — 0 file(s), 1 subfolder(s)
+    [subfolder] תקיית כיתה ד' (תיקייה) | application/vnd.google-apps.folder | 1wNQfcnNIcTXxxkne75PZYD4pJAeo2eGT
+
+GRADE: כיתה ה׳ (1FB8cBmb995wCZOTKb9H0zRiRaBrcdfPp)
+  TOPIC: גלגמש-שטיינר (15GTY0m4xHu6HjToNb1d3IMMdLuZCb9Hw) — 1 file(s)
+    - גלגמש-שטיינר | application/vnd.google-apps.document | 1PHZoOvDU4hVXxzYI_4hfjtc9pcBH486-VvZnjuBAywo
+  TOPIC: מסעות אודיסאוס (1WY5UM8uu2TXFe8VFhBvfVuCk5388zVkJ) — 0 file(s)
+  TOPIC: פתיח לבלוק היסטוריה כיתה ה' (1SXXTVoliTjuAqw3I96H4ofxBQ_yCLuOs) — 1 file(s)
+    - פתיח לבלוק היסטוריה כיתה ה' | application/vnd.google-apps.document | 1PHZoOvDU4hVXxzYI_4hfjtc9pcBH486-VvZnjuBAywo
+  TOPIC: תקיית כיתה ה' (1EXJhf2PC8UHWSWxGu7f8i2dv1gRy-EFQ) — 0 file(s)
+
+GRADE: כיתה ו׳ (1dbz0mE5DF8-G0rI4ctKSpXqcD13TEg9r)
+  TOPIC: גבעול ועלים (1199aY7u4egOjFqM2qLDAfmq2WNDcc9u4) — 0 file(s)
+  TOPIC: חוברת גאומטריה לכיתה ו' (1FsUJXQbngC79UoBwyLCmZqFMDPrxPrGk) — 1 file(s)
+    - חוברת גאומטריה לכיתה ו' | application/pdf | 10wgzCQ4Let88RTkEM77j2jmvdaU-TSD3
+  TOPIC: כיתה ו' (1vJxxP6SAVUT3VPGUiBkE7gu3Ig9Yxe-u) — 0 file(s)
+  TOPIC: תקיית כיתה ו (1t2tIGOM2XY7kGjl_XxKtif-86Wxdssz-) — 0 file(s), 1 subfolder(s)
+    [subfolder] תקיית כיתה ו (תיקייה) | application/vnd.google-apps.folder | 12elIgDDyg6ezxkU2VRTgR52GeiuHC3La
+
+GRADE: כיתה ז׳ (1O4sug0gSza1zRymgOptWfmVZ82MKHHXb)
+  TOPIC: הנחיות ביוגרפיה לקיץ (1h6xv1UDguPUHJUb3g-e_bLqFuIBaZjVq) — 0 file(s)
+  TOPIC: כללי (1pVwSlBAO5W9wXpN5Bes4HVbbp7xD8E1E) — 2 file(s)
+    - school as a journey- Torin m. finser.pdf | application/pdf | 105W2H-qoi0MoKrHudLWoQsZxn1FMxeGo
+    - YoungSCHOOLSGuide.pdf | application/pdf | 0B3-anm-xcsUwSEFXVzRVSGZPd2s
+  TOPIC: תזונה (1fmtqAbAfJLy_37G75tt9NLZXWoYA-0p_) — 0 file(s), 1 subfolder(s)
+    [subfolder] תזונה (תיקייה) | application/vnd.google-apps.folder | 13gLlDZs_Y7Qn3uUU3OlUEPe1IjjmVt2M
+  TOPIC: תקייה עם המון נושאים שעלו בכנס קיץ 2026 כולל מחברות סרוקות (1RCDIx0ezmkT-lWnpgqUSPIolhUGjeIzO) — 0 file(s), 1 subfolder(s)
+    [subfolder] תקייה עם המון נושאים שעלו בכנס קיץ 2026 כולל מחברות סרוקות (תיקייה) | application/vnd.google-apps.folder | 14-KwqVVvv7UoTXYv6ASqZYevchvoRnq6
+  TOPIC: תקיית כיתה ז (1o6TxF5u0x-MxiCTXlR63E_eroluodp4j) — 0 file(s), 1 subfolder(s)
+    [subfolder] תקיית כיתה ז (תיקייה) | application/vnd.google-apps.folder | 1nRd4JhSiK9LXB87UAYa7lJJUSm3vqoiC
+
+GRADE: כיתה ח׳ (12ZlnxnRi_56W980AFPFFA_nSs4QwivGG)
+  TOPIC: ביוגרפיה בסוף כיתה ז (1cU-QA3SWyaCBtAUnCeBbH5z6U1eH2Fv0) — 0 file(s)
+  TOPIC: מחזות לכיתה ח (1qlZ3SxuRWd4SkDD0iExY3rUX7q8a1XFr) — 0 file(s), 1 subfolder(s)
+    [subfolder] מחזות לכיתה ח (תיקייה) | application/vnd.google-apps.folder | 1Darhxadj1AgUv17A1dzpUWKn5JAxcBKj
+  TOPIC: תקיית חומרים כיתה ח (1rWzufVWZUMBaXzsy7jmCMrBxNZYB82EY) — 0 file(s), 1 subfolder(s)
+    [subfolder] תקיית חומרים כיתה ח (תיקייה) | application/vnd.google-apps.folder | 1ccwMr5D0-xfERQ_ovNFsxmkfDDlUq30F
+
+GRADE: כללי (1Fm7tudsd5E9wyMdMMZdZ2o2xuO8bsX3X)
+  TOPIC: ברכה להתבוננות (1mHsoFupBYyGlYv0yU8ZBgWZy5qgzYeHw) — 0 file(s)
+  TOPIC: התבוננות בבית הספר כישות (1nihGqXlq_Cp1mG_kT0A9E_P85qK_-iCo) — 0 file(s)
+  TOPIC: התבוננות בילד (1VKr0_pVKHMNVaOKQh3Olj1njwZN6UGbp) — 0 file(s)
+  TOPIC: התבוננות הכיתה (1ogI5_nRlC_W-4w-_HoiJuNGsTGZNQdvL) — 0 file(s)
+  TOPIC: התבוננות והרמוניה סוציאלית (1jPIylDnm93BaB2AW7r9ApD5pgdgA6T5z) — 0 file(s)
+
+=== SUMMARY ===
+gradeFoldersOrItems: 9
+topicFolders: 33
+filesListedUnderTopics: 9
+looksLikeSharedDrive: false

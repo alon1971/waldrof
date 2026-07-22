@@ -1,0 +1,22 @@
+﻿Test-Path .env: True
+GEMINI_API_KEY=[REDACTED]
+SUPABASE_URL=[set]
+SUPABASE_SERVICE_ROLE_KEY=[REDACTED]
+NEXT_PUBLIC_SUPABASE_URL=[set]
+# --- Google Drive community catalog (required for live community/Drive search) ---
+# Guide: docs/google-drive-setup.md
+# 1) GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID — from Drive URL .../folders/FOLDER_ID
+# 2) GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON — one-line JSON (no wrapping quotes around {...})
+GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID=1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs
+GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON=[REDACTED]
+# Optional: DRIVE_CATALOG_SYNC_ON_BOOT=1
+---
+service-account.json: False
+
+---
+# 1) GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID — from Drive URL .../folders/FOLDER_ID
+GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID=1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs
+---
+configured true
+root 1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs
+
