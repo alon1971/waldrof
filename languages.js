@@ -189,7 +189,6 @@ const LANGUAGES = {
     col_topic:                   'נושא',
     col_content:                 'תוכן וסיפור',
     col_art:                     'אמנות ומעשה',
-    refresh_cloud:               'רענן מהענן',
 
     cloud_research_on:           'חיפוש חי (Perplexity) — דרך שרת מאובטח ב-Vercel. מורים אינם מזינים מפתח API.',
     cloud_research_off:          'מחקר ענן כבוי',
@@ -905,7 +904,6 @@ const LANGUAGES = {
     col_topic:                   'Topic',
     col_content:                 'Content & story',
     col_art:                     'Art & craft',
-    refresh_cloud:               'Refresh from cloud',
 
     cloud_research_on:           'Live search (Perplexity) — via secure Vercel server. Teachers do not enter an API key.',
     cloud_research_off:          'Cloud research off',
@@ -1512,7 +1510,6 @@ const LANGUAGES = {
     col_topic:                   'Thema',
     col_content:                 'Inhalt',
     col_art:                     'Kunst',
-    refresh_cloud:               'Aktualisieren',
 
     cloud_research_on:           'Cloud-Recherche aktiv',
     cloud_research_off:          'Cloud-Recherche inaktiv',
@@ -1729,7 +1726,6 @@ const LANGUAGES = {
     col_topic:                   'Tema',
     col_content:                 'Contenido',
     col_art:                     'Arte',
-    refresh_cloud:               'Actualizar',
 
     cloud_research_on:           'Investigación en la nube activa',
     cloud_research_off:          'Investigación en la nube desactivada',
