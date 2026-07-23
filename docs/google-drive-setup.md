@@ -19,7 +19,7 @@ Same template lives in `.env.example` (safe to commit).
 | `GOOGLE_DRIVE_CATALOG_ROOT_FOLDER_ID` | Root catalog folder ID. Canonical community root: `1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs` ([open folder](https://drive.google.com/drive/folders/1N50V9Njt3E6IQDX0OfktLM7qkhzyJ0Cs)). If omitted, the server defaults to this ID. |
 | `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON` | Full service-account JSON as **one line** (see below). Expected client email: `waldorf-service@careful-trainer-483207-r9.iam.gserviceaccount.com` |
 | *(optional)* `service-account.json` | Place the JSON file in the project root instead of (or as fallback for) the env var |
-| `GEMINI_API_KEY` | Required for pedagogical Drive summaries (`gemini-2.5-pro`, fallback `gemini-2.0-flash`) |
+| `GEMINI_API_KEY` | Required for pedagogical Drive summaries (`gemini-2.5-pro`, fallback `gemini-2.5-flash`) |
 
 Also share the catalog folder with the service account `client_email` (role: **Editor** for organize/sync writes; **Viewer** is enough for search-only).
 
