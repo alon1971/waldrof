@@ -1,15 +1,19 @@
 /**
  * Community Drive archive — Gemini pedagogical summaries of Drive hits.
  * Used only by the standalone /api/community-summarizer flow (not live web search).
- * Public archive (no userId). Delta-refresh: re-scan Drive fingerprint → reuse or regenerate.
+ * Public archive (no userId). Smart cache: Drive modifiedTime delta + semantic relevance.
  *
  * CACHE SOURCE ISOLATION: lookups and upserts hit community_drive_archive ONLY.
  * Never read or write public.cached_results (Perplexity / live web) from this module.
+ * Never fall back to cached_results for community / repository probes.
  */
 const crypto = require('crypto');
 const env = require('./env');
 const driveCatalogSync = require('./drive-catalog-sync');
 const jsonRepair = require('./json-repair');
+const catalogTopics = require('./catalog-topics');
+const archiveDisambiguation = require('./archive-disambiguation');
+const hebrewTopicMatch = require('../hebrew-topic-match');
 
 const TABLE_NAME = 'community_drive_archive';
 const GEMINI_MODEL = 'gemini-2.5-pro';
@@ -42,6 +46,10 @@ const MAX_MULTIMODAL_FILES = 12;
 const MIN_RELIABLE_PDF_TEXT_CHARS = 1800;
 /** Reject / regenerate summaries shorter than this (~deep Hebrew work plan). */
 const MIN_DEEP_SUMMARY_CHARS = 4200;
+/** Exact / alias equivalence threshold for silent cache reuse. */
+const SEMANTIC_EQUIV_MIN_SCORE = 0.88;
+/** Partial / "did you mean" suggestion threshold. */
+const PARTIAL_SUGGEST_MIN_SCORE = archiveDisambiguation.ARCHIVE_PARTIAL_SUGGEST_MIN_SCORE || 0.72;
 
 /**
  * Strip Markdown fences (```json … ```) that Gemini sometimes wraps around JSON.
@@ -133,10 +141,115 @@ function getSupabaseConfig() {
 }
 
 function stableNormalize(value) {
+  if (typeof hebrewTopicMatch.stableNormalize === 'function') {
+    return hebrewTopicMatch.stableNormalize(value);
+  }
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/**
+ * Expand a topic into pedagogical aliases for cache-key candidates and Drive matching.
+ * Uses catalog + hebrew alias clusters (e.g. האימפריה הרומית ↔ רומא העתיקה).
+ */
+function expandCommunityTopicAliases(topic) {
+  const seed = String(topic || '').trim();
+  if (!seed) return [];
+  const out = new Set();
+  out.add(seed);
+  out.add(stableNormalize(seed));
+  try {
+    if (typeof catalogTopics.expandCatalogTopicAliases === 'function') {
+      catalogTopics.expandCatalogTopicAliases([seed]).forEach(function (alias) {
+        const a = String(alias || '').trim();
+        if (a) out.add(a);
+      });
+    }
+    const canon = typeof catalogTopics.resolveCatalogTopicFromFolderName === 'function'
+      ? catalogTopics.resolveCatalogTopicFromFolderName(seed)
+      : '';
+    if (canon) out.add(String(canon).trim());
+  } catch (e) { /* ignore */ }
+  try {
+    if (typeof hebrewTopicMatch.expandHebrewSearchTerms === 'function') {
+      hebrewTopicMatch.expandHebrewSearchTerms(seed, 12).forEach(function (alias) {
+        const a = String(alias || '').trim();
+        if (a && a.length >= 2) out.add(a);
+      });
+    }
+  } catch (e2) { /* ignore */ }
+  return Array.from(out).filter(Boolean);
+}
+
+/** Canonical display topic for a query (first catalog cluster head when available). */
+function resolveCanonicalCommunityTopic(topic) {
+  const seed = String(topic || '').trim();
+  if (!seed) return '';
+  try {
+    if (typeof catalogTopics.resolveCatalogTopicFromFolderName === 'function') {
+      const canon = catalogTopics.resolveCatalogTopicFromFolderName(seed);
+      if (canon) return String(canon).trim();
+    }
+  } catch (e) { /* ignore */ }
+  return seed;
+}
+
+function topicsAreSemanticEquivalent(topicA, topicB) {
+  const a = String(topicA || '').trim();
+  const b = String(topicB || '').trim();
+  if (!a || !b) return false;
+  if (stableNormalize(a) === stableNormalize(b)) return true;
+  if (typeof hebrewTopicMatch.sharesAllowedPedagogicalAlias === 'function'
+    && hebrewTopicMatch.sharesAllowedPedagogicalAlias(a, b)) {
+    return true;
+  }
+  try {
+    const canonA = resolveCanonicalCommunityTopic(a);
+    const canonB = resolveCanonicalCommunityTopic(b);
+    if (canonA && canonB && stableNormalize(canonA) === stableNormalize(canonB)) return true;
+  } catch (e) { /* ignore */ }
+  if (typeof driveCatalogSync.topicsStrictlyCompatible === 'function'
+    && driveCatalogSync.topicsStrictlyCompatible(a, b)) {
+    const score = typeof hebrewTopicMatch.scoreHebrewTopicSimilarity === 'function'
+      ? hebrewTopicMatch.scoreHebrewTopicSimilarity(a, b, '')
+      : 0;
+    return score >= SEMANTIC_EQUIV_MIN_SCORE;
+  }
+  if (typeof hebrewTopicMatch.scoreHebrewTopicSimilarity === 'function') {
+    return hebrewTopicMatch.scoreHebrewTopicSimilarity(a, b, '') >= SEMANTIC_EQUIV_MIN_SCORE;
+  }
+  return false;
+}
+
+function scoreCommunityTopicSimilarity(query, candidate) {
+  if (!query || !candidate) return 0;
+  if (stableNormalize(query) === stableNormalize(candidate)) return 1;
+  if (topicsAreSemanticEquivalent(query, candidate)) return 0.95;
+  if (typeof hebrewTopicMatch.scoreHebrewTopicSimilarity === 'function') {
+    return Number(hebrewTopicMatch.scoreHebrewTopicSimilarity(query, candidate, '')) || 0;
+  }
+  const q = stableNormalize(query);
+  const c = stableNormalize(candidate);
+  if (q.length >= 3 && c.indexOf(q) >= 0) return 0.8;
+  if (c.length >= 3 && q.indexOf(c) >= 0) return 0.78;
+  return 0;
+}
+
 function buildArchiveKey(query, options) {
+  const opts = options || {};
+  const topicRaw = String(opts.topic || opts.catalogTopic || query || '').trim();
+  const topicCanon = resolveCanonicalCommunityTopic(topicRaw) || topicRaw;
+  const parts = [
+    stableNormalize(topicCanon || query),
+    String(opts.gradeId || opts.currentGrade || '').trim(),
+    stableNormalize(topicCanon),
+    String(opts.phase || 'hybrid').trim(),
+    PROMPT_VERSION,
+  ];
+  return crypto.createHash('sha256').update(parts.join('|'), 'utf8').digest('hex').slice(0, 40);
+}
+
+/** Pre-normalization archive_key shape (query + topic as typed). */
+function buildLegacyArchiveKey(query, options) {
   const opts = options || {};
   const parts = [
     stableNormalize(query),
@@ -146,6 +259,24 @@ function buildArchiveKey(query, options) {
     PROMPT_VERSION,
   ];
   return crypto.createHash('sha256').update(parts.join('|'), 'utf8').digest('hex').slice(0, 40);
+}
+
+/** All archive_key candidates for exact + alias lookups (community_drive_archive only). */
+function buildArchiveKeyCandidates(query, options) {
+  const opts = options || {};
+  const aliases = expandCommunityTopicAliases(opts.topic || query);
+  const keys = new Set();
+  keys.add(buildArchiveKey(query, opts));
+  keys.add(buildLegacyArchiveKey(query, opts));
+  aliases.forEach(function (alias) {
+    const aliasOpts = Object.assign({}, opts, {
+      topic: alias,
+      catalogTopic: alias,
+    });
+    keys.add(buildArchiveKey(alias, aliasOpts));
+    keys.add(buildLegacyArchiveKey(alias, aliasOpts));
+  });
+  return Array.from(keys);
 }
 
 /**
@@ -244,13 +375,54 @@ async function fetchArchiveRow(archiveKey) {
 }
 
 /**
+ * List community_drive_archive rows for a grade (never cached_results).
+ */
+async function fetchArchiveRowsForGrade(gradeId, options) {
+  const opts = options || {};
+  const cfg = getSupabaseConfig();
+  const gid = String(gradeId || '').trim();
+  if (!cfg.url || !cfg.key || !gid) return [];
+  const params = new URLSearchParams();
+  params.set(
+    'select',
+    'archive_key,search_query,query_text,grade_id,topic,summary_md,community_status,'
+    + 'source_fingerprint,source_file_ids,file_refs,model,created_at,updated_at'
+  );
+  params.set('grade_id', 'eq.' + gid);
+  params.set('community_status', 'eq.ok');
+  params.set('order', 'updated_at.desc');
+  params.set('limit', String(Math.max(1, Math.min(Number(opts.limit) || 80, 120))));
+  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    if (res.status === 404 || /relation|does not exist/i.test(text)) {
+      console.warn('[community-drive-archive] table missing — run supabase/community_drive_archive.sql');
+      return [];
+    }
+    console.warn('[community-drive-archive] grade list failed:', res.status, text.slice(0, 200));
+    return [];
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+function archiveRowTopicLabel(row) {
+  if (!row) return '';
+  return String(row.topic || row.search_query || row.query_text || '').trim();
+}
+
+/**
  * Convert literal escaped newlines ("\\n") into real line breaks so UI/DOCX
  * never render the characters "\n" as visible text.
  */
 function normalizeEscapedNewlines(text) {
   let s = String(text == null ? '' : text);
   if (!s) return '';
-  // Double-encoded JSON residue: "\\n" → real newline
   if (s.indexOf('\\n') !== -1 || s.indexOf('\\r') !== -1 || s.indexOf('\\t') !== -1) {
     s = s
       .replace(/\\r\\n/g, '\n')
@@ -258,7 +430,6 @@ function normalizeEscapedNewlines(text) {
       .replace(/\\r/g, '\n')
       .replace(/\\t/g, '\t');
   }
-  // Normalize real CRLF
   s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   return s;
 }
@@ -268,7 +439,6 @@ function shortCitationDisplayName(value, fallback) {
   let s = String(value == null ? '' : value).trim();
   if (!s) return String(fallback || 'קובץ Drive');
   s = s.replace(/^\d+[\.\)]\s*/, '').trim();
-  // Prefer text before an em-dash path caption
   const dashSplit = s.split(/\s*[—–]\s+/);
   if (dashSplit.length > 1 && dashSplit[0].trim()) {
     s = dashSplit[0].trim();
@@ -291,68 +461,350 @@ function sanitizeCommunitySummaryMarkdown(summary) {
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label, url) {
     return '[' + shortCitationDisplayName(label, label) + '](' + url + ')';
   });
-  // Drop " — long folder path" after a markdown link on the same line
   s = s.replace(/(\]\(https?:\/\/[^)\s]+\))\s*[—–-]\s*[^\n]+/g, '$1');
   return s.trim();
 }
 
+function isUsableArchiveRow(row) {
+  if (!row || row.community_status !== 'ok') return false;
+  const summary = sanitizeCommunitySummaryMarkdown(row.summary_md);
+  if (!summary) return false;
+  return isSummaryDeepEnough(summary);
+}
+
 /**
- * Instant archive hit by topic + grade — no Drive scan, no Gemini.
- * Used when the UI asks for a previously archived classroom/topic summary.
+ * Exact archive_key (+ alias key candidates) lookup in community_drive_archive only.
  */
-async function tryInstantArchiveRetrieval(query, options) {
+async function fetchArchiveRowByKeyCandidates(query, options) {
+  const keys = buildArchiveKeyCandidates(query, options);
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      const row = await fetchArchiveRow(keys[i]);
+      if (isUsableArchiveRow(row)) {
+        return { row: row, archiveKey: keys[i], matchType: i === 0 ? 'exact' : 'alias' };
+      }
+    } catch (err) {
+      console.warn('[community-drive-archive] key candidate lookup failed:', err.message || err);
+    }
+  }
+  return null;
+}
+
+/**
+ * Find best community_drive_archive match for a topic+grade.
+ * Returns exact / semantic / partial — never touches cached_results.
+ */
+async function findCommunityArchiveMatch(query, options) {
   const opts = options || {};
-  if (opts.forceRefresh === true || opts.refresh === true) return null;
   const q = String(query || '').trim();
-  if (!q) return null;
-  const archiveKey = buildArchiveKey(q, opts);
-  let existing = null;
+  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  if (!q || !gradeId) return null;
+
+  const byKey = await fetchArchiveRowByKeyCandidates(q, opts);
+  if (byKey && byKey.row) {
+    return {
+      matchType: byKey.matchType === 'alias' ? 'semantic' : 'exact',
+      similarity: byKey.matchType === 'alias' ? 0.95 : 1,
+      row: byKey.row,
+      archiveKey: byKey.archiveKey || byKey.row.archive_key,
+      suggestedTopic: archiveRowTopicLabel(byKey.row) || q,
+      requestedTopic: q,
+      gradeId: gradeId,
+    };
+  }
+
+  let rows = [];
   try {
-    existing = await fetchArchiveRow(archiveKey);
-  } catch (lookupErr) {
-    console.warn('[community-drive-archive] instant lookup failed:', lookupErr.message || lookupErr);
+    rows = await fetchArchiveRowsForGrade(gradeId, { limit: 80 });
+  } catch (listErr) {
+    console.warn('[community-drive-archive] semantic grade scan failed:', listErr.message || listErr);
     return null;
   }
+
+  let best = null;
+  rows.forEach(function (row) {
+    if (!isUsableArchiveRow(row)) return;
+    const label = archiveRowTopicLabel(row);
+    if (!label) return;
+    if (
+      typeof hebrewTopicMatch.isInvalidCrossDomainTopicSuggestion === 'function'
+      && hebrewTopicMatch.isInvalidCrossDomainTopicSuggestion(q, label)
+    ) {
+      return;
+    }
+    const score = scoreCommunityTopicSimilarity(q, label);
+    if (!best || score > best.score) {
+      best = { row: row, topic: label, score: score };
+    }
+  });
+
+  if (!best || !best.row) return null;
+
+  if (best.score >= SEMANTIC_EQUIV_MIN_SCORE || topicsAreSemanticEquivalent(q, best.topic)) {
+    return {
+      matchType: 'semantic',
+      similarity: best.score,
+      row: best.row,
+      archiveKey: best.row.archive_key,
+      suggestedTopic: best.topic,
+      requestedTopic: q,
+      gradeId: gradeId,
+    };
+  }
+
   if (
-    !existing
-    || existing.community_status !== 'ok'
-    || !String(existing.summary_md || '').trim()
+    archiveDisambiguation.shouldOfferPartialArchiveSuggestion(
+      q,
+      best.topic,
+      best.score,
+      gradeId,
+      opts.gradeLabel || ''
+    )
   ) {
-    return null;
+    return {
+      matchType: 'partial',
+      similarity: best.score,
+      row: best.row,
+      archiveKey: best.row.archive_key,
+      suggestedTopic: best.topic,
+      requestedTopic: q,
+      gradeId: gradeId,
+    };
   }
-  const summary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
-  if (!summary) return null;
-  if (!isSummaryDeepEnough(summary)) {
-    console.warn(
-      '[community-drive-archive] INSTANT archive hit REJECTED — shallow/incomplete summary',
-      '| chars:',
-      summary.length,
-      '| key:',
-      archiveKey.slice(0, 12)
+
+  return null;
+}
+
+/**
+ * Suggest a close Drive folder topic under the grade when exact listing is empty.
+ */
+function suggestDriveFolderTopic(query, gradeTopicFolders) {
+  const q = String(query || '').trim();
+  const folders = Array.isArray(gradeTopicFolders) ? gradeTopicFolders : [];
+  if (!q || !folders.length) return null;
+  let best = null;
+  folders.forEach(function (folder) {
+    const name = String(folder || '').trim();
+    if (!name || name === '__general__') return;
+    if (
+      typeof hebrewTopicMatch.isInvalidCrossDomainTopicSuggestion === 'function'
+      && hebrewTopicMatch.isInvalidCrossDomainTopicSuggestion(q, name)
+    ) {
+      return;
+    }
+    const score = scoreCommunityTopicSimilarity(q, name);
+    if (!best || score > best.score) best = { topic: name, score: score };
+  });
+  if (!best) return null;
+  if (best.score >= SEMANTIC_EQUIV_MIN_SCORE || topicsAreSemanticEquivalent(q, best.topic)) {
+    return { matchType: 'semantic', suggestedTopic: best.topic, similarity: best.score };
+  }
+  if (best.score >= PARTIAL_SUGGEST_MIN_SCORE) {
+    return { matchType: 'partial', suggestedTopic: best.topic, similarity: best.score };
+  }
+  return null;
+}
+
+function parseIsoMs(value) {
+  if (!value) return 0;
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * Files added/changed in Drive since the archive row was created (created_at).
+ * Also treats unknown driveFileIds (not in source_file_ids) as new.
+ */
+function findNewOrChangedDriveFiles(matches, existingRow) {
+  const row = existingRow || {};
+  const sinceMs = parseIsoMs(row.created_at) || parseIsoMs(row.updated_at);
+  const knownIds = new Set();
+  (Array.isArray(row.source_file_ids) ? row.source_file_ids : []).forEach(function (id) {
+    const s = String(id || '').trim();
+    if (s) knownIds.add(s);
+  });
+  const knownModified = {};
+  (Array.isArray(row.file_refs) ? row.file_refs : []).forEach(function (ref) {
+    if (!ref) return;
+    const id = String(ref.driveFileId || ref.id || '').trim();
+    if (!id) return;
+    knownIds.add(id);
+    if (ref.modifiedTime) knownModified[id] = String(ref.modifiedTime);
+  });
+
+  const fresh = [];
+  (matches || []).forEach(function (match) {
+    if (!match) return;
+    const id = String(match.driveFileId || '').trim()
+      || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
+    if (!id) return;
+    const mod = String(match.modifiedTime || '').trim();
+    const modMs = parseIsoMs(mod);
+    const isUnknown = knownIds.size > 0 ? !knownIds.has(id) : false;
+    const changedSinceCache = sinceMs > 0 && modMs > 0 && modMs > sinceMs;
+    const modifiedVsRef = Boolean(
+      knownModified[id] && mod && knownModified[id] !== mod
     );
-    return null;
-  }
-  console.log(
-    '[community-drive-archive] INSTANT archive hit — skipping Drive + Gemini',
-    '| key:',
-    archiveKey.slice(0, 12),
-    '| topic:',
-    String(opts.topic || q).slice(0, 60),
-    '| grade:',
-    String(opts.gradeId || opts.currentGrade || '')
-  );
+    // When archive had no file ids recorded, treat any file newer than created_at as delta.
+    const newerThanEmptyArchive = knownIds.size === 0 && sinceMs > 0 && modMs > sinceMs;
+    if (isUnknown || changedSinceCache || modifiedVsRef || newerThanEmptyArchive) {
+      fresh.push(match);
+    }
+  });
+  return fresh;
+}
+
+/**
+ * Fast semantic relevance: are new Drive files about the requested topic?
+ */
+function areNewFilesRelevantToTopic(topic, newFiles) {
+  const q = String(topic || '').trim();
+  if (!q || !(newFiles || []).length) return false;
+  return (newFiles || []).some(function (file) {
+    if (!file) return false;
+    const name = String(file.fileName || file.title || file.displayTitle || file.name || '').trim();
+    const folder = String(file.catalogTopic || file.topic || file.folder || '').trim();
+    if (typeof driveCatalogSync.nameMatchesTopicCentrally === 'function'
+      && driveCatalogSync.nameMatchesTopicCentrally(name, q, q)) {
+      return true;
+    }
+    if (typeof driveCatalogSync.topicsStrictlyCompatible === 'function') {
+      if (folder && driveCatalogSync.topicsStrictlyCompatible(q, folder)) return true;
+      if (name && driveCatalogSync.topicsStrictlyCompatible(q, name)) return true;
+    }
+    if (topicsAreSemanticEquivalent(q, name) || topicsAreSemanticEquivalent(q, folder)) {
+      return true;
+    }
+    return scoreCommunityTopicSimilarity(q, name || folder) >= PARTIAL_SUGGEST_MIN_SCORE;
+  });
+}
+
+function formatArchivedSummaryResult(existing, archiveKey, extras) {
+  const extra = extras || {};
+  const summary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
   return {
     heading: COMMUNITY_SUMMARY_HEADING,
     summary: summary,
     communityStatus: 'ok',
     fromArchive: true,
     deltaUpdated: false,
-    archiveKey: archiveKey,
+    archiveKey: archiveKey || existing.archive_key,
     fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : [],
     sourceFingerprint: String(existing.source_fingerprint || ''),
     model: existing.model || null,
-    instantHit: true,
+    instantHit: Boolean(extra.instantHit),
+    smartCacheHit: Boolean(extra.smartCacheHit),
+    matchedTopic: extra.matchedTopic || archiveRowTopicLabel(existing) || '',
+    matchType: extra.matchType || 'exact',
   };
+}
+
+/**
+ * Build a Perplexity-style "did you mean" payload (no full summary yet).
+ */
+function buildDidYouMeanResult(query, options, suggestion) {
+  const opts = options || {};
+  const suggested = String(
+    (suggestion && (suggestion.suggestedTopic || suggestion.topic)) || ''
+  ).trim();
+  const prompt = suggested
+    ? ('האם התכוונת ל-' + suggested + '?')
+    : 'האם התכוונת לנושא קרוב במאגר הקהילתי?';
+  return {
+    heading: COMMUNITY_SUMMARY_HEADING,
+    summary: prompt,
+    communityStatus: 'needs_confirmation',
+    fromArchive: false,
+    deltaUpdated: false,
+    archiveKey: null,
+    fileRefs: [],
+    sourceFingerprint: '',
+    model: null,
+    didYouMean: true,
+    needsConfirmation: true,
+    suggestedTopic: suggested,
+    requestedTopic: String(query || '').trim(),
+    similarity: suggestion && suggestion.similarity != null ? suggestion.similarity : null,
+    matchType: (suggestion && suggestion.matchType) || 'partial',
+    gradeId: String(opts.gradeId || opts.currentGrade || '').trim(),
+  };
+}
+
+/**
+ * Smart cache evaluation against live Drive matches.
+ * - No new files since created_at → reuse archive
+ * - New files irrelevant to topic → reuse archive
+ * - New files relevant → null (caller must re-summarize)
+ */
+function evaluateSmartCacheAgainstDrive(existing, matches, options) {
+  const opts = options || {};
+  if (!isUsableArchiveRow(existing)) return null;
+  if (opts.forceRefresh === true || opts.refresh === true) return null;
+
+  const newFiles = findNewOrChangedDriveFiles(matches, existing);
+  if (!newFiles.length) {
+    console.log(
+      '[community-drive-archive] SMART CACHE HIT — no new Drive files since',
+      existing.created_at || existing.updated_at,
+      '| key:',
+      String(existing.archive_key || '').slice(0, 12)
+    );
+    return formatArchivedSummaryResult(existing, existing.archive_key, {
+      smartCacheHit: true,
+      instantHit: false,
+      matchedTopic: opts.matchedTopic || archiveRowTopicLabel(existing),
+      matchType: opts.matchType || 'exact',
+    });
+  }
+
+  const topic = String(opts.topic || opts.matchedTopic || existing.topic || '').trim();
+  const relevant = areNewFilesRelevantToTopic(topic, newFiles);
+  if (!relevant) {
+    console.log(
+      '[community-drive-archive] SMART CACHE HIT — new Drive files not relevant to topic',
+      JSON.stringify(topic),
+      '| newFiles:',
+      newFiles.length,
+      '| key:',
+      String(existing.archive_key || '').slice(0, 12)
+    );
+    return formatArchivedSummaryResult(existing, existing.archive_key, {
+      smartCacheHit: true,
+      instantHit: false,
+      matchedTopic: topic,
+      matchType: opts.matchType || 'exact',
+    });
+  }
+
+  console.log(
+    '[community-drive-archive] SMART CACHE MISS — relevant new Drive files; will re-summarize',
+    '| newFiles:',
+    newFiles.map(function (f) { return f.fileName || f.driveFileId; }).join(' | ')
+  );
+  return null;
+}
+
+/**
+ * Archive lookup with semantic normalization.
+ * Does NOT skip Drive delta checks — callers must pass matches into evaluateSmartCacheAgainstDrive.
+ * Kept for backward compatibility; prefer findCommunityArchiveMatch + evaluateSmartCacheAgainstDrive.
+ */
+async function tryInstantArchiveRetrieval(query, options) {
+  const opts = options || {};
+  if (opts.forceRefresh === true || opts.refresh === true) return null;
+  if (opts.skipDriveDeltaCheck === true) {
+    // Legacy path: only when caller explicitly opts into blind instant hit.
+    const match = await findCommunityArchiveMatch(query, opts);
+    if (!match || !match.row || match.matchType === 'partial') return null;
+    return formatArchivedSummaryResult(match.row, match.archiveKey, {
+      instantHit: true,
+      smartCacheHit: true,
+      matchedTopic: match.suggestedTopic,
+      matchType: match.matchType,
+    });
+  }
+  // Default: do not return archive without Drive delta verification.
+  return null;
 }
 
 async function upsertArchiveRow(record) {
@@ -1070,8 +1522,9 @@ function degradedNoExtractResult(fileRefs, archiveKey, fingerprint, communityErr
 
 /**
  * Delta community summary for the standalone summarizer.
- * Always re-checks Drive fingerprint; regenerates with Gemini only when sources changed.
- * Archive lookup is global (no userId filter).
+ * Smart cache: community_drive_archive only → Drive modifiedTime delta → semantic relevance.
+ * Regenerates with Gemini only when sources changed in a topic-relevant way.
+ * Archive lookup is global (no userId filter). Never falls back to cached_results.
  */
 async function resolveCommunityDriveSummary(query, matches, options) {
   const opts = options || {};
@@ -1086,35 +1539,48 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   const fingerprint = buildSourceFingerprint(fileRefs);
 
   try {
-    const existing = await fetchArchiveRow(archiveKey);
-    if (
-      existing &&
-      existing.source_fingerprint === fingerprint &&
-      String(existing.summary_md || '').trim() &&
-      existing.community_status === 'ok'
-      && opts.forceRefresh !== true
-      && opts.refresh !== true
-    ) {
-      const archivedSummary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
-      if (!isSummaryDeepEnough(archivedSummary)) {
-        console.warn(
-          '[community-drive-archive] cached summary too shallow — regenerating',
-          '| chars:',
-          archivedSummary.length
-        );
-      } else {
-        return {
-          heading: COMMUNITY_SUMMARY_HEADING,
-          summary: archivedSummary,
-          communityStatus: 'ok',
-          fromArchive: true,
-          deltaUpdated: false,
-          archiveKey: archiveKey,
-          fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : fileRefs,
-          sourceFingerprint: fingerprint,
-          model: existing.model || null,
-        };
+    // Prefer an existing row already resolved by semantic/exact match (same table only).
+    let existing = opts.existingArchiveRow && isUsableArchiveRow(opts.existingArchiveRow)
+      ? opts.existingArchiveRow
+      : null;
+    if (!existing) {
+      const byKey = await fetchArchiveRowByKeyCandidates(q, opts);
+      if (byKey && byKey.row) existing = byKey.row;
+    }
+    if (!existing) {
+      existing = await fetchArchiveRow(archiveKey);
+    }
+
+    if (existing && isUsableArchiveRow(existing) && opts.forceRefresh !== true && opts.refresh !== true) {
+      // 1) Smart cache via created_at / modifiedTime / new file ids
+      const smartHit = evaluateSmartCacheAgainstDrive(existing, matches, {
+        topic: opts.topic || opts.catalogTopic || q,
+        matchedTopic: opts.matchedTopic || archiveRowTopicLabel(existing),
+        matchType: opts.matchType || 'exact',
+        forceRefresh: opts.forceRefresh,
+        refresh: opts.refresh,
+      });
+      if (smartHit) return smartHit;
+
+      // 2) Fingerprint equality still counts as a hit (unchanged corpus)
+      if (existing.source_fingerprint === fingerprint) {
+        return formatArchivedSummaryResult(existing, existing.archive_key || archiveKey, {
+          smartCacheHit: true,
+          matchedTopic: opts.matchedTopic || archiveRowTopicLabel(existing),
+          matchType: opts.matchType || 'exact',
+        });
       }
+      console.warn(
+        '[community-drive-archive] cache delta requires re-summarize',
+        '| key:',
+        String(existing.archive_key || archiveKey).slice(0, 12)
+      );
+    } else if (existing && !isUsableArchiveRow(existing)) {
+      console.warn(
+        '[community-drive-archive] cached summary too shallow — regenerating',
+        '| chars:',
+        String(existing.summary_md || '').length
+      );
     }
   } catch (lookupErr) {
     console.warn('[community-drive-archive] lookup failed:', lookupErr.message || lookupErr);
@@ -1253,8 +1719,21 @@ module.exports = {
   PROMPT_VERSION,
   MAX_GEMINI_INLINE_BYTES,
   MAX_GEMINI_MULTIMODAL_BYTES,
+  SEMANTIC_EQUIV_MIN_SCORE,
+  PARTIAL_SUGGEST_MIN_SCORE,
   buildArchiveKey,
+  buildArchiveKeyCandidates,
   buildSourceFingerprint,
+  expandCommunityTopicAliases,
+  resolveCanonicalCommunityTopic,
+  topicsAreSemanticEquivalent,
+  scoreCommunityTopicSimilarity,
+  findCommunityArchiveMatch,
+  suggestDriveFolderTopic,
+  findNewOrChangedDriveFiles,
+  areNewFilesRelevantToTopic,
+  evaluateSmartCacheAgainstDrive,
+  buildDidYouMeanResult,
   normalizeFileRefsFromMatches,
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,

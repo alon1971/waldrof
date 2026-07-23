@@ -2030,6 +2030,55 @@
     .hybrid-community-summary.is-empty .community-summarizer-empty-notice p {
       margin: 0;
     }
+    .community-summarizer-didyoumean {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      margin: 0;
+      padding: 1rem 1.1rem;
+      border-radius: 0.85rem;
+      border: 1px solid rgba(140, 122, 96, 0.28);
+      background: rgba(255, 252, 246, 0.96);
+      color: rgba(92, 74, 58, 0.95);
+    }
+    .community-summarizer-didyoumean-prompt {
+      margin: 0;
+      font-size: 1.05rem;
+      line-height: 1.65;
+      font-weight: 600;
+    }
+    .community-summarizer-didyoumean-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+    }
+    .community-summarizer-didyoumean-yes,
+    .community-summarizer-didyoumean-no {
+      appearance: none;
+      border-radius: 999px;
+      padding: 0.45rem 0.95rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .community-summarizer-didyoumean-yes {
+      border: 1.5px solid #6b8f6a;
+      background: #6b8f6a;
+      color: #fff;
+    }
+    .community-summarizer-didyoumean-yes:hover {
+      background: #5a7a5a;
+      border-color: #5a7a5a;
+    }
+    .community-summarizer-didyoumean-no {
+      border: 1.5px solid rgba(139, 38, 62, 0.45);
+      background: #fff;
+      color: #8b263e;
+    }
+    .community-summarizer-didyoumean-no:hover {
+      background: rgba(139, 38, 62, 0.06);
+    }
     .hybrid-community-summary.is-summarizing .hybrid-community-summary-body {
       display: flex;
       align-items: center;
@@ -23943,6 +23992,12 @@
         ? String(meta.communitySummaryHeading)
         : t('community_summarizer_heading');
       var status = meta && meta.communityStatus ? String(meta.communityStatus) : 'empty';
+      var suggestedTopic = meta && (meta.suggestedTopic || (meta.meta && meta.meta.suggestedTopic))
+        ? String(meta.suggestedTopic || meta.meta.suggestedTopic).trim()
+        : '';
+      var needsConfirm = status === 'needs_confirmation'
+        || Boolean(meta && (meta.didYouMean || meta.needsConfirmation))
+        || Boolean(suggestedTopic && /האם התכוונת/.test(String(meta && meta.communitySummary || '')));
       var summary = '';
       if (meta && meta.communitySummary != null && String(meta.communitySummary).trim()) {
         summary = String(meta.communitySummary).trim();
@@ -23955,13 +24010,15 @@
       } else {
         summary = t('community_summarizer_empty');
       }
-      var isEmpty = status === 'empty'
+      var isEmpty = !needsConfirm && (
+        status === 'empty'
         || summary === t('community_summarizer_empty')
         || summary === t('hybrid_community_empty')
         || /אין חומר מהארכיון/.test(summary)
         || /כרגע אין חומר רלוונטי/.test(summary)
         || /לצערי,?\s*הנושא שביקשת/.test(summary)
-        || /אינו נמצא במאגר/.test(summary);
+        || /אינו נמצא במאגר/.test(summary)
+      );
       var isSummarizing = status === 'summarizing'
         || summary === t('community_summarizer_loading')
         || summary === t('hybrid_community_summarizing')
@@ -23974,7 +24031,22 @@
       }
       summary = sanitizeCommunitySummaryForDisplay(summary);
       var bodyHtml;
-      if (isSummarizing) {
+      if (needsConfirm && suggestedTopic) {
+        var promptText = t('archive_suggest_prompt', { topic: suggestedTopic })
+          || ('האם התכוונת ל-' + suggestedTopic + '?');
+        bodyHtml = '<div class="community-summarizer-didyoumean" role="group" aria-label="'
+          + escapeHtml(promptText) + '">'
+          + '<p class="community-summarizer-didyoumean-prompt">' + escapeHtml(promptText) + '</p>'
+          + '<div class="community-summarizer-didyoumean-actions">'
+          + '<button type="button" class="community-summarizer-didyoumean-yes" data-community-confirm-topic="'
+          + escapeHtml(suggestedTopic) + '">'
+          + escapeHtml(t('archive_suggest_yes') || 'כן, התכוונתי לזה')
+          + '</button>'
+          + '<button type="button" class="community-summarizer-didyoumean-no">'
+          + escapeHtml(t('community_summarizer_suggest_no') || t('archive_suggest_no') || 'לא')
+          + '</button>'
+          + '</div></div>';
+      } else if (isSummarizing) {
         bodyHtml = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>'
           + escapeHtml(summary) + '</span>';
       } else if (isEmpty) {
@@ -23986,12 +24058,12 @@
         bodyHtml = formatInspirationAiMarkdown(summary)
           || ('<p>' + escapeHtml(summary).replace(/\n/g, '<br>') + '</p>');
       }
-      var citationsHtml = (isEmpty || isSummarizing) ? '' : renderHybridCommunityCitationsHtml(meta);
+      var citationsHtml = (isEmpty || isSummarizing || needsConfirm) ? '' : renderHybridCommunityCitationsHtml(meta);
       // Avoid duplicating a Gemini-authored «מראי מקום» section when we already append links.
       if (citationsHtml && /מראי מקום/.test(summary) && /https?:\/\//.test(summary)) {
         citationsHtml = '';
       }
-      return '<aside class="hybrid-community-summary' + (isEmpty || isSummarizing ? ' is-empty' : '') + (isSummarizing ? ' is-summarizing' : '') + '" dir="rtl" aria-label="' + escapeHtml(heading) + '" aria-busy="' + (isSummarizing ? 'true' : 'false') + '">' +
+      return '<aside class="hybrid-community-summary' + (isEmpty || isSummarizing || needsConfirm ? ' is-empty' : '') + (isSummarizing ? ' is-summarizing' : '') + '" dir="rtl" aria-label="' + escapeHtml(heading) + '" aria-busy="' + (isSummarizing ? 'true' : 'false') + '">' +
         '<h3><i class="fa-solid fa-people-roof text-sage ml-1" aria-hidden="true"></i> ' + escapeHtml(heading) + '</h3>' +
         '<div class="hybrid-community-summary-body">' + bodyHtml + '</div>' +
         citationsHtml +
@@ -24086,7 +24158,15 @@
       var status = data.communityStatus ? String(data.communityStatus) : '';
       var summary = data.communitySummary != null ? String(data.communitySummary).trim() : '';
       if (!summary) return false;
-      if (status === 'empty' || status === 'unavailable' || status === 'not_configured' || status === 'summarizing') {
+      if (
+        status === 'empty'
+        || status === 'unavailable'
+        || status === 'not_configured'
+        || status === 'summarizing'
+        || status === 'needs_confirmation'
+        || data.didYouMean
+        || data.needsConfirmation
+      ) {
         return false;
       }
       if (
@@ -24100,6 +24180,7 @@
         || /אינו נמצא במאגר/.test(summary)
         || /סורק את המאגר הקהילתי/.test(summary)
         || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary)
+        || /האם התכוונת/.test(summary)
       ) {
         return false;
       }
@@ -24127,11 +24208,49 @@
       }
       resultEl.innerHTML = renderHybridCommunitySummaryBlock(data);
       syncCommunitySummarizerExportButton(data);
+      bindCommunitySummarizerDidYouMean(resultEl, data);
       if (isCommunitySummarizerSummaryReady(data) && isCommunitySummarizerModalOpen()) {
         try {
           resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } catch (scrollErr) { /* ignore */ }
       }
+    }
+
+    function bindCommunitySummarizerDidYouMean(rootEl, data) {
+      if (!rootEl || rootEl._communityDidYouMeanBound) return;
+      rootEl._communityDidYouMeanBound = true;
+      rootEl.addEventListener('click', function (e) {
+        var yesBtn = e.target && e.target.closest
+          ? e.target.closest('[data-community-confirm-topic]')
+          : null;
+        var noBtn = e.target && e.target.closest
+          ? e.target.closest('.community-summarizer-didyoumean-no')
+          : null;
+        if (yesBtn) {
+          e.preventDefault();
+          var suggested = String(yesBtn.getAttribute('data-community-confirm-topic') || '').trim()
+            || String((data && data.suggestedTopic) || '').trim();
+          if (!suggested) return;
+          var topicEl = document.getElementById('community-summarizer-topic');
+          if (topicEl) topicEl.value = suggested;
+          runCommunityTopicSummarizer({
+            confirmedTopic: true,
+            suggestedTopic: suggested,
+          });
+          return;
+        }
+        if (noBtn) {
+          e.preventDefault();
+          // Keep the typed topic; user can refine manually. Clear suggestion panel.
+          appState.communitySummarizerResult = {
+            communitySummaryHeading: t('community_summarizer_heading'),
+            communityStatus: 'empty',
+            communitySummary: t('community_summarizer_suggest_declined')
+              || t('community_summarizer_empty'),
+          };
+          renderCommunitySummarizerResult(appState.communitySummarizerResult);
+        }
+      });
     }
 
     async function downloadCommunitySummarizerWord() {
@@ -24310,12 +24429,17 @@
       closeCommunitySummarizerModal({ goHome: true });
     }
 
-    async function runCommunityTopicSummarizer() {
+    async function runCommunityTopicSummarizer(runOpts) {
+      runOpts = runOpts || {};
       var gradeEl = document.getElementById('community-summarizer-grade');
       var topicEl = document.getElementById('community-summarizer-topic');
       var resultEl = document.getElementById('community-summarizer-result');
       var gradeId = gradeEl ? String(gradeEl.value || '').trim() : '';
       var topic = topicEl ? String(topicEl.value || '').trim() : '';
+      if (runOpts.suggestedTopic) {
+        topic = String(runOpts.suggestedTopic).trim() || topic;
+        if (topicEl) topicEl.value = topic;
+      }
       if (!gradeId) {
         if (resultEl) {
           resultEl.innerHTML = '<p class="text-burgundy text-sm m-0">' + escapeHtml(t('research_need_grade')) + '</p>';
@@ -24342,11 +24466,18 @@
       appState.communitySummarizerAbort = controller;
       var requestId = (appState.communitySummarizerRequestId = (appState.communitySummarizerRequestId || 0) + 1);
       try {
-        var response = await invokePureApi('/api/community-summarizer', {
+        var payload = {
           topic: topic,
           gradeId: gradeId,
           currentGrade: gradeId,
-        }, controller && controller.signal);
+        };
+        if (runOpts.confirmedTopic) {
+          payload.confirmedTopic = true;
+          payload.confirmSuggestion = true;
+          payload.suggestedTopic = topic;
+          payload.confirmSuggestedTopic = topic;
+        }
+        var response = await invokePureApi('/api/community-summarizer', payload, controller && controller.signal);
         if (requestId !== appState.communitySummarizerRequestId) return;
         var data = response && response.data ? response.data : response;
         appState.communitySummarizerResult = data || {};
