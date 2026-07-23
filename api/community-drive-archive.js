@@ -34,9 +34,9 @@ const PROMPT_VERSION = 'v3-deep-workplan';
 const COMMUNITY_SUMMARY_HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
 const COMMUNITY_SUMMARY_EMPTY = 'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
 
-const MAX_FILES_FOR_SUMMARY = 40;
-const MAX_CHARS_PER_FILE = 22000;
-const MAX_TOTAL_CHARS = 160000;
+const MAX_FILES_FOR_SUMMARY = 14;
+const MAX_CHARS_PER_FILE = 12000;
+const MAX_TOTAL_CHARS = 70000;
 /** Prefer inlineData under this size; larger PDFs/images use Gemini Files API. */
 const MAX_GEMINI_INLINE_BYTES = 12 * 1024 * 1024;
 /** Gemini document understanding PDF/image ceiling (~50MB). */
@@ -1218,32 +1218,40 @@ async function upsertArchiveRow(record) {
   if (!payload.summary_md && payload.summary_text) {
     payload.summary_md = payload.summary_text;
   }
+  if (payload.summary_text == null || payload.summary_text === '') {
+    payload.summary_text = String(payload.summary_md || ' ');
+  }
+  if (payload.summary_md == null) {
+    payload.summary_md = String(payload.summary_text || '');
+  }
   if (!payload.grade_level && payload.grade_id) {
     payload.grade_level = payload.grade_id;
   }
   if (!payload.drive_fingerprint && payload.source_fingerprint) {
     payload.drive_fingerprint = payload.source_fingerprint;
   }
+  if (!payload.archive_key) {
+    throw new Error('community_drive_archive upsert requires archive_key');
+  }
   const restPath = '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key';
   console.log(
-    '[community-drive-archive] PERSIST upsert starting',
+    '[community-drive-archive] Upserting to Supabase',
     '| table:',
     TABLE_NAME,
-    '| on_conflict=archive_key',
-    '| payload.topic:',
+    '| status:',
+    payload.community_status,
+    '| topic:',
     JSON.stringify(payload.topic),
-    '| payload.grade_id:',
+    '| grade_id:',
     JSON.stringify(payload.grade_id),
-    '| payload.search_query:',
-    JSON.stringify(payload.search_query),
     '| archive_key:',
-    String(payload.archive_key || '').slice(0, 12) + '…',
-    '| summaryChars:',
+    String(payload.archive_key || '').slice(0, 16),
+    '| summary_text_chars:',
+    String(payload.summary_text || '').length,
+    '| summary_md_chars:',
     String(payload.summary_md || '').length,
-    '| source_file_ids:',
-    Array.isArray(payload.source_file_ids) ? payload.source_file_ids.length : 0,
-    '| fullQuery:',
-    restPath
+    '| updated_at:',
+    payload.updated_at
   );
   const res = await fetch(cfg.url + restPath, {
     method: 'POST',
@@ -1279,16 +1287,53 @@ async function upsertArchiveRow(record) {
     );
   }
   console.log(
-    '[community-drive-archive] PERSIST OK',
+    '[community-drive-archive] PERSIST OK / Upserting to Supabase complete',
     '| topic:',
     JSON.stringify(payload.topic),
     '| grade_id:',
     JSON.stringify(payload.grade_id),
     '| archive_key:',
-    String(payload.archive_key || '').slice(0, 12) + '…'
+    String(payload.archive_key || '').slice(0, 16),
+    '| community_status:',
+    payload.community_status
   );
   const data = text ? JSON.parse(text) : [];
   return Array.isArray(data) ? data[0] : data;
+}
+
+/**
+ * Write a processing stub so clients can poll while Gemini runs in the background.
+ */
+async function upsertProcessingStub(query, options, fileRefs) {
+  const opts = options || {};
+  const q = String(query || '').trim();
+  const archiveKey = opts.archiveKey || buildArchiveKey(q, opts);
+  const gradeIdValue = String(opts.gradeId || opts.currentGrade || '').trim();
+  const refs = Array.isArray(fileRefs) ? fileRefs : [];
+  const placeholder = 'מעבד סיכום מהמאגר הקהילתי…';
+  console.log(
+    '[community-drive-archive] Upserting to Supabase (processing stub)',
+    '| archive_key:',
+    String(archiveKey).slice(0, 16),
+    '| files:',
+    refs.length
+  );
+  return upsertArchiveRow({
+    archive_key: archiveKey,
+    search_query: q,
+    query_text: q,
+    grade_id: gradeIdValue,
+    grade_level: gradeIdValue,
+    topic: String(opts.topic || opts.catalogTopic || q).trim(),
+    summary_md: placeholder,
+    summary_text: placeholder,
+    community_status: 'processing',
+    source_fingerprint: opts.sourceFingerprint || buildSourceFingerprint(refs),
+    drive_fingerprint: opts.sourceFingerprint || buildSourceFingerprint(refs),
+    source_file_ids: refs.map(function (ref) { return ref.driveFileId; }).filter(Boolean),
+    file_refs: refs,
+    model: null,
+  });
 }
 
 function extractGeminiText(payload) {
@@ -2005,6 +2050,14 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   const fingerprint = buildSourceFingerprint(fileRefs);
 
   try {
+    // Background create / explicit refresh: skip cache lookup and go straight to extract+Gemini.
+    if (opts.skipCacheLookup === true || opts.forceRefresh === true || opts.refresh === true) {
+      console.log(
+        '[community-drive-archive] skipCacheLookup/forceRefresh — skipping archive cache hit path',
+        '| archive_key:',
+        String(archiveKey).slice(0, 16)
+      );
+    } else {
     // Prefer an existing row already resolved by semantic/exact match (same table only).
     let existing = opts.existingArchiveRow && isUsableArchiveRow(opts.existingArchiveRow)
       ? opts.existingArchiveRow
@@ -2076,6 +2129,7 @@ async function resolveCommunityDriveSummary(query, matches, options) {
         '[community-drive-archive] CACHE MISS — no community_drive_archive row; will extract + Gemini'
       );
     }
+    } // end !skipCacheLookup
   } catch (lookupErr) {
     console.warn('[community-drive-archive] lookup failed:', lookupErr.message || lookupErr);
   }
@@ -2103,10 +2157,22 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     };
   }
 
+  console.log(
+    '[community-drive-archive] CACHE MISS create pipeline — Drive extract started',
+    '| files:',
+    fileRefs.length,
+    '| archive_key:',
+    String(archiveKey).slice(0, 16)
+  );
+
   let accessToken;
   try {
     accessToken = await driveCatalogSync.resolveDriveAccessToken(opts);
   } catch (tokenErr) {
+    console.error(
+      '[community-drive-archive] Drive access token failed — create pipeline stuck before extract:',
+      tokenErr && tokenErr.message ? tokenErr.message : tokenErr
+    );
     return {
       heading: COMMUNITY_SUMMARY_HEADING,
       summary: COMMUNITY_SUMMARY_EMPTY,
@@ -2125,6 +2191,15 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   const bundles = extracted.bundles || [];
   const failedRefs = extracted.failedRefs || [];
   const multimodalPreferredRefs = extracted.multimodalPreferredRefs || [];
+  console.log(
+    '[community-drive-archive] Drive extract finished',
+    '| textBundles:',
+    bundles.length,
+    '| failed:',
+    failedRefs.length,
+    '| multimodalCandidates:',
+    multimodalPreferredRefs.length
+  );
 
   // When pdf-parse / standard extract yields 0 chars (scanned PDF / image), or only
   // unreliable thin PDF text, send the binary to Gemini multimodal.
@@ -2153,8 +2228,8 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   }
 
   console.log(
-    '[community-drive-archive] sending corpus to Gemini —',
-    'textFiles:',
+    '[community-drive-archive] Sending to Gemini',
+    '| textFiles:',
     bundles.length,
     '| multimodalFiles:',
     mediaMeta.length,
@@ -2169,6 +2244,13 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     gradeId: opts.gradeId || opts.currentGrade || '',
     topic: opts.topic || opts.catalogTopic || '',
   });
+  console.log(
+    '[community-drive-archive] Gemini summary received',
+    '| model:',
+    generated.model,
+    '| chars:',
+    String(generated.summary || '').length
+  );
 
   const cleanedSummary = sanitizeCommunitySummaryMarkdown(generated.summary);
   const gradeIdValue = String(opts.gradeId || opts.currentGrade || '').trim();
@@ -2191,6 +2273,7 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   };
 
   try {
+    console.log('[community-drive-archive] Upserting to Supabase (final ok summary)');
     await upsertArchiveRow(record);
   } catch (persistErr) {
     console.error(
@@ -2206,6 +2289,8 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       '| stack:',
       persistErr && persistErr.stack ? persistErr.stack : null
     );
+    // Do not leave clients polling a stuck "processing" stub forever.
+    throw persistErr;
   }
 
   return {
@@ -2256,6 +2341,9 @@ module.exports = {
   isSummaryDeepEnough,
   tryInstantArchiveRetrieval,
   resolveCommunityDriveSummary,
+  upsertArchiveRow,
+  upsertProcessingStub,
+  fetchArchiveRow,
   emptySummaryResult,
   resolveMultimodalMime,
   isMultimodalCandidate,

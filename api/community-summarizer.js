@@ -24,8 +24,14 @@ const COMMUNITY_SUMMARY_HEADING =
 const COMMUNITY_SUMMARY_EMPTY =
   communityDriveArchive.COMMUNITY_SUMMARY_EMPTY ||
   'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
+const COMMUNITY_SUMMARY_PROCESSING =
+  'מפיק סיכום חדש מתוך מאגר הדרייב... תהליך זה קורה ברקע ויטען מיד.';
+const POLL_HINT_MS = 3500;
 
 const SUMMARIZER_PHASE = 'community_summarizer';
+
+/** In-flight Gemini create jobs keyed by archive_key (prevents duplicate work). */
+const inflightSummaryJobs = new Map();
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -167,6 +173,8 @@ function finalizeSummaryPayload(base, summary, citations, extras) {
   const status = summary.communityStatus === 'ok'
     || summary.communityStatus === 'degraded'
     || summary.communityStatus === 'needs_confirmation'
+    || summary.communityStatus === 'processing'
+    || summary.communityStatus === 'summarizing'
     ? summary.communityStatus
     : (summary.communityStatus || (extra.configured ? 'empty' : 'not_configured'));
 
@@ -194,6 +202,11 @@ function finalizeSummaryPayload(base, summary, citations, extras) {
     requestedTopic: summary.requestedTopic || base.topic || null,
     similarity: summary.similarity != null ? summary.similarity : null,
     matchType: summary.matchType || null,
+    processing: status === 'processing' || status === 'summarizing',
+    poll: Boolean(extra.poll) || status === 'processing' || status === 'summarizing',
+    pollAfterMs: (status === 'processing' || status === 'summarizing')
+      ? (extra.pollAfterMs != null ? Number(extra.pollAfterMs) : POLL_HINT_MS)
+      : null,
     driveDebug: extra.driveDebug || null,
   }));
 }
@@ -341,6 +354,43 @@ async function runCommunityTopicSummary(options) {
     }
   }
 
+  // Processing stubs are not "usable" cache hits — detect them by archive_key so we can
+  // return poll hints / restart create without a full Drive re-scan.
+  if (!archiveMatch && !forceRefresh && typeof communityDriveArchive.fetchArchiveRow === 'function') {
+    try {
+      const pendingKey = communityDriveArchive.buildArchiveKey(topic, {
+        gradeId: lockedGradeId,
+        topic: topic,
+        phase: SUMMARIZER_PHASE,
+      });
+      const pendingRow = await communityDriveArchive.fetchArchiveRow(pendingKey);
+      const pendingStatus = pendingRow ? String(pendingRow.community_status || '') : '';
+      if (pendingRow && (pendingStatus === 'processing' || pendingStatus === 'summarizing')) {
+        console.log(
+          '[community-summarizer] processing stub found by archive_key',
+          '| status:',
+          pendingStatus,
+          '| archive_key:',
+          pendingKey.slice(0, 16)
+        );
+        archiveMatch = {
+          matchType: 'exact',
+          similarity: 1,
+          row: pendingRow,
+          archiveKey: pendingKey,
+          suggestedTopic: String(pendingRow.topic || topic).trim(),
+          requestedTopic: topic,
+          gradeId: lockedGradeId,
+        };
+      }
+    } catch (pendingErr) {
+      console.warn(
+        '[community-summarizer] processing stub lookup failed:',
+        pendingErr && pendingErr.message ? pendingErr.message : pendingErr
+      );
+    }
+  }
+
   // Partial / close archive match → ask before full summarize (unless user already confirmed).
   if (
     archiveMatch
@@ -380,6 +430,52 @@ async function runCommunityTopicSummary(options) {
     );
   }
 
+  // Already creating in background — return processing immediately (no Drive re-scan).
+  let reuseProcessingStubCorpus = false;
+  if (
+    archiveMatch
+    && archiveMatch.row
+    && String(archiveMatch.row.community_status || '') === 'processing'
+    && !forceRefresh
+  ) {
+    const processingKey = String(
+      archiveMatch.archiveKey || archiveMatch.row.archive_key || ''
+    ).trim();
+    if (processingKey && inflightSummaryJobs.has(processingKey)) {
+      console.log(
+        '[community-summarizer] processing stub + inflight job — return poll hint',
+        '| archive_key:',
+        processingKey.slice(0, 16)
+      );
+      return finalizeSummaryPayload(base, {
+        heading: COMMUNITY_SUMMARY_HEADING,
+        summary: COMMUNITY_SUMMARY_PROCESSING,
+        communityStatus: 'processing',
+        fromArchive: false,
+        deltaUpdated: false,
+        archiveKey: processingKey,
+        fileRefs: Array.isArray(archiveMatch.row.file_refs) ? archiveMatch.row.file_refs : [],
+        model: null,
+      }, [], {
+        configured: configured,
+        matches: [],
+        matchCount: Array.isArray(archiveMatch.row.file_refs)
+          ? archiveMatch.row.file_refs.length
+          : 0,
+        poll: true,
+        pollAfterMs: POLL_HINT_MS,
+      });
+    }
+    console.log(
+      '[community-summarizer] orphaned processing stub (no inflight) — will restart create',
+      '| archive_key:',
+      processingKey.slice(0, 16)
+    );
+    if (Array.isArray(archiveMatch.row.file_refs) && archiveMatch.row.file_refs.length) {
+      reuseProcessingStubCorpus = true;
+    }
+  }
+
   // ── 2) Fast cache validation (no grade-wide ~69-folder scan) ──
   let matches = [];
   let citations = [];
@@ -389,6 +485,7 @@ async function runCommunityTopicSummary(options) {
   const usableArchive = Boolean(
     archiveMatch
     && archiveMatch.row
+    && String(archiveMatch.row.community_status || '') === 'ok'
     && (archiveMatch.matchType === 'exact' || archiveMatch.matchType === 'semantic')
     && !forceRefresh
   );
@@ -633,10 +730,34 @@ async function runCommunityTopicSummary(options) {
         matches.length
       );
     }
+  } else if (reuseProcessingStubCorpus) {
+    // Orphaned processing stub — reuse stored file_refs (skip cold Drive listing).
+    const stubRefs = archiveMatch.row.file_refs;
+    matches = stubRefs.map(function (ref) {
+      return {
+        driveFileId: ref.driveFileId || ref.id || '',
+        fileName: ref.name || ref.fileName || ref.title || '',
+        title: ref.name || ref.fileName || ref.title || '',
+        mimeType: ref.mimeType || '',
+        webViewLink: ref.webViewLink || ref.url || '',
+        modifiedTime: ref.modifiedTime || '',
+        folderPath: ref.folderPath || '',
+      };
+    }).filter(function (m) { return m.driveFileId; });
+    citations = citationsFromFileRefs(stubRefs);
+    driveDebug = {
+      matchMethod: 'processing_stub_file_refs',
+      topicRelaxed: false,
+      scannedFolderCount: 0,
+    };
+    console.log(
+      '[community-summarizer] Drive query skipped — reusing processing stub file_refs:',
+      matches.length
+    );
   } else {
     // ── Cold start / no usable archive: full Drive listing (may relax) ──
     console.log(
-      '[community-summarizer] step 2 — full Drive metadata listing (no archive match)',
+      '[community-summarizer] Drive query started — full Drive metadata listing (no archive match)',
       '| topic:',
       JSON.stringify(effectiveTopic)
     );
@@ -647,7 +768,7 @@ async function runCommunityTopicSummary(options) {
     driveDebug = listed.driveDebug || driveDebug;
 
     console.log(
-      '[community-summarizer] Drive metadata ready:',
+      '[community-summarizer] Drive query finished / files ready:',
       matches.length,
       'file(s)',
       matches.map(function (m) {
@@ -779,37 +900,243 @@ async function runCommunityTopicSummary(options) {
     }
   }
 
-  // ── 4) Cache miss / no archive → extract + Gemini + upsert ──
+  // ── 4) Cache miss / no archive → background Gemini create + upsert ──
   console.log(
-    '[community-summarizer] step 3 — extract + Gemini (cache miss or no archive)',
-    '| files:',
-    matches.length
+    '[community-summarizer] CACHE MISS create pipeline started',
+    '| Drive query / files ready:',
+    matches.length,
+    '| topic:',
+    JSON.stringify(effectiveTopic),
+    '| grade:',
+    lockedGradeId
   );
-  const summary = await communityDriveArchive.resolveCommunityDriveSummary(
-    effectiveTopic,
-    matches,
-    {
+
+  const archiveKey = communityDriveArchive.buildArchiveKey(effectiveTopic, {
+    gradeId: lockedGradeId,
+    topic: effectiveTopic,
+    phase: SUMMARIZER_PHASE,
+  });
+  const fileRefs = communityDriveArchive.normalizeFileRefsFromMatches
+    ? communityDriveArchive.normalizeFileRefsFromMatches(matches)
+    : matches;
+  const fingerprint = communityDriveArchive.buildSourceFingerprint
+    ? communityDriveArchive.buildSourceFingerprint(fileRefs)
+    : '';
+
+  try {
+    console.log('[community-summarizer] Upserting to Supabase (processing stub)');
+    await communityDriveArchive.upsertProcessingStub(effectiveTopic, {
       gradeId: lockedGradeId,
       currentGrade: lockedGradeId,
       topic: effectiveTopic,
       catalogTopic: effectiveTopic,
       phase: SUMMARIZER_PHASE,
-      citations: citations,
-      forceRefresh: forceRefresh,
-      existingArchiveRow: archiveMatch && archiveMatch.row ? archiveMatch.row : null,
-      matchedTopic: archiveMatch && archiveMatch.suggestedTopic
-        ? archiveMatch.suggestedTopic
-        : effectiveTopic,
-      matchType: archiveMatch && archiveMatch.matchType ? archiveMatch.matchType : 'exact',
-    }
-  );
+      archiveKey: archiveKey,
+      sourceFingerprint: fingerprint,
+    }, fileRefs);
+  } catch (stubErr) {
+    console.error(
+      '[community-summarizer] processing stub upsert failed — continuing background job anyway:',
+      stubErr && stubErr.message ? stubErr.message : stubErr
+    );
+  }
 
-  return finalizeSummaryPayload(base, summary, citations, {
+  function startCreateJob() {
+    if (inflightSummaryJobs.has(archiveKey)) {
+      console.log(
+        '[community-summarizer] background create already in flight',
+        '| archive_key:',
+        archiveKey.slice(0, 16)
+      );
+      return inflightSummaryJobs.get(archiveKey);
+    }
+    console.log(
+      '[community-summarizer] Scheduling background create job',
+      '| archive_key:',
+      archiveKey.slice(0, 16),
+      '| files:',
+      matches.length
+    );
+    const job = Promise.resolve()
+      .then(function () {
+        console.log('[community-summarizer] Sending to Gemini (background job)');
+        return communityDriveArchive.resolveCommunityDriveSummary(
+          effectiveTopic,
+          matches,
+          {
+            gradeId: lockedGradeId,
+            currentGrade: lockedGradeId,
+            topic: effectiveTopic,
+            catalogTopic: effectiveTopic,
+            phase: SUMMARIZER_PHASE,
+            citations: citations,
+            forceRefresh: true,
+            skipCacheLookup: true,
+            existingArchiveRow: null,
+            matchedTopic: archiveMatch && archiveMatch.suggestedTopic
+              ? archiveMatch.suggestedTopic
+              : effectiveTopic,
+            matchType: archiveMatch && archiveMatch.matchType ? archiveMatch.matchType : 'exact',
+          }
+        );
+      })
+      .then(function (summary) {
+        console.log(
+          '[community-summarizer] background create finished',
+          '| status:',
+          summary && summary.communityStatus,
+          '| archive_key:',
+          archiveKey.slice(0, 16),
+          '| summaryChars:',
+          summary && summary.summary ? String(summary.summary).length : 0
+        );
+        return summary;
+      })
+      .catch(function (jobErr) {
+        console.error(
+          '[community-summarizer] background create FAILED',
+          '| archive_key:',
+          archiveKey.slice(0, 16),
+          '| error:',
+          jobErr && jobErr.message ? jobErr.message : jobErr,
+          '| stack:',
+          jobErr && jobErr.stack ? jobErr.stack : null
+        );
+        return communityDriveArchive.upsertArchiveRow({
+          archive_key: archiveKey,
+          search_query: effectiveTopic,
+          query_text: effectiveTopic,
+          grade_id: lockedGradeId,
+          grade_level: lockedGradeId,
+          topic: effectiveTopic,
+          summary_md: 'יצירת הסיכום נכשלה: ' + String(jobErr && jobErr.message ? jobErr.message : jobErr),
+          summary_text: 'יצירת הסיכום נכשלה: ' + String(jobErr && jobErr.message ? jobErr.message : jobErr),
+          community_status: 'unavailable',
+          source_fingerprint: fingerprint,
+          drive_fingerprint: fingerprint,
+          source_file_ids: fileRefs.map(function (r) { return r.driveFileId; }).filter(Boolean),
+          file_refs: fileRefs,
+          model: null,
+        }).catch(function (persistFail) {
+          console.error(
+            '[community-summarizer] failed-status upsert also failed:',
+            persistFail && persistFail.message ? persistFail.message : persistFail
+          );
+        });
+      })
+      .finally(function () {
+        inflightSummaryJobs.delete(archiveKey);
+      });
+    inflightSummaryJobs.set(archiveKey, job);
+    return job;
+  }
+
+  // Fire-and-forget so the HTTP response is not blocked by Gemini (avoids FE timeout).
+  startCreateJob();
+
+  return finalizeSummaryPayload(base, {
+    heading: COMMUNITY_SUMMARY_HEADING,
+    summary: COMMUNITY_SUMMARY_PROCESSING,
+    communityStatus: 'processing',
+    fromArchive: false,
+    deltaUpdated: false,
+    archiveKey: archiveKey,
+    fileRefs: fileRefs,
+    sourceFingerprint: fingerprint,
+    model: null,
+  }, citations, {
     configured: configured,
     matches: matches,
     matchCount: matches.length,
     probeError: probeError,
     driveDebug: driveDebug,
+    poll: true,
+    pollAfterMs: POLL_HINT_MS,
+  });
+}
+
+async function pollCommunitySummaryJob(options) {
+  const opts = options || {};
+  const topic = String(opts.topic || opts.query || '').trim();
+  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  const archiveKey = String(opts.archiveKey || opts.communityArchiveKey || '').trim()
+    || (topic && gradeId
+      ? communityDriveArchive.buildArchiveKey(topic, {
+        gradeId: gradeId,
+        topic: topic,
+        phase: SUMMARIZER_PHASE,
+      })
+      : '');
+  if (!archiveKey) {
+    const err = new Error('archiveKey (or topic+gradeId) is required to poll');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  console.log(
+    '[community-summarizer] poll status',
+    '| archive_key:',
+    archiveKey.slice(0, 16),
+    '| inflight:',
+    inflightSummaryJobs.has(archiveKey)
+  );
+
+  let row = null;
+  try {
+    row = await communityDriveArchive.fetchArchiveRow(archiveKey);
+  } catch (e) {
+    console.warn('[community-summarizer] poll fetchArchiveRow failed:', e.message || e);
+  }
+
+  const base = {
+    topic: topic || (row && row.topic) || '',
+    requestedTopic: topic || (row && (row.search_query || row.query_text)) || '',
+    gradeId: gradeId || (row && row.grade_id) || '',
+  };
+
+  if (row && row.community_status === 'ok' && String(row.summary_md || '').trim()) {
+    console.log('[community-summarizer] poll READY — returning archived summary');
+    return finalizeSummaryPayload(base, {
+      heading: COMMUNITY_SUMMARY_HEADING,
+      summary: String(row.summary_md || ''),
+      communityStatus: 'ok',
+      fromArchive: true,
+      deltaUpdated: false,
+      archiveKey: row.archive_key || archiveKey,
+      fileRefs: Array.isArray(row.file_refs) ? row.file_refs : [],
+      sourceFingerprint: String(row.source_fingerprint || row.drive_fingerprint || ''),
+      model: row.model || null,
+      smartCacheHit: true,
+    }, citationsFromFileRefs(row.file_refs), {
+      configured: driveIsConfigured(),
+      matches: [],
+      matchCount: Array.isArray(row.file_refs) ? row.file_refs.length : 0,
+      poll: true,
+    });
+  }
+
+  if (row && row.community_status === 'unavailable') {
+    return finalizeSummaryPayload(base, {
+      heading: COMMUNITY_SUMMARY_HEADING,
+      summary: String(row.summary_md || COMMUNITY_SUMMARY_EMPTY),
+      communityStatus: 'unavailable',
+      fromArchive: false,
+      archiveKey: archiveKey,
+    }, [], { configured: driveIsConfigured(), matches: [], matchCount: 0, poll: true });
+  }
+
+  return finalizeSummaryPayload(base, {
+    heading: COMMUNITY_SUMMARY_HEADING,
+    summary: COMMUNITY_SUMMARY_PROCESSING,
+    communityStatus: 'processing',
+    fromArchive: false,
+    archiveKey: archiveKey,
+  }, [], {
+    configured: driveIsConfigured(),
+    matches: [],
+    matchCount: 0,
+    poll: true,
+    pollAfterMs: POLL_HINT_MS,
   });
 }
 
@@ -823,8 +1150,21 @@ async function executeCommunitySummarizer(req) {
   const body = stripLiveResearchFlags(rawBody);
   console.log(
     '[community-summarizer] pipeline=community-drive-archive+gemini',
-    '| usedPerplexity=false | usedLiveResearch=false'
+    '| usedPerplexity=false | usedLiveResearch=false',
+    '| poll:',
+    body.poll === true || body.checkStatus === true
   );
+
+  if (body.poll === true || body.checkStatus === true) {
+    return pollCommunitySummaryJob({
+      topic: body.topic || body.query || body.userMessage || body.q,
+      gradeId: body.gradeId || body.currentGrade,
+      currentGrade: body.currentGrade || body.gradeId,
+      archiveKey: body.archiveKey || body.communityArchiveKey || '',
+      communityArchiveKey: body.communityArchiveKey || body.archiveKey || '',
+    });
+  }
+
   return runCommunityTopicSummary({
     topic: body.topic || body.query || body.userMessage || body.q,
     gradeId: body.gradeId || body.currentGrade,
@@ -872,7 +1212,9 @@ module.exports = {
   SUMMARIZER_PHASE,
   COMMUNITY_SUMMARY_HEADING,
   COMMUNITY_SUMMARY_EMPTY,
+  COMMUNITY_SUMMARY_PROCESSING,
   runCommunityTopicSummary,
+  pollCommunitySummaryJob,
   executeCommunitySummarizer,
   legacyHandler,
 };
