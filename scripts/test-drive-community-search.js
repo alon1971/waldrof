@@ -79,6 +79,18 @@ const broadAll = drive.resolveStrictDriveScopeFolderIds(fakeIndex, '', '');
 assert(broadAll.has('rome') && broadAll.has('g1') && broadAll.has('g5'), 'empty grade+topic allow-list keeps all graded folders');
 assert(!broadAll.has('root'), 'root without grade is excluded from broad allow-list');
 
+const grade6Branch = drive.resolveDescendantFolderIds(fakeIndex, 'g6');
+assert(grade6Branch.has('g6') && grade6Branch.has('rome') && grade6Branch.has('geo'), 'grade parent includes nested topic folders');
+assert(!grade6Branch.has('g1') && !grade6Branch.has('root'), 'grade parent excludes other grades and root');
+
+const resolvedParent = drive.resolveDriveParentFolderId(fakeIndex, { gradeId: '6' });
+assert(resolvedParent === 'g6', 'gradeId resolves to grade root folder id');
+const explicitParent = drive.resolveDriveParentFolderId(fakeIndex, {
+  gradeId: '6',
+  parentFolderId: 'rome',
+});
+assert(explicitParent === 'rome', 'explicit parentFolderId wins over grade root');
+
 assert(drive.topicsStrictlyCompatible('רומא', 'רומא העתיקה') === true, 'Rome aliases compatible');
 assert(drive.topicsStrictlyCompatible('יוון', 'מיתולוגיה נורדית') === false, 'Greece ≠ Norse');
 assert(drive.topicsStrictlyCompatible('מיתולוגיה נורדית', 'מיתולוגיה יוונית') === false, 'Norse excludes Greek mythology');

@@ -202,12 +202,15 @@ async function runCommunitySearch(query, options) {
       : false);
 
   try {
+    const parentFolderId = String(opts.parentFolderId || opts.folderId || '').trim();
     const result = await cacheDb.probeCommunityGlobalSearch(q, {
       userMessage: q,
       topic: opts.topic || null,
       catalogTopic: opts.catalogTopic || opts.topic || null,
       gradeId: gradeId,
       currentGrade: gradeId,
+      parentFolderId: parentFolderId || null,
+      folderId: parentFolderId || null,
       globalScan: globalScan || opts.globalScan === true,
       broadScan: globalScan || opts.broadScan === true || Boolean(gradePolicy.crossCutting && !gradeId),
       includeFolderBrief: false,
@@ -357,9 +360,12 @@ async function executeCommunitySearch(req) {
   }
 
   const gradeId = String(body.gradeId || body.currentGrade || '').trim();
+  const parentFolderId = String(body.parentFolderId || body.folderId || '').trim();
   const probe = await runCommunitySearch(query, {
     gradeId: gradeId,
     currentGrade: gradeId,
+    parentFolderId: parentFolderId || null,
+    folderId: parentFolderId || null,
     topic: body.catalogTopic || body.selectedTopic || body.topic || null,
     catalogTopic: body.catalogTopic || body.selectedTopic || null,
     globalScan: body.globalScan === true || (!gradeId && body.globalScan !== false),
