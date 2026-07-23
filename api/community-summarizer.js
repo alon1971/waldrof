@@ -2,14 +2,15 @@
  * POST /api/community-summarizer — standalone community Drive topic summary.
  *
  * Decoupled from live web search (phases A–C). Workflow:
- *  1) Instant community_drive_archive hit (topic + grade) — skip Drive/Gemini
- *  2) Scan community root Drive folder for grade + topic
- *  3) Reuse archive row if fingerprint matches; else Gemini summarize + upsert
- *     (JSON responseMimeType + fence-strip parse live in api/community-drive-archive.js)
- *  4) Clear empty message when nothing exists in Drive or archive
+ *  1) Lookup community_drive_archive ONLY (exact + semantic normalization)
+ *  2) Partial / close match → "האם התכוונת ל-…?" (needs confirmation)
+ *  3) Scan community root Drive folder for grade + topic
+ *  4) Smart cache: Drive modifiedTime / new files since created_at
+ *     → reuse archive if unchanged or new files irrelevant; else Gemini re-summarize
+ *  5) No archive → Gemini summarize + upsert community_drive_archive
  *
  * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity.
- * Cache lookup is community_drive_archive only (archive_key).
+ * Cache lookup is community_drive_archive only.
  */
 const communitySearch = require('./community-search');
 const communityDriveArchive = require('./community-drive-archive');
@@ -97,109 +98,71 @@ function withNonBillableMeta(payload) {
     free: true,
     freeCommunitySummary: true,
     skipLiveSearchBilling: true,
-    fromCache: Boolean(body.fromArchive || body.instantArchiveHit || body.communitySummaryFromArchive),
+    fromCache: Boolean(body.fromArchive || body.instantArchiveHit || body.communitySummaryFromArchive || body.smartCacheHit),
+    smartCacheHit: Boolean(body.smartCacheHit),
+    didYouMean: Boolean(body.didYouMean || body.needsConfirmation),
   });
   return body;
 }
 
-/**
- * Full on-demand community topic summary (public archive + root Drive scan).
- * Instant archive hit (topic + grade) skips Drive listing and Gemini entirely
- * unless forceRefresh is set.
- */
-async function runCommunityTopicSummary(options) {
-  const opts = options || {};
-  const topic = String(opts.topic || opts.query || opts.userMessage || '').trim();
-  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
-  const forceRefresh = opts.forceRefresh === true || opts.refresh === true;
-
-  if (!topic) {
-    const err = new Error('topic is required');
-    err.statusCode = 400;
-    throw err;
+function finalizeSummaryPayload(base, summary, citations, extras) {
+  const extra = extras || {};
+  let summaryText = summary.summary != null && String(summary.summary).trim()
+    ? String(summary.summary)
+    : COMMUNITY_SUMMARY_EMPTY;
+  const citeList = Array.isArray(citations) ? citations : [];
+  if (
+    (summary.communityStatus === 'ok' || summary.communityStatus === 'degraded')
+    && citeList.length
+    && typeof communitySearch.appendCitationsMarkdown === 'function'
+    && !(/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))
+  ) {
+    summaryText = communitySearch.appendCitationsMarkdown(summaryText, citeList);
   }
-  if (!gradeId) {
-    const err = new Error('gradeId is required');
-    err.statusCode = 400;
-    throw err;
+  if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
+    summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
   }
 
-  const gradePolicy = typeof catalogTopics.resolveCommunityGradeScanPolicy === 'function'
-    ? catalogTopics.resolveCommunityGradeScanPolicy(topic, {
-      gradeId: gradeId,
-      currentGrade: gradeId,
-      topic: topic,
-      catalogTopic: topic,
-    })
-    : { lockedGradeId: gradeId, allowBroadScan: false, crossCutting: false };
-  const lockedGradeId = String(gradePolicy.lockedGradeId || gradeId).trim();
-  const configured = driveIsConfigured();
+  const status = summary.communityStatus === 'ok'
+    || summary.communityStatus === 'degraded'
+    || summary.communityStatus === 'needs_confirmation'
+    ? summary.communityStatus
+    : (summary.communityStatus || (extra.configured ? 'empty' : 'not_configured'));
 
-  // ── Aggressive cache: return archived summary BEFORE any Drive/Gemini work ──
-  if (!forceRefresh && typeof communityDriveArchive.tryInstantArchiveRetrieval === 'function') {
-    try {
-      const instant = await communityDriveArchive.tryInstantArchiveRetrieval(topic, {
-        gradeId: lockedGradeId,
-        currentGrade: lockedGradeId,
-        topic: topic,
-        catalogTopic: topic,
-        phase: SUMMARIZER_PHASE,
-      });
-      if (instant && instant.summary) {
-        const citations = citationsFromFileRefs(instant.fileRefs);
-        let summaryText = String(instant.summary).trim();
-        if (
-          citations.length
-          && typeof communitySearch.appendCitationsMarkdown === 'function'
-          && !(/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))
-        ) {
-          summaryText = communitySearch.appendCitationsMarkdown(summaryText, citations);
-        }
-        if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
-          summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
-        }
-        console.log(
-          '[community-summarizer] returning INSTANT archived summary for',
-          JSON.stringify(topic),
-          'grade',
-          lockedGradeId
-        );
-        return withNonBillableMeta({
-          success: true,
-          topic: topic,
-          gradeId: lockedGradeId,
-          communityStatus: 'ok',
-          communitySummaryHeading: instant.heading || COMMUNITY_SUMMARY_HEADING,
-          communitySummary: summaryText,
-          communityMatchCount: (instant.fileRefs || []).length,
-          communityMatches: [],
-          communityCitations: citations,
-          communitySummaryFromArchive: true,
-          communitySummaryDeltaUpdated: false,
-          communityArchiveKey: instant.archiveKey || null,
-          communitySummaryModel: instant.model || null,
-          communityDriveConfigured: configured,
-          communityError: null,
-          fromArchive: true,
-          deltaUpdated: false,
-          instantArchiveHit: true,
-        });
-      }
-    } catch (instantErr) {
-      console.warn(
-        '[community-summarizer] instant archive check failed — continuing to Drive:',
-        instantErr && instantErr.message ? instantErr.message : instantErr
-      );
-    }
-  }
+  return withNonBillableMeta(Object.assign({}, base, {
+    success: true,
+    communityStatus: status,
+    communitySummaryHeading: summary.heading || COMMUNITY_SUMMARY_HEADING,
+    communitySummary: summaryText,
+    communityMatchCount: extra.matchCount != null ? extra.matchCount : (extra.matches || []).length,
+    communityMatches: extra.matches || [],
+    communityCitations: citeList,
+    communitySummaryFromArchive: Boolean(summary.fromArchive),
+    communitySummaryDeltaUpdated: Boolean(summary.deltaUpdated),
+    communityArchiveKey: summary.archiveKey || null,
+    communitySummaryModel: summary.model || null,
+    communityDriveConfigured: Boolean(extra.configured),
+    communityError: summary.communityError || extra.probeError || null,
+    fromArchive: Boolean(summary.fromArchive),
+    deltaUpdated: Boolean(summary.deltaUpdated),
+    instantArchiveHit: Boolean(summary.instantHit),
+    smartCacheHit: Boolean(summary.smartCacheHit),
+    didYouMean: Boolean(summary.didYouMean || summary.needsConfirmation),
+    needsConfirmation: Boolean(summary.needsConfirmation || summary.didYouMean),
+    suggestedTopic: summary.suggestedTopic || null,
+    requestedTopic: summary.requestedTopic || base.topic || null,
+    similarity: summary.similarity != null ? summary.similarity : null,
+    matchType: summary.matchType || null,
+    driveDebug: extra.driveDebug || null,
+  }));
+}
 
-  // Prefer a full listing of every file under the grade/topic folder tree
-  // (incl. shortcut targets) so Gemini receives a multi-file merge — not a
-  // single keyword-search hit.
+async function listMatchesForTopic(lockedGradeId, topic, opts) {
   let matches = [];
   let probeError = null;
   let driveDebug = null;
   const listLimit = Math.max(Number(opts.limit) || 40, 24);
+
   if (typeof driveCatalogSync.listDriveFilesForGradeTopic === 'function') {
     try {
       const listed = await driveCatalogSync.listDriveFilesForGradeTopic(lockedGradeId, topic, {
@@ -239,6 +202,126 @@ async function runCommunityTopicSummary(options) {
     else if (probe.debug) driveDebug = probe.debug;
   }
 
+  const citations = Array.isArray(probe && probe.communityCitations)
+    ? probe.communityCitations
+    : communitySearch.buildCommunityCitations(matches);
+
+  return {
+    matches: matches,
+    citations: citations,
+    probeError: probeError,
+    driveDebug: driveDebug,
+  };
+}
+
+/**
+ * Full on-demand community topic summary (public archive + root Drive scan).
+ * Smart cache + semantic normalization + optional "did you mean" confirmation.
+ */
+async function runCommunityTopicSummary(options) {
+  const opts = options || {};
+  const requestedTopic = String(opts.topic || opts.query || opts.userMessage || '').trim();
+  const confirmed = opts.confirmedTopic === true
+    || opts.confirmSuggestion === true
+    || opts.skipDidYouMean === true;
+  const confirmedSuggested = String(opts.suggestedTopic || opts.confirmSuggestedTopic || '').trim();
+  const topic = (confirmed && confirmedSuggested) ? confirmedSuggested : requestedTopic;
+  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  const forceRefresh = opts.forceRefresh === true || opts.refresh === true;
+
+  if (!topic) {
+    const err = new Error('topic is required');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!gradeId) {
+    const err = new Error('gradeId is required');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const gradePolicy = typeof catalogTopics.resolveCommunityGradeScanPolicy === 'function'
+    ? catalogTopics.resolveCommunityGradeScanPolicy(topic, {
+      gradeId: gradeId,
+      currentGrade: gradeId,
+      topic: topic,
+      catalogTopic: topic,
+    })
+    : { lockedGradeId: gradeId, allowBroadScan: false, crossCutting: false };
+  const lockedGradeId = String(gradePolicy.lockedGradeId || gradeId).trim();
+  const configured = driveIsConfigured();
+
+  const base = {
+    topic: topic,
+    requestedTopic: requestedTopic,
+    gradeId: lockedGradeId,
+  };
+
+  // ── 1) community_drive_archive only (never cached_results) ──
+  let archiveMatch = null;
+  if (!forceRefresh && typeof communityDriveArchive.findCommunityArchiveMatch === 'function') {
+    try {
+      archiveMatch = await communityDriveArchive.findCommunityArchiveMatch(topic, {
+        gradeId: lockedGradeId,
+        currentGrade: lockedGradeId,
+        topic: topic,
+        catalogTopic: topic,
+        phase: SUMMARIZER_PHASE,
+      });
+    } catch (archiveErr) {
+      console.warn(
+        '[community-summarizer] archive match failed — continuing to Drive:',
+        archiveErr && archiveErr.message ? archiveErr.message : archiveErr
+      );
+    }
+  }
+
+  // Partial / close archive match → ask before full summarize (unless user already confirmed).
+  if (
+    archiveMatch
+    && archiveMatch.matchType === 'partial'
+    && !confirmed
+    && typeof communityDriveArchive.buildDidYouMeanResult === 'function'
+  ) {
+    console.log(
+      '[community-summarizer] DID YOU MEAN (archive partial):',
+      JSON.stringify(requestedTopic),
+      '→',
+      JSON.stringify(archiveMatch.suggestedTopic)
+    );
+    return finalizeSummaryPayload(
+      base,
+      communityDriveArchive.buildDidYouMeanResult(requestedTopic, {
+        gradeId: lockedGradeId,
+      }, archiveMatch),
+      [],
+      { configured: configured, matches: [], matchCount: 0 }
+    );
+  }
+
+  // Semantic archive equivalence: summarize under the archived canonical topic label.
+  const effectiveTopic = (
+    archiveMatch
+    && (archiveMatch.matchType === 'exact' || archiveMatch.matchType === 'semantic')
+    && archiveMatch.suggestedTopic
+  ) ? String(archiveMatch.suggestedTopic).trim() : topic;
+
+  if (effectiveTopic !== topic) {
+    console.log(
+      '[community-summarizer] semantic topic normalize:',
+      JSON.stringify(topic),
+      '→',
+      JSON.stringify(effectiveTopic)
+    );
+  }
+
+  // ── 2) Drive listing for effective topic ──
+  const listed = await listMatchesForTopic(lockedGradeId, effectiveTopic, opts);
+  let matches = listed.matches;
+  let citations = listed.citations;
+  let probeError = listed.probeError;
+  let driveDebug = listed.driveDebug;
+
   console.log(
     '[community-summarizer] files selected for summary:',
     matches.length,
@@ -247,132 +330,151 @@ async function runCommunityTopicSummary(options) {
     }).join(' | ')
   );
 
-  const citations = Array.isArray(probe && probe.communityCitations)
-    ? probe.communityCitations
-    : communitySearch.buildCommunityCitations(matches);
-
+  // No Drive hits: try folder-name "did you mean", else empty.
   if (!matches.length) {
     const gradeTopics = driveDebug && Array.isArray(driveDebug.gradeTopicFolders)
       ? driveDebug.gradeTopicFolders
       : [];
-    const failureReasons = driveDebug && Array.isArray(driveDebug.topicFilterFailureReasons)
-      ? driveDebug.topicFilterFailureReasons
-      : [];
-    console.log('[community-summarizer] empty archive result', {
-      topic: topic,
-      gradeId: lockedGradeId,
-      driveConfigured: configured,
-      scannedFolderCount: driveDebug && driveDebug.scannedFolderCount != null
-        ? driveDebug.scannedFolderCount
-        : null,
-      rawHitCount: driveDebug && driveDebug.rawHitCount != null ? driveDebug.rawHitCount : null,
-      searchTerms: driveDebug && driveDebug.searchTerms ? driveDebug.searchTerms : null,
-      gradeTopicFolders: gradeTopics,
-      topicRelaxed: driveDebug && driveDebug.topicRelaxed,
-      ungradedPassRan: driveDebug && driveDebug.ungradedPassRan,
-      topicFilterFailureReasons: failureReasons,
-      rejectedSample: driveDebug && Array.isArray(driveDebug.rejected)
-        ? driveDebug.rejected.slice(0, 8)
-        : [],
-      communityError: probeError || null,
-    });
-    if (gradeTopics.length) {
-      console.log(
-        '[community-summarizer] folders under grade',
-        lockedGradeId + ':',
-        gradeTopics.join(' | ')
-      );
-    } else {
-      console.log(
-        '[community-summarizer] no topic folders indexed for grade',
-        lockedGradeId
-      );
+    if (
+      !confirmed
+      && typeof communityDriveArchive.suggestDriveFolderTopic === 'function'
+    ) {
+      const folderSuggest = communityDriveArchive.suggestDriveFolderTopic(topic, gradeTopics);
+      if (
+        folderSuggest
+        && folderSuggest.matchType === 'partial'
+        && folderSuggest.suggestedTopic
+        && typeof communityDriveArchive.buildDidYouMeanResult === 'function'
+      ) {
+        console.log(
+          '[community-summarizer] DID YOU MEAN (Drive folder):',
+          JSON.stringify(topic),
+          '→',
+          JSON.stringify(folderSuggest.suggestedTopic)
+        );
+        return finalizeSummaryPayload(
+          base,
+          communityDriveArchive.buildDidYouMeanResult(requestedTopic, {
+            gradeId: lockedGradeId,
+          }, folderSuggest),
+          [],
+          { configured: configured, matches: [], matchCount: 0, driveDebug: driveDebug }
+        );
+      }
+      // Semantic folder equivalence — retry listing under canonical folder name.
+      if (
+        folderSuggest
+        && folderSuggest.matchType === 'semantic'
+        && folderSuggest.suggestedTopic
+        && folderSuggest.suggestedTopic !== effectiveTopic
+      ) {
+        const retry = await listMatchesForTopic(lockedGradeId, folderSuggest.suggestedTopic, opts);
+        if (retry.matches.length) {
+          matches = retry.matches;
+          citations = retry.citations;
+          probeError = retry.probeError || probeError;
+          driveDebug = retry.driveDebug || driveDebug;
+        }
+      }
     }
-    console.log(
-      '[community-summarizer] why filter failed for topic',
-      JSON.stringify(topic) + ':',
-      failureReasons.length
-        ? failureReasons.join(' ; ')
-        : 'no Drive files matched topic aliases under this grade (and root fallback found none)'
-    );
 
-    return withNonBillableMeta({
-      success: true,
-      topic: topic,
-      gradeId: lockedGradeId,
-      communityStatus: configured ? 'empty' : 'not_configured',
-      communitySummaryHeading: COMMUNITY_SUMMARY_HEADING,
-      communitySummary: COMMUNITY_SUMMARY_EMPTY,
-      communityMatchCount: 0,
-      communityMatches: [],
-      communityCitations: [],
-      communitySummaryFromArchive: false,
-      communitySummaryDeltaUpdated: false,
-      communityArchiveKey: communityDriveArchive.buildArchiveKey(topic, {
-        gradeId: lockedGradeId,
+    if (!matches.length) {
+      // Archive exists but Drive currently empty: still allow smart reuse of archive row.
+      if (
+        archiveMatch
+        && archiveMatch.row
+        && (archiveMatch.matchType === 'exact' || archiveMatch.matchType === 'semantic')
+        && !forceRefresh
+        && typeof communityDriveArchive.evaluateSmartCacheAgainstDrive === 'function'
+      ) {
+        const orphanHit = communityDriveArchive.evaluateSmartCacheAgainstDrive(
+          archiveMatch.row,
+          [],
+          {
+            topic: effectiveTopic,
+            matchedTopic: archiveMatch.suggestedTopic,
+            matchType: archiveMatch.matchType,
+          }
+        );
+        if (orphanHit) {
+          const orphanCitations = citationsFromFileRefs(orphanHit.fileRefs);
+          return finalizeSummaryPayload(base, orphanHit, orphanCitations, {
+            configured: configured,
+            matches: [],
+            matchCount: (orphanHit.fileRefs || []).length,
+            probeError: probeError,
+            driveDebug: driveDebug,
+          });
+        }
+      }
+
+      const failureReasons = driveDebug && Array.isArray(driveDebug.topicFilterFailureReasons)
+        ? driveDebug.topicFilterFailureReasons
+        : [];
+      console.log('[community-summarizer] empty archive result', {
         topic: topic,
-        phase: SUMMARIZER_PHASE,
-      }),
-      communitySummaryModel: null,
-      communityDriveConfigured: configured,
-      communityError: probeError || null,
-      fromArchive: false,
-      deltaUpdated: false,
-      driveDebug: driveDebug,
-    });
+        effectiveTopic: effectiveTopic,
+        gradeId: lockedGradeId,
+        driveConfigured: configured,
+        gradeTopicFolders: gradeTopics,
+        topicFilterFailureReasons: failureReasons,
+        communityError: probeError || null,
+      });
+
+      return withNonBillableMeta({
+        success: true,
+        topic: topic,
+        requestedTopic: requestedTopic,
+        gradeId: lockedGradeId,
+        communityStatus: configured ? 'empty' : 'not_configured',
+        communitySummaryHeading: COMMUNITY_SUMMARY_HEADING,
+        communitySummary: COMMUNITY_SUMMARY_EMPTY,
+        communityMatchCount: 0,
+        communityMatches: [],
+        communityCitations: [],
+        communitySummaryFromArchive: false,
+        communitySummaryDeltaUpdated: false,
+        communityArchiveKey: communityDriveArchive.buildArchiveKey(topic, {
+          gradeId: lockedGradeId,
+          topic: topic,
+          phase: SUMMARIZER_PHASE,
+        }),
+        communitySummaryModel: null,
+        communityDriveConfigured: configured,
+        communityError: probeError || null,
+        fromArchive: false,
+        deltaUpdated: false,
+        driveDebug: driveDebug,
+      });
+    }
   }
 
+  // ── 3) Smart cache vs Drive delta, else Gemini summarize ──
   const summary = await communityDriveArchive.resolveCommunityDriveSummary(
-    topic,
+    effectiveTopic,
     matches,
     {
       gradeId: lockedGradeId,
       currentGrade: lockedGradeId,
-      topic: topic,
-      catalogTopic: topic,
+      topic: effectiveTopic,
+      catalogTopic: effectiveTopic,
       phase: SUMMARIZER_PHASE,
       citations: citations,
       forceRefresh: forceRefresh,
+      existingArchiveRow: archiveMatch && archiveMatch.row ? archiveMatch.row : null,
+      matchedTopic: archiveMatch && archiveMatch.suggestedTopic
+        ? archiveMatch.suggestedTopic
+        : effectiveTopic,
+      matchType: archiveMatch && archiveMatch.matchType ? archiveMatch.matchType : 'exact',
     }
   );
 
-  let summaryText = summary.summary != null && String(summary.summary).trim()
-    ? String(summary.summary)
-    : COMMUNITY_SUMMARY_EMPTY;
-  if (
-    (summary.communityStatus === 'ok' || summary.communityStatus === 'degraded')
-    && citations.length
-    && typeof communitySearch.appendCitationsMarkdown === 'function'
-  ) {
-    summaryText = communitySearch.appendCitationsMarkdown(summaryText, citations);
-  }
-  if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
-    summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
-  }
-
-  const status = summary.communityStatus === 'ok' || summary.communityStatus === 'degraded'
-    ? summary.communityStatus
-    : (summary.communityStatus || (configured ? 'empty' : 'not_configured'));
-
-  return withNonBillableMeta({
-    success: true,
-    topic: topic,
-    gradeId: lockedGradeId,
-    communityStatus: status,
-    communitySummaryHeading: summary.heading || COMMUNITY_SUMMARY_HEADING,
-    communitySummary: summaryText,
-    communityMatchCount: matches.length,
-    communityMatches: matches,
-    communityCitations: citations,
-    communitySummaryFromArchive: Boolean(summary.fromArchive),
-    communitySummaryDeltaUpdated: Boolean(summary.deltaUpdated),
-    communityArchiveKey: summary.archiveKey || null,
-    communitySummaryModel: summary.model || null,
-    communityDriveConfigured: configured,
-    communityError: summary.communityError || probeError || null,
-    fromArchive: Boolean(summary.fromArchive),
-    deltaUpdated: Boolean(summary.deltaUpdated),
-    instantArchiveHit: false,
+  return finalizeSummaryPayload(base, summary, citations, {
+    configured: configured,
+    matches: matches,
+    matchCount: matches.length,
+    probeError: probeError,
+    driveDebug: driveDebug,
   });
 }
 
@@ -389,6 +491,11 @@ async function executeCommunitySummarizer(req) {
     currentGrade: body.currentGrade || body.gradeId,
     limit: body.limit,
     forceRefresh: body.forceRefresh === true || body.refresh === true,
+    confirmedTopic: body.confirmedTopic === true || body.confirmSuggestion === true,
+    confirmSuggestion: body.confirmSuggestion === true,
+    skipDidYouMean: body.skipDidYouMean === true,
+    suggestedTopic: body.suggestedTopic || body.confirmSuggestedTopic || '',
+    confirmSuggestedTopic: body.confirmSuggestedTopic || body.suggestedTopic || '',
   });
 }
 

@@ -120,6 +120,8 @@ Run once in the Supabase SQL editor:
 
 **Cache isolation:** Perplexity/web results live only in `cached_results`. Community Drive summaries live only in `community_drive_archive`. Community/repository probes must not fall back into `cached_results` (and vice versa).
 
+**Smart caching (community summaries):** On each topic-summary request the server looks up `community_drive_archive` first (exact + semantic alias normalization, e.g. «האימפריה הרומית» ↔ «רומא העתיקה»). If a row exists, it compares Google Drive `modifiedTime` / new files since `created_at`. Unchanged or irrelevant new files → instant archive reuse. Relevant new files → Gemini re-summarize + upsert. Partial / close matches return a Perplexity-style «האם התכוונת ל-…?» confirmation before a full summarize.
+
 Every hybrid search (including Perplexity cache hits) re-checks Drive for new/changed files and refreshes the summary only on delta.
 
 ## 4. Initial catalog sweep
