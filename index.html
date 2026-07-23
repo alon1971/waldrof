@@ -1861,9 +1861,6 @@
         align-items: stretch;
         gap: 0.5rem;
       }
-      .catalog-grade-switcher {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
       .catalog-dashboard-header {
         flex-direction: column;
         align-items: stretch;
@@ -1871,6 +1868,9 @@
       .catalog-back-grades {
         width: 100%;
         justify-content: center;
+      }
+      .catalog-class-chrome {
+        padding: 1rem;
       }
       .phase-c-unified-header {
         flex-direction: column;
@@ -6040,9 +6040,6 @@
       #pinterest-gallery {
         grid-template-columns: 1fr;
         gap: 0.75rem;
-      }
-      .catalog-grade-switcher {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
     @media (max-width: 479px) {
@@ -20873,17 +20870,14 @@
       const input = document.getElementById('catalog-search-input');
       const resultsEl = document.getElementById('catalog-search-results');
       catalogState.searchActive = false;
-      if (input) {
-        input.value = '';
-        input.removeAttribute('placeholder');
-        input.setAttribute('placeholder', '');
-      }
+      if (input) input.value = '';
       if (resultsEl) {
         resultsEl.classList.add('hidden');
         resultsEl.innerHTML = '';
       }
       setCatalogSearchClearVisible(false);
       setCatalogFolderListingVisible(true);
+      updateCatalogSearchPlaceholder();
       showCatalogStatus('', '');
       // Only re-render when the folder panel is missing/empty; otherwise restore instantly.
       if (options.forceRerender
@@ -20964,11 +20958,8 @@
         resultsEl.classList.remove('hidden');
         setCatalogFolderListingVisible(false);
         setCatalogSearchClearVisible(true);
-        if (searchInput) {
-          searchInput.value = q;
-          searchInput.removeAttribute('placeholder');
-          searchInput.setAttribute('placeholder', '');
-        }
+        if (searchInput) searchInput.value = q;
+        updateCatalogSearchPlaceholder();
       });
       showCatalogStatus('', '');
       return hasResults;
@@ -30153,8 +30144,13 @@
         bc.querySelectorAll('.catalog-bc').forEach(function (btn) {
           btn.addEventListener('click', function () {
             const target = btn.getAttribute('data-bc');
-            if (target === 'grades') renderCatalog('grades');
-            else if (target === 'grade') renderCatalog('grade', catalogState.gradeId);
+            if (target === 'grades') {
+              clearCatalogSearch();
+              renderCatalog('grades');
+            } else if (target === 'grade') {
+              clearCatalogSearch();
+              renderCatalog('grade', catalogState.gradeId);
+            }
           });
         });
       });
@@ -30206,10 +30202,7 @@
       }
       const topics = getDynamicTopicsForGrade(gradeId);
       const allFiles = await attachCatalogManageFlags(collectCatalogFilesForGrade(gradeId));
-      const g = findCatalogGrade(gradeId);
-      let html = catalogGradeNavHtml(gradeId);
-      html += '<div id="catalog-grade-header" class="catalog-dashboard-header">' +
-        '<h3 class="app-page-title font-display font-bold text-burgundy mb-0">' + escapeHtml(g ? getCatalogGradeLabel(g.id) : '') + '</h3>' +
+      let html = '<div id="catalog-grade-header" class="catalog-dashboard-header">' +
         catalogUploadButtonHtml(gradeId, '', false, t('catalog_share_open')) +
         '</div>';
       html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-folder-tree text-sage icon-inline"></i> ' +
@@ -30238,7 +30231,6 @@
         : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
       mutateCatalogDom(function () {
         el.innerHTML = html;
-        bindCatalogGradeNav(el);
         bindCatalogUploadButtons(el);
         bindCatalogMaterialActions(document.getElementById('panel-catalog'));
         el.querySelectorAll('.catalog-topic-folder[data-topic]').forEach(function (btn) {
@@ -30247,6 +30239,7 @@
           });
         });
       });
+      updateCatalogClassChrome();
     }
 
     function catalogMaterialEditFormHtml(file) {
@@ -30530,17 +30523,13 @@
       if (gradesEl) gradesEl.classList.add('hidden');
       if (gradePanel) gradePanel.classList.add('hidden');
       el.classList.remove('hidden');
-      const g = findCatalogGrade(gradeId);
       const topicLabel = topicId || '';
       if (isCloudConfigured() && !(opts && opts.skipCommunityReload)) {
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const files = await attachCatalogManageFlags(collectCatalogFiles(gradeId, topicId));
-      const materialsHtml = catalogGradeNavHtml(gradeId) +
+      const materialsHtml =
         '<div id="catalog-materials-header" class="catalog-dashboard-header">' +
-        '<h3 class="app-page-title font-display font-bold text-burgundy mb-0 flex items-center gap-2">' +
-        '<i class="fa-solid fa-folder-open text-gold"></i> ' +
-        escapeHtml(g ? getCatalogGradeLabel(g.id) : '') + ' · ' + escapeHtml(topicLabel) + '</h3>' +
         catalogUploadButtonHtml(gradeId, topicLabel, true, t('catalog_add_material')) +
         '</div>' +
         '<h4 class="font-bold text-walnut mb-3">' + escapeHtml(t('catalog_community_files', { count: files.length })) + '</h4>' +
@@ -30549,10 +30538,10 @@
           : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>');
       mutateCatalogDom(function () {
         el.innerHTML = materialsHtml;
-        bindCatalogGradeNav(el);
         bindCatalogUploadButtons(el);
         bindCatalogMaterialActions(document.getElementById('panel-catalog'));
       });
+      updateCatalogClassChrome();
     }
 
     async function renderCatalog(view, gradeId, topicId, opts) {
