@@ -819,6 +819,18 @@ function parseIsoMs(value) {
  * Within this window, modifiedTime drift is treated as "not really changed".
  */
 const CACHE_TIME_SKEW_MS = 15 * 60 * 1000; // 15 minutes
+/** Skip Drive entirely when the archive row was written this recently. */
+const RECENT_CACHE_INSTANT_HIT_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+function isRecentArchiveRow(row, maxAgeMs) {
+  if (!row) return false;
+  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0
+    ? maxAgeMs
+    : RECENT_CACHE_INSTANT_HIT_MS;
+  const ts = parseIsoMs(row.created_at) || parseIsoMs(row.updated_at);
+  if (!ts) return false;
+  return (Date.now() - ts) <= ageLimit;
+}
 
 function isoOrNull(ms) {
   return ms > 0 ? new Date(ms).toISOString() : null;
@@ -2227,6 +2239,9 @@ module.exports = {
   suggestDriveFolderTopic,
   findNewOrChangedDriveFiles,
   analyzeDriveCacheDelta,
+  isRecentArchiveRow,
+  RECENT_CACHE_INSTANT_HIT_MS,
+  CACHE_TIME_SKEW_MS,
   areNewFilesRelevantToTopic,
   evaluateSmartCacheAgainstDrive,
   buildDidYouMeanResult,

@@ -2507,12 +2507,18 @@ async function listDriveFilesForGradeTopic(gradeId, topic, options) {
 
   let allowed = resolveStrictDriveScopeFolderIds(index, gid, topicStr);
   let topicRelaxed = false;
-  if (!allowed.size && topicStr) {
+  const allowTopicRelaxation = opts.allowTopicRelaxation !== false
+    && opts.strictTopicOnly !== true
+    && opts.cacheValidation !== true;
+  if (!allowed.size && topicStr && allowTopicRelaxation) {
     allowed = resolveStrictDriveScopeFolderIds(index, gid, '');
     topicRelaxed = true;
   }
   debugInfo.topicRelaxed = topicRelaxed;
   debugInfo.scannedFolderCount = allowed.size;
+  if (opts.cacheValidation === true || opts.strictTopicOnly === true) {
+    debugInfo.strictTopicOnly = true;
+  }
 
   const seen = new Set();
   const matches = [];
@@ -2608,7 +2614,11 @@ async function listDriveFilesForGradeTopic(gradeId, topic, options) {
 
   // Root / ungraded fallback: keyword-search the whole catalog for topic names
   // when the grade tree had no dedicated topic folder (or yielded nothing).
-  if (topicStr && (topicRelaxed || !matches.length) && matches.length < limit) {
+  // Skipped for cache-validation / strict-topic probes (avoids scanning ~69 folders).
+  const allowUngradedPass = opts.skipUngradedPass !== true
+    && opts.cacheValidation !== true
+    && opts.strictTopicOnly !== true;
+  if (allowUngradedPass && topicStr && (topicRelaxed || !matches.length) && matches.length < limit) {
     debugInfo.ungradedPassRan = true;
     const ungradedTerms = uniquePrioritySearchTerms(topicStr, topicStr, []);
     debugInfo.searchTerms = ungradedTerms.slice();
@@ -2691,6 +2701,120 @@ async function listDriveFilesForGradeTopic(gradeId, topic, options) {
   };
 }
 
+/**
+ * Fast cache-validation probe: fetch id + modifiedTime only for known Drive file IDs.
+ * Does NOT walk grade folder trees (avoids ~69-folder topic-relaxed scans).
+ */
+async function probeDriveCachedFileMetadata(fileRefsOrIds, options) {
+  const opts = options || {};
+  const accessToken = await resolveDriveAccessToken(opts);
+  const input = Array.isArray(fileRefsOrIds) ? fileRefsOrIds : [];
+  const refs = [];
+  const seen = new Set();
+  input.forEach(function (item) {
+    if (!item) return;
+    let id = '';
+    let resourceKey = '';
+    let name = '';
+    let mimeType = '';
+    let folder = '';
+    let webViewLink = '';
+    if (typeof item === 'string') {
+      id = String(item).trim();
+    } else {
+      id = String(item.driveFileId || item.id || '').trim();
+      resourceKey = String(item.resourceKey || '').trim();
+      name = String(item.name || item.fileName || item.title || '').trim();
+      mimeType = String(item.mimeType || '').trim();
+      folder = String(item.folder || item.catalogTopic || item.topic || '').trim();
+      webViewLink = String(item.webViewLink || item.fileUrl || '').trim();
+    }
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    refs.push({
+      driveFileId: id,
+      resourceKey: resourceKey,
+      name: name,
+      mimeType: mimeType,
+      folder: folder,
+      webViewLink: webViewLink,
+    });
+  });
+
+  console.log(
+    '[drive-catalog-sync] focused cache probe — files.get for',
+    refs.length,
+    'cached file id(s) (no grade-wide folder scan)'
+  );
+
+  const matches = [];
+  const concurrency = Math.max(1, Math.min(Number(opts.concurrency) || 6, 10));
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < refs.length) {
+      const idx = cursor;
+      cursor += 1;
+      const ref = refs[idx];
+      try {
+        const meta = await fetchDriveFileMeta(
+          ref.driveFileId,
+          accessToken,
+          'id,name,mimeType,modifiedTime,webViewLink,resourceKey,trashed',
+          { resourceKey: ref.resourceKey }
+        );
+        if (meta && meta.trashed === true) continue;
+        matches.push({
+          id: 'drive:' + ref.driveFileId,
+          driveFileId: ref.driveFileId,
+          fileName: String((meta && meta.name) || ref.name || ref.driveFileId),
+          title: String((meta && meta.name) || ref.name || ref.driveFileId),
+          displayTitle: String((meta && meta.name) || ref.name || ref.driveFileId),
+          mimeType: String((meta && meta.mimeType) || ref.mimeType || ''),
+          modifiedTime: String((meta && meta.modifiedTime) || ''),
+          webViewLink: String((meta && meta.webViewLink) || ref.webViewLink || ''),
+          fileUrl: String((meta && meta.webViewLink) || ref.webViewLink || ''),
+          resourceKey: String((meta && meta.resourceKey) || ref.resourceKey || ''),
+          catalogTopic: ref.folder,
+          topic: ref.folder,
+          gradeId: String(opts.gradeId || opts.currentGrade || ''),
+          matchType: 'cache_probe',
+        });
+      } catch (err) {
+        console.warn(
+          '[drive-catalog-sync] cache probe files.get failed:',
+          ref.driveFileId,
+          err && err.message ? err.message : err
+        );
+      }
+    }
+  }
+
+  const workers = [];
+  for (let i = 0; i < Math.min(concurrency, refs.length); i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+
+  console.log(
+    '[drive-catalog-sync] focused cache probe ready:',
+    matches.length,
+    '/',
+    refs.length,
+    matches.map(function (m) {
+      return (m.fileName || m.driveFileId)
+        + (m.modifiedTime ? (' @' + String(m.modifiedTime).slice(0, 19)) : '');
+    }).join(' | ')
+  );
+
+  return {
+    matches: matches,
+    count: matches.length,
+    probedIds: refs.length,
+    matchMethod: 'cached_file_ids_probe',
+  };
+}
+
 module.exports = {
   DEFAULT_CATALOG_ROOT_FOLDER_ID,
   SHORTCUT_MIME,
@@ -2704,6 +2828,7 @@ module.exports = {
   logDriveConfigStatus,
   listDriveChildren,
   listDriveFilesForGradeTopic,
+  probeDriveCachedFileMetadata,
   walkDriveFolderTree,
   parseGradeIdFromFolderName,
   resolveDriveAccessToken,
