@@ -24558,11 +24558,24 @@
         }
         throw new Error(json.error || ('שגיאת שרת (' + res.status + ')'));
       }
-      if (typeof WaldorfAuth !== 'undefined' && typeof WaldorfAuth.syncUsageAfterLiveSearch === 'function') {
+      // Community archive summary uses Gemini only (no Perplexity/live search) —
+      // never deduct Search Credits / monthly live-search quota for this endpoint.
+      var isCommunitySummarizer = String(endpoint || '').indexOf('/api/community-summarizer') >= 0
+        || Boolean(json && (json.freeCommunitySummary || json.skipLiveSearchBilling));
+      if (
+        !isCommunitySummarizer
+        && typeof WaldorfAuth !== 'undefined'
+        && typeof WaldorfAuth.syncUsageAfterLiveSearch === 'function'
+      ) {
         try {
           await WaldorfAuth.syncUsageAfterLiveSearch(json.meta || {});
         } catch (usageSyncErr) { /* ignore */ }
-      } else if (json.meta && json.meta.usage && typeof WaldorfAuth !== 'undefined') {
+      } else if (
+        !isCommunitySummarizer
+        && json.meta
+        && json.meta.usage
+        && typeof WaldorfAuth !== 'undefined'
+      ) {
         try { WaldorfAuth.applyUsageFromServer(json.meta.usage); } catch (usageSyncErr) { /* ignore */ }
       }
       return { data: json.data || json, meta: json.meta || null };

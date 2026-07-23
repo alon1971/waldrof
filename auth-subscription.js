@@ -1923,6 +1923,22 @@
   function syncUsageAfterLiveSearch(meta) {
     var m = meta || {};
     var chain = Promise.resolve();
+    // Free / community-archive summary paths must never consume live-search credits.
+    if (
+      m.skipLiveSearchBilling === true
+      || m.freeCommunitySummary === true
+      || m.free === true
+      || m.phase === 'community_summarizer'
+      || m.billable === false
+    ) {
+      if (m.usage) {
+        applyServerUsage(m.usage);
+        persistAuth();
+        notifyListeners();
+        return Promise.resolve(m.usage);
+      }
+      return Promise.resolve(null);
+    }
     if (m.usage) {
       applyServerUsage(m.usage);
       persistAuth();
@@ -1977,6 +1993,8 @@
     // Chat / system help / archive-cache hits must never show a payment/credit modal.
     // Callers must run checkArchiveHit first; these flags are a hard safety net.
     if (opts.skipConfirm || opts.phase === 'chat_followup' || opts.free === true ||
+        opts.phase === 'community_summarizer' || opts.skipLiveSearchBilling === true ||
+        opts.freeCommunitySummary === true ||
         opts.isArchiveHit || opts.fromCache || opts.hit === true) {
       return Promise.resolve(true);
     }
