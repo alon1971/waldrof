@@ -2835,14 +2835,6 @@
     }
     #btn-topic-research-cancel:hover,
     #btn-general-search-cancel:hover { background: rgba(196, 120, 90, 0.12); }
-    #btn-general-search-clear {
-      color: #4a3728;
-      min-width: 2.75rem;
-    }
-    #btn-general-search-clear:hover {
-      background: rgba(92, 125, 88, 0.1);
-      border-color: rgba(92, 125, 88, 0.45);
-    }
     #topic-research-loading,
     #general-search-loading,
     #phase-c-loading { border-color: rgba(196, 120, 90, 0.45); }
@@ -2921,6 +2913,23 @@
     }
     #catalog-search-clear:not(.hidden) {
       box-shadow: 0 4px 14px rgba(139, 58, 58, 0.22);
+    }
+    #catalog-search-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+    }
+    #catalog-search-btn .catalog-search-btn-spinner {
+      display: none;
+      font-size: 0.95em;
+    }
+    #catalog-search-btn.is-loading .catalog-search-btn-spinner {
+      display: inline-block;
+    }
+    #catalog-search-btn.is-loading {
+      opacity: 0.92;
+      cursor: wait;
     }
     .catalog-back-grades {
       align-self: flex-start;
@@ -3779,7 +3788,6 @@
     body.auth-locked #wizard,
     body.auth-locked #workspace,
     body.auth-locked .app-site-chrome,
-    body.auth-locked #new-research-bar,
     body.auth-locked #app-shell,
     body.auth-locked #lesson-chat-sidebar,
     body.auth-locked #lesson-chat-fab-wrap,
@@ -4850,6 +4858,30 @@
       padding: 0.24rem 0.44rem !important;
       font-size: var(--app-nav-label-size) !important;
       line-height: 1.2 !important;
+    }
+    .site-refresh-btn {
+      min-height: 0;
+      padding: 0.22rem 0.5rem;
+      border: 1px solid rgba(122, 47, 58, 0.28);
+      background: rgba(122, 47, 58, 0.06);
+      color: #7a2f3a;
+      font-weight: 600;
+      line-height: 1.2;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .site-refresh-btn:hover,
+    .site-refresh-btn:focus-visible {
+      background: rgba(122, 47, 58, 0.12);
+      border-color: rgba(122, 47, 58, 0.42);
+      outline: none;
+    }
+    .site-refresh-btn i {
+      font-size: 0.7rem;
+    }
+    .app-site-chrome .site-refresh-btn {
+      padding: 0.2rem 0.42rem !important;
+      font-size: var(--app-nav-label-size) !important;
     }
     .app-site-chrome .user-action-btn {
       min-height: 1.55rem;
@@ -6857,7 +6889,10 @@
             <label for="catalog-search-input" id="catalog-search-label" class="catalog-search-label">חיפוש בתיקיית הכיתה</label>
             <div class="flex flex-col sm:flex-row gap-2">
               <input type="search" id="catalog-search-input" class="flex-1 rounded-xl border border-gold/35 bg-white px-4 py-2.5 text-sm text-walnut" dir="rtl" autocomplete="off" placeholder="" />
-              <button type="button" id="catalog-search-btn" class="touch-btn w-full sm:w-auto bg-sage hover:bg-sage-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm" data-i18n="catalog_search_btn">חיפוש במאגר</button>
+              <button type="button" id="catalog-search-btn" class="touch-btn w-full sm:w-auto bg-sage hover:bg-sage-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm" aria-busy="false">
+                <i class="fa-solid fa-spinner fa-spin catalog-search-btn-spinner" aria-hidden="true"></i>
+                <span class="catalog-search-btn-label" data-i18n="catalog_search_btn">חיפוש במאגר</span>
+              </button>
               <button type="button" id="catalog-search-clear" class="touch-btn w-full sm:w-auto hidden bg-burgundy/90 hover:bg-burgundy text-white font-semibold px-5 py-2.5 rounded-xl text-sm" data-i18n="catalog_search_clear" aria-hidden="true">נקה חיפוש</button>
             </div>
           </div>
@@ -20891,6 +20926,24 @@
       clearBtn.setAttribute('aria-hidden', visible ? 'false' : 'true');
     }
 
+    function setCatalogSearchLoading(loading) {
+      const btn = document.getElementById('catalog-search-btn');
+      const input = document.getElementById('catalog-search-input');
+      const busy = !!loading;
+      if (btn) {
+        btn.disabled = busy;
+        btn.classList.toggle('is-loading', busy);
+        btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+        const label = btn.querySelector('.catalog-search-btn-label');
+        if (label) {
+          label.textContent = busy
+            ? ((typeof t === 'function' && t('catalog_search_loading')) || 'מחפש…')
+            : ((typeof t === 'function' && t('catalog_search_btn')) || 'חיפוש במאגר');
+        }
+      }
+      if (input) input.disabled = busy;
+    }
+
     function setCatalogFolderListingVisible(visible) {
       const gradePanel = document.getElementById('catalog-grade-panel');
       const materialsEl = document.getElementById('catalog-materials');
@@ -20987,7 +21040,9 @@
       } else if (matches.length) {
         html += renderCatalogDriveCitationList([], matches);
       } else {
-        html += '<p class="text-sm text-walnut/60 py-2">לא נמצאו חומרים תואמים במאגר הקהילתי.</p>';
+        const emptyMsg = (typeof t === 'function' && t('catalog_search_empty'))
+          || 'לצערי, לא נמצאו חומרים תואמים במאגר הקהילתי. מומלץ להיכנס לתיקייה ולבדוק אם הקובץ קיים תחת שם אחר';
+        html += '<p class="text-sm text-walnut/70 py-2">' + escapeHtml(emptyMsg) + '</p>';
       }
       catalogState.searchActive = true;
       mutateCatalogDom(function () {
@@ -21058,9 +21113,10 @@
           showCatalogStatus('בחרו כיתה כדי לחפש במאגר הקהילתי', 'info');
           return;
         }
-        btn.disabled = true;
+        if (btn.disabled || btn.classList.contains('is-loading')) return;
+        setCatalogSearchLoading(true);
         runCatalogDeepSearch(q, input).finally(function () {
-          btn.disabled = false;
+          setCatalogSearchLoading(false);
           syncCatalogSearchClearButton();
         });
       };
@@ -25409,8 +25465,8 @@
       }
       var btn = document.getElementById('btn-clear-topic-prose-server');
       if (btn) return btn;
-      var restartBtn = document.getElementById('btn-restart');
-      if (!restartBtn || !restartBtn.parentNode) return null;
+      var adminWrap = document.getElementById('admin-research-tools-wrap');
+      if (!adminWrap || !adminWrap.parentNode) return null;
       btn = document.createElement('button');
       btn.type = 'button';
       btn.id = 'btn-clear-topic-prose-server';
@@ -25419,7 +25475,7 @@
       btn.setAttribute('aria-hidden', 'true');
       btn.tabIndex = -1;
       btn.innerHTML = '<i class="fa-solid fa-trash-can icon-inline"></i> <span>מחק שלבים ב׳–ג׳ מהשרת</span>';
-      restartBtn.parentNode.insertBefore(btn, restartBtn);
+      adminWrap.parentNode.insertBefore(btn, adminWrap.nextSibling);
       bindWizardNavClick(btn, function () {
         clearTopicProseArchiveFromServer();
       });
@@ -27229,20 +27285,14 @@
     }
 
     function updateNewResearchBarVisibility() {
-      var bar = document.getElementById('new-research-bar');
-      if (!bar) return;
-      if (isHomeView()) {
-        bar.classList.add('hidden');
-        return;
-      }
-      var inWorkspace = !document.getElementById('workspace').classList.contains('hidden');
-      var show = inWorkspace || appState.grade || appState.step > 1;
-      bar.classList.toggle('hidden', !show);
+      var btn = document.getElementById('btn-site-refresh');
+      if (!btn) return;
+      btn.classList.toggle('hidden', isHomeView());
     }
 
     function startNewResearch() {
-      if (appState.grade || appState.topic || appState.webResearch) {
-        if (!confirm(t('confirm_new_research'))) return;
+      if (appState.grade || appState.topic || appState.webResearch || appState.generalSearchResult) {
+        if (!confirm(t('confirm_site_refresh'))) return;
       }
       if (googleDrive.accessToken && window.google && google.accounts.oauth2) {
         try { google.accounts.oauth2.revoke(googleDrive.accessToken); } catch (e) { /* ignore */ }
