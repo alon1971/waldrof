@@ -145,16 +145,38 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-function applyLongRunningRouteTimeout(req, res) {
+function applyLongRunningRouteTimeout(req, res, options) {
+  const opts = options || {};
+  const routeLabel = opts.routeLabel || 'api/generate';
+  const timeoutError = opts.timeoutError
+    || 'Gateway timeout — Perplexity research took too long. Please retry.';
+  const extraPayload = opts.extraPayload && typeof opts.extraPayload === 'object'
+    ? opts.extraPayload
+    : {};
   req.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
   res.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
   res.on('timeout', function () {
-    console.error('[api/generate] response timeout after', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
+    console.error('[' + routeLabel + '] response timeout after', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
     if (!res.headersSent) {
-      writeJsonResponse(res, 504, {
-        error: 'Gateway timeout — Perplexity research took too long. Please retry.',
-      });
+      writeJsonResponse(res, 504, Object.assign({ error: timeoutError }, extraPayload));
     }
+  });
+}
+
+/** Community Drive + Gemini only — never blame Perplexity on this route. */
+function applyCommunitySummarizerRouteTimeout(req, res) {
+  applyLongRunningRouteTimeout(req, res, {
+    routeLabel: 'api/community-summarizer',
+    timeoutError:
+      'Gateway timeout — community archive summary (Drive/Gemini) took too long. Please retry.',
+    extraPayload: {
+      success: false,
+      freeCommunitySummary: true,
+      skipLiveSearchBilling: true,
+      usedPerplexity: false,
+      usedLiveResearch: false,
+      communityStatus: 'unavailable',
+    },
   });
 }
 
@@ -448,7 +470,17 @@ async function handleApiCommunitySearch(req, res) {
         }
       }
     }
-    applyLongRunningRouteTimeout(req, res);
+    applyLongRunningRouteTimeout(req, res, {
+      routeLabel: 'api/community-search',
+      timeoutError: 'Gateway timeout — community Drive search took too long. Please retry.',
+      extraPayload: {
+        communitySummaryHeading: null,
+        communitySummary: null,
+        communityStatus: 'unavailable',
+        usedPerplexity: false,
+        usedLiveResearch: false,
+      },
+    });
     await communitySearchApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
   } catch (err) {
     if (!res.headersSent) {
@@ -479,13 +511,17 @@ async function handleApiCommunitySummarizer(req, res) {
         }
       }
     }
-    applyLongRunningRouteTimeout(req, res);
+    applyCommunitySummarizerRouteTimeout(req, res);
     await communitySummarizerApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
   } catch (err) {
     if (!res.headersSent) {
       apiRes.status(500).json({
         error: err instanceof Error ? err.message : String(err),
         success: false,
+        freeCommunitySummary: true,
+        skipLiveSearchBilling: true,
+        usedPerplexity: false,
+        usedLiveResearch: false,
         communitySummaryHeading: communitySummarizerApi.COMMUNITY_SUMMARY_HEADING,
         communitySummary: communitySummarizerApi.COMMUNITY_SUMMARY_EMPTY,
         communityStatus: 'unavailable',

@@ -1019,7 +1019,8 @@ function formatArchivedSummaryResult(existing, archiveKey, extras) {
 }
 
 /**
- * Build a Perplexity-style "did you mean" payload (no full summary yet).
+ * Build a confirmation "did you mean" payload (no full summary yet).
+ * Archive/Drive only — never triggers live web research.
  */
 function buildDidYouMeanResult(query, options, suggestion) {
   const opts = options || {};

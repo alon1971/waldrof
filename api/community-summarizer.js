@@ -11,6 +11,7 @@
  *  4) Else (no archive): full Drive listing → extract → Gemini → upsert
  *  5) Gemini system prompt: Waldorf expert; exclusive reliance on attached archive sources only
  *
+ * HARD BAN: never call Perplexity / Sonar / /api/generate / live web research.
  * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity.
  */
 const communitySearch = require('./community-search');
@@ -85,6 +86,39 @@ function citationsFromFileRefs(fileRefs) {
 }
 
 /**
+ * Strip any live-research / Perplexity flags a client might accidentally send.
+ * Community summarizer is Gemini + Drive/archive only.
+ */
+function stripLiveResearchFlags(input) {
+  const body = input && typeof input === 'object' ? Object.assign({}, input) : {};
+  delete body.liveSearch;
+  delete body.usePerplexity;
+  delete body.perplexity;
+  delete body.sonar;
+  delete body.webResearch;
+  delete body.externalResearch;
+  delete body.bypassCacheToLive;
+  delete body.forceLiveSearch;
+  // Never let a generate.js phase leak into this route.
+  if (
+    body.phase
+    && String(body.phase) !== SUMMARIZER_PHASE
+    && String(body.phase) !== 'community_catalog'
+  ) {
+    console.warn(
+      '[community-summarizer] ignoring non-community phase flag:',
+      JSON.stringify(body.phase)
+    );
+  }
+  body.phase = SUMMARIZER_PHASE;
+  body.usePerplexity = false;
+  body.liveSearch = false;
+  body.skipLiveSearchBilling = true;
+  body.freeCommunitySummary = true;
+  return body;
+}
+
+/**
  * Community Drive summaries run on Gemini only — never bill live-search credits.
  * Clients that share invokePureApi with phase-c/general-search look at meta.
  */
@@ -92,6 +126,9 @@ function withNonBillableMeta(payload) {
   const body = payload && typeof payload === 'object' ? payload : {};
   body.freeCommunitySummary = true;
   body.skipLiveSearchBilling = true;
+  body.usedPerplexity = false;
+  body.usedLiveResearch = false;
+  body.pipeline = 'community-drive-archive+gemini';
   body.meta = Object.assign({}, body.meta || {}, {
     phase: SUMMARIZER_PHASE,
     searchBilled: false,
@@ -99,6 +136,9 @@ function withNonBillableMeta(payload) {
     free: true,
     freeCommunitySummary: true,
     skipLiveSearchBilling: true,
+    usedPerplexity: false,
+    usedLiveResearch: false,
+    pipeline: 'community-drive-archive+gemini',
     fromCache: Boolean(body.fromArchive || body.instantArchiveHit || body.communitySummaryFromArchive || body.smartCacheHit),
     smartCacheHit: Boolean(body.smartCacheHit),
     didYouMean: Boolean(body.didYouMean || body.needsConfirmation),
@@ -774,12 +814,17 @@ async function runCommunityTopicSummary(options) {
 }
 
 async function executeCommunitySummarizer(req) {
-  const body = parseRequestBody(req);
-  if (!body || typeof body !== 'object') {
+  const rawBody = parseRequestBody(req);
+  if (!rawBody || typeof rawBody !== 'object') {
     const err = new Error('Request body is missing');
     err.statusCode = 400;
     throw err;
   }
+  const body = stripLiveResearchFlags(rawBody);
+  console.log(
+    '[community-summarizer] pipeline=community-drive-archive+gemini',
+    '| usedPerplexity=false | usedLiveResearch=false'
+  );
   return runCommunityTopicSummary({
     topic: body.topic || body.query || body.userMessage || body.q,
     gradeId: body.gradeId || body.currentGrade,
