@@ -355,7 +355,16 @@ async function fetchArchiveRow(archiveKey) {
   params.set('select', '*');
   params.set('archive_key', 'eq.' + archiveKey);
   params.set('limit', '1');
-  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+  const restPath = '/rest/v1/' + TABLE_NAME + '?' + params.toString();
+  console.log(
+    '[community-drive-archive] SQL/PostgREST lookup by archive_key',
+    '| table:',
+    TABLE_NAME,
+    '| filter: archive_key=eq.' + String(archiveKey).slice(0, 12) + '…',
+    '| fullQuery:',
+    restPath
+  );
+  const res = await fetch(cfg.url + restPath, {
     headers: {
       apikey: cfg.key,
       Authorization: 'Bearer ' + cfg.key,
@@ -363,15 +372,35 @@ async function fetchArchiveRow(archiveKey) {
   });
   if (!res.ok) {
     const text = await res.text();
+    console.error(
+      '[community-drive-archive] fetchArchiveRow FAILED',
+      '| status:',
+      res.status,
+      '| supabase:',
+      text
+    );
     if (res.status === 404 || /relation|does not exist/i.test(text)) {
       console.warn('[community-drive-archive] table missing — run supabase/community_drive_archive.sql');
       return null;
     }
-    console.warn('[community-drive-archive] fetch failed:', res.status, text.slice(0, 200));
     return null;
   }
   const rows = await res.json();
-  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  if (row) {
+    console.log(
+      '[community-drive-archive] archive_key hit',
+      '| db.topic:',
+      JSON.stringify(row.topic),
+      '| db.grade_id:',
+      JSON.stringify(row.grade_id),
+      '| db.community_status:',
+      row.community_status,
+      '| summaryChars:',
+      String(row.summary_md || '').length
+    );
+  }
+  return row;
 }
 
 /**
@@ -392,7 +421,18 @@ async function fetchArchiveRowsForGrade(gradeId, options) {
   params.set('community_status', 'eq.ok');
   params.set('order', 'updated_at.desc');
   params.set('limit', String(Math.max(1, Math.min(Number(opts.limit) || 80, 120))));
-  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+  const restPath = '/rest/v1/' + TABLE_NAME + '?' + params.toString();
+  console.log(
+    '[community-drive-archive] SQL/PostgREST grade scan',
+    '| table:',
+    TABLE_NAME,
+    '| requestedGradeId:',
+    JSON.stringify(gid),
+    '| filter: grade_id=eq.' + gid + ' AND community_status=eq.ok',
+    '| fullQuery:',
+    restPath
+  );
+  const res = await fetch(cfg.url + restPath, {
     headers: {
       apikey: cfg.key,
       Authorization: 'Bearer ' + cfg.key,
@@ -400,15 +440,42 @@ async function fetchArchiveRowsForGrade(gradeId, options) {
   });
   if (!res.ok) {
     const text = await res.text();
+    console.error(
+      '[community-drive-archive] fetchArchiveRowsForGrade FAILED',
+      '| status:',
+      res.status,
+      '| requestedGradeId:',
+      JSON.stringify(gid),
+      '| supabase:',
+      text
+    );
     if (res.status === 404 || /relation|does not exist/i.test(text)) {
       console.warn('[community-drive-archive] table missing — run supabase/community_drive_archive.sql');
       return [];
     }
-    console.warn('[community-drive-archive] grade list failed:', res.status, text.slice(0, 200));
     return [];
   }
   const rows = await res.json();
-  return Array.isArray(rows) ? rows : [];
+  const list = Array.isArray(rows) ? rows : [];
+  console.log(
+    '[community-drive-archive] grade scan result',
+    '| requestedGradeId:',
+    JSON.stringify(gid),
+    '| rows:',
+    list.length,
+    '| db topics/grades:',
+    list.slice(0, 20).map(function (r) {
+      return {
+        topic: r.topic,
+        search_query: r.search_query,
+        grade_id: r.grade_id,
+        status: r.community_status,
+        summaryChars: String(r.summary_md || '').length,
+        key: String(r.archive_key || '').slice(0, 12),
+      };
+    })
+  );
+  return list;
 }
 
 function archiveRowTopicLabel(row) {
@@ -466,20 +533,79 @@ function sanitizeCommunitySummaryMarkdown(summary) {
 }
 
 function isUsableArchiveRow(row) {
-  if (!row || row.community_status !== 'ok') return false;
+  if (!row || row.community_status !== 'ok') {
+    if (row) {
+      console.log(
+        '[community-drive-archive] row unusable — status',
+        JSON.stringify(row.community_status),
+        '| topic:',
+        JSON.stringify(row.topic),
+        '| grade_id:',
+        JSON.stringify(row.grade_id)
+      );
+    }
+    return false;
+  }
   const summary = sanitizeCommunitySummaryMarkdown(row.summary_md);
-  if (!summary) return false;
-  return isSummaryDeepEnough(summary);
+  if (!summary) {
+    console.log(
+      '[community-drive-archive] row unusable — empty summary',
+      '| topic:',
+      JSON.stringify(row.topic),
+      '| grade_id:',
+      JSON.stringify(row.grade_id)
+    );
+    return false;
+  }
+  if (!isSummaryDeepEnough(summary)) {
+    console.log(
+      '[community-drive-archive] row unusable — summary too shallow for cache reuse',
+      '| topic:',
+      JSON.stringify(row.topic),
+      '| grade_id:',
+      JSON.stringify(row.grade_id),
+      '| summaryChars:',
+      summary.length
+    );
+    return false;
+  }
+  return true;
 }
 
 /**
  * Exact archive_key (+ alias key candidates) lookup in community_drive_archive only.
  */
 async function fetchArchiveRowByKeyCandidates(query, options) {
-  const keys = buildArchiveKeyCandidates(query, options);
+  const opts = options || {};
+  const keys = buildArchiveKeyCandidates(query, opts);
+  console.log(
+    '[community-drive-archive] key-candidate lookup',
+    '| request.topic:',
+    JSON.stringify(opts.topic || opts.catalogTopic || query),
+    '| request.gradeId:',
+    JSON.stringify(opts.gradeId || opts.currentGrade || ''),
+    '| request.query:',
+    JSON.stringify(query),
+    '| candidateKeys:',
+    keys.map(function (k) { return String(k).slice(0, 12); }),
+    '| candidateCount:',
+    keys.length
+  );
   for (let i = 0; i < keys.length; i++) {
     try {
       const row = await fetchArchiveRow(keys[i]);
+      if (row && !isUsableArchiveRow(row)) {
+        console.log(
+          '[community-drive-archive] key candidate matched a row but it is not usable',
+          '| key:',
+          String(keys[i]).slice(0, 12),
+          '| db.topic:',
+          JSON.stringify(row.topic),
+          '| db.grade_id:',
+          JSON.stringify(row.grade_id)
+        );
+        continue;
+      }
       if (isUsableArchiveRow(row)) {
         return { row: row, archiveKey: keys[i], matchType: i === 0 ? 'exact' : 'alias' };
       }
@@ -498,10 +624,40 @@ async function findCommunityArchiveMatch(query, options) {
   const opts = options || {};
   const q = String(query || '').trim();
   const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  console.log(
+    '[community-drive-archive] findCommunityArchiveMatch START',
+    '| frontend/query topic:',
+    JSON.stringify(q),
+    '| frontend/gradeId:',
+    JSON.stringify(gradeId),
+    '| opts.topic:',
+    JSON.stringify(opts.topic || ''),
+    '| opts.phase:',
+    JSON.stringify(opts.phase || ''),
+    '| canonicalTopic:',
+    JSON.stringify(resolveCanonicalCommunityTopic(opts.topic || q) || ''),
+    '| archiveKey(primary):',
+    buildArchiveKey(q, opts).slice(0, 12)
+  );
   if (!q || !gradeId) return null;
 
   const byKey = await fetchArchiveRowByKeyCandidates(q, opts);
   if (byKey && byKey.row) {
+    console.log(
+      '[community-drive-archive] MATCH by archive_key',
+      '| matchType:',
+      byKey.matchType,
+      '| request.topic:',
+      JSON.stringify(q),
+      '| request.gradeId:',
+      JSON.stringify(gradeId),
+      '| db.topic:',
+      JSON.stringify(byKey.row.topic),
+      '| db.grade_id:',
+      JSON.stringify(byKey.row.grade_id),
+      '| db.search_query:',
+      JSON.stringify(byKey.row.search_query)
+    );
     return {
       matchType: byKey.matchType === 'alias' ? 'semantic' : 'exact',
       similarity: byKey.matchType === 'alias' ? 0.95 : 1,
@@ -538,9 +694,34 @@ async function findCommunityArchiveMatch(query, options) {
     }
   });
 
-  if (!best || !best.row) return null;
+  if (!best || !best.row) {
+    console.log(
+      '[community-drive-archive] NO usable cache row',
+      '| request.topic:',
+      JSON.stringify(q),
+      '| request.gradeId:',
+      JSON.stringify(gradeId),
+      '| gradeScanRows:',
+      rows.length,
+      '| note: compare request.gradeId to db.grade_id values in grade scan result'
+    );
+    return null;
+  }
 
   if (best.score >= SEMANTIC_EQUIV_MIN_SCORE || topicsAreSemanticEquivalent(q, best.topic)) {
+    console.log(
+      '[community-drive-archive] MATCH semantic',
+      '| request.topic:',
+      JSON.stringify(q),
+      '| request.gradeId:',
+      JSON.stringify(gradeId),
+      '| db.topic:',
+      JSON.stringify(best.row.topic),
+      '| db.grade_id:',
+      JSON.stringify(best.row.grade_id),
+      '| score:',
+      best.score
+    );
     return {
       matchType: 'semantic',
       similarity: best.score,
@@ -561,6 +742,15 @@ async function findCommunityArchiveMatch(query, options) {
       opts.gradeLabel || ''
     )
   ) {
+    console.log(
+      '[community-drive-archive] PARTIAL suggestion only',
+      '| request.topic:',
+      JSON.stringify(q),
+      '| db.topic:',
+      JSON.stringify(best.topic),
+      '| score:',
+      best.score
+    );
     return {
       matchType: 'partial',
       similarity: best.score,
@@ -572,6 +762,19 @@ async function findCommunityArchiveMatch(query, options) {
     };
   }
 
+  console.log(
+    '[community-drive-archive] NO usable cache row (best score too low)',
+    '| request.topic:',
+    JSON.stringify(q),
+    '| request.gradeId:',
+    JSON.stringify(gradeId),
+    '| bestDb.topic:',
+    JSON.stringify(best.topic),
+    '| bestDb.grade_id:',
+    JSON.stringify(best.row.grade_id),
+    '| score:',
+    best.score
+  );
   return null;
 }
 
@@ -825,12 +1028,53 @@ async function tryInstantArchiveRetrieval(query, options) {
 async function upsertArchiveRow(record) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key) {
+    console.error(
+      '[community-drive-archive] PERSIST ABORTED — Supabase not configured',
+      '| hasUrl:',
+      Boolean(cfg.url),
+      '| hasServiceKey:',
+      Boolean(cfg.key)
+    );
     throw new Error('Supabase not configured for community_drive_archive');
   }
   const payload = Object.assign({}, record, {
     updated_at: new Date().toISOString(),
   });
-  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key', {
+  // Live DB requires summary_text (NOT NULL). Always mirror summary_md.
+  if (!payload.summary_text && payload.summary_md) {
+    payload.summary_text = payload.summary_md;
+  }
+  if (!payload.summary_md && payload.summary_text) {
+    payload.summary_md = payload.summary_text;
+  }
+  if (!payload.grade_level && payload.grade_id) {
+    payload.grade_level = payload.grade_id;
+  }
+  if (!payload.drive_fingerprint && payload.source_fingerprint) {
+    payload.drive_fingerprint = payload.source_fingerprint;
+  }
+  const restPath = '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key';
+  console.log(
+    '[community-drive-archive] PERSIST upsert starting',
+    '| table:',
+    TABLE_NAME,
+    '| on_conflict=archive_key',
+    '| payload.topic:',
+    JSON.stringify(payload.topic),
+    '| payload.grade_id:',
+    JSON.stringify(payload.grade_id),
+    '| payload.search_query:',
+    JSON.stringify(payload.search_query),
+    '| archive_key:',
+    String(payload.archive_key || '').slice(0, 12) + '…',
+    '| summaryChars:',
+    String(payload.summary_md || '').length,
+    '| source_file_ids:',
+    Array.isArray(payload.source_file_ids) ? payload.source_file_ids.length : 0,
+    '| fullQuery:',
+    restPath
+  );
+  const res = await fetch(cfg.url + restPath, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -842,8 +1086,36 @@ async function upsertArchiveRow(record) {
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error('community_drive_archive upsert failed (' + res.status + '): ' + text.slice(0, 300));
+    console.error(
+      '[community-drive-archive] PERSIST FAILED — full Supabase error',
+      '| status:',
+      res.status,
+      '| statusText:',
+      res.statusText,
+      '| topic:',
+      JSON.stringify(payload.topic),
+      '| grade_id:',
+      JSON.stringify(payload.grade_id),
+      '| archive_key:',
+      payload.archive_key,
+      '| responseHeaders.content-type:',
+      res.headers.get('content-type'),
+      '| supabaseBody:',
+      text
+    );
+    throw new Error(
+      'community_drive_archive upsert failed (' + res.status + '): ' + text
+    );
   }
+  console.log(
+    '[community-drive-archive] PERSIST OK',
+    '| topic:',
+    JSON.stringify(payload.topic),
+    '| grade_id:',
+    JSON.stringify(payload.grade_id),
+    '| archive_key:',
+    String(payload.archive_key || '').slice(0, 12) + '…'
+  );
   const data = text ? JSON.parse(text) : [];
   return Array.isArray(data) ? data[0] : data;
 }
@@ -1725,15 +1997,20 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   });
 
   const cleanedSummary = sanitizeCommunitySummaryMarkdown(generated.summary);
+  const gradeIdValue = String(opts.gradeId || opts.currentGrade || '').trim();
   const record = {
     archive_key: archiveKey,
     search_query: q,
     query_text: q,
-    grade_id: String(opts.gradeId || opts.currentGrade || '').trim(),
+    grade_id: gradeIdValue,
+    // Live Supabase schema also has grade_level / summary_text (NOT NULL).
+    grade_level: gradeIdValue,
     topic: String(opts.topic || opts.catalogTopic || '').trim(),
     summary_md: cleanedSummary,
+    summary_text: cleanedSummary,
     community_status: 'ok',
     source_fingerprint: fingerprint,
+    drive_fingerprint: fingerprint,
     source_file_ids: fileRefs.map(function (ref) { return ref.driveFileId; }),
     file_refs: fileRefs,
     model: generated.model,
@@ -1742,7 +2019,19 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   try {
     await upsertArchiveRow(record);
   } catch (persistErr) {
-    console.warn('[community-drive-archive] persist failed:', persistErr.message || persistErr);
+    console.error(
+      '[community-drive-archive] PERSIST EXCEPTION after Gemini summary',
+      '| topic:',
+      JSON.stringify(record.topic),
+      '| grade_id:',
+      JSON.stringify(record.grade_id),
+      '| archive_key:',
+      record.archive_key,
+      '| error:',
+      persistErr && persistErr.message ? persistErr.message : persistErr,
+      '| stack:',
+      persistErr && persistErr.stack ? persistErr.stack : null
+    );
   }
 
   return {
