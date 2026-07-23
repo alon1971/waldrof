@@ -12,21 +12,33 @@ const TABLE_NAME = 'community_drive_archive';
 const GEMINI_MODEL = 'gemini-2.5-pro';
 const GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-/** Output token ceiling for gemini-2.5-pro / gemini-2.5-flash (must be >= 4096 to avoid mid-summary truncation). */
-const GEMINI_MAX_OUTPUT_TOKENS = 8192;
+/**
+ * Output ceiling for long pedagogical work plans.
+ * JSON-wrapped summaries used to truncate early; plain Markdown + high ceiling fixes that.
+ */
+const GEMINI_MAX_OUTPUT_TOKENS = 16384;
+/**
+ * Bump this when the pedagogical prompt / depth contract changes so old shallow
+ * archive rows are not reused (fingerprint alone is not enough).
+ */
+const PROMPT_VERSION = 'v3-deep-workplan';
 
 /** Exact UI copy from product spec (Hebrew). */
 const COMMUNITY_SUMMARY_HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
 const COMMUNITY_SUMMARY_EMPTY = 'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
 
-const MAX_FILES_FOR_SUMMARY = 24;
-const MAX_CHARS_PER_FILE = 14000;
-const MAX_TOTAL_CHARS = 90000;
+const MAX_FILES_FOR_SUMMARY = 40;
+const MAX_CHARS_PER_FILE = 22000;
+const MAX_TOTAL_CHARS = 160000;
 /** Prefer inlineData under this size; larger PDFs/images use Gemini Files API. */
 const MAX_GEMINI_INLINE_BYTES = 12 * 1024 * 1024;
 /** Gemini document understanding PDF/image ceiling (~50MB). */
 const MAX_GEMINI_MULTIMODAL_BYTES = 50 * 1024 * 1024;
-const MAX_MULTIMODAL_FILES = 6;
+const MAX_MULTIMODAL_FILES = 12;
+/** PDF/image text shorter than this is treated as unreliable → send binary to Gemini. */
+const MIN_RELIABLE_PDF_TEXT_CHARS = 1800;
+/** Reject / regenerate summaries shorter than this (~deep Hebrew work plan). */
+const MIN_DEEP_SUMMARY_CHARS = 4200;
 
 /**
  * Strip Markdown fences (```json … ```) that Gemini sometimes wraps around JSON.
@@ -128,8 +140,33 @@ function buildArchiveKey(query, options) {
     String(opts.gradeId || opts.currentGrade || '').trim(),
     stableNormalize(opts.topic || opts.catalogTopic || ''),
     String(opts.phase || 'hybrid').trim(),
+    PROMPT_VERSION,
   ];
   return crypto.createHash('sha256').update(parts.join('|'), 'utf8').digest('hex').slice(0, 40);
+}
+
+/**
+ * Quality gate: shallow / incomplete archived or model output must be regenerated.
+ */
+function isSummaryDeepEnough(summary) {
+  const s = String(summary || '').trim();
+  if (s.length < MIN_DEEP_SUMMARY_CHARS) return false;
+  const sectionChecks = [
+    /רקע והדגשה\s*פדגוגית/,
+    /סינתזה\s*רחבה/,
+    /פעילויות\s*יצירתיות|אמנותיות/,
+    /דרכי\s*הערכה|מודלים\s*למבחן|מבחן\/?עבודה|מחוון|רובריקה/,
+    /מראי\s*מקום/,
+  ];
+  let hits = 0;
+  for (let i = 0; i < sectionChecks.length; i++) {
+    if (sectionChecks[i].test(s)) hits += 1;
+  }
+  // Require most of the mandated work-plan skeleton.
+  if (hits < 4) return false;
+  // Prefer structured headings over a flat paragraph blob.
+  const headingCount = (s.match(/^#{1,3}\s+/gm) || []).length;
+  return headingCount >= 4;
 }
 
 function buildSourceFingerprint(fileRefs) {
@@ -282,6 +319,16 @@ async function tryInstantArchiveRetrieval(query, options) {
   }
   const summary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
   if (!summary) return null;
+  if (!isSummaryDeepEnough(summary)) {
+    console.warn(
+      '[community-drive-archive] INSTANT archive hit REJECTED — shallow/incomplete summary',
+      '| chars:',
+      summary.length,
+      '| key:',
+      archiveKey.slice(0, 12)
+    );
+    return null;
+  }
   console.log(
     '[community-drive-archive] INSTANT archive hit — skipping Drive + Gemini',
     '| key:',
@@ -457,13 +504,22 @@ async function waitForGeminiFileActive(fileName, options) {
  */
 async function prepareMultimodalMediaParts(failedRefs, accessToken) {
   const partsMeta = [];
-  const refs = (failedRefs || []).filter(isMultimodalCandidate).slice(0, MAX_MULTIMODAL_FILES);
+  const seenIds = new Set();
+  const refs = [];
+  (failedRefs || []).forEach(function (ref) {
+    if (!ref || !isMultimodalCandidate(ref)) return;
+    const id = String(ref.driveFileId || ref.id || '').trim();
+    if (id && seenIds.has(id)) return;
+    if (id) seenIds.add(id);
+    refs.push(ref);
+  });
+  const capped = refs.slice(0, MAX_MULTIMODAL_FILES);
   const maxDownload = typeof driveCatalogSync.MAX_MULTIMODAL_DOWNLOAD_BYTES === 'number'
     ? driveCatalogSync.MAX_MULTIMODAL_DOWNLOAD_BYTES
     : MAX_GEMINI_MULTIMODAL_BYTES;
 
-  for (let i = 0; i < refs.length; i++) {
-    const ref = refs[i];
+  for (let i = 0; i < capped.length; i++) {
+    const ref = capped[i];
     let mime = resolveMultimodalMime(ref.mimeType, ref.name);
     if (!mime) continue;
     try {
@@ -593,13 +649,17 @@ async function prepareMultimodalMediaParts(failedRefs, accessToken) {
   return partsMeta;
 }
 
-async function callGeminiModel(model, systemPrompt, userParts) {
+async function callGeminiModel(model, systemPrompt, userParts, options) {
+  const opts = options || {};
   const apiKey = env.getGeminiApiKey();
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
   const parts = Array.isArray(userParts) ? userParts : [{ text: String(userParts || '') }];
   const url = GEMINI_API_BASE + '/models/' + encodeURIComponent(model) + ':generateContent';
+  // Plain Markdown (not JSON) — wrapping a long Hebrew work plan in JSON routinely
+  // truncates / shortens the pedagogical body. Keep optional JSON only as a last resort.
+  const wantJson = opts.responseJson === true;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -610,10 +670,9 @@ async function callGeminiModel(model, systemPrompt, userParts) {
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: parts }],
       generationConfig: {
-        temperature: 0.45,
-        // gemini-2.5-pro / gemini-2.5-flash: up to 8192 output tokens (>= 4096 required to avoid truncation).
+        temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.55,
         maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-        responseMimeType: 'application/json',
+        ...(wantJson ? { responseMimeType: 'application/json' } : {}),
       },
     }),
   });
@@ -638,9 +697,19 @@ async function callGeminiModel(model, systemPrompt, userParts) {
     err.statusCode = res.status;
     throw err;
   }
+  const finishReason = payload
+    && payload.candidates
+    && payload.candidates[0]
+    && payload.candidates[0].finishReason;
+  if (finishReason && String(finishReason).toUpperCase() === 'MAX_TOKENS') {
+    console.warn('[community-drive-archive] Gemini hit MAX_TOKENS — summary may be truncated:', model);
+  }
   const text = extractGeminiText(payload);
   if (!text) throw new Error('Gemini ' + model + ' returned an empty summary');
-  return sanitizeCommunitySummaryMarkdown(parseGeminiSummaryJson(text));
+  const parsed = wantJson
+    ? parseGeminiSummaryJson(text)
+    : (/^\s*\{/.test(text) ? parseGeminiSummaryJson(text) : text);
+  return sanitizeCommunitySummaryMarkdown(parsed);
 }
 
 function buildCommunitySummarySystemPrompt() {
@@ -662,9 +731,8 @@ function buildCommunitySummarySystemPrompt() {
     'חובה להשלים את כל חמשת הסעיפים עד הסוף בעומק מלא — אל תעצור באמצע משפט, אל תקצר בגלל אורך, אל תדלג על סעיפים, ואל תסיים במשפט כללי כמו «ועוד».',
     'בסעיף מראי מקום הצג רק את שם הקובץ או שם התיקייה הישיר (למשל «עבודת רנסנס.pdf») — אסור לציין נתיבי תיקיות ארוכים עם «>».',
     'כל מראה מקום בשורה נפרדת כקישור Markdown: [שם הקובץ](url).',
-    'החזר JSON נקי בלבד — אובייקט אחד במבנה {"summary":"..."} ללא טקסט לפני או אחרי, ללא עטיפת ```json.',
-    'בתוך ערך summary השתמש בתווי שורה אמיתיים (JSON escaped \\n) — לא במחרוזת גלויה של התווים backslash-n.',
-    'ודא שה-JSON שלם וסגור (סוגריים ומירכאות) ושדה summary מכיל את תכנית העבודה המלאה והמפורטת מההתחלה ועד מראי המקום.',
+    'פורמט פלט חובה: החזר את מסמך ה־Markdown המלא בלבד — התחל ב־# כותרת, המשך עם ## / ###, וסיים במראי מקום.',
+    'אסור לעטוף ב-JSON, אסור {"summary":...}, אסור ```markdown או ```json — רק גוף המסמך בעברית.',
   ].join(' ');
 }
 
@@ -718,8 +786,8 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
     'הכותרת הראשית של המסמך חייבת להיות:',
     COMMUNITY_SUMMARY_HEADING,
     '',
-    'פורמט פלט חובה: החזר רק JSON תקין ושלם במבנה {"summary":"<טקסט המסמך בעברית עם Markdown>"}.',
-    'אין לעטוף ב-```json או בכל Markdown אחר מחוץ לשדה summary.',
+    'פורמט פלט חובה: החזר רק את מסמך ה־Markdown המלא בעברית (כותרת #, סעיפי ## / ###, מראי מקום).',
+    'אין JSON, אין {"summary":...}, אין עטיפת ```.',
     '',
     sourcesBlock,
     mediaBlock,
@@ -732,6 +800,7 @@ async function summarizeWithGemini15Pro(query, fileBundles, options) {
 
 /**
  * Text bundles and/or multimodal PDF/image parts → one pedagogical summary.
+ * Retries once with a stricter depth instruction when the first draft is shallow.
  */
 async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta, options) {
   const opts = options || {};
@@ -744,14 +813,73 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
 
   const models = [GEMINI_MODEL].concat(GEMINI_FALLBACK_MODELS);
   let lastErr = null;
+  let bestSummary = '';
+  let bestModel = null;
+
   for (let i = 0; i < models.length; i++) {
     try {
-      const summary = await callGeminiModel(models[i], systemPrompt, userParts);
-      return {
-        summary: summary,
-        model: models[i],
-        multimodalFileCount: (mediaMeta || []).length,
-      };
+      let summary = await callGeminiModel(models[i], systemPrompt, userParts, {
+        temperature: 0.55,
+      });
+      console.log(
+        '[community-drive-archive] Gemini draft length:',
+        summary.length,
+        '| model:',
+        models[i],
+        '| deepEnough:',
+        isSummaryDeepEnough(summary)
+      );
+
+      if (!isSummaryDeepEnough(summary)) {
+        console.warn(
+          '[community-drive-archive] shallow draft — retrying with depth enforcement:',
+          models[i]
+        );
+        const retryParts = userParts.slice();
+        retryParts[0] = {
+          text: preamble + '\n\n' + [
+            '=== הנחיית העמקה (חובה) ===',
+            'הטיוטה הקודמת הייתה קצרה/דלה מדי. כתוב מחדש תכנית עבודה מלאה ומעמיקה.',
+            'מינימום 1500 מילים. חובה לכלול את כל חמשת הסעיפים עם ## ו־###.',
+            'שלוף מהקבצים המצורפים פעילויות יצירתיות/אמנותיות ומודלי הערכה/מבחנים/עבודות במפורש.',
+            'אל תקצר. אל תחזיר תקציר. אל תחזיר JSON.',
+          ].join(' ')
+        };
+        try {
+          const retrySummary = await callGeminiModel(models[i], systemPrompt, retryParts, {
+            temperature: 0.65,
+          });
+          if (retrySummary && retrySummary.length >= summary.length) {
+            summary = retrySummary;
+          }
+          console.log(
+            '[community-drive-archive] retry length:',
+            summary.length,
+            '| deepEnough:',
+            isSummaryDeepEnough(summary)
+          );
+        } catch (retryErr) {
+          console.warn(
+            '[community-drive-archive] depth retry failed:',
+            retryErr && retryErr.message ? retryErr.message : retryErr
+          );
+        }
+      }
+
+      if (!bestSummary || summary.length > bestSummary.length) {
+        bestSummary = summary;
+        bestModel = models[i];
+      }
+      if (isSummaryDeepEnough(summary)) {
+        return {
+          summary: summary,
+          model: models[i],
+          multimodalFileCount: (mediaMeta || []).length,
+        };
+      }
+      // Keep trying fallback models if the draft is still shallow.
+      lastErr = new Error('Gemini returned a shallow pedagogical summary');
+      continue;
     } catch (err) {
       lastErr = err;
       const status = err && err.statusCode;
@@ -762,12 +890,26 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
       throw err;
     }
   }
+
+  if (bestSummary) {
+    console.warn(
+      '[community-drive-archive] returning best-effort summary (may still be shorter than ideal)',
+      '| chars:',
+      bestSummary.length
+    );
+    return {
+      summary: bestSummary,
+      model: bestModel,
+      multimodalFileCount: (mediaMeta || []).length,
+    };
+  }
   throw lastErr || new Error('Gemini summarization failed');
 }
 
 async function extractTextsForRefs(fileRefs, accessToken) {
   const bundles = [];
   const failedRefs = [];
+  const multimodalPreferredRefs = [];
   let totalChars = 0;
   console.log(
     '[community-drive-archive] extracting text from',
@@ -802,10 +944,14 @@ async function extractTextsForRefs(fileRefs, accessToken) {
         continue;
       }
       const text = String(extracted && extracted.text || '').trim();
+      const mime = (extracted && extracted.mimeType) || ref.mimeType || '';
+      const isPdfOrImage = Boolean(resolveMultimodalMime(mime, ref.name || (extracted && extracted.name)));
+
+      // Empty / tiny extract → multimodal binary path (scanned PDF / image).
       if (!text || text.length < 40) {
         failedRefs.push(Object.assign({}, ref, {
           failReason: text ? 'thin_extract' : 'empty_extract',
-          mimeType: (extracted && extracted.mimeType) || ref.mimeType,
+          mimeType: mime,
           resourceKey: (extracted && extracted.resourceKey) || ref.resourceKey || '',
           driveFileId: (extracted && extracted.driveFileId) || ref.driveFileId,
         }));
@@ -817,6 +963,23 @@ async function extractTextsForRefs(fileRefs, accessToken) {
         );
         continue;
       }
+
+      // Partial PDF text is often incomplete OCR — keep text AND prefer full PDF bytes.
+      if (isPdfOrImage && text.length < MIN_RELIABLE_PDF_TEXT_CHARS) {
+        multimodalPreferredRefs.push(Object.assign({}, ref, {
+          failReason: 'unreliable_pdf_text',
+          mimeType: mime,
+          resourceKey: (extracted && extracted.resourceKey) || ref.resourceKey || '',
+          driveFileId: (extracted && extracted.driveFileId) || ref.driveFileId,
+        }));
+        console.warn(
+          '[community-drive-archive] unreliable PDF/image text — queue multimodal:',
+          ref.name || ref.driveFileId,
+          '| chars:',
+          text.length
+        );
+      }
+
       const clipped = text.slice(0, Math.min(MAX_CHARS_PER_FILE, MAX_TOTAL_CHARS - totalChars));
       totalChars += clipped.length;
       bundles.push({
@@ -825,7 +988,7 @@ async function extractTextsForRefs(fileRefs, accessToken) {
         folder: ref.folder || '',
         driveFileId: (extracted && extracted.driveFileId) || ref.driveFileId,
         webViewLink: ref.fileUrl || ref.webViewLink || '',
-        mimeType: (extracted && extracted.mimeType) || ref.mimeType || '',
+        mimeType: mime,
         text: clipped,
         charCount: clipped.length,
       });
@@ -855,9 +1018,14 @@ async function extractTextsForRefs(fileRefs, accessToken) {
     bundles.map(function (b) { return b.name; }).join(' | '),
     '| totalChars:',
     totalChars,
-    failedRefs.length ? ('| failed/empty: ' + failedRefs.length) : ''
+    failedRefs.length ? ('| failed/empty: ' + failedRefs.length) : '',
+    multimodalPreferredRefs.length ? ('| multimodalPreferred: ' + multimodalPreferredRefs.length) : ''
   );
-  return { bundles: bundles, failedRefs: failedRefs };
+  return {
+    bundles: bundles,
+    failedRefs: failedRefs,
+    multimodalPreferredRefs: multimodalPreferredRefs,
+  };
 }
 
 function emptySummaryResult(query, options) {
@@ -924,17 +1092,26 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       && opts.forceRefresh !== true
       && opts.refresh !== true
     ) {
-      return {
-        heading: COMMUNITY_SUMMARY_HEADING,
-        summary: sanitizeCommunitySummaryMarkdown(existing.summary_md),
-        communityStatus: 'ok',
-        fromArchive: true,
-        deltaUpdated: false,
-        archiveKey: archiveKey,
-        fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : fileRefs,
-        sourceFingerprint: fingerprint,
-        model: existing.model || null,
-      };
+      const archivedSummary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
+      if (!isSummaryDeepEnough(archivedSummary)) {
+        console.warn(
+          '[community-drive-archive] cached summary too shallow — regenerating',
+          '| chars:',
+          archivedSummary.length
+        );
+      } else {
+        return {
+          heading: COMMUNITY_SUMMARY_HEADING,
+          summary: archivedSummary,
+          communityStatus: 'ok',
+          fromArchive: true,
+          deltaUpdated: false,
+          archiveKey: archiveKey,
+          fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : fileRefs,
+          sourceFingerprint: fingerprint,
+          model: existing.model || null,
+        };
+      }
     }
   } catch (lookupErr) {
     console.warn('[community-drive-archive] lookup failed:', lookupErr.message || lookupErr);
@@ -984,13 +1161,15 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   const extracted = await extractTextsForRefs(fileRefs, accessToken);
   const bundles = extracted.bundles || [];
   const failedRefs = extracted.failedRefs || [];
+  const multimodalPreferredRefs = extracted.multimodalPreferredRefs || [];
 
-  // When pdf-parse / standard extract yields 0 chars (scanned PDF / image), send the
-  // binary to Gemini multimodal instead of jumping straight to degraded.
+  // When pdf-parse / standard extract yields 0 chars (scanned PDF / image), or only
+  // unreliable thin PDF text, send the binary to Gemini multimodal.
   let mediaMeta = [];
-  if (failedRefs.some(isMultimodalCandidate)) {
+  const multimodalQueue = failedRefs.concat(multimodalPreferredRefs);
+  if (multimodalQueue.some(isMultimodalCandidate)) {
     try {
-      mediaMeta = await prepareMultimodalMediaParts(failedRefs, accessToken);
+      mediaMeta = await prepareMultimodalMediaParts(multimodalQueue, accessToken);
     } catch (multiErr) {
       console.warn(
         '[community-drive-archive] multimodal fallback setup failed:',
@@ -1068,6 +1247,7 @@ module.exports = {
   COMMUNITY_SUMMARY_HEADING,
   COMMUNITY_SUMMARY_EMPTY,
   GEMINI_MODEL,
+  PROMPT_VERSION,
   MAX_GEMINI_INLINE_BYTES,
   MAX_GEMINI_MULTIMODAL_BYTES,
   buildArchiveKey,
@@ -1076,6 +1256,7 @@ module.exports = {
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,
   shortCitationDisplayName,
+  isSummaryDeepEnough,
   tryInstantArchiveRetrieval,
   resolveCommunityDriveSummary,
   emptySummaryResult,
