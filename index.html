@@ -5136,10 +5136,10 @@
     body.lesson-chat-mode-fullscreen .lesson-chat-sidebar { display: none !important; }
 
     :root {
-      --lesson-chat-fab-size: 7rem;
-      --lesson-chat-fab-offset: 1.5rem;
-      --lesson-chat-fab-gap: 1rem;
-      --lesson-chat-fab-cluster-width: max(var(--lesson-chat-fab-size), 11.5rem);
+      --lesson-chat-fab-size: 3.5rem;
+      --lesson-chat-fab-offset: 1rem;
+      --lesson-chat-fab-gap: 0.75rem;
+      --lesson-chat-fab-cluster-width: max(var(--lesson-chat-fab-size), 5.75rem);
       --lesson-chat-fab-reserve: calc(var(--lesson-chat-fab-offset) + var(--lesson-chat-fab-cluster-width) + var(--lesson-chat-fab-gap));
     }
 
@@ -5189,7 +5189,7 @@
       padding: 0;
       color: #fff;
       font-family: inherit;
-      font-size: 2.25rem !important;
+      font-size: 1.125rem !important;
       font-weight: 700;
       line-height: 1;
       text-align: center;
@@ -5203,13 +5203,13 @@
         0 14px 32px -5px rgba(92, 125, 88, 0.55),
         0 10px 20px -6px rgba(92, 74, 58, 0.26);
     }
-    .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 8px; }
+    .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
     .lesson-chat-fab-label { display: none; pointer-events: none; }
     .lesson-chat-fab-badge {
       display: block;
-      margin-top: -0.9rem;
-      padding: 0.4rem 1.1rem;
-      font-size: 1.375rem;
+      margin-top: -0.45rem;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.6875rem;
       font-weight: 600;
       line-height: 1.2;
       letter-spacing: 0.01em;
@@ -5225,7 +5225,7 @@
     }
     .lesson-chat-fab-icon {
       display: block;
-      font-size: 2.5rem;
+      font-size: 1.25rem;
       line-height: 1;
       pointer-events: none;
     }
@@ -5233,7 +5233,7 @@
       .lesson-chat-fab-wrap {
         top: auto;
         bottom: calc(20% + env(safe-area-inset-bottom, 0px));
-        left: 1.5rem;
+        left: var(--lesson-chat-fab-offset);
         right: auto;
         transform: none;
         z-index: 50;
@@ -7469,7 +7469,7 @@
 
   <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
     <div class="lesson-chat-fab-cluster">
-      <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-28 h-28 aspect-square rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
+      <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-14 h-14 aspect-square rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
         <i class="lesson-chat-fab-icon fa-solid fa-comments" aria-hidden="true"></i>
         <span class="lesson-chat-fab-label sr-only" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
       </button>
