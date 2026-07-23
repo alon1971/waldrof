@@ -1,5 +1,6 @@
 -- Community Drive archive — Gemini summaries of Google Drive materials.
--- Fully separate from Perplexity cached_results / general_search cache.
+-- CACHE SOURCE ISOLATION: fully separate from Perplexity public.cached_results.
+-- Lookups for מאגר קהילתי / Drive must use this table only (never cached_results).
 -- Run in Supabase SQL editor. Server APIs use SERVICE_ROLE_KEY and bypass RLS.
 -- Safe to re-run: CREATE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS.
 

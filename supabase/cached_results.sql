@@ -1,4 +1,6 @@
--- Supabase: pedagogical API cache table
+-- Supabase: Perplexity / live-web pedagogical API cache table
+-- CACHE SOURCE ISOLATION: Perplexity/web only — NOT community Drive summaries.
+-- Community Drive Gemini summaries use public.community_drive_archive.
 -- Run in Supabase SQL Editor (Dashboard → SQL → New query)
 
 create table if not exists public.cached_results (
@@ -20,7 +22,7 @@ create index if not exists cached_results_phase_idx on public.cached_results (ph
 create index if not exists cached_results_topic_idx on public.cached_results (topic);
 
 comment on table public.cached_results is
-  'Server-side cache for Waldorf /api/generate Perplexity responses (keyed by buildCacheKey).';
+  'Perplexity/live-web cache for /api/generate (keyed by buildCacheKey). Isolated from community_drive_archive.';
 
 -- Service role (used by Render server) bypasses RLS.
 -- If you only use SUPABASE_ANON_KEY on the server, enable these policies:

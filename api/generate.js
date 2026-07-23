@@ -10,6 +10,9 @@
  *   Phase B (topic / phase_b): theory essence only.
  *   On-demand expansions (pedagogy_deep_dive / archive_summary): independent Perplexity Sonar routes per button.
  *
+ * CACHE SOURCE ISOLATION: generate reads/writes cached_results only.
+ * Community Drive summaries use community_drive_archive via /api/community-summarizer.
+ *
  * Primary runtime: Render / Node.js via server.js → executeGenerate().
  * Optional: legacyHandler(req, res) for adapters; fetch(request) for Vercel serverless.
  */

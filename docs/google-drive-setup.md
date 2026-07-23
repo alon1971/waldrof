@@ -118,6 +118,8 @@ Run once in the Supabase SQL editor:
 - `supabase/community_drive_archive.sql` — Gemini community summaries (separate from Perplexity `cached_results`)
 - `supabase/drive_oauth_credentials.sql` — refresh token from live `/api/auth/google-drive` connect
 
+**Cache isolation:** Perplexity/web results live only in `cached_results`. Community Drive summaries live only in `community_drive_archive`. Community/repository probes must not fall back into `cached_results` (and vice versa).
+
 Every hybrid search (including Perplexity cache hits) re-checks Drive for new/changed files and refreshes the summary only on delta.
 
 ## 4. Initial catalog sweep

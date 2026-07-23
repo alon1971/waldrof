@@ -3,6 +3,9 @@
  *
  * Scans the shared community Google Drive root and returns precise citations.
  * Gemini pedagogical summaries live in api/community-summarizer.js (decoupled).
+ *
+ * CACHE SOURCE ISOLATION: Drive + community catalog only.
+ * Never surfaces Perplexity rows from cached_results as community hits.
  */
 const cacheDb = require('./cache');
 const communityDriveArchive = require('./community-drive-archive');

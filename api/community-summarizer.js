@@ -2,11 +2,14 @@
  * POST /api/community-summarizer — standalone community Drive topic summary.
  *
  * Decoupled from live web search (phases A–C). Workflow:
- *  1) Scan community root Drive folder for grade + topic
- *  2) Public archive lookup (no userId filter)
- *  3) Reuse if fingerprint matches; else Gemini summarize + upsert
+ *  1) Instant community_drive_archive hit (topic + grade) — skip Drive/Gemini
+ *  2) Scan community root Drive folder for grade + topic
+ *  3) Reuse archive row if fingerprint matches; else Gemini summarize + upsert
  *     (JSON responseMimeType + fence-strip parse live in api/community-drive-archive.js)
  *  4) Clear empty message when nothing exists in Drive or archive
+ *
+ * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity.
+ * Cache lookup is community_drive_archive only (archive_key).
  */
 const communitySearch = require('./community-search');
 const communityDriveArchive = require('./community-drive-archive');
