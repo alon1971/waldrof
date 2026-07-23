@@ -2361,7 +2361,7 @@
       opacity: 0.55;
       cursor: not-allowed;
     }
-    /* Floating background-status toast — corner pill after return-home while summarizing. */
+    /* Floating background-status chip — compact side FAB so it never covers page text. */
     #community-summarizer-bg-float-mount,
     #community-summarizer-bg-host {
       display: block;
@@ -2372,25 +2372,28 @@
     #community-summarizer-bg-indicator {
       position: fixed !important;
       z-index: 2147483000 !important;
-      bottom: max(1.35rem, env(safe-area-inset-bottom, 0px)) !important;
-      inset-inline-start: max(1rem, env(safe-area-inset-inline-start, 0px)) !important;
+      bottom: max(1.25rem, env(safe-area-inset-bottom, 0px)) !important;
+      inset-inline-start: max(0.65rem, env(safe-area-inset-inline-start, 0px)) !important;
       inset-inline-end: auto !important;
       top: auto !important;
-      max-width: min(92vw, 24rem);
+      width: 4.35rem;
+      max-width: 4.35rem;
       display: inline-flex !important;
+      flex-direction: column;
       align-items: center;
-      gap: 0.7rem;
-      padding: 0.85rem 1.05rem;
-      border-radius: 9999px;
+      justify-content: center;
+      gap: 0.28rem;
+      padding: 0.7rem 0.4rem 0.55rem;
+      border-radius: 1.35rem;
       border: 1.5px solid rgba(107, 142, 107, 0.55);
       background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(232, 242, 232, 0.97));
       color: #3f5d3f;
-      box-shadow: 0 12px 32px rgba(47, 69, 56, 0.28);
+      box-shadow: 0 10px 24px rgba(47, 69, 56, 0.26);
       cursor: pointer;
-      font-size: 0.95rem;
+      font-size: 0.68rem;
       font-weight: 700;
-      line-height: 1.35;
-      text-align: start;
+      line-height: 1.2;
+      text-align: center;
       direction: inherit;
       white-space: normal;
       transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
@@ -2408,18 +2411,30 @@
       outline-offset: 3px;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-icon {
-      font-size: 1.15rem;
+      font-size: 1.2rem;
       flex-shrink: 0;
+      line-height: 1;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-copy {
       display: flex;
       flex-direction: column;
-      gap: 0.12rem;
+      align-items: center;
+      gap: 0.08rem;
       min-width: 0;
+      width: 100%;
+    }
+    #community-summarizer-bg-indicator #community-summarizer-bg-status {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      word-break: break-word;
+      hyphens: auto;
+      max-width: 100%;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-view {
       display: none;
-      font-size: 0.8rem;
+      font-size: 0.62rem;
       font-weight: 700;
       color: #5a7a5a;
       text-decoration: underline;
@@ -2434,12 +2449,6 @@
     }
     #community-summarizer-bg-indicator.is-ready .community-summarizer-bg-icon {
       color: #3f5d3f;
-    }
-    @media (min-width: 640px) {
-      #community-summarizer-bg-indicator {
-        font-size: 1rem;
-        padding: 0.9rem 1.15rem;
-      }
     }
     .hybrid-community-citations {
       margin-top: 1rem;
@@ -24312,9 +24321,11 @@
       var ready = show && !summarizing && Boolean(appState.communitySummarizerResult);
       var statusEl = document.getElementById('community-summarizer-bg-status');
       var iconEl = badge.querySelector('.community-summarizer-bg-icon');
+      var tip = ready ? t('community_summarizer_bg_title_ready') : t('community_summarizer_bg_title_working');
       badge.classList.toggle('hidden', !show);
       badge.classList.toggle('is-ready', ready);
       badge.setAttribute('aria-hidden', show ? 'false' : 'true');
+      badge.setAttribute('title', tip);
       if (host) host.classList.toggle('is-visible', show);
       if (statusEl) {
         statusEl.setAttribute('data-i18n', ready ? 'community_summarizer_bg_ready' : 'community_summarizer_bg_working');
@@ -31875,11 +31886,11 @@
   <!-- Floating community-summary status toast (body-level so fixed positioning always works). -->
   <div id="community-summarizer-bg-float-mount" class="community-summarizer-bg-mount">
     <div id="community-summarizer-bg-host" class="community-summarizer-bg-host">
-      <button type="button" id="community-summarizer-bg-indicator" class="hidden" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי">
+      <button type="button" id="community-summarizer-bg-indicator" class="hidden" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי" title="מפיק סיכום קהילתי ברקע…">
         <i class="fa-solid fa-clock fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
         <span class="community-summarizer-bg-copy">
-          <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מפיק סיכום קהילתי ברקע…</span>
-          <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לחץ לצפייה</span>
+          <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מסכם…</span>
+          <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לצפייה</span>
         </span>
       </button>
     </div>
