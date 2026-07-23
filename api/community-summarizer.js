@@ -176,7 +176,7 @@ async function runCommunityTopicSummary(options) {
   let matches = [];
   let probeError = null;
   let driveDebug = null;
-  const listLimit = Math.max(Number(opts.limit) || 30, 12);
+  const listLimit = Math.max(Number(opts.limit) || 40, 24);
   if (typeof driveCatalogSync.listDriveFilesForGradeTopic === 'function') {
     try {
       const listed = await driveCatalogSync.listDriveFilesForGradeTopic(lockedGradeId, topic, {
