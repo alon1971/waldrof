@@ -80,6 +80,26 @@ function citationsFromFileRefs(fileRefs) {
 }
 
 /**
+ * Community Drive summaries run on Gemini only — never bill live-search credits.
+ * Clients that share invokePureApi with phase-c/general-search look at meta.
+ */
+function withNonBillableMeta(payload) {
+  const body = payload && typeof payload === 'object' ? payload : {};
+  body.freeCommunitySummary = true;
+  body.skipLiveSearchBilling = true;
+  body.meta = Object.assign({}, body.meta || {}, {
+    phase: SUMMARIZER_PHASE,
+    searchBilled: false,
+    billable: false,
+    free: true,
+    freeCommunitySummary: true,
+    skipLiveSearchBilling: true,
+    fromCache: Boolean(body.fromArchive || body.instantArchiveHit || body.communitySummaryFromArchive),
+  });
+  return body;
+}
+
+/**
  * Full on-demand community topic summary (public archive + root Drive scan).
  * Instant archive hit (topic + grade) skips Drive listing and Gemini entirely
  * unless forceRefresh is set.
@@ -141,7 +161,7 @@ async function runCommunityTopicSummary(options) {
           'grade',
           lockedGradeId
         );
-        return {
+        return withNonBillableMeta({
           success: true,
           topic: topic,
           gradeId: lockedGradeId,
@@ -160,7 +180,7 @@ async function runCommunityTopicSummary(options) {
           fromArchive: true,
           deltaUpdated: false,
           instantArchiveHit: true,
-        };
+        });
       }
     } catch (instantErr) {
       console.warn(
@@ -273,7 +293,7 @@ async function runCommunityTopicSummary(options) {
         : 'no Drive files matched topic aliases under this grade (and root fallback found none)'
     );
 
-    return {
+    return withNonBillableMeta({
       success: true,
       topic: topic,
       gradeId: lockedGradeId,
@@ -296,7 +316,7 @@ async function runCommunityTopicSummary(options) {
       fromArchive: false,
       deltaUpdated: false,
       driveDebug: driveDebug,
-    };
+    });
   }
 
   const summary = await communityDriveArchive.resolveCommunityDriveSummary(
@@ -331,7 +351,7 @@ async function runCommunityTopicSummary(options) {
     ? summary.communityStatus
     : (summary.communityStatus || (configured ? 'empty' : 'not_configured'));
 
-  return {
+  return withNonBillableMeta({
     success: true,
     topic: topic,
     gradeId: lockedGradeId,
@@ -350,7 +370,7 @@ async function runCommunityTopicSummary(options) {
     fromArchive: Boolean(summary.fromArchive),
     deltaUpdated: Boolean(summary.deltaUpdated),
     instantArchiveHit: false,
-  };
+  });
 }
 
 async function executeCommunitySummarizer(req) {
@@ -388,13 +408,13 @@ async function legacyHandler(req, res) {
     if (err && /JSON/i.test(String(err.message || ''))) {
       console.error('[community-summarizer] JSON parse/generation failure detail:', err.stack || err);
     }
-    return sendJson(res, status, {
+    return sendJson(res, status, withNonBillableMeta({
       error: err.message || String(err),
       success: false,
       communitySummaryHeading: COMMUNITY_SUMMARY_HEADING,
       communitySummary: COMMUNITY_SUMMARY_EMPTY,
       communityStatus: 'unavailable',
-    });
+    }));
   }
 }
 
