@@ -2835,14 +2835,6 @@
     }
     #btn-topic-research-cancel:hover,
     #btn-general-search-cancel:hover { background: rgba(196, 120, 90, 0.12); }
-    #btn-general-search-clear {
-      color: #4a3728;
-      min-width: 2.75rem;
-    }
-    #btn-general-search-clear:hover {
-      background: rgba(92, 125, 88, 0.1);
-      border-color: rgba(92, 125, 88, 0.45);
-    }
     #topic-research-loading,
     #general-search-loading,
     #phase-c-loading { border-color: rgba(196, 120, 90, 0.45); }
@@ -3779,7 +3771,6 @@
     body.auth-locked #wizard,
     body.auth-locked #workspace,
     body.auth-locked .app-site-chrome,
-    body.auth-locked #new-research-bar,
     body.auth-locked #app-shell,
     body.auth-locked #lesson-chat-sidebar,
     body.auth-locked #lesson-chat-fab-wrap,
@@ -4850,6 +4841,30 @@
       padding: 0.24rem 0.44rem !important;
       font-size: var(--app-nav-label-size) !important;
       line-height: 1.2 !important;
+    }
+    .site-refresh-btn {
+      min-height: 0;
+      padding: 0.22rem 0.5rem;
+      border: 1px solid rgba(122, 47, 58, 0.28);
+      background: rgba(122, 47, 58, 0.06);
+      color: #7a2f3a;
+      font-weight: 600;
+      line-height: 1.2;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .site-refresh-btn:hover,
+    .site-refresh-btn:focus-visible {
+      background: rgba(122, 47, 58, 0.12);
+      border-color: rgba(122, 47, 58, 0.42);
+      outline: none;
+    }
+    .site-refresh-btn i {
+      font-size: 0.7rem;
+    }
+    .app-site-chrome .site-refresh-btn {
+      padding: 0.2rem 0.42rem !important;
+      font-size: var(--app-nav-label-size) !important;
     }
     .app-site-chrome .user-action-btn {
       min-height: 1.55rem;
@@ -25409,8 +25424,8 @@
       }
       var btn = document.getElementById('btn-clear-topic-prose-server');
       if (btn) return btn;
-      var restartBtn = document.getElementById('btn-restart');
-      if (!restartBtn || !restartBtn.parentNode) return null;
+      var adminWrap = document.getElementById('admin-research-tools-wrap');
+      if (!adminWrap || !adminWrap.parentNode) return null;
       btn = document.createElement('button');
       btn.type = 'button';
       btn.id = 'btn-clear-topic-prose-server';
@@ -25419,7 +25434,7 @@
       btn.setAttribute('aria-hidden', 'true');
       btn.tabIndex = -1;
       btn.innerHTML = '<i class="fa-solid fa-trash-can icon-inline"></i> <span>מחק שלבים ב׳–ג׳ מהשרת</span>';
-      restartBtn.parentNode.insertBefore(btn, restartBtn);
+      adminWrap.parentNode.insertBefore(btn, adminWrap.nextSibling);
       bindWizardNavClick(btn, function () {
         clearTopicProseArchiveFromServer();
       });
@@ -27229,20 +27244,14 @@
     }
 
     function updateNewResearchBarVisibility() {
-      var bar = document.getElementById('new-research-bar');
-      if (!bar) return;
-      if (isHomeView()) {
-        bar.classList.add('hidden');
-        return;
-      }
-      var inWorkspace = !document.getElementById('workspace').classList.contains('hidden');
-      var show = inWorkspace || appState.grade || appState.step > 1;
-      bar.classList.toggle('hidden', !show);
+      var btn = document.getElementById('btn-site-refresh');
+      if (!btn) return;
+      btn.classList.toggle('hidden', isHomeView());
     }
 
     function startNewResearch() {
-      if (appState.grade || appState.topic || appState.webResearch) {
-        if (!confirm(t('confirm_new_research'))) return;
+      if (appState.grade || appState.topic || appState.webResearch || appState.generalSearchResult) {
+        if (!confirm(t('confirm_site_refresh'))) return;
       }
       if (googleDrive.accessToken && window.google && google.accounts.oauth2) {
         try { google.accounts.oauth2.revoke(googleDrive.accessToken); } catch (e) { /* ignore */ }
