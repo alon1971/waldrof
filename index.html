@@ -24000,11 +24000,16 @@
         || /אינו נמצא במאגר/.test(summary)
       );
       var isSummarizing = status === 'summarizing'
+        || status === 'processing'
+        || Boolean(meta && meta.processing)
         || summary === t('community_summarizer_loading')
+        || summary === t('community_summarizer_processing')
         || summary === t('hybrid_community_summarizing')
         || /מסכם חומר מהמאגר הקהילתי/.test(summary)
         || /סורק את המאגר הקהילתי/.test(summary)
-        || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary);
+        || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary)
+        || /מפיק סיכום חדש מתוך מאגר הדרייב/.test(summary)
+        || /תהליך זה קורה ברקע/.test(summary);
       // Prefer localized empty copy over older archived/server strings.
       if (isEmpty && !isSummarizing) {
         summary = t('community_summarizer_empty');
@@ -24088,7 +24093,8 @@
       }
     }
 
-    function setCommunitySummarizerLoading(loading) {
+    function setCommunitySummarizerLoading(loading, options) {
+      options = options || {};
       var busy = Boolean(loading);
       appState.communitySummarizerLoading = busy;
       appState.isSummarizing = busy;
@@ -24102,8 +24108,11 @@
         loadingEl.setAttribute('aria-busy', busy ? 'true' : 'false');
       }
       if (loadingTextEl) {
-        loadingTextEl.setAttribute('data-i18n', 'community_summarizer_loading');
-        loadingTextEl.textContent = t('community_summarizer_loading');
+        var i18nKey = options.processing
+          ? 'community_summarizer_processing'
+          : 'community_summarizer_loading';
+        loadingTextEl.setAttribute('data-i18n', i18nKey);
+        loadingTextEl.textContent = t(i18nKey);
       }
       // Only disable controls inside the summarizer modal — never the archive search UI.
       if (submitBtn) submitBtn.disabled = busy;
@@ -24114,6 +24123,33 @@
       syncCommunitySummarizerBgIndicator();
       // Keep topic/archive search interactive while summarizer runs in the background.
       if (!appState.isSearching) ensureArchiveSearchControlsUnlocked();
+    }
+
+    function sleepCommunitySummarizerPoll(ms, signal) {
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () { resolve(); }, Math.max(1000, Number(ms) || 3500));
+        if (!signal) return;
+        if (signal.aborted) {
+          clearTimeout(timer);
+          reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+          return;
+        }
+        signal.addEventListener('abort', function onAbort() {
+          clearTimeout(timer);
+          reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+        }, { once: true });
+      });
+    }
+
+    function isCommunitySummarizerProcessingPayload(data) {
+      if (!data || typeof data !== 'object') return false;
+      var status = String(data.communityStatus || '').trim();
+      return status === 'processing'
+        || status === 'summarizing'
+        || data.processing === true
+        || data.poll === true && status !== 'ok' && status !== 'empty'
+          && status !== 'unavailable' && status !== 'needs_confirmation'
+          && status !== 'not_configured' && status !== 'degraded';
     }
 
     function ensureArchiveSearchControlsUnlocked() {
@@ -24143,16 +24179,19 @@
         || status === 'unavailable'
         || status === 'not_configured'
         || status === 'summarizing'
+        || status === 'processing'
         || status === 'needs_confirmation'
         || data.didYouMean
         || data.needsConfirmation
+        || data.processing
       ) {
         return false;
       }
       if (
         summary === t('community_summarizer_empty')
         || summary === t('hybrid_community_empty')
-        || summary === t('community_summarizer_loading')
+        ||         summary === t('community_summarizer_loading')
+        || summary === t('community_summarizer_processing')
         || summary === t('hybrid_community_summarizing')
         || /אין חומר מהארכיון/.test(summary)
         || /כרגע אין חומר רלוונטי/.test(summary)
@@ -24160,6 +24199,7 @@
         || /אינו נמצא במאגר/.test(summary)
         || /סורק את המאגר הקהילתי/.test(summary)
         || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary)
+        || /מפיק סיכום חדש מתוך מאגר הדרייב/.test(summary)
         || /האם התכוונת/.test(summary)
       ) {
         return false;
@@ -24406,6 +24446,85 @@
       closeCommunitySummarizerModal({ goHome: true });
     }
 
+    async function pollCommunitySummarizerUntilReady(initialData, originalPayload, controller, requestId) {
+      var data = initialData || {};
+      var status = data.communityStatus ? String(data.communityStatus) : '';
+      if (status !== 'processing' && status !== 'summarizing' && !data.processing) {
+        return data;
+      }
+      var archiveKey = data.communityArchiveKey || data.archiveKey || '';
+      var maxAttempts = 90; // ~5 minutes at ~3.5s
+      var delayMs = Number(data.pollAfterMs) || 3500;
+      console.log('[community-summarizer] polling background job', archiveKey, '| every', delayMs, 'ms');
+
+      // Friendly UX while Gemini/Drive finish in the background.
+      setCommunitySummarizerLoading(true, { processing: true });
+      appState.communitySummarizerResult = Object.assign({}, data, {
+        communityStatus: 'processing',
+        communitySummary: t('community_summarizer_processing'),
+        processing: true,
+        poll: true,
+      });
+      if (isCommunitySummarizerModalOpen()) {
+        renderCommunitySummarizerResult(appState.communitySummarizerResult);
+      } else {
+        appState.communitySummarizerBgPending = true;
+        syncCommunitySummarizerBgIndicator();
+      }
+
+      for (var attempt = 0; attempt < maxAttempts; attempt++) {
+        if (requestId !== appState.communitySummarizerRequestId) return data;
+        await sleepCommunitySummarizerPoll(delayMs, controller && controller.signal);
+        if (requestId !== appState.communitySummarizerRequestId) return data;
+        try {
+          var pollPayload = {
+            poll: true,
+            checkStatus: true,
+            archiveKey: archiveKey,
+            communityArchiveKey: archiveKey,
+            topic: (originalPayload && originalPayload.topic) || appState.communitySummarizerTopic || '',
+            gradeId: (originalPayload && originalPayload.gradeId) || appState.communitySummarizerGradeId || '',
+            currentGrade: (originalPayload && originalPayload.currentGrade)
+              || (originalPayload && originalPayload.gradeId)
+              || appState.communitySummarizerGradeId
+              || '',
+          };
+          var pollRes = await invokePureApi('/api/community-summarizer', pollPayload, controller && controller.signal);
+          var pollData = pollRes && pollRes.data ? pollRes.data : pollRes;
+          if (!pollData) continue;
+          data = pollData;
+          archiveKey = data.communityArchiveKey || data.archiveKey || archiveKey;
+          if (Number(data.pollAfterMs) > 0) delayMs = Number(data.pollAfterMs);
+          appState.communitySummarizerResult = data;
+          if (isCommunitySummarizerProcessingPayload(data)) {
+            setCommunitySummarizerLoading(true, { processing: true });
+            appState.communitySummarizerResult = Object.assign({}, data, {
+              communityStatus: 'processing',
+              communitySummary: t('community_summarizer_processing'),
+              processing: true,
+            });
+          }
+          if (isCommunitySummarizerModalOpen()) {
+            renderCommunitySummarizerResult(appState.communitySummarizerResult);
+          } else {
+            appState.communitySummarizerBgPending = true;
+            syncCommunitySummarizerBgIndicator();
+          }
+          var pollStatus = data.communityStatus ? String(data.communityStatus) : '';
+          if (pollStatus === 'ok' || pollStatus === 'degraded' || pollStatus === 'unavailable' || pollStatus === 'empty') {
+            console.log('[community-summarizer] poll complete', pollStatus);
+            return data;
+          }
+          if (isCommunitySummarizerSummaryReady(data)) return data;
+        } catch (pollErr) {
+          if (pollErr && pollErr.name === 'AbortError') throw pollErr;
+          console.warn('[community-summarizer] poll attempt failed', pollErr && pollErr.message ? pollErr.message : pollErr);
+        }
+      }
+      console.warn('[community-summarizer] poll timed out waiting for background job');
+      return data;
+    }
+
     async function runCommunityTopicSummarizer(runOpts) {
       runOpts = runOpts || {};
       var gradeEl = document.getElementById('community-summarizer-grade');
@@ -24457,6 +24576,8 @@
         var response = await invokePureApi('/api/community-summarizer', payload, controller && controller.signal);
         if (requestId !== appState.communitySummarizerRequestId) return;
         var data = response && response.data ? response.data : response;
+        data = await pollCommunitySummarizerUntilReady(data, payload, controller, requestId);
+        if (requestId !== appState.communitySummarizerRequestId) return;
         appState.communitySummarizerResult = data || {};
         if (isCommunitySummarizerModalOpen()) {
           renderCommunitySummarizerResult(appState.communitySummarizerResult);
