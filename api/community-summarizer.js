@@ -5,9 +5,10 @@
  *  1) Query community_drive_archive ONLY (exact + semantic; never cached_results)
  *  2) Partial / close match → "האם התכוונת ל-…?" (needs confirmation)
  *  3) If usable cache row:
- *       → list Drive file ids / modifiedTime only
- *       → no new relevant files → Cache Hit (skip extract + Gemini)
- *  4) Else: Drive listing → extract text → Gemini → upsert community_drive_archive
+ *       → recent row OR focused files.get(ids) OR strict topic folder only
+ *       → never topic-relaxed grade-wide (~69 folder) scan for validation
+ *       → Cache Hit skips extract + Gemini
+ *  4) Else: full Drive listing → extract text → Gemini → upsert community_drive_archive
  *
  * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity.
  */
@@ -161,6 +162,8 @@ async function listMatchesForTopic(lockedGradeId, topic, opts) {
   let probeError = null;
   let driveDebug = null;
   const listLimit = Math.max(Number(opts.limit) || 40, 24);
+  const cacheValidation = opts.cacheValidation === true || opts.strictTopicOnly === true;
+  const allowFallbackSearch = opts.allowFallbackSearch !== false && !cacheValidation;
 
   if (typeof driveCatalogSync.listDriveFilesForGradeTopic === 'function') {
     try {
@@ -168,6 +171,10 @@ async function listMatchesForTopic(lockedGradeId, topic, opts) {
         limit: listLimit,
         topic: topic,
         catalogTopic: topic,
+        allowTopicRelaxation: !cacheValidation,
+        strictTopicOnly: cacheValidation,
+        skipUngradedPass: cacheValidation,
+        cacheValidation: cacheValidation,
       });
       matches = Array.isArray(listed.matches) ? listed.matches : [];
       if (listed.communityError) probeError = listed.communityError;
@@ -181,7 +188,7 @@ async function listMatchesForTopic(lockedGradeId, topic, opts) {
   }
 
   let probe = null;
-  if (!matches.length) {
+  if (!matches.length && allowFallbackSearch) {
     probe = await communitySearch.runNavigationCommunitySearch(topic, {
       gradeId: lockedGradeId,
       currentGrade: lockedGradeId,
@@ -332,17 +339,245 @@ async function runCommunityTopicSummary(options) {
     );
   }
 
-  // ── 2) Drive metadata listing (file ids + modifiedTime) ──
+  // ── 2) Fast cache validation (no grade-wide ~69-folder scan) ──
+  let matches = [];
+  let citations = [];
+  let probeError = null;
+  let driveDebug = null;
+
+  const usableArchive = Boolean(
+    archiveMatch
+    && archiveMatch.row
+    && (archiveMatch.matchType === 'exact' || archiveMatch.matchType === 'semantic')
+    && !forceRefresh
+  );
+
+  function returnArchiveHit(hit, hitMatches, hitCitations, hitDebug, reason) {
+    console.log(
+      '[community-summarizer] CACHE HIT —',
+      reason,
+      '| skip extract + Gemini'
+    );
+    const cites = (hitCitations && hitCitations.length)
+      ? hitCitations
+      : citationsFromFileRefs(hit.fileRefs);
+    return finalizeSummaryPayload(base, hit, cites, {
+      configured: configured,
+      matches: hitMatches || [],
+      matchCount: (hitMatches && hitMatches.length)
+        || (hit.fileRefs || []).length,
+      probeError: probeError,
+      driveDebug: hitDebug || driveDebug,
+    });
+  }
+
+  if (usableArchive) {
+    // 2a) Recent cache → instant hit, zero Drive I/O
+    if (
+      typeof communityDriveArchive.isRecentArchiveRow === 'function'
+      && communityDriveArchive.isRecentArchiveRow(archiveMatch.row)
+      && typeof communityDriveArchive.evaluateSmartCacheAgainstDrive === 'function'
+    ) {
+      const ageMs = Date.now() - Date.parse(
+        archiveMatch.row.created_at || archiveMatch.row.updated_at || ''
+      );
+      console.log(
+        '[community-summarizer] step 2a — recent cache instant HIT',
+        '| created_at:',
+        archiveMatch.row.created_at || archiveMatch.row.updated_at,
+        '| ageMs:',
+        Number.isFinite(ageMs) ? ageMs : null,
+        '| skip Drive folder scan'
+      );
+      const instant = communityDriveArchive.evaluateSmartCacheAgainstDrive(
+        archiveMatch.row,
+        [],
+        {
+          topic: effectiveTopic,
+          matchedTopic: archiveMatch.suggestedTopic,
+          matchType: archiveMatch.matchType,
+        }
+      );
+      if (instant) {
+        return returnArchiveHit(
+          instant,
+          [],
+          citationsFromFileRefs(instant.fileRefs),
+          { instantRecentCache: true },
+          'recent archive row (no Drive scan)'
+        );
+      }
+    }
+
+    // 2b) Focused probe: files.get(modifiedTime) for cached file ids only
+    const cachedRefs = Array.isArray(archiveMatch.row.file_refs)
+      ? archiveMatch.row.file_refs
+      : [];
+    const cachedIds = Array.isArray(archiveMatch.row.source_file_ids)
+      ? archiveMatch.row.source_file_ids
+      : [];
+    const probeInput = cachedRefs.length ? cachedRefs : cachedIds;
+
+    if (
+      probeInput.length
+      && typeof driveCatalogSync.probeDriveCachedFileMetadata === 'function'
+      && typeof communityDriveArchive.evaluateSmartCacheAgainstDrive === 'function'
+    ) {
+      console.log(
+        '[community-summarizer] step 2b — focused Drive probe of',
+        probeInput.length,
+        'cached file id(s) (no topic-relaxed grade scan)'
+      );
+      try {
+        const probed = await driveCatalogSync.probeDriveCachedFileMetadata(probeInput, {
+          gradeId: lockedGradeId,
+          currentGrade: lockedGradeId,
+        });
+        matches = Array.isArray(probed.matches) ? probed.matches : [];
+        driveDebug = {
+          matchMethod: probed.matchMethod || 'cached_file_ids_probe',
+          probedIds: probed.probedIds || probeInput.length,
+          scannedFolderCount: 0,
+          topicRelaxed: false,
+        };
+
+        const probeRefs = communityDriveArchive.normalizeFileRefsFromMatches
+          ? communityDriveArchive.normalizeFileRefsFromMatches(matches)
+          : matches;
+        const probeFingerprint = communityDriveArchive.buildSourceFingerprint
+          ? communityDriveArchive.buildSourceFingerprint(probeRefs)
+          : '';
+        const cachedFp = String(
+          archiveMatch.row.drive_fingerprint
+          || archiveMatch.row.source_fingerprint
+          || ''
+        );
+        if (probeFingerprint && cachedFp && probeFingerprint === cachedFp) {
+          console.log(
+            '[community-summarizer] step 2b — drive/source fingerprint match',
+            '| fingerprint:',
+            probeFingerprint.slice(0, 12)
+          );
+          const fpHit = communityDriveArchive.evaluateSmartCacheAgainstDrive(
+            archiveMatch.row,
+            matches,
+            {
+              topic: effectiveTopic,
+              matchedTopic: archiveMatch.suggestedTopic,
+              matchType: archiveMatch.matchType,
+            }
+          );
+          if (fpHit) {
+            return returnArchiveHit(
+              fpHit,
+              matches,
+              citationsFromFileRefs(fpHit.fileRefs),
+              driveDebug,
+              'fingerprint unchanged (focused probe)'
+            );
+          }
+        }
+
+        const focusedHit = communityDriveArchive.evaluateSmartCacheAgainstDrive(
+          archiveMatch.row,
+          matches,
+          {
+            topic: effectiveTopic,
+            matchedTopic: archiveMatch.suggestedTopic,
+            matchType: archiveMatch.matchType,
+          }
+        );
+        if (focusedHit) {
+          return returnArchiveHit(
+            focusedHit,
+            matches,
+            citationsFromFileRefs(focusedHit.fileRefs),
+            driveDebug,
+            'focused file-id probe unchanged'
+          );
+        }
+        console.log(
+          '[community-summarizer] step 2b — focused probe found meaningful Drive delta'
+        );
+      } catch (probeErr) {
+        console.warn(
+          '[community-summarizer] focused cache probe failed — trying strict topic listing:',
+          probeErr && probeErr.message ? probeErr.message : probeErr
+        );
+      }
+    }
+
+    // 2c) Strict topic-folder listing only (never relax to whole grade)
+    console.log(
+      '[community-summarizer] step 2c — strict topic-folder listing only',
+      '| topic:',
+      JSON.stringify(effectiveTopic),
+      '| no topic-relaxed grade scan'
+    );
+    const strictListed = await listMatchesForTopic(lockedGradeId, effectiveTopic, Object.assign({}, opts, {
+      cacheValidation: true,
+      strictTopicOnly: true,
+      allowFallbackSearch: false,
+    }));
+    matches = strictListed.matches;
+    citations = strictListed.citations;
+    probeError = strictListed.probeError;
+    driveDebug = Object.assign({}, strictListed.driveDebug || {}, {
+      strictTopicOnly: true,
+      topicRelaxed: false,
+    });
+
+    console.log(
+      '[community-summarizer] strict topic metadata ready:',
+      matches.length,
+      'file(s)',
+      '| scannedFolders:',
+      driveDebug && driveDebug.scannedFolderCount != null ? driveDebug.scannedFolderCount : '?',
+      matches.map(function (m) {
+        return (m.fileName || m.title || m.driveFileId)
+          + (m.modifiedTime ? (' @' + String(m.modifiedTime).slice(0, 19)) : '');
+      }).join(' | ')
+    );
+
+    if (typeof communityDriveArchive.evaluateSmartCacheAgainstDrive === 'function') {
+      const strictHit = communityDriveArchive.evaluateSmartCacheAgainstDrive(
+        archiveMatch.row,
+        matches,
+        {
+          topic: effectiveTopic,
+          matchedTopic: archiveMatch.suggestedTopic,
+          matchType: archiveMatch.matchType,
+        }
+      );
+      if (strictHit) {
+        return returnArchiveHit(
+          strictHit,
+          matches,
+          citations.length ? citations : citationsFromFileRefs(strictHit.fileRefs),
+          driveDebug,
+          'strict topic listing unchanged'
+        );
+      }
+    }
+
+    console.log(
+      '[community-summarizer] cache stale after focused/strict checks — full listing for re-summarize'
+    );
+  }
+
+  // ── Full Drive listing (miss / no archive / regenerate) ──
   console.log(
-    '[community-summarizer] step 2 — Drive metadata listing (ids/modifiedTime)',
+    '[community-summarizer] step 2 — full Drive metadata listing',
     '| topic:',
-    JSON.stringify(effectiveTopic)
+    JSON.stringify(effectiveTopic),
+    '| hasArchive:',
+    usableArchive
   );
   const listed = await listMatchesForTopic(lockedGradeId, effectiveTopic, opts);
-  let matches = listed.matches;
-  let citations = listed.citations;
-  let probeError = listed.probeError;
-  let driveDebug = listed.driveDebug;
+  matches = listed.matches;
+  citations = listed.citations;
+  probeError = listed.probeError || probeError;
+  driveDebug = listed.driveDebug || driveDebug;
 
   console.log(
     '[community-summarizer] Drive metadata ready:',
@@ -354,12 +589,9 @@ async function runCommunityTopicSummary(options) {
     }).join(' | ')
   );
 
-  // ── 3) Early Cache Hit: archive row + no new relevant Drive files ──
+  // Early Cache Hit after full listing (when archive exists but focused path missed)
   if (
-    archiveMatch
-    && archiveMatch.row
-    && (archiveMatch.matchType === 'exact' || archiveMatch.matchType === 'semantic')
-    && !forceRefresh
+    usableArchive
     && typeof communityDriveArchive.evaluateSmartCacheAgainstDrive === 'function'
   ) {
     const earlyHit = communityDriveArchive.evaluateSmartCacheAgainstDrive(
@@ -372,19 +604,13 @@ async function runCommunityTopicSummary(options) {
       }
     );
     if (earlyHit) {
-      console.log(
-        '[community-summarizer] CACHE HIT — returning archived summary; skip extract + Gemini'
+      return returnArchiveHit(
+        earlyHit,
+        matches,
+        citations.length ? citations : citationsFromFileRefs(earlyHit.fileRefs),
+        driveDebug,
+        'full listing unchanged'
       );
-      const hitCitations = (citations && citations.length)
-        ? citations
-        : citationsFromFileRefs(earlyHit.fileRefs);
-      return finalizeSummaryPayload(base, earlyHit, hitCitations, {
-        configured: configured,
-        matches: matches,
-        matchCount: matches.length || (earlyHit.fileRefs || []).length,
-        probeError: probeError,
-        driveDebug: driveDebug,
-      });
     }
     console.log(
       '[community-summarizer] cache stale or new relevant Drive files — will extract + Gemini'
