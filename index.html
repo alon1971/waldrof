@@ -2361,77 +2361,65 @@
       opacity: 0.55;
       cursor: not-allowed;
     }
-    /* Community summary status — lives in Header / compact Navbar (never fixed to viewport bottom). */
+    /* Floating background-status toast — visible on home after "return while summarizing". */
     .community-summarizer-bg-host {
       display: none;
-      align-items: center;
-      justify-content: center;
-      flex: 0 1 auto;
-      min-width: 0;
-      max-width: min(100%, 18rem);
-      box-sizing: border-box;
     }
-    .community-summarizer-bg-host:has(#community-summarizer-bg-indicator:not(.hidden)),
-    .community-summarizer-bg-host.is-visible {
-      display: inline-flex;
+    .community-summarizer-bg-host.is-visible,
+    .community-summarizer-bg-host:has(#community-summarizer-bg-indicator:not(.hidden)) {
+      display: contents;
     }
-    .app-chrome-actions-row .community-summarizer-bg-host.is-visible,
-    .header-compact-nav-inner .community-summarizer-bg-host.is-visible {
-      display: inline-flex;
-    }
-    .app-chrome-actions-row > .community-summarizer-bg-mount:has(.community-summarizer-bg-host.is-visible),
-    .header-compact-nav-inner > .community-summarizer-bg-mount:has(.community-summarizer-bg-host.is-visible) {
-      display: inline-flex;
-      align-items: center;
-      order: -1;
-      min-width: 0;
+    .community-summarizer-bg-mount {
+      display: contents;
     }
     .community-summarizer-bg-mount:empty {
       display: none !important;
     }
     #community-summarizer-bg-indicator {
-      position: static;
+      position: fixed;
+      z-index: 2147482500;
+      bottom: max(1.35rem, env(safe-area-inset-bottom, 0px));
+      inset-inline-start: max(1.25rem, env(safe-area-inset-left, 0px));
+      max-width: min(92vw, 22rem);
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      max-width: 100%;
-      min-height: 1.55rem;
-      padding: 0.16rem 0.55rem;
+      gap: 0.65rem;
+      padding: 0.75rem 0.95rem;
       border-radius: 9999px;
       border: 1px solid rgba(107, 142, 107, 0.45);
-      background: rgba(232, 242, 232, 0.95);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.98), rgba(232, 242, 232, 0.95));
       color: #3f5d3f;
-      box-shadow: none;
+      box-shadow: 0 10px 28px rgba(47, 69, 56, 0.22);
       cursor: pointer;
-      font-size: 0.68rem;
+      font-size: 0.9rem;
       font-weight: 600;
-      line-height: 1.2;
+      line-height: 1.35;
       text-align: start;
       direction: inherit;
-      white-space: nowrap;
-      transition: opacity 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+      white-space: normal;
+      transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
     }
     #community-summarizer-bg-indicator.hidden {
       display: none !important;
     }
     #community-summarizer-bg-indicator:hover {
+      transform: translateY(-2px);
       border-color: rgba(107, 142, 107, 0.7);
-      background: rgba(214, 232, 214, 0.98);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(214, 232, 214, 0.98));
     }
     #community-summarizer-bg-indicator:focus-visible {
       outline: 2px solid #6b8e6b;
-      outline-offset: 2px;
+      outline-offset: 3px;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-copy {
       display: flex;
       flex-direction: column;
-      gap: 0;
+      gap: 0.1rem;
       min-width: 0;
-      overflow: hidden;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-view {
       display: none;
-      font-size: 0.62rem;
+      font-size: 0.78rem;
       font-weight: 700;
       color: #5a7a5a;
       text-decoration: underline;
@@ -2442,20 +2430,16 @@
     }
     #community-summarizer-bg-indicator.is-ready {
       border-color: rgba(107, 142, 107, 0.65);
-      background: rgba(214, 232, 214, 0.96);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(214, 232, 214, 0.96));
     }
     #community-summarizer-bg-indicator.is-ready .community-summarizer-bg-icon {
       color: #3f5d3f;
     }
-    .app-site-chrome .community-summarizer-bg-host #community-summarizer-bg-status {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 11.5rem;
-    }
     @media (min-width: 640px) {
-      .community-summarizer-bg-host { max-width: min(100%, 22rem); }
-      #community-summarizer-bg-indicator { font-size: 0.72rem; padding: 0.2rem 0.65rem; }
-      .app-site-chrome .community-summarizer-bg-host #community-summarizer-bg-status { max-width: 14rem; }
+      #community-summarizer-bg-indicator {
+        font-size: 0.95rem;
+        padding: 0.8rem 1.05rem;
+      }
     }
     .hybrid-community-citations {
       margin-top: 1rem;
@@ -6630,18 +6614,6 @@
             <i class="fa-solid fa-envelope" aria-hidden="true"></i>
             <span data-i18n="contact_us_btn">צור קשר</span>
           </button>
-          <!-- Community summary status — integrated into Header (reparented to compact Navbar while scrolled). -->
-          <div id="community-summarizer-bg-mount-header" class="community-summarizer-bg-mount">
-            <div id="community-summarizer-bg-host" class="community-summarizer-bg-host">
-              <button type="button" id="community-summarizer-bg-indicator" class="hidden touch-btn" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי">
-                <i class="fa-solid fa-spinner fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
-                <span class="community-summarizer-bg-copy">
-                  <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מפיק סיכום קהילתי ברקע…</span>
-                  <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לחץ לצפייה</span>
-                </span>
-              </button>
-            </div>
-          </div>
           <button type="button" id="lang-toggle" class="lang-toggle lang-toggle--he-active notranslate" aria-label="החלף שפה">
             <span class="lang-toggle-label">EN</span>
           </button>
@@ -6653,7 +6625,6 @@
   <!-- Sticky compact navbar: full function buttons while scrolled. -->
   <nav id="header-compact-nav" class="header-compact-nav" data-i18n-aria="header_compact_nav_aria" aria-hidden="true">
     <div class="header-compact-nav-inner">
-      <div id="community-summarizer-bg-mount-compact" class="community-summarizer-bg-mount" aria-hidden="true"></div>
       <button type="button" id="header-compact-back-home" class="header-compact-nav-btn nav-back-home-btn touch-btn" data-back-to-home>
         <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
         <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
@@ -6733,6 +6704,19 @@
   </nav>
   </div>
   <div id="app-site-chrome-spacer" class="app-site-chrome-spacer" aria-hidden="true"></div>
+
+  <!-- Floating community-summary status toast (shown after return-home while summarizing). -->
+  <div id="community-summarizer-bg-float-mount" class="community-summarizer-bg-mount">
+    <div id="community-summarizer-bg-host" class="community-summarizer-bg-host">
+      <button type="button" id="community-summarizer-bg-indicator" class="hidden touch-btn" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי">
+        <i class="fa-solid fa-spinner fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
+        <span class="community-summarizer-bg-copy">
+          <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מפיק סיכום קהילתי ברקע…</span>
+          <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לחץ לצפייה</span>
+        </span>
+      </button>
+    </div>
+  </div>
 
   <div id="app-shell" class="app-shell">
   <div id="app-main" class="app-main">
@@ -24323,17 +24307,7 @@
     function placeCommunitySummarizerBgHost() {
       var host = document.getElementById('community-summarizer-bg-host');
       if (!host) return;
-      var siteChrome = document.getElementById('app-site-chrome');
-      var useCompact = Boolean(
-        siteChrome && siteChrome.classList.contains('header-compact') && !isHomeView()
-      );
-      var target = document.getElementById(
-        useCompact ? 'community-summarizer-bg-mount-compact' : 'community-summarizer-bg-mount-header'
-      );
-      if (!target) {
-        target = document.getElementById('community-summarizer-bg-mount-header')
-          || document.getElementById('community-summarizer-bg-mount-compact');
-      }
+      var target = document.getElementById('community-summarizer-bg-float-mount');
       if (target && host.parentNode !== target) {
         target.appendChild(host);
       }
@@ -24363,9 +24337,6 @@
         iconEl.className = ready
           ? 'fa-solid fa-circle-check community-summarizer-bg-icon'
           : 'fa-solid fa-spinner fa-spin community-summarizer-bg-icon';
-      }
-      if (typeof syncProductTabsStickyLayout === 'function') {
-        try { syncProductTabsStickyLayout(true); } catch (e) { /* ignore */ }
       }
     }
 
@@ -24422,6 +24393,8 @@
       ensureArchiveSearchControlsUnlocked();
       if (options.goHome) {
         openHomeView({ skipScrollRestore: true });
+        // Re-sync after home chrome settles so the floating toast stays visible.
+        syncCommunitySummarizerBgIndicator();
       }
     }
 
