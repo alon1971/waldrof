@@ -10,7 +10,7 @@ const jsonRepair = require('./json-repair');
 
 const TABLE_NAME = 'community_drive_archive';
 const GEMINI_MODEL = 'gemini-1.5-pro';
-const GEMINI_FALLBACK_MODELS = ['gemini-1.5-flash'];
+const GEMINI_FALLBACK_MODELS = ['gemini-2.0-flash'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 /** Output token ceiling for gemini-1.5-pro/flash (must be >= 4096 to avoid mid-summary truncation). */
 const GEMINI_MAX_OUTPUT_TOKENS = 8192;
