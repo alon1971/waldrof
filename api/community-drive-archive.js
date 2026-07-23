@@ -9,10 +9,10 @@ const driveCatalogSync = require('./drive-catalog-sync');
 const jsonRepair = require('./json-repair');
 
 const TABLE_NAME = 'community_drive_archive';
-const GEMINI_MODEL = 'gemini-1.5-pro';
+const GEMINI_MODEL = 'gemini-2.5-pro';
 const GEMINI_FALLBACK_MODELS = ['gemini-2.0-flash'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-/** Output token ceiling for gemini-1.5-pro/flash (must be >= 4096 to avoid mid-summary truncation). */
+/** Output token ceiling for gemini-2.5-pro / gemini-2.0-flash (must be >= 4096 to avoid mid-summary truncation). */
 const GEMINI_MAX_OUTPUT_TOKENS = 8192;
 
 /** Exact UI copy from product spec (Hebrew). */
@@ -611,7 +611,7 @@ async function callGeminiModel(model, systemPrompt, userParts) {
       contents: [{ role: 'user', parts: parts }],
       generationConfig: {
         temperature: 0.45,
-        // gemini-1.5-pro/flash: up to 8192 output tokens (>= 4096 required to avoid truncation).
+        // gemini-2.5-pro / gemini-2.0-flash: up to 8192 output tokens (>= 4096 required to avoid truncation).
         maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
         responseMimeType: 'application/json',
       },

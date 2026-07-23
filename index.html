@@ -26593,7 +26593,7 @@
         return;
       }
       if (navSection === 'community') {
-        openCommunityRepo();
+        openCommunityRepo({ restoreScroll: true });
         if (catalogState.view && catalogState.view !== 'grades') {
           renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
         }
@@ -27206,7 +27206,6 @@
 
     function openCommunityRepo(opts) {
       opts = opts || {};
-      var fromHome = isHomeView() || appState.navSection === 'home';
       syncTopicFromInput();
       hideHomeView();
       hideGeneralSearchView();
@@ -27222,11 +27221,10 @@
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
-      if (opts.resetScroll || fromHome) {
-        resetMainViewScroll();
-        runAfterLayout(resetMainViewScroll);
-      } else {
+      if (opts.restoreScroll) {
         restoreNavScrollPosition('community');
+      } else {
+        scrollToCommunityCatalogView();
       }
     }
 
