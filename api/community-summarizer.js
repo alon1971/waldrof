@@ -6,9 +6,10 @@
  *  2) Partial / close match → "האם התכוונת ל-…?" (needs confirmation)
  *  3) If usable cache row:
  *       → recent row OR focused files.get(ids) OR strict topic folder only
- *       → never topic-relaxed grade-wide (~69 folder) scan for validation
+ *       → never topic-relaxed grade-wide (~69 folder) scan for validation OR regenerate
  *       → Cache Hit skips extract + Gemini
- *  4) Else: full Drive listing → extract text → Gemini → upsert community_drive_archive
+ *  4) Else (no archive): full Drive listing → extract → Gemini → upsert
+ *  5) Gemini system prompt: Waldorf expert; exclusive reliance on attached archive sources only
  *
  * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity.
  */
@@ -561,59 +562,58 @@ async function runCommunityTopicSummary(options) {
     }
 
     console.log(
-      '[community-summarizer] cache stale after focused/strict checks — full listing for re-summarize'
+      '[community-summarizer] cache stale after focused/strict checks — regenerating from strict/focused matches only (no grade-wide relax)'
     );
-  }
-
-  // ── Full Drive listing (miss / no archive / regenerate) ──
-  console.log(
-    '[community-summarizer] step 2 — full Drive metadata listing',
-    '| topic:',
-    JSON.stringify(effectiveTopic),
-    '| hasArchive:',
-    usableArchive
-  );
-  const listed = await listMatchesForTopic(lockedGradeId, effectiveTopic, opts);
-  matches = listed.matches;
-  citations = listed.citations;
-  probeError = listed.probeError || probeError;
-  driveDebug = listed.driveDebug || driveDebug;
-
-  console.log(
-    '[community-summarizer] Drive metadata ready:',
-    matches.length,
-    'file(s)',
-    matches.map(function (m) {
-      return (m.fileName || m.title || m.driveFileId)
-        + (m.modifiedTime ? (' @' + String(m.modifiedTime).slice(0, 19)) : '');
-    }).join(' | ')
-  );
-
-  // Early Cache Hit after full listing (when archive exists but focused path missed)
-  if (
-    usableArchive
-    && typeof communityDriveArchive.evaluateSmartCacheAgainstDrive === 'function'
-  ) {
-    const earlyHit = communityDriveArchive.evaluateSmartCacheAgainstDrive(
-      archiveMatch.row,
-      matches,
-      {
-        topic: effectiveTopic,
-        matchedTopic: archiveMatch.suggestedTopic,
-        matchType: archiveMatch.matchType,
-      }
-    );
-    if (earlyHit) {
-      return returnArchiveHit(
-        earlyHit,
-        matches,
-        citations.length ? citations : citationsFromFileRefs(earlyHit.fileRefs),
-        driveDebug,
-        'full listing unchanged'
+    // Keep matches from 2b/2c. Never fall through to topic-relaxed ~69-folder scan
+    // when an archive row already matched — that scan was the latency bug.
+    if (!matches.length && Array.isArray(archiveMatch.row.file_refs) && archiveMatch.row.file_refs.length) {
+      matches = (archiveMatch.row.file_refs || []).map(function (ref) {
+        return {
+          driveFileId: ref.driveFileId || ref.id,
+          fileName: ref.name || ref.fileName,
+          title: ref.name || ref.fileName,
+          mimeType: ref.mimeType || '',
+          modifiedTime: ref.modifiedTime || '',
+          webViewLink: ref.webViewLink || ref.fileUrl || '',
+          fileUrl: ref.fileUrl || ref.webViewLink || '',
+          resourceKey: ref.resourceKey || '',
+          catalogTopic: ref.folder || ref.catalogTopic || effectiveTopic,
+          topic: ref.folder || ref.catalogTopic || effectiveTopic,
+          gradeId: lockedGradeId,
+          matchType: 'archive_file_refs',
+        };
+      }).filter(function (m) { return m.driveFileId; });
+      driveDebug = Object.assign({}, driveDebug || {}, {
+        matchMethod: 'archive_file_refs_fallback',
+        topicRelaxed: false,
+        scannedFolderCount: 0,
+      });
+      console.log(
+        '[community-summarizer] regenerate corpus from archived file_refs:',
+        matches.length
       );
     }
+  } else {
+    // ── Cold start / no usable archive: full Drive listing (may relax) ──
     console.log(
-      '[community-summarizer] cache stale or new relevant Drive files — will extract + Gemini'
+      '[community-summarizer] step 2 — full Drive metadata listing (no archive match)',
+      '| topic:',
+      JSON.stringify(effectiveTopic)
+    );
+    const listed = await listMatchesForTopic(lockedGradeId, effectiveTopic, opts);
+    matches = listed.matches;
+    citations = listed.citations;
+    probeError = listed.probeError || probeError;
+    driveDebug = listed.driveDebug || driveDebug;
+
+    console.log(
+      '[community-summarizer] Drive metadata ready:',
+      matches.length,
+      'file(s)',
+      matches.map(function (m) {
+        return (m.fileName || m.title || m.driveFileId)
+          + (m.modifiedTime ? (' @' + String(m.modifiedTime).slice(0, 19)) : '');
+      }).join(' | ')
     );
   }
 
