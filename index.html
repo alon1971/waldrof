@@ -2312,34 +2312,46 @@
       opacity: 0.55;
       cursor: not-allowed;
     }
+    /* Sticky top chrome host — stays with the header, never fixed to viewport bottom. */
+    .community-summarizer-bg-host {
+      display: none;
+      width: 100%;
+      justify-content: center;
+      align-items: center;
+      padding: 0.28rem 0.75rem 0.35rem;
+      box-sizing: border-box;
+      border-bottom: 1px solid rgba(107, 142, 107, 0.22);
+      background: rgba(247, 243, 235, 0.98);
+    }
+    .community-summarizer-bg-host:has(#community-summarizer-bg-indicator:not(.hidden)),
+    .community-summarizer-bg-host.is-visible {
+      display: flex;
+    }
     #community-summarizer-bg-indicator {
-      position: fixed;
-      z-index: 2147482500;
-      bottom: 1.35rem;
-      inset-inline-start: 1.25rem;
-      max-width: min(92vw, 22rem);
+      position: relative;
       display: inline-flex;
       align-items: center;
-      gap: 0.65rem;
-      padding: 0.75rem 0.95rem;
+      gap: 0.55rem;
+      max-width: min(96vw, 28rem);
+      padding: 0.42rem 0.78rem;
       border-radius: 9999px;
       border: 1px solid rgba(107, 142, 107, 0.45);
       background: linear-gradient(160deg, rgba(255, 252, 246, 0.98), rgba(232, 242, 232, 0.95));
       color: #3f5d3f;
-      box-shadow: 0 10px 28px rgba(47, 69, 56, 0.22);
+      box-shadow: 0 2px 8px rgba(47, 69, 56, 0.12);
       cursor: pointer;
-      font-size: 0.9rem;
+      font-size: 0.82rem;
       font-weight: 600;
-      line-height: 1.35;
+      line-height: 1.3;
       text-align: start;
       direction: inherit;
-      transition: opacity 0.22s ease, transform 0.22s ease;
+      transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.22s ease;
     }
     #community-summarizer-bg-indicator.hidden {
       display: none !important;
     }
     #community-summarizer-bg-indicator:hover {
-      transform: translateY(-2px);
+      transform: translateY(-1px);
       border-color: rgba(107, 142, 107, 0.7);
     }
     #community-summarizer-bg-indicator:focus-visible {
@@ -6283,14 +6295,6 @@
     </div>
   </div>
 
-  <button type="button" id="community-summarizer-bg-indicator" class="hidden touch-btn" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי">
-    <i class="fa-solid fa-spinner fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
-    <span class="community-summarizer-bg-copy">
-      <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מפיק סיכום קהילתי ברקע…</span>
-      <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לחץ לצפייה</span>
-    </span>
-  </button>
-
   <!-- Pricing / upgrade modal -->
   <div id="pricing-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pricing-title">
     <div id="pricing-modal-backdrop" class="app-modal-backdrop"></div>
@@ -6554,6 +6558,17 @@
       </div>
     </div>
   </header>
+
+  <!-- Community summary status — sticky with site chrome (not fixed to viewport bottom). -->
+  <div id="community-summarizer-bg-host" class="community-summarizer-bg-host">
+    <button type="button" id="community-summarizer-bg-indicator" class="hidden touch-btn" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי">
+      <i class="fa-solid fa-spinner fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
+      <span class="community-summarizer-bg-copy">
+        <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מפיק סיכום קהילתי ברקע…</span>
+        <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לחץ לצפייה</span>
+      </span>
+    </button>
+  </div>
 
   <!-- Sticky compact navbar: full function buttons while scrolled. -->
   <nav id="header-compact-nav" class="header-compact-nav" data-i18n-aria="header_compact_nav_aria" aria-hidden="true">
@@ -24157,6 +24172,7 @@
     function syncCommunitySummarizerBgIndicator() {
       var badge = document.getElementById('community-summarizer-bg-indicator');
       if (!badge) return;
+      var host = document.getElementById('community-summarizer-bg-host');
       var modalOpen = isCommunitySummarizerModalOpen();
       var summarizing = Boolean(appState.isSummarizing || appState.communitySummarizerLoading);
       var show = Boolean(appState.communitySummarizerBgPending) && !modalOpen
@@ -24167,6 +24183,7 @@
       badge.classList.toggle('hidden', !show);
       badge.classList.toggle('is-ready', ready);
       badge.setAttribute('aria-hidden', show ? 'false' : 'true');
+      if (host) host.classList.toggle('is-visible', show);
       if (statusEl) {
         statusEl.setAttribute('data-i18n', ready ? 'community_summarizer_bg_ready' : 'community_summarizer_bg_working');
         statusEl.textContent = ready ? t('community_summarizer_bg_ready') : t('community_summarizer_bg_working');
@@ -24175,6 +24192,9 @@
         iconEl.className = ready
           ? 'fa-solid fa-circle-check community-summarizer-bg-icon'
           : 'fa-solid fa-spinner fa-spin community-summarizer-bg-icon';
+      }
+      if (typeof syncProductTabsStickyLayout === 'function') {
+        try { syncProductTabsStickyLayout(true); } catch (e) { /* ignore */ }
       }
     }
 
