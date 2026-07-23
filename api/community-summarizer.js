@@ -1,16 +1,15 @@
 /**
  * POST /api/community-summarizer — standalone community Drive topic summary.
  *
- * Decoupled from live web search (phases A–C). Workflow:
- *  1) Lookup community_drive_archive ONLY (exact + semantic normalization)
+ * Decoupled from live web search (phases A–C). Workflow (strict order):
+ *  1) Query community_drive_archive ONLY (exact + semantic; never cached_results)
  *  2) Partial / close match → "האם התכוונת ל-…?" (needs confirmation)
- *  3) Scan community root Drive folder for grade + topic
- *  4) Smart cache: Drive modifiedTime / new files since created_at
- *     → reuse archive if unchanged or new files irrelevant; else Gemini re-summarize
- *  5) No archive → Gemini summarize + upsert community_drive_archive
+ *  3) If usable cache row:
+ *       → list Drive file ids / modifiedTime only
+ *       → no new relevant files → Cache Hit (skip extract + Gemini)
+ *  4) Else: Drive listing → extract text → Gemini → upsert community_drive_archive
  *
  * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity.
- * Cache lookup is community_drive_archive only.
  */
 const communitySearch = require('./community-search');
 const communityDriveArchive = require('./community-drive-archive');
@@ -261,6 +260,13 @@ async function runCommunityTopicSummary(options) {
   let archiveMatch = null;
   if (!forceRefresh && typeof communityDriveArchive.findCommunityArchiveMatch === 'function') {
     try {
+      console.log(
+        '[community-summarizer] step 1 — query community_drive_archive',
+        '| topic:',
+        JSON.stringify(topic),
+        '| grade:',
+        lockedGradeId
+      );
       archiveMatch = await communityDriveArchive.findCommunityArchiveMatch(topic, {
         gradeId: lockedGradeId,
         currentGrade: lockedGradeId,
@@ -268,6 +274,17 @@ async function runCommunityTopicSummary(options) {
         catalogTopic: topic,
         phase: SUMMARIZER_PHASE,
       });
+      if (archiveMatch && archiveMatch.row) {
+        console.log(
+          '[community-summarizer] cache row found',
+          '| matchType:',
+          archiveMatch.matchType,
+          '| key:',
+          String(archiveMatch.archiveKey || archiveMatch.row.archive_key || '').slice(0, 12)
+        );
+      } else {
+        console.log('[community-summarizer] no usable cache row for topic/grade');
+      }
     } catch (archiveErr) {
       console.warn(
         '[community-summarizer] archive match failed — continuing to Drive:',
@@ -315,7 +332,12 @@ async function runCommunityTopicSummary(options) {
     );
   }
 
-  // ── 2) Drive listing for effective topic ──
+  // ── 2) Drive metadata listing (file ids + modifiedTime) ──
+  console.log(
+    '[community-summarizer] step 2 — Drive metadata listing (ids/modifiedTime)',
+    '| topic:',
+    JSON.stringify(effectiveTopic)
+  );
   const listed = await listMatchesForTopic(lockedGradeId, effectiveTopic, opts);
   let matches = listed.matches;
   let citations = listed.citations;
@@ -323,14 +345,53 @@ async function runCommunityTopicSummary(options) {
   let driveDebug = listed.driveDebug;
 
   console.log(
-    '[community-summarizer] files selected for summary:',
+    '[community-summarizer] Drive metadata ready:',
     matches.length,
+    'file(s)',
     matches.map(function (m) {
-      return m.fileName || m.title || m.driveFileId;
+      return (m.fileName || m.title || m.driveFileId)
+        + (m.modifiedTime ? (' @' + String(m.modifiedTime).slice(0, 19)) : '');
     }).join(' | ')
   );
 
-  // No Drive hits: try folder-name "did you mean", else empty.
+  // ── 3) Early Cache Hit: archive row + no new relevant Drive files ──
+  if (
+    archiveMatch
+    && archiveMatch.row
+    && (archiveMatch.matchType === 'exact' || archiveMatch.matchType === 'semantic')
+    && !forceRefresh
+    && typeof communityDriveArchive.evaluateSmartCacheAgainstDrive === 'function'
+  ) {
+    const earlyHit = communityDriveArchive.evaluateSmartCacheAgainstDrive(
+      archiveMatch.row,
+      matches,
+      {
+        topic: effectiveTopic,
+        matchedTopic: archiveMatch.suggestedTopic,
+        matchType: archiveMatch.matchType,
+      }
+    );
+    if (earlyHit) {
+      console.log(
+        '[community-summarizer] CACHE HIT — returning archived summary; skip extract + Gemini'
+      );
+      const hitCitations = (citations && citations.length)
+        ? citations
+        : citationsFromFileRefs(earlyHit.fileRefs);
+      return finalizeSummaryPayload(base, earlyHit, hitCitations, {
+        configured: configured,
+        matches: matches,
+        matchCount: matches.length || (earlyHit.fileRefs || []).length,
+        probeError: probeError,
+        driveDebug: driveDebug,
+      });
+    }
+    console.log(
+      '[community-summarizer] cache stale or new relevant Drive files — will extract + Gemini'
+    );
+  }
+
+  // No Drive hits: try folder-name "did you mean", else empty / orphan archive reuse.
   if (!matches.length) {
     const gradeTopics = driveDebug && Array.isArray(driveDebug.gradeTopicFolders)
       ? driveDebug.gradeTopicFolders
@@ -397,6 +458,9 @@ async function runCommunityTopicSummary(options) {
           }
         );
         if (orphanHit) {
+          console.log(
+            '[community-summarizer] CACHE HIT (orphan Drive empty) — returning archived summary'
+          );
           const orphanCitations = citationsFromFileRefs(orphanHit.fileRefs);
           return finalizeSummaryPayload(base, orphanHit, orphanCitations, {
             configured: configured,
@@ -449,7 +513,12 @@ async function runCommunityTopicSummary(options) {
     }
   }
 
-  // ── 3) Smart cache vs Drive delta, else Gemini summarize ──
+  // ── 4) Cache miss / no archive → extract + Gemini + upsert ──
+  console.log(
+    '[community-summarizer] step 3 — extract + Gemini (cache miss or no archive)',
+    '| files:',
+    matches.length
+  );
   const summary = await communityDriveArchive.resolveCommunityDriveSummary(
     effectiveTopic,
     matches,

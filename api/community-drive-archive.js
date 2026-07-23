@@ -612,8 +612,15 @@ function parseIsoMs(value) {
 }
 
 /**
- * Files added/changed in Drive since the archive row was created (created_at).
- * Also treats unknown driveFileIds (not in source_file_ids) as new.
+ * Drive metadata delta vs an archived community_drive_archive row.
+ *
+ * Counts as "new/changed" only when:
+ *  - driveFileId is not in the archived corpus (source_file_ids / file_refs), OR
+ *  - known file's modifiedTime differs from the stored file_refs.modifiedTime, OR
+ *  - archive stored no file ids: file modifiedTime is after created_at/updated_at.
+ *
+ * Intentionally does NOT treat "modifiedTime > created_at" for known file ids as a
+ * change — that false-positive forced full extract+Gemini on every request.
  */
 function findNewOrChangedDriveFiles(matches, existingRow) {
   const row = existingRow || {};
@@ -640,14 +647,22 @@ function findNewOrChangedDriveFiles(matches, existingRow) {
     if (!id) return;
     const mod = String(match.modifiedTime || '').trim();
     const modMs = parseIsoMs(mod);
-    const isUnknown = knownIds.size > 0 ? !knownIds.has(id) : false;
-    const changedSinceCache = sinceMs > 0 && modMs > 0 && modMs > sinceMs;
-    const modifiedVsRef = Boolean(
-      knownModified[id] && mod && knownModified[id] !== mod
-    );
-    // When archive had no file ids recorded, treat any file newer than created_at as delta.
-    const newerThanEmptyArchive = knownIds.size === 0 && sinceMs > 0 && modMs > sinceMs;
-    if (isUnknown || changedSinceCache || modifiedVsRef || newerThanEmptyArchive) {
+
+    if (knownIds.size > 0) {
+      if (!knownIds.has(id)) {
+        // Brand-new file id since the archive was written.
+        fresh.push(match);
+        return;
+      }
+      // Known corpus member: only a real modifiedTime change vs stored ref counts.
+      if (knownModified[id] && mod && knownModified[id] !== mod) {
+        fresh.push(match);
+      }
+      return;
+    }
+
+    // Archive row had no file ids — fall back to created_at vs Drive modifiedTime.
+    if (sinceMs > 0 && modMs > sinceMs) {
       fresh.push(match);
     }
   });
@@ -1522,9 +1537,14 @@ function degradedNoExtractResult(fileRefs, archiveKey, fingerprint, communityErr
 
 /**
  * Delta community summary for the standalone summarizer.
- * Smart cache: community_drive_archive only → Drive modifiedTime delta → semantic relevance.
- * Regenerates with Gemini only when sources changed in a topic-relevant way.
- * Archive lookup is global (no userId filter). Never falls back to cached_results.
+ *
+ * Flow (must stay in this order):
+ *  1) Lookup community_drive_archive (params from frontend / caller)
+ *  2) If usable cache row → compare Drive file ids / modifiedTime only
+ *     → Cache Hit returns archived summary (no extract, no Gemini)
+ *  3) Else extract text + Gemini + upsert community_drive_archive
+ *
+ * Never falls back to cached_results.
  */
 async function resolveCommunityDriveSummary(query, matches, options) {
   const opts = options || {};
@@ -1544,6 +1564,13 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       ? opts.existingArchiveRow
       : null;
     if (!existing) {
+      console.log(
+        '[community-drive-archive] cache lookup — querying community_drive_archive',
+        '| topic:',
+        JSON.stringify(opts.topic || opts.catalogTopic || q),
+        '| grade:',
+        String(opts.gradeId || opts.currentGrade || '')
+      );
       const byKey = await fetchArchiveRowByKeyCandidates(q, opts);
       if (byKey && byKey.row) existing = byKey.row;
     }
@@ -1552,7 +1579,16 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     }
 
     if (existing && isUsableArchiveRow(existing) && opts.forceRefresh !== true && opts.refresh !== true) {
-      // 1) Smart cache via created_at / modifiedTime / new file ids
+      console.log(
+        '[community-drive-archive] cache record found — checking Drive file ids/modifiedTime only',
+        '| key:',
+        String(existing.archive_key || archiveKey).slice(0, 12),
+        '| cachedFiles:',
+        Array.isArray(existing.source_file_ids) ? existing.source_file_ids.length : 0,
+        '| driveFiles:',
+        fileRefs.length
+      );
+      // 1) Smart cache via new file ids / stored modifiedTime delta
       const smartHit = evaluateSmartCacheAgainstDrive(existing, matches, {
         topic: opts.topic || opts.catalogTopic || q,
         matchedTopic: opts.matchedTopic || archiveRowTopicLabel(existing),
@@ -1560,10 +1596,18 @@ async function resolveCommunityDriveSummary(query, matches, options) {
         forceRefresh: opts.forceRefresh,
         refresh: opts.refresh,
       });
-      if (smartHit) return smartHit;
+      if (smartHit) {
+        console.log(
+          '[community-drive-archive] CACHE HIT — returning archived summary (skip extract + Gemini)'
+        );
+        return smartHit;
+      }
 
       // 2) Fingerprint equality still counts as a hit (unchanged corpus)
       if (existing.source_fingerprint === fingerprint) {
+        console.log(
+          '[community-drive-archive] CACHE HIT — source fingerprint unchanged (skip extract + Gemini)'
+        );
         return formatArchivedSummaryResult(existing, existing.archive_key || archiveKey, {
           smartCacheHit: true,
           matchedTopic: opts.matchedTopic || archiveRowTopicLabel(existing),
@@ -1571,15 +1615,19 @@ async function resolveCommunityDriveSummary(query, matches, options) {
         });
       }
       console.warn(
-        '[community-drive-archive] cache delta requires re-summarize',
+        '[community-drive-archive] CACHE MISS — relevant Drive delta; will extract + Gemini',
         '| key:',
         String(existing.archive_key || archiveKey).slice(0, 12)
       );
     } else if (existing && !isUsableArchiveRow(existing)) {
       console.warn(
-        '[community-drive-archive] cached summary too shallow — regenerating',
+        '[community-drive-archive] cache row unusable (shallow/incomplete) — regenerating',
         '| chars:',
         String(existing.summary_md || '').length
+      );
+    } else if (!existing) {
+      console.log(
+        '[community-drive-archive] CACHE MISS — no community_drive_archive row; will extract + Gemini'
       );
     }
   } catch (lookupErr) {
