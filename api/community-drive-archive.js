@@ -815,19 +815,17 @@ function parseIsoMs(value) {
 }
 
 /**
- * Drive metadata delta vs an archived community_drive_archive row.
- *
- * Counts as "new/changed" only when:
- *  - driveFileId is not in the archived corpus (source_file_ids / file_refs), OR
- *  - known file's modifiedTime differs from the stored file_refs.modifiedTime, OR
- *  - archive stored no file ids: file modifiedTime is after created_at/updated_at.
- *
- * Intentionally does NOT treat "modifiedTime > created_at" for known file ids as a
- * change — that false-positive forced full extract+Gemini on every request.
+ * Tolerate small Drive/cache clock skew from the summarize-and-persist window.
+ * Within this window, modifiedTime drift is treated as "not really changed".
  */
-function findNewOrChangedDriveFiles(matches, existingRow) {
+const CACHE_TIME_SKEW_MS = 15 * 60 * 1000; // 15 minutes
+
+function isoOrNull(ms) {
+  return ms > 0 ? new Date(ms).toISOString() : null;
+}
+
+function collectKnownDriveCorpus(existingRow) {
   const row = existingRow || {};
-  const sinceMs = parseIsoMs(row.created_at) || parseIsoMs(row.updated_at);
   const knownIds = new Set();
   (Array.isArray(row.source_file_ids) ? row.source_file_ids : []).forEach(function (id) {
     const s = String(id || '').trim();
@@ -841,35 +839,126 @@ function findNewOrChangedDriveFiles(matches, existingRow) {
     knownIds.add(id);
     if (ref.modifiedTime) knownModified[id] = String(ref.modifiedTime);
   });
+  return { knownIds: knownIds, knownModified: knownModified };
+}
 
+function driveMatchFileId(match) {
+  if (!match) return '';
+  return String(match.driveFileId || '').trim()
+    || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
+}
+
+/**
+ * Analyze Drive metadata vs archived row.
+ * Returns timing diagnostics + files that are meaningfully new/changed after skew.
+ */
+function analyzeDriveCacheDelta(matches, existingRow) {
+  const row = existingRow || {};
+  const cacheRowTimestamp = row.created_at || row.updated_at || null;
+  const cacheRowTimestampMs = parseIsoMs(cacheRowTimestamp);
+  const known = collectKnownDriveCorpus(row);
+  const knownIds = known.knownIds;
+  const knownModified = known.knownModified;
+
+  let driveMaxModifiedTimeMs = 0;
+  const driveIds = [];
   const fresh = [];
+  const newFileIds = [];
+  const changedFiles = [];
+
   (matches || []).forEach(function (match) {
-    if (!match) return;
-    const id = String(match.driveFileId || '').trim()
-      || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
+    const id = driveMatchFileId(match);
     if (!id) return;
+    driveIds.push(id);
     const mod = String(match.modifiedTime || '').trim();
     const modMs = parseIsoMs(mod);
+    if (modMs > driveMaxModifiedTimeMs) driveMaxModifiedTimeMs = modMs;
 
     if (knownIds.size > 0) {
       if (!knownIds.has(id)) {
-        // Brand-new file id since the archive was written.
-        fresh.push(match);
+        // Truly new id: only count if it appears newer than cache (+ skew),
+        // or has no modifiedTime (cannot prove it predates the cache).
+        const newerThanCache = cacheRowTimestampMs > 0
+          && modMs > 0
+          && modMs > (cacheRowTimestampMs + CACHE_TIME_SKEW_MS);
+        const unknownAge = !modMs;
+        if (newerThanCache || unknownAge) {
+          newFileIds.push(id);
+          fresh.push(match);
+        }
         return;
       }
-      // Known corpus member: only a real modifiedTime change vs stored ref counts.
-      if (knownModified[id] && mod && knownModified[id] !== mod) {
+
+      const stored = knownModified[id] || '';
+      const storedMs = parseIsoMs(stored);
+      if (storedMs > 0 && modMs > 0) {
+        const drift = Math.abs(modMs - storedMs);
+        if (drift > CACHE_TIME_SKEW_MS) {
+          changedFiles.push({
+            id: id,
+            storedModifiedTime: stored,
+            driveModifiedTime: mod,
+            driftMs: drift,
+          });
+          fresh.push(match);
+        }
+        return;
+      }
+
+      // Known id without a stored modifiedTime: only stale if Drive says it
+      // changed meaningfully after the cache row was written.
+      if (
+        cacheRowTimestampMs > 0
+        && modMs > 0
+        && modMs > (cacheRowTimestampMs + CACHE_TIME_SKEW_MS)
+      ) {
+        changedFiles.push({
+          id: id,
+          storedModifiedTime: stored || null,
+          driveModifiedTime: mod,
+          driftMs: modMs - cacheRowTimestampMs,
+        });
         fresh.push(match);
       }
       return;
     }
 
-    // Archive row had no file ids — fall back to created_at vs Drive modifiedTime.
-    if (sinceMs > 0 && modMs > sinceMs) {
+    // Empty corpus on the row — fall back to cache timestamp vs Drive modifiedTime.
+    if (
+      cacheRowTimestampMs > 0
+      && modMs > 0
+      && modMs > (cacheRowTimestampMs + CACHE_TIME_SKEW_MS)
+    ) {
+      newFileIds.push(id);
       fresh.push(match);
     }
   });
-  return fresh;
+
+  const deltaMs = (driveMaxModifiedTimeMs > 0 && cacheRowTimestampMs > 0)
+    ? (driveMaxModifiedTimeMs - cacheRowTimestampMs)
+    : null;
+
+  return {
+    cacheRowTimestamp: cacheRowTimestamp,
+    cacheRowTimestampMs: cacheRowTimestampMs,
+    driveMaxModifiedTime: isoOrNull(driveMaxModifiedTimeMs),
+    driveMaxModifiedTimeMs: driveMaxModifiedTimeMs,
+    deltaMs: deltaMs,
+    skewMs: CACHE_TIME_SKEW_MS,
+    knownFileCount: knownIds.size,
+    driveFileCount: driveIds.length,
+    newFileIds: newFileIds,
+    changedFiles: changedFiles,
+    fresh: fresh,
+  };
+}
+
+/**
+ * Drive metadata delta vs an archived community_drive_archive row.
+ * Prefer analyzeDriveCacheDelta for diagnostics; this returns only fresh matches.
+ */
+function findNewOrChangedDriveFiles(matches, existingRow) {
+  return analyzeDriveCacheDelta(matches, existingRow).fresh;
 }
 
 /**
@@ -950,20 +1039,73 @@ function buildDidYouMeanResult(query, options, suggestion) {
 
 /**
  * Smart cache evaluation against live Drive matches.
- * - No new files since created_at → reuse archive
+ * - No meaningful new/changed files (with time skew) → reuse archive
  * - New files irrelevant to topic → reuse archive
- * - New files relevant → null (caller must re-summarize)
+ * - Meaningful new relevant files → null (caller must re-summarize)
  */
 function evaluateSmartCacheAgainstDrive(existing, matches, options) {
   const opts = options || {};
   if (!isUsableArchiveRow(existing)) return null;
   if (opts.forceRefresh === true || opts.refresh === true) return null;
 
-  const newFiles = findNewOrChangedDriveFiles(matches, existing);
+  const delta = analyzeDriveCacheDelta(matches, existing);
+  console.log(
+    '[community-drive-archive] Drive delta timing',
+    '| cacheRowTimestamp:',
+    delta.cacheRowTimestamp,
+    '| driveMaxModifiedTime:',
+    delta.driveMaxModifiedTime,
+    '| deltaMs:',
+    delta.deltaMs,
+    '| skewMs:',
+    delta.skewMs,
+    '| knownFiles:',
+    delta.knownFileCount,
+    '| driveFiles:',
+    delta.driveFileCount,
+    '| newFileIds:',
+    delta.newFileIds.length,
+    '| changedFiles:',
+    delta.changedFiles.length
+  );
+
+  // Negligible / creation-window drift: Drive max mtime within skew of cache row → HIT.
+  if (
+    delta.cacheRowTimestampMs > 0
+    && delta.driveMaxModifiedTimeMs > 0
+    && delta.driveMaxModifiedTimeMs <= (delta.cacheRowTimestampMs + delta.skewMs)
+    && delta.newFileIds.length === 0
+    && delta.changedFiles.length === 0
+  ) {
+    console.log(
+      '[community-drive-archive] SMART CACHE HIT — driveMaxModifiedTime within skew of cacheRowTimestamp',
+      '| cacheRowTimestamp:',
+      delta.cacheRowTimestamp,
+      '| driveMaxModifiedTime:',
+      delta.driveMaxModifiedTime,
+      '| deltaMs:',
+      delta.deltaMs,
+      '| key:',
+      String(existing.archive_key || '').slice(0, 12)
+    );
+    return formatArchivedSummaryResult(existing, existing.archive_key, {
+      smartCacheHit: true,
+      instantHit: false,
+      matchedTopic: opts.matchedTopic || archiveRowTopicLabel(existing),
+      matchType: opts.matchType || 'exact',
+    });
+  }
+
+  const newFiles = delta.fresh || [];
   if (!newFiles.length) {
     console.log(
-      '[community-drive-archive] SMART CACHE HIT — no new Drive files since',
-      existing.created_at || existing.updated_at,
+      '[community-drive-archive] SMART CACHE HIT — no meaningful Drive changes',
+      '| cacheRowTimestamp:',
+      delta.cacheRowTimestamp,
+      '| driveMaxModifiedTime:',
+      delta.driveMaxModifiedTime,
+      '| deltaMs:',
+      delta.deltaMs,
       '| key:',
       String(existing.archive_key || '').slice(0, 12)
     );
@@ -983,6 +1125,10 @@ function evaluateSmartCacheAgainstDrive(existing, matches, options) {
       JSON.stringify(topic),
       '| newFiles:',
       newFiles.length,
+      '| cacheRowTimestamp:',
+      delta.cacheRowTimestamp,
+      '| driveMaxModifiedTime:',
+      delta.driveMaxModifiedTime,
       '| key:',
       String(existing.archive_key || '').slice(0, 12)
     );
@@ -995,8 +1141,20 @@ function evaluateSmartCacheAgainstDrive(existing, matches, options) {
   }
 
   console.log(
-    '[community-drive-archive] SMART CACHE MISS — relevant new Drive files; will re-summarize',
-    '| newFiles:',
+    '[community-drive-archive] SMART CACHE MISS — relevant new/changed Drive files; will re-summarize',
+    '| cacheRowTimestamp:',
+    delta.cacheRowTimestamp,
+    '| driveMaxModifiedTime:',
+    delta.driveMaxModifiedTime,
+    '| deltaMs:',
+    delta.deltaMs,
+    '| newFileIds:',
+    delta.newFileIds.join(',') || '(none)',
+    '| changed:',
+    delta.changedFiles.map(function (c) {
+      return c.id + '(driftMs=' + c.driftMs + ')';
+    }).join(',') || '(none)',
+    '| files:',
     newFiles.map(function (f) { return f.fileName || f.driveFileId; }).join(' | ')
   );
   return null;
@@ -2068,6 +2226,7 @@ module.exports = {
   findCommunityArchiveMatch,
   suggestDriveFolderTopic,
   findNewOrChangedDriveFiles,
+  analyzeDriveCacheDelta,
   areNewFilesRelevantToTopic,
   evaluateSmartCacheAgainstDrive,
   buildDidYouMeanResult,
