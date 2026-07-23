@@ -6624,6 +6624,9 @@
       <button type="button" id="header-compact-community" class="header-compact-nav-btn touch-btn">
         <span data-i18n="nav_community">מאגר קהילתי</span>
       </button>
+      <button type="button" id="header-compact-community-summarizer" class="header-compact-nav-btn touch-btn">
+        <span data-i18n="community_summarizer_btn">סיכום מהמאגר הקהילתי</span>
+      </button>
       <button type="button" id="header-compact-sites" class="header-compact-nav-btn touch-btn">
         <span data-i18n="nav_waldorf_sites">רשימת אתרים אנתרופוסופיים</span>
       </button>
@@ -24272,6 +24275,9 @@
         try { panel.scrollTop = 0; } catch (e) { /* ignore */ }
       }
       syncCommunitySummarizerBgIndicator();
+      if (typeof updateHeaderCompactNav === 'function') {
+        try { updateHeaderCompactNav(); } catch (e) { /* ignore */ }
+      }
       if (topicEl && !appState.isSummarizing) {
         try { topicEl.focus(); } catch (e) { /* ignore */ }
       }
@@ -24294,6 +24300,9 @@
       document.body.classList.remove('pricing-modal-open');
       document.body.classList.remove('community-summarizer-open');
       syncCommunitySummarizerBgIndicator();
+      if (typeof updateHeaderCompactNav === 'function') {
+        try { updateHeaderCompactNav(); } catch (e) { /* ignore */ }
+      }
       ensureArchiveSearchControlsUnlocked();
       if (options.goHome) {
         openHomeView({ skipScrollRestore: true });
@@ -25325,6 +25334,7 @@
       var phaseCBtn = document.getElementById('header-compact-phase-c');
       var generalSearchBtn = document.getElementById('header-compact-general-search');
       var communityBtn = document.getElementById('header-compact-community');
+      var communitySummarizerBtn = document.getElementById('header-compact-community-summarizer');
       var sitesBtn = document.getElementById('header-compact-sites');
       var inWs = isWorkspaceOpen();
       if (topicBtn) topicBtn.disabled = !canNavigateToStep(2);
@@ -25337,6 +25347,9 @@
       }
       if (communityBtn) {
         communityBtn.classList.toggle('active', isCommunityView());
+      }
+      if (communitySummarizerBtn) {
+        communitySummarizerBtn.classList.toggle('active', isCommunitySummarizerModalOpen());
       }
       if (sitesBtn) {
         sitesBtn.classList.toggle('active', isWaldorfSitesView());
@@ -31200,6 +31213,9 @@
       });
       bindWizardNavClick(document.getElementById('header-compact-community'), function () {
         openCommunityRepo();
+      });
+      bindWizardNavClick(document.getElementById('header-compact-community-summarizer'), function () {
+        openCommunitySummarizerModal();
       });
       bindWizardNavClick(document.getElementById('header-compact-sites'), function () {
         openWaldorfSitesView();
