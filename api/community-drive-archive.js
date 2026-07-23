@@ -17,7 +17,7 @@ const GEMINI_MAX_OUTPUT_TOKENS = 8192;
 
 /** Exact UI copy from product spec (Hebrew). */
 const COMMUNITY_SUMMARY_HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
-const COMMUNITY_SUMMARY_EMPTY = 'אין חומר מהארכיון עבור נושא וכיתה זו';
+const COMMUNITY_SUMMARY_EMPTY = 'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
 
 const MAX_FILES_FOR_SUMMARY = 24;
 const MAX_CHARS_PER_FILE = 14000;

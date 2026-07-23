@@ -16,7 +16,8 @@ const catalogTopics = require('./catalog-topics');
 const COMMUNITY_SUMMARY_HEADING =
   communityDriveArchive.COMMUNITY_SUMMARY_HEADING || 'סיכום נושא מתוך המאגר הקהילתי';
 const COMMUNITY_SUMMARY_EMPTY =
-  communityDriveArchive.COMMUNITY_SUMMARY_EMPTY || 'אין חומר מהארכיון עבור נושא וכיתה זו';
+  communityDriveArchive.COMMUNITY_SUMMARY_EMPTY ||
+  'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
 
 const SUMMARIZER_PHASE = 'community_summarizer';
 

@@ -12,7 +12,7 @@ function assert(cond, msg) {
   }
 }
 
-const EMPTY = 'אין חומר מהארכיון עבור נושא וכיתה זו';
+const EMPTY = 'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
 const HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
 
 assert(communitySearch.COMMUNITY_SUMMARY_EMPTY === EMPTY, 'community-search empty copy');
