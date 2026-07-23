@@ -7739,9 +7739,6 @@
         const data = (json && json.data) || json || {};
         if (data.supabaseUrl) SUPABASE_URL = String(data.supabaseUrl).replace(/\/$/, '');
         if (data.supabaseAnonKey) SUPABASE_ANON_KEY = String(data.supabaseAnonKey).trim();
-        if (data.authRedirectUrl && !isLocalDevHost()) {
-          window.__WALDROF_AUTH_REDIRECT__ = String(data.authRedirectUrl).replace(/\/$/, '');
-        }
         if (data.supportWhatsApp) SUPPORT_WHATSAPP = String(data.supportWhatsApp).trim();
         window.__WALDROF_RUNTIME_CONFIG__ = data;
         if (window.WaldorfAuth && typeof window.WaldorfAuth.applyRuntimeBillingConfig === 'function') {
@@ -7762,13 +7759,13 @@
     }
 
     function getAuthRedirectUrl() {
-      if (window.__WALDROF_AUTH_REDIRECT__) {
-        return String(window.__WALDROF_AUTH_REDIRECT__).replace(/\/$/, '') + window.location.pathname + window.location.search;
+      // PKCE requires redirectTo on the same origin that started OAuth (code_verifier
+      // lives in this origin's localStorage). Never reuse AUTH_REDIRECT_URL / search.
+      try {
+        return String(window.location.origin || '').replace(/\/$/, '') || 'https://waldrof.onrender.com';
+      } catch (e) {
+        return 'https://waldrof.onrender.com';
       }
-      if (isLocalDevHost()) {
-        return window.location.origin + window.location.pathname + window.location.search;
-      }
-      return 'https://waldrof.onrender.com' + window.location.pathname + window.location.search;
     }
 
     function syncLessonChatFabLayout() {

@@ -1,5 +1,10 @@
 /**
- * cached_results — Supabase-backed pedagogical API cache with local fallback.
+ * cached_results — Supabase-backed Perplexity / live-web pedagogical API cache.
+ * Local JSON fallback when Supabase is unavailable.
+ *
+ * CACHE SOURCE ISOLATION: this table is Perplexity/web only.
+ * Community Drive Gemini summaries use community_drive_archive
+ * (see api/community-drive-archive.js). Do not cross-read or cross-write.
  * Env: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (preferred) or SUPABASE_ANON_KEY.
  */
 const crypto = require('crypto');
@@ -3661,6 +3666,7 @@ async function getGeneralSearchByCacheKey(cacheKey, options) {
   };
 }
 
+/** Exact cache_key lookup in cached_results (Perplexity/web archive only). */
 async function getCachedResult(body, options) {
   const opts = options && typeof options === 'object' ? options : {};
   const requireEnhanced = opts.requireEnhanced !== false
@@ -5257,97 +5263,27 @@ function resolveGradeLabelFromId(gradeId, gradeLabel) {
   return '';
 }
 
-function formatCachedArchiveAsCommunityMatch(row, query) {
-  if (!row) return null;
-  const topic = String(row.topic || '').trim();
-  const gradeId = row.grade_id != null ? String(row.grade_id) : '';
-  const gradeLabel = resolveGradeLabelFromId(gradeId, row.grade_label);
-  let title = topic || String(row.query_text || '').trim() || 'ארכיון מחקר';
-  if (row.phase === GENERAL_SEARCH_PHASE) {
-    const data = coerceCachedResultData(row.result_data);
-    if (data && data.periodBlock) {
-      title = title + ' · תקופת לימוד 15 ימים';
-    }
-  }
-  return {
-    id: row.cache_key || null,
-    source: 'cached_archive',
-    title: title,
-    topic: topic,
-    catalogTopic: topic,
-    gradeId: gradeId || null,
-    gradeLabel: gradeLabel || null,
-    fileName: '',
-    fileUrl: '',
-    contentPreview: String(row.query_text || topic || '').slice(0, 240),
-    similarity: scoreTopicSimilarity(query, topic, row.query_text || ''),
-    matchType: 'cached_archive',
-    cacheKey: row.cache_key || null,
-    phase: row.phase || null,
-  };
-}
+/**
+ * Absolute cache isolation (do not weaken):
+ * - Perplexity / live web → public.cached_results only (this module)
+ * - Community Drive summaries → public.community_drive_archive only
+ *   (api/community-drive-archive.js)
+ * Community / repository probes must NEVER fall back into cached_results,
+ * or network research would surface as מאגר קהילתי material.
+ */
 
 /**
- * Global cached_results scan for pedagogical chat — ignores UI grade/topic filters.
+ * @deprecated Never use from community/Drive/repository flows.
+ * Kept as a no-op so accidental callers cannot reintroduce Perplexity→community bleed.
+ * Perplexity archive lookups must go through getCachedResult / phase-scoped keys.
  */
-async function findCachedResultsGlobalMatch(query, options) {
-  const opts = options || {};
-  const limit = opts.limit || 5;
+async function findCachedResultsGlobalMatch(query) {
   const q = String(query || '').trim();
-  if (!q || !isSupabaseCacheEnabled()) {
-    return { matches: [], count: 0, query: q, matchMethod: 'none' };
-  }
-
-  const terms = buildCommunitySearchTerms(q);
-  if (!terms.length) {
-    return { matches: [], count: 0, query: q, matchMethod: 'none' };
-  }
-
-  try {
-    const params = new URLSearchParams();
-    params.set('select', LEGACY_ROW_SELECT);
-    params.set('order', 'hit_count.desc,created_at.desc');
-    params.set('limit', '80');
-    params.set('phase', 'in.(topic,grade,chat_followup,general_search)');
-
-    const orParts = [];
-    terms.forEach(function (term) {
-      orParts.push('topic.ilike.*' + term + '*');
-      orParts.push('query_text.ilike.*' + term + '*');
-      orParts.push('grade_label.ilike.*' + term + '*');
-    });
-    params.set('or', '(' + orParts.join(',') + ')');
-
-    const res = await supabaseRequest('/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
-      method: 'GET',
-    });
-    if (!res.ok) {
-      return { matches: [], count: 0, query: q, matchMethod: 'none' };
-    }
-
-    const rows = await res.json();
-    if (!Array.isArray(rows) || !rows.length) {
-      return { matches: [], count: 0, query: q, matchMethod: 'none' };
-    }
-
-    const hits = rows.map(function (row) {
-      return formatCachedArchiveAsCommunityMatch(row, q);
-    }).filter(function (hit) {
-      return hit && (hit.similarity || 0) >= 0.35;
-    }).sort(function (a, b) {
-      return (b.similarity || 0) - (a.similarity || 0);
-    }).slice(0, limit);
-
-    return {
-      matches: hits,
-      count: hits.length,
-      query: q,
-      matchMethod: hits.length ? 'cached_archive_global' : 'none',
-    };
-  } catch (err) {
-    console.warn('[community] cached_results global probe failed:', err.message || err);
-    return { matches: [], count: 0, query: q, matchMethod: 'none' };
-  }
+  console.warn(
+    '[cache-isolation] findCachedResultsGlobalMatch blocked — ' +
+    'cached_results must not feed community/repository probes'
+  );
+  return { matches: [], count: 0, query: q, matchMethod: 'none', blocked: true };
 }
 
 function annotateCommunityProbeStatus(result, extras) {
@@ -5734,32 +5670,10 @@ async function probeCommunityGlobalSearch(query, options) {
     }
   }
 
-  // Global cached_results fallback — never scoped to the requesting teacher (any user_id).
-  // Used for both pedagogical hybrid summaries and navigation/community catalog probes.
-  if (!result.count) {
-    try {
-      const archiveHits = await findCachedResultsGlobalMatch(userMessage, { limit: baseOpts.limit || 8 });
-      if (archiveHits.count > 0) {
-        let archiveMatches = archiveHits.matches || [];
-        if (scopedGrade) {
-          archiveMatches = pedagogicalScope.filterCommunityHitsByStrictGrade(
-            archiveMatches,
-            scopedGrade
-          ).hits;
-        }
-        if (archiveMatches.length) {
-          result = Object.assign({}, archiveHits, {
-            matches: archiveMatches,
-            count: archiveMatches.length,
-            query: userMessage,
-            matchMethod: archiveHits.matchMethod || 'cached_archive_global',
-          });
-        }
-      }
-    } catch (archiveErr) {
-      console.warn('[community] global archive probe failed:', archiveErr.message || archiveErr);
-    }
-  }
+  // Intentionally NO cached_results fallback here.
+  // Community / Drive / repository probes stay on Drive + community_materials /
+  // knowledge_base only. Perplexity rows live in cached_results and are served
+  // only by generate / general-search / getCachedResult paths.
 
   // Re-apply curriculum grade alignment only when a classroom is locked.
   // Broad general-search scans keep cross-grade community hits visible.

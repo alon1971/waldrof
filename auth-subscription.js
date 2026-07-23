@@ -459,14 +459,54 @@
     return true;
   }
 
-  function resolveAuthRedirectUrl(explicit) {
-    if (explicit) return String(explicit).trim();
-    if (authRedirectUrl) return authRedirectUrl;
+  function originOnlyRedirectUrl(url) {
+    var raw = String(url || '').trim();
+    if (!raw) return '';
     try {
-      return window.location.origin + window.location.pathname + window.location.search;
-    } catch (e) {
-      return 'https://waldrof.onrender.com/';
+      if (/^https?:\/\//i.test(raw)) {
+        return String(new URL(raw).origin).replace(/\/$/, '');
+      }
+    } catch (e) { /* fall through */ }
+    return raw.replace(/\/$/, '').split('?')[0].split('#')[0];
+  }
+
+  function resolveAuthRedirectUrl(explicit) {
+    if (explicit) {
+      var fromExplicit = originOnlyRedirectUrl(explicit);
+      if (fromExplicit) return fromExplicit;
     }
+    if (authRedirectUrl) {
+      var fromConfig = originOnlyRedirectUrl(authRedirectUrl);
+      if (fromConfig) return fromConfig;
+    }
+    try {
+      return String(window.location.origin || '').replace(/\/$/, '') || 'https://waldrof.onrender.com';
+    } catch (e) {
+      return 'https://waldrof.onrender.com';
+    }
+  }
+
+  /** Strip OAuth callback query params so stale ?code= never pollutes redirectTo or re-triggers PKCE. */
+  function clearOauthCallbackParamsFromUrl() {
+    try {
+      var loc = global.location;
+      if (!loc || !loc.search) return;
+      var params = new URLSearchParams(loc.search);
+      var oauthKeys = ['code', 'state', 'error', 'error_description', 'error_code'];
+      var hadOauth = false;
+      oauthKeys.forEach(function (key) {
+        if (params.has(key)) {
+          hadOauth = true;
+          params.delete(key);
+        }
+      });
+      if (!hadOauth) return;
+      var nextSearch = params.toString();
+      var nextUrl = loc.pathname + (nextSearch ? '?' + nextSearch : '') + (loc.hash || '');
+      if (global.history && typeof global.history.replaceState === 'function') {
+        global.history.replaceState({}, '', nextUrl);
+      }
+    } catch (e) { /* ignore */ }
   }
 
   function shouldAllowMockAuth() {
@@ -1202,16 +1242,30 @@
       }
       return applySession(session);
     }).then(function (session) {
+      // Always strip ?code=&state= after the client has had a chance to exchange them.
+      clearOauthCallbackParamsFromUrl();
       client.auth.onAuthStateChange(function (event, sess) {
         if (sess && sess.user) {
           applySupabaseSession(sess);
-        } else if (event === 'SIGNED_OUT') {
-          if (!logoutRequested) {
-            logoutRequested = true;
-            runLogoutCleanupHooks();
-            completeLogoutRedirect();
-          }
+          clearOauthCallbackParamsFromUrl();
+          return;
         }
+        if (event !== 'SIGNED_OUT') return;
+        // Hard reload only for intentional logout (signOut sets logoutRequested first).
+        // Unexpected SIGNED_OUT (failed PKCE, expired refresh, etc.) must NOT reload —
+        // that caused infinite redirect loops after Google OAuth.
+        if (logoutRequested) return;
+        authState.isAuthenticated = false;
+        authState.user = null;
+        authState.provider = 'mock';
+        authState.tier = 'trial';
+        authState.planType = 'trial';
+        authState.isTrial = true;
+        authState.sessionReady = true;
+        clearOauthCallbackParamsFromUrl();
+        if (!isProUser()) showAuthOverlay();
+        else hideAuthOverlay();
+        notifyListeners();
       });
       authState.sessionReady = true;
       notifyListeners();
@@ -1318,6 +1372,11 @@
     }
     setAuthLoading(true, 'google');
     var oauthRedirectTo = resolveAuthRedirectUrl();
+    // Prefer live origin at click-time so PKCE verifier and redirect always match.
+    try {
+      var liveOrigin = String(window.location.origin || '').replace(/\/$/, '');
+      if (liveOrigin) oauthRedirectTo = liveOrigin;
+    } catch (e) { /* keep resolveAuthRedirectUrl result */ }
     return client.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -3063,7 +3122,7 @@
     }
     supabaseConfig.url = nextUrl;
     supabaseConfig.anonKey = nextKey;
-    authRedirectUrl = options.authRedirectUrl || '';
+    authRedirectUrl = originOnlyRedirectUrl(options.authRedirectUrl || '') || resolveAuthRedirectUrl();
     useMockGoogleAuth = options.useMockGoogleAuth === true && isLocalDevHost();
     bindAuthUi();
     if (isLocalDevHost()) {

@@ -2,6 +2,9 @@
  * Community Drive archive — Gemini pedagogical summaries of Drive hits.
  * Used only by the standalone /api/community-summarizer flow (not live web search).
  * Public archive (no userId). Delta-refresh: re-scan Drive fingerprint → reuse or regenerate.
+ *
+ * CACHE SOURCE ISOLATION: lookups and upserts hit community_drive_archive ONLY.
+ * Never read or write public.cached_results (Perplexity / live web) from this module.
  */
 const crypto = require('crypto');
 const env = require('./env');
