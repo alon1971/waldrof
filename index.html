@@ -1259,8 +1259,55 @@
       color: #8a5a3a;
     }
     #home-view .home-panel-card:nth-child(4) .home-panel-icon {
+      background: rgba(107, 142, 107, 0.18);
+      color: #3f5d3f;
+    }
+    #home-view .home-panel-card:nth-child(5) .home-panel-icon {
       background: rgba(186, 214, 168, 0.28);
       color: #4d6b48;
+    }
+    /* Sticky community-summary access — stays visible while scrolling home */
+    #home-community-summarizer-sticky {
+      position: sticky;
+      top: calc(var(--app-site-chrome-height, 4.5rem) + 0.35rem);
+      z-index: 40;
+      margin: 0 0 0.65rem;
+      padding: 0.45rem 0;
+      background: linear-gradient(180deg, rgba(253, 251, 247, 0.97) 55%, rgba(253, 251, 247, 0.72) 100%);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    #home-community-summarizer-sticky .home-community-summarizer-btn {
+      appearance: none;
+      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      padding: 0.78rem 1rem;
+      border-radius: 0.95rem;
+      border: 1px solid rgba(107, 142, 107, 0.45);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.98), rgba(232, 242, 232, 0.88));
+      color: #3f5d3f;
+      font-family: inherit;
+      font-size: 0.92rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(63, 93, 63, 0.12);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+    #home-community-summarizer-sticky .home-community-summarizer-btn:hover,
+    #home-community-summarizer-sticky .home-community-summarizer-btn:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(107, 142, 107, 0.7);
+      box-shadow: 0 10px 24px rgba(63, 93, 63, 0.16);
+      outline: none;
+    }
+    body:not(.is-home-view) #home-community-summarizer-sticky {
+      display: none !important;
+    }
+    body.community-summarizer-open #home-community-summarizer-sticky {
+      display: none !important;
     }
     #home-view .home-panel-title {
       margin: 0;
@@ -2008,27 +2055,29 @@
     .community-summarizer-btn:hover {
       background: rgba(107, 142, 107, 0.12) !important;
     }
-    /* Full-screen reading surface for community topic summaries */
+    /* Wide reading surface for community topic summaries — above floating Word bar */
     #community-summarizer-modal.app-modal {
-      align-items: stretch;
-      justify-content: stretch;
-      padding: 0;
+      z-index: 2200;
+      align-items: center;
+      justify-content: center;
+      padding: max(0.65rem, env(safe-area-inset-top)) max(0.65rem, env(safe-area-inset-right)) max(0.65rem, env(safe-area-inset-bottom)) max(0.65rem, env(safe-area-inset-left));
     }
     #community-summarizer-modal .app-modal-backdrop {
-      background: rgba(72, 58, 44, 0.42);
+      background: rgba(72, 58, 44, 0.48);
     }
     #community-summarizer-modal .community-summarizer-panel {
       position: relative;
-      width: 100%;
-      max-width: none;
-      max-height: none;
-      height: 100%;
-      min-height: 100%;
-      border-radius: 0;
-      border: none;
+      width: min(95vw, 72rem);
+      max-width: 95vw;
+      height: 90vh;
+      max-height: 90vh;
+      min-height: 0;
+      border-radius: 1.15rem;
+      border: 1px solid rgba(201, 169, 98, 0.35);
       overflow-x: hidden;
       overflow-y: auto;
-      box-shadow: none;
+      -webkit-overflow-scrolling: touch;
+      box-shadow: 0 28px 72px rgba(72, 58, 44, 0.28);
       padding: 0;
       background:
         radial-gradient(120% 80% at 100% 0%, rgba(201, 169, 98, 0.12), transparent 55%),
@@ -2036,14 +2085,30 @@
     }
     #community-summarizer-modal .community-summarizer-shell {
       width: 100%;
-      max-width: 56rem; /* ~max-w-4xl */
+      max-width: none;
       margin: 0 auto;
-      padding: 1.75rem 1.35rem 3.5rem;
+      padding: 1.5rem 1.2rem 2.75rem;
       box-sizing: border-box;
     }
     @media (min-width: 640px) {
       #community-summarizer-modal .community-summarizer-shell {
-        padding: 2.5rem 2.5rem 4rem;
+        padding: 2rem 2.35rem 3.25rem;
+      }
+    }
+    @media (max-width: 640px) {
+      #community-summarizer-modal.app-modal {
+        padding: 0;
+        align-items: stretch;
+        justify-content: stretch;
+      }
+      #community-summarizer-modal .community-summarizer-panel {
+        width: 100%;
+        max-width: none;
+        height: 100%;
+        max-height: none;
+        min-height: 100%;
+        border-radius: 0;
+        border: none;
       }
     }
     #community-summarizer-modal .community-summarizer-header {
@@ -2057,8 +2122,12 @@
     #community-summarizer-modal .community-summarizer-lead {
       margin-top: 0.55rem;
       margin-bottom: 0;
-      max-width: 40rem;
+      max-width: 46rem;
       line-height: 1.55;
+    }
+    /* Hide global Word float while the community summary modal is open */
+    body.community-summarizer-open #global-word-export-bar {
+      display: none !important;
     }
     .community-summarizer-form {
       display: flex;
@@ -2165,12 +2234,21 @@
       gap: 0.65rem;
     }
     #community-summarizer-loading.hidden { display: none !important; }
+    /* Single scroll on the panel — no nested result scrollbox */
     #community-summarizer-result {
-      margin-top: 1rem;
-      max-height: min(55vh, 28rem);
-      overflow-y: auto;
+      margin-top: 1.15rem;
+      max-height: none;
+      overflow: visible;
     }
     #community-summarizer-result:empty { display: none; }
+    #community-summarizer-result .hybrid-community-summary {
+      margin-top: 0;
+      padding: 1.35rem 1.4rem 1.5rem;
+    }
+    #community-summarizer-result .hybrid-community-summary-body {
+      font-size: 1.05rem;
+      line-height: 1.8;
+    }
     #community-summarizer-export-word {
       display: none;
       width: 100%;
@@ -2767,66 +2845,66 @@
       transform: translateY(-2px);
       box-shadow: 0 6px 18px rgba(92, 125, 88, 0.18);
     }
-    .catalog-grade-nav {
+    .catalog-class-chrome {
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 1rem;
+      padding: 1.1rem 1.15rem 1.2rem;
+      border-radius: 1.15rem;
+      border: 1px solid rgba(201, 169, 98, 0.4);
+      background:
+        radial-gradient(120% 90% at 100% 0%, rgba(201, 169, 98, 0.16), transparent 55%),
+        linear-gradient(165deg, rgba(255, 252, 246, 0.98), rgba(247, 243, 235, 0.92));
+      box-shadow: 0 8px 22px rgba(92, 74, 58, 0.08);
+    }
+    .catalog-class-chrome.hidden { display: none !important; }
+    .catalog-class-header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .catalog-class-eyebrow {
+      margin: 0;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: rgba(92, 125, 88, 0.95);
+    }
+    .catalog-class-title {
+      margin: 0;
+      font-size: clamp(1.55rem, 2.4vw, 2.05rem);
+      line-height: 1.2;
+    }
+    .catalog-class-search-bar .catalog-search-label {
+      display: block;
+      margin: 0 0 0.55rem;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #5C4A3A;
+    }
+    #catalog-search-clear:not(.hidden) {
+      box-shadow: 0 4px 14px rgba(139, 58, 58, 0.22);
     }
     .catalog-back-grades {
       align-self: flex-start;
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
+      gap: 0.45rem;
       background: #fff;
       color: #5C4A3A;
       font-weight: 700;
       font-size: 0.95rem;
-      padding: 0.625rem 1.125rem;
+      padding: 0.7rem 1.2rem;
       border-radius: 0.875rem;
-      border: 2px solid rgba(201, 169, 98, 0.55);
+      border: 2px solid rgba(139, 58, 58, 0.35);
       box-shadow: 0 2px 8px rgba(92, 74, 58, 0.08);
-      transition: border-color 0.15s ease, background 0.15s ease;
+      transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
       cursor: pointer;
     }
     .catalog-back-grades:hover {
-      border-color: rgba(92, 125, 88, 0.65);
-      background: rgba(247, 243, 235, 0.95);
-    }
-    .catalog-grade-switcher {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0.5rem;
-    }
-    @media (min-width: 640px) {
-      .catalog-grade-switcher { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-    }
-    @media (min-width: 1024px) {
-      .catalog-grade-switcher { grid-template-columns: repeat(9, minmax(0, 1fr)); }
-    }
-    .catalog-grade-chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 2.5rem;
-      padding: 0.375rem 0.5rem;
-      border-radius: 0.75rem;
-      border: 1px solid rgba(201, 169, 98, 0.45);
-      background: rgba(255, 255, 255, 0.9);
-      color: #5C4A3A;
-      font-size: 0.8125rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
-    }
-    .catalog-grade-chip:hover {
-      border-color: rgba(92, 125, 88, 0.55);
-      background: rgba(247, 243, 235, 0.95);
-    }
-    .catalog-grade-chip.is-active {
       border-color: rgba(139, 58, 58, 0.55);
-      background: linear-gradient(135deg, rgba(139, 58, 58, 0.12), rgba(201, 169, 98, 0.18));
+      background: rgba(139, 58, 58, 0.06);
       color: #8B3A3A;
-      box-shadow: 0 2px 8px rgba(139, 58, 58, 0.12);
     }
     .catalog-open-upload {
       display: inline-flex;
@@ -6096,42 +6174,46 @@
   <!-- Community topic summarizer (decoupled from live web search) -->
   <div id="community-summarizer-modal" class="app-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="community-summarizer-title">
     <div id="community-summarizer-backdrop" class="app-modal-backdrop"></div>
-    <div class="app-modal-panel" dir="rtl">
-      <button type="button" id="community-summarizer-close" class="app-modal-close" data-i18n-aria="community_summarizer_close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
-      <h2 id="community-summarizer-title" class="font-display text-xl text-walnut m-0" data-i18n="community_summarizer_btn">סיכום נושא מתוך המאגר הקהילתי</h2>
-      <p class="text-sm text-walnut/75 mt-2 mb-0" data-i18n="community_summarizer_desc">בחרו כיתה ונושא — המערכת תבדוק את הארכיון הציבורי ותסכם חומרים מהמאגר הקהילתי בדרייב.</p>
-      <form id="community-summarizer-form" class="community-summarizer-form" autocomplete="off">
-        <div>
-          <label for="community-summarizer-grade" data-i18n="community_summarizer_grade">כיתה</label>
-          <select id="community-summarizer-grade" name="gradeId" required>
-            <option value="" data-i18n="grade_placeholder">— בחרו כיתה —</option>
-          </select>
+    <div class="app-modal-panel community-summarizer-panel" dir="rtl">
+      <div class="community-summarizer-shell">
+        <button type="button" id="community-summarizer-close" class="app-modal-close" data-i18n-aria="community_summarizer_close" aria-label="סגור"><i class="fa-solid fa-xmark"></i></button>
+        <header class="community-summarizer-header">
+          <h2 id="community-summarizer-title" class="font-display text-xl text-walnut m-0" data-i18n="community_summarizer_btn">סיכום מהמאגר הקהילתי</h2>
+          <p class="community-summarizer-lead text-sm text-walnut/75" data-i18n="community_summarizer_desc">בחרו כיתה ונושא — המערכת תבדוק את הארכיון הציבורי ותסכם חומרים מהמאגר הקהילתי בדרייב.</p>
+        </header>
+        <form id="community-summarizer-form" class="community-summarizer-form" autocomplete="off">
+          <div>
+            <label for="community-summarizer-grade" data-i18n="community_summarizer_grade">כיתה</label>
+            <select id="community-summarizer-grade" name="gradeId" required>
+              <option value="" data-i18n="grade_placeholder">— בחרו כיתה —</option>
+            </select>
+          </div>
+          <div>
+            <label for="community-summarizer-topic" data-i18n="community_summarizer_topic">נושא</label>
+            <input type="text" id="community-summarizer-topic" name="topic" required maxlength="200" placeholder="" value="" />
+          </div>
+          <div class="community-summarizer-actions">
+            <button type="submit" id="community-summarizer-submit" class="community-summarizer-submit touch-btn">
+              <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+              <span data-i18n="community_summarizer_run">הפק סיכום</span>
+            </button>
+            <button type="button" id="community-summarizer-cancel" class="community-summarizer-cancel touch-btn" data-i18n="community_summarizer_close">סגור</button>
+          </div>
+        </form>
+        <button type="button" id="community-summarizer-return-home" class="community-summarizer-return-home touch-btn">
+          <i class="fa-solid fa-house" aria-hidden="true"></i>
+          <span data-i18n="community_summarizer_return_home">חזרה לעמוד הראשי (הסיכום ימשיך ברקע)</span>
+        </button>
+        <div id="community-summarizer-loading" class="hidden" role="status" aria-live="polite" aria-busy="true">
+          <i class="fa-solid fa-spinner fa-spin text-lg" aria-hidden="true"></i>
+          <span id="community-summarizer-loading-text" data-i18n="community_summarizer_loading">סורק את המאגר הקהילתי ומסכם…</span>
         </div>
-        <div>
-          <label for="community-summarizer-topic" data-i18n="community_summarizer_topic">נושא</label>
-          <input type="text" id="community-summarizer-topic" name="topic" required maxlength="200" placeholder="" value="" />
-        </div>
-        <div class="community-summarizer-actions">
-          <button type="submit" id="community-summarizer-submit" class="community-summarizer-submit touch-btn">
-            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
-            <span data-i18n="community_summarizer_run">הפק סיכום</span>
-          </button>
-          <button type="button" id="community-summarizer-cancel" class="community-summarizer-cancel touch-btn" data-i18n="community_summarizer_close">סגור</button>
-        </div>
-      </form>
-      <button type="button" id="community-summarizer-return-home" class="community-summarizer-return-home touch-btn">
-        <i class="fa-solid fa-house" aria-hidden="true"></i>
-        <span data-i18n="community_summarizer_return_home">חזרה לעמוד הראשי (הסיכום ימשיך ברקע)</span>
-      </button>
-      <div id="community-summarizer-loading" class="hidden" role="status" aria-live="polite" aria-busy="true">
-        <i class="fa-solid fa-spinner fa-spin text-lg" aria-hidden="true"></i>
-        <span id="community-summarizer-loading-text" data-i18n="community_summarizer_loading">סורק את המאגר הקהילתי ומסכם…</span>
+        <div id="community-summarizer-result" aria-live="polite"></div>
+        <button type="button" id="community-summarizer-export-word" class="touch-btn" dir="rtl" aria-hidden="true" data-i18n-aria="community_summarizer_export_word" aria-label="הורד למסמך Word">
+          <i class="fa-solid fa-file-word" aria-hidden="true"></i>
+          <span data-i18n="community_summarizer_export_word">הורד למסמך Word</span>
+        </button>
       </div>
-      <div id="community-summarizer-result" aria-live="polite"></div>
-      <button type="button" id="community-summarizer-export-word" class="touch-btn" dir="rtl" aria-hidden="true" data-i18n-aria="community_summarizer_export_word" aria-label="הורד למסמך Word">
-        <i class="fa-solid fa-file-word" aria-hidden="true"></i>
-        <span data-i18n="community_summarizer_export_word">הורד למסמך Word</span>
-      </button>
     </div>
   </div>
 
@@ -6466,7 +6548,7 @@
           class="step-pill community-summarizer-btn touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer"
           data-i18n-aria="community_summarizer_btn_aria">
           <i class="fa-solid fa-book-open-reader text-base sm:text-sm"></i>
-          <span data-i18n="community_summarizer_btn">סיכום נושא מתוך המאגר הקהילתי</span>
+          <span data-i18n="community_summarizer_btn">סיכום מהמאגר הקהילתי</span>
         </button>
         <button type="button" id="btn-nav-waldorf-sites"
           class="step-pill step-pill-waldorf-sites touch-btn inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:px-5 sm:py-2.5 rounded-full border text-sm sm:text-xs cursor-pointer hover:bg-burgundy/5"
@@ -6505,9 +6587,15 @@
       <div class="home-hero-inner">
         <h1 id="home-hero-title" class="home-hero-title" data-i18n="home_title">אתר המידע והמשאבים האנתרופוסופיים</h1>
         <p class="home-hero-subtitle" data-i18n="home_subtitle">למחנכים/הורים ומתעניינים בחינוך וולדרוף ואנתרופוסופיה</p>
-        <p class="home-hero-guide" data-i18n="home_guide">בחרו כלי מהפאנל למטה: חיפוש ידע לפי כיתה ונושא, בניית מבנה תקופת לימוד, מאגר חומרים קהילתי, או רשימת אתרים אנתרופוסופיים מומלצים. כל מסלול נפתח בעמוד ייעודי — ותמיד אפשר לחזור לכאן בכפתור «חזרה לעמוד הבית».</p>
+        <p class="home-hero-guide" data-i18n="home_guide">בחרו כלי מהפאנל למטה: חיפוש ידע לפי כיתה ונושא, בניית מבנה תקופת לימוד, מאגר חומרים קהילתי, סיכום מהמאגר הקהילתי, או רשימת אתרים אנתרופוסופיים מומלצים. כל מסלול נפתח בעמוד ייעודי — ותמיד אפשר לחזור לכאן בכפתור «חזרה לעמוד הבית».</p>
       </div>
     </section>
+    <div id="home-community-summarizer-sticky">
+      <button type="button" class="home-community-summarizer-btn touch-btn" id="home-sticky-community-summarizer" data-home-nav="community-summarizer" data-i18n-aria="community_summarizer_btn_aria">
+        <i class="fa-solid fa-book-open-reader" aria-hidden="true"></i>
+        <span data-i18n="home_panel_community_summary_title">סיכום מהמאגר הקהילתי</span>
+      </button>
+    </div>
     <div class="home-panel-grid" role="navigation" aria-label="פאנל ניווט ראשי">
       <button type="button" class="home-panel-card" id="home-panel-live-search" data-home-nav="live-search">
         <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-magnifying-glass"></i></span>
@@ -6525,6 +6613,12 @@
         <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-users-rays"></i></span>
         <h2 class="home-panel-title" data-i18n="home_panel_community_title">מאגר קהילתי</h2>
         <p class="home-panel-desc" data-i18n="home_panel_community_desc">חומרים שיתופיים ממחנכים ומחנכות — לפי כיתה, נושא ותיקיות קהילה.</p>
+        <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
+      </button>
+      <button type="button" class="home-panel-card" id="home-panel-community-summary" data-home-nav="community-summarizer">
+        <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-book-open-reader"></i></span>
+        <h2 class="home-panel-title" data-i18n="home_panel_community_summary_title">סיכום מהמאגר הקהילתי</h2>
+        <p class="home-panel-desc" data-i18n="home_panel_community_summary_desc">הפקת סיכום פדגוגי מפורט מחומרי המאגר הקהילתי בדרייב — לפי כיתה ונושא.</p>
         <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
       </button>
       <button type="button" class="home-panel-card" id="home-panel-sites" data-home-nav="waldorf-sites">
@@ -6711,8 +6805,22 @@
             <span data-i18n="catalog_title">מאגר קהילתי</span>
           </h2>
           <p class="text-sm text-walnut/70 mb-5" data-i18n="catalog_desc">בחרו כיתה ועיינו בחומרים מהקהילה — הוספת חומר חדש מתבצעת דרך כפתור «הוסף חומר חדש למאגר».</p>
-          <div id="catalog-search-bar" class="mb-5 hidden" aria-hidden="true">
-            <label for="catalog-search-input" class="sr-only">חיפוש במאגר הקהילתי</label>
+          <div id="share-materials-mount" class="hidden" aria-hidden="true" hidden></div>
+          <div id="community-catalog-section" class="community-catalog-container">
+          <nav id="catalog-breadcrumb" class="flex flex-wrap items-center gap-2 text-sm text-walnut/70 mb-6" data-i18n-aria="catalog_title"></nav>
+          <div id="catalog-status" class="hidden text-sm mb-4"></div>
+          <div id="catalog-class-chrome" class="catalog-class-chrome hidden mb-5" aria-hidden="true">
+            <button type="button" id="catalog-back-main-hub" class="catalog-back-grades touch-btn" data-catalog-nav="grades">
+              <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+              <span data-i18n="catalog_back_main_hub">חזור למאגר הראשי</span>
+            </button>
+            <header id="catalog-class-chrome-header" class="catalog-class-header">
+              <p class="catalog-class-eyebrow" data-i18n="catalog_class_scope_eyebrow">תיקיית כיתה</p>
+              <h3 id="catalog-class-chrome-title" class="catalog-class-title font-display font-bold text-burgundy mb-0"></h3>
+            </header>
+          </div>
+          <div id="catalog-search-bar" class="catalog-class-search-bar mb-5 hidden" aria-hidden="true">
+            <label for="catalog-search-input" id="catalog-search-label" class="catalog-search-label">חיפוש בתיקיית הכיתה</label>
             <div class="flex flex-col sm:flex-row gap-2">
               <input type="search" id="catalog-search-input" class="flex-1 rounded-xl border border-gold/35 bg-white px-4 py-2.5 text-sm text-walnut" dir="rtl" autocomplete="off" placeholder="" />
               <button type="button" id="catalog-search-btn" class="touch-btn w-full sm:w-auto bg-sage hover:bg-sage-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm" data-i18n="catalog_search_btn">חיפוש במאגר</button>
@@ -6720,10 +6828,6 @@
             </div>
           </div>
           <div id="catalog-search-results" class="hidden mb-5"></div>
-          <div id="share-materials-mount" class="hidden" aria-hidden="true" hidden></div>
-          <div id="community-catalog-section" class="community-catalog-container">
-          <nav id="catalog-breadcrumb" class="flex flex-wrap items-center gap-2 text-sm text-walnut/70 mb-6" data-i18n-aria="catalog_title"></nav>
-          <div id="catalog-status" class="hidden text-sm mb-4"></div>
           <div id="catalog-grades" class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4"></div>
           <div id="catalog-grade-panel" class="hidden"></div>
           <div id="catalog-materials" class="hidden"></div>
@@ -20875,10 +20979,12 @@
       const results = document.getElementById('catalog-search-results');
       const input = document.getElementById('catalog-search-input');
       const insideFolder = catalogState.view === 'grade' || catalogState.view === 'materials';
+      updateCatalogClassChrome();
       if (bar) {
         bar.classList.toggle('hidden', !insideFolder);
         bar.setAttribute('aria-hidden', insideFolder ? 'false' : 'true');
       }
+      updateCatalogSearchPlaceholder();
       if (!insideFolder) {
         catalogState.searchActive = false;
         if (results) {
@@ -20888,11 +20994,13 @@
         if (input) input.value = '';
         setCatalogSearchClearVisible(false);
       } else if (!catalogState.searchActive) {
-        setCatalogSearchClearVisible(false);
         if (results) {
           results.classList.add('hidden');
           results.innerHTML = '';
         }
+        syncCatalogSearchClearButton();
+      } else {
+        syncCatalogSearchClearButton();
       }
     }
 
@@ -20903,8 +21011,6 @@
       updateCatalogSearchVisibility();
       if (!input || !btn || input.dataset.bound) return;
       input.dataset.bound = '1';
-      input.removeAttribute('placeholder');
-      input.setAttribute('placeholder', '');
       if (clearBtn) {
         const clearAria = (typeof t === 'function' && t('catalog_search_clear_aria'))
           || 'נקה את שדה החיפוש והצג מחדש את כל הפריטים בתיקייה';
@@ -20913,6 +21019,9 @@
           clearCatalogSearch();
         });
       }
+      input.addEventListener('input', function () {
+        syncCatalogSearchClearButton();
+      });
       const submit = function () {
         const q = String(input.value || '').trim();
         if (!q) return;
@@ -20924,6 +21033,7 @@
         btn.disabled = true;
         runCatalogDeepSearch(q, input).finally(function () {
           btn.disabled = false;
+          syncCatalogSearchClearButton();
         });
       };
       btn.addEventListener('click', submit);
@@ -22537,6 +22647,10 @@
             openCommunityRepo({ resetScroll: true });
             return;
           }
+          if (dest === 'community-summarizer') {
+            openCommunitySummarizerModal();
+            return;
+          }
           if (dest === 'waldorf-sites') {
             openWaldorfSitesView({ resetScroll: true });
           }
@@ -23971,6 +24085,7 @@
       modal.classList.remove('hidden');
       modal.setAttribute('aria-hidden', 'false');
       document.body.classList.add('pricing-modal-open');
+      document.body.classList.add('community-summarizer-open');
       var panel = modal.querySelector('.community-summarizer-panel');
       if (panel) {
         try { panel.scrollTop = 0; } catch (e) { /* ignore */ }
@@ -23996,6 +24111,7 @@
       modal.classList.add('hidden');
       modal.setAttribute('aria-hidden', 'true');
       document.body.classList.remove('pricing-modal-open');
+      document.body.classList.remove('community-summarizer-open');
       syncCommunitySummarizerBgIndicator();
       ensureArchiveSearchControlsUnlocked();
       if (options.goHome) {
@@ -29644,37 +29760,62 @@
       closeCatalogUploadModal();
     }
 
-    function catalogGradeNavHtml(activeGradeId) {
-      const chips = CATALOG_GRADES.map(function (g) {
-        const isActive = String(g.id) === String(activeGradeId);
-        const shortLabel = g.isGeneral
-          ? t('catalog_general')
-          : (String(g.label || '').replace(/^כיתה\s*/, '') || getCatalogGradeLabel(g.id));
-        return '<button type="button" class="catalog-grade-chip' + (isActive ? ' is-active' : '') + '" data-catalog-grade="' + g.id + '"' +
-          (isActive ? ' aria-current="true"' : '') + '>' + escapeHtml(shortLabel) + '</button>';
-      }).join('');
-      return '<div class="catalog-grade-nav mb-5">' +
-        '<button type="button" class="catalog-back-grades touch-btn" data-catalog-nav="grades">' +
-        escapeHtml(t('catalog_back_all_grades')) + '</button>' +
-        '<div class="catalog-grade-switcher" role="group" aria-label="' + escapeHtml(t('catalog_choose_grade')) + '">' + chips + '</div>' +
-        '</div>';
-    }
-
-    function bindCatalogGradeNav(container) {
-      if (!container) return;
-      const backBtn = container.querySelector('[data-catalog-nav="grades"]');
-      if (backBtn) {
+    function updateCatalogClassChrome() {
+      const chrome = document.getElementById('catalog-class-chrome');
+      const titleEl = document.getElementById('catalog-class-chrome-title');
+      const backBtn = document.getElementById('catalog-back-main-hub');
+      const insideFolder = catalogState.view === 'grade' || catalogState.view === 'materials';
+      const gradeId = catalogState.gradeId;
+      if (!chrome) return;
+      if (!insideFolder || !gradeId) {
+        chrome.classList.add('hidden');
+        chrome.setAttribute('aria-hidden', 'true');
+        if (titleEl) titleEl.textContent = '';
+        return;
+      }
+      const gradeLabel = getCatalogGradeLabel(gradeId);
+      const topicLabel = catalogState.view === 'materials' && catalogState.topic
+        ? (catalogState.topic === '__general__' ? t('catalog_general') : String(catalogState.topic))
+        : '';
+      if (titleEl) {
+        titleEl.textContent = topicLabel ? (gradeLabel + ' · ' + topicLabel) : gradeLabel;
+      }
+      chrome.classList.remove('hidden');
+      chrome.setAttribute('aria-hidden', 'false');
+      if (backBtn && !backBtn.dataset.bound) {
+        backBtn.dataset.bound = '1';
         backBtn.addEventListener('click', function () {
+          clearCatalogSearch();
           renderCatalog('grades');
         });
       }
-      container.querySelectorAll('[data-catalog-grade]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          const gradeId = btn.getAttribute('data-catalog-grade');
-          if (!gradeId || String(gradeId) === String(catalogState.gradeId)) return;
-          renderCatalog('grade', gradeId);
-        });
-      });
+    }
+
+    function syncCatalogSearchClearButton() {
+      const input = document.getElementById('catalog-search-input');
+      const hasTerms = Boolean(input && String(input.value || '').trim());
+      setCatalogSearchClearVisible(hasTerms || catalogState.searchActive);
+    }
+
+    function updateCatalogSearchPlaceholder() {
+      const input = document.getElementById('catalog-search-input');
+      const labelEl = document.getElementById('catalog-search-label');
+      if (!input) return;
+      const insideFolder = (catalogState.view === 'grade' || catalogState.view === 'materials')
+        && catalogState.gradeId;
+      if (!insideFolder) {
+        input.placeholder = '';
+        if (labelEl) labelEl.textContent = (typeof t === 'function' && t('catalog_search_label')) || 'חיפוש בתיקיית הכיתה';
+        return;
+      }
+      const gradeLabel = getCatalogGradeLabel(catalogState.gradeId);
+      const ph = (typeof t === 'function' && t('catalog_search_placeholder_class', { grade: gradeLabel }))
+        || ('חיפוש קבצים בתוך «' + gradeLabel + '»…');
+      input.placeholder = ph;
+      if (labelEl) {
+        labelEl.textContent = (typeof t === 'function' && t('catalog_search_label_class', { grade: gradeLabel }))
+          || ('חיפוש בתוך «' + gradeLabel + '»');
+      }
     }
 
     function bindSingleCatalogUploadForm(form) {
