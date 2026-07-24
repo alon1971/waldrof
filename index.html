@@ -19736,38 +19736,54 @@
       if (!canUseCommunityUploadApi()) {
         throw new Error('Community API unavailable');
       }
-      // Same catalog pipeline as deploy 1:42 (grades overview + data rows),
-      // but source is live Supabase community_materials (not local JSON).
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timeoutId = controller
-        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
-        : null;
-      let res;
-      try {
-        const catalogUrl = communityCatalogDriveApiUrl();
-        res = await fetch(catalogUrl, {
-          method: 'GET',
-          cache: 'no-store',
-          signal: controller ? controller.signal : undefined,
-          headers: {
-            Accept: 'application/json',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            Pragma: 'no-cache',
-          },
-        });
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-      }
-      const text = await res.text();
-      if (!res.ok) {
-        throw new Error(parseCommunityApiError(text, res.status));
-      }
-      let json = {};
-      if (text && text.trim()) {
-        try { json = JSON.parse(text); } catch (e) {
+
+      async function fetchCatalogJson(url) {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller
+          ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
+          : null;
+        let res;
+        try {
+          res = await fetch(url, {
+            method: 'GET',
+            cache: 'no-store',
+            signal: controller ? controller.signal : undefined,
+            headers: {
+              Accept: 'application/json',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              Pragma: 'no-cache',
+            },
+          });
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+        }
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(parseCommunityApiError(text, res.status));
+        }
+        // Old Render deploys may SPA-fallback missing routes as index.html (still HTTP 200).
+        if (/^\s*</.test(String(text || ''))) {
+          throw new Error('Catalog API returned HTML instead of JSON');
+        }
+        if (!text || !text.trim()) {
+          throw new Error('Empty community catalog response');
+        }
+        try {
+          return JSON.parse(text);
+        } catch (e) {
           throw new Error('Invalid community catalog response');
         }
       }
+
+      // Prefer /api/community-materials (live + reliable). Fall back to catalog-local shape.
+      let json = null;
+      try {
+        json = await fetchCatalogJson(communityMaterialsApiUrl());
+      } catch (materialsErr) {
+        console.warn('[community] materials API failed, trying catalog-local:', formatSupabaseError(materialsErr));
+        json = await fetchCatalogJson(communityCatalogDriveApiUrl());
+      }
+
       if (json && json.grades && typeof json.grades === 'object') {
         appState.communityDriveCatalogOverview = {
           success: json.success !== false,
@@ -21660,6 +21676,10 @@
     }
 
     async function loadCommunity() {
+      // Ensure /api/config finished so Supabase URL/key exist before first catalog paint.
+      if (!isCloudConfigured()) {
+        try { await loadRuntimeConfig(); } catch (e) { /* ignore */ }
+      }
       if (!isCloudConfigured()) {
         appState.communityCache = [];
         appState.communityForGrade = [];
@@ -21672,15 +21692,13 @@
           return Boolean(resolveCommunityMaterialId(item));
         });
         appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-        // Preserve 1:42 card pipeline: overview drives topic cards / counts.
-        if (!appState.communityDriveCatalogOverview || !appState.communityDriveCatalogOverview.grades) {
-          appState.communityDriveCatalogOverview = {
-            success: true,
-            source: 'supabase',
-            driveConfigured: false,
-            grades: buildCatalogOverviewFromCache(appState.communityCache),
-          };
-        }
+        // Always rebuild grade/topic overview from live rows (1:42 card pipeline).
+        appState.communityDriveCatalogOverview = {
+          success: true,
+          source: 'supabase',
+          driveConfigured: false,
+          grades: buildCatalogOverviewFromCache(appState.communityCache),
+        };
       } catch (err) {
         console.warn('[community] loadCommunity failed:', formatSupabaseError(err));
         appState.communityCache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
@@ -27750,11 +27768,21 @@
       appState.navSection = 'community';
       showWorkspaceShell();
       switchTab('catalog');
-      if (appState.grade) {
-        renderCatalog('grade', appState.grade);
-      } else if (!catalogState.gradeId) {
-        renderCatalog('grades');
-      }
+      // Mount-load equivalent of useEffect: always refresh catalog tree when opening the archive.
+      var targetView = appState.grade
+        ? 'grade'
+        : (!catalogState.gradeId ? 'grades' : catalogState.view);
+      var targetGrade = appState.grade || catalogState.gradeId || null;
+      var targetTopic = targetView === 'materials' ? catalogState.topic : null;
+      Promise.resolve()
+        .then(function () { return loadCommunity(); })
+        .then(function () {
+          return renderCatalog(targetView, targetGrade, targetTopic, { force: true });
+        })
+        .catch(function (err) {
+          console.warn('[community] openCommunityRepo load failed:', formatSupabaseError(err));
+          renderCatalog(targetView, targetGrade, targetTopic, { force: true });
+        });
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
@@ -31243,8 +31271,12 @@
       updateCatalogSearchVisibility();
       if (catalogState.view === 'grades') {
         // Supabase-backed catalog overview (same card pipeline as 1:42).
-        if (isCloudConfigured()) {
-          try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
+        showCatalogStatus(t('catalog_loading'), 'info');
+        try {
+          await loadCommunity();
+          showCatalogStatus('', '');
+        } catch (e) {
+          showCatalogStatus(e.message || String(e), 'error');
         }
         renderCatalogGrades();
       } else if (catalogState.view === 'grade') {
