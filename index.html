@@ -8599,6 +8599,7 @@
       activePlan: null,
       communityCache: [],
       communityForGrade: [],
+      communityDriveCatalogOverview: null,
       visualGallery: [],
       pedagogicalResources: [],
       gradeResearch: null,
@@ -21554,6 +21555,42 @@
       }
     }
 
+    function communityCatalogDriveUrl() {
+      try {
+        if (location && location.origin && /^https?:/i.test(location.origin)) {
+          return location.origin + '/api/community-catalog-drive';
+        }
+      } catch (e) { /* ignore */ }
+      return '/api/community-catalog-drive';
+    }
+
+    async function loadCommunityDriveCatalogOverview(options) {
+      options = options || {};
+      try {
+        const url = communityCatalogDriveUrl() + (options.forceRefresh ? '?refresh=1' : '');
+        const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
+        if (!res.ok) {
+          console.warn('[catalog] Drive overview HTTP', res.status);
+          return null;
+        }
+        const data = await res.json();
+        if (data && data.grades && typeof data.grades === 'object') {
+          appState.communityDriveCatalogOverview = data;
+          return data;
+        }
+      } catch (err) {
+        console.warn('[catalog] Drive overview failed:', err && err.message ? err.message : err);
+      }
+      return null;
+    }
+
+    function getDriveCatalogGradeOverview(gradeId) {
+      const overview = appState.communityDriveCatalogOverview;
+      if (!overview || !overview.grades) return null;
+      const gid = String(gradeId || '').trim();
+      return overview.grades[gid] || null;
+    }
+
     function subscribeRealtime() {
       const client = getCommunitySupabaseClient();
       if (!isCloudConfigured() || !client) return;
@@ -29857,8 +29894,21 @@
     }
 
     function getDynamicTopicsForGrade(gradeId) {
-      const map = {};
       const gid = String(gradeId || '').trim();
+      const driveGrade = getDriveCatalogGradeOverview(gid);
+      if (driveGrade && Array.isArray(driveGrade.topics) && driveGrade.topics.length) {
+        return driveGrade.topics.map(function (topic) {
+          return {
+            id: topic.id || topic.label,
+            label: topic.label || topic.id,
+            count: Number(topic.count) || 0,
+          };
+        }).sort(function (a, b) {
+          return String(a.label).localeCompare(String(b.label), 'he');
+        });
+      }
+
+      const map = {};
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
         if (!t) return;
@@ -30625,7 +30675,14 @@
         el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
           CATALOG_GRADES.map(function (g) {
             const topics = getDynamicTopicsForGrade(g.id);
-            const n = filterByGrade(appState.communityCache, g.id).length;
+            const driveGrade = getDriveCatalogGradeOverview(g.id);
+            const dbFiles = filterByGrade(appState.communityCache, g.id).length;
+            const n = driveGrade && Number(driveGrade.fileCount) > 0
+              ? Number(driveGrade.fileCount)
+              : dbFiles;
+            const topicCount = driveGrade && Number(driveGrade.topicCount) > 0
+              ? Number(driveGrade.topicCount)
+              : topics.length;
             const isGeneral = Boolean(g.isGeneral);
             const icon = isGeneral ? 'fa-globe' : 'fa-folder';
             const subtitle = isGeneral
@@ -30636,7 +30693,7 @@
               '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
               '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
               '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
-              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topicCount, files: n })) + '</div></div></div></button>';
           }).join('');
         el.querySelectorAll('[data-grade]').forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -31040,13 +31097,23 @@
       bindCatalogSearchBar();
       updateCatalogSearchVisibility();
       if (catalogState.view === 'grades') {
-        if (isCloudConfigured()) {
-          showCatalogStatus(t('catalog_loading'), 'info');
-          try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
-          showCatalogStatus('', '');
+        showCatalogStatus(t('catalog_loading'), 'info');
+        try {
+          if (isCloudConfigured()) await loadCommunity();
+        } catch (e) { showCatalogStatus(e.message, 'error'); }
+        try {
+          await loadCommunityDriveCatalogOverview({ forceRefresh: opts.force === true });
+        } catch (driveErr) {
+          console.warn('[catalog] Drive overview:', driveErr && driveErr.message ? driveErr.message : driveErr);
         }
+        showCatalogStatus('', '');
         renderCatalogGrades();
       } else if (catalogState.view === 'grade') {
+        try {
+          if (!appState.communityDriveCatalogOverview) {
+            await loadCommunityDriveCatalogOverview();
+          }
+        } catch (driveErr) { /* ignore — DB fallback remains */ }
         await renderCatalogGradePanel(catalogState.gradeId);
         scrollToCatalogContent('grade');
       } else if (catalogState.view === 'materials') {
