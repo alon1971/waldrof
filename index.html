@@ -17611,7 +17611,9 @@
     }
 
     function resolveCatalogMaterialDescription(file, subjectLine) {
-      const desc = String(file.notes || file.description || '').trim();
+      const raw = String(file.notes || file.description || '').trim();
+      const desc = stripCommunityMetadataBrackets(raw);
+      if (!desc || looksLikeDriveCatalogMetadataNotes(desc)) return '';
       const subject = subjectLine != null ? String(subjectLine).trim() : resolveCatalogMaterialSubject(file);
       if (desc && subject && desc === subject) return '';
       return desc;
@@ -17639,10 +17641,11 @@
     }
 
     function renderCommunityPreviewCard(item) {
-      const linkLabel = escapeHtml(communityLinkLabel(item));
-      const linkHtml = item.fileUrl
-        ? '<a href="' + escapeHtml(item.fileUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-sm font-medium text-sage-dark hover:text-burgundy mt-2"><i class="' + communityLinkIconClass(item) + '"></i> ' + linkLabel + '</a>'
-        : '<span class="text-xs text-walnut/50 mt-2 block">אין קובץ מצורף</span>';
+      const openUrl = resolveItemOpenUrl(item);
+      const linkLabel = escapeHtml(communityLinkLabel(Object.assign({}, item, { fileUrl: openUrl })));
+      const linkHtml = openUrl
+        ? '<a href="' + escapeHtml(openUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-sm font-medium text-sage-dark hover:text-burgundy mt-2"><i class="' + communityLinkIconClass(Object.assign({}, item, { fileUrl: openUrl })) + '"></i> ' + linkLabel + '</a>'
+        : '<span class="text-xs text-walnut/50 mt-2 block">' + escapeHtml(t('community_no_file')) + '</span>';
       const materialId = normalizeMaterialUuid(item.id || resolveCommunityMaterialId(item) || '');
       const deleteBtn = materialId ? buildArchiveAdminDeleteBtn({ materialId: materialId }) : '';
       return '<article class="bg-cream/90 rounded-xl border border-sage/25 p-4 shadow-sm">' +
@@ -19828,14 +19831,30 @@
 
     function parseCommunityNotes(rawNotes) {
       let rest = String(rawNotes || '');
-      const out = { title: '', author: '', description: '', fileSize: null, fileType: '', topicLegacy: '', freeText: '' };
+      const out = {
+        title: '',
+        author: '',
+        description: '',
+        fileSize: null,
+        fileType: '',
+        topicLegacy: '',
+        freeText: '',
+        driveFileId: '',
+        catalogTopic: '',
+        kind: '',
+        source: '',
+      };
       const tagDefs = [
-        { field: 'title', re: /^\[title:([^\]]+)\]\s*/ },
-        { field: 'author', re: /^\[author:([^\]]+)\]\s*/ },
-        { field: 'description', re: /^\[desc:([^\]]+)\]\s*/ },
-        { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/, parse: function (v) { return parseInt(v, 10) || null; } },
-        { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/ },
-        { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/ },
+        { field: 'title', re: /^\[title:([^\]]+)\]\s*/i },
+        { field: 'author', re: /^\[author:([^\]]+)\]\s*/i },
+        { field: 'description', re: /^\[desc:([^\]]+)\]\s*/i },
+        { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/i, parse: function (v) { return parseInt(v, 10) || null; } },
+        { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/i },
+        { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/i },
+        { field: 'driveFileId', re: /^\[driveFileId:([^\]]+)\]\s*/i },
+        { field: 'catalogTopic', re: /^\[catalogTopic:([^\]]+)\]\s*/i },
+        { field: 'kind', re: /^\[kind:([^\]]+)\]\s*/i },
+        { field: 'source', re: /^\[source:([^\]]+)\]\s*/i },
       ];
       let matched = true;
       while (matched) {
@@ -19849,9 +19868,25 @@
           matched = true;
           break;
         }
+        // Strip any other leftover [tag:value] metadata so it never shows in the UI.
+        if (!matched) {
+          const junk = rest.match(/^\[([a-zA-Z_][\w-]*):([^\]]*)\]\s*/);
+          if (junk) {
+            rest = rest.slice(junk[0].length);
+            matched = true;
+          }
+        }
       }
-      out.freeText = rest.trim();
+      // Final safety: remove any remaining bracket tags from free text.
+      out.freeText = rest.replace(/\[[a-zA-Z_][\w-]*:[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
       return out;
+    }
+
+    function stripCommunityMetadataBrackets(text) {
+      return String(text || '')
+        .replace(/\[[a-zA-Z_][\w-]*:[^\]]*\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
     }
 
     function looksLikeDriveCatalogMetadataNotes(text) {
@@ -19860,7 +19895,8 @@
       if (/\[catalogTopic\s*:/i.test(s) && /\[driveFileId\s*:/i.test(s)) return true;
       if (/\[driveFileId\s*:/i.test(s) && /\[title\s*:/i.test(s)) return true;
       if (/\[drivePath\s*:/i.test(s) && /\[catalogTopic\s*:/i.test(s)) return true;
-      const hits = (s.match(/\[(catalogTopic|driveFileId|drivePath|title|subfolder|tags|desc)\s*:/gi) || []).length;
+      if (/\[kind\s*:/i.test(s) || /\[source\s*:\s*local-index\]/i.test(s)) return true;
+      const hits = (s.match(/\[(catalogTopic|driveFileId|drivePath|title|subfolder|tags|desc|kind|source)\s*:/gi) || []).length;
       return hits >= 2;
     }
 
@@ -19895,12 +19931,58 @@
       return url;
     }
 
+    function buildDriveOpenUrlFromId(fileId, kindHint) {
+      const id = String(fileId || '').trim();
+      if (!id) return '';
+      const kind = String(kindHint || '').toLowerCase();
+      if (kind === 'drive_folder' || kind === 'folder') {
+        return 'https://drive.google.com/drive/folders/' + encodeURIComponent(id);
+      }
+      if (kind === 'docs' || kind === 'document') {
+        return 'https://docs.google.com/document/d/' + encodeURIComponent(id) + '/edit';
+      }
+      return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view';
+    }
+
     function resolveCommunityFileUrl(row) {
-      const gdocs = (row.google_docs_url || '').trim();
-      if (isHttpUrl(gdocs)) return gdocs;
-      const filePath = (row.file_path || '').trim();
-      if (isHttpUrl(filePath)) return filePath;
-      return filePath ? buildPublicStorageUrl(filePath) : '';
+      if (!row || typeof row !== 'object') return '';
+      const candidates = [
+        row.url,
+        row.link,
+        row.fileUrl,
+        row.file_url,
+        row.webViewLink,
+        row.web_view_link,
+        row.google_docs_url,
+        row.path,
+        row.file_path,
+        row.filePath,
+      ];
+      for (let i = 0; i < candidates.length; i++) {
+        const value = String(candidates[i] || '').trim();
+        if (isHttpUrl(value)) return value;
+      }
+      const fileId = String(
+        row.file_id || row.fileId || row.driveFileId || row.drive_file_id || ''
+      ).trim();
+      if (fileId) {
+        return buildDriveOpenUrlFromId(fileId, row.kind || row.mimeType || '');
+      }
+      // Storage object path (not a full URL) → public Supabase URL.
+      const filePath = String(row.file_path || row.filePath || row.path || '').trim();
+      if (filePath && !isHttpUrl(filePath)) {
+        return buildPublicStorageUrl(filePath);
+      }
+      return '';
+    }
+
+    function resolveItemOpenUrl(item) {
+      if (!item) return '';
+      const direct = resolveCommunityFileUrl(item);
+      if (direct) return direct;
+      if (item.fileUrl && isHttpUrl(item.fileUrl)) return String(item.fileUrl).trim();
+      if (item.filePath && isHttpUrl(item.filePath)) return String(item.filePath).trim();
+      return '';
     }
 
     function isExternalCommunityLink(fileUrl) {
@@ -21510,11 +21592,17 @@
     function mapRow(row) {
       const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
       const extras = parseCommunityNotes(rawNotes);
-      const filePath = row.file_path || '';
-      const topic = (row.topic || extras.topicLegacy || '').trim();
-      const displayNotes = extras.description || extras.freeText || '';
+      const filePath = row.file_path || row.path || row.filePath || '';
+      const topic = (row.topic || extras.topicLegacy || extras.catalogTopic || '').trim();
+      const displayNotes = stripCommunityMetadataBrackets(extras.description || extras.freeText || '');
       const displayTitle = extras.title || row.file_name || topic || 'חומר קהילתי';
       const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
+      const enrichedRow = Object.assign({}, row, {
+        file_path: filePath,
+        url: row.url || row.link || row.fileUrl || row.webViewLink || '',
+        file_id: row.file_id || row.fileId || extras.driveFileId || row.driveFileId || '',
+        kind: row.kind || extras.kind || '',
+      });
       return {
         id: id,
         dbId: row.id != null ? String(row.id).trim() : null,
@@ -21529,7 +21617,9 @@
         filePath: filePath,
         fileSize: extras.fileSize,
         fileType: extras.fileType || '',
-        fileUrl: resolveCommunityFileUrl(row),
+        fileUrl: resolveCommunityFileUrl(enrichedRow),
+        kind: enrichedRow.kind || '',
+        driveFileId: enrichedRow.file_id || '',
       };
     }
 
@@ -30781,10 +30871,11 @@
     function renderCatalogFileRow(file) {
       const materialId = normalizeMaterialUuid(file.id || resolveCommunityMaterialId(file) || '');
       if (!materialId) return '';
-      const downloadUrl = file.fileUrl;
+      const downloadUrl = resolveItemOpenUrl(file);
+      const fileForLink = Object.assign({}, file, { fileUrl: downloadUrl });
       const external = isExternalCommunityLink(downloadUrl);
-      const btnLabel = communityLinkLabel(file);
-      const btnIcon = communityLinkIconClass(file);
+      const btnLabel = communityLinkLabel(fileForLink);
+      const btnIcon = communityLinkIconClass(fileForLink);
       const downloadBtn = downloadUrl
         ? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" class="touch-btn inline-flex items-center gap-1.5 text-sm ' +
           (external ? 'bg-sky hover:bg-sky/90' : 'bg-sage hover:bg-sage-dark') + ' text-white px-4 py-2 rounded-lg"><i class="' + btnIcon + '"></i> ' + escapeHtml(btnLabel) + '</a>'
