@@ -19928,31 +19928,19 @@
       return url;
     }
 
-    function buildDriveOpenUrlFromId(fileId, kindHint) {
-      const id = String(fileId || '').trim();
-      if (!id) return '';
-      const kind = String(kindHint || '').toLowerCase();
-      if (kind === 'drive_folder' || kind === 'folder') {
-        return 'https://drive.google.com/drive/folders/' + encodeURIComponent(id);
-      }
-      if (kind === 'docs' || kind === 'document') {
-        return 'https://docs.google.com/document/d/' + encodeURIComponent(id) + '/edit';
-      }
-      return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view';
-    }
-
+    /**
+     * Open/download URL for a community_materials row.
+     * Strict SSOT: use ONLY the DB column file_path (as-is when it is already an http(s) URL).
+     * Never synthesize Google Drive folder/file links from file_id / notes / kind.
+     */
     function resolveCommunityFileUrl(row) {
       if (!row || typeof row !== 'object') return '';
-      // Prefer the live community_materials.file_path (http URL or storage object path).
-      const primaryPath = String(
-        row.file_path || row.filePath || row.path || row.url || row.link || row.fileUrl || ''
-      ).trim();
+      const primaryPath = String(row.file_path || row.filePath || '').trim();
+      if (!primaryPath) return '';
+      // Exact URL from the table (e.g. Supabase Storage …/file.pdf) — do not rewrite.
       if (isHttpUrl(primaryPath)) return primaryPath;
-      if (primaryPath) return buildPublicStorageUrl(primaryPath);
-
-      const gdocs = String(row.google_docs_url || '').trim();
-      if (isHttpUrl(gdocs)) return gdocs;
-      return '';
+      // Relative storage object path → public Supabase URL.
+      return buildPublicStorageUrl(primaryPath);
     }
 
     function resolveItemOpenUrl(item) {
@@ -19962,7 +19950,11 @@
 
     function isExternalCommunityLink(fileUrl) {
       if (!fileUrl || !isHttpUrl(fileUrl)) return false;
-      return fileUrl.indexOf('/storage/v1/object/') === -1;
+      const url = String(fileUrl);
+      // Supabase Storage public objects are in-app downloads, not external Drive links.
+      if (url.indexOf('/storage/v1/object/') !== -1) return false;
+      if (/\.supabase\.co\/storage\//i.test(url)) return false;
+      return true;
     }
 
     function communityLinkLabel(item) {
@@ -20356,7 +20348,7 @@
           gradeId: resolvedGrade,
           grade_level: resolvedGrade,
           fileName: item.fileName || '',
-          fileUrl: item.fileUrl || resolveCommunityFileUrl(item),
+          fileUrl: resolveCommunityFileUrl(item),
           description: item.notes || '',
           createdAt: item.createdAt || null,
           similarity: scoreCommunityItemSimilarity(q, item),
@@ -20575,18 +20567,17 @@
 
     function resolveCommunityMatchFileUrl(match) {
       if (!match || typeof match !== 'object') return '';
-      const direct = String(match.fileUrl || match.url || match.google_docs_url || '').trim();
-      if (isHttpUrl(direct)) return direct;
-      const filePath = String(match.file_path || match.filePath || '').trim();
-      if (isHttpUrl(filePath)) return filePath;
-      if (filePath) return buildPublicStorageUrl(filePath);
-      const materialId = String(match.materialId || match.sourceMaterialId || match.id || '').trim();
+      // Prefer DB file_path only — never invent Drive links from other fields.
+      const fromPath = resolveCommunityFileUrl(match);
+      if (fromPath) return fromPath;
+      const materialId = normalizeMaterialUuid(
+        match.materialId || match.sourceMaterialId || match.id || ''
+      );
       if (materialId && Array.isArray(appState.communityCache) && appState.communityCache.length) {
         const cached = appState.communityCache.find(function (item) {
           const itemId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
           return itemId && itemId === materialId;
         });
-        if (cached && cached.fileUrl) return String(cached.fileUrl).trim();
         if (cached) return resolveCommunityFileUrl(cached);
       }
       return '';
@@ -21393,7 +21384,7 @@
       }
       let delay = 0;
       items.forEach(function (item) {
-        const url = item.fileUrl || resolveCommunityFileUrl(item);
+        const url = resolveCommunityFileUrl(item);
         if (!url) return;
         setTimeout(function () {
           const anchor = document.createElement('a');
@@ -21567,17 +21558,13 @@
     function mapRow(row) {
       const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
       const extras = parseCommunityNotes(rawNotes);
-      const filePath = row.file_path || row.path || row.filePath || '';
+      // Open/download uses only community_materials.file_path — ignore legacy url/link/Drive ids.
+      const filePath = String(row.file_path || row.filePath || '').trim();
       const topic = (row.topic || extras.topicLegacy || extras.catalogTopic || '').trim();
       const displayNotes = stripCommunityMetadataBrackets(extras.description || extras.freeText || '');
       const displayTitle = extras.title || row.file_name || topic || 'חומר קהילתי';
       const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
-      const enrichedRow = Object.assign({}, row, {
-        file_path: filePath,
-        url: row.url || row.link || row.fileUrl || row.webViewLink || '',
-        file_id: row.file_id || row.fileId || extras.driveFileId || row.driveFileId || '',
-        kind: row.kind || extras.kind || '',
-      });
+      const openUrl = resolveCommunityFileUrl({ file_path: filePath, filePath: filePath });
       return {
         id: id,
         dbId: row.id != null ? String(row.id).trim() : null,
@@ -21590,11 +21577,12 @@
         createdAt: row.created_at || null,
         fileName: row.file_name || '',
         filePath: filePath,
+        file_path: filePath,
         fileSize: extras.fileSize,
         fileType: extras.fileType || '',
-        fileUrl: resolveCommunityFileUrl(enrichedRow),
-        kind: enrichedRow.kind || '',
-        driveFileId: enrichedRow.file_id || '',
+        fileUrl: openUrl,
+        kind: row.kind || extras.kind || '',
+        driveFileId: '',
       };
     }
 
@@ -30868,8 +30856,9 @@
     function renderCatalogFileRow(file) {
       const materialId = normalizeMaterialUuid(file.id || resolveCommunityMaterialId(file) || '');
       if (!materialId) return '';
+      // Always open the exact community_materials.file_path (no Drive rewrite).
       const downloadUrl = resolveItemOpenUrl(file);
-      const fileForLink = Object.assign({}, file, { fileUrl: downloadUrl });
+      const fileForLink = Object.assign({}, file, { fileUrl: downloadUrl, filePath: file.filePath || file.file_path || '' });
       const external = isExternalCommunityLink(downloadUrl);
       const btnLabel = communityLinkLabel(fileForLink);
       const btnIcon = communityLinkIconClass(fileForLink);
