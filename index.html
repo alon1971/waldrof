@@ -6281,8 +6281,7 @@
           </div>
           <div>
             <label for="community-summarizer-topic" data-i18n="community_summarizer_topic">נושא</label>
-            <input type="text" id="community-summarizer-topic" name="topic" list="community-summarizer-topic-list" required maxlength="160" autocomplete="off" data-i18n-placeholder="community_summarizer_topic_placeholder" placeholder="הקלידו נושא או בחרו מהרשימה" />
-            <datalist id="community-summarizer-topic-list"></datalist>
+            <input type="text" id="community-summarizer-topic" name="topic" required maxlength="160" autocomplete="off" data-i18n-placeholder="community_summarizer_topic_placeholder" placeholder="הקלידו נושא לסיכום" />
           </div>
           <div class="community-summarizer-actions">
             <button type="submit" id="community-summarizer-submit" class="community-summarizer-submit touch-btn">
@@ -24205,21 +24204,14 @@
 
     function populateCommunitySummarizerTopicSelect() {
       var input = document.getElementById('community-summarizer-topic');
-      var list = document.getElementById('community-summarizer-topic-list');
-      var gradeEl = document.getElementById('community-summarizer-grade');
       if (!input) return;
-      var previous = String(input.value || appState.communitySummarizerTopic || '').trim();
-      var gradeId = String((gradeEl && gradeEl.value) || appState.communitySummarizerGradeId || '').trim();
       var placeholder = (typeof t === 'function' ? t('community_summarizer_topic_placeholder') : '')
-        || 'הקלידו נושא או בחרו מהרשימה';
+        || 'הקלידו נושא לסיכום';
       input.setAttribute('placeholder', placeholder);
-      var topics = collectSummarizerTopicsForGrade(gradeId);
-      if (list) {
-        list.innerHTML = topics.map(function (topic) {
-          return '<option value="' + escapeHtml(topic) + '"></option>';
-        }).join('');
+      input.removeAttribute('list');
+      if (appState.communitySummarizerTopic && (appState.isSummarizing || appState.communitySummarizerLoading)) {
+        input.value = String(appState.communitySummarizerTopic);
       }
-      if (previous) input.value = previous;
       input.disabled = Boolean(appState.communitySummarizerLoading || appState.isSummarizing);
     }
 
@@ -29867,19 +29859,105 @@
       });
     }
 
-    function getDynamicTopicsForGrade(gradeId) {
-      const map = {};
-      // Topics come from live communityCache — prefer real educational folders
-      // extracted from drivePath / notes, never generic grade-root labels.
-      filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
-        const t = String((item && item.topic) || '').trim();
-        if (!t || isGenericCommunityFolderName(t)) return;
-        const key = normalizeTopicKey(t);
-        if (!map[key]) map[key] = { id: t, label: t, count: 0 };
-        map[key].count++;
+    function isDriveFolderLinkItem(item) {
+      const url = String(
+        (item && (item.fileUrl || item.filePath || item.file_path || '')) || ''
+      );
+      return /drive\.google\.com\/drive\/folders\//i.test(url);
+    }
+
+    function isDriveSyncedFileItem(item) {
+      if (!item || isDriveFolderLinkItem(item)) return false;
+      if (String(item.drivePath || '').trim()) return true;
+      const url = String(item.fileUrl || item.filePath || '');
+      return /drive\.google\.com\/file\//i.test(url)
+        || /docs\.google\.com\/(document|presentation|spreadsheets)\//i.test(url);
+    }
+
+    /**
+     * Grade browse cards: prefer original Drive folder links as single cards.
+     * Do not explode Drive-synced trees into dozens of path-derived topic folders.
+     * Manual community uploads still appear as normal topic cards.
+     */
+    function getCatalogGradeCards(gradeId) {
+      const items = filterByGrade(appState.communityCache || [], gradeId)
+        .filter(function (i) { return i && !i.isDemo; });
+      const cards = [];
+      const seenFolder = {};
+
+      items.forEach(function (item) {
+        if (!isDriveFolderLinkItem(item)) return;
+        const url = String(resolveCommunityFileUrl(item) || item.fileUrl || item.filePath || '').trim();
+        if (!url) return;
+        const key = url.replace(/[?#].*$/, '');
+        if (seenFolder[key]) return;
+        seenFolder[key] = true;
+        const label = String(
+          item.topic || item.title || item.fileName || ''
+        ).trim();
+        cards.push({
+          type: 'drive-folder',
+          id: 'drive-folder:' + key,
+          label: (label && !isGenericCommunityFolderName(label))
+            ? label
+            : ((typeof t === 'function' ? t('catalog_drive_folder_card') : '') || 'תיקיית Google Drive'),
+          url: url,
+          count: 0,
+        });
       });
-      return Object.keys(map).map(function (k) { return map[k]; })
-        .sort(function (a, b) { return a.label.localeCompare(b.label, 'he'); });
+
+      const hasDriveFolderCard = cards.some(function (c) { return c.type === 'drive-folder'; });
+      const topicMap = {};
+      items.forEach(function (item) {
+        if (isDriveFolderLinkItem(item)) return;
+        // Hide exploded Drive-synced file trees from topic cards.
+        if (isDriveSyncedFileItem(item)) return;
+        const topic = String(item.topic || '').trim();
+        if (!topic || isGenericCommunityFolderName(topic)) return;
+        const key = normalizeTopicKey(topic);
+        if (!topicMap[key]) topicMap[key] = { type: 'topic', id: topic, label: topic, count: 0 };
+        topicMap[key].count++;
+      });
+
+      Object.keys(topicMap).forEach(function (k) { cards.push(topicMap[k]); });
+
+      // No folder link uploaded, but Drive-synced files exist → one synthetic card
+      // pointing at the first file's parent folder is unavailable; open first Drive URL.
+      if (!hasDriveFolderCard) {
+        const synced = items.filter(isDriveSyncedFileItem);
+        if (synced.length) {
+          const openUrl = String(
+            resolveCommunityFileUrl(synced[0]) || synced[0].fileUrl || synced[0].filePath || ''
+          ).trim();
+          cards.unshift({
+            type: 'drive-folder',
+            id: 'drive-synced:' + String(gradeId),
+            label: (typeof t === 'function' ? t('catalog_drive_synced_card') : '')
+              || 'תיקיית המאגר ב-Google Drive',
+            url: openUrl,
+            count: synced.length,
+            openFirstFile: true,
+          });
+        }
+      }
+
+      return cards.sort(function (a, b) {
+        if (a.type !== b.type) return a.type === 'drive-folder' ? -1 : 1;
+        return String(a.label).localeCompare(String(b.label), 'he');
+      });
+    }
+
+    function getDynamicTopicsForGrade(gradeId) {
+      // Catalog cards for this grade (Drive folder links + manual topics only).
+      return getCatalogGradeCards(gradeId).map(function (card) {
+        return {
+          id: card.id,
+          label: card.label,
+          count: card.count,
+          type: card.type,
+          url: card.url,
+        };
+      });
     }
 
     function mapCacheItemToCatalogFile(item) {
@@ -30629,7 +30707,9 @@
         el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
           CATALOG_GRADES.map(function (g) {
             const topics = getDynamicTopicsForGrade(g.id);
-            const n = filterByGrade(appState.communityCache, g.id).length;
+            const n = topics.reduce(function (sum, topic) {
+              return sum + (Number(topic && topic.count) || 0);
+            }, 0);
             const isGeneral = Boolean(g.isGeneral);
             const icon = isGeneral ? 'fa-globe' : 'fa-folder';
             const subtitle = isGeneral
@@ -30670,21 +30750,34 @@
       if (topics.length) {
         html += '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">' + topics.map(function (topic) {
           const label = topic.label || topic.id || '';
+          const isDrive = topic.type === 'drive-folder' || String(topic.id || '').indexOf('drive-') === 0;
           const count = Number(topic.count) || 0;
+          const subtitle = isDrive
+            ? escapeHtml((typeof t === 'function' ? t('catalog_open_in_drive') : '') || 'פתיחה ב-Google Drive')
+            : escapeHtml(t('catalog_files_in_topic', { count: count }));
+          const icon = isDrive ? 'fa-brands fa-google-drive' : 'fa-solid fa-folder';
+          if (isDrive && topic.url) {
+            return '<a href="' + escapeHtml(String(topic.url)) + '" target="_blank" rel="noopener noreferrer" class="catalog-topic-folder catalog-drive-folder-card text-dir-start bg-cream rounded-xl border border-gold/30 p-4 hover:border-sage/50" data-drive-folder="1">' +
+              '<div class="flex items-start gap-3">' +
+              '<span class="inline-flex w-9 h-9 shrink-0 items-center justify-center rounded-lg bg-sage/15 text-sage-dark"><i class="' + icon + '"></i></span>' +
+              '<div class="min-w-0">' +
+              '<div class="font-display font-bold text-burgundy">' + escapeHtml(label) + '</div>' +
+              '<div class="text-xs text-sage-dark mt-1 font-medium">' + subtitle + '</div>' +
+              '</div></div></a>';
+          }
           return '<button type="button" class="catalog-topic-folder text-dir-start bg-cream rounded-xl border border-gold/30 p-4 hover:border-sage/50" data-topic="' +
             escapeHtml(String(topic.id || label)) + '">' +
             '<div class="flex items-start gap-3">' +
-            '<span class="inline-flex w-9 h-9 shrink-0 items-center justify-center rounded-lg bg-sage/15 text-sage-dark"><i class="fa-solid fa-folder"></i></span>' +
+            '<span class="inline-flex w-9 h-9 shrink-0 items-center justify-center rounded-lg bg-sage/15 text-sage-dark"><i class="' + icon + '"></i></span>' +
             '<div class="min-w-0">' +
             '<div class="font-display font-bold text-burgundy">' + escapeHtml(label) + '</div>' +
-            '<div class="text-xs text-sage-dark mt-1 font-medium">' +
-            escapeHtml(t('catalog_files_in_topic', { count: count })) + '</div>' +
+            '<div class="text-xs text-sage-dark mt-1 font-medium">' + subtitle + '</div>' +
             '</div></div></button>';
         }).join('') + '</div>';
       } else {
         html += '<p class="text-sm text-walnut/60 mb-2">' + escapeHtml(t('catalog_no_topics')) + '</p>';
       }
-      // Files appear only after the user opens a specific topic folder.
+      // No automatic all-files dump — Drive folders open externally; topic cards open materials.
       mutateCatalogDom(function () {
         el.innerHTML = html;
         bindCatalogUploadButtons(el);

@@ -194,8 +194,7 @@ function normalizeFileRefsFromMatches(matches) {
     const driveFileId = String(match.driveFileId || '').trim()
       || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
     if (!driveFileId || seen.has(driveFileId)) return;
-    seen.add(driveFileId);
-    refs.push({
+    const ref = {
       driveFileId: driveFileId,
       name: String(match.fileName || match.title || match.displayTitle || '').trim(),
       folderPath: String(
@@ -212,7 +211,17 @@ function normalizeFileRefsFromMatches(matches) {
       resourceKey: String(match.resourceKey || '').trim(),
       modifiedTime: String(match.modifiedTime || '').trim(),
       gradeId: String(match.gradeId || match.grade_level || '').trim(),
-    });
+    };
+    if (!isGeminiTextSourceCandidate(ref)) {
+      console.warn(
+        '[community-drive-archive] skip non-text source for Gemini:',
+        ref.name || ref.driveFileId,
+        ref.mimeType || '(no mime)'
+      );
+      return;
+    }
+    seen.add(driveFileId);
+    refs.push(ref);
   });
   return refs.slice(0, MAX_FILES_FOR_SUMMARY);
 }
@@ -394,19 +403,55 @@ function extractGeminiText(payload) {
 function resolveMultimodalMime(mimeType, fileName) {
   const mime = String(mimeType || '').toLowerCase().trim();
   const name = String(fileName || '').toLowerCase();
+  // Only PDF binary is allowed for Gemini multimodal. Images (svg/png/jpg/…)
+  // cause Unsupported MIME errors on gemini-2.5-flash and are excluded.
   if (mime === 'application/pdf' || /\.pdf$/i.test(name)) return 'application/pdf';
-  if (mime === 'image/jpeg' || mime === 'image/jpg' || /\.jpe?g$/i.test(name)) return 'image/jpeg';
-  if (mime === 'image/png' || /\.png$/i.test(name)) return 'image/png';
-  if (mime === 'image/webp' || /\.webp$/i.test(name)) return 'image/webp';
-  if (mime === 'image/gif' || /\.gif$/i.test(name)) return 'image/gif';
-  if (mime.indexOf('image/') === 0) return mime;
   return '';
+}
+
+/**
+ * True when a Drive file is a text/document source suitable for community summary
+ * (PDF, Word, plain text, Google Docs). Images/icons/audio/video are excluded.
+ */
+function isGeminiTextSourceCandidate(ref) {
+  if (!ref) return false;
+  const mime = String(ref.mimeType || '').toLowerCase().trim();
+  const name = String(ref.name || ref.fileName || '').toLowerCase();
+  if (!mime && !name) return true; // unknown — try extract, skip multimodal images later
+  if (mime.indexOf('image/') === 0 || /\.(svg|png|jpe?g|gif|webp|bmp|ico|heic|heif)$/i.test(name)) {
+    return false;
+  }
+  if (mime.indexOf('audio/') === 0 || mime.indexOf('video/') === 0) return false;
+  if (/\.(mp3|mp4|mov|wav|m4a|avi|webm)$/i.test(name)) return false;
+  if (
+    mime === 'application/pdf'
+    || mime === 'text/plain'
+    || mime === 'text/markdown'
+    || mime === 'text/csv'
+    || mime === 'application/msword'
+    || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || mime === 'application/vnd.google-apps.document'
+    || mime === 'application/vnd.google-apps.presentation'
+    || mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    || /\.(pdf|txt|md|docx?|pptx?)$/i.test(name)
+  ) {
+    return true;
+  }
+  // Google Docs often have empty mime on search hits — allow by Docs URL shape.
+  if (/docs\.google\.com\/document/i.test(String(ref.fileUrl || ref.webViewLink || ''))) {
+    return true;
+  }
+  // Unknown non-image — allow text extract attempt; multimodal path still PDF-only.
+  if (mime && mime.indexOf('image/') !== 0) return true;
+  if (!mime) return true;
+  return false;
 }
 
 function isMultimodalCandidate(ref) {
   if (!ref) return false;
   const reason = String(ref.failReason || '');
   if (reason === 'not_found' || reason === 'broken_shortcut') return false;
+  if (!isGeminiTextSourceCandidate(ref)) return false;
   return Boolean(resolveMultimodalMime(ref.mimeType, ref.name));
 }
 
@@ -927,6 +972,14 @@ async function extractTextsForRefs(fileRefs, accessToken) {
       break;
     }
     const ref = fileRefs[i];
+    if (!isGeminiTextSourceCandidate(ref)) {
+      console.warn(
+        '[community-drive-archive] skip extract — unsupported media for summary:',
+        ref && (ref.name || ref.driveFileId),
+        ref && ref.mimeType
+      );
+      continue;
+    }
     try {
       const extracted = await driveCatalogSync.extractDriveFileText(ref.driveFileId, {
         accessToken: accessToken,
@@ -1265,4 +1318,5 @@ module.exports = {
   emptySummaryResult,
   resolveMultimodalMime,
   isMultimodalCandidate,
+  isGeminiTextSourceCandidate,
 };
