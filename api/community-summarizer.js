@@ -1095,24 +1095,34 @@ async function pollCommunitySummaryJob(options) {
   };
 
   if (row && row.community_status === 'ok' && String(row.summary_md || '').trim()) {
-    console.log('[community-summarizer] poll READY — returning archived summary');
-    return finalizeSummaryPayload(base, {
-      heading: COMMUNITY_SUMMARY_HEADING,
-      summary: String(row.summary_md || ''),
-      communityStatus: 'ok',
-      fromArchive: true,
-      deltaUpdated: false,
-      archiveKey: row.archive_key || archiveKey,
-      fileRefs: Array.isArray(row.file_refs) ? row.file_refs : [],
-      sourceFingerprint: String(row.source_fingerprint || row.drive_fingerprint || ''),
-      model: row.model || null,
-      smartCacheHit: true,
-    }, citationsFromFileRefs(row.file_refs), {
-      configured: driveIsConfigured(),
-      matches: [],
-      matchCount: Array.isArray(row.file_refs) ? row.file_refs.length : 0,
-      poll: true,
-    });
+    if (!communityDriveArchive.isUsableArchiveRow(row)) {
+      console.warn(
+        '[community-summarizer] poll found ok row but summary is not usable/pedagogical — keep processing',
+        '| archive_key:',
+        archiveKey.slice(0, 16),
+        '| chars:',
+        String(row.summary_md || '').length
+      );
+    } else {
+      console.log('[community-summarizer] poll READY — returning archived summary');
+      return finalizeSummaryPayload(base, {
+        heading: COMMUNITY_SUMMARY_HEADING,
+        summary: String(row.summary_md || ''),
+        communityStatus: 'ok',
+        fromArchive: true,
+        deltaUpdated: false,
+        archiveKey: row.archive_key || archiveKey,
+        fileRefs: Array.isArray(row.file_refs) ? row.file_refs : [],
+        sourceFingerprint: String(row.source_fingerprint || row.drive_fingerprint || ''),
+        model: row.model || null,
+        smartCacheHit: true,
+      }, citationsFromFileRefs(row.file_refs), {
+        configured: driveIsConfigured(),
+        matches: [],
+        matchCount: Array.isArray(row.file_refs) ? row.file_refs.length : 0,
+        poll: true,
+      });
+    }
   }
 
   if (row && row.community_status === 'unavailable') {

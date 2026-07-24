@@ -28,7 +28,7 @@ const GEMINI_MAX_OUTPUT_TOKENS = 16384;
  * Bump this when the pedagogical prompt / depth contract changes so old shallow
  * archive rows are not reused (fingerprint alone is not enough).
  */
-const PROMPT_VERSION = 'v3-deep-workplan';
+const PROMPT_VERSION = 'v4-content-not-metadata';
 
 /** Exact UI copy from product spec (Hebrew). */
 const COMMUNITY_SUMMARY_HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
@@ -46,6 +46,8 @@ const MAX_MULTIMODAL_FILES = 12;
 const MIN_RELIABLE_PDF_TEXT_CHARS = 1800;
 /** Reject / regenerate summaries shorter than this (~deep Hebrew work plan). */
 const MIN_DEEP_SUMMARY_CHARS = 4200;
+/** Minimum extracted pedagogical chars across all text bundles before calling Gemini. */
+const MIN_CORPUS_CHARS_FOR_GEMINI = 400;
 /** Exact / alias equivalence threshold for silent cache reuse. */
 const SEMANTIC_EQUIV_MIN_SCORE = 0.88;
 /** Partial / "did you mean" suggestion threshold. */
@@ -285,6 +287,7 @@ function buildArchiveKeyCandidates(query, options) {
 function isSummaryDeepEnough(summary) {
   const s = String(summary || '').trim();
   if (s.length < MIN_DEEP_SUMMARY_CHARS) return false;
+  if (looksLikeDriveCatalogMetadata(s)) return false;
   const sectionChecks = [
     /רקע והדגשה\s*פדגוגית/,
     /סינתזה\s*רחבה/,
@@ -301,6 +304,34 @@ function isSummaryDeepEnough(summary) {
   // Prefer structured headings over a flat paragraph blob.
   const headingCount = (s.match(/^#{1,3}\s+/gm) || []).length;
   return headingCount >= 4;
+}
+
+/**
+ * Detect Drive catalog notes / raw file-metadata dumps that must never be
+ * treated as pedagogical file content or as a finished summary.
+ * Example: "[catalogTopic:רומא] [driveFileId:abc] [title:…]"
+ */
+function looksLikeDriveCatalogMetadata(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/\[catalogTopic\s*:/i.test(s) && /\[driveFileId\s*:/i.test(s)) return true;
+  if (/\[driveFileId\s*:/i.test(s) && /\[title\s*:/i.test(s)) return true;
+  if (/\[drivePath\s*:/i.test(s) && /\[catalogTopic\s*:/i.test(s)) return true;
+  // Raw JSON / Drive API object dumps.
+  if (/^\s*[\{\[]/.test(s) && /"driveFileId"\s*:|"mimeType"\s*:|"webViewLink"\s*:/.test(s)) {
+    return true;
+  }
+  const metaTagHits = (s.match(/\[(catalogTopic|driveFileId|drivePath|title|subfolder|tags|desc)\s*:/gi) || []).length;
+  if (metaTagHits >= 2 && s.length < 2000) return true;
+  if (metaTagHits >= 3) return true;
+  return false;
+}
+
+function isPedagogicalSummaryAcceptable(summary) {
+  const s = sanitizeCommunitySummaryMarkdown(summary);
+  if (!s) return false;
+  if (looksLikeDriveCatalogMetadata(s)) return false;
+  return isSummaryDeepEnough(s);
 }
 
 function buildSourceFingerprint(fileRefs) {
@@ -554,6 +585,18 @@ function isUsableArchiveRow(row) {
       JSON.stringify(row.topic),
       '| grade_id:',
       JSON.stringify(row.grade_id)
+    );
+    return false;
+  }
+  if (looksLikeDriveCatalogMetadata(summary)) {
+    console.log(
+      '[community-drive-archive] row unusable — catalog metadata dump, not pedagogical summary',
+      '| topic:',
+      JSON.stringify(row.topic),
+      '| grade_id:',
+      JSON.stringify(row.grade_id),
+      '| preview:',
+      summary.slice(0, 120)
     );
     return false;
   }
@@ -1693,6 +1736,7 @@ function buildCommunitySummarySystemPrompt() {
     'כל מראה מקום בשורה נפרדת כקישור Markdown: [שם הקובץ](url).',
     'פורמט פלט חובה: החזר את מסמך ה־Markdown המלא בלבד — התחל ב־# כותרת, המשך עם ## / ###, וסיים במראי מקום.',
     'אסור לעטוף ב-JSON, אסור {"summary":...}, אסור ```markdown או ```json — רק גוף המסמך בעברית.',
+    'אסור להחזיר מטא־דאטה של Drive, אובייקטי API, מזהי קבצים, או מחרוזות כמו [catalogTopic:…] / [driveFileId:…] / [title:…] / [drivePath:…] — אלה אינם סיכום פדגוגי.',
   ].join(' ');
 }
 
@@ -1712,14 +1756,16 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
   const gradeLabel = resolveGradeLabelForPrompt(opts.gradeId || opts.currentGrade);
   const sourcesBlock = (fileBundles || []).map(function (bundle, idx) {
     const leafName = shortCitationDisplayName(bundle.name, 'קובץ Drive');
+    const body = String(bundle.text || '').trim();
+    if (!body || looksLikeDriveCatalogMetadata(body)) return '';
     return [
       '=== מקור טקסט ' + (idx + 1) + ' ===',
       'שם קובץ להצגה במראי מקום: ' + leafName,
       bundle.webViewLink ? ('קישור Drive: ' + bundle.webViewLink) : '',
-      'תוכן:',
-      String(bundle.text || '').slice(0, MAX_CHARS_PER_FILE),
+      'תוכן הקובץ (טקסט פנימי שחולץ מ-Drive — השתמש בזה בלבד):',
+      body.slice(0, MAX_CHARS_PER_FILE),
     ].filter(Boolean).join('\n');
-  }).join('\n\n');
+  }).filter(Boolean).join('\n\n');
 
   const mediaBlock = (mediaMeta || []).map(function (item, idx) {
     const ref = item.ref || {};
@@ -1738,7 +1784,8 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
     gradeLabel ? ('שכבת גיל / כיתה: ' + gradeLabel) : '',
     opts.topic ? ('נושא קטלוג: ' + opts.topic) : '',
     '',
-    'הנחיית מקור קשיחה: הסתמך אך ורק על חומרי המאגר הקהילתי המצורפים להלן. אסור להמציא או להוסיף מידע חיצוני שאינו במקורות.',
+    'הנחיית מקור קשיחה: הסתמך אך ורק על תוכן הקבצים הפנימי שחולץ מ-Google Drive ומסמכי ה־PDF/תמונות המצורפים. אסור להמציא או להוסיף מידע חיצוני.',
+    'אסור להחזיר או לשכפל מטא־דאטה של קבצים (catalogTopic / driveFileId / title / drivePath / JSON של Drive API). הפלט חייב להיות סיכום פדגוגי בעברית ב־Markdown בלבד.',
     'עבד וחלץ טקסט מכל הקבצים והמסמכים שלהלן (מחברות תלמידים/מורים, ספרי שיעור ראשי, מסמכים ו־PDF כולל סרוקים) ובנה תכנית עבודה לימודית מעמיקה, מפורטת ומורחבת למורה — סינתזה אמיתית בין המקורות, לא תקציר שטחי ולא סיכום קצר/דל.',
     'כשיש חומר במקורות: כתוב מסמך מפורט באורך מינימום 1200–2000 מילים (או יותר לפי עומק החומר). כל סעיף ראשי חייב להיות עשיר בתוכן — לא כותרת עם משפט בודד ולא רשימת בולטים שטחית.',
     'חובה לכלול את חמשת הסעיפים עם כותרות ## (<h2>) ותתי־סעיפים ### (<h3>)/בולטים מפורטים: (1) רקע והדגשה פדגוגית; (2) סינתזה רחבה של החומרים; (3) הצעות לפעילויות יצירתיות ואמנותיות; (4) דרכי הערכה ומודלים למבחן/עבודה; (5) מראי מקום והפניות למאגר.',
@@ -1748,7 +1795,7 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
     COMMUNITY_SUMMARY_HEADING,
     '',
     'פורמט פלט חובה: החזר רק את מסמך ה־Markdown המלא בעברית (כותרת #, סעיפי ## / ###, מראי מקום).',
-    'אין JSON, אין {"summary":...}, אין עטיפת ```.',
+    'אין JSON, אין {"summary":...}, אין עטיפת ```, אין אובייקטי Drive.',
     '',
     sourcesBlock,
     mediaBlock,
@@ -1765,10 +1812,38 @@ async function summarizeWithGemini15Pro(query, fileBundles, options) {
  */
 async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta, options) {
   const opts = options || {};
+  const usableBundles = (fileBundles || []).filter(function (bundle) {
+    const body = String(bundle && bundle.text || '').trim();
+    return body.length >= 40 && !looksLikeDriveCatalogMetadata(body);
+  });
+  const media = Array.isArray(mediaMeta) ? mediaMeta : [];
+  const corpusChars = usableBundles.reduce(function (sum, bundle) {
+    return sum + String(bundle.text || '').length;
+  }, 0);
+
+  console.log(
+    '[community-drive-archive] Gemini corpus check',
+    '| textBundles:',
+    usableBundles.length,
+    '| corpusChars:',
+    corpusChars,
+    '| multimodalFiles:',
+    media.length
+  );
+
+  if (!usableBundles.length && !media.length) {
+    throw new Error('No extracted Drive file contents available for Gemini (metadata-only corpus rejected)');
+  }
+  if (!media.length && corpusChars < MIN_CORPUS_CHARS_FOR_GEMINI) {
+    throw new Error(
+      'Extracted Drive text too thin for pedagogical summary (' + corpusChars + ' chars; need file body content)'
+    );
+  }
+
   const systemPrompt = buildCommunitySummarySystemPrompt();
-  const preamble = buildCommunitySummaryTextPreamble(query, opts, fileBundles, mediaMeta);
+  const preamble = buildCommunitySummaryTextPreamble(query, opts, usableBundles, media);
   const userParts = [{ text: preamble }];
-  (mediaMeta || []).forEach(function (item) {
+  media.forEach(function (item) {
     if (item && item.contentPart) userParts.push(item.contentPart);
   });
 
@@ -1782,6 +1857,16 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
       let summary = await callGeminiModel(models[i], systemPrompt, userParts, {
         temperature: 0.55,
       });
+      if (looksLikeDriveCatalogMetadata(summary)) {
+        console.warn(
+          '[community-drive-archive] Gemini returned catalog metadata — rejecting draft:',
+          models[i],
+          '| preview:',
+          String(summary || '').slice(0, 160)
+        );
+        lastErr = new Error('Gemini returned Drive catalog metadata instead of a pedagogical summary');
+        continue;
+      }
       console.log(
         '[community-drive-archive] Gemini draft length:',
         summary.length,
@@ -1800,17 +1885,19 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
         retryParts[0] = {
           text: preamble + '\n\n' + [
             '=== הנחיית העמקה (חובה) ===',
-            'הטיוטה הקודמת הייתה קצרה/דלה מדי. כתוב מחדש תכנית עבודה מלאה ומעמיקה.',
+            'הטיוטה הקודמת הייתה קצרה/דלה מדי או לא פדגוגית. כתוב מחדש תכנית עבודה מלאה ומעמיקה.',
             'מינימום 1500 מילים. חובה לכלול את כל חמשת הסעיפים עם ## ו־###.',
             'שלוף מהקבצים המצורפים פעילויות יצירתיות/אמנותיות ומודלי הערכה/מבחנים/עבודות במפורש.',
-            'אל תקצר. אל תחזיר תקציר. אל תחזיר JSON.',
+            'אל תקצר. אל תחזיר תקציר. אל תחזיר JSON. אל תחזיר מטא־דאטה של Drive או [catalogTopic]/[driveFileId].',
           ].join(' ')
         };
         try {
           const retrySummary = await callGeminiModel(models[i], systemPrompt, retryParts, {
             temperature: 0.65,
           });
-          if (retrySummary && retrySummary.length >= summary.length) {
+          if (looksLikeDriveCatalogMetadata(retrySummary)) {
+            console.warn('[community-drive-archive] retry still returned catalog metadata — ignoring');
+          } else if (retrySummary && retrySummary.length >= summary.length) {
             summary = retrySummary;
           }
           console.log(
@@ -1827,19 +1914,24 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
         }
       }
 
+      if (looksLikeDriveCatalogMetadata(summary)) {
+        lastErr = new Error('Gemini returned Drive catalog metadata instead of a pedagogical summary');
+        continue;
+      }
+
       if (!bestSummary || summary.length > bestSummary.length) {
         bestSummary = summary;
         bestModel = models[i];
       }
-      if (isSummaryDeepEnough(summary)) {
+      if (isPedagogicalSummaryAcceptable(summary)) {
         return {
           summary: summary,
           model: models[i],
-          multimodalFileCount: (mediaMeta || []).length,
+          multimodalFileCount: media.length,
         };
       }
-      // Keep trying fallback models if the draft is still shallow.
-      lastErr = new Error('Gemini returned a shallow pedagogical summary');
+      // Keep trying fallback models if the draft is still shallow / invalid.
+      lastErr = new Error('Gemini returned a shallow or non-pedagogical summary');
       continue;
     } catch (err) {
       lastErr = err;
@@ -1852,19 +1944,14 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
     }
   }
 
-  if (bestSummary) {
-    console.warn(
-      '[community-drive-archive] returning best-effort summary (may still be shorter than ideal)',
-      '| chars:',
-      bestSummary.length
-    );
+  if (bestSummary && isPedagogicalSummaryAcceptable(bestSummary)) {
     return {
       summary: bestSummary,
       model: bestModel,
-      multimodalFileCount: (mediaMeta || []).length,
+      multimodalFileCount: media.length,
     };
   }
-  throw lastErr || new Error('Gemini summarization failed');
+  throw lastErr || new Error('Gemini summarization failed to produce a pedagogical Markdown summary');
 }
 
 async function extractTextsForRefs(fileRefs, accessToken) {
@@ -1907,6 +1994,25 @@ async function extractTextsForRefs(fileRefs, accessToken) {
       const text = String(extracted && extracted.text || '').trim();
       const mime = (extracted && extracted.mimeType) || ref.mimeType || '';
       const isPdfOrImage = Boolean(resolveMultimodalMime(mime, ref.name || (extracted && extracted.name)));
+
+      // Catalog notes / Drive metadata dumps are not pedagogical file contents.
+      if (text && looksLikeDriveCatalogMetadata(text)) {
+        failedRefs.push(Object.assign({}, ref, {
+          failReason: 'catalog_metadata_not_content',
+          mimeType: mime,
+          resourceKey: (extracted && extracted.resourceKey) || ref.resourceKey || '',
+          driveFileId: (extracted && extracted.driveFileId) || ref.driveFileId,
+        }));
+        console.warn(
+          '[community-drive-archive] skip catalog-metadata extract (not file body):',
+          ref.name || ref.driveFileId,
+          '| chars:',
+          text.length,
+          '| preview:',
+          text.slice(0, 120)
+        );
+        continue;
+      }
 
       // Empty / tiny extract → multimodal binary path (scanned PDF / image).
       if (!text || text.length < 40) {
@@ -2253,6 +2359,23 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   );
 
   const cleanedSummary = sanitizeCommunitySummaryMarkdown(generated.summary);
+  if (!cleanedSummary || looksLikeDriveCatalogMetadata(cleanedSummary)) {
+    console.error(
+      '[community-drive-archive] refusing to persist non-pedagogical / metadata summary',
+      '| preview:',
+      String(cleanedSummary || '').slice(0, 200)
+    );
+    throw new Error('Gemini output was Drive metadata or empty — not persisting as community summary');
+  }
+  if (!isPedagogicalSummaryAcceptable(cleanedSummary)) {
+    console.error(
+      '[community-drive-archive] refusing to persist shallow summary',
+      '| chars:',
+      cleanedSummary.length
+    );
+    throw new Error('Gemini output failed pedagogical quality gate — not persisting as ok summary');
+  }
+
   const gradeIdValue = String(opts.gradeId || opts.currentGrade || '').trim();
   const record = {
     archive_key: archiveKey,
@@ -2338,7 +2461,10 @@ module.exports = {
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,
   shortCitationDisplayName,
+  isUsableArchiveRow,
   isSummaryDeepEnough,
+  looksLikeDriveCatalogMetadata,
+  isPedagogicalSummaryAcceptable,
   tryInstantArchiveRetrieval,
   resolveCommunityDriveSummary,
   upsertArchiveRow,
