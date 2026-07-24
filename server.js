@@ -26,6 +26,8 @@ const shareMaterialApi = require('./api/share-material');
 const communityIngestApi = require('./api/community-ingest-api');
 const communityUploadApi = require('./api/community-upload');
 const communityMaterialsApi = require('./api/community-materials');
+const communityCatalogDriveApi = require('./api/community-catalog-drive');
+const communityCatalogLocalApi = require('./api/community-catalog-local');
 const communitySearchApi = require('./api/community-search');
 const communitySummarizerApi = require('./api/community-summarizer');
 const searchHistoryApi = require('./api/search-history');
@@ -145,16 +147,38 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-function applyLongRunningRouteTimeout(req, res) {
+function applyLongRunningRouteTimeout(req, res, options) {
+  const opts = options || {};
+  const routeLabel = opts.routeLabel || 'api/generate';
+  const timeoutError = opts.timeoutError
+    || 'Gateway timeout — Perplexity research took too long. Please retry.';
+  const extraPayload = opts.extraPayload && typeof opts.extraPayload === 'object'
+    ? opts.extraPayload
+    : {};
   req.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
   res.setTimeout(GENERATE_ROUTE_TIMEOUT_MS);
   res.on('timeout', function () {
-    console.error('[api/generate] response timeout after', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
+    console.error('[' + routeLabel + '] response timeout after', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
     if (!res.headersSent) {
-      writeJsonResponse(res, 504, {
-        error: 'Gateway timeout — Perplexity research took too long. Please retry.',
-      });
+      writeJsonResponse(res, 504, Object.assign({ error: timeoutError }, extraPayload));
     }
+  });
+}
+
+/** Community Drive + Gemini only — never blame Perplexity on this route. */
+function applyCommunitySummarizerRouteTimeout(req, res) {
+  applyLongRunningRouteTimeout(req, res, {
+    routeLabel: 'api/community-summarizer',
+    timeoutError:
+      'Gateway timeout — community archive summary (Drive/Gemini) took too long. Please retry.',
+    extraPayload: {
+      success: false,
+      freeCommunitySummary: true,
+      skipLiveSearchBilling: true,
+      usedPerplexity: false,
+      usedLiveResearch: false,
+      communityStatus: 'unavailable',
+    },
   });
 }
 
@@ -431,6 +455,35 @@ async function handleApiCommunityMaterials(req, res) {
   }
 }
 
+async function handleApiCommunityCatalogDrive(req, res) {
+  // Archive UI uses the local on-disk index (instant). Keep this route as an alias.
+  return handleApiCommunityCatalogLocal(req, res);
+}
+
+async function handleApiCommunityCatalogLocal(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    await communityCatalogLocalApi.legacyHandler({
+      method: req.method,
+      headers: req.headers,
+      url: req.url,
+      query: Object.fromEntries(parsedUrl.searchParams.entries()),
+      params: {},
+    }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        success: false,
+        source: 'local',
+        grades: {},
+        data: [],
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
 async function handleApiCommunitySearch(req, res) {
   const apiRes = createApiResponse(res);
   try {
@@ -448,7 +501,17 @@ async function handleApiCommunitySearch(req, res) {
         }
       }
     }
-    applyLongRunningRouteTimeout(req, res);
+    applyLongRunningRouteTimeout(req, res, {
+      routeLabel: 'api/community-search',
+      timeoutError: 'Gateway timeout — community Drive search took too long. Please retry.',
+      extraPayload: {
+        communitySummaryHeading: null,
+        communitySummary: null,
+        communityStatus: 'unavailable',
+        usedPerplexity: false,
+        usedLiveResearch: false,
+      },
+    });
     await communitySearchApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
   } catch (err) {
     if (!res.headersSent) {
@@ -479,13 +542,17 @@ async function handleApiCommunitySummarizer(req, res) {
         }
       }
     }
-    applyLongRunningRouteTimeout(req, res);
+    applyCommunitySummarizerRouteTimeout(req, res);
     await communitySummarizerApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
   } catch (err) {
     if (!res.headersSent) {
       apiRes.status(500).json({
         error: err instanceof Error ? err.message : String(err),
         success: false,
+        freeCommunitySummary: true,
+        skipLiveSearchBilling: true,
+        usedPerplexity: false,
+        usedLiveResearch: false,
         communitySummaryHeading: communitySummarizerApi.COMMUNITY_SUMMARY_HEADING,
         communitySummary: communitySummarizerApi.COMMUNITY_SUMMARY_EMPTY,
         communityStatus: 'unavailable',
@@ -818,6 +885,42 @@ async function handleApiDriveCatalogSyncCron(req, res) {
   }
 }
 
+async function handleApiFlushStaleCacheCron(req, res) {
+  try {
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    const query = Object.fromEntries(parsedUrl.searchParams.entries());
+    assertCronAuthorized(req, query);
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      writeJsonResponse(res, 405, { error: 'Method not allowed' });
+      return;
+    }
+    let bodyPhases = null;
+    if (req.method === 'POST') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.phases)) bodyPhases = parsed.phases;
+        } catch (parseErr) {
+          writeJsonResponse(res, 400, { error: 'Invalid JSON body' });
+          return;
+        }
+      }
+    }
+    const fromQuery = String(query.phases || '').trim();
+    const phases = bodyPhases
+      || (fromQuery
+        ? fromQuery.split(',').map(function (p) { return p.trim(); }).filter(Boolean)
+        : undefined);
+    const result = await cacheDb.flushStaleCommunityAndTopicCaches({ phases: phases });
+    writeJsonResponse(res, 200, result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    console.error('[api/cron/flush-stale-cache]', status, err.message || err);
+    writeJsonResponse(res, status, { error: err.message || String(err) });
+  }
+}
+
 const server = http.createServer(async function (req, res) {
   const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
 
@@ -864,6 +967,14 @@ const server = http.createServer(async function (req, res) {
     return handleApiCommunityMaterials(req, res);
   }
 
+  if (pathname === '/api/community-catalog-drive') {
+    return handleApiCommunityCatalogDrive(req, res);
+  }
+
+  if (pathname === '/api/community-catalog-local') {
+    return handleApiCommunityCatalogLocal(req, res);
+  }
+
   if (pathname === '/api/search-history') {
     return handleApiSearchHistory(req, res);
   }
@@ -898,6 +1009,10 @@ const server = http.createServer(async function (req, res) {
 
   if (pathname === '/api/cron/drive-catalog-sync') {
     return handleApiDriveCatalogSyncCron(req, res);
+  }
+
+  if (pathname === '/api/cron/flush-stale-cache') {
+    return handleApiFlushStaleCacheCron(req, res);
   }
 
   if (
@@ -941,7 +1056,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET /api/auth/google-drive | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | GET /api/community-catalog-local | GET /api/community-catalog-drive | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET/POST /api/cron/flush-stale-cache | GET /api/auth/google-drive | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
@@ -987,6 +1102,24 @@ server.listen(PORT, HOST, function () {
     console.warn('[drive] oauth hydrate init failed:', oauthBootErr.message || oauthBootErr);
   }
   knowledgeSeed.seedKnowledgeBaseIfEmptyAsync();
+  // On deploy/restart: drop stale community_catalog / topic_raster (and related)
+  // cached_results + in-memory Drive folder index so Archive re-fetches fresh data.
+  cacheDb.flushStaleCommunityAndTopicCaches()
+    .then(function (flushResult) {
+      console.log(
+        '[cache] boot flush-stale-cache:',
+        'deleted=',
+        flushResult && flushResult.deleted,
+        'phases=',
+        flushResult && flushResult.phases && flushResult.phases.join(',')
+      );
+    })
+    .catch(function (flushErr) {
+      console.warn(
+        '[cache] boot flush-stale-cache failed:',
+        flushErr && flushErr.message ? flushErr.message : flushErr
+      );
+    });
   if (process.env.DRIVE_CATALOG_SYNC_ON_BOOT === '1') {
     if (cacheDb.isDriveCatalogSyncConfigured()) {
       console.log('[drive-catalog-sync] scheduling background fetch on boot');

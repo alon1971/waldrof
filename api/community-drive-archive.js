@@ -28,15 +28,15 @@ const GEMINI_MAX_OUTPUT_TOKENS = 16384;
  * Bump this when the pedagogical prompt / depth contract changes so old shallow
  * archive rows are not reused (fingerprint alone is not enough).
  */
-const PROMPT_VERSION = 'v3-deep-workplan';
+const PROMPT_VERSION = 'v4-content-not-metadata';
 
 /** Exact UI copy from product spec (Hebrew). */
 const COMMUNITY_SUMMARY_HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
 const COMMUNITY_SUMMARY_EMPTY = 'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
 
-const MAX_FILES_FOR_SUMMARY = 40;
-const MAX_CHARS_PER_FILE = 22000;
-const MAX_TOTAL_CHARS = 160000;
+const MAX_FILES_FOR_SUMMARY = 14;
+const MAX_CHARS_PER_FILE = 12000;
+const MAX_TOTAL_CHARS = 70000;
 /** Prefer inlineData under this size; larger PDFs/images use Gemini Files API. */
 const MAX_GEMINI_INLINE_BYTES = 12 * 1024 * 1024;
 /** Gemini document understanding PDF/image ceiling (~50MB). */
@@ -46,6 +46,8 @@ const MAX_MULTIMODAL_FILES = 12;
 const MIN_RELIABLE_PDF_TEXT_CHARS = 1800;
 /** Reject / regenerate summaries shorter than this (~deep Hebrew work plan). */
 const MIN_DEEP_SUMMARY_CHARS = 4200;
+/** Minimum extracted pedagogical chars across all text bundles before calling Gemini. */
+const MIN_CORPUS_CHARS_FOR_GEMINI = 400;
 /** Exact / alias equivalence threshold for silent cache reuse. */
 const SEMANTIC_EQUIV_MIN_SCORE = 0.88;
 /** Partial / "did you mean" suggestion threshold. */
@@ -285,6 +287,7 @@ function buildArchiveKeyCandidates(query, options) {
 function isSummaryDeepEnough(summary) {
   const s = String(summary || '').trim();
   if (s.length < MIN_DEEP_SUMMARY_CHARS) return false;
+  if (looksLikeDriveCatalogMetadata(s)) return false;
   const sectionChecks = [
     /רקע והדגשה\s*פדגוגית/,
     /סינתזה\s*רחבה/,
@@ -301,6 +304,34 @@ function isSummaryDeepEnough(summary) {
   // Prefer structured headings over a flat paragraph blob.
   const headingCount = (s.match(/^#{1,3}\s+/gm) || []).length;
   return headingCount >= 4;
+}
+
+/**
+ * Detect Drive catalog notes / raw file-metadata dumps that must never be
+ * treated as pedagogical file content or as a finished summary.
+ * Example: "[catalogTopic:רומא] [driveFileId:abc] [title:…]"
+ */
+function looksLikeDriveCatalogMetadata(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/\[catalogTopic\s*:/i.test(s) && /\[driveFileId\s*:/i.test(s)) return true;
+  if (/\[driveFileId\s*:/i.test(s) && /\[title\s*:/i.test(s)) return true;
+  if (/\[drivePath\s*:/i.test(s) && /\[catalogTopic\s*:/i.test(s)) return true;
+  // Raw JSON / Drive API object dumps.
+  if (/^\s*[\{\[]/.test(s) && /"driveFileId"\s*:|"mimeType"\s*:|"webViewLink"\s*:/.test(s)) {
+    return true;
+  }
+  const metaTagHits = (s.match(/\[(catalogTopic|driveFileId|drivePath|title|subfolder|tags|desc)\s*:/gi) || []).length;
+  if (metaTagHits >= 2 && s.length < 2000) return true;
+  if (metaTagHits >= 3) return true;
+  return false;
+}
+
+function isPedagogicalSummaryAcceptable(summary) {
+  const s = sanitizeCommunitySummaryMarkdown(summary);
+  if (!s) return false;
+  if (looksLikeDriveCatalogMetadata(s)) return false;
+  return isSummaryDeepEnough(s);
 }
 
 function buildSourceFingerprint(fileRefs) {
@@ -554,6 +585,18 @@ function isUsableArchiveRow(row) {
       JSON.stringify(row.topic),
       '| grade_id:',
       JSON.stringify(row.grade_id)
+    );
+    return false;
+  }
+  if (looksLikeDriveCatalogMetadata(summary)) {
+    console.log(
+      '[community-drive-archive] row unusable — catalog metadata dump, not pedagogical summary',
+      '| topic:',
+      JSON.stringify(row.topic),
+      '| grade_id:',
+      JSON.stringify(row.grade_id),
+      '| preview:',
+      summary.slice(0, 120)
     );
     return false;
   }
@@ -815,19 +858,29 @@ function parseIsoMs(value) {
 }
 
 /**
- * Drive metadata delta vs an archived community_drive_archive row.
- *
- * Counts as "new/changed" only when:
- *  - driveFileId is not in the archived corpus (source_file_ids / file_refs), OR
- *  - known file's modifiedTime differs from the stored file_refs.modifiedTime, OR
- *  - archive stored no file ids: file modifiedTime is after created_at/updated_at.
- *
- * Intentionally does NOT treat "modifiedTime > created_at" for known file ids as a
- * change — that false-positive forced full extract+Gemini on every request.
+ * Tolerate small Drive/cache clock skew from the summarize-and-persist window.
+ * Within this window, modifiedTime drift is treated as "not really changed".
  */
-function findNewOrChangedDriveFiles(matches, existingRow) {
+const CACHE_TIME_SKEW_MS = 15 * 60 * 1000; // 15 minutes
+/** Skip Drive entirely when the archive row was written this recently. */
+const RECENT_CACHE_INSTANT_HIT_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+function isRecentArchiveRow(row, maxAgeMs) {
+  if (!row) return false;
+  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0
+    ? maxAgeMs
+    : RECENT_CACHE_INSTANT_HIT_MS;
+  const ts = parseIsoMs(row.created_at) || parseIsoMs(row.updated_at);
+  if (!ts) return false;
+  return (Date.now() - ts) <= ageLimit;
+}
+
+function isoOrNull(ms) {
+  return ms > 0 ? new Date(ms).toISOString() : null;
+}
+
+function collectKnownDriveCorpus(existingRow) {
   const row = existingRow || {};
-  const sinceMs = parseIsoMs(row.created_at) || parseIsoMs(row.updated_at);
   const knownIds = new Set();
   (Array.isArray(row.source_file_ids) ? row.source_file_ids : []).forEach(function (id) {
     const s = String(id || '').trim();
@@ -841,35 +894,126 @@ function findNewOrChangedDriveFiles(matches, existingRow) {
     knownIds.add(id);
     if (ref.modifiedTime) knownModified[id] = String(ref.modifiedTime);
   });
+  return { knownIds: knownIds, knownModified: knownModified };
+}
 
+function driveMatchFileId(match) {
+  if (!match) return '';
+  return String(match.driveFileId || '').trim()
+    || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
+}
+
+/**
+ * Analyze Drive metadata vs archived row.
+ * Returns timing diagnostics + files that are meaningfully new/changed after skew.
+ */
+function analyzeDriveCacheDelta(matches, existingRow) {
+  const row = existingRow || {};
+  const cacheRowTimestamp = row.created_at || row.updated_at || null;
+  const cacheRowTimestampMs = parseIsoMs(cacheRowTimestamp);
+  const known = collectKnownDriveCorpus(row);
+  const knownIds = known.knownIds;
+  const knownModified = known.knownModified;
+
+  let driveMaxModifiedTimeMs = 0;
+  const driveIds = [];
   const fresh = [];
+  const newFileIds = [];
+  const changedFiles = [];
+
   (matches || []).forEach(function (match) {
-    if (!match) return;
-    const id = String(match.driveFileId || '').trim()
-      || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
+    const id = driveMatchFileId(match);
     if (!id) return;
+    driveIds.push(id);
     const mod = String(match.modifiedTime || '').trim();
     const modMs = parseIsoMs(mod);
+    if (modMs > driveMaxModifiedTimeMs) driveMaxModifiedTimeMs = modMs;
 
     if (knownIds.size > 0) {
       if (!knownIds.has(id)) {
-        // Brand-new file id since the archive was written.
-        fresh.push(match);
+        // Truly new id: only count if it appears newer than cache (+ skew),
+        // or has no modifiedTime (cannot prove it predates the cache).
+        const newerThanCache = cacheRowTimestampMs > 0
+          && modMs > 0
+          && modMs > (cacheRowTimestampMs + CACHE_TIME_SKEW_MS);
+        const unknownAge = !modMs;
+        if (newerThanCache || unknownAge) {
+          newFileIds.push(id);
+          fresh.push(match);
+        }
         return;
       }
-      // Known corpus member: only a real modifiedTime change vs stored ref counts.
-      if (knownModified[id] && mod && knownModified[id] !== mod) {
+
+      const stored = knownModified[id] || '';
+      const storedMs = parseIsoMs(stored);
+      if (storedMs > 0 && modMs > 0) {
+        const drift = Math.abs(modMs - storedMs);
+        if (drift > CACHE_TIME_SKEW_MS) {
+          changedFiles.push({
+            id: id,
+            storedModifiedTime: stored,
+            driveModifiedTime: mod,
+            driftMs: drift,
+          });
+          fresh.push(match);
+        }
+        return;
+      }
+
+      // Known id without a stored modifiedTime: only stale if Drive says it
+      // changed meaningfully after the cache row was written.
+      if (
+        cacheRowTimestampMs > 0
+        && modMs > 0
+        && modMs > (cacheRowTimestampMs + CACHE_TIME_SKEW_MS)
+      ) {
+        changedFiles.push({
+          id: id,
+          storedModifiedTime: stored || null,
+          driveModifiedTime: mod,
+          driftMs: modMs - cacheRowTimestampMs,
+        });
         fresh.push(match);
       }
       return;
     }
 
-    // Archive row had no file ids — fall back to created_at vs Drive modifiedTime.
-    if (sinceMs > 0 && modMs > sinceMs) {
+    // Empty corpus on the row — fall back to cache timestamp vs Drive modifiedTime.
+    if (
+      cacheRowTimestampMs > 0
+      && modMs > 0
+      && modMs > (cacheRowTimestampMs + CACHE_TIME_SKEW_MS)
+    ) {
+      newFileIds.push(id);
       fresh.push(match);
     }
   });
-  return fresh;
+
+  const deltaMs = (driveMaxModifiedTimeMs > 0 && cacheRowTimestampMs > 0)
+    ? (driveMaxModifiedTimeMs - cacheRowTimestampMs)
+    : null;
+
+  return {
+    cacheRowTimestamp: cacheRowTimestamp,
+    cacheRowTimestampMs: cacheRowTimestampMs,
+    driveMaxModifiedTime: isoOrNull(driveMaxModifiedTimeMs),
+    driveMaxModifiedTimeMs: driveMaxModifiedTimeMs,
+    deltaMs: deltaMs,
+    skewMs: CACHE_TIME_SKEW_MS,
+    knownFileCount: knownIds.size,
+    driveFileCount: driveIds.length,
+    newFileIds: newFileIds,
+    changedFiles: changedFiles,
+    fresh: fresh,
+  };
+}
+
+/**
+ * Drive metadata delta vs an archived community_drive_archive row.
+ * Prefer analyzeDriveCacheDelta for diagnostics; this returns only fresh matches.
+ */
+function findNewOrChangedDriveFiles(matches, existingRow) {
+  return analyzeDriveCacheDelta(matches, existingRow).fresh;
 }
 
 /**
@@ -918,7 +1062,8 @@ function formatArchivedSummaryResult(existing, archiveKey, extras) {
 }
 
 /**
- * Build a Perplexity-style "did you mean" payload (no full summary yet).
+ * Build a confirmation "did you mean" payload (no full summary yet).
+ * Archive/Drive only — never triggers live web research.
  */
 function buildDidYouMeanResult(query, options, suggestion) {
   const opts = options || {};
@@ -950,20 +1095,73 @@ function buildDidYouMeanResult(query, options, suggestion) {
 
 /**
  * Smart cache evaluation against live Drive matches.
- * - No new files since created_at → reuse archive
+ * - No meaningful new/changed files (with time skew) → reuse archive
  * - New files irrelevant to topic → reuse archive
- * - New files relevant → null (caller must re-summarize)
+ * - Meaningful new relevant files → null (caller must re-summarize)
  */
 function evaluateSmartCacheAgainstDrive(existing, matches, options) {
   const opts = options || {};
   if (!isUsableArchiveRow(existing)) return null;
   if (opts.forceRefresh === true || opts.refresh === true) return null;
 
-  const newFiles = findNewOrChangedDriveFiles(matches, existing);
+  const delta = analyzeDriveCacheDelta(matches, existing);
+  console.log(
+    '[community-drive-archive] Drive delta timing',
+    '| cacheRowTimestamp:',
+    delta.cacheRowTimestamp,
+    '| driveMaxModifiedTime:',
+    delta.driveMaxModifiedTime,
+    '| deltaMs:',
+    delta.deltaMs,
+    '| skewMs:',
+    delta.skewMs,
+    '| knownFiles:',
+    delta.knownFileCount,
+    '| driveFiles:',
+    delta.driveFileCount,
+    '| newFileIds:',
+    delta.newFileIds.length,
+    '| changedFiles:',
+    delta.changedFiles.length
+  );
+
+  // Negligible / creation-window drift: Drive max mtime within skew of cache row → HIT.
+  if (
+    delta.cacheRowTimestampMs > 0
+    && delta.driveMaxModifiedTimeMs > 0
+    && delta.driveMaxModifiedTimeMs <= (delta.cacheRowTimestampMs + delta.skewMs)
+    && delta.newFileIds.length === 0
+    && delta.changedFiles.length === 0
+  ) {
+    console.log(
+      '[community-drive-archive] SMART CACHE HIT — driveMaxModifiedTime within skew of cacheRowTimestamp',
+      '| cacheRowTimestamp:',
+      delta.cacheRowTimestamp,
+      '| driveMaxModifiedTime:',
+      delta.driveMaxModifiedTime,
+      '| deltaMs:',
+      delta.deltaMs,
+      '| key:',
+      String(existing.archive_key || '').slice(0, 12)
+    );
+    return formatArchivedSummaryResult(existing, existing.archive_key, {
+      smartCacheHit: true,
+      instantHit: false,
+      matchedTopic: opts.matchedTopic || archiveRowTopicLabel(existing),
+      matchType: opts.matchType || 'exact',
+    });
+  }
+
+  const newFiles = delta.fresh || [];
   if (!newFiles.length) {
     console.log(
-      '[community-drive-archive] SMART CACHE HIT — no new Drive files since',
-      existing.created_at || existing.updated_at,
+      '[community-drive-archive] SMART CACHE HIT — no meaningful Drive changes',
+      '| cacheRowTimestamp:',
+      delta.cacheRowTimestamp,
+      '| driveMaxModifiedTime:',
+      delta.driveMaxModifiedTime,
+      '| deltaMs:',
+      delta.deltaMs,
       '| key:',
       String(existing.archive_key || '').slice(0, 12)
     );
@@ -983,6 +1181,10 @@ function evaluateSmartCacheAgainstDrive(existing, matches, options) {
       JSON.stringify(topic),
       '| newFiles:',
       newFiles.length,
+      '| cacheRowTimestamp:',
+      delta.cacheRowTimestamp,
+      '| driveMaxModifiedTime:',
+      delta.driveMaxModifiedTime,
       '| key:',
       String(existing.archive_key || '').slice(0, 12)
     );
@@ -995,8 +1197,20 @@ function evaluateSmartCacheAgainstDrive(existing, matches, options) {
   }
 
   console.log(
-    '[community-drive-archive] SMART CACHE MISS — relevant new Drive files; will re-summarize',
-    '| newFiles:',
+    '[community-drive-archive] SMART CACHE MISS — relevant new/changed Drive files; will re-summarize',
+    '| cacheRowTimestamp:',
+    delta.cacheRowTimestamp,
+    '| driveMaxModifiedTime:',
+    delta.driveMaxModifiedTime,
+    '| deltaMs:',
+    delta.deltaMs,
+    '| newFileIds:',
+    delta.newFileIds.join(',') || '(none)',
+    '| changed:',
+    delta.changedFiles.map(function (c) {
+      return c.id + '(driftMs=' + c.driftMs + ')';
+    }).join(',') || '(none)',
+    '| files:',
     newFiles.map(function (f) { return f.fileName || f.driveFileId; }).join(' | ')
   );
   return null;
@@ -1047,32 +1261,40 @@ async function upsertArchiveRow(record) {
   if (!payload.summary_md && payload.summary_text) {
     payload.summary_md = payload.summary_text;
   }
+  if (payload.summary_text == null || payload.summary_text === '') {
+    payload.summary_text = String(payload.summary_md || ' ');
+  }
+  if (payload.summary_md == null) {
+    payload.summary_md = String(payload.summary_text || '');
+  }
   if (!payload.grade_level && payload.grade_id) {
     payload.grade_level = payload.grade_id;
   }
   if (!payload.drive_fingerprint && payload.source_fingerprint) {
     payload.drive_fingerprint = payload.source_fingerprint;
   }
+  if (!payload.archive_key) {
+    throw new Error('community_drive_archive upsert requires archive_key');
+  }
   const restPath = '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key';
   console.log(
-    '[community-drive-archive] PERSIST upsert starting',
+    '[community-drive-archive] Upserting to Supabase',
     '| table:',
     TABLE_NAME,
-    '| on_conflict=archive_key',
-    '| payload.topic:',
+    '| status:',
+    payload.community_status,
+    '| topic:',
     JSON.stringify(payload.topic),
-    '| payload.grade_id:',
+    '| grade_id:',
     JSON.stringify(payload.grade_id),
-    '| payload.search_query:',
-    JSON.stringify(payload.search_query),
     '| archive_key:',
-    String(payload.archive_key || '').slice(0, 12) + '…',
-    '| summaryChars:',
+    String(payload.archive_key || '').slice(0, 16),
+    '| summary_text_chars:',
+    String(payload.summary_text || '').length,
+    '| summary_md_chars:',
     String(payload.summary_md || '').length,
-    '| source_file_ids:',
-    Array.isArray(payload.source_file_ids) ? payload.source_file_ids.length : 0,
-    '| fullQuery:',
-    restPath
+    '| updated_at:',
+    payload.updated_at
   );
   const res = await fetch(cfg.url + restPath, {
     method: 'POST',
@@ -1108,16 +1330,53 @@ async function upsertArchiveRow(record) {
     );
   }
   console.log(
-    '[community-drive-archive] PERSIST OK',
+    '[community-drive-archive] PERSIST OK / Upserting to Supabase complete',
     '| topic:',
     JSON.stringify(payload.topic),
     '| grade_id:',
     JSON.stringify(payload.grade_id),
     '| archive_key:',
-    String(payload.archive_key || '').slice(0, 12) + '…'
+    String(payload.archive_key || '').slice(0, 16),
+    '| community_status:',
+    payload.community_status
   );
   const data = text ? JSON.parse(text) : [];
   return Array.isArray(data) ? data[0] : data;
+}
+
+/**
+ * Write a processing stub so clients can poll while Gemini runs in the background.
+ */
+async function upsertProcessingStub(query, options, fileRefs) {
+  const opts = options || {};
+  const q = String(query || '').trim();
+  const archiveKey = opts.archiveKey || buildArchiveKey(q, opts);
+  const gradeIdValue = String(opts.gradeId || opts.currentGrade || '').trim();
+  const refs = Array.isArray(fileRefs) ? fileRefs : [];
+  const placeholder = 'מעבד סיכום מהמאגר הקהילתי…';
+  console.log(
+    '[community-drive-archive] Upserting to Supabase (processing stub)',
+    '| archive_key:',
+    String(archiveKey).slice(0, 16),
+    '| files:',
+    refs.length
+  );
+  return upsertArchiveRow({
+    archive_key: archiveKey,
+    search_query: q,
+    query_text: q,
+    grade_id: gradeIdValue,
+    grade_level: gradeIdValue,
+    topic: String(opts.topic || opts.catalogTopic || q).trim(),
+    summary_md: placeholder,
+    summary_text: placeholder,
+    community_status: 'processing',
+    source_fingerprint: opts.sourceFingerprint || buildSourceFingerprint(refs),
+    drive_fingerprint: opts.sourceFingerprint || buildSourceFingerprint(refs),
+    source_file_ids: refs.map(function (ref) { return ref.driveFileId; }).filter(Boolean),
+    file_refs: refs,
+    model: null,
+  });
 }
 
 function extractGeminiText(payload) {
@@ -1456,18 +1715,20 @@ async function callGeminiModel(model, systemPrompt, userParts, options) {
 
 function buildCommunitySummarySystemPrompt() {
   return [
-    'אתה יועץ פדגוגי בכיר ומנוסה בחינוך ולדורף, הכותב תכניות עבודה לימודיות מעמיקות ומפורטות למורים.',
-    'תפקידך לעבד ולחלץ טקסט מכל הקבצים שסופקו בתיקיית הנושא — ללא יוצא מן הכלל — תוך תשומת לב מיוחדת למחברות תלמידים, מחברות מורים, ספרי שיעור ראשי (main lesson books), מסמכי Word/Google Docs, וקבצי PDF (כולל סרוקים).',
+    'אתה איש חינוך ומומחה בכיר לפדגוגיית וולדורף (Waldorf / Steiner), הכותב תכניות עבודה לימודיות מעמיקות ומפורטות למורים.',
+    'הסתמך אך ורק על הטקסטים, המסמכים, ה־PDF והקבצים שצורפו בבקשה זו מתוך המאגר הקהילתי. אלה מקור האמת היחיד שלך.',
+    'חל איסור מוחלט להמציא, להוסיף, להשלים או לשלב מידע חיצוני, ידע כללי, עובדות היסטוריות/מדעיות, או תכנים שאינם מופיעים במפורש בחומרים שסופקו. אין להסתמך על חיפוש ברשת, על זיכרון מודל, או על מקורות שלא צורפו.',
+    'תפקידך להבין את ההקשר החינוכי־וולדורפי של הטקסטים במאגר, לעבד, לנתח ולסכם אותם בצורה מעמיקה, מקצועית ונגישה — אך ללא סטייה מהתוכן המקורי. אם פרט חסר במקורות, כתוב במפורש שאינו נמצא בחומרים שסופקו — ואל תמציא תחליף.',
+    'עבד וחלץ טקסט מכל הקבצים שסופקו בתיקיית הנושא — ללא יוצא מן הכלל — תוך תשומת לב מיוחדת למחברות תלמידים, מחברות מורים, ספרי שיעור ראשי (main lesson books), מסמכי Word/Google Docs, וקבצי PDF (כולל סרוקים).',
     'אסור בתכלית האיסור להפיק תקציר שטחי, סיכום קצר, רשימת בולטים דלה, או אבסטרקט כללי. המורה הקורא חייב להרגיש שנעשתה עבודה רצינית, איכותית ועמוקה — מסמך תכנית עבודה מקיף ובר־יישום בכיתה.',
-    'בצע סינתזה אמיתית בין כל המקורות לכדי מסמך פדגוגי אחד אחיד ועשיר — לא העתקה של קטעים זה לצד זה, ולא כותרות עם משפט בודד.',
-    'אסור להסתמך על ידע חיצוני או על חיפוש ברשת — רק על הטקסטים/המסמכים/ה־PDF שסופקו. אם פרט מסוים אינו מופיע במקורות, ציין במפורש שאינו נמצא בחומרים שסופקו — אל תמציא.',
+    'בצע סינתזה אמיתית בין כל המקורות לכדי מסמך פדגוגי אחד אחיד ועשיר — לא העתקה של קטעים זה לצד זה, ולא כותרות עם משפט בודד. הסינתזה חייבת לנבוע רק ממה שכתוב במקורות שסופקו.',
     'כתוב בעברית פדגוגית עשירה, רהוטה, מקצועית ועמוקה. פסקאות מלאות (לא שורות בודדות). סיים כל פסקה וכל סעיף בצורה מלאה — אל תקטע משפטים באמצע.',
-    'דרישת אורך ועומק (חובה): כשיש תוכן במקורות, המסמך חייב להיות מפורט ומקיף — מינימום 1200–2000 מילים (ורצוי יותר אם החומר מאפשר). כל אחד מחמשת הסעיפים הראשיים חייב לכלול לפחות 3–5 פסקאות או תתי־סעיפים עם פירוט קונקרטי. אסור להסתפק בכותרת + משפט אחד או ברשימת בולטים שטחית.',
+    'דרישת אורך ועומק (חובה): כשיש תוכן במקורות, המסמך חייב להיות מפורט ומקיף — מינימום 1200–2000 מילים (ורצוי יותר אם החומר מאפשר). כל אחד מחמשת הסעיפים הראשיים חייב לכלול לפחות 3–5 פסקאות או תתי־סעיפים עם פירוט קונקרטי הנשען על המקורות. אסור להסתפק בכותרת + משפט אחד או ברשימת בולטים שטחית.',
     'מבנה Markdown חובה בתוך שדה summary — כותרת ראשית (#), ואז חמשת הסעיפים הבאים בדיוק כ־## (המקבילים ל־<h2>) עם תתי־סעיפים ב־### (המקבילים ל־<h3>) ובולטים מפורטים בכל סעיף:',
-    '## 1. רקע והדגשה פדגוגית — סקירה מעמיקה של התקופה/הנושא במסגרת הפדגוגיה הוולדורפית והתפתחות התודעה לשכבת הגיל/הכיתה הספציפית; השאלות המנחות, הרעיון המרכזי, והמתח/הנושא הרוחני־התפתחותי העולים מהחומרים. הרחב מעבר להגדרה קצרה.',
+    '## 1. רקע והדגשה פדגוגית — סקירה מעמיקה של התקופה/הנושא במסגרת הפדגוגיה הוולדורפית והתפתחות התודעה לשכבת הגיל/הכיתה הספציפית כפי שעולה מהחומרים שסופקו; השאלות המנחות, הרעיון המרכזי, והמתח/הנושא הרוחני־התפתחותי העולים מהמקורות בלבד. הרחב מעבר להגדרה קצרה, בלי להוסיף ידע חיצוני.',
     '## 2. סינתזה רחבה של החומרים — סינתזה יסודית ומפורטת של חומרי ההוראה מכל הקבצים בתיקייה (מערכי שיעור, מחברות, ספרי שיעור ראשי, PDF ומסמכים); ארגן עם כותרות ## / ### ברורות; פרט נושאים, פרקים, מושגים ורצף אפשרי לאורך התקופה כפי שמשתקף במקורות — לא כותרות כלליות בלבד.',
-    '## 3. הצעות לפעילויות יצירתיות ואמנותיות — רעיונות קונקרטיים ומעשיים לעבודה אמנותית, יצירתית או חווייתית הנשענים על חומרי התיקייה (ציור לוח, כתיבה יוצרת, תנועה, מלאכה, סיפור, עבודה מעשית וכו׳).',
-    '## 4. דרכי הערכה ומודלים למבחן/עבודה — מודלי הערכה מעשיים, מחוונים/רובריקות, או מבני מבחן/עבודה כפי שנמצאים בקבצים או נגזרים מהם; מפרט דרישות לתלמיד. אם אין חומרי הערכה במקורות — ציין זאת במפורש ואל תמציא מבחן, אך תאר כיצד המקורות מציגים מיומנויות לתרגול/הפנמה.',
+    '## 3. הצעות לפעילויות יצירתיות ואמנותיות — רעיונות קונקרטיים ומעשיים לעבודה אמנותית, יצירתית או חווייתית הנשענים אך ורק על חומרי התיקייה שסופקו (ציור לוח, כתיבה יוצרת, תנועה, מלאכה, סיפור, עבודה מעשית וכו׳). אל תציע פעילויות שאינן נתמכות במקורות.',
+    '## 4. דרכי הערכה ומודלים למבחן/עבודה — מודלי הערכה מעשיים, מחוונים/רובריקות, או מבני מבחן/עבודה כפי שנמצאים בקבצים או נגזרים ישירות מהם; מפרט דרישות לתלמיד. אם אין חומרי הערכה במקורות — ציין זאת במפורש ואל תמציא מבחן, אך תאר כיצד המקורות מציגים מיומנויות לתרגול/הפנמה.',
     '## 5. מראי מקום והפניות למאגר — רשימה ברורה של הקבצים/הקישורים מהמאגר הקהילתי שבהם נעשה שימוש, כדי שהמורה יוכל לגשת בקלות לחומרי המקור.',
     'הדגש מושגי מפתח ב־**מודגש**. בהדגשות Markdown שמור על זוגות תקינים של **…** באותה יחידת טקסט — אל תשבור ** באמצע שורה ללא סגירה.',
     'חובה להשלים את כל חמשת הסעיפים עד הסוף בעומק מלא — אל תעצור באמצע משפט, אל תקצר בגלל אורך, אל תדלג על סעיפים, ואל תסיים במשפט כללי כמו «ועוד».',
@@ -1475,6 +1736,7 @@ function buildCommunitySummarySystemPrompt() {
     'כל מראה מקום בשורה נפרדת כקישור Markdown: [שם הקובץ](url).',
     'פורמט פלט חובה: החזר את מסמך ה־Markdown המלא בלבד — התחל ב־# כותרת, המשך עם ## / ###, וסיים במראי מקום.',
     'אסור לעטוף ב-JSON, אסור {"summary":...}, אסור ```markdown או ```json — רק גוף המסמך בעברית.',
+    'אסור להחזיר מטא־דאטה של Drive, אובייקטי API, מזהי קבצים, או מחרוזות כמו [catalogTopic:…] / [driveFileId:…] / [title:…] / [drivePath:…] — אלה אינם סיכום פדגוגי.',
   ].join(' ');
 }
 
@@ -1494,14 +1756,16 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
   const gradeLabel = resolveGradeLabelForPrompt(opts.gradeId || opts.currentGrade);
   const sourcesBlock = (fileBundles || []).map(function (bundle, idx) {
     const leafName = shortCitationDisplayName(bundle.name, 'קובץ Drive');
+    const body = String(bundle.text || '').trim();
+    if (!body || looksLikeDriveCatalogMetadata(body)) return '';
     return [
       '=== מקור טקסט ' + (idx + 1) + ' ===',
       'שם קובץ להצגה במראי מקום: ' + leafName,
       bundle.webViewLink ? ('קישור Drive: ' + bundle.webViewLink) : '',
-      'תוכן:',
-      String(bundle.text || '').slice(0, MAX_CHARS_PER_FILE),
+      'תוכן הקובץ (טקסט פנימי שחולץ מ-Drive — השתמש בזה בלבד):',
+      body.slice(0, MAX_CHARS_PER_FILE),
     ].filter(Boolean).join('\n');
-  }).join('\n\n');
+  }).filter(Boolean).join('\n\n');
 
   const mediaBlock = (mediaMeta || []).map(function (item, idx) {
     const ref = item.ref || {};
@@ -1520,16 +1784,18 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
     gradeLabel ? ('שכבת גיל / כיתה: ' + gradeLabel) : '',
     opts.topic ? ('נושא קטלוג: ' + opts.topic) : '',
     '',
+    'הנחיית מקור קשיחה: הסתמך אך ורק על תוכן הקבצים הפנימי שחולץ מ-Google Drive ומסמכי ה־PDF/תמונות המצורפים. אסור להמציא או להוסיף מידע חיצוני.',
+    'אסור להחזיר או לשכפל מטא־דאטה של קבצים (catalogTopic / driveFileId / title / drivePath / JSON של Drive API). הפלט חייב להיות סיכום פדגוגי בעברית ב־Markdown בלבד.',
     'עבד וחלץ טקסט מכל הקבצים והמסמכים שלהלן (מחברות תלמידים/מורים, ספרי שיעור ראשי, מסמכים ו־PDF כולל סרוקים) ובנה תכנית עבודה לימודית מעמיקה, מפורטת ומורחבת למורה — סינתזה אמיתית בין המקורות, לא תקציר שטחי ולא סיכום קצר/דל.',
     'כשיש חומר במקורות: כתוב מסמך מפורט באורך מינימום 1200–2000 מילים (או יותר לפי עומק החומר). כל סעיף ראשי חייב להיות עשיר בתוכן — לא כותרת עם משפט בודד ולא רשימת בולטים שטחית.',
     'חובה לכלול את חמשת הסעיפים עם כותרות ## (<h2>) ותתי־סעיפים ### (<h3>)/בולטים מפורטים: (1) רקע והדגשה פדגוגית; (2) סינתזה רחבה של החומרים; (3) הצעות לפעילויות יצירתיות ואמנותיות; (4) דרכי הערכה ומודלים למבחן/עבודה; (5) מראי מקום והפניות למאגר.',
-    'שלב בין מערכי שיעור, מחברות, ספרי שיעור ראשי, דפי עבודה, מבחנים, PDF וחומרי רקע לכתיבה קוהרנטית אחת עם ## / ### ובולטים מפורטים.',
+    'שלב בין מערכי שיעור, מחברות, ספרי שיעור ראשי, דפי עבודה, מבחנים, PDF וחומרי רקע לכתיבה קוהרנטית אחת עם ## / ### ובולטים מפורטים — ורק על בסיס המקורות שסופקו.',
     'כתוב עד להשלמה מלאה של כל הסעיפים כולל מראי מקום — בלי קיטוע באמצע משפט ובלי קיצור מלאכותי.',
     'הכותרת הראשית של המסמך חייבת להיות:',
     COMMUNITY_SUMMARY_HEADING,
     '',
     'פורמט פלט חובה: החזר רק את מסמך ה־Markdown המלא בעברית (כותרת #, סעיפי ## / ###, מראי מקום).',
-    'אין JSON, אין {"summary":...}, אין עטיפת ```.',
+    'אין JSON, אין {"summary":...}, אין עטיפת ```, אין אובייקטי Drive.',
     '',
     sourcesBlock,
     mediaBlock,
@@ -1546,10 +1812,38 @@ async function summarizeWithGemini15Pro(query, fileBundles, options) {
  */
 async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta, options) {
   const opts = options || {};
+  const usableBundles = (fileBundles || []).filter(function (bundle) {
+    const body = String(bundle && bundle.text || '').trim();
+    return body.length >= 40 && !looksLikeDriveCatalogMetadata(body);
+  });
+  const media = Array.isArray(mediaMeta) ? mediaMeta : [];
+  const corpusChars = usableBundles.reduce(function (sum, bundle) {
+    return sum + String(bundle.text || '').length;
+  }, 0);
+
+  console.log(
+    '[community-drive-archive] Gemini corpus check',
+    '| textBundles:',
+    usableBundles.length,
+    '| corpusChars:',
+    corpusChars,
+    '| multimodalFiles:',
+    media.length
+  );
+
+  if (!usableBundles.length && !media.length) {
+    throw new Error('No extracted Drive file contents available for Gemini (metadata-only corpus rejected)');
+  }
+  if (!media.length && corpusChars < MIN_CORPUS_CHARS_FOR_GEMINI) {
+    throw new Error(
+      'Extracted Drive text too thin for pedagogical summary (' + corpusChars + ' chars; need file body content)'
+    );
+  }
+
   const systemPrompt = buildCommunitySummarySystemPrompt();
-  const preamble = buildCommunitySummaryTextPreamble(query, opts, fileBundles, mediaMeta);
+  const preamble = buildCommunitySummaryTextPreamble(query, opts, usableBundles, media);
   const userParts = [{ text: preamble }];
-  (mediaMeta || []).forEach(function (item) {
+  media.forEach(function (item) {
     if (item && item.contentPart) userParts.push(item.contentPart);
   });
 
@@ -1563,6 +1857,16 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
       let summary = await callGeminiModel(models[i], systemPrompt, userParts, {
         temperature: 0.55,
       });
+      if (looksLikeDriveCatalogMetadata(summary)) {
+        console.warn(
+          '[community-drive-archive] Gemini returned catalog metadata — rejecting draft:',
+          models[i],
+          '| preview:',
+          String(summary || '').slice(0, 160)
+        );
+        lastErr = new Error('Gemini returned Drive catalog metadata instead of a pedagogical summary');
+        continue;
+      }
       console.log(
         '[community-drive-archive] Gemini draft length:',
         summary.length,
@@ -1581,17 +1885,19 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
         retryParts[0] = {
           text: preamble + '\n\n' + [
             '=== הנחיית העמקה (חובה) ===',
-            'הטיוטה הקודמת הייתה קצרה/דלה מדי. כתוב מחדש תכנית עבודה מלאה ומעמיקה.',
+            'הטיוטה הקודמת הייתה קצרה/דלה מדי או לא פדגוגית. כתוב מחדש תכנית עבודה מלאה ומעמיקה.',
             'מינימום 1500 מילים. חובה לכלול את כל חמשת הסעיפים עם ## ו־###.',
             'שלוף מהקבצים המצורפים פעילויות יצירתיות/אמנותיות ומודלי הערכה/מבחנים/עבודות במפורש.',
-            'אל תקצר. אל תחזיר תקציר. אל תחזיר JSON.',
+            'אל תקצר. אל תחזיר תקציר. אל תחזיר JSON. אל תחזיר מטא־דאטה של Drive או [catalogTopic]/[driveFileId].',
           ].join(' ')
         };
         try {
           const retrySummary = await callGeminiModel(models[i], systemPrompt, retryParts, {
             temperature: 0.65,
           });
-          if (retrySummary && retrySummary.length >= summary.length) {
+          if (looksLikeDriveCatalogMetadata(retrySummary)) {
+            console.warn('[community-drive-archive] retry still returned catalog metadata — ignoring');
+          } else if (retrySummary && retrySummary.length >= summary.length) {
             summary = retrySummary;
           }
           console.log(
@@ -1608,19 +1914,24 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
         }
       }
 
+      if (looksLikeDriveCatalogMetadata(summary)) {
+        lastErr = new Error('Gemini returned Drive catalog metadata instead of a pedagogical summary');
+        continue;
+      }
+
       if (!bestSummary || summary.length > bestSummary.length) {
         bestSummary = summary;
         bestModel = models[i];
       }
-      if (isSummaryDeepEnough(summary)) {
+      if (isPedagogicalSummaryAcceptable(summary)) {
         return {
           summary: summary,
           model: models[i],
-          multimodalFileCount: (mediaMeta || []).length,
+          multimodalFileCount: media.length,
         };
       }
-      // Keep trying fallback models if the draft is still shallow.
-      lastErr = new Error('Gemini returned a shallow pedagogical summary');
+      // Keep trying fallback models if the draft is still shallow / invalid.
+      lastErr = new Error('Gemini returned a shallow or non-pedagogical summary');
       continue;
     } catch (err) {
       lastErr = err;
@@ -1633,19 +1944,14 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
     }
   }
 
-  if (bestSummary) {
-    console.warn(
-      '[community-drive-archive] returning best-effort summary (may still be shorter than ideal)',
-      '| chars:',
-      bestSummary.length
-    );
+  if (bestSummary && isPedagogicalSummaryAcceptable(bestSummary)) {
     return {
       summary: bestSummary,
       model: bestModel,
-      multimodalFileCount: (mediaMeta || []).length,
+      multimodalFileCount: media.length,
     };
   }
-  throw lastErr || new Error('Gemini summarization failed');
+  throw lastErr || new Error('Gemini summarization failed to produce a pedagogical Markdown summary');
 }
 
 async function extractTextsForRefs(fileRefs, accessToken) {
@@ -1688,6 +1994,25 @@ async function extractTextsForRefs(fileRefs, accessToken) {
       const text = String(extracted && extracted.text || '').trim();
       const mime = (extracted && extracted.mimeType) || ref.mimeType || '';
       const isPdfOrImage = Boolean(resolveMultimodalMime(mime, ref.name || (extracted && extracted.name)));
+
+      // Catalog notes / Drive metadata dumps are not pedagogical file contents.
+      if (text && looksLikeDriveCatalogMetadata(text)) {
+        failedRefs.push(Object.assign({}, ref, {
+          failReason: 'catalog_metadata_not_content',
+          mimeType: mime,
+          resourceKey: (extracted && extracted.resourceKey) || ref.resourceKey || '',
+          driveFileId: (extracted && extracted.driveFileId) || ref.driveFileId,
+        }));
+        console.warn(
+          '[community-drive-archive] skip catalog-metadata extract (not file body):',
+          ref.name || ref.driveFileId,
+          '| chars:',
+          text.length,
+          '| preview:',
+          text.slice(0, 120)
+        );
+        continue;
+      }
 
       // Empty / tiny extract → multimodal binary path (scanned PDF / image).
       if (!text || text.length < 40) {
@@ -1831,6 +2156,14 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   const fingerprint = buildSourceFingerprint(fileRefs);
 
   try {
+    // Background create / explicit refresh: skip cache lookup and go straight to extract+Gemini.
+    if (opts.skipCacheLookup === true || opts.forceRefresh === true || opts.refresh === true) {
+      console.log(
+        '[community-drive-archive] skipCacheLookup/forceRefresh — skipping archive cache hit path',
+        '| archive_key:',
+        String(archiveKey).slice(0, 16)
+      );
+    } else {
     // Prefer an existing row already resolved by semantic/exact match (same table only).
     let existing = opts.existingArchiveRow && isUsableArchiveRow(opts.existingArchiveRow)
       ? opts.existingArchiveRow
@@ -1902,6 +2235,7 @@ async function resolveCommunityDriveSummary(query, matches, options) {
         '[community-drive-archive] CACHE MISS — no community_drive_archive row; will extract + Gemini'
       );
     }
+    } // end !skipCacheLookup
   } catch (lookupErr) {
     console.warn('[community-drive-archive] lookup failed:', lookupErr.message || lookupErr);
   }
@@ -1929,10 +2263,22 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     };
   }
 
+  console.log(
+    '[community-drive-archive] CACHE MISS create pipeline — Drive extract started',
+    '| files:',
+    fileRefs.length,
+    '| archive_key:',
+    String(archiveKey).slice(0, 16)
+  );
+
   let accessToken;
   try {
     accessToken = await driveCatalogSync.resolveDriveAccessToken(opts);
   } catch (tokenErr) {
+    console.error(
+      '[community-drive-archive] Drive access token failed — create pipeline stuck before extract:',
+      tokenErr && tokenErr.message ? tokenErr.message : tokenErr
+    );
     return {
       heading: COMMUNITY_SUMMARY_HEADING,
       summary: COMMUNITY_SUMMARY_EMPTY,
@@ -1951,6 +2297,15 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   const bundles = extracted.bundles || [];
   const failedRefs = extracted.failedRefs || [];
   const multimodalPreferredRefs = extracted.multimodalPreferredRefs || [];
+  console.log(
+    '[community-drive-archive] Drive extract finished',
+    '| textBundles:',
+    bundles.length,
+    '| failed:',
+    failedRefs.length,
+    '| multimodalCandidates:',
+    multimodalPreferredRefs.length
+  );
 
   // When pdf-parse / standard extract yields 0 chars (scanned PDF / image), or only
   // unreliable thin PDF text, send the binary to Gemini multimodal.
@@ -1979,8 +2334,8 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   }
 
   console.log(
-    '[community-drive-archive] sending corpus to Gemini —',
-    'textFiles:',
+    '[community-drive-archive] Sending to Gemini',
+    '| textFiles:',
     bundles.length,
     '| multimodalFiles:',
     mediaMeta.length,
@@ -1995,8 +2350,32 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     gradeId: opts.gradeId || opts.currentGrade || '',
     topic: opts.topic || opts.catalogTopic || '',
   });
+  console.log(
+    '[community-drive-archive] Gemini summary received',
+    '| model:',
+    generated.model,
+    '| chars:',
+    String(generated.summary || '').length
+  );
 
   const cleanedSummary = sanitizeCommunitySummaryMarkdown(generated.summary);
+  if (!cleanedSummary || looksLikeDriveCatalogMetadata(cleanedSummary)) {
+    console.error(
+      '[community-drive-archive] refusing to persist non-pedagogical / metadata summary',
+      '| preview:',
+      String(cleanedSummary || '').slice(0, 200)
+    );
+    throw new Error('Gemini output was Drive metadata or empty — not persisting as community summary');
+  }
+  if (!isPedagogicalSummaryAcceptable(cleanedSummary)) {
+    console.error(
+      '[community-drive-archive] refusing to persist shallow summary',
+      '| chars:',
+      cleanedSummary.length
+    );
+    throw new Error('Gemini output failed pedagogical quality gate — not persisting as ok summary');
+  }
+
   const gradeIdValue = String(opts.gradeId || opts.currentGrade || '').trim();
   const record = {
     archive_key: archiveKey,
@@ -2017,6 +2396,7 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   };
 
   try {
+    console.log('[community-drive-archive] Upserting to Supabase (final ok summary)');
     await upsertArchiveRow(record);
   } catch (persistErr) {
     console.error(
@@ -2032,6 +2412,8 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       '| stack:',
       persistErr && persistErr.stack ? persistErr.stack : null
     );
+    // Do not leave clients polling a stuck "processing" stub forever.
+    throw persistErr;
   }
 
   return {
@@ -2068,6 +2450,10 @@ module.exports = {
   findCommunityArchiveMatch,
   suggestDriveFolderTopic,
   findNewOrChangedDriveFiles,
+  analyzeDriveCacheDelta,
+  isRecentArchiveRow,
+  RECENT_CACHE_INSTANT_HIT_MS,
+  CACHE_TIME_SKEW_MS,
   areNewFilesRelevantToTopic,
   evaluateSmartCacheAgainstDrive,
   buildDidYouMeanResult,
@@ -2075,9 +2461,15 @@ module.exports = {
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,
   shortCitationDisplayName,
+  isUsableArchiveRow,
   isSummaryDeepEnough,
+  looksLikeDriveCatalogMetadata,
+  isPedagogicalSummaryAcceptable,
   tryInstantArchiveRetrieval,
   resolveCommunityDriveSummary,
+  upsertArchiveRow,
+  upsertProcessingStub,
+  fetchArchiveRow,
   emptySummaryResult,
   resolveMultimodalMime,
   isMultimodalCandidate,

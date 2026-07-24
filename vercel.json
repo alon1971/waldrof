@@ -12,6 +12,10 @@
     "api/pure-general-search.js": {
       "maxDuration": 300,
       "memory": 1024
+    },
+    "api/community-summarizer.js": {
+      "maxDuration": 300,
+      "memory": 1024
     }
   },
   "headers": [

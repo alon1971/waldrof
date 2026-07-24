@@ -2361,7 +2361,7 @@
       opacity: 0.55;
       cursor: not-allowed;
     }
-    /* Floating background-status toast — corner pill after return-home while summarizing. */
+    /* Floating background-status chip — compact side FAB so it never covers page text. */
     #community-summarizer-bg-float-mount,
     #community-summarizer-bg-host {
       display: block;
@@ -2372,25 +2372,28 @@
     #community-summarizer-bg-indicator {
       position: fixed !important;
       z-index: 2147483000 !important;
-      bottom: max(1.35rem, env(safe-area-inset-bottom, 0px)) !important;
-      inset-inline-start: max(1rem, env(safe-area-inset-inline-start, 0px)) !important;
+      bottom: max(1.25rem, env(safe-area-inset-bottom, 0px)) !important;
+      inset-inline-start: max(0.65rem, env(safe-area-inset-inline-start, 0px)) !important;
       inset-inline-end: auto !important;
       top: auto !important;
-      max-width: min(92vw, 24rem);
+      width: 4.35rem;
+      max-width: 4.35rem;
       display: inline-flex !important;
+      flex-direction: column;
       align-items: center;
-      gap: 0.7rem;
-      padding: 0.85rem 1.05rem;
-      border-radius: 9999px;
+      justify-content: center;
+      gap: 0.28rem;
+      padding: 0.7rem 0.4rem 0.55rem;
+      border-radius: 1.35rem;
       border: 1.5px solid rgba(107, 142, 107, 0.55);
       background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(232, 242, 232, 0.97));
       color: #3f5d3f;
-      box-shadow: 0 12px 32px rgba(47, 69, 56, 0.28);
+      box-shadow: 0 10px 24px rgba(47, 69, 56, 0.26);
       cursor: pointer;
-      font-size: 0.95rem;
+      font-size: 0.68rem;
       font-weight: 700;
-      line-height: 1.35;
-      text-align: start;
+      line-height: 1.2;
+      text-align: center;
       direction: inherit;
       white-space: normal;
       transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
@@ -2408,18 +2411,30 @@
       outline-offset: 3px;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-icon {
-      font-size: 1.15rem;
+      font-size: 1.2rem;
       flex-shrink: 0;
+      line-height: 1;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-copy {
       display: flex;
       flex-direction: column;
-      gap: 0.12rem;
+      align-items: center;
+      gap: 0.08rem;
       min-width: 0;
+      width: 100%;
+    }
+    #community-summarizer-bg-indicator #community-summarizer-bg-status {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      word-break: break-word;
+      hyphens: auto;
+      max-width: 100%;
     }
     #community-summarizer-bg-indicator .community-summarizer-bg-view {
       display: none;
-      font-size: 0.8rem;
+      font-size: 0.62rem;
       font-weight: 700;
       color: #5a7a5a;
       text-decoration: underline;
@@ -2434,12 +2449,6 @@
     }
     #community-summarizer-bg-indicator.is-ready .community-summarizer-bg-icon {
       color: #3f5d3f;
-    }
-    @media (min-width: 640px) {
-      #community-summarizer-bg-indicator {
-        font-size: 1rem;
-        padding: 0.9rem 1.15rem;
-      }
     }
     .hybrid-community-citations {
       margin-top: 1rem;
@@ -5127,10 +5136,10 @@
     body.lesson-chat-mode-fullscreen .lesson-chat-sidebar { display: none !important; }
 
     :root {
-      --lesson-chat-fab-size: 7rem;
-      --lesson-chat-fab-offset: 1.5rem;
-      --lesson-chat-fab-gap: 1rem;
-      --lesson-chat-fab-cluster-width: max(var(--lesson-chat-fab-size), 11.5rem);
+      --lesson-chat-fab-size: 3.5rem;
+      --lesson-chat-fab-offset: 1rem;
+      --lesson-chat-fab-gap: 0.75rem;
+      --lesson-chat-fab-cluster-width: max(var(--lesson-chat-fab-size), 5.75rem);
       --lesson-chat-fab-reserve: calc(var(--lesson-chat-fab-offset) + var(--lesson-chat-fab-cluster-width) + var(--lesson-chat-fab-gap));
     }
 
@@ -5180,7 +5189,7 @@
       padding: 0;
       color: #fff;
       font-family: inherit;
-      font-size: 2.25rem !important;
+      font-size: 1.125rem !important;
       font-weight: 700;
       line-height: 1;
       text-align: center;
@@ -5194,13 +5203,13 @@
         0 14px 32px -5px rgba(92, 125, 88, 0.55),
         0 10px 20px -6px rgba(92, 74, 58, 0.26);
     }
-    .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 8px; }
+    .lesson-chat-fab:focus-visible { outline: 2px solid #7A9B76; outline-offset: 4px; }
     .lesson-chat-fab-label { display: none; pointer-events: none; }
     .lesson-chat-fab-badge {
       display: block;
-      margin-top: -0.9rem;
-      padding: 0.4rem 1.1rem;
-      font-size: 1.375rem;
+      margin-top: -0.45rem;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.6875rem;
       font-weight: 600;
       line-height: 1.2;
       letter-spacing: 0.01em;
@@ -5216,7 +5225,7 @@
     }
     .lesson-chat-fab-icon {
       display: block;
-      font-size: 2.5rem;
+      font-size: 1.25rem;
       line-height: 1;
       pointer-events: none;
     }
@@ -5224,7 +5233,7 @@
       .lesson-chat-fab-wrap {
         top: auto;
         bottom: calc(20% + env(safe-area-inset-bottom, 0px));
-        left: 1.5rem;
+        left: var(--lesson-chat-fab-offset);
         right: auto;
         transform: none;
         z-index: 50;
@@ -7460,7 +7469,7 @@
 
   <div id="lesson-chat-fab-wrap" class="lesson-chat-fab-wrap" aria-hidden="false">
     <div class="lesson-chat-fab-cluster">
-      <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-28 h-28 aspect-square rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
+      <button type="button" id="lesson-chat-fab" class="lesson-chat-fab w-14 h-14 aspect-square rounded-full" data-i18n-aria="chat_sidebar_open" aria-label="פתח עוזר פדגוגי אישי">
         <i class="lesson-chat-fab-icon fa-solid fa-comments" aria-hidden="true"></i>
         <span class="lesson-chat-fab-label sr-only" data-i18n="chat_fab_label">עוזר פדגוגי אישי - לחץ עליי!</span>
       </button>
@@ -8590,6 +8599,7 @@
       activePlan: null,
       communityCache: [],
       communityForGrade: [],
+      communityDriveCatalogOverview: null,
       visualGallery: [],
       pedagogicalResources: [],
       gradeResearch: null,
@@ -17601,7 +17611,9 @@
     }
 
     function resolveCatalogMaterialDescription(file, subjectLine) {
-      const desc = String(file.notes || file.description || '').trim();
+      const raw = String(file.notes || file.description || '').trim();
+      const desc = stripCommunityMetadataBrackets(raw);
+      if (!desc || looksLikeDriveCatalogMetadataNotes(desc)) return '';
       const subject = subjectLine != null ? String(subjectLine).trim() : resolveCatalogMaterialSubject(file);
       if (desc && subject && desc === subject) return '';
       return desc;
@@ -17629,10 +17641,11 @@
     }
 
     function renderCommunityPreviewCard(item) {
-      const linkLabel = escapeHtml(communityLinkLabel(item));
-      const linkHtml = item.fileUrl
-        ? '<a href="' + escapeHtml(item.fileUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-sm font-medium text-sage-dark hover:text-burgundy mt-2"><i class="' + communityLinkIconClass(item) + '"></i> ' + linkLabel + '</a>'
-        : '<span class="text-xs text-walnut/50 mt-2 block">אין קובץ מצורף</span>';
+      const openUrl = resolveItemOpenUrl(item);
+      const linkLabel = escapeHtml(communityLinkLabel(Object.assign({}, item, { fileUrl: openUrl })));
+      const linkHtml = openUrl
+        ? '<a href="' + escapeHtml(openUrl) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-sm font-medium text-sage-dark hover:text-burgundy mt-2"><i class="' + communityLinkIconClass(Object.assign({}, item, { fileUrl: openUrl })) + '"></i> ' + linkLabel + '</a>'
+        : '<span class="text-xs text-walnut/50 mt-2 block">' + escapeHtml(t('community_no_file')) + '</span>';
       const materialId = normalizeMaterialUuid(item.id || resolveCommunityMaterialId(item) || '');
       const deleteBtn = materialId ? buildArchiveAdminDeleteBtn({ materialId: materialId }) : '';
       return '<article class="bg-cream/90 rounded-xl border border-sage/25 p-4 shadow-sm">' +
@@ -18262,15 +18275,19 @@
 
     async function refreshCatalogAfterCommunityDelete(pk) {
       forgetCommunityOwnership(pk);
-      appState.communityCache = appState.communityCache.filter(function (m) {
-        const rowPk = normalizeMaterialUuid(m.id || m.dbId || resolveCommunityMaterialId(m) || '');
-        return rowPk !== pk;
-      });
-      appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-      try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
+      invalidateCommunityCatalogClientCache();
+      try {
+        await loadCommunity();
+      } catch (e) {
+        appState.communityCache = appState.communityCache.filter(function (m) {
+          const rowPk = normalizeMaterialUuid(m.id || m.dbId || resolveCommunityMaterialId(m) || '');
+          return rowPk !== pk;
+        });
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      }
       releaseCatalogUploadLocks();
       updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
-      await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic, { force: true });
       if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
       renderCommunityMaterials();
     }
@@ -18519,6 +18536,26 @@
         return location.origin + '/api/community-materials';
       }
       return '/api/community-materials';
+    }
+
+    /** Catalog list endpoint — same shape as 1:42 local index, now filled from Supabase. */
+    function communityCatalogDriveApiUrl() {
+      try {
+        if (typeof location !== 'undefined' && location.origin && /^https?:/i.test(location.origin)) {
+          return location.origin + '/api/community-catalog-local';
+        }
+      } catch (e) { /* ignore */ }
+      return '/api/community-catalog-local';
+    }
+
+    function invalidateCommunityCatalogClientCache() {
+      appState.communityDriveCatalogOverview = null;
+      try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
+    }
+
+    async function reloadCommunityFromSupabase() {
+      invalidateCommunityCatalogClientCache();
+      await loadCommunity();
     }
 
     function communityMaterialsMutateUrl(id) {
@@ -19699,13 +19736,16 @@
       if (!canUseCommunityUploadApi()) {
         throw new Error('Community API unavailable');
       }
+      // Same catalog pipeline as deploy 1:42 (grades overview + data rows),
+      // but source is live Supabase community_materials (not local JSON).
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timeoutId = controller
         ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
         : null;
       let res;
       try {
-        res = await fetch(communityMaterialsApiUrl(), {
+        const catalogUrl = communityCatalogDriveApiUrl();
+        res = await fetch(catalogUrl, {
           method: 'GET',
           cache: 'no-store',
           signal: controller ? controller.signal : undefined,
@@ -19725,15 +19765,26 @@
       let json = {};
       if (text && text.trim()) {
         try { json = JSON.parse(text); } catch (e) {
-          throw new Error('Invalid community materials response');
+          throw new Error('Invalid community catalog response');
         }
+      }
+      if (json && json.grades && typeof json.grades === 'object') {
+        appState.communityDriveCatalogOverview = {
+          success: json.success !== false,
+          source: json.source || 'supabase',
+          driveConfigured: false,
+          grades: json.grades,
+        };
       }
       const rows = json.data;
       if (!Array.isArray(rows)) {
-        throw new Error('Invalid community materials response');
+        throw new Error('Invalid community catalog response');
+      }
+      if (!rows.length && json.success === false) {
+        throw new Error(json.error || 'Community catalog unavailable');
       }
       if (json.degraded) {
-        console.warn('[community] server returned degraded empty list:', json.reason || 'unknown');
+        console.warn('[community] server returned degraded list:', json.reason || 'unknown');
       }
       return rows;
     }
@@ -19798,14 +19849,30 @@
 
     function parseCommunityNotes(rawNotes) {
       let rest = String(rawNotes || '');
-      const out = { title: '', author: '', description: '', fileSize: null, fileType: '', topicLegacy: '', freeText: '' };
+      const out = {
+        title: '',
+        author: '',
+        description: '',
+        fileSize: null,
+        fileType: '',
+        topicLegacy: '',
+        freeText: '',
+        driveFileId: '',
+        catalogTopic: '',
+        kind: '',
+        source: '',
+      };
       const tagDefs = [
-        { field: 'title', re: /^\[title:([^\]]+)\]\s*/ },
-        { field: 'author', re: /^\[author:([^\]]+)\]\s*/ },
-        { field: 'description', re: /^\[desc:([^\]]+)\]\s*/ },
-        { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/, parse: function (v) { return parseInt(v, 10) || null; } },
-        { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/ },
-        { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/ },
+        { field: 'title', re: /^\[title:([^\]]+)\]\s*/i },
+        { field: 'author', re: /^\[author:([^\]]+)\]\s*/i },
+        { field: 'description', re: /^\[desc:([^\]]+)\]\s*/i },
+        { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/i, parse: function (v) { return parseInt(v, 10) || null; } },
+        { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/i },
+        { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/i },
+        { field: 'driveFileId', re: /^\[driveFileId:([^\]]+)\]\s*/i },
+        { field: 'catalogTopic', re: /^\[catalogTopic:([^\]]+)\]\s*/i },
+        { field: 'kind', re: /^\[kind:([^\]]+)\]\s*/i },
+        { field: 'source', re: /^\[source:([^\]]+)\]\s*/i },
       ];
       let matched = true;
       while (matched) {
@@ -19819,9 +19886,36 @@
           matched = true;
           break;
         }
+        // Strip any other leftover [tag:value] metadata so it never shows in the UI.
+        if (!matched) {
+          const junk = rest.match(/^\[([a-zA-Z_][\w-]*):([^\]]*)\]\s*/);
+          if (junk) {
+            rest = rest.slice(junk[0].length);
+            matched = true;
+          }
+        }
       }
-      out.freeText = rest.trim();
+      // Final safety: remove any remaining bracket tags from free text.
+      out.freeText = rest.replace(/\[[a-zA-Z_][\w-]*:[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
       return out;
+    }
+
+    function stripCommunityMetadataBrackets(text) {
+      return String(text || '')
+        .replace(/\[[a-zA-Z_][\w-]*:[^\]]*\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function looksLikeDriveCatalogMetadataNotes(text) {
+      const s = String(text || '').trim();
+      if (!s) return false;
+      if (/\[catalogTopic\s*:/i.test(s) && /\[driveFileId\s*:/i.test(s)) return true;
+      if (/\[driveFileId\s*:/i.test(s) && /\[title\s*:/i.test(s)) return true;
+      if (/\[drivePath\s*:/i.test(s) && /\[catalogTopic\s*:/i.test(s)) return true;
+      if (/\[kind\s*:/i.test(s) || /\[source\s*:\s*local-index\]/i.test(s)) return true;
+      const hits = (s.match(/\[(catalogTopic|driveFileId|drivePath|title|subfolder|tags|desc|kind|source)\s*:/gi) || []).length;
+      return hits >= 2;
     }
 
     function buildCommunityInsertPayload(gradeId, topic, filePath, fileName, extras) {
@@ -19855,17 +19949,33 @@
       return url;
     }
 
+    /**
+     * Open/download URL for a community_materials row.
+     * Strict SSOT: use ONLY the DB column file_path (as-is when it is already an http(s) URL).
+     * Never synthesize Google Drive folder/file links from file_id / notes / kind.
+     */
     function resolveCommunityFileUrl(row) {
-      const gdocs = (row.google_docs_url || '').trim();
-      if (isHttpUrl(gdocs)) return gdocs;
-      const filePath = (row.file_path || '').trim();
-      if (isHttpUrl(filePath)) return filePath;
-      return filePath ? buildPublicStorageUrl(filePath) : '';
+      if (!row || typeof row !== 'object') return '';
+      const primaryPath = String(row.file_path || row.filePath || '').trim();
+      if (!primaryPath) return '';
+      // Exact URL from the table (e.g. Supabase Storage …/file.pdf) — do not rewrite.
+      if (isHttpUrl(primaryPath)) return primaryPath;
+      // Relative storage object path → public Supabase URL.
+      return buildPublicStorageUrl(primaryPath);
+    }
+
+    function resolveItemOpenUrl(item) {
+      if (!item) return '';
+      return resolveCommunityFileUrl(item);
     }
 
     function isExternalCommunityLink(fileUrl) {
       if (!fileUrl || !isHttpUrl(fileUrl)) return false;
-      return fileUrl.indexOf('/storage/v1/object/') === -1;
+      const url = String(fileUrl);
+      // Supabase Storage public objects are in-app downloads, not external Drive links.
+      if (url.indexOf('/storage/v1/object/') !== -1) return false;
+      if (/\.supabase\.co\/storage\//i.test(url)) return false;
+      return true;
     }
 
     function communityLinkLabel(item) {
@@ -20259,7 +20369,7 @@
           gradeId: resolvedGrade,
           grade_level: resolvedGrade,
           fileName: item.fileName || '',
-          fileUrl: item.fileUrl || resolveCommunityFileUrl(item),
+          fileUrl: resolveCommunityFileUrl(item),
           description: item.notes || '',
           createdAt: item.createdAt || null,
           similarity: scoreCommunityItemSimilarity(q, item),
@@ -20478,18 +20588,17 @@
 
     function resolveCommunityMatchFileUrl(match) {
       if (!match || typeof match !== 'object') return '';
-      const direct = String(match.fileUrl || match.url || match.google_docs_url || '').trim();
-      if (isHttpUrl(direct)) return direct;
-      const filePath = String(match.file_path || match.filePath || '').trim();
-      if (isHttpUrl(filePath)) return filePath;
-      if (filePath) return buildPublicStorageUrl(filePath);
-      const materialId = String(match.materialId || match.sourceMaterialId || match.id || '').trim();
+      // Prefer DB file_path only — never invent Drive links from other fields.
+      const fromPath = resolveCommunityFileUrl(match);
+      if (fromPath) return fromPath;
+      const materialId = normalizeMaterialUuid(
+        match.materialId || match.sourceMaterialId || match.id || ''
+      );
       if (materialId && Array.isArray(appState.communityCache) && appState.communityCache.length) {
         const cached = appState.communityCache.find(function (item) {
           const itemId = normalizeMaterialUuid(item.dbId || resolveCommunityMaterialId(item) || '');
           return itemId && itemId === materialId;
         });
-        if (cached && cached.fileUrl) return String(cached.fileUrl).trim();
         if (cached) return resolveCommunityFileUrl(cached);
       }
       return '';
@@ -20954,6 +21063,9 @@
     function sanitizeCommunitySummaryForDisplay(text) {
       var s = normalizeEscapedNewlinesForDisplay(text);
       if (!s) return '';
+      if (looksLikeDriveCatalogMetadataNotes(s)) {
+        return '';
+      }
       s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label, url) {
         return '[' + shortCommunityCitationName(label, label) + '](' + url + ')';
       });
@@ -21293,7 +21405,7 @@
       }
       let delay = 0;
       items.forEach(function (item) {
-        const url = item.fileUrl || resolveCommunityFileUrl(item);
+        const url = resolveCommunityFileUrl(item);
         if (!url) return;
         setTimeout(function () {
           const anchor = document.createElement('a');
@@ -21395,7 +21507,7 @@
               markUploadedCommunityMaterial(material);
             }
           });
-          await loadCommunity();
+          await reloadCommunityFromSupabase();
           return materials.length === 1 ? materials[0] : materials;
         }
         let lastMaterial = null;
@@ -21435,7 +21547,7 @@
             lastMaterial = material;
           }
         }
-        await loadCommunity();
+        await reloadCommunityFromSupabase();
         return lastMaterial;
       } else if (!linkRaw) {
         throw new Error(t('catalog_err_file'));
@@ -21460,18 +21572,20 @@
           fileType: fileType,
         }, materialId, { indexBundle: options.indexBundle === true });
       }
-      await loadCommunity();
+      await reloadCommunityFromSupabase();
       return material;
     }
 
     function mapRow(row) {
       const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
       const extras = parseCommunityNotes(rawNotes);
-      const filePath = row.file_path || '';
-      const topic = (row.topic || extras.topicLegacy || '').trim();
-      const displayNotes = extras.description || extras.freeText || '';
+      // Display/card fields follow 1:42 mapRow; open URL is strictly file_path.
+      const filePath = String(row.file_path || row.filePath || '').trim();
+      const topic = (row.topic || extras.topicLegacy || extras.catalogTopic || '').trim();
+      const displayNotes = stripCommunityMetadataBrackets(extras.description || extras.freeText || '');
       const displayTitle = extras.title || row.file_name || topic || 'חומר קהילתי';
       const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
+      const openUrl = resolveCommunityFileUrl({ file_path: filePath, filePath: filePath });
       return {
         id: id,
         dbId: row.id != null ? String(row.id).trim() : null,
@@ -21484,9 +21598,12 @@
         createdAt: row.created_at || null,
         fileName: row.file_name || '',
         filePath: filePath,
+        file_path: filePath,
         fileSize: extras.fileSize,
         fileType: extras.fileType || '',
-        fileUrl: resolveCommunityFileUrl(row),
+        fileUrl: openUrl,
+        kind: row.kind || extras.kind || '',
+        driveFileId: '',
       };
     }
 
@@ -21500,23 +21617,53 @@
         });
       }
       return items.filter(function (i) {
-        const level = String(i.gradeLevel || '').trim();
-        if (level) return level === gid || level === String(gid);
-        // Ungraded rows must not leak into every classroom when the topic
-        // clearly belongs to another Waldorf grade (e.g. רומא → ו׳ only).
-        if (typeof WaldorfHebrewTopicMatch !== 'undefined'
-          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(i.topic || '');
-          if (block && block.gradeId && String(block.gradeId) !== gid) return false;
-        }
-        return true;
+        return !i.gradeLevel || i.gradeLevel === gid || i.gradeLevel === String(gid);
       });
+    }
+
+    function buildCatalogOverviewFromCache(items) {
+      const grades = {};
+      (items || []).forEach(function (item) {
+        if (!item) return;
+        const gradeId = String(item.gradeLevel || '').trim() || GENERAL_GRADE_ID;
+        const topic = String(item.topic || '').trim();
+        if (!grades[gradeId]) {
+          grades[gradeId] = {
+            gradeId: gradeId,
+            gradeLabel: getCatalogGradeLabel(gradeId) || gradeId,
+            topicCount: 0,
+            fileCount: 0,
+            topics: [],
+            _topicMap: Object.create(null),
+          };
+        }
+        const g = grades[gradeId];
+        g.fileCount += 1;
+        if (!topic) return;
+        const key = normalizeTopicKey(topic);
+        if (!g._topicMap[key]) {
+          const entry = { id: topic, label: topic, count: 0 };
+          g._topicMap[key] = entry;
+          g.topics.push(entry);
+        }
+        g._topicMap[key].count += 1;
+      });
+      Object.keys(grades).forEach(function (gid) {
+        const g = grades[gid];
+        g.topicCount = g.topics.length;
+        g.topics.sort(function (a, b) {
+          return String(a.label).localeCompare(String(b.label), 'he');
+        });
+        delete g._topicMap;
+      });
+      return grades;
     }
 
     async function loadCommunity() {
       if (!isCloudConfigured()) {
         appState.communityCache = [];
         appState.communityForGrade = [];
+        appState.communityDriveCatalogOverview = null;
         return;
       }
       try {
@@ -21525,6 +21672,15 @@
           return Boolean(resolveCommunityMaterialId(item));
         });
         appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+        // Preserve 1:42 card pipeline: overview drives topic cards / counts.
+        if (!appState.communityDriveCatalogOverview || !appState.communityDriveCatalogOverview.grades) {
+          appState.communityDriveCatalogOverview = {
+            success: true,
+            source: 'supabase',
+            driveConfigured: false,
+            grades: buildCatalogOverviewFromCache(appState.communityCache),
+          };
+        }
       } catch (err) {
         console.warn('[community] loadCommunity failed:', formatSupabaseError(err));
         appState.communityCache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
@@ -23991,11 +24147,16 @@
         || /אינו נמצא במאגר/.test(summary)
       );
       var isSummarizing = status === 'summarizing'
+        || status === 'processing'
+        || Boolean(meta && meta.processing)
         || summary === t('community_summarizer_loading')
+        || summary === t('community_summarizer_processing')
         || summary === t('hybrid_community_summarizing')
         || /מסכם חומר מהמאגר הקהילתי/.test(summary)
         || /סורק את המאגר הקהילתי/.test(summary)
-        || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary);
+        || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary)
+        || /מפיק סיכום חדש מתוך מאגר הדרייב/.test(summary)
+        || /תהליך זה קורה ברקע/.test(summary);
       // Prefer localized empty copy over older archived/server strings.
       if (isEmpty && !isSummarizing) {
         summary = t('community_summarizer_empty');
@@ -24079,7 +24240,8 @@
       }
     }
 
-    function setCommunitySummarizerLoading(loading) {
+    function setCommunitySummarizerLoading(loading, options) {
+      options = options || {};
       var busy = Boolean(loading);
       appState.communitySummarizerLoading = busy;
       appState.isSummarizing = busy;
@@ -24093,8 +24255,11 @@
         loadingEl.setAttribute('aria-busy', busy ? 'true' : 'false');
       }
       if (loadingTextEl) {
-        loadingTextEl.setAttribute('data-i18n', 'community_summarizer_loading');
-        loadingTextEl.textContent = t('community_summarizer_loading');
+        var i18nKey = options.processing
+          ? 'community_summarizer_processing'
+          : 'community_summarizer_loading';
+        loadingTextEl.setAttribute('data-i18n', i18nKey);
+        loadingTextEl.textContent = t(i18nKey);
       }
       // Only disable controls inside the summarizer modal — never the archive search UI.
       if (submitBtn) submitBtn.disabled = busy;
@@ -24105,6 +24270,33 @@
       syncCommunitySummarizerBgIndicator();
       // Keep topic/archive search interactive while summarizer runs in the background.
       if (!appState.isSearching) ensureArchiveSearchControlsUnlocked();
+    }
+
+    function sleepCommunitySummarizerPoll(ms, signal) {
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () { resolve(); }, Math.max(1000, Number(ms) || 3500));
+        if (!signal) return;
+        if (signal.aborted) {
+          clearTimeout(timer);
+          reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+          return;
+        }
+        signal.addEventListener('abort', function onAbort() {
+          clearTimeout(timer);
+          reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+        }, { once: true });
+      });
+    }
+
+    function isCommunitySummarizerProcessingPayload(data) {
+      if (!data || typeof data !== 'object') return false;
+      var status = String(data.communityStatus || '').trim();
+      return status === 'processing'
+        || status === 'summarizing'
+        || data.processing === true
+        || data.poll === true && status !== 'ok' && status !== 'empty'
+          && status !== 'unavailable' && status !== 'needs_confirmation'
+          && status !== 'not_configured' && status !== 'degraded';
     }
 
     function ensureArchiveSearchControlsUnlocked() {
@@ -24129,21 +24321,25 @@
       var status = data.communityStatus ? String(data.communityStatus) : '';
       var summary = data.communitySummary != null ? String(data.communitySummary).trim() : '';
       if (!summary) return false;
+      if (looksLikeDriveCatalogMetadataNotes(summary)) return false;
       if (
         status === 'empty'
         || status === 'unavailable'
         || status === 'not_configured'
         || status === 'summarizing'
+        || status === 'processing'
         || status === 'needs_confirmation'
         || data.didYouMean
         || data.needsConfirmation
+        || data.processing
       ) {
         return false;
       }
       if (
         summary === t('community_summarizer_empty')
         || summary === t('hybrid_community_empty')
-        || summary === t('community_summarizer_loading')
+        ||         summary === t('community_summarizer_loading')
+        || summary === t('community_summarizer_processing')
         || summary === t('hybrid_community_summarizing')
         || /אין חומר מהארכיון/.test(summary)
         || /כרגע אין חומר רלוונטי/.test(summary)
@@ -24151,6 +24347,7 @@
         || /אינו נמצא במאגר/.test(summary)
         || /סורק את המאגר הקהילתי/.test(summary)
         || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary)
+        || /מפיק סיכום חדש מתוך מאגר הדרייב/.test(summary)
         || /האם התכוונת/.test(summary)
       ) {
         return false;
@@ -24312,9 +24509,11 @@
       var ready = show && !summarizing && Boolean(appState.communitySummarizerResult);
       var statusEl = document.getElementById('community-summarizer-bg-status');
       var iconEl = badge.querySelector('.community-summarizer-bg-icon');
+      var tip = ready ? t('community_summarizer_bg_title_ready') : t('community_summarizer_bg_title_working');
       badge.classList.toggle('hidden', !show);
       badge.classList.toggle('is-ready', ready);
       badge.setAttribute('aria-hidden', show ? 'false' : 'true');
+      badge.setAttribute('title', tip);
       if (host) host.classList.toggle('is-visible', show);
       if (statusEl) {
         statusEl.setAttribute('data-i18n', ready ? 'community_summarizer_bg_ready' : 'community_summarizer_bg_working');
@@ -24395,6 +24594,85 @@
       closeCommunitySummarizerModal({ goHome: true });
     }
 
+    async function pollCommunitySummarizerUntilReady(initialData, originalPayload, controller, requestId) {
+      var data = initialData || {};
+      var status = data.communityStatus ? String(data.communityStatus) : '';
+      if (status !== 'processing' && status !== 'summarizing' && !data.processing) {
+        return data;
+      }
+      var archiveKey = data.communityArchiveKey || data.archiveKey || '';
+      var maxAttempts = 90; // ~5 minutes at ~3.5s
+      var delayMs = Number(data.pollAfterMs) || 3500;
+      console.log('[community-summarizer] polling background job', archiveKey, '| every', delayMs, 'ms');
+
+      // Friendly UX while Gemini/Drive finish in the background.
+      setCommunitySummarizerLoading(true, { processing: true });
+      appState.communitySummarizerResult = Object.assign({}, data, {
+        communityStatus: 'processing',
+        communitySummary: t('community_summarizer_processing'),
+        processing: true,
+        poll: true,
+      });
+      if (isCommunitySummarizerModalOpen()) {
+        renderCommunitySummarizerResult(appState.communitySummarizerResult);
+      } else {
+        appState.communitySummarizerBgPending = true;
+        syncCommunitySummarizerBgIndicator();
+      }
+
+      for (var attempt = 0; attempt < maxAttempts; attempt++) {
+        if (requestId !== appState.communitySummarizerRequestId) return data;
+        await sleepCommunitySummarizerPoll(delayMs, controller && controller.signal);
+        if (requestId !== appState.communitySummarizerRequestId) return data;
+        try {
+          var pollPayload = {
+            poll: true,
+            checkStatus: true,
+            archiveKey: archiveKey,
+            communityArchiveKey: archiveKey,
+            topic: (originalPayload && originalPayload.topic) || appState.communitySummarizerTopic || '',
+            gradeId: (originalPayload && originalPayload.gradeId) || appState.communitySummarizerGradeId || '',
+            currentGrade: (originalPayload && originalPayload.currentGrade)
+              || (originalPayload && originalPayload.gradeId)
+              || appState.communitySummarizerGradeId
+              || '',
+          };
+          var pollRes = await invokePureApi('/api/community-summarizer', pollPayload, controller && controller.signal);
+          var pollData = pollRes && pollRes.data ? pollRes.data : pollRes;
+          if (!pollData) continue;
+          data = pollData;
+          archiveKey = data.communityArchiveKey || data.archiveKey || archiveKey;
+          if (Number(data.pollAfterMs) > 0) delayMs = Number(data.pollAfterMs);
+          appState.communitySummarizerResult = data;
+          if (isCommunitySummarizerProcessingPayload(data)) {
+            setCommunitySummarizerLoading(true, { processing: true });
+            appState.communitySummarizerResult = Object.assign({}, data, {
+              communityStatus: 'processing',
+              communitySummary: t('community_summarizer_processing'),
+              processing: true,
+            });
+          }
+          if (isCommunitySummarizerModalOpen()) {
+            renderCommunitySummarizerResult(appState.communitySummarizerResult);
+          } else {
+            appState.communitySummarizerBgPending = true;
+            syncCommunitySummarizerBgIndicator();
+          }
+          var pollStatus = data.communityStatus ? String(data.communityStatus) : '';
+          if (pollStatus === 'ok' || pollStatus === 'degraded' || pollStatus === 'unavailable' || pollStatus === 'empty') {
+            console.log('[community-summarizer] poll complete', pollStatus);
+            return data;
+          }
+          if (isCommunitySummarizerSummaryReady(data)) return data;
+        } catch (pollErr) {
+          if (pollErr && pollErr.name === 'AbortError') throw pollErr;
+          console.warn('[community-summarizer] poll attempt failed', pollErr && pollErr.message ? pollErr.message : pollErr);
+        }
+      }
+      console.warn('[community-summarizer] poll timed out waiting for background job');
+      return data;
+    }
+
     async function runCommunityTopicSummarizer(runOpts) {
       runOpts = runOpts || {};
       var gradeEl = document.getElementById('community-summarizer-grade');
@@ -24446,6 +24724,8 @@
         var response = await invokePureApi('/api/community-summarizer', payload, controller && controller.signal);
         if (requestId !== appState.communitySummarizerRequestId) return;
         var data = response && response.data ? response.data : response;
+        data = await pollCommunitySummarizerUntilReady(data, payload, controller, requestId);
+        if (requestId !== appState.communitySummarizerRequestId) return;
         appState.communitySummarizerResult = data || {};
         if (isCommunitySummarizerModalOpen()) {
           renderCommunitySummarizerResult(appState.communitySummarizerResult);
@@ -29710,20 +29990,32 @@
       });
     }
 
-    function getDynamicTopicsForGrade(gradeId) {
-      const map = {};
+    function getDriveCatalogGradeOverview(gradeId) {
+      const overview = appState.communityDriveCatalogOverview;
+      if (!overview || !overview.grades) return null;
       const gid = String(gradeId || '').trim();
+      return overview.grades[gid] || null;
+    }
+
+    function getDynamicTopicsForGrade(gradeId) {
+      const gid = String(gradeId || '').trim();
+      const driveGrade = getDriveCatalogGradeOverview(gid);
+      if (driveGrade && Array.isArray(driveGrade.topics) && driveGrade.topics.length) {
+        return driveGrade.topics.map(function (topic) {
+          return {
+            id: topic.id || topic.label,
+            label: topic.label || topic.id,
+            count: Number(topic.count) || 0,
+          };
+        }).sort(function (a, b) {
+          return String(a.label).localeCompare(String(b.label), 'he');
+        });
+      }
+
+      const map = {};
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
         if (!t) return;
-        // Hide curriculum ghost folders parked under the wrong grade
-        // (e.g. empty «רומא» under כיתה א׳ — belongs to כיתה ו׳).
-        if (gid && gid !== 'general'
-          && typeof WaldorfHebrewTopicMatch !== 'undefined'
-          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(t);
-          if (block && block.gradeId && String(block.gradeId) !== gid) return;
-        }
         const key = normalizeTopicKey(t);
         if (!map[key]) map[key] = { id: t, label: t, count: 0 };
         map[key].count++;
@@ -29749,8 +30041,22 @@
         fileUrl: item.fileUrl,
         fileSize: item.fileSize,
         fileType: item.fileType,
+        kind: item.kind || '',
+        driveFileId: item.driveFileId || '',
         canManage: false,
       };
+    }
+
+    /** Folder stubs / topic-folder links — belong in topic cards, not the grade file list. */
+    function isCatalogFolderLikeItem(item) {
+      if (!item) return false;
+      const kind = String(item.kind || '').toLowerCase();
+      if (kind === 'drive_folder' || kind === 'folder') return true;
+      const url = String(
+        resolveItemOpenUrl(item) || item.fileUrl || item.filePath || item.url || item.link || ''
+      ).trim();
+      if (/drive\.google\.com\/drive\/folders\//i.test(url)) return true;
+      return false;
     }
 
     function collectCatalogFilesForGrade(gradeId) {
@@ -29762,6 +30068,28 @@
           const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return tb - ta;
         });
+    }
+
+    /**
+     * Grade-root file list: real files only.
+     * Items that belong to a topic folder (shown as cards above) are excluded —
+     * open them by clicking the topic card.
+     */
+    function collectCatalogLooseFilesForGrade(gradeId) {
+      const topics = getDynamicTopicsForGrade(gradeId);
+      const topicKeys = {};
+      topics.forEach(function (topic) {
+        const key = normalizeTopicKey(topic.id || topic.label || '');
+        if (key) topicKeys[key] = true;
+      });
+      const hasTopicFolders = topics.length > 0;
+
+      return collectCatalogFilesForGrade(gradeId).filter(function (item) {
+        if (isCatalogFolderLikeItem(item)) return false;
+        const topicKey = normalizeTopicKey(item.topic || '');
+        if (hasTopicFolders && topicKey && topicKeys[topicKey]) return false;
+        return true;
+      });
     }
 
     function collectCatalogFiles(gradeId, topicId) {
@@ -30479,7 +30807,14 @@
         el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
           CATALOG_GRADES.map(function (g) {
             const topics = getDynamicTopicsForGrade(g.id);
-            const n = filterByGrade(appState.communityCache, g.id).length;
+            const driveGrade = getDriveCatalogGradeOverview(g.id);
+            const dbFiles = filterByGrade(appState.communityCache, g.id).length;
+            const n = driveGrade && Number(driveGrade.fileCount) > 0
+              ? Number(driveGrade.fileCount)
+              : dbFiles;
+            const topicCount = driveGrade && Number(driveGrade.topicCount) > 0
+              ? Number(driveGrade.topicCount)
+              : topics.length;
             const isGeneral = Boolean(g.isGeneral);
             const icon = isGeneral ? 'fa-globe' : 'fa-folder';
             const subtitle = isGeneral
@@ -30490,7 +30825,7 @@
               '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
               '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
               '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
-              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topicCount, files: n })) + '</div></div></div></button>';
           }).join('');
         el.querySelectorAll('[data-grade]').forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -30512,7 +30847,8 @@
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const topics = getDynamicTopicsForGrade(gradeId);
-      const allFiles = await attachCatalogManageFlags(collectCatalogFilesForGrade(gradeId));
+      // Only real loose files at grade root — never re-list topic folders below the cards.
+      const looseFiles = await attachCatalogManageFlags(collectCatalogLooseFilesForGrade(gradeId));
       let html = '<div id="catalog-grade-header" class="catalog-dashboard-header">' +
         catalogUploadButtonHtml(gradeId, '', false, t('catalog_share_open')) +
         '</div>';
@@ -30535,11 +30871,14 @@
       } else {
         html += '<p class="text-sm text-walnut/60 mb-6">' + escapeHtml(t('catalog_no_topics')) + '</p>';
       }
-      html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
-        escapeHtml(t('catalog_community_files', { count: allFiles.length })) + '</h4>';
-      html += allFiles.length
-        ? '<div class="space-y-3">' + allFiles.map(renderCatalogFileRow).join('') + '</div>'
-        : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
+      // Hide «קבצים בקהילה» entirely when this grade only has topic folders.
+      if (looseFiles.length) {
+        html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
+          escapeHtml(t('catalog_community_files', { count: looseFiles.length })) + '</h4>';
+        html += '<div class="space-y-3">' + looseFiles.map(renderCatalogFileRow).join('') + '</div>';
+      } else if (!topics.length) {
+        html += '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
+      }
       mutateCatalogDom(function () {
         el.innerHTML = html;
         bindCatalogUploadButtons(el);
@@ -30604,10 +30943,12 @@
     function renderCatalogFileRow(file) {
       const materialId = normalizeMaterialUuid(file.id || resolveCommunityMaterialId(file) || '');
       if (!materialId) return '';
-      const downloadUrl = file.fileUrl;
+      // Always open the exact community_materials.file_path (no Drive rewrite).
+      const downloadUrl = resolveItemOpenUrl(file);
+      const fileForLink = Object.assign({}, file, { fileUrl: downloadUrl, filePath: file.filePath || file.file_path || '' });
       const external = isExternalCommunityLink(downloadUrl);
-      const btnLabel = communityLinkLabel(file);
-      const btnIcon = communityLinkIconClass(file);
+      const btnLabel = communityLinkLabel(fileForLink);
+      const btnIcon = communityLinkIconClass(fileForLink);
       const downloadBtn = downloadUrl
         ? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" class="touch-btn inline-flex items-center gap-1.5 text-sm ' +
           (external ? 'bg-sky hover:bg-sky/90' : 'bg-sage hover:bg-sage-dark') + ' text-white px-4 py-2 rounded-lg"><i class="' + btnIcon + '"></i> ' + escapeHtml(btnLabel) + '</a>'
@@ -30641,6 +30982,8 @@
     }
 
     async function refreshCatalogAfterMaterialChange(topicOverride) {
+      invalidateCommunityCatalogClientCache();
+      try { await loadCommunity(); } catch (e) { /* keep optimistic cache */ }
       updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
       const nextTopic = topicOverride != null ? topicOverride : catalogState.topic;
       if (catalogState.view === 'materials') {
@@ -30648,7 +30991,7 @@
       } else if (catalogState.view === 'grade') {
         await renderCatalogGradePanel(catalogState.gradeId);
       } else {
-        renderCatalog('grades');
+        renderCatalog('grades', null, null, { force: true });
       }
       if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
       renderCommunityMaterials();
@@ -30723,7 +31066,7 @@
           description: descTrim,
           author: authorTrim,
         });
-        await loadCommunity();
+        await reloadCommunityFromSupabase();
         const gradeChanged = String(catalogState.gradeId || '') !== String(gradeTrim);
         const topicChanged = catalogState.view === 'materials' && normalizeTopicKey(catalogState.topic) !== normalizeTopicKey(topicTrim);
         if (gradeChanged) {
@@ -30778,6 +31121,11 @@
           const text = await response.text();
           if (!response.ok) {
             const errMsg = parseCommunityApiError(text, response.status);
+            // Already gone from Supabase — drop stale UI row and resync.
+            if (isOrphanCommunityMaterialError(errMsg) || /not found/i.test(String(errMsg || ''))) {
+              await refreshCatalogAfterCommunityDelete(pk);
+              return;
+            }
             console.error('[community] delete failed:', response.status, text);
             alert(errMsg || ('מחיקה נכשלה (' + response.status + ')'));
             releaseCatalogUploadLocks();
@@ -30894,10 +31242,9 @@
       bindCatalogSearchBar();
       updateCatalogSearchVisibility();
       if (catalogState.view === 'grades') {
+        // Supabase-backed catalog overview (same card pipeline as 1:42).
         if (isCloudConfigured()) {
-          showCatalogStatus(t('catalog_loading'), 'info');
           try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
-          showCatalogStatus('', '');
         }
         renderCatalogGrades();
       } else if (catalogState.view === 'grade') {
@@ -31875,11 +32222,11 @@
   <!-- Floating community-summary status toast (body-level so fixed positioning always works). -->
   <div id="community-summarizer-bg-float-mount" class="community-summarizer-bg-mount">
     <div id="community-summarizer-bg-host" class="community-summarizer-bg-host">
-      <button type="button" id="community-summarizer-bg-indicator" class="hidden" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי">
+      <button type="button" id="community-summarizer-bg-indicator" class="hidden" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="פתח את סיכום המאגר הקהילתי" title="מפיק סיכום קהילתי ברקע…">
         <i class="fa-solid fa-clock fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
         <span class="community-summarizer-bg-copy">
-          <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מפיק סיכום קהילתי ברקע…</span>
-          <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לחץ לצפייה</span>
+          <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">מסכם…</span>
+          <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">לצפייה</span>
         </span>
       </button>
     </div>
