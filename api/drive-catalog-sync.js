@@ -477,6 +477,37 @@ function parseGradeIdFromFolderName(name) {
   return '';
 }
 
+/**
+ * Nested Drive shells like «תקיית כיתה ז'» / «תיקיית כיתה ז׳» inside an already-graded
+ * folder must NOT become catalog topics (that caused recursive duplicate cards).
+ * Bare «כללי» under a graded folder is allowed as a real topic bucket.
+ */
+function isGradeShellFolderName(name) {
+  const s = String(name || '').trim();
+  if (!s) return false;
+  if (/^(כללי|general)$/iu.test(s)) return false;
+  const gradeId = parseGradeIdFromFolderName(s);
+  if (!gradeId) return false;
+  // Explicit grade / folder-shell labels only (not pedagogical topics that happen to mention a class).
+  // Covers תיקייה/תיקיית/תקיה/תקיית spelling variants.
+  return /ת(?:י)?קי(?:ה|ית)|folder|grade|class/i.test(s)
+    || /^כיתה[\s\-_/]*[א-ח]/iu.test(s)
+    || /^[א-ח]['׳"]?\s*$/u.test(s)
+    || /^\d\s*$/.test(s);
+}
+
+/** OS / junk files that must never appear as pedagogical catalog materials. */
+function isJunkDriveFileName(fileName) {
+  const name = String(fileName || '').trim();
+  if (!name) return true;
+  if (/^(desktop\.ini|thumbs\.db|\.ds_store|icon\r|\.localized|~\$)/i.test(name)) return true;
+  if (/^\./.test(name) && !/\.(pdf|docx?|pptx?|jpe?g|png|gif|webp|txt|md)$/i.test(name)) return true;
+  if (/\.(tmp|temp|lnk|exe|dll|bat|cmd|sys|ini|url|log|bak|old|crdownload|partial)$/i.test(name)) {
+    return true;
+  }
+  return false;
+}
+
 function buildDriveFileUrl(file) {
   const direct = file && String(file.webViewLink || '').trim();
   if (direct) return direct;
@@ -516,6 +547,7 @@ function isSyncableDriveFile(file) {
   if (file.trashed === true) return false;
   // Shortcuts are resolved separately; do not index the shortcut shell itself.
   if (isShortcutMime(file.mimeType)) return false;
+  if (isJunkDriveFileName(file.name)) return false;
   return true;
 }
 
@@ -1183,9 +1215,21 @@ async function walkDriveFolderTree(folderId, ctx, accessToken, stats) {
           console.log('[drive-catalog-sync] matched grade folder:', childName, '→ grade', gradeId);
         }
       } else if (!ctx.catalogTopic) {
-        const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
-        nextCtx.catalogTopic = topic;
-        console.log('[drive-catalog-sync] inherited catalog topic from folder:', childName, '→', topic);
+        if (isGradeShellFolderName(childName)) {
+          // Transparent shell — keep walking without promoting «תקיית כיתה ז'» to a topic.
+          console.log(
+            '[drive-catalog-sync] skip nested grade-shell as topic:',
+            childName,
+            '| keep grade:',
+            ctx.gradeId
+          );
+        } else {
+          const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
+          if (topic && !isGradeShellFolderName(topic)) {
+            nextCtx.catalogTopic = topic;
+            console.log('[drive-catalog-sync] inherited catalog topic from folder:', childName, '→', topic);
+          }
+        }
       }
 
       await walkDriveFolderTree(item.id, nextCtx, accessToken, stats);
@@ -1198,8 +1242,15 @@ async function walkDriveFolderTree(folderId, ctx, accessToken, stats) {
       continue;
     }
 
-    const inheritedTopic = ctx.catalogTopic
-      || catalogTopics.resolveCatalogTopicFromFolderName(ctx.path[ctx.path.length - 1] || '');
+    let pathTailTopic = '';
+    for (let p = ctx.path.length - 1; p >= 0; p--) {
+      const seg = String(ctx.path[p] || '').trim();
+      if (!seg || isGradeShellFolderName(seg) || parseGradeIdFromFolderName(seg)) continue;
+      pathTailTopic = catalogTopics.resolveCatalogTopicFromFolderName(seg);
+      if (pathTailTopic && !isGradeShellFolderName(pathTailTopic)) break;
+      pathTailTopic = '';
+    }
+    const inheritedTopic = ctx.catalogTopic || pathTailTopic;
     const catalogTopic = inheritedTopic || 'כללי';
     const fileUrl = buildDriveFileUrl(item);
     const drivePath = ctx.path.concat(item.name || '').join(' / ');
@@ -1552,12 +1603,18 @@ async function buildDriveFolderIndex(rootFolderId, accessToken) {
           gradeRootFolders[gradeId] = item.id;
         }
       } else if (!ctx.catalogTopic) {
-        const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
-        nextCtx.catalogTopic = topic;
-        if (!topicFolders[ctx.gradeId]) topicFolders[ctx.gradeId] = {};
-        topicFolders[ctx.gradeId][stableNormalize(topic)] = item.id;
-        // Also index the raw folder name for strict topic matching.
-        topicFolders[ctx.gradeId][stableNormalize(childName)] = item.id;
+        if (isGradeShellFolderName(childName)) {
+          // Nested grade shells are transparent — do not index as topic folders.
+        } else {
+          const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
+          if (topic && !isGradeShellFolderName(topic)) {
+            nextCtx.catalogTopic = topic;
+            if (!topicFolders[ctx.gradeId]) topicFolders[ctx.gradeId] = {};
+            topicFolders[ctx.gradeId][stableNormalize(topic)] = item.id;
+            // Also index the raw folder name for strict topic matching.
+            topicFolders[ctx.gradeId][stableNormalize(childName)] = item.id;
+          }
+        }
       }
 
       await walk(item.id, nextCtx);
@@ -2831,6 +2888,9 @@ module.exports = {
   probeDriveCachedFileMetadata,
   walkDriveFolderTree,
   parseGradeIdFromFolderName,
+  isGradeShellFolderName,
+  isJunkDriveFileName,
+  isSyncableDriveFile,
   resolveDriveAccessToken,
   describeDriveAuthMode,
   hasDriveUserWriteAuth,

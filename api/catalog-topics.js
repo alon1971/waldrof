@@ -124,9 +124,22 @@ function getSearchTagsForCanonicalTopic(canonicalTopic) {
   return Array.isArray(tags) ? tags.slice() : [];
 }
 
+function isGradeShellFolderName(folderName) {
+  const s = String(folderName || '').trim();
+  if (!s) return false;
+  if (/^(כללי|general)$/iu.test(s)) return false;
+  // Nested Drive shells that mirror a classroom folder (must never become topics).
+  // Covers תיקייה/תיקיית/תקיה/תקיית spelling variants.
+  if (/ת(?:י)?קי(?:ה|ית)/i.test(s) && /כיתה/i.test(s)) return true;
+  if (/^ת(?:י)?קי(?:ה|ית)\s+כיתה[\s\-_/]*[א-ח]/iu.test(s)) return true;
+  if (/^כיתה[\s\-_/]*[א-ח]['׳"]?\s*$/iu.test(s)) return true;
+  return false;
+}
+
 function resolveCatalogTopicFromFolderName(folderName) {
   const name = String(folderName || '').trim();
   if (!name) return '';
+  if (isGradeShellFolderName(name)) return '';
 
   const norm = stableNormalize(name);
   for (let i = 0; i < CATALOG_TOPIC_ALIAS_CLUSTERS.length; i++) {
@@ -362,6 +375,7 @@ module.exports = {
   CROSS_CUTTING_TOPIC_ALIASES,
   getSearchTagsForCanonicalTopic,
   resolveCatalogTopicFromFolderName,
+  isGradeShellFolderName,
   expandCatalogTopicAliases,
   parseCatalogTopicFromNotes,
   packDriveCatalogNotes,

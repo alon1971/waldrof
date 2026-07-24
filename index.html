@@ -17623,10 +17623,12 @@
       const descLine = resolveCatalogMaterialDescription(file, subjectLine);
       const instructorLine = stripCommunityInstructorPrefix(file.authorName || file.instructor_name || '');
       const dateLine = file.createdAt ? formatCatalogCardDate(file.createdAt) : '';
+      const kindLine = t('catalog_file_kind') || 'קובץ';
       let html = '';
       if (subjectLine) {
         html += '<p class="catalog-material-title">' + escapeHtml(subjectLine) + '</p>';
       }
+      html += '<p class="catalog-material-meta catalog-material-kind">' + escapeHtml(kindLine) + '</p>';
       if (descLine) {
         html += '<p class="catalog-material-desc">' + escapeHtml(descLine) + '</p>';
       }
@@ -29875,12 +29877,34 @@
       });
     }
 
+    function isCatalogGradeShellTopicName(name) {
+      const s = String(name || '').trim();
+      if (!s) return false;
+      if (/^(כללי|general)$/i.test(s)) return false;
+      if (/ת(?:י)?קי(?:ה|ית)/i.test(s) && /כיתה/i.test(s)) return true;
+      if (/^ת(?:י)?קי(?:ה|ית)\s+כיתה[\s\-_/]*[א-ח]/i.test(s)) return true;
+      if (/^כיתה[\s\-_/]*[א-ח]['׳']?\s*$/i.test(s)) return true;
+      return false;
+    }
+
+    function isCatalogJunkFileName(name) {
+      const n = String(name || '').trim();
+      if (!n) return false;
+      if (/^(desktop\.ini|thumbs\.db|\.ds_store|icon\r|\.localized|~\$)/i.test(n)) return true;
+      if (/\.(tmp|temp|lnk|exe|dll|bat|cmd|sys|ini|url|log|bak|old|crdownload|partial)$/i.test(n)) {
+        return true;
+      }
+      return false;
+    }
+
     function getDynamicTopicsForGrade(gradeId) {
       const map = {};
       const gid = String(gradeId || '').trim();
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
         if (!t) return;
+        // Hide nested Drive grade shells that were wrongly saved as topics.
+        if (isCatalogGradeShellTopicName(t)) return;
         // Hide curriculum ghost folders parked under the wrong grade
         // (e.g. empty «רומא» under כיתה א׳ — belongs to כיתה ו׳).
         if (gid && gid !== 'general'
@@ -29890,7 +29914,7 @@
           if (block && block.gradeId && String(block.gradeId) !== gid) return;
         }
         const key = normalizeTopicKey(t);
-        if (!map[key]) map[key] = { id: t, label: t, count: 0 };
+        if (!map[key]) map[key] = { id: t, label: t, count: 0, kind: 'folder' };
         map[key].count++;
       });
       return Object.keys(map).map(function (k) { return map[k]; })
@@ -29921,7 +29945,12 @@
     function collectCatalogFilesForGrade(gradeId) {
       return filterByGrade(appState.communityCache, gradeId)
         .map(mapCacheItemToCatalogFile)
-        .filter(function (item) { return Boolean(item.id); })
+        .filter(function (item) {
+          if (!item.id) return false;
+          if (isCatalogGradeShellTopicName(item.topic)) return false;
+          if (isCatalogJunkFileName(item.fileName) || isCatalogJunkFileName(item.title)) return false;
+          return true;
+        })
         .sort(function (a, b) {
           const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -30687,12 +30716,14 @@
         html += '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">' + topics.map(function (topic) {
           const label = topic.label || topic.id || '';
           const count = Number(topic.count) || 0;
+          const kindLabel = t('catalog_folder_kind') || 'תיקייה';
           return '<button type="button" class="catalog-topic-folder text-dir-start bg-cream rounded-xl border border-gold/30 p-4 hover:border-sage/50" data-topic="' +
             escapeHtml(String(topic.id || label)) + '">' +
             '<div class="flex items-start gap-3">' +
             '<span class="inline-flex w-9 h-9 shrink-0 items-center justify-center rounded-lg bg-sage/15 text-sage-dark"><i class="fa-solid fa-folder"></i></span>' +
             '<div class="min-w-0">' +
             '<div class="font-display font-bold text-burgundy">' + escapeHtml(label) + '</div>' +
+            '<div class="text-xs text-walnut/60 mt-0.5">' + escapeHtml(kindLabel) + '</div>' +
             '<div class="text-xs text-sage-dark mt-1 font-medium">' +
             escapeHtml(t('catalog_files_in_topic', { count: count })) + '</div>' +
             '</div></div></button>';
