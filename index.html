@@ -21566,9 +21566,22 @@
 
     async function loadCommunityDriveCatalogOverview(options) {
       options = options || {};
+      // Never let Drive overview hang the מאגר קהילתי tab — hard client timeout.
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutMs = Number(options.timeoutMs) || 12000;
+      var timer = null;
       try {
+        if (controller) {
+          timer = setTimeout(function () {
+            try { controller.abort(); } catch (e) { /* ignore */ }
+          }, timeoutMs);
+        }
         const url = communityCatalogDriveUrl() + (options.forceRefresh ? '?refresh=1' : '');
-        const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          signal: controller ? controller.signal : undefined,
+        });
         if (!res.ok) {
           console.warn('[catalog] Drive overview HTTP', res.status);
           return null;
@@ -21579,9 +21592,35 @@
           return data;
         }
       } catch (err) {
-        console.warn('[catalog] Drive overview failed:', err && err.message ? err.message : err);
+        if (err && err.name === 'AbortError') {
+          console.warn('[catalog] Drive overview timed out after', timeoutMs, 'ms');
+        } else {
+          console.warn('[catalog] Drive overview failed:', err && err.message ? err.message : err);
+        }
+      } finally {
+        if (timer) clearTimeout(timer);
       }
       return null;
+    }
+
+    function refreshCatalogGradesFromDriveInBackground(options) {
+      options = options || {};
+      // Fire-and-forget: never blocks the loading spinner / first paint.
+      Promise.resolve()
+        .then(function () {
+          return loadCommunityDriveCatalogOverview(options);
+        })
+        .then(function (data) {
+          if (!data) return;
+          if (catalogState.view === 'grades') {
+            renderCatalogGrades();
+          } else if (catalogState.view === 'grade' && catalogState.gradeId) {
+            renderCatalogGradePanel(catalogState.gradeId);
+          }
+        })
+        .catch(function (err) {
+          console.warn('[catalog] background Drive refresh:', err && err.message ? err.message : err);
+        });
     }
 
     function getDriveCatalogGradeOverview(gradeId) {
@@ -31097,25 +31136,22 @@
       bindCatalogSearchBar();
       updateCatalogSearchVisibility();
       if (catalogState.view === 'grades') {
-        showCatalogStatus(t('catalog_loading'), 'info');
-        try {
-          if (isCloudConfigured()) await loadCommunity();
-        } catch (e) { showCatalogStatus(e.message, 'error'); }
-        try {
-          await loadCommunityDriveCatalogOverview({ forceRefresh: opts.force === true });
-        } catch (driveErr) {
-          console.warn('[catalog] Drive overview:', driveErr && driveErr.message ? driveErr.message : driveErr);
+        // Original fast path: Supabase community_materials → render immediately.
+        // Do NOT await Drive overview here (it blocked the tab on "טוען...").
+        if (isCloudConfigured()) {
+          showCatalogStatus(t('catalog_loading'), 'info');
+          try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
+          showCatalogStatus('', '');
         }
-        showCatalogStatus('', '');
         renderCatalogGrades();
+        refreshCatalogGradesFromDriveInBackground({ forceRefresh: opts.force === true });
       } else if (catalogState.view === 'grade') {
-        try {
-          if (!appState.communityDriveCatalogOverview) {
-            await loadCommunityDriveCatalogOverview();
-          }
-        } catch (driveErr) { /* ignore — DB fallback remains */ }
         await renderCatalogGradePanel(catalogState.gradeId);
         scrollToCatalogContent('grade');
+        // Optional background enrich — never blocks the grade panel.
+        if (!appState.communityDriveCatalogOverview) {
+          refreshCatalogGradesFromDriveInBackground();
+        }
       } else if (catalogState.view === 'materials') {
         await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
         scrollToCatalogContent('materials');
