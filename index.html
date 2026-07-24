@@ -18275,15 +18275,19 @@
 
     async function refreshCatalogAfterCommunityDelete(pk) {
       forgetCommunityOwnership(pk);
-      appState.communityCache = appState.communityCache.filter(function (m) {
-        const rowPk = normalizeMaterialUuid(m.id || m.dbId || resolveCommunityMaterialId(m) || '');
-        return rowPk !== pk;
-      });
-      appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-      try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
+      invalidateCommunityCatalogClientCache();
+      try {
+        await loadCommunity();
+      } catch (e) {
+        appState.communityCache = appState.communityCache.filter(function (m) {
+          const rowPk = normalizeMaterialUuid(m.id || m.dbId || resolveCommunityMaterialId(m) || '');
+          return rowPk !== pk;
+        });
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      }
       releaseCatalogUploadLocks();
       updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
-      await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic);
+      await renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic, { force: true });
       if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
       renderCommunityMaterials();
     }
@@ -18534,13 +18538,14 @@
       return '/api/community-materials';
     }
 
-    function communityCatalogDriveApiUrl() {
-      try {
-        if (typeof location !== 'undefined' && location.origin && /^https?:/i.test(location.origin)) {
-          return location.origin + '/api/community-catalog-local';
-        }
-      } catch (e) { /* ignore */ }
-      return '/api/community-catalog-local';
+    function invalidateCommunityCatalogClientCache() {
+      appState.communityDriveCatalogOverview = null;
+      try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
+    }
+
+    async function reloadCommunityFromSupabase() {
+      invalidateCommunityCatalogClientCache();
+      await loadCommunity();
     }
 
     function communityMaterialsMutateUrl(id) {
@@ -19721,16 +19726,14 @@
       if (!canUseCommunityUploadApi()) {
         throw new Error('Community API unavailable');
       }
-      // Instant local on-disk index (data/community-catalog-index.json).
-      // No Drive crawl, no community_materials DB query.
+      // Single source of truth: Supabase community_materials via /api/community-materials.
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timeoutId = controller
-        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 5000)
+        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
         : null;
       let res;
       try {
-        const localUrl = communityCatalogDriveApiUrl();
-        res = await fetch(localUrl, {
+        res = await fetch(communityMaterialsApiUrl(), {
           method: 'GET',
           cache: 'no-store',
           signal: controller ? controller.signal : undefined,
@@ -19750,24 +19753,18 @@
       let json = {};
       if (text && text.trim()) {
         try { json = JSON.parse(text); } catch (e) {
-          throw new Error('Invalid local community catalog response');
+          throw new Error('Invalid community materials response');
         }
-      }
-      if (json && json.grades && typeof json.grades === 'object') {
-        appState.communityDriveCatalogOverview = {
-          success: json.success !== false,
-          source: 'local',
-          driveConfigured: false,
-          grades: json.grades,
-        };
       }
       const rows = json.data;
       if (!Array.isArray(rows)) {
-        throw new Error('Invalid local community catalog response');
+        throw new Error('Invalid community materials response');
       }
-      if (!rows.length && json.success === false) {
-        throw new Error(json.error || 'Local community catalog unavailable');
+      if (json.degraded) {
+        console.warn('[community] server returned degraded empty list:', json.reason || 'unknown');
       }
+      // Never keep stale local/Drive overview over live Supabase rows.
+      appState.communityDriveCatalogOverview = null;
       return rows;
     }
 
@@ -21520,7 +21517,7 @@
               markUploadedCommunityMaterial(material);
             }
           });
-          await loadCommunity();
+          await reloadCommunityFromSupabase();
           return materials.length === 1 ? materials[0] : materials;
         }
         let lastMaterial = null;
@@ -21560,7 +21557,7 @@
             lastMaterial = material;
           }
         }
-        await loadCommunity();
+        await reloadCommunityFromSupabase();
         return lastMaterial;
       } else if (!linkRaw) {
         throw new Error(t('catalog_err_file'));
@@ -21585,7 +21582,7 @@
           fileType: fileType,
         }, materialId, { indexBundle: options.indexBundle === true });
       }
-      await loadCommunity();
+      await reloadCommunityFromSupabase();
       return material;
     }
 
@@ -21641,6 +21638,7 @@
       if (!isCloudConfigured()) {
         appState.communityCache = [];
         appState.communityForGrade = [];
+        appState.communityDriveCatalogOverview = null;
         return;
       }
       try {
@@ -21649,6 +21647,7 @@
           return Boolean(resolveCommunityMaterialId(item));
         });
         appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+        appState.communityDriveCatalogOverview = null;
       } catch (err) {
         console.warn('[community] loadCommunity failed:', formatSupabaseError(err));
         appState.communityCache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
@@ -30949,6 +30948,8 @@
     }
 
     async function refreshCatalogAfterMaterialChange(topicOverride) {
+      invalidateCommunityCatalogClientCache();
+      try { await loadCommunity(); } catch (e) { /* keep optimistic cache */ }
       updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
       const nextTopic = topicOverride != null ? topicOverride : catalogState.topic;
       if (catalogState.view === 'materials') {
@@ -30956,7 +30957,7 @@
       } else if (catalogState.view === 'grade') {
         await renderCatalogGradePanel(catalogState.gradeId);
       } else {
-        renderCatalog('grades');
+        renderCatalog('grades', null, null, { force: true });
       }
       if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
       renderCommunityMaterials();
@@ -31031,7 +31032,7 @@
           description: descTrim,
           author: authorTrim,
         });
-        await loadCommunity();
+        await reloadCommunityFromSupabase();
         const gradeChanged = String(catalogState.gradeId || '') !== String(gradeTrim);
         const topicChanged = catalogState.view === 'materials' && normalizeTopicKey(catalogState.topic) !== normalizeTopicKey(topicTrim);
         if (gradeChanged) {
@@ -31086,6 +31087,11 @@
           const text = await response.text();
           if (!response.ok) {
             const errMsg = parseCommunityApiError(text, response.status);
+            // Already gone from Supabase — drop stale UI row and resync.
+            if (isOrphanCommunityMaterialError(errMsg) || /not found/i.test(String(errMsg || ''))) {
+              await refreshCatalogAfterCommunityDelete(pk);
+              return;
+            }
             console.error('[community] delete failed:', response.status, text);
             alert(errMsg || ('מחיקה נכשלה (' + response.status + ')'));
             releaseCatalogUploadLocks();
