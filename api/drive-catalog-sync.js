@@ -1724,9 +1724,10 @@ async function summarizeDriveCatalogForUi(options) {
 
     let fileCount = 0;
     try {
+      // Shallow count only — deep recursion blocked the catalog tab for minutes.
       fileCount = await countSyncableFilesUnderFolder(gradeRootFolders[gradeId], accessToken, {
-        maxDepth: 8,
-        maxFiles: 5000,
+        maxDepth: 2,
+        maxFiles: 800,
       });
     } catch (countErr) {
       console.warn(

@@ -34,16 +34,25 @@ async function legacyHandler(req, res) {
   const forceRefresh = String(query.refresh || query.forceRefresh || '').trim() === '1'
     || String(query.refresh || query.forceRefresh || '').toLowerCase() === 'true';
 
+  const OVERVIEW_TIMEOUT_MS = 15000;
+  let settled = false;
   try {
-    const overview = await driveCatalogSync.summarizeDriveCatalogForUi({
-      forceRefresh: forceRefresh,
-    });
+    const overview = await Promise.race([
+      driveCatalogSync.summarizeDriveCatalogForUi({ forceRefresh: forceRefresh }),
+      new Promise(function (_, reject) {
+        setTimeout(function () {
+          reject(Object.assign(new Error('Drive catalog overview timed out'), { statusCode: 504 }));
+        }, OVERVIEW_TIMEOUT_MS);
+      }),
+    ]);
+    settled = true;
     return res.status(200).json(overview);
   } catch (err) {
     console.error(
       '[community-catalog-drive] failed:',
       err && err.message ? err.message : err
     );
+    if (settled) return undefined;
     return res.status(err && err.statusCode ? err.statusCode : 500).json({
       success: false,
       source: 'drive',
