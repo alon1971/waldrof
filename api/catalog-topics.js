@@ -223,6 +223,102 @@ function parseCatalogTopicFromNotes(rawNotes) {
   return '';
 }
 
+function readNotesTag(rawNotes, key) {
+  const notes = String(rawNotes || '');
+  if (!notes || !key) return '';
+  const re = new RegExp('\\[' + String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':([^\\]]*)\\]');
+  const m = notes.match(re);
+  return m ? String(m[1] || '').trim() : '';
+}
+
+/**
+ * Grade-root / wrapper folder names that must not appear as educational topics
+ * (e.g. «תקיית כיתה ז», «כיתה ד׳», «תקיית חומרים לכיתה ד (תיקייה)»).
+ */
+function isGenericCommunityFolderName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return true;
+  const n = raw
+    .replace(/[\u05F3\u05F4׳״`'"]/g, '')
+    .replace(/[-–—_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!n) return true;
+  const lower = n.toLowerCase();
+  if (lower === 'general' || n === 'כללי') return true;
+  if (/^כיתה\s*[א-ח]\s*$/u.test(n)) return true;
+  if (/^grade\s*[1-8]\s*$/i.test(n)) return true;
+  // «תיקייה/תיקיית» and the common Drive typo «תקיית/תקיה»
+  if (/^(?:תיקי(?:יה|ית|ה|ת)?|תקי(?:יה|ית|ה|ת)?)\s+/u.test(n) && /כיתה/u.test(n)) return true;
+  if (/\(\s*(?:תיקי(?:יה|ית|ה|ת)?|תקי(?:יה|ית|ה|ת)?)\s*\)/u.test(n) && /כיתה/u.test(n)) return true;
+  if (/^חומר(?:י|ים)?\s+כיתה\s*[א-ח]/u.test(n)) return true;
+  if (/^חומרי\s+למידה\s+שונים$/u.test(n)) return true;
+  return false;
+}
+
+function looksLikeFilePathSegment(segment, fileName) {
+  const s = String(segment || '').trim();
+  if (!s) return true;
+  const fn = String(fileName || '').trim();
+  if (fn && s === fn) return true;
+  if (/\.[a-z0-9]{1,8}$/i.test(s)) return true;
+  return false;
+}
+
+/**
+ * First educational folder from a Drive path / path parts after stripping
+ * grade wrappers and the file name segment.
+ */
+function extractTopicFromPathParts(pathParts, fileName) {
+  const parts = (Array.isArray(pathParts) ? pathParts : [])
+    .map(function (p) { return String(p || '').trim(); })
+    .filter(Boolean);
+  if (!parts.length) return '';
+  if (looksLikeFilePathSegment(parts[parts.length - 1], fileName)) {
+    parts.pop();
+  }
+  for (let i = 0; i < parts.length; i++) {
+    const seg = parts[i];
+    if (isGenericCommunityFolderName(seg)) continue;
+    // Keep the real Drive folder label for catalog grouping (do not alias-collapse).
+    return seg;
+  }
+  return '';
+}
+
+function extractTopicFromDrivePath(drivePath, fileName) {
+  const parts = String(drivePath || '')
+    .split(/\s*\/\s*/)
+    .map(function (p) { return String(p || '').trim(); })
+    .filter(Boolean);
+  return extractTopicFromPathParts(parts, fileName);
+}
+
+/**
+ * Resolve the display/grouping topic for a community_materials row.
+ * Prefers non-generic topic fields, then drivePath folder segments.
+ */
+function resolveMaterialDisplayTopic(row) {
+  const r = row || {};
+  const notes = r.notes || r[r.COMMUNITY_META_FIELD] || '';
+  const fileName = r.file_name || r.fileName || '';
+  const candidates = [
+    r.topic,
+    readNotesTag(notes, 'catalogTopic'),
+    readNotesTag(notes, 'subfolder'),
+    readNotesTag(notes, 'topic'),
+    parseCatalogTopicFromNotes(notes),
+  ];
+  for (let i = 0; i < candidates.length; i++) {
+    const t = String(candidates[i] || '').trim();
+    if (t && !isGenericCommunityFolderName(t)) return t;
+  }
+  const drivePath = readNotesTag(notes, 'drivePath') || r.drivePath || r.drive_path || '';
+  const fromPath = extractTopicFromDrivePath(drivePath, fileName);
+  if (fromPath) return fromPath;
+  return '';
+}
+
 function packDriveCatalogNotes(extras) {
   const e = extras || {};
   const parts = [];
@@ -365,6 +461,11 @@ module.exports = {
   expandCatalogTopicAliases,
   parseCatalogTopicFromNotes,
   packDriveCatalogNotes,
+  readNotesTag,
+  isGenericCommunityFolderName,
+  extractTopicFromPathParts,
+  extractTopicFromDrivePath,
+  resolveMaterialDisplayTopic,
   extractGradeIdFromQuery,
   findActiveExcludeGroup,
   getExcludedTermsForQuery,

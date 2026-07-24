@@ -1182,10 +1182,18 @@ async function walkDriveFolderTree(folderId, ctx, accessToken, stats) {
           nextCtx.gradeId = gradeId;
           console.log('[drive-catalog-sync] matched grade folder:', childName, '→ grade', gradeId);
         }
-      } else if (!ctx.catalogTopic) {
-        const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
-        nextCtx.catalogTopic = topic;
-        console.log('[drive-catalog-sync] inherited catalog topic from folder:', childName, '→', topic);
+      } else {
+        const currentTopicIsGeneric = !ctx.catalogTopic
+          || catalogTopics.isGenericCommunityFolderName(ctx.catalogTopic);
+        const childIsGradeWrapper = Boolean(parseGradeIdFromFolderName(childName))
+          || catalogTopics.isGenericCommunityFolderName(childName);
+        if (currentTopicIsGeneric && !childIsGradeWrapper) {
+          const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
+          if (topic && !catalogTopics.isGenericCommunityFolderName(topic)) {
+            nextCtx.catalogTopic = topic;
+            console.log('[drive-catalog-sync] inherited catalog topic from folder:', childName, '→', topic);
+          }
+        }
       }
 
       await walkDriveFolderTree(item.id, nextCtx, accessToken, stats);
@@ -1198,13 +1206,19 @@ async function walkDriveFolderTree(folderId, ctx, accessToken, stats) {
       continue;
     }
 
-    const inheritedTopic = ctx.catalogTopic
-      || catalogTopics.resolveCatalogTopicFromFolderName(ctx.path[ctx.path.length - 1] || '');
-    const catalogTopic = inheritedTopic || 'כללי';
+    const pathTopic = catalogTopics.extractTopicFromPathParts(ctx.path, item.name || '');
+    const inheritedTopic = (ctx.catalogTopic && !catalogTopics.isGenericCommunityFolderName(ctx.catalogTopic))
+      ? ctx.catalogTopic
+      : pathTopic;
+    const catalogTopic = (inheritedTopic && !catalogTopics.isGenericCommunityFolderName(inheritedTopic))
+      ? inheritedTopic
+      : (pathTopic || 'כללי');
     const fileUrl = buildDriveFileUrl(item);
     const drivePath = ctx.path.concat(item.name || '').join(' / ');
     const notes = catalogTopics.packDriveCatalogNotes({
-      subfolder: ctx.catalogTopic || '',
+      subfolder: (ctx.catalogTopic && !catalogTopics.isGenericCommunityFolderName(ctx.catalogTopic))
+        ? ctx.catalogTopic
+        : (pathTopic || ''),
       catalogTopic: catalogTopic,
       driveFileId: item.id,
       drivePath: drivePath,
@@ -1551,13 +1565,20 @@ async function buildDriveFolderIndex(rootFolderId, accessToken) {
           nextCtx.gradeId = gradeId;
           gradeRootFolders[gradeId] = item.id;
         }
-      } else if (!ctx.catalogTopic) {
-        const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
-        nextCtx.catalogTopic = topic;
-        if (!topicFolders[ctx.gradeId]) topicFolders[ctx.gradeId] = {};
-        topicFolders[ctx.gradeId][stableNormalize(topic)] = item.id;
-        // Also index the raw folder name for strict topic matching.
-        topicFolders[ctx.gradeId][stableNormalize(childName)] = item.id;
+      } else {
+        const currentTopicIsGeneric = !ctx.catalogTopic
+          || catalogTopics.isGenericCommunityFolderName(ctx.catalogTopic);
+        const childIsGradeWrapper = Boolean(parseGradeIdFromFolderName(childName))
+          || catalogTopics.isGenericCommunityFolderName(childName);
+        if (currentTopicIsGeneric && !childIsGradeWrapper) {
+          const topic = catalogTopics.resolveCatalogTopicFromFolderName(childName);
+          if (topic && !catalogTopics.isGenericCommunityFolderName(topic)) {
+            nextCtx.catalogTopic = topic;
+            if (!topicFolders[ctx.gradeId]) topicFolders[ctx.gradeId] = {};
+            topicFolders[ctx.gradeId][stableNormalize(topic)] = item.id;
+            topicFolders[ctx.gradeId][stableNormalize(childName)] = item.id;
+          }
+        }
       }
 
       await walk(item.id, nextCtx);

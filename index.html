@@ -18342,12 +18342,23 @@
     async function fetchCommunityMaterialsViaClient() {
       const client = getCommunitySupabaseClient();
       if (!client) return null;
-      const { data, error } = await client
-        .from(SUPABASE_TABLE)
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return Array.isArray(data) ? data : [];
+      const pageSize = 1000;
+      const maxPages = 50;
+      const all = [];
+      for (let page = 0; page < maxPages; page++) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        const { data, error } = await client
+          .from(SUPABASE_TABLE)
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        const batch = Array.isArray(data) ? data : [];
+        for (let i = 0; i < batch.length; i++) all.push(batch[i]);
+        if (batch.length < pageSize) break;
+      }
+      return all;
     }
 
     async function postCommunityMaterialViaClient(record) {
@@ -19696,7 +19707,7 @@
       }
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timeoutId = controller
-        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
+        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 60000)
         : null;
       let res;
       try {
@@ -19742,25 +19753,40 @@
       }
       if (!SUPABASE_URL) return [];
       try {
-        const headers = await getSupabaseAuthHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' });
-        const url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?select=*&order=created_at.desc';
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timeoutId = controller
-          ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
-          : null;
-        let res;
-        try {
-          res = await fetch(url, {
-            headers: headers,
-            cache: 'no-store',
-            signal: controller ? controller.signal : undefined,
+        const pageSize = 1000;
+        const maxPages = 50;
+        const all = [];
+        for (let page = 0; page < maxPages; page++) {
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+          const headers = await getSupabaseAuthHeaders({
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Range: from + '-' + to,
+            Prefer: 'count=exact',
           });
-        } finally {
-          if (timeoutId) clearTimeout(timeoutId);
+          const url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?select=*&order=created_at.desc';
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          const timeoutId = controller
+            ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 30000)
+            : null;
+          let res;
+          try {
+            res = await fetch(url, {
+              headers: headers,
+              cache: 'no-store',
+              signal: controller ? controller.signal : undefined,
+            });
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+          }
+          if (!res.ok && res.status !== 206) throw new Error(await res.text() || res.status);
+          const json = await res.json();
+          const batch = Array.isArray(json) ? json : [];
+          for (let i = 0; i < batch.length; i++) all.push(batch[i]);
+          if (batch.length < pageSize) break;
         }
-        if (!res.ok) throw new Error(await res.text() || res.status);
-        const json = await res.json();
-        return Array.isArray(json) ? json : [];
+        return all;
       } catch (directErr) {
         console.warn('[community] direct REST fallback failed:', formatSupabaseError(directErr));
         return [];
@@ -19792,31 +19818,106 @@
     }
 
     function parseCommunityNotes(rawNotes) {
+      const out = {
+        title: '',
+        author: '',
+        description: '',
+        fileSize: null,
+        fileType: '',
+        topicLegacy: '',
+        subfolder: '',
+        catalogTopic: '',
+        drivePath: '',
+        driveFileId: '',
+        freeText: '',
+      };
       let rest = String(rawNotes || '');
-      const out = { title: '', author: '', description: '', fileSize: null, fileType: '', topicLegacy: '', freeText: '' };
-      const tagDefs = [
-        { field: 'title', re: /^\[title:([^\]]+)\]\s*/ },
-        { field: 'author', re: /^\[author:([^\]]+)\]\s*/ },
-        { field: 'description', re: /^\[desc:([^\]]+)\]\s*/ },
-        { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/, parse: function (v) { return parseInt(v, 10) || null; } },
-        { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/ },
-        { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/ },
-      ];
-      let matched = true;
-      while (matched) {
-        matched = false;
-        for (let i = 0; i < tagDefs.length; i++) {
-          const def = tagDefs[i];
-          const m = rest.match(def.re);
-          if (!m) continue;
-          out[def.field] = def.parse ? def.parse(m[1]) : m[1];
-          rest = rest.slice(m[0].length);
-          matched = true;
-          break;
+      rest = rest.replace(/\[([a-zA-Z_]+):([^\]]*)\]/g, function (_full, key, val) {
+        const v = String(val || '').trim();
+        switch (String(key || '')) {
+          case 'title': out.title = v; break;
+          case 'author': out.author = v; break;
+          case 'desc': out.description = v; break;
+          case 'size': out.fileSize = parseInt(v, 10) || null; break;
+          case 'type': out.fileType = v; break;
+          case 'topic': out.topicLegacy = v; break;
+          case 'subfolder': out.subfolder = v; break;
+          case 'catalogTopic': out.catalogTopic = v; break;
+          case 'drivePath': out.drivePath = v; break;
+          case 'driveFileId': out.driveFileId = v; break;
+          case 'tags': break;
+          default: return _full;
         }
-      }
-      out.freeText = rest.trim();
+        return '';
+      });
+      out.freeText = rest.replace(/\s+/g, ' ').trim();
       return out;
+    }
+
+    function isGenericCommunityFolderName(name) {
+      const raw = String(name || '').trim();
+      if (!raw) return true;
+      const n = raw
+        .replace(/[\u05F3\u05F4׳״`'"]/g, '')
+        .replace(/[-–—_/]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!n) return true;
+      const lower = n.toLowerCase();
+      if (lower === 'general' || n === 'כללי') return true;
+      if (/^כיתה\s*[א-ח]\s*$/u.test(n)) return true;
+      if (/^grade\s*[1-8]\s*$/i.test(n)) return true;
+      // «תיקייה/תיקיית» and the common Drive typo «תקיית/תקיה»
+      if (/^(?:תיקי(?:יה|ית|ה|ת)?|תקי(?:יה|ית|ה|ת)?)\s+/u.test(n) && /כיתה/u.test(n)) return true;
+      if (/\(\s*(?:תיקי(?:יה|ית|ה|ת)?|תקי(?:יה|ית|ה|ת)?)\s*\)/u.test(n) && /כיתה/u.test(n)) return true;
+      if (/^חומר(?:י|ים)?\s+כיתה\s*[א-ח]/u.test(n)) return true;
+      if (/^חומרי\s+למידה\s+שונים$/u.test(n)) return true;
+      return false;
+    }
+
+    function looksLikeCommunityFileSegment(segment, fileName) {
+      const s = String(segment || '').trim();
+      if (!s) return true;
+      const fn = String(fileName || '').trim();
+      if (fn && s === fn) return true;
+      if (/\.[a-z0-9]{1,8}$/i.test(s)) return true;
+      return false;
+    }
+
+    function extractCommunityTopicFromDrivePath(drivePath, fileName) {
+      const parts = String(drivePath || '')
+        .split(/\s*\/\s*/)
+        .map(function (p) { return String(p || '').trim(); })
+        .filter(Boolean);
+      if (!parts.length) return '';
+      if (looksLikeCommunityFileSegment(parts[parts.length - 1], fileName)) {
+        parts.pop();
+      }
+      for (let i = 0; i < parts.length; i++) {
+        if (isGenericCommunityFolderName(parts[i])) continue;
+        return parts[i];
+      }
+      return '';
+    }
+
+    function resolveCommunityDisplayTopic(row, extras) {
+      const r = row || {};
+      const e = extras || {};
+      const candidates = [
+        r.topic,
+        e.catalogTopic,
+        e.subfolder,
+        e.topicLegacy,
+      ];
+      for (let i = 0; i < candidates.length; i++) {
+        const t = String(candidates[i] || '').trim();
+        if (t && !isGenericCommunityFolderName(t)) return t;
+      }
+      const fromPath = extractCommunityTopicFromDrivePath(
+        e.drivePath || r.drivePath || '',
+        r.file_name || r.fileName || e.title || ''
+      );
+      return fromPath || '';
     }
 
     function buildCommunityInsertPayload(gradeId, topic, filePath, fileName, extras) {
@@ -21502,9 +21603,10 @@
       const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
       const extras = parseCommunityNotes(rawNotes);
       const filePath = row.file_path || '';
-      const topic = (row.topic || extras.topicLegacy || '').trim();
-      const displayNotes = extras.description || extras.freeText || '';
-      const displayTitle = extras.title || row.file_name || topic || 'חומר קהילתי';
+      const rawTopic = (row.topic_raw || row.topic || extras.topicLegacy || '').trim();
+      const topic = resolveCommunityDisplayTopic(row, extras);
+      const displayNotes = extras.description || '';
+      const displayTitle = extras.title || row.file_name || topic || rawTopic || 'חומר קהילתי';
       const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
       return {
         id: id,
@@ -21515,6 +21617,8 @@
         authorName: extras.author || '',
         gradeLevel: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : ''),
         topic: topic,
+        rawTopic: rawTopic,
+        drivePath: extras.drivePath || '',
         createdAt: row.created_at || null,
         fileName: row.file_name || '',
         filePath: filePath,
@@ -24098,7 +24202,7 @@
       var map = {};
       function addTopic(raw) {
         var topic = String(raw || '').trim();
-        if (!topic) return;
+        if (!topic || isGenericCommunityFolderName(topic)) return;
         var key = normalizeTopicKey(topic);
         if (!key || map[key]) return;
         map[key] = topic;
@@ -29759,11 +29863,11 @@
 
     function getDynamicTopicsForGrade(gradeId) {
       const map = {};
-      // Topics come only from live communityCache (Supabase community_materials).
-      // Do not filter via curriculum lesson map — that zeroed valid archive folders.
+      // Topics come from live communityCache — prefer real educational folders
+      // extracted from drivePath / notes, never generic grade-root labels.
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
-        const t = (item.topic || '').trim();
-        if (!t) return;
+        const t = String((item && item.topic) || '').trim();
+        if (!t || isGenericCommunityFolderName(t)) return;
         const key = normalizeTopicKey(t);
         if (!map[key]) map[key] = { id: t, label: t, count: 0 };
         map[key].count++;

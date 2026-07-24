@@ -4,6 +4,7 @@
  * DELETE /api/community-materials?id=<uuid> — delete row + storage object
  */
 const communityIngest = require('./community-ingest');
+const catalogTopics = require('./catalog-topics');
 const env = require('./env');
 
 const STORAGE_BUCKET = 'community-uploads';
@@ -360,6 +361,23 @@ async function supabaseRequestWithKeyFallback(relativePath, options, preferAnon)
   return lastResult || { ok: false, status: 503, body: null, text: '' };
 }
 
+function enrichMaterialRowTopic(row) {
+  if (!row || typeof row !== 'object') return row;
+  const resolved = catalogTopics.resolveMaterialDisplayTopic(row);
+  if (!resolved) {
+    // Drop generic root labels so UI does not show a single fake topic folder.
+    if (catalogTopics.isGenericCommunityFolderName(row.topic)) {
+      return Object.assign({}, row, { topic: '', topic_raw: row.topic || '' });
+    }
+    return row;
+  }
+  if (String(row.topic || '').trim() === resolved) return row;
+  return Object.assign({}, row, {
+    topic: resolved,
+    topic_raw: row.topic || '',
+  });
+}
+
 async function listCommunityMaterials() {
   const supabaseUrl = env.getSupabaseUrl();
   if (!supabaseUrl) {
@@ -374,25 +392,44 @@ async function listCommunityMaterials() {
   }
 
   try {
-    const result = await supabaseRequestWithKeyFallback(
-      '/rest/v1/' + MATERIALS_TABLE + '?select=*&order=created_at.desc',
-      { method: 'GET' },
-      true
-    );
-    if (!result.ok) {
-      console.warn(
-        '[community-materials] list failed:',
-        result.status,
-        String(result.text || '').slice(0, 200)
+    const pageSize = 1000;
+    const maxPages = 50;
+    const allRows = [];
+    for (let page = 0; page < maxPages; page++) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      const result = await supabaseRequestWithKeyFallback(
+        '/rest/v1/' + MATERIALS_TABLE + '?select=*&order=created_at.desc',
+        {
+          method: 'GET',
+          headers: {
+            Range: from + '-' + to,
+            Prefer: 'count=exact',
+          },
+        },
+        true
       );
-      return {
-        rows: [],
-        degraded: true,
-        reason: 'supabase_http_' + String(result.status || 'error'),
-      };
+      if (!result.ok) {
+        console.warn(
+          '[community-materials] list failed:',
+          result.status,
+          String(result.text || '').slice(0, 200)
+        );
+        if (!allRows.length) {
+          return {
+            rows: [],
+            degraded: true,
+            reason: 'supabase_http_' + String(result.status || 'error'),
+          };
+        }
+        break;
+      }
+      const batch = Array.isArray(result.body) ? result.body : [];
+      for (let i = 0; i < batch.length; i++) allRows.push(batch[i]);
+      if (batch.length < pageSize) break;
     }
     return {
-      rows: Array.isArray(result.body) ? result.body : [],
+      rows: allRows.map(enrichMaterialRowTopic),
       degraded: false,
     };
   } catch (err) {
