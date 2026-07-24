@@ -1613,7 +1613,355 @@ async function getDriveFolderIndex(options) {
 /** Clear in-memory Drive folder tree so the next read re-fetches from Google Drive. */
 function flushDriveCatalogMemoryCaches() {
   driveFolderIndexCache = { key: '', expiresAt: 0, index: null };
-  return { folderIndex: true };
+  driveCatalogUiOverviewCache = { key: '', expiresAt: 0, payload: null };
+  driveCatalogMaterialsCache = { key: '', expiresAt: 0, rows: null, grades: null };
+  return { folderIndex: true, uiOverview: true, materials: true };
+}
+
+/**
+ * Count syncable Drive files under a folder (recursive, depth-capped).
+ * Used by Community Archive tab overview — not by Gemini summarizer.
+ */
+async function countSyncableFilesUnderFolder(folderId, accessToken, options) {
+  const opts = options || {};
+  const maxDepth = Math.min(Number(opts.maxDepth) || 8, MAX_FOLDER_DEPTH);
+  const maxFiles = Math.min(Number(opts.maxFiles) || 5000, 8000);
+  let total = 0;
+
+  async function walk(id, depth) {
+    if (!id || depth > maxDepth || total >= maxFiles) return;
+    let children = [];
+    try {
+      children = await listDriveChildren(id, accessToken);
+    } catch (err) {
+      console.warn(
+        '[drive-catalog-sync] count files list failed:',
+        id,
+        err && err.message ? err.message : err
+      );
+      return;
+    }
+    for (let i = 0; i < children.length; i++) {
+      if (total >= maxFiles) return;
+      const item = children[i];
+      if (!item || !item.id) continue;
+      if (item.mimeType === FOLDER_MIME) {
+        await walk(item.id, depth + 1);
+        continue;
+      }
+      if (!isSyncableDriveFile(item)) continue;
+      total += 1;
+    }
+  }
+
+  await walk(folderId, 0);
+  return total;
+}
+
+/**
+ * Collect syncable Drive files under a folder (shallow/deep capped).
+ */
+async function collectSyncableFilesUnderFolder(folderId, accessToken, options) {
+  const opts = options || {};
+  const maxDepth = Math.min(Number(opts.maxDepth) || 3, MAX_FOLDER_DEPTH);
+  const maxFiles = Math.min(Number(opts.maxFiles) || 800, 2000);
+  const out = [];
+
+  async function walk(id, depth) {
+    if (!id || depth > maxDepth || out.length >= maxFiles) return;
+    let children = [];
+    try {
+      children = await listDriveChildren(id, accessToken);
+    } catch (err) {
+      console.warn(
+        '[drive-catalog-sync] collect files list failed:',
+        id,
+        err && err.message ? err.message : err
+      );
+      return;
+    }
+    for (let i = 0; i < children.length; i++) {
+      if (out.length >= maxFiles) return;
+      const item = children[i];
+      if (!item || !item.id) continue;
+      if (item.mimeType === FOLDER_MIME) {
+        await walk(item.id, depth + 1);
+        continue;
+      }
+      if (!isSyncableDriveFile(item)) continue;
+      out.push(item);
+    }
+  }
+
+  await walk(folderId, 0);
+  return out;
+}
+
+/** In-memory caches for Community Archive UI (Drive-backed). */
+let driveCatalogUiOverviewCache = { key: '', expiresAt: 0, payload: null };
+let driveCatalogMaterialsCache = { key: '', expiresAt: 0, rows: null, grades: null };
+
+/**
+ * Live Drive overview for מאגר קהילתי grade cards:
+ * topic folders + file counts from Google Drive (not community_materials / Gemini).
+ */
+async function summarizeDriveCatalogForUi(options) {
+  const opts = options || {};
+  if (!isDriveCatalogSyncConfigured() && !opts.accessToken) {
+    return {
+      success: true,
+      source: 'drive',
+      driveConfigured: false,
+      grades: {},
+    };
+  }
+
+  const rootFolderId = getCatalogRootFolderId(opts);
+  const cacheKey = String(rootFolderId || '');
+  const now = Date.now();
+  if (
+    !opts.forceRefresh
+    && driveCatalogUiOverviewCache.payload
+    && driveCatalogUiOverviewCache.key === cacheKey
+    && driveCatalogUiOverviewCache.expiresAt > now
+  ) {
+    return driveCatalogUiOverviewCache.payload;
+  }
+
+  let accessToken;
+  let index;
+  try {
+    accessToken = await resolveDriveAccessToken(opts);
+    index = await getDriveFolderIndex(Object.assign({}, opts, { accessToken: accessToken }));
+  } catch (err) {
+    return {
+      success: false,
+      source: 'drive',
+      driveConfigured: true,
+      grades: {},
+      communityError: String(err && err.message ? err.message : err),
+    };
+  }
+
+  const gradeRootFolders = index.gradeRootFolders || {};
+  const topicFolders = index.topicFolders || {};
+  const byFolderId = index.byFolderId || {};
+  const gradeIds = Object.keys(gradeRootFolders);
+
+  const grades = {};
+  await Promise.all(gradeIds.map(async function (gradeId) {
+    const topicMap = topicFolders[gradeId] || {};
+    const topicsByFolderId = {};
+    Object.keys(topicMap).forEach(function (key) {
+      const folderId = topicMap[key];
+      if (!folderId || topicsByFolderId[folderId]) return;
+      const meta = byFolderId[folderId] || {};
+      const path = Array.isArray(meta.path) ? meta.path : [];
+      const label = String(meta.catalogTopic || path[path.length - 1] || key || '').trim();
+      if (!label) return;
+      topicsByFolderId[folderId] = {
+        id: label,
+        label: label,
+        folderId: folderId,
+        count: 0,
+      };
+    });
+
+    const topicList = Object.keys(topicsByFolderId).map(function (id) {
+      return topicsByFolderId[id];
+    });
+
+    // Per-topic shallow file counts (depth 2) — accurate folders without deep recursion.
+    await Promise.all(topicList.map(async function (topic) {
+      try {
+        topic.count = await countSyncableFilesUnderFolder(topic.folderId, accessToken, {
+          maxDepth: 2,
+          maxFiles: 800,
+        });
+      } catch (countErr) {
+        topic.count = 0;
+      }
+    }));
+
+    const topics = topicList.sort(function (a, b) {
+      return String(a.label).localeCompare(String(b.label), 'he');
+    });
+
+    let fileCount = topics.reduce(function (sum, t) { return sum + (Number(t.count) || 0); }, 0);
+    if (!fileCount && gradeRootFolders[gradeId]) {
+      try {
+        fileCount = await countSyncableFilesUnderFolder(gradeRootFolders[gradeId], accessToken, {
+          maxDepth: 2,
+          maxFiles: 800,
+        });
+      } catch (countErr) {
+        console.warn(
+          '[drive-catalog-sync] grade file count failed:',
+          gradeId,
+          countErr && countErr.message ? countErr.message : countErr
+        );
+      }
+    }
+
+    grades[gradeId] = {
+      gradeId: gradeId,
+      gradeFolderId: gradeRootFolders[gradeId],
+      topicCount: topics.length,
+      fileCount: fileCount,
+      topics: topics,
+    };
+  }));
+
+  const payload = {
+    success: true,
+    source: 'drive',
+    driveConfigured: true,
+    grades: grades,
+  };
+  driveCatalogUiOverviewCache = {
+    key: cacheKey,
+    expiresAt: now + FOLDER_INDEX_TTL_MS,
+    payload: payload,
+  };
+  return payload;
+}
+
+/**
+ * Flatten Drive Grade → Topic → Files into community_materials-shaped rows
+ * for the Community Archive tab (bypasses corrupted DB grade_level tagging).
+ */
+async function listDriveCatalogMaterialsRows(options) {
+  const opts = options || {};
+  if (!isDriveCatalogSyncConfigured() && !opts.accessToken) {
+    return {
+      success: true,
+      source: 'drive',
+      driveConfigured: false,
+      grades: {},
+      data: [],
+    };
+  }
+
+  const rootFolderId = getCatalogRootFolderId(opts);
+  const cacheKey = String(rootFolderId || '') + '|materials';
+  const now = Date.now();
+  if (
+    !opts.forceRefresh
+    && Array.isArray(driveCatalogMaterialsCache.rows)
+    && driveCatalogMaterialsCache.key === cacheKey
+    && driveCatalogMaterialsCache.expiresAt > now
+  ) {
+    return {
+      success: true,
+      source: 'drive',
+      driveConfigured: true,
+      grades: driveCatalogMaterialsCache.grades || {},
+      data: driveCatalogMaterialsCache.rows,
+    };
+  }
+
+  const overview = await summarizeDriveCatalogForUi(opts);
+  if (!overview || overview.success === false) {
+    return {
+      success: false,
+      source: 'drive',
+      driveConfigured: Boolean(overview && overview.driveConfigured !== false),
+      grades: (overview && overview.grades) || {},
+      data: [],
+      error: (overview && overview.communityError) || 'Drive overview failed',
+    };
+  }
+
+  let accessToken;
+  let index;
+  try {
+    accessToken = await resolveDriveAccessToken(opts);
+    index = await getDriveFolderIndex(Object.assign({}, opts, { accessToken: accessToken }));
+  } catch (err) {
+    return {
+      success: false,
+      source: 'drive',
+      driveConfigured: true,
+      grades: overview.grades || {},
+      data: [],
+      error: String(err && err.message ? err.message : err),
+    };
+  }
+
+  const gradesMeta = overview.grades || {};
+  const rows = [];
+  const gradeIds = Object.keys(gradesMeta);
+  const MAX_TOTAL_ROWS = Math.min(Number(opts.maxTotalRows) || 4000, 6000);
+
+  await Promise.all(gradeIds.map(async function (gradeId) {
+    if (rows.length >= MAX_TOTAL_ROWS) return;
+    const gradeInfo = gradesMeta[gradeId] || {};
+    const topics = Array.isArray(gradeInfo.topics) ? gradeInfo.topics : [];
+
+    for (let t = 0; t < topics.length; t++) {
+      if (rows.length >= MAX_TOTAL_ROWS) break;
+      const topic = topics[t];
+      const folderId = topic && topic.folderId;
+      if (!folderId) continue;
+      const topicLabel = String(topic.label || topic.id || '').trim() || 'כללי';
+      let files = [];
+      try {
+        files = await collectSyncableFilesUnderFolder(folderId, accessToken, {
+          maxDepth: 2,
+          maxFiles: 400,
+        });
+      } catch (listErr) {
+        console.warn(
+          '[drive-catalog-sync] materials list failed:',
+          gradeId,
+          topicLabel,
+          listErr && listErr.message ? listErr.message : listErr
+        );
+        continue;
+      }
+
+      for (let f = 0; f < files.length; f++) {
+        if (rows.length >= MAX_TOTAL_ROWS) break;
+        const file = files[f];
+        if (!file || !file.id) continue;
+        const folderMeta = index.byFolderId[folderId] || {};
+        const pathParts = Array.isArray(folderMeta.path) ? folderMeta.path.slice() : [];
+        const fileName = String(file.name || '').trim() || 'קובץ Drive';
+        const webViewLink = buildDriveFileUrl(file);
+        const pathLabels = pathParts.concat(fileName).join(' / ');
+        rows.push({
+          id: 'drive:' + file.id,
+          grade_level: String(gradeId),
+          topic: topicLabel,
+          file_name: fileName,
+          file_path: webViewLink || pathLabels,
+          notes: [
+            '[title:' + fileName + ']',
+            '[catalogTopic:' + topicLabel + ']',
+            '[driveFileId:' + file.id + ']',
+            '[source:drive]',
+          ].join(' '),
+          created_at: file.modifiedTime || null,
+          user_id: null,
+        });
+      }
+    }
+  }));
+
+  driveCatalogMaterialsCache = {
+    key: cacheKey,
+    expiresAt: now + FOLDER_INDEX_TTL_MS,
+    rows: rows,
+    grades: gradesMeta,
+  };
+
+  return {
+    success: true,
+    source: 'drive',
+    driveConfigured: true,
+    grades: gradesMeta,
+    data: rows,
+  };
 }
 
 function topicsStrictlyCompatible(expectedTopic, candidateTopic) {
@@ -2850,6 +3198,9 @@ module.exports = {
   buildDriveFolderIndex,
   getDriveFolderIndex,
   flushDriveCatalogMemoryCaches,
+  summarizeDriveCatalogForUi,
+  listDriveCatalogMaterialsRows,
+  countSyncableFilesUnderFolder,
   resolveStrictDriveScopeFolderIds,
   resolveDescendantFolderIds,
   resolveDriveParentFolderId,
