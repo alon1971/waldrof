@@ -19943,43 +19943,21 @@
 
     function resolveCommunityFileUrl(row) {
       if (!row || typeof row !== 'object') return '';
-      const candidates = [
-        row.url,
-        row.link,
-        row.fileUrl,
-        row.file_url,
-        row.webViewLink,
-        row.web_view_link,
-        row.google_docs_url,
-        row.path,
-        row.file_path,
-        row.filePath,
-      ];
-      for (let i = 0; i < candidates.length; i++) {
-        const value = String(candidates[i] || '').trim();
-        if (isHttpUrl(value)) return value;
-      }
-      const fileId = String(
-        row.file_id || row.fileId || row.driveFileId || row.drive_file_id || ''
+      // Prefer the live community_materials.file_path (http URL or storage object path).
+      const primaryPath = String(
+        row.file_path || row.filePath || row.path || row.url || row.link || row.fileUrl || ''
       ).trim();
-      if (fileId) {
-        return buildDriveOpenUrlFromId(fileId, row.kind || row.mimeType || '');
-      }
-      // Storage object path (not a full URL) → public Supabase URL.
-      const filePath = String(row.file_path || row.filePath || row.path || '').trim();
-      if (filePath && !isHttpUrl(filePath)) {
-        return buildPublicStorageUrl(filePath);
-      }
+      if (isHttpUrl(primaryPath)) return primaryPath;
+      if (primaryPath) return buildPublicStorageUrl(primaryPath);
+
+      const gdocs = String(row.google_docs_url || '').trim();
+      if (isHttpUrl(gdocs)) return gdocs;
       return '';
     }
 
     function resolveItemOpenUrl(item) {
       if (!item) return '';
-      const direct = resolveCommunityFileUrl(item);
-      if (direct) return direct;
-      if (item.fileUrl && isHttpUrl(item.fileUrl)) return String(item.fileUrl).trim();
-      if (item.filePath && isHttpUrl(item.filePath)) return String(item.filePath).trim();
-      return '';
+      return resolveCommunityFileUrl(item);
     }
 
     function isExternalCommunityLink(fileUrl) {
@@ -29965,20 +29943,7 @@
     }
 
     function getDynamicTopicsForGrade(gradeId) {
-      const gid = String(gradeId || '').trim();
-      const driveGrade = getDriveCatalogGradeOverview(gid);
-      if (driveGrade && Array.isArray(driveGrade.topics) && driveGrade.topics.length) {
-        return driveGrade.topics.map(function (topic) {
-          return {
-            id: topic.id || topic.label,
-            label: topic.label || topic.id,
-            count: Number(topic.count) || 0,
-          };
-        }).sort(function (a, b) {
-          return String(a.label).localeCompare(String(b.label), 'he');
-        });
-      }
-
+      // Topics/folders derived only from live communityCache (Supabase community_materials).
       const map = {};
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
@@ -30774,14 +30739,7 @@
         el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
           CATALOG_GRADES.map(function (g) {
             const topics = getDynamicTopicsForGrade(g.id);
-            const driveGrade = getDriveCatalogGradeOverview(g.id);
-            const dbFiles = filterByGrade(appState.communityCache, g.id).length;
-            const n = driveGrade && Number(driveGrade.fileCount) > 0
-              ? Number(driveGrade.fileCount)
-              : dbFiles;
-            const topicCount = driveGrade && Number(driveGrade.topicCount) > 0
-              ? Number(driveGrade.topicCount)
-              : topics.length;
+            const n = filterByGrade(appState.communityCache, g.id).length;
             const isGeneral = Boolean(g.isGeneral);
             const icon = isGeneral ? 'fa-globe' : 'fa-folder';
             const subtitle = isGeneral
@@ -30792,7 +30750,7 @@
               '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
               '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
               '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
-              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topicCount, files: n })) + '</div></div></div></button>';
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
           }).join('');
         el.querySelectorAll('[data-grade]').forEach(function (btn) {
           btn.addEventListener('click', function () {
