@@ -17612,7 +17612,9 @@
     function resolveCatalogMaterialDescription(file, subjectLine) {
       const desc = String(file.notes || file.description || '').trim();
       const subject = subjectLine != null ? String(subjectLine).trim() : resolveCatalogMaterialSubject(file);
-      if (desc && subject && desc === subject) return '';
+      if (!desc) return '';
+      if (looksLikeDriveCatalogMetadataNotes(desc)) return '';
+      if (subject && desc === subject) return '';
       return desc;
     }
 
@@ -19807,30 +19809,52 @@
 
     function parseCommunityNotes(rawNotes) {
       let rest = String(rawNotes || '');
-      const out = { title: '', author: '', description: '', fileSize: null, fileType: '', topicLegacy: '', freeText: '' };
-      const tagDefs = [
-        { field: 'title', re: /^\[title:([^\]]+)\]\s*/ },
-        { field: 'author', re: /^\[author:([^\]]+)\]\s*/ },
-        { field: 'description', re: /^\[desc:([^\]]+)\]\s*/ },
-        { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/, parse: function (v) { return parseInt(v, 10) || null; } },
-        { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/ },
-        { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/ },
+      const out = {
+        title: '',
+        author: '',
+        description: '',
+        fileSize: null,
+        fileType: '',
+        topicLegacy: '',
+        catalogTopic: '',
+        driveFileId: '',
+        drivePath: '',
+        freeText: '',
+      };
+      // Extract tagged fields anywhere in Drive/catalog notes (order is not guaranteed).
+      const anywhereTags = [
+        { field: 'title', re: /\[title:([^\]]+)\]/i },
+        { field: 'author', re: /\[author:([^\]]+)\]/i },
+        { field: 'description', re: /\[desc:([^\]]+)\]/i },
+        { field: 'fileSize', re: /\[size:([^\]]+)\]/i, parse: function (v) { return parseInt(v, 10) || null; } },
+        { field: 'fileType', re: /\[type:([^\]]+)\]/i },
+        { field: 'topicLegacy', re: /\[topic:([^\]]+)\]/i },
+        { field: 'catalogTopic', re: /\[catalogTopic:([^\]]+)\]/i },
+        { field: 'driveFileId', re: /\[driveFileId:([^\]]+)\]/i },
+        { field: 'drivePath', re: /\[drivePath:([^\]]+)\]/i },
       ];
-      let matched = true;
-      while (matched) {
-        matched = false;
-        for (let i = 0; i < tagDefs.length; i++) {
-          const def = tagDefs[i];
-          const m = rest.match(def.re);
-          if (!m) continue;
-          out[def.field] = def.parse ? def.parse(m[1]) : m[1];
-          rest = rest.slice(m[0].length);
-          matched = true;
-          break;
-        }
-      }
-      out.freeText = rest.trim();
+      anywhereTags.forEach(function (def) {
+        const m = rest.match(def.re);
+        if (!m) return;
+        out[def.field] = def.parse ? def.parse(m[1]) : String(m[1] || '').trim();
+      });
+      // Strip all known machine tags so leftover freeText is human-readable only.
+      rest = rest
+        .replace(/\[(subfolder|catalogTopic|driveFileId|drivePath|title|desc|author|size|type|topic|tags)\s*:[^\]]*\]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      out.freeText = rest;
       return out;
+    }
+
+    function looksLikeDriveCatalogMetadataNotes(text) {
+      const s = String(text || '').trim();
+      if (!s) return false;
+      if (/\[catalogTopic\s*:/i.test(s) && /\[driveFileId\s*:/i.test(s)) return true;
+      if (/\[driveFileId\s*:/i.test(s) && /\[title\s*:/i.test(s)) return true;
+      if (/\[drivePath\s*:/i.test(s) && /\[catalogTopic\s*:/i.test(s)) return true;
+      const hits = (s.match(/\[(catalogTopic|driveFileId|drivePath|title|subfolder|tags|desc)\s*:/gi) || []).length;
+      return hits >= 2;
     }
 
     function buildCommunityInsertPayload(gradeId, topic, filePath, fileName, extras) {
@@ -20963,6 +20987,9 @@
     function sanitizeCommunitySummaryForDisplay(text) {
       var s = normalizeEscapedNewlinesForDisplay(text);
       if (!s) return '';
+      if (looksLikeDriveCatalogMetadataNotes(s)) {
+        return '';
+      }
       s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label, url) {
         return '[' + shortCommunityCitationName(label, label) + '](' + url + ')';
       });
@@ -21477,8 +21504,13 @@
       const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
       const extras = parseCommunityNotes(rawNotes);
       const filePath = row.file_path || '';
-      const topic = (row.topic || extras.topicLegacy || '').trim();
-      const displayNotes = extras.description || extras.freeText || '';
+      const topic = (row.topic || extras.topicLegacy || extras.catalogTopic || '').trim();
+      // Never surface Drive catalog machine-notes as the human description.
+      let displayNotes = String(extras.description || '').trim();
+      if (!displayNotes && extras.freeText && !looksLikeDriveCatalogMetadataNotes(extras.freeText)) {
+        displayNotes = extras.freeText;
+      }
+      if (looksLikeDriveCatalogMetadataNotes(displayNotes)) displayNotes = '';
       const displayTitle = extras.title || row.file_name || topic || 'חומר קהילתי';
       const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
       return {
@@ -24174,6 +24206,7 @@
       var status = data.communityStatus ? String(data.communityStatus) : '';
       var summary = data.communitySummary != null ? String(data.communitySummary).trim() : '';
       if (!summary) return false;
+      if (looksLikeDriveCatalogMetadataNotes(summary)) return false;
       if (
         status === 'empty'
         || status === 'unavailable'
