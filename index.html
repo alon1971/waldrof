@@ -21522,16 +21522,7 @@
         });
       }
       return items.filter(function (i) {
-        const level = String(i.gradeLevel || '').trim();
-        if (level) return level === gid || level === String(gid);
-        // Ungraded rows must not leak into every classroom when the topic
-        // clearly belongs to another Waldorf grade (e.g. רומא → ו׳ only).
-        if (typeof WaldorfHebrewTopicMatch !== 'undefined'
-          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(i.topic || '');
-          if (block && block.gradeId && String(block.gradeId) !== gid) return false;
-        }
-        return true;
+        return !i.gradeLevel || i.gradeLevel === gid || i.gradeLevel === String(gid);
       });
     }
 
@@ -29858,18 +29849,9 @@
 
     function getDynamicTopicsForGrade(gradeId) {
       const map = {};
-      const gid = String(gradeId || '').trim();
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
         if (!t) return;
-        // Hide curriculum ghost folders parked under the wrong grade
-        // (e.g. empty «רומא» under כיתה א׳ — belongs to כיתה ו׳).
-        if (gid && gid !== 'general'
-          && typeof WaldorfHebrewTopicMatch !== 'undefined'
-          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(t);
-          if (block && block.gradeId && String(block.gradeId) !== gid) return;
-        }
         const key = normalizeTopicKey(t);
         if (!map[key]) map[key] = { id: t, label: t, count: 0 };
         map[key].count++;
