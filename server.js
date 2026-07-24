@@ -27,6 +27,7 @@ const communityIngestApi = require('./api/community-ingest-api');
 const communityUploadApi = require('./api/community-upload');
 const communityMaterialsApi = require('./api/community-materials');
 const communityCatalogDriveApi = require('./api/community-catalog-drive');
+const communityCatalogLocalApi = require('./api/community-catalog-local');
 const communitySearchApi = require('./api/community-search');
 const communitySummarizerApi = require('./api/community-summarizer');
 const searchHistoryApi = require('./api/search-history');
@@ -455,21 +456,15 @@ async function handleApiCommunityMaterials(req, res) {
 }
 
 async function handleApiCommunityCatalogDrive(req, res) {
+  // Archive UI uses the local on-disk index (instant). Keep this route as an alias.
+  return handleApiCommunityCatalogLocal(req, res);
+}
+
+async function handleApiCommunityCatalogLocal(req, res) {
   const apiRes = createApiResponse(res);
   try {
     const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
-    applyLongRunningRouteTimeout(req, res, {
-      routeLabel: 'api/community-catalog-drive',
-      timeoutMs: 50000,
-      timeoutError: 'Gateway timeout — Drive catalog listing took too long. Please retry.',
-      extraPayload: {
-        success: false,
-        source: 'drive',
-        grades: {},
-        data: [],
-      },
-    });
-    await communityCatalogDriveApi.legacyHandler({
+    await communityCatalogLocalApi.legacyHandler({
       method: req.method,
       headers: req.headers,
       url: req.url,
@@ -480,7 +475,7 @@ async function handleApiCommunityCatalogDrive(req, res) {
     if (!res.headersSent) {
       apiRes.status(500).json({
         success: false,
-        source: 'drive',
+        source: 'local',
         grades: {},
         data: [],
         error: err instanceof Error ? err.message : String(err),
@@ -976,6 +971,10 @@ const server = http.createServer(async function (req, res) {
     return handleApiCommunityCatalogDrive(req, res);
   }
 
+  if (pathname === '/api/community-catalog-local') {
+    return handleApiCommunityCatalogLocal(req, res);
+  }
+
   if (pathname === '/api/search-history') {
     return handleApiSearchHistory(req, res);
   }
@@ -1057,7 +1056,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | GET /api/community-catalog-drive | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET/POST /api/cron/flush-stale-cache | GET /api/auth/google-drive | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | GET /api/community-catalog-local | GET /api/community-catalog-drive | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET/POST /api/cron/flush-stale-cache | GET /api/auth/google-drive | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
