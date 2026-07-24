@@ -1,12 +1,10 @@
 /**
- * GET /api/community-catalog-drive
- *
- * Alias for the local on-disk Community Archive index.
- * Heavy Drive crawls are intentionally disabled for מאגר קהילתי.
+ * Legacy alias — Community Archive catalog display does not use Drive.
+ * Proxies to Supabase community_materials list.
  */
-const communityCatalogLocal = require('./community-catalog-local');
+const communityMaterials = require('./community-materials');
 
 module.exports = {
-  legacyHandler: communityCatalogLocal.legacyHandler,
-  handleRequest: communityCatalogLocal.legacyHandler,
+  legacyHandler: communityMaterials.legacyHandler,
+  handleRequest: communityMaterials.legacyHandler,
 };
