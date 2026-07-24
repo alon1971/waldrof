@@ -30009,8 +30009,22 @@
         fileUrl: item.fileUrl,
         fileSize: item.fileSize,
         fileType: item.fileType,
+        kind: item.kind || '',
+        driveFileId: item.driveFileId || '',
         canManage: false,
       };
+    }
+
+    /** Folder stubs / topic-folder links — belong in topic cards, not the grade file list. */
+    function isCatalogFolderLikeItem(item) {
+      if (!item) return false;
+      const kind = String(item.kind || '').toLowerCase();
+      if (kind === 'drive_folder' || kind === 'folder') return true;
+      const url = String(
+        resolveItemOpenUrl(item) || item.fileUrl || item.filePath || item.url || item.link || ''
+      ).trim();
+      if (/drive\.google\.com\/drive\/folders\//i.test(url)) return true;
+      return false;
     }
 
     function collectCatalogFilesForGrade(gradeId) {
@@ -30022,6 +30036,28 @@
           const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return tb - ta;
         });
+    }
+
+    /**
+     * Grade-root file list: real files only.
+     * Items that belong to a topic folder (shown as cards above) are excluded —
+     * open them by clicking the topic card.
+     */
+    function collectCatalogLooseFilesForGrade(gradeId) {
+      const topics = getDynamicTopicsForGrade(gradeId);
+      const topicKeys = {};
+      topics.forEach(function (topic) {
+        const key = normalizeTopicKey(topic.id || topic.label || '');
+        if (key) topicKeys[key] = true;
+      });
+      const hasTopicFolders = topics.length > 0;
+
+      return collectCatalogFilesForGrade(gradeId).filter(function (item) {
+        if (isCatalogFolderLikeItem(item)) return false;
+        const topicKey = normalizeTopicKey(item.topic || '');
+        if (hasTopicFolders && topicKey && topicKeys[topicKey]) return false;
+        return true;
+      });
     }
 
     function collectCatalogFiles(gradeId, topicId) {
@@ -30779,7 +30815,8 @@
         try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
       }
       const topics = getDynamicTopicsForGrade(gradeId);
-      const allFiles = await attachCatalogManageFlags(collectCatalogFilesForGrade(gradeId));
+      // Only real loose files at grade root — never re-list topic folders below the cards.
+      const looseFiles = await attachCatalogManageFlags(collectCatalogLooseFilesForGrade(gradeId));
       let html = '<div id="catalog-grade-header" class="catalog-dashboard-header">' +
         catalogUploadButtonHtml(gradeId, '', false, t('catalog_share_open')) +
         '</div>';
@@ -30802,11 +30839,14 @@
       } else {
         html += '<p class="text-sm text-walnut/60 mb-6">' + escapeHtml(t('catalog_no_topics')) + '</p>';
       }
-      html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
-        escapeHtml(t('catalog_community_files', { count: allFiles.length })) + '</h4>';
-      html += allFiles.length
-        ? '<div class="space-y-3">' + allFiles.map(renderCatalogFileRow).join('') + '</div>'
-        : '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
+      // Hide «קבצים בקהילה» entirely when this grade only has topic folders.
+      if (looseFiles.length) {
+        html += '<h4 class="font-bold text-walnut mb-3"><i class="fa-solid fa-layer-group text-sage icon-inline"></i> ' +
+          escapeHtml(t('catalog_community_files', { count: looseFiles.length })) + '</h4>';
+        html += '<div class="space-y-3">' + looseFiles.map(renderCatalogFileRow).join('') + '</div>';
+      } else if (!topics.length) {
+        html += '<p class="text-sm text-walnut/60 py-4 text-center">' + escapeHtml(t('catalog_no_files')) + '</p>';
+      }
       mutateCatalogDom(function () {
         el.innerHTML = html;
         bindCatalogUploadButtons(el);
