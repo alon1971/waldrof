@@ -169,14 +169,29 @@ function finalizeSummaryPayload(base, summary, citations, extras) {
   if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
     summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
   }
+  // Never surface Drive catalog notes / metadata dumps as the pedagogical summary body.
+  if (
+    typeof communityDriveArchive.looksLikeDriveCatalogMetadata === 'function'
+    && communityDriveArchive.looksLikeDriveCatalogMetadata(summaryText)
+  ) {
+    summaryText = COMMUNITY_SUMMARY_EMPTY;
+  }
 
-  const status = summary.communityStatus === 'ok'
+  let status = summary.communityStatus === 'ok'
     || summary.communityStatus === 'degraded'
     || summary.communityStatus === 'needs_confirmation'
     || summary.communityStatus === 'processing'
     || summary.communityStatus === 'summarizing'
     ? summary.communityStatus
     : (summary.communityStatus || (extra.configured ? 'empty' : 'not_configured'));
+  if (
+    (status === 'ok' || status === 'degraded')
+    && typeof communityDriveArchive.looksLikeDriveCatalogMetadata === 'function'
+    && communityDriveArchive.looksLikeDriveCatalogMetadata(String(summary.summary || ''))
+  ) {
+    status = 'unavailable';
+    summaryText = 'הסיכום שהתקבל אינו פדגוגי (מטא־דאטה של Drive). נסו להפיק שוב.';
+  }
 
   return withNonBillableMeta(Object.assign({}, base, {
     success: true,
@@ -485,7 +500,7 @@ async function runCommunityTopicSummary(options) {
   const usableArchive = Boolean(
     archiveMatch
     && archiveMatch.row
-    && String(archiveMatch.row.community_status || '') === 'ok'
+    && communityDriveArchive.isUsableArchiveRow(archiveMatch.row)
     && (archiveMatch.matchType === 'exact' || archiveMatch.matchType === 'semantic')
     && !forceRefresh
   );
@@ -981,15 +996,50 @@ async function runCommunityTopicSummary(options) {
         );
       })
       .then(function (summary) {
+        const status = summary && summary.communityStatus
+          ? String(summary.communityStatus)
+          : '';
         console.log(
           '[community-summarizer] background create finished',
           '| status:',
-          summary && summary.communityStatus,
+          status || '(none)',
           '| archive_key:',
           archiveKey.slice(0, 16),
           '| summaryChars:',
           summary && summary.summary ? String(summary.summary).length : 0
         );
+        // ok rows are already upserted inside resolveCommunityDriveSummary.
+        // degraded/empty/unavailable must still clear the processing stub or
+        // clients poll forever on a stuck "processing" row.
+        if (status && status !== 'ok' && status !== 'processing' && status !== 'summarizing') {
+          const terminalSummary = String(
+            (summary && summary.summary) || COMMUNITY_SUMMARY_EMPTY
+          ).trim() || COMMUNITY_SUMMARY_EMPTY;
+          return communityDriveArchive.upsertArchiveRow({
+            archive_key: archiveKey,
+            search_query: effectiveTopic,
+            query_text: effectiveTopic,
+            grade_id: lockedGradeId,
+            grade_level: lockedGradeId,
+            topic: effectiveTopic,
+            summary_md: terminalSummary,
+            summary_text: terminalSummary,
+            community_status: status,
+            source_fingerprint: fingerprint,
+            drive_fingerprint: fingerprint,
+            source_file_ids: fileRefs.map(function (r) { return r.driveFileId; }).filter(Boolean),
+            file_refs: fileRefs,
+            model: (summary && summary.model) || null,
+          }).then(function () {
+            return summary;
+          }).catch(function (persistFail) {
+            console.error(
+              '[community-summarizer] terminal-status upsert failed:',
+              persistFail && persistFail.message ? persistFail.message : persistFail
+            );
+            return summary;
+          });
+        }
         return summary;
       })
       .catch(function (jobErr) {
@@ -1096,43 +1146,90 @@ async function pollCommunitySummaryJob(options) {
 
   if (row && row.community_status === 'ok' && String(row.summary_md || '').trim()) {
     if (!communityDriveArchive.isUsableArchiveRow(row)) {
+      // Never leave the client polling forever on a bad/metadata "ok" row.
       console.warn(
-        '[community-summarizer] poll found ok row but summary is not usable/pedagogical — keep processing',
+        '[community-summarizer] poll found ok row but summary is not usable/pedagogical — stop poll as unavailable',
         '| archive_key:',
         archiveKey.slice(0, 16),
         '| chars:',
         String(row.summary_md || '').length
       );
-    } else {
-      console.log('[community-summarizer] poll READY — returning archived summary');
       return finalizeSummaryPayload(base, {
         heading: COMMUNITY_SUMMARY_HEADING,
-        summary: String(row.summary_md || ''),
-        communityStatus: 'ok',
-        fromArchive: true,
-        deltaUpdated: false,
-        archiveKey: row.archive_key || archiveKey,
-        fileRefs: Array.isArray(row.file_refs) ? row.file_refs : [],
-        sourceFingerprint: String(row.source_fingerprint || row.drive_fingerprint || ''),
-        model: row.model || null,
-        smartCacheHit: true,
-      }, citationsFromFileRefs(row.file_refs), {
-        configured: driveIsConfigured(),
-        matches: [],
-        matchCount: Array.isArray(row.file_refs) ? row.file_refs.length : 0,
-        poll: true,
-      });
+        summary: 'הסיכום השמור אינו תקין (מטא־דאטה במקום סיכום פדגוגי). לחצו שוב על «הפק סיכום» כדי לייצר מחדש.',
+        communityStatus: 'unavailable',
+        fromArchive: false,
+        archiveKey: archiveKey,
+        communityError: 'archived_summary_not_pedagogical',
+      }, [], { configured: driveIsConfigured(), matches: [], matchCount: 0, poll: true });
     }
+    console.log('[community-summarizer] poll READY — returning archived summary');
+    return finalizeSummaryPayload(base, {
+      heading: COMMUNITY_SUMMARY_HEADING,
+      summary: String(row.summary_md || ''),
+      communityStatus: 'ok',
+      fromArchive: true,
+      deltaUpdated: false,
+      archiveKey: row.archive_key || archiveKey,
+      fileRefs: Array.isArray(row.file_refs) ? row.file_refs : [],
+      sourceFingerprint: String(row.source_fingerprint || row.drive_fingerprint || ''),
+      model: row.model || null,
+      smartCacheHit: true,
+    }, citationsFromFileRefs(row.file_refs), {
+      configured: driveIsConfigured(),
+      matches: [],
+      matchCount: Array.isArray(row.file_refs) ? row.file_refs.length : 0,
+      poll: true,
+    });
   }
 
-  if (row && row.community_status === 'unavailable') {
+  if (
+    row
+    && (row.community_status === 'unavailable'
+      || row.community_status === 'empty'
+      || row.community_status === 'degraded')
+  ) {
     return finalizeSummaryPayload(base, {
       heading: COMMUNITY_SUMMARY_HEADING,
       summary: String(row.summary_md || COMMUNITY_SUMMARY_EMPTY),
-      communityStatus: 'unavailable',
+      communityStatus: String(row.community_status),
       fromArchive: false,
       archiveKey: archiveKey,
-    }, [], { configured: driveIsConfigured(), matches: [], matchCount: 0, poll: true });
+      model: row.model || null,
+    }, citationsFromFileRefs(row.file_refs), {
+      configured: driveIsConfigured(),
+      matches: [],
+      matchCount: Array.isArray(row.file_refs) ? row.file_refs.length : 0,
+      poll: true,
+    });
+  }
+
+  const rowStatus = row ? String(row.community_status || '') : '';
+  const jobInflight = inflightSummaryJobs.has(archiveKey);
+  // Orphaned processing stub after a long stall (server restart / job exited
+  // without upsert). Do NOT treat missing in-memory inflight as orphan immediately —
+  // multi-instance hosts may run the job on another worker.
+  if (row && (rowStatus === 'processing' || rowStatus === 'summarizing') && !jobInflight) {
+    const updatedMs = Date.parse(String(row.updated_at || row.created_at || '')) || 0;
+    const ageMs = updatedMs ? (Date.now() - updatedMs) : 0;
+    const ORPHAN_AFTER_MS = 7 * 60 * 1000;
+    if (ageMs >= ORPHAN_AFTER_MS) {
+      console.warn(
+        '[community-summarizer] poll found stale processing stub — stop poll',
+        '| archive_key:',
+        archiveKey.slice(0, 16),
+        '| ageMin:',
+        Math.round(ageMs / 60000)
+      );
+      return finalizeSummaryPayload(base, {
+        heading: COMMUNITY_SUMMARY_HEADING,
+        summary: 'יצירת הסיכום נקטעה לפני שהושלמה. לחצו שוב על «הפק סיכום» כדי להתחיל מחדש.',
+        communityStatus: 'unavailable',
+        fromArchive: false,
+        archiveKey: archiveKey,
+        communityError: 'orphaned_processing_stub',
+      }, [], { configured: driveIsConfigured(), matches: [], matchCount: 0, poll: true });
+    }
   }
 
   return finalizeSummaryPayload(base, {
