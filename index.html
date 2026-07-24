@@ -2191,6 +2191,19 @@
       border-color: rgba(107, 142, 107, 0.65);
       box-shadow: 0 0 0 3px rgba(107, 142, 107, 0.15);
     }
+    .catalog-file-type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #5c6b5a;
+      background: rgba(107, 142, 107, 0.12);
+      border: 1px solid rgba(107, 142, 107, 0.28);
+      border-radius: 999px;
+      padding: 0.15rem 0.55rem;
+      margin-top: 0.35rem;
+    }
     .community-summarizer-actions {
       display: flex;
       flex-wrap: wrap;
@@ -6298,7 +6311,9 @@
           </div>
           <div>
             <label for="community-summarizer-topic" data-i18n="community_summarizer_topic">נושא</label>
-            <input type="text" id="community-summarizer-topic" name="topic" required maxlength="200" placeholder="" value="" />
+            <select id="community-summarizer-topic" name="topic" required>
+              <option value="" data-i18n="community_summarizer_topic_placeholder">— בחרו נושא —</option>
+            </select>
           </div>
           <div class="community-summarizer-actions">
             <button type="submit" id="community-summarizer-submit" class="community-summarizer-submit touch-btn">
@@ -19836,11 +19851,31 @@
     }
 
     function resolveCommunityFileUrl(row) {
-      const gdocs = (row.google_docs_url || '').trim();
-      if (isHttpUrl(gdocs)) return gdocs;
-      const filePath = (row.file_path || '').trim();
+      if (!row || typeof row !== 'object') return '';
+      const filePath = String(row.file_path || row.filePath || '').trim();
       if (isHttpUrl(filePath)) return filePath;
-      return filePath ? buildPublicStorageUrl(filePath) : '';
+      if (filePath) return buildPublicStorageUrl(filePath);
+      const gdocs = String(row.google_docs_url || '').trim();
+      if (isHttpUrl(gdocs)) return gdocs;
+      const legacy = String(row.fileUrl || row.url || row.link || '').trim();
+      if (isHttpUrl(legacy)) return legacy;
+      return '';
+    }
+
+    function detectCommunityFileKind(item) {
+      const name = String(
+        (item && (item.fileName || item.file_name || item.title || item.filePath || item.file_path || item.fileUrl)) || ''
+      ).toLowerCase();
+      const mime = String((item && item.fileType) || '').toLowerCase();
+      if (mime.indexOf('pdf') >= 0 || /\.pdf(?:$|[?#])/i.test(name)) return 'pdf';
+      if (
+        mime.indexOf('word') >= 0
+        || mime.indexOf('officedocument.wordprocessingml') >= 0
+        || /\.docx?(?:$|[?#])/i.test(name)
+      ) return 'word';
+      if (/docs\.google\.com/i.test(name)) return 'gdoc';
+      if (/drive\.google\.com/i.test(name)) return 'drive';
+      return 'file';
     }
 
     function isExternalCommunityLink(fileUrl) {
@@ -19850,6 +19885,9 @@
 
     function communityLinkLabel(item) {
       if (!item || !item.fileUrl) return t('community_link_open');
+      const kind = detectCommunityFileKind(item);
+      if (kind === 'pdf') return item.fileName || (isEnglish() ? 'Open PDF' : 'פתיחת PDF');
+      if (kind === 'word') return item.fileName || (isEnglish() ? 'Open Word' : 'פתיחת Word');
       if (!isExternalCommunityLink(item.fileUrl)) return item.fileName || t('community_link_download');
       const url = item.fileUrl.toLowerCase();
       if (url.indexOf('docs.google.com') !== -1) return isEnglish() ? 'Open in Google Docs' : 'פתיחה ב-Google Docs';
@@ -19858,7 +19896,23 @@
     }
 
     function communityLinkIconClass(item) {
+      const kind = detectCommunityFileKind(item);
+      if (kind === 'pdf') return 'fa-solid fa-file-pdf';
+      if (kind === 'word') return 'fa-solid fa-file-word';
       return isExternalCommunityLink(item && item.fileUrl) ? 'fa-brands fa-google-drive' : 'fa-solid fa-file-arrow-down';
+    }
+
+    function communityFileTypeBadgeHtml(item) {
+      const kind = detectCommunityFileKind(item);
+      var label = '';
+      var icon = 'fa-solid fa-file';
+      if (kind === 'pdf') { label = 'PDF'; icon = 'fa-solid fa-file-pdf'; }
+      else if (kind === 'word') { label = 'Word'; icon = 'fa-solid fa-file-word'; }
+      else if (kind === 'gdoc') { label = 'Google Docs'; icon = 'fa-brands fa-google-drive'; }
+      else if (kind === 'drive') { label = 'Google Drive'; icon = 'fa-brands fa-google-drive'; }
+      else return '';
+      return '<span class="catalog-file-type-badge"><i class="' + icon + '" aria-hidden="true"></i> '
+        + escapeHtml(label) + '</span>';
     }
 
     async function postCommunityMaterial(gradeId, topic, filePath, fileName, extras) {
@@ -21482,18 +21536,15 @@
       return items.filter(function (i) {
         const level = String(i.gradeLevel || '').trim();
         if (level) return level === gid || level === String(gid);
-        // Ungraded rows must not leak into every classroom when the topic
-        // clearly belongs to another Waldorf grade (e.g. רומא → ו׳ only).
-        if (typeof WaldorfHebrewTopicMatch !== 'undefined'
-          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(i.topic || '');
-          if (block && block.gradeId && String(block.gradeId) !== gid) return false;
-        }
+        // Ungraded rows belong to any grade browse until a grade_level is set.
         return true;
       });
     }
 
     async function loadCommunity() {
+      if (!isCloudConfigured()) {
+        try { await loadRuntimeConfig(); } catch (e) { /* ignore */ }
+      }
       if (!isCloudConfigured()) {
         appState.communityCache = [];
         appState.communityForGrade = [];
@@ -24018,14 +24069,20 @@
       var select = document.getElementById('community-summarizer-grade');
       if (!select) return;
       var previous = String(select.value || '').trim();
-      var placeholder = t('grade_placeholder') || '— בחרו כיתה —';
+      var placeholder = (typeof t === 'function' ? t('grade_placeholder') : '') || '— בחרו כיתה —';
       var html = '<option value="">' + escapeHtml(placeholder) + '</option>';
-      // Grades א׳–ח׳ plus «כללי» for cross-grade / school pedagogy.
-      CATALOG_GRADES.forEach(function (g) {
+      // Static grade list from app constants (not Drive/API) — א׳–ח׳ + כללי.
+      var grades = Array.isArray(CATALOG_GRADES) && CATALOG_GRADES.length
+        ? CATALOG_GRADES
+        : (Array.isArray(GRADES) ? GRADES : []);
+      grades.forEach(function (g) {
+        if (!g) return;
+        var id = String(g.id || '').trim();
+        if (!id) return;
         var label = g.isGeneral
-          ? (t('catalog_general') || g.label || 'כללי')
-          : (getGradeLabelById(g.id) || g.label);
-        html += '<option value="' + escapeHtml(g.id) + '">' + escapeHtml(label) + '</option>';
+          ? ((typeof t === 'function' ? t('catalog_general') : '') || g.label || 'כללי')
+          : ((typeof getGradeLabelById === 'function' ? getGradeLabelById(id) : '') || g.label || id);
+        html += '<option value="' + escapeHtml(id) + '">' + escapeHtml(label) + '</option>';
       });
       select.innerHTML = html;
       var preferred = previous
@@ -24034,6 +24091,54 @@
       if (preferred && Array.prototype.some.call(select.options, function (opt) { return opt.value === preferred; })) {
         select.value = preferred;
       }
+    }
+
+    function collectSummarizerTopicsForGrade(gradeId) {
+      var gid = String(gradeId || '').trim();
+      var map = {};
+      function addTopic(raw) {
+        var topic = String(raw || '').trim();
+        if (!topic) return;
+        var key = normalizeTopicKey(topic);
+        if (!key || map[key]) return;
+        map[key] = topic;
+      }
+      if (gid) {
+        getDynamicTopicsForGrade(gid).forEach(function (topic) {
+          addTopic(topic && (topic.label || topic.id));
+        });
+        filterByGrade(appState.communityCache || [], gid).forEach(function (item) {
+          addTopic(item && item.topic);
+        });
+      } else {
+        (appState.communityCache || []).forEach(function (item) {
+          addTopic(item && item.topic);
+        });
+      }
+      return Object.keys(map).map(function (k) { return map[k]; })
+        .sort(function (a, b) { return String(a).localeCompare(String(b), 'he'); });
+    }
+
+    function populateCommunitySummarizerTopicSelect() {
+      var select = document.getElementById('community-summarizer-topic');
+      var gradeEl = document.getElementById('community-summarizer-grade');
+      if (!select) return;
+      var previous = String(select.value || appState.communitySummarizerTopic || '').trim();
+      var gradeId = String((gradeEl && gradeEl.value) || appState.communitySummarizerGradeId || '').trim();
+      var placeholder = (typeof t === 'function' ? t('community_summarizer_topic_placeholder') : '')
+        || '— בחרו נושא —';
+      var topics = collectSummarizerTopicsForGrade(gradeId);
+      var html = '<option value="">' + escapeHtml(placeholder) + '</option>';
+      topics.forEach(function (topic) {
+        html += '<option value="' + escapeHtml(topic) + '">' + escapeHtml(topic) + '</option>';
+      });
+      select.innerHTML = html;
+      if (previous && Array.prototype.some.call(select.options, function (opt) { return opt.value === previous; })) {
+        select.value = previous;
+      } else {
+        select.value = '';
+      }
+      select.disabled = Boolean(appState.communitySummarizerLoading || appState.isSummarizing);
     }
 
     function setCommunitySummarizerLoading(loading) {
@@ -24256,10 +24361,34 @@
       populateCommunitySummarizerGradeSelect();
       var topicEl = document.getElementById('community-summarizer-topic');
       // Keep topic only while a summary is in flight; otherwise always start empty.
-      if (topicEl && !(appState.isSummarizing || appState.communitySummarizerLoading)) {
-        topicEl.value = '';
+      if (!(appState.isSummarizing || appState.communitySummarizerLoading)) {
         appState.communitySummarizerTopic = '';
       }
+      populateCommunitySummarizerTopicSelect();
+      if (topicEl && !(appState.isSummarizing || appState.communitySummarizerLoading)) {
+        topicEl.value = '';
+      }
+      // Load community_materials so the topic dropdown can list real archive folders.
+      Promise.resolve()
+        .then(function () {
+          if (!isCloudConfigured()) return loadRuntimeConfig();
+        })
+        .then(function () {
+          if (isCloudConfigured()) return loadCommunity();
+        })
+        .catch(function (err) {
+          console.warn('[community-summarizer] preload failed:', formatSupabaseError(err));
+        })
+        .then(function () {
+          populateCommunitySummarizerGradeSelect();
+          if (!(appState.isSummarizing || appState.communitySummarizerLoading)) {
+            appState.communitySummarizerTopic = '';
+          }
+          populateCommunitySummarizerTopicSelect();
+          if (topicEl && !(appState.isSummarizing || appState.communitySummarizerLoading)) {
+            topicEl.value = '';
+          }
+        });
       appState.communitySummarizerModalOpen = true;
       appState.communitySummarizerBgPending = false;
       syncCommunitySummarizerModalFromState();
@@ -24386,11 +24515,20 @@
       var exportBtn = document.getElementById('community-summarizer-export-word');
       var backdrop = document.getElementById('community-summarizer-backdrop');
       var bgBadge = document.getElementById('community-summarizer-bg-indicator');
+      var gradeEl = document.getElementById('community-summarizer-grade');
       if (form && !form._communitySummarizerBound) {
         form._communitySummarizerBound = true;
         form.addEventListener('submit', function (e) {
           e.preventDefault();
           runCommunityTopicSummarizer();
+        });
+      }
+      if (gradeEl && !gradeEl._communitySummarizerBound) {
+        gradeEl._communitySummarizerBound = true;
+        gradeEl.addEventListener('change', function () {
+          appState.communitySummarizerGradeId = String(gradeEl.value || '').trim();
+          appState.communitySummarizerTopic = '';
+          populateCommunitySummarizerTopicSelect();
         });
       }
       if (exportBtn && !exportBtn._communitySummarizerBound) {
@@ -27370,11 +27508,20 @@
       appState.navSection = 'community';
       showWorkspaceShell();
       switchTab('catalog');
-      if (appState.grade) {
-        renderCatalog('grade', appState.grade);
-      } else if (!catalogState.gradeId) {
-        renderCatalog('grades');
-      }
+      var targetView = appState.grade
+        ? 'grade'
+        : (!catalogState.gradeId ? 'grades' : catalogState.view);
+      var targetGrade = appState.grade || catalogState.gradeId || null;
+      var targetTopic = targetView === 'materials' ? catalogState.topic : null;
+      Promise.resolve()
+        .then(function () { return loadCommunity(); })
+        .then(function () {
+          return renderCatalog(targetView, targetGrade, targetTopic, { force: true });
+        })
+        .catch(function (err) {
+          console.warn('[community] openCommunityRepo load failed:', formatSupabaseError(err));
+          renderCatalog(targetView, targetGrade, targetTopic, { force: true });
+        });
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
@@ -29612,18 +29759,11 @@
 
     function getDynamicTopicsForGrade(gradeId) {
       const map = {};
-      const gid = String(gradeId || '').trim();
+      // Topics come only from live communityCache (Supabase community_materials).
+      // Do not filter via curriculum lesson map — that zeroed valid archive folders.
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
         if (!t) return;
-        // Hide curriculum ghost folders parked under the wrong grade
-        // (e.g. empty «רומא» under כיתה א׳ — belongs to כיתה ו׳).
-        if (gid && gid !== 'general'
-          && typeof WaldorfHebrewTopicMatch !== 'undefined'
-          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
-          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(t);
-          if (block && block.gradeId && String(block.gradeId) !== gid) return;
-        }
         const key = normalizeTopicKey(t);
         if (!map[key]) map[key] = { id: t, label: t, count: 0 };
         map[key].count++;
@@ -30504,10 +30644,12 @@
     function renderCatalogFileRow(file) {
       const materialId = normalizeMaterialUuid(file.id || resolveCommunityMaterialId(file) || '');
       if (!materialId) return '';
-      const downloadUrl = file.fileUrl;
+      const downloadUrl = resolveCommunityFileUrl(file) || file.fileUrl || '';
+      const fileForLink = Object.assign({}, file, { fileUrl: downloadUrl });
       const external = isExternalCommunityLink(downloadUrl);
-      const btnLabel = communityLinkLabel(file);
-      const btnIcon = communityLinkIconClass(file);
+      const btnLabel = communityLinkLabel(fileForLink);
+      const btnIcon = communityLinkIconClass(fileForLink);
+      const typeBadge = communityFileTypeBadgeHtml(fileForLink);
       const downloadBtn = downloadUrl
         ? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener" class="touch-btn inline-flex items-center gap-1.5 text-sm ' +
           (external ? 'bg-sky hover:bg-sky/90' : 'bg-sage hover:bg-sage-dark') + ' text-white px-4 py-2 rounded-lg"><i class="' + btnIcon + '"></i> ' + escapeHtml(btnLabel) + '</a>'
@@ -30526,6 +30668,7 @@
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">' +
         '<div class="min-w-0 flex-1 catalog-material-text text-dir-start">' +
         buildCatalogMaterialMetadataHtml(file) +
+        typeBadge +
         '</div>' +
         '<div class="flex flex-wrap items-center gap-2 shrink-0">' + manageBtns + downloadBtn + '</div></div>' +
         '<div class="catalog-material-edit-panel hidden" aria-live="polite"></div></div>';
@@ -31320,6 +31463,8 @@
     function refreshUiOnLanguageChange() {
       syncGradeLabelFromState();
       populateGradeSelect();
+      populateCommunitySummarizerGradeSelect();
+      populateCommunitySummarizerTopicSelect();
       applyStaticI18n();
       renderStepProgress();
       updateCloudBanner();
