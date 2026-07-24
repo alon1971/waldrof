@@ -18538,6 +18538,16 @@
       return '/api/community-materials';
     }
 
+    /** Catalog list endpoint — same shape as 1:42 local index, now filled from Supabase. */
+    function communityCatalogDriveApiUrl() {
+      try {
+        if (typeof location !== 'undefined' && location.origin && /^https?:/i.test(location.origin)) {
+          return location.origin + '/api/community-catalog-local';
+        }
+      } catch (e) { /* ignore */ }
+      return '/api/community-catalog-local';
+    }
+
     function invalidateCommunityCatalogClientCache() {
       appState.communityDriveCatalogOverview = null;
       try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
@@ -19726,14 +19736,16 @@
       if (!canUseCommunityUploadApi()) {
         throw new Error('Community API unavailable');
       }
-      // Single source of truth: Supabase community_materials via /api/community-materials.
+      // Same catalog pipeline as deploy 1:42 (grades overview + data rows),
+      // but source is live Supabase community_materials (not local JSON).
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timeoutId = controller
         ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 15000)
         : null;
       let res;
       try {
-        res = await fetch(communityMaterialsApiUrl(), {
+        const catalogUrl = communityCatalogDriveApiUrl();
+        res = await fetch(catalogUrl, {
           method: 'GET',
           cache: 'no-store',
           signal: controller ? controller.signal : undefined,
@@ -19753,18 +19765,27 @@
       let json = {};
       if (text && text.trim()) {
         try { json = JSON.parse(text); } catch (e) {
-          throw new Error('Invalid community materials response');
+          throw new Error('Invalid community catalog response');
         }
+      }
+      if (json && json.grades && typeof json.grades === 'object') {
+        appState.communityDriveCatalogOverview = {
+          success: json.success !== false,
+          source: json.source || 'supabase',
+          driveConfigured: false,
+          grades: json.grades,
+        };
       }
       const rows = json.data;
       if (!Array.isArray(rows)) {
-        throw new Error('Invalid community materials response');
+        throw new Error('Invalid community catalog response');
+      }
+      if (!rows.length && json.success === false) {
+        throw new Error(json.error || 'Community catalog unavailable');
       }
       if (json.degraded) {
-        console.warn('[community] server returned degraded empty list:', json.reason || 'unknown');
+        console.warn('[community] server returned degraded list:', json.reason || 'unknown');
       }
-      // Never keep stale local/Drive overview over live Supabase rows.
-      appState.communityDriveCatalogOverview = null;
       return rows;
     }
 
@@ -21558,7 +21579,7 @@
     function mapRow(row) {
       const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
       const extras = parseCommunityNotes(rawNotes);
-      // Open/download uses only community_materials.file_path — ignore legacy url/link/Drive ids.
+      // Display/card fields follow 1:42 mapRow; open URL is strictly file_path.
       const filePath = String(row.file_path || row.filePath || '').trim();
       const topic = (row.topic || extras.topicLegacy || extras.catalogTopic || '').trim();
       const displayNotes = stripCommunityMetadataBrackets(extras.description || extras.freeText || '');
@@ -21600,6 +21621,44 @@
       });
     }
 
+    function buildCatalogOverviewFromCache(items) {
+      const grades = {};
+      (items || []).forEach(function (item) {
+        if (!item) return;
+        const gradeId = String(item.gradeLevel || '').trim() || GENERAL_GRADE_ID;
+        const topic = String(item.topic || '').trim();
+        if (!grades[gradeId]) {
+          grades[gradeId] = {
+            gradeId: gradeId,
+            gradeLabel: getCatalogGradeLabel(gradeId) || gradeId,
+            topicCount: 0,
+            fileCount: 0,
+            topics: [],
+            _topicMap: Object.create(null),
+          };
+        }
+        const g = grades[gradeId];
+        g.fileCount += 1;
+        if (!topic) return;
+        const key = normalizeTopicKey(topic);
+        if (!g._topicMap[key]) {
+          const entry = { id: topic, label: topic, count: 0 };
+          g._topicMap[key] = entry;
+          g.topics.push(entry);
+        }
+        g._topicMap[key].count += 1;
+      });
+      Object.keys(grades).forEach(function (gid) {
+        const g = grades[gid];
+        g.topicCount = g.topics.length;
+        g.topics.sort(function (a, b) {
+          return String(a.label).localeCompare(String(b.label), 'he');
+        });
+        delete g._topicMap;
+      });
+      return grades;
+    }
+
     async function loadCommunity() {
       if (!isCloudConfigured()) {
         appState.communityCache = [];
@@ -21613,7 +21672,15 @@
           return Boolean(resolveCommunityMaterialId(item));
         });
         appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-        appState.communityDriveCatalogOverview = null;
+        // Preserve 1:42 card pipeline: overview drives topic cards / counts.
+        if (!appState.communityDriveCatalogOverview || !appState.communityDriveCatalogOverview.grades) {
+          appState.communityDriveCatalogOverview = {
+            success: true,
+            source: 'supabase',
+            driveConfigured: false,
+            grades: buildCatalogOverviewFromCache(appState.communityCache),
+          };
+        }
       } catch (err) {
         console.warn('[community] loadCommunity failed:', formatSupabaseError(err));
         appState.communityCache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
@@ -29931,7 +29998,20 @@
     }
 
     function getDynamicTopicsForGrade(gradeId) {
-      // Topics/folders derived only from live communityCache (Supabase community_materials).
+      const gid = String(gradeId || '').trim();
+      const driveGrade = getDriveCatalogGradeOverview(gid);
+      if (driveGrade && Array.isArray(driveGrade.topics) && driveGrade.topics.length) {
+        return driveGrade.topics.map(function (topic) {
+          return {
+            id: topic.id || topic.label,
+            label: topic.label || topic.id,
+            count: Number(topic.count) || 0,
+          };
+        }).sort(function (a, b) {
+          return String(a.label).localeCompare(String(b.label), 'he');
+        });
+      }
+
       const map = {};
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
@@ -30727,7 +30807,14 @@
         el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
           CATALOG_GRADES.map(function (g) {
             const topics = getDynamicTopicsForGrade(g.id);
-            const n = filterByGrade(appState.communityCache, g.id).length;
+            const driveGrade = getDriveCatalogGradeOverview(g.id);
+            const dbFiles = filterByGrade(appState.communityCache, g.id).length;
+            const n = driveGrade && Number(driveGrade.fileCount) > 0
+              ? Number(driveGrade.fileCount)
+              : dbFiles;
+            const topicCount = driveGrade && Number(driveGrade.topicCount) > 0
+              ? Number(driveGrade.topicCount)
+              : topics.length;
             const isGeneral = Boolean(g.isGeneral);
             const icon = isGeneral ? 'fa-globe' : 'fa-folder';
             const subtitle = isGeneral
@@ -30738,7 +30825,7 @@
               '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
               '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
               '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
-              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topicCount, files: n })) + '</div></div></div></button>';
           }).join('');
         el.querySelectorAll('[data-grade]').forEach(function (btn) {
           btn.addEventListener('click', function () {
@@ -31155,7 +31242,7 @@
       bindCatalogSearchBar();
       updateCatalogSearchVisibility();
       if (catalogState.view === 'grades') {
-        // Local on-disk index — paint immediately, no «טוען...» spinner.
+        // Supabase-backed catalog overview (same card pipeline as 1:42).
         if (isCloudConfigured()) {
           try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
         }
