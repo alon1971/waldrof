@@ -18534,10 +18534,10 @@
     function communityCatalogDriveApiUrl() {
       try {
         if (typeof location !== 'undefined' && location.origin && /^https?:/i.test(location.origin)) {
-          return location.origin + '/api/community-catalog-drive';
+          return location.origin + '/api/community-catalog-local';
         }
       } catch (e) { /* ignore */ }
-      return '/api/community-catalog-drive';
+      return '/api/community-catalog-local';
     }
 
     function communityMaterialsMutateUrl(id) {
@@ -19718,16 +19718,16 @@
       if (!canUseCommunityUploadApi()) {
         throw new Error('Community API unavailable');
       }
-      // Prefer live Google Drive Grade → Topic → Files (cached folder index).
-      // Do NOT use corrupted community_materials.grade_level rows for Archive counts.
+      // Instant local on-disk index (data/community-catalog-index.json).
+      // No Drive crawl, no community_materials DB query.
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timeoutId = controller
-        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 45000)
+        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, 5000)
         : null;
       let res;
       try {
-        const driveUrl = communityCatalogDriveApiUrl() + '?format=materials';
-        res = await fetch(driveUrl, {
+        const localUrl = communityCatalogDriveApiUrl();
+        res = await fetch(localUrl, {
           method: 'GET',
           cache: 'no-store',
           signal: controller ? controller.signal : undefined,
@@ -19747,30 +19747,24 @@
       let json = {};
       if (text && text.trim()) {
         try { json = JSON.parse(text); } catch (e) {
-          throw new Error('Invalid community Drive catalog response');
+          throw new Error('Invalid local community catalog response');
         }
       }
       if (json && json.grades && typeof json.grades === 'object') {
         appState.communityDriveCatalogOverview = {
           success: json.success !== false,
-          source: 'drive',
-          driveConfigured: json.driveConfigured !== false,
+          source: 'local',
+          driveConfigured: false,
           grades: json.grades,
         };
       }
       const rows = json.data;
       if (!Array.isArray(rows)) {
-        throw new Error('Invalid community Drive catalog response');
+        throw new Error('Invalid local community catalog response');
       }
       if (!rows.length && json.success === false) {
-        throw new Error(json.error || 'Drive catalog unavailable');
+        throw new Error(json.error || 'Local community catalog unavailable');
       }
-      console.log(
-        '[catalog] loaded Drive materials rows=',
-        rows.length,
-        'grades=',
-        json.grades ? Object.keys(json.grades).length : 0
-      );
       return rows;
     }
 
@@ -31077,10 +31071,9 @@
       bindCatalogSearchBar();
       updateCatalogSearchVisibility();
       if (catalogState.view === 'grades') {
+        // Local on-disk index — paint immediately, no «טוען...» spinner.
         if (isCloudConfigured()) {
-          showCatalogStatus(t('catalog_loading'), 'info');
           try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
-          showCatalogStatus('', '');
         }
         renderCatalogGrades();
       } else if (catalogState.view === 'grade') {
