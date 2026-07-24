@@ -17612,9 +17612,7 @@
     function resolveCatalogMaterialDescription(file, subjectLine) {
       const desc = String(file.notes || file.description || '').trim();
       const subject = subjectLine != null ? String(subjectLine).trim() : resolveCatalogMaterialSubject(file);
-      if (!desc) return '';
-      if (looksLikeDriveCatalogMetadataNotes(desc)) return '';
-      if (subject && desc === subject) return '';
+      if (desc && subject && desc === subject) return '';
       return desc;
     }
 
@@ -17623,12 +17621,10 @@
       const descLine = resolveCatalogMaterialDescription(file, subjectLine);
       const instructorLine = stripCommunityInstructorPrefix(file.authorName || file.instructor_name || '');
       const dateLine = file.createdAt ? formatCatalogCardDate(file.createdAt) : '';
-      const kindLine = t('catalog_file_kind') || 'קובץ';
       let html = '';
       if (subjectLine) {
         html += '<p class="catalog-material-title">' + escapeHtml(subjectLine) + '</p>';
       }
-      html += '<p class="catalog-material-meta catalog-material-kind">' + escapeHtml(kindLine) + '</p>';
       if (descLine) {
         html += '<p class="catalog-material-desc">' + escapeHtml(descLine) + '</p>';
       }
@@ -19811,41 +19807,29 @@
 
     function parseCommunityNotes(rawNotes) {
       let rest = String(rawNotes || '');
-      const out = {
-        title: '',
-        author: '',
-        description: '',
-        fileSize: null,
-        fileType: '',
-        topicLegacy: '',
-        catalogTopic: '',
-        driveFileId: '',
-        drivePath: '',
-        freeText: '',
-      };
-      // Extract tagged fields anywhere in Drive/catalog notes (order is not guaranteed).
-      const anywhereTags = [
-        { field: 'title', re: /\[title:([^\]]+)\]/i },
-        { field: 'author', re: /\[author:([^\]]+)\]/i },
-        { field: 'description', re: /\[desc:([^\]]+)\]/i },
-        { field: 'fileSize', re: /\[size:([^\]]+)\]/i, parse: function (v) { return parseInt(v, 10) || null; } },
-        { field: 'fileType', re: /\[type:([^\]]+)\]/i },
-        { field: 'topicLegacy', re: /\[topic:([^\]]+)\]/i },
-        { field: 'catalogTopic', re: /\[catalogTopic:([^\]]+)\]/i },
-        { field: 'driveFileId', re: /\[driveFileId:([^\]]+)\]/i },
-        { field: 'drivePath', re: /\[drivePath:([^\]]+)\]/i },
+      const out = { title: '', author: '', description: '', fileSize: null, fileType: '', topicLegacy: '', freeText: '' };
+      const tagDefs = [
+        { field: 'title', re: /^\[title:([^\]]+)\]\s*/ },
+        { field: 'author', re: /^\[author:([^\]]+)\]\s*/ },
+        { field: 'description', re: /^\[desc:([^\]]+)\]\s*/ },
+        { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/, parse: function (v) { return parseInt(v, 10) || null; } },
+        { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/ },
+        { field: 'topicLegacy', re: /^\[topic:([^\]]+)\]\s*/ },
       ];
-      anywhereTags.forEach(function (def) {
-        const m = rest.match(def.re);
-        if (!m) return;
-        out[def.field] = def.parse ? def.parse(m[1]) : String(m[1] || '').trim();
-      });
-      // Strip all known machine tags so leftover freeText is human-readable only.
-      rest = rest
-        .replace(/\[(subfolder|catalogTopic|driveFileId|drivePath|title|desc|author|size|type|topic|tags)\s*:[^\]]*\]/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      out.freeText = rest;
+      let matched = true;
+      while (matched) {
+        matched = false;
+        for (let i = 0; i < tagDefs.length; i++) {
+          const def = tagDefs[i];
+          const m = rest.match(def.re);
+          if (!m) continue;
+          out[def.field] = def.parse ? def.parse(m[1]) : m[1];
+          rest = rest.slice(m[0].length);
+          matched = true;
+          break;
+        }
+      }
+      out.freeText = rest.trim();
       return out;
     }
 
@@ -21506,13 +21490,8 @@
       const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
       const extras = parseCommunityNotes(rawNotes);
       const filePath = row.file_path || '';
-      const topic = (row.topic || extras.topicLegacy || extras.catalogTopic || '').trim();
-      // Never surface Drive catalog machine-notes as the human description.
-      let displayNotes = String(extras.description || '').trim();
-      if (!displayNotes && extras.freeText && !looksLikeDriveCatalogMetadataNotes(extras.freeText)) {
-        displayNotes = extras.freeText;
-      }
-      if (looksLikeDriveCatalogMetadataNotes(displayNotes)) displayNotes = '';
+      const topic = (row.topic || extras.topicLegacy || '').trim();
+      const displayNotes = extras.description || extras.freeText || '';
       const displayTitle = extras.title || row.file_name || topic || 'חומר קהילתי';
       const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
       return {
@@ -29877,34 +29856,12 @@
       });
     }
 
-    function isCatalogGradeShellTopicName(name) {
-      const s = String(name || '').trim();
-      if (!s) return false;
-      if (/^(כללי|general)$/i.test(s)) return false;
-      if (/ת(?:י)?קי(?:ה|ית)/i.test(s) && /כיתה/i.test(s)) return true;
-      if (/^ת(?:י)?קי(?:ה|ית)\s+כיתה[\s\-_/]*[א-ח]/i.test(s)) return true;
-      if (/^כיתה[\s\-_/]*[א-ח]['׳']?\s*$/i.test(s)) return true;
-      return false;
-    }
-
-    function isCatalogJunkFileName(name) {
-      const n = String(name || '').trim();
-      if (!n) return false;
-      if (/^(desktop\.ini|thumbs\.db|\.ds_store|icon\r|\.localized|~\$)/i.test(n)) return true;
-      if (/\.(tmp|temp|lnk|exe|dll|bat|cmd|sys|ini|url|log|bak|old|crdownload|partial)$/i.test(n)) {
-        return true;
-      }
-      return false;
-    }
-
     function getDynamicTopicsForGrade(gradeId) {
       const map = {};
       const gid = String(gradeId || '').trim();
       filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
         const t = (item.topic || '').trim();
         if (!t) return;
-        // Hide nested Drive grade shells that were wrongly saved as topics.
-        if (isCatalogGradeShellTopicName(t)) return;
         // Hide curriculum ghost folders parked under the wrong grade
         // (e.g. empty «רומא» under כיתה א׳ — belongs to כיתה ו׳).
         if (gid && gid !== 'general'
@@ -29914,7 +29871,7 @@
           if (block && block.gradeId && String(block.gradeId) !== gid) return;
         }
         const key = normalizeTopicKey(t);
-        if (!map[key]) map[key] = { id: t, label: t, count: 0, kind: 'folder' };
+        if (!map[key]) map[key] = { id: t, label: t, count: 0 };
         map[key].count++;
       });
       return Object.keys(map).map(function (k) { return map[k]; })
@@ -29945,12 +29902,7 @@
     function collectCatalogFilesForGrade(gradeId) {
       return filterByGrade(appState.communityCache, gradeId)
         .map(mapCacheItemToCatalogFile)
-        .filter(function (item) {
-          if (!item.id) return false;
-          if (isCatalogGradeShellTopicName(item.topic)) return false;
-          if (isCatalogJunkFileName(item.fileName) || isCatalogJunkFileName(item.title)) return false;
-          return true;
-        })
+        .filter(function (item) { return Boolean(item.id); })
         .sort(function (a, b) {
           const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -30716,14 +30668,12 @@
         html += '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">' + topics.map(function (topic) {
           const label = topic.label || topic.id || '';
           const count = Number(topic.count) || 0;
-          const kindLabel = t('catalog_folder_kind') || 'תיקייה';
           return '<button type="button" class="catalog-topic-folder text-dir-start bg-cream rounded-xl border border-gold/30 p-4 hover:border-sage/50" data-topic="' +
             escapeHtml(String(topic.id || label)) + '">' +
             '<div class="flex items-start gap-3">' +
             '<span class="inline-flex w-9 h-9 shrink-0 items-center justify-center rounded-lg bg-sage/15 text-sage-dark"><i class="fa-solid fa-folder"></i></span>' +
             '<div class="min-w-0">' +
             '<div class="font-display font-bold text-burgundy">' + escapeHtml(label) + '</div>' +
-            '<div class="text-xs text-walnut/60 mt-0.5">' + escapeHtml(kindLabel) + '</div>' +
             '<div class="text-xs text-sage-dark mt-1 font-medium">' +
             escapeHtml(t('catalog_files_in_topic', { count: count })) + '</div>' +
             '</div></div></button>';
