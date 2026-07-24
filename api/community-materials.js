@@ -600,6 +600,55 @@ async function deleteCommunityMaterial(body, req) {
   return { id: canonicalId, deletedCount: deletedRows.length, storageDeleted: storageDeleted, kbDeleted: kbDeleted };
 }
 
+function buildGradesOverview(rows) {
+  const GRADE_LABELS = {
+    '1': 'כיתה א׳',
+    '2': 'כיתה ב׳',
+    '3': 'כיתה ג׳',
+    '4': 'כיתה ד׳',
+    '5': 'כיתה ה׳',
+    '6': 'כיתה ו׳',
+    '7': 'כיתה ז׳',
+    '8': 'כיתה ח׳',
+    general: 'כללי',
+  };
+  const grades = {};
+  (rows || []).forEach(function (row) {
+    if (!row || typeof row !== 'object') return;
+    const gradeId = String(row.grade_level != null ? row.grade_level : (row.grade || '')).trim() || 'general';
+    const topic = String(row.topic || '').trim();
+    if (!grades[gradeId]) {
+      grades[gradeId] = {
+        gradeId: gradeId,
+        gradeLabel: GRADE_LABELS[gradeId] || gradeId,
+        topicCount: 0,
+        fileCount: 0,
+        topics: [],
+        _topicMap: Object.create(null),
+      };
+    }
+    const g = grades[gradeId];
+    g.fileCount += 1;
+    if (!topic) return;
+    const key = topic.toLowerCase().replace(/\s+/g, ' ');
+    if (!g._topicMap[key]) {
+      const entry = { id: topic, label: topic, count: 0 };
+      g._topicMap[key] = entry;
+      g.topics.push(entry);
+    }
+    g._topicMap[key].count += 1;
+  });
+  Object.keys(grades).forEach(function (gid) {
+    const g = grades[gid];
+    g.topicCount = g.topics.length;
+    g.topics.sort(function (a, b) {
+      return String(a.label).localeCompare(String(b.label), 'he');
+    });
+    delete g._topicMap;
+  });
+  return grades;
+}
+
 async function legacyHandler(req, res) {
   if (req.method === 'OPTIONS') {
     setCors(res);
@@ -609,7 +658,13 @@ async function legacyHandler(req, res) {
   try {
     if (req.method === 'GET') {
       const listed = await listCommunityMaterials();
-      const payload = { data: listed.rows || [] };
+      const rows = listed.rows || [];
+      const payload = {
+        data: rows,
+        grades: buildGradesOverview(rows),
+        source: 'supabase',
+        success: !listed.degraded,
+      };
       if (listed.degraded) payload.degraded = true;
       if (listed.reason) payload.reason = listed.reason;
       return sendJson(res, 200, payload);

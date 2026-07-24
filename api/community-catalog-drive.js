@@ -1,10 +1,10 @@
 /**
- * Legacy alias — Community Archive catalog display does not use Drive.
- * Proxies to Supabase community_materials list.
+ * Legacy alias — Community Archive catalog display does not use Drive crawl.
+ * Proxies to the Supabase-backed local-catalog shape (grades + data).
  */
-const communityMaterials = require('./community-materials');
+const communityCatalogLocal = require('./community-catalog-local');
 
 module.exports = {
-  legacyHandler: communityMaterials.legacyHandler,
-  handleRequest: communityMaterials.legacyHandler,
+  legacyHandler: communityCatalogLocal.legacyHandler,
+  handleRequest: communityCatalogLocal.legacyHandler,
 };
