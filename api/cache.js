@@ -433,6 +433,142 @@ async function deleteCachedRowByKey(cacheKey) {
   return deleted;
 }
 
+/**
+ * Phases flushed for stale Community Archive / topic responses.
+ * `topic_raster` is included as a literal (seen in Render logs); also flush
+ * `topic` + `topic_master` which share the same cacheKeys shape.
+ */
+const STALE_ARCHIVE_FLUSH_PHASES = [
+  'community_catalog',
+  'topic_raster',
+  'topic',
+  'topic_master',
+];
+
+function expandFlushPhaseAliases(phases) {
+  const out = [];
+  const seen = Object.create(null);
+  (phases || []).forEach(function (raw) {
+    const phase = String(raw || '').trim();
+    if (!phase || seen[phase]) return;
+    seen[phase] = true;
+    out.push(phase);
+    // Log typo / alias: topic_raster → also clear topic + topic_master.
+    if (phase === 'topic_raster') {
+      ['topic', 'topic_master'].forEach(function (alias) {
+        if (!seen[alias]) {
+          seen[alias] = true;
+          out.push(alias);
+        }
+      });
+    }
+  });
+  return out;
+}
+
+/**
+ * Delete cached_results rows (Supabase + in-memory fallback) by phase list.
+ * Forces subsequent generate/probe paths to re-fetch from source.
+ */
+async function deleteCachedRowsByPhases(phases) {
+  const list = expandFlushPhaseAliases(phases);
+  if (!list.length) {
+    return { deleted: 0, phases: [], supabaseDeleted: 0, fallbackDeleted: 0 };
+  }
+
+  let supabaseDeleted = 0;
+  if (isSupabaseCacheEnabled()) {
+    try {
+      // PostgREST: phase=in.(a,b,c) — phases are safe identifiers.
+      const filter = 'phase=in.(' + list.join(',') + ')';
+      const res = await supabaseRequest(
+        '/rest/v1/' + TABLE_NAME + '?' + filter,
+        { method: 'DELETE', headers: { Prefer: 'return=representation' } }
+      );
+      if (res.ok) {
+        const bodyText = await res.text();
+        if (bodyText && bodyText.trim()) {
+          try {
+            const rows = JSON.parse(bodyText);
+            supabaseDeleted = Array.isArray(rows) ? rows.length : 0;
+          } catch (parseErr) {
+            supabaseDeleted = 0;
+          }
+        }
+      } else {
+        const errText = await res.text();
+        console.warn('[cached_results] phase flush error', res.status, errText.slice(0, 200));
+      }
+    } catch (err) {
+      console.warn('[cached_results] phase flush failed:', err.message || err);
+    }
+  }
+
+  loadFallbackStore();
+  let fallbackDeleted = 0;
+  const keys = [];
+  fallbackStore.rows.forEach(function (row, key) {
+    if (row && list.indexOf(String(row.phase || '')) >= 0) keys.push(key);
+  });
+  keys.forEach(function (key) {
+    fallbackStore.rows.delete(key);
+    fallbackDeleted += 1;
+  });
+  if (fallbackDeleted) persistFallbackStore();
+
+  const deleted = supabaseDeleted + fallbackDeleted;
+  console.log(
+    '[cached_results] deleteCachedRowsByPhases',
+    list.join(','),
+    'supabase=',
+    supabaseDeleted,
+    'fallback=',
+    fallbackDeleted
+  );
+  return {
+    deleted: deleted,
+    phases: list,
+    supabaseDeleted: supabaseDeleted,
+    fallbackDeleted: fallbackDeleted,
+  };
+}
+
+/**
+ * Flush stale Community Archive + topic_raster (and related) caches.
+ * Also clears in-memory Drive folder index so the next sync/read is fresh.
+ * No Redis in this deployment — only Supabase cached_results + process memory.
+ */
+async function flushStaleCommunityAndTopicCaches(options) {
+  const opts = options || {};
+  const phases = Array.isArray(opts.phases) && opts.phases.length
+    ? opts.phases
+    : STALE_ARCHIVE_FLUSH_PHASES.slice();
+
+  let driveMemory = { folderIndex: false };
+  try {
+    const driveSync = require('./drive-catalog-sync');
+    if (driveSync && typeof driveSync.flushDriveCatalogMemoryCaches === 'function') {
+      driveMemory = driveSync.flushDriveCatalogMemoryCaches();
+    }
+  } catch (driveErr) {
+    console.warn(
+      '[cache] drive memory flush skipped:',
+      driveErr && driveErr.message ? driveErr.message : driveErr
+    );
+  }
+
+  const phaseResult = await deleteCachedRowsByPhases(phases);
+  return {
+    success: true,
+    redis: false,
+    driveMemory: driveMemory,
+    phases: phaseResult.phases,
+    deleted: phaseResult.deleted,
+    supabaseDeleted: phaseResult.supabaseDeleted,
+    fallbackDeleted: phaseResult.fallbackDeleted,
+  };
+}
+
 function normalizeArchiveLinkUrl(url) {
   let s = String(url || '').trim().toLowerCase();
   if (!s) return '';
@@ -5722,6 +5858,9 @@ module.exports = {
   normalizeGradeResultForCache,
   coerceCachedResultData,
   deleteCachedRowByKey,
+  deleteCachedRowsByPhases,
+  flushStaleCommunityAndTopicCaches,
+  STALE_ARCHIVE_FLUSH_PHASES,
   deleteRawPerplexityCache,
   deleteTopicMasterCache,
   deleteTopicProseArchive,
