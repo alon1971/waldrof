@@ -45,13 +45,19 @@ function buildPayloadFromUploadReport(report) {
       files.forEach(function (f, i) {
         const id = String(f.materialId || ('local:' + gradeId + ':' + topicLabel + ':' + i));
         const fileName = String(f.fileName || topicLabel);
+        const openUrl = String(f.url || f.link || f.fileUrl || f.webViewLink || f.file_path || '').trim();
+        const fileId = String(f.file_id || f.fileId || f.driveFileId || '').trim();
         data.push({
           id: id,
           grade_level: gradeId,
           topic: topicLabel,
           file_name: fileName,
-          file_path: '',
-          notes: '[title:' + fileName + '][source:local-index][kind:' + (f.kind || '') + ']',
+          file_path: openUrl,
+          url: openUrl,
+          link: openUrl,
+          file_id: fileId,
+          kind: String(f.kind || ''),
+          notes: '[title:' + fileName + ']',
           created_at: (report && report.generatedAt) || null,
           user_id: null,
         });
