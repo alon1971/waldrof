@@ -1610,6 +1610,155 @@ async function getDriveFolderIndex(options) {
   return index;
 }
 
+/**
+ * Count syncable Drive files under a folder (recursive, depth-capped).
+ * Used only by the Community Archive tab overview — not by Gemini summarizer.
+ */
+async function countSyncableFilesUnderFolder(folderId, accessToken, options) {
+  const opts = options || {};
+  const maxDepth = Math.min(Number(opts.maxDepth) || 8, MAX_FOLDER_DEPTH);
+  const maxFiles = Math.min(Number(opts.maxFiles) || 5000, 8000);
+  let total = 0;
+
+  async function walk(id, depth) {
+    if (!id || depth > maxDepth || total >= maxFiles) return;
+    let children = [];
+    try {
+      children = await listDriveChildren(id, accessToken);
+    } catch (err) {
+      console.warn(
+        '[drive-catalog-sync] count files list failed:',
+        id,
+        err && err.message ? err.message : err
+      );
+      return;
+    }
+    for (let i = 0; i < children.length; i++) {
+      if (total >= maxFiles) return;
+      const item = children[i];
+      if (!item || !item.id) continue;
+      if (item.mimeType === FOLDER_MIME) {
+        await walk(item.id, depth + 1);
+        continue;
+      }
+      if (!isSyncableDriveFile(item)) continue;
+      total += 1;
+    }
+  }
+
+  await walk(folderId, 0);
+  return total;
+}
+
+/**
+ * Live Drive overview for מאגר קהילתי grade cards:
+ * topic folders + file counts from Google Drive (not community_drive_archive / Gemini).
+ */
+let driveCatalogUiOverviewCache = { key: '', expiresAt: 0, payload: null };
+
+async function summarizeDriveCatalogForUi(options) {
+  const opts = options || {};
+  if (!isDriveCatalogSyncConfigured() && !opts.accessToken) {
+    return {
+      success: true,
+      source: 'drive',
+      driveConfigured: false,
+      grades: {},
+    };
+  }
+
+  const rootFolderId = getCatalogRootFolderId(opts);
+  const cacheKey = String(rootFolderId || '');
+  const now = Date.now();
+  if (
+    !opts.forceRefresh
+    && driveCatalogUiOverviewCache.payload
+    && driveCatalogUiOverviewCache.key === cacheKey
+    && driveCatalogUiOverviewCache.expiresAt > now
+  ) {
+    return driveCatalogUiOverviewCache.payload;
+  }
+
+  let accessToken;
+  let index;
+  try {
+    accessToken = await resolveDriveAccessToken(opts);
+    index = await getDriveFolderIndex(Object.assign({}, opts, { accessToken: accessToken }));
+  } catch (err) {
+    return {
+      success: false,
+      source: 'drive',
+      driveConfigured: true,
+      grades: {},
+      communityError: String(err && err.message ? err.message : err),
+    };
+  }
+
+  const gradeRootFolders = index.gradeRootFolders || {};
+  const topicFolders = index.topicFolders || {};
+  const byFolderId = index.byFolderId || {};
+  const gradeIds = Object.keys(gradeRootFolders);
+
+  const grades = {};
+  await Promise.all(gradeIds.map(async function (gradeId) {
+    const topicMap = topicFolders[gradeId] || {};
+    const topicsByFolderId = {};
+    Object.keys(topicMap).forEach(function (key) {
+      const folderId = topicMap[key];
+      if (!folderId || topicsByFolderId[folderId]) return;
+      const meta = byFolderId[folderId] || {};
+      const path = Array.isArray(meta.path) ? meta.path : [];
+      const label = String(meta.catalogTopic || path[path.length - 1] || key || '').trim();
+      if (!label) return;
+      topicsByFolderId[folderId] = {
+        id: label,
+        label: label,
+        folderId: folderId,
+      };
+    });
+    const topics = Object.keys(topicsByFolderId).map(function (id) {
+      return topicsByFolderId[id];
+    }).sort(function (a, b) {
+      return String(a.label).localeCompare(String(b.label), 'he');
+    });
+
+    let fileCount = 0;
+    try {
+      fileCount = await countSyncableFilesUnderFolder(gradeRootFolders[gradeId], accessToken, {
+        maxDepth: 8,
+        maxFiles: 5000,
+      });
+    } catch (countErr) {
+      console.warn(
+        '[drive-catalog-sync] grade file count failed:',
+        gradeId,
+        countErr && countErr.message ? countErr.message : countErr
+      );
+    }
+
+    grades[gradeId] = {
+      gradeId: gradeId,
+      gradeFolderId: gradeRootFolders[gradeId],
+      topicCount: topics.length,
+      fileCount: fileCount,
+      topics: topics,
+    };
+  }));
+
+  const payload = {
+    success: true,
+    source: 'drive',
+    driveConfigured: true,
+    grades: grades,
+  };
+  driveCatalogUiOverviewCache = {
+    key: cacheKey,
+    expiresAt: now + FOLDER_INDEX_TTL_MS,
+    payload: payload,
+  };
+  return payload;
+}
+
 function topicsStrictlyCompatible(expectedTopic, candidateTopic) {
   const expected = stableNormalize(expectedTopic);
   const candidate = stableNormalize(candidateTopic);
@@ -2843,6 +2992,8 @@ module.exports = {
   buildDriveKeywordSearchQuery,
   buildDriveFolderIndex,
   getDriveFolderIndex,
+  summarizeDriveCatalogForUi,
+  countSyncableFilesUnderFolder,
   resolveStrictDriveScopeFolderIds,
   resolveDescendantFolderIds,
   resolveDriveParentFolderId,
