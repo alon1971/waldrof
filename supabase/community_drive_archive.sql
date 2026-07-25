@@ -57,6 +57,25 @@ create index if not exists community_drive_archive_search_query_idx
 create index if not exists community_drive_archive_query_idx
   on public.community_drive_archive (query_text);
 
+-- Optional aliases / citations for API contract compatibility
+alter table public.community_drive_archive add column if not exists citations jsonb not null default '[]'::jsonb;
+alter table public.community_drive_archive add column if not exists summary_text text not null default '';
+alter table public.community_drive_archive add column if not exists drive_fingerprint text not null default '';
+alter table public.community_drive_archive add column if not exists grade_level text not null default '';
+
+-- Keep alias columns in sync with canonical fields when empty
+update public.community_drive_archive
+set summary_text = coalesce(nullif(trim(summary_text), ''), nullif(trim(summary_md), ''), '')
+where coalesce(trim(summary_text), '') = '';
+
+update public.community_drive_archive
+set drive_fingerprint = coalesce(nullif(trim(drive_fingerprint), ''), nullif(trim(source_fingerprint), ''), '')
+where coalesce(trim(drive_fingerprint), '') = '';
+
+update public.community_drive_archive
+set grade_level = coalesce(nullif(trim(grade_level), ''), nullif(trim(grade_id), ''), '')
+where coalesce(trim(grade_level), '') = '';
+
 alter table public.community_drive_archive enable row level security;
 
 -- Public read (UI may hydrate from API; direct PostgREST read is ok for summaries)

@@ -306,14 +306,20 @@ function sanitizeCommunitySummaryMarkdown(summary) {
 }
 
 /**
- * Instant archive hit by topic + grade — no Drive scan, no Gemini.
- * Used when the UI asks for a previously archived classroom/topic summary.
+ * Instant archive hit by topic + grade — ONLY when a current Drive fingerprint
+ * is supplied and matches the stored source_fingerprint. Never skip the
+ * fingerprint check (stale summaries must regenerate).
  */
 async function tryInstantArchiveRetrieval(query, options) {
   const opts = options || {};
   if (opts.forceRefresh === true || opts.refresh === true) return null;
   const q = String(query || '').trim();
   if (!q) return null;
+  const expectedFp = String(
+    opts.sourceFingerprint || opts.driveFingerprint || opts.fingerprint || ''
+  ).trim();
+  // Without a live fingerprint we cannot prove the folder is unchanged.
+  if (!expectedFp) return null;
   const archiveKey = buildArchiveKey(q, opts);
   let existing = null;
   try {
@@ -325,11 +331,24 @@ async function tryInstantArchiveRetrieval(query, options) {
   if (
     !existing
     || existing.community_status !== 'ok'
-    || !String(existing.summary_md || '').trim()
+    || !String(existing.summary_md || existing.summary_text || '').trim()
   ) {
     return null;
   }
-  const summary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
+  const storedFp = String(
+    existing.source_fingerprint || existing.drive_fingerprint || ''
+  ).trim();
+  if (!storedFp || storedFp !== expectedFp) {
+    console.log(
+      '[community-drive-archive] archive row found but fingerprint mismatch — will regenerate',
+      '| key:',
+      archiveKey.slice(0, 12)
+    );
+    return null;
+  }
+  const summary = sanitizeCommunitySummaryMarkdown(
+    existing.summary_md || existing.summary_text || ''
+  );
   if (!summary) return null;
   if (!isSummaryDeepEnough(summary)) {
     console.warn(
@@ -342,7 +361,7 @@ async function tryInstantArchiveRetrieval(query, options) {
     return null;
   }
   console.log(
-    '[community-drive-archive] INSTANT archive hit — skipping Drive + Gemini',
+    '[community-drive-archive] fingerprint-matched archive hit — skipping Gemini',
     '| key:',
     archiveKey.slice(0, 12),
     '| topic:',
@@ -358,10 +377,36 @@ async function tryInstantArchiveRetrieval(query, options) {
     deltaUpdated: false,
     archiveKey: archiveKey,
     fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : [],
-    sourceFingerprint: String(existing.source_fingerprint || ''),
+    citations: Array.isArray(existing.citations) ? existing.citations : [],
+    sourceFingerprint: storedFp,
     model: existing.model || null,
     instantHit: true,
   };
+}
+
+function buildCitationsPayload(fileRefs, extraCitations) {
+  const fromRefs = (fileRefs || []).map(function (ref) {
+    return {
+      title: shortCitationDisplayName(ref && (ref.name || ref.fileName), 'קובץ Drive'),
+      url: String((ref && (ref.webViewLink || ref.fileUrl)) || '').trim(),
+      driveFileId: String((ref && ref.driveFileId) || '').trim(),
+    };
+  }).filter(function (c) { return c.url || c.driveFileId; });
+  const extras = Array.isArray(extraCitations) ? extraCitations : [];
+  const seen = new Set();
+  const out = [];
+  fromRefs.concat(extras).forEach(function (c) {
+    if (!c) return;
+    const key = String(c.url || c.driveFileId || c.title || '').trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      title: String(c.title || c.name || '').trim(),
+      url: String(c.url || c.fileUrl || c.webViewLink || '').trim(),
+      driveFileId: String(c.driveFileId || '').trim(),
+    });
+  });
+  return out;
 }
 
 async function upsertArchiveRow(record) {
@@ -372,21 +417,47 @@ async function upsertArchiveRow(record) {
   const payload = Object.assign({}, record, {
     updated_at: new Date().toISOString(),
   });
-  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: cfg.key,
-      Authorization: 'Bearer ' + cfg.key,
-      Prefer: 'resolution=merge-duplicates,return=representation',
-    },
-    body: JSON.stringify(payload),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error('community_drive_archive upsert failed (' + res.status + '): ' + text.slice(0, 300));
+
+  async function postPayload(body) {
+    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: cfg.key,
+        Authorization: 'Bearer ' + cfg.key,
+        Prefer: 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    return { res: res, text: text };
   }
-  const data = text ? JSON.parse(text) : [];
+
+  let attempt = await postPayload(payload);
+  // Optional alias columns may be missing on older DBs — strip and retry once.
+  if (!attempt.res.ok) {
+    const errText = String(attempt.text || '');
+    const optionalCols = ['citations', 'summary_text', 'drive_fingerprint', 'grade_level'];
+    const stripped = Object.assign({}, payload);
+    let removed = false;
+    optionalCols.forEach(function (col) {
+      if (Object.prototype.hasOwnProperty.call(stripped, col) && new RegExp(col, 'i').test(errText)) {
+        delete stripped[col];
+        removed = true;
+      }
+    });
+    if (removed) {
+      console.warn('[community-drive-archive] upsert retry without optional columns');
+      attempt = await postPayload(stripped);
+    }
+  }
+  if (!attempt.res.ok) {
+    throw new Error(
+      'community_drive_archive upsert failed (' + attempt.res.status + '): '
+      + String(attempt.text || '').slice(0, 300)
+    );
+  }
+  const data = attempt.text ? JSON.parse(attempt.text) : [];
   return Array.isArray(data) ? data[0] : data;
 }
 
@@ -708,21 +779,24 @@ async function callGeminiModel(model, systemPrompt, userParts, options) {
   // Plain Markdown (not JSON) — wrapping a long Hebrew work plan in JSON routinely
   // truncates / shortens the pedagogical body. Keep optional JSON only as a last resort.
   const wantJson = opts.responseJson === true;
+  // HARD RULE: archive-only. Never attach tools / googleSearch / grounding /
+  // web retrieval — Gemini must answer solely from the provided Drive texts.
+  const requestBody = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: parts }],
+    generationConfig: {
+      temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.35,
+      maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+      ...(wantJson ? { responseMimeType: 'application/json' } : {}),
+    },
+  };
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-goog-api-key': apiKey,
     },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: parts }],
-      generationConfig: {
-        temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.55,
-        maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-        ...(wantJson ? { responseMimeType: 'application/json' } : {}),
-      },
-    }),
+    body: JSON.stringify(requestBody),
   });
   const raw = await res.text();
   let payload;
@@ -766,7 +840,9 @@ function buildCommunitySummarySystemPrompt() {
     'תפקידך לעבד ולחלץ טקסט מכל הקבצים שסופקו בתיקיית הנושא — ללא יוצא מן הכלל — תוך תשומת לב מיוחדת למחברות תלמידים, מחברות מורים, ספרי שיעור ראשי (main lesson books), מסמכי Word/Google Docs, וקבצי PDF (כולל סרוקים).',
     'אסור בתכלית האיסור להפיק תקציר שטחי, סיכום קצר, רשימת בולטים דלה, או אבסטרקט כללי. המורה הקורא חייב להרגיש שנעשתה עבודה רצינית, איכותית ועמוקה — מסמך תכנית עבודה מקיף ובר־יישום בכיתה.',
     'בצע סינתזה אמיתית בין כל המקורות לכדי מסמך פדגוגי אחד אחיד ועשיר — לא העתקה של קטעים זה לצד זה, ולא כותרות עם משפט בודד.',
-    'אסור להסתמך על ידע חיצוני או על חיפוש ברשת — רק על הטקסטים/המסמכים/ה־PDF שסופקו. אם פרט מסוים אינו מופיע במקורות, ציין במפורש שאינו נמצא בחומרים שסופקו — אל תמציא.',
+    'מקור מידע יחיד: אך ורק הטקסטים/המסמכים/ה־PDF שסופקו בהודעת המשתמש מתוך המאגר הקהילתי.',
+    'אסור לחלוטין להסתמך על ידע כללי, זיכרון מודל, חיפוש ברשת, Google Search, Web Search, או כל כלי חיצוני.',
+    'אסור להמציא עובדות, ציטוטים, פעילויות, מבחנים, או מראי מקום שאינם מופיעים במסמכים שסופקו. אם פרט חסר במקורות — כתוב במפורש שאינו נמצא בחומרים שסופקו.',
     'כתוב בעברית פדגוגית עשירה, רהוטה, מקצועית ועמוקה. פסקאות מלאות (לא שורות בודדות). סיים כל פסקה וכל סעיף בצורה מלאה — אל תקטע משפטים באמצע.',
     'דרישת אורך ועומק (חובה): כשיש תוכן במקורות, המסמך חייב להיות מפורט ומקיף — מינימום 1200–2000 מילים (ורצוי יותר אם החומר מאפשר). כל אחד מחמשת הסעיפים הראשיים חייב לכלול לפחות 3–5 פסקאות או תתי־סעיפים עם פירוט קונקרטי. אסור להסתפק בכותרת + משפט אחד או ברשימת בולטים שטחית.',
     'מבנה Markdown חובה בתוך שדה summary — כותרת ראשית (#), ואז חמשת הסעיפים הבאים בדיוק כ־## (המקבילים ל־<h2>) עם תתי־סעיפים ב־### (המקבילים ל־<h3>) ובולטים מפורטים בכל סעיף:',
@@ -827,6 +903,7 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
     opts.topic ? ('נושא קטלוג: ' + opts.topic) : '',
     '',
     'עבד וחלץ טקסט מכל הקבצים והמסמכים שלהלן (מחברות תלמידים/מורים, ספרי שיעור ראשי, מסמכים ו־PDF כולל סרוקים) ובנה תכנית עבודה לימודית מעמיקה, מפורטת ומורחבת למורה — סינתזה אמיתית בין המקורות, לא תקציר שטחי ולא סיכום קצר/דל.',
+    'הגבלת מקור (חובה): השתמש אך ורק בטקסטים/מסמכים שלהלן מהמאגר הקהילתי. אסור חיפוש ברשת, אסור ידע חיצוני, ואסור להמציא פרטים שאינם מופיעים במקורות.',
     'כשיש חומר במקורות: כתוב מסמך מפורט באורך מינימום 1200–2000 מילים (או יותר לפי עומק החומר). כל סעיף ראשי חייב להיות עשיר בתוכן — לא כותרת עם משפט בודד ולא רשימת בולטים שטחית.',
     'חובה לכלול את חמשת הסעיפים עם כותרות ## (<h2>) ותתי־סעיפים ### (<h3>)/בולטים מפורטים: (1) רקע והדגשה פדגוגית; (2) סינתזה רחבה של החומרים; (3) הצעות לפעילויות יצירתיות ואמנותיות; (4) דרכי הערכה ומודלים למבחן/עבודה; (5) מראי מקום והפניות למאגר.',
     'שלב בין מערכי שיעור, מחברות, ספרי שיעור ראשי, דפי עבודה, מבחנים, PDF וחומרי רקע לכתיבה קוהרנטית אחת עם ## / ### ובולטים מפורטים.',
@@ -867,7 +944,7 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
   for (let i = 0; i < models.length; i++) {
     try {
       let summary = await callGeminiModel(models[i], systemPrompt, userParts, {
-        temperature: 0.55,
+        temperature: 0.35,
       });
       console.log(
         '[community-drive-archive] Gemini draft length:',
@@ -891,11 +968,12 @@ async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta
             'מינימום 1500 מילים. חובה לכלול את כל חמשת הסעיפים עם ## ו־###.',
             'שלוף מהקבצים המצורפים פעילויות יצירתיות/אמנותיות ומודלי הערכה/מבחנים/עבודות במפורש.',
             'אל תקצר. אל תחזיר תקציר. אל תחזיר JSON.',
+            'השתמש אך ורק בחומרים שסופקו — אסור ידע חיצוני או חיפוש ברשת.',
           ].join(' ')
         };
         try {
           const retrySummary = await callGeminiModel(models[i], systemPrompt, retryParts, {
-            temperature: 0.65,
+            temperature: 0.4,
           });
           if (retrySummary && retrySummary.length >= summary.length) {
             summary = retrySummary;
@@ -1140,15 +1218,22 @@ async function resolveCommunityDriveSummary(query, matches, options) {
 
   try {
     const existing = await fetchArchiveRow(archiveKey);
+    const storedFp = existing
+      ? String(existing.source_fingerprint || existing.drive_fingerprint || '').trim()
+      : '';
+    const archivedBody = existing
+      ? String(existing.summary_md || existing.summary_text || '').trim()
+      : '';
     if (
       existing &&
-      existing.source_fingerprint === fingerprint &&
-      String(existing.summary_md || '').trim() &&
+      storedFp &&
+      storedFp === fingerprint &&
+      archivedBody &&
       existing.community_status === 'ok'
       && opts.forceRefresh !== true
       && opts.refresh !== true
     ) {
-      const archivedSummary = sanitizeCommunitySummaryMarkdown(existing.summary_md);
+      const archivedSummary = sanitizeCommunitySummaryMarkdown(archivedBody);
       if (!isSummaryDeepEnough(archivedSummary)) {
         console.warn(
           '[community-drive-archive] cached summary too shallow — regenerating',
@@ -1156,6 +1241,11 @@ async function resolveCommunityDriveSummary(query, matches, options) {
           archivedSummary.length
         );
       } else {
+        console.log(
+          '[community-drive-archive] fingerprint match — serving cached summary',
+          '| key:',
+          archiveKey.slice(0, 12)
+        );
         return {
           heading: COMMUNITY_SUMMARY_HEADING,
           summary: archivedSummary,
@@ -1164,10 +1254,19 @@ async function resolveCommunityDriveSummary(query, matches, options) {
           deltaUpdated: false,
           archiveKey: archiveKey,
           fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : fileRefs,
+          citations: Array.isArray(existing.citations)
+            ? existing.citations
+            : buildCitationsPayload(fileRefs, opts.citations),
           sourceFingerprint: fingerprint,
           model: existing.model || null,
         };
       }
+    } else if (existing && storedFp && storedFp !== fingerprint) {
+      console.log(
+        '[community-drive-archive] fingerprint changed — regenerating summary',
+        '| key:',
+        archiveKey.slice(0, 12)
+      );
     }
   } catch (lookupErr) {
     console.warn('[community-drive-archive] lookup failed:', lookupErr.message || lookupErr);
@@ -1264,24 +1363,45 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   });
 
   const cleanedSummary = sanitizeCommunitySummaryMarkdown(generated.summary);
+  const gradeLevel = String(opts.gradeId || opts.currentGrade || '').trim();
+  const citationsPayload = buildCitationsPayload(fileRefs, opts.citations);
   const record = {
     archive_key: archiveKey,
     search_query: q,
     query_text: q,
-    grade_id: String(opts.gradeId || opts.currentGrade || '').trim(),
+    grade_id: gradeLevel,
+    grade_level: gradeLevel,
     topic: String(opts.topic || opts.catalogTopic || '').trim(),
     summary_md: cleanedSummary,
+    summary_text: cleanedSummary,
     community_status: 'ok',
     source_fingerprint: fingerprint,
+    drive_fingerprint: fingerprint,
     source_file_ids: fileRefs.map(function (ref) { return ref.driveFileId; }),
     file_refs: fileRefs,
+    citations: citationsPayload,
     model: generated.model,
   };
 
+  let persistError = null;
   try {
     await upsertArchiveRow(record);
+    console.log(
+      '[community-drive-archive] upserted summary',
+      '| key:',
+      archiveKey.slice(0, 12),
+      '| files:',
+      fileRefs.length
+    );
   } catch (persistErr) {
-    console.warn('[community-drive-archive] persist failed:', persistErr.message || persistErr);
+    console.error('[community-drive-archive] persist failed (retrying once):', persistErr.message || persistErr);
+    try {
+      await upsertArchiveRow(record);
+      console.log('[community-drive-archive] upsert succeeded on retry');
+    } catch (retryErr) {
+      persistError = String(retryErr && retryErr.message ? retryErr.message : retryErr);
+      console.error('[community-drive-archive] persist failed after retry:', persistError);
+    }
   }
 
   return {
@@ -1292,9 +1412,14 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     deltaUpdated: true,
     archiveKey: archiveKey,
     fileRefs: fileRefs,
+    citations: citationsPayload,
     sourceFingerprint: fingerprint,
     model: generated.model,
     multimodalFileCount: generated.multimodalFileCount || mediaMeta.length,
+    communityError: persistError
+      ? ('Summary generated but archive persist failed: ' + persistError)
+      : null,
+    persisted: !persistError,
   };
 }
 
@@ -1308,6 +1433,7 @@ module.exports = {
   MAX_GEMINI_MULTIMODAL_BYTES,
   buildArchiveKey,
   buildSourceFingerprint,
+  buildCitationsPayload,
   normalizeFileRefsFromMatches,
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,

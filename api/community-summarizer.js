@@ -2,14 +2,14 @@
  * POST /api/community-summarizer — standalone community Drive topic summary.
  *
  * Decoupled from live web search (phases A–C). Workflow:
- *  1) Instant community_drive_archive hit (topic + grade) — skip Drive/Gemini
- *  2) Scan community root Drive folder for grade + topic
- *  3) Reuse archive row if fingerprint matches; else Gemini summarize + upsert
- *     (JSON responseMimeType + fence-strip parse live in api/community-drive-archive.js)
- *  4) Clear empty message when nothing exists in Drive or archive
+ *  1) Scan community Drive for grade + topic files
+ *  2) Lookup community_drive_archive by archive_key; compare drive/source fingerprint
+ *     — match → return cached summary (no Gemini)
+ *     — mismatch / miss → Gemini summarize from Drive texts only + upsert row
+ *  3) Clear empty message when nothing exists in Drive or archive
  *
- * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity.
- * Cache lookup is community_drive_archive only (archive_key).
+ * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity / web search.
+ * Cache lookup is community_drive_archive only (archive_key + source_fingerprint).
  */
 const communitySearch = require('./community-search');
 const communityDriveArchive = require('./community-drive-archive');
@@ -104,8 +104,8 @@ function withNonBillableMeta(payload) {
 
 /**
  * Full on-demand community topic summary (public archive + root Drive scan).
- * Instant archive hit (topic + grade) skips Drive listing and Gemini entirely
- * unless forceRefresh is set.
+ * Always lists Drive sources first so fingerprint can be compared against
+ * community_drive_archive before deciding whether to call Gemini.
  */
 async function runCommunityTopicSummary(options) {
   const opts = options || {};
@@ -135,67 +135,8 @@ async function runCommunityTopicSummary(options) {
   const lockedGradeId = String(gradePolicy.lockedGradeId || gradeId).trim();
   const configured = driveIsConfigured();
 
-  // ── Aggressive cache: return archived summary BEFORE any Drive/Gemini work ──
-  if (!forceRefresh && typeof communityDriveArchive.tryInstantArchiveRetrieval === 'function') {
-    try {
-      const instant = await communityDriveArchive.tryInstantArchiveRetrieval(topic, {
-        gradeId: lockedGradeId,
-        currentGrade: lockedGradeId,
-        topic: topic,
-        catalogTopic: topic,
-        phase: SUMMARIZER_PHASE,
-      });
-      if (instant && instant.summary) {
-        const citations = citationsFromFileRefs(instant.fileRefs);
-        let summaryText = String(instant.summary).trim();
-        if (
-          citations.length
-          && typeof communitySearch.appendCitationsMarkdown === 'function'
-          && !(/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))
-        ) {
-          summaryText = communitySearch.appendCitationsMarkdown(summaryText, citations);
-        }
-        if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
-          summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
-        }
-        console.log(
-          '[community-summarizer] returning INSTANT archived summary for',
-          JSON.stringify(topic),
-          'grade',
-          lockedGradeId
-        );
-        return withNonBillableMeta({
-          success: true,
-          topic: topic,
-          gradeId: lockedGradeId,
-          communityStatus: 'ok',
-          communitySummaryHeading: instant.heading || COMMUNITY_SUMMARY_HEADING,
-          communitySummary: summaryText,
-          communityMatchCount: (instant.fileRefs || []).length,
-          communityMatches: [],
-          communityCitations: citations,
-          communitySummaryFromArchive: true,
-          communitySummaryDeltaUpdated: false,
-          communityArchiveKey: instant.archiveKey || null,
-          communitySummaryModel: instant.model || null,
-          communityDriveConfigured: configured,
-          communityError: null,
-          fromArchive: true,
-          deltaUpdated: false,
-          instantArchiveHit: true,
-        });
-      }
-    } catch (instantErr) {
-      console.warn(
-        '[community-summarizer] instant archive check failed — continuing to Drive:',
-        instantErr && instantErr.message ? instantErr.message : instantErr
-      );
-    }
-  }
-
   // Prefer a full listing of every file under the grade/topic folder tree
-  // (incl. shortcut targets) so Gemini receives a multi-file merge — not a
-  // single keyword-search hit.
+  // (incl. shortcut targets) so fingerprint + Gemini see the real folder set.
   let matches = [];
   let probeError = null;
   let driveDebug = null;
@@ -336,15 +277,19 @@ async function runCommunityTopicSummary(options) {
     }
   );
 
+  const responseCitations = Array.isArray(summary.citations) && summary.citations.length
+    ? summary.citations
+    : citations;
+
   let summaryText = summary.summary != null && String(summary.summary).trim()
     ? String(summary.summary)
     : COMMUNITY_SUMMARY_EMPTY;
   if (
     (summary.communityStatus === 'ok' || summary.communityStatus === 'degraded')
-    && citations.length
+    && responseCitations.length
     && typeof communitySearch.appendCitationsMarkdown === 'function'
   ) {
-    summaryText = communitySearch.appendCitationsMarkdown(summaryText, citations);
+    summaryText = communitySearch.appendCitationsMarkdown(summaryText, responseCitations);
   }
   if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
     summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
@@ -363,7 +308,7 @@ async function runCommunityTopicSummary(options) {
     communitySummary: summaryText,
     communityMatchCount: matches.length,
     communityMatches: matches,
-    communityCitations: citations,
+    communityCitations: responseCitations,
     communitySummaryFromArchive: Boolean(summary.fromArchive),
     communitySummaryDeltaUpdated: Boolean(summary.deltaUpdated),
     communityArchiveKey: summary.archiveKey || null,
@@ -373,6 +318,8 @@ async function runCommunityTopicSummary(options) {
     fromArchive: Boolean(summary.fromArchive),
     deltaUpdated: Boolean(summary.deltaUpdated),
     instantArchiveHit: false,
+    sourceFingerprint: summary.sourceFingerprint || null,
+    persisted: summary.persisted !== false,
   });
 }
 
