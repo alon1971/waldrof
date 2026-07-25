@@ -1139,7 +1139,8 @@
     #wizard.hidden,
     #workspace.hidden,
     #general-search-view.hidden,
-    #waldorf-sites-view.hidden {
+    #waldorf-sites-view.hidden,
+    #community-summarizer-view.hidden {
       display: none !important;
     }
     #home-view .home-hero {
@@ -6341,6 +6342,7 @@
               <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
               <span data-i18n="community_summarizer_run">הפק סיכום</span>
             </button>
+            <button type="button" id="community-summarizer-clear" class="community-summarizer-cancel touch-btn" data-i18n="community_summarizer_clear_search">נקה חיפוש</button>
             <button type="button" id="community-summarizer-cancel" class="community-summarizer-cancel touch-btn" data-i18n="community_summarizer_close">סגור</button>
           </div>
         </form>
@@ -24817,6 +24819,7 @@
     function bindCommunitySummarizerModal() {
       var form = document.getElementById('community-summarizer-form');
       var cancelBtn = document.getElementById('community-summarizer-cancel');
+      var clearBtn = document.getElementById('community-summarizer-clear');
       var returnHomeBtn = document.getElementById('community-summarizer-return-home');
       var exportBtn = document.getElementById('community-summarizer-export-word');
       var bgBadge = document.getElementById('community-summarizer-bg-indicator');
@@ -24849,6 +24852,13 @@
         exportBtn.addEventListener('click', function (e) {
           e.preventDefault();
           downloadCommunitySummarizerWord();
+        });
+      }
+      if (clearBtn && !clearBtn._communitySummarizerBound) {
+        clearBtn._communitySummarizerBound = true;
+        clearBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          clearCommunitySummarizerSearch();
         });
       }
       if (cancelBtn && !cancelBtn._communitySummarizerBound) {
@@ -27219,6 +27229,11 @@
         if (options.restoreScroll) restoreScrollForCurrentView({ saved: options.saved });
         return;
       }
+      if (navSection === 'community-summarizer') {
+        openCommunitySummarizerModal();
+        if (options.restoreScroll) restoreScrollForCurrentView({ saved: options.saved });
+        return;
+      }
       if (navSection === 'phase-c' || step === 3) {
         if (appState.grade && appState.topic) {
           var restoreTab = normalizeLegacyProductTabId(options.activeProductTab || appState.activeProductTab) || options.activeProductTab || appState.activeProductTab || 'narrative';
@@ -27723,11 +27738,45 @@
       }
     }
 
+    function hideCommunitySummarizerViewForNavigation() {
+      var summarizerView = document.getElementById('community-summarizer-view');
+      if (!summarizerView || summarizerView.classList.contains('hidden')) return;
+      if (appState.isSummarizing || appState.communitySummarizerLoading) {
+        appState.communitySummarizerBgPending = true;
+      }
+      summarizerView.classList.add('hidden');
+      appState.communitySummarizerModalOpen = false;
+      document.body.classList.remove('community-summarizer-open');
+      document.body.classList.remove('pricing-modal-open');
+      syncCommunitySummarizerBgIndicator();
+    }
+
+    function clearCommunitySummarizerSearch() {
+      var topicEl = document.getElementById('community-summarizer-topic');
+      if (appState.communitySummarizerAbort) {
+        try { appState.communitySummarizerAbort.abort(); } catch (e) { /* ignore */ }
+        appState.communitySummarizerAbort = null;
+      }
+      appState.communitySummarizerRequestId = (appState.communitySummarizerRequestId || 0) + 1;
+      appState.communitySummarizerTopic = '';
+      appState.communitySummarizerResult = null;
+      appState.communitySummarizerBgPending = false;
+      if (topicEl) topicEl.value = '';
+      setCommunitySummarizerLoading(false);
+      renderCommunitySummarizerResult(null);
+      syncCommunitySummarizerBgIndicator();
+      ensureArchiveSearchControlsUnlocked();
+      if (topicEl && typeof topicEl.focus === 'function') {
+        try { topicEl.focus({ preventScroll: true }); } catch (e2) { topicEl.focus(); }
+      }
+    }
+
     function prepareGradeResearchView() {
       appState.wizardTopicNavReady = false;
       appState.step = 1;
       appState.navSection = 'wizard';
       hideHomeView();
+      hideCommunitySummarizerViewForNavigation();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
       document.querySelectorAll('.wizard-step').forEach(function (el) { el.classList.add('hidden'); });
@@ -27749,7 +27798,9 @@
       var step2 = document.getElementById('step-2');
       if (!step2 || !step2.classList.contains('hidden')) return;
       appState.step = 2;
-      document.getElementById('step-1').classList.remove('hidden');
+      // Step A form stays hidden unless the user opens it via top step nav.
+      var step1 = document.getElementById('step-1');
+      if (step1) step1.classList.add('hidden');
       holdPageScroll(function () {
         step2.classList.remove('hidden');
         step2.classList.add('step-reveal-quiet');
@@ -27765,9 +27816,12 @@
       appState.step = 2;
       appState.navSection = 'wizard';
       hideHomeView();
+      hideCommunitySummarizerViewForNavigation();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
-      document.getElementById('step-1').classList.remove('hidden');
+      // Do not auto-open Step A under Step B / other views.
+      var step1 = document.getElementById('step-1');
+      if (step1) step1.classList.add('hidden');
       document.getElementById('step-2').classList.remove('hidden');
       syncStepBChrome();
       renderStepProgress();
@@ -27806,17 +27860,7 @@
       document.getElementById('wizard').classList.add('hidden');
       hideGeneralSearchView();
       hideWaldorfSitesView();
-      var summarizerView = document.getElementById('community-summarizer-view');
-      if (summarizerView && !summarizerView.classList.contains('hidden')) {
-        if (appState.isSummarizing || appState.communitySummarizerLoading) {
-          appState.communitySummarizerBgPending = true;
-        }
-        summarizerView.classList.add('hidden');
-        appState.communitySummarizerModalOpen = false;
-        document.body.classList.remove('community-summarizer-open');
-        document.body.classList.remove('pricing-modal-open');
-        syncCommunitySummarizerBgIndicator();
-      }
+      hideCommunitySummarizerViewForNavigation();
       document.getElementById('workspace').classList.remove('hidden');
       updateNewResearchBarVisibility();
     }
@@ -27894,6 +27938,7 @@
       hideHomeView();
       hideGeneralSearchView();
       hideWaldorfSitesView();
+      hideCommunitySummarizerViewForNavigation();
       resetProductTabsNeutral();
       document.getElementById('workspace').classList.add('hidden');
       document.getElementById('wizard').classList.remove('hidden');
@@ -27902,7 +27947,7 @@
       const panel = document.getElementById('step-' + n);
       if (panel) panel.classList.remove('hidden');
       if (n === 2) {
-        document.getElementById('step-1').classList.remove('hidden');
+        // Step A stays closed until the user opens it from the top step buttons.
         syncStepBChrome();
         var topicInputOnNav = document.getElementById('topic-input');
         if (topicInputOnNav && appState.topic) topicInputOnNav.value = appState.topic;
