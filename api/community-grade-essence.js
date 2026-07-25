@@ -14,14 +14,14 @@ const TABLE_NAME = 'community_drive_archive';
 const MATERIALS_TABLE = 'community_materials';
 const GRADE_ESSENCE_SUBJECT = 'grade_essence';
 const GRADE_ESSENCE_PHASE = 'grade_essence';
-const GRADE_ESSENCE_PROMPT_VERSION = 'v1-grade-essence';
+const GRADE_ESSENCE_PROMPT_VERSION = 'v2-grade-essence-deep';
 const GRADE_ESSENCE_HEADING = 'מהות הגיל מתוך חומרי הקהילה';
 const GRADE_ESSENCE_INSUFFICIENT = 'אין מספיק חומרים ליצירת הסיכום הכללי.';
 const MIN_MATERIALS_THRESHOLD = 3;
 const GEMINI_MODEL = 'gemini-2.5-pro';
 const GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MAX_OUTPUT_TOKENS = 8192;
+const GEMINI_MAX_OUTPUT_TOKENS = 12288;
 const MAX_MATERIAL_CHARS = 4000;
 const MAX_TOTAL_CHARS = 120000;
 
@@ -182,36 +182,13 @@ async function fetchCommunityMaterialsForGrade(gradeId) {
 
 async function fetchGradeEssenceArchiveRow(archiveKey, gradeId) {
   const cfg = getSupabaseConfig();
-  if (!cfg.url || !cfg.key) return null;
+  if (!cfg.url || !cfg.key || !archiveKey) return null;
 
-  async function byKey(key) {
-    if (!key) return null;
-    const params = new URLSearchParams();
-    params.set('select', '*');
-    params.set('archive_key', 'eq.' + key);
-    params.set('limit', '1');
-    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
-      headers: {
-        apikey: cfg.key,
-        Authorization: 'Bearer ' + cfg.key,
-      },
-    });
-    if (!res.ok) return null;
-    const rows = await res.json();
-    return Array.isArray(rows) && rows[0] ? rows[0] : null;
-  }
-
-  let row = await byKey(archiveKey);
-  if (row && String(row.summary_md || row.summary_text || '').trim()) return row;
-
-  const gid = normalizeGradeId(gradeId);
-  if (!gid) return null;
+  // Only serve rows matching the current archive_key (includes prompt version).
+  // Do not fall back to topic+grade — that would resurrect stale prompt outputs.
   const params = new URLSearchParams();
   params.set('select', '*');
-  params.set('topic', 'eq.' + GRADE_ESSENCE_SUBJECT);
-  params.set('grade_id', 'eq.' + gid);
-  params.set('community_status', 'eq.ok');
-  params.set('order', 'updated_at.desc');
+  params.set('archive_key', 'eq.' + archiveKey);
   params.set('limit', '1');
   const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
     headers: {
@@ -221,11 +198,56 @@ async function fetchGradeEssenceArchiveRow(archiveKey, gradeId) {
   });
   if (!res.ok) return null;
   const rows = await res.json();
-  const fallback = Array.isArray(rows) && rows[0] ? rows[0] : null;
-  if (fallback && String(fallback.summary_md || fallback.summary_text || '').trim()) {
-    return fallback;
-  }
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  if (row && String(row.summary_md || row.summary_text || '').trim()) return row;
   return null;
+}
+
+/**
+ * Delete stale grade_essence archive rows for this grade (old prompt versions).
+ * Ensures כיתה ז׳ / any grade regenerates under the current prompt.
+ */
+async function purgeStaleGradeEssenceArchives(gradeId) {
+  const cfg = getSupabaseConfig();
+  const gid = normalizeGradeId(gradeId);
+  if (!cfg.url || !cfg.key || !gid) return 0;
+
+  const currentKey = buildGradeEssenceArchiveKey(gid);
+  const params = new URLSearchParams();
+  params.set('topic', 'eq.' + GRADE_ESSENCE_SUBJECT);
+  params.set('or', '(grade_id.eq.' + gid + ',grade_level.eq.' + gid + ')');
+  params.set('archive_key', 'neq.' + currentKey);
+
+  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+    method: 'DELETE',
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+      Prefer: 'return=representation',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(function () { return ''; });
+    console.warn(
+      '[community-grade-essence] stale archive purge failed:',
+      res.status,
+      String(text || '').slice(0, 200)
+    );
+    return 0;
+  }
+  const deleted = await res.json().catch(function () { return []; });
+  const count = Array.isArray(deleted) ? deleted.length : 0;
+  if (count) {
+    console.log(
+      '[community-grade-essence] purged stale grade_essence archives | grade:',
+      gid,
+      '| deleted:',
+      count,
+      '| keepKey:',
+      currentKey.slice(0, 12)
+    );
+  }
+  return count;
 }
 
 async function upsertGradeEssenceArchiveRow(record) {
@@ -366,13 +388,29 @@ function linkifyFileNamesInGradeEssenceSummary(summary, materialsRows) {
 }
 
 /**
- * Rebuild ## מראי מקום as a unique clickable list keyed by file_path.
+ * Materials whose file names appear in the summary body (inline citations).
+ * Used to build מראי מקום from files actually referenced — not the whole catalog.
+ */
+function materialsCitedInSummary(summary, materialsRows) {
+  const body = String(summary || '');
+  const marker = body.search(/#{1,4}\s*מראי\s*מקום/i);
+  const prose = marker >= 0 ? body.slice(0, marker) : body;
+  const uniqueRows = dedupeMaterialsByFilePath(materialsRows);
+  const cited = [];
+  uniqueRows.forEach(function (row) {
+    const name = String(row.file_name || row.fileName || '').trim();
+    if (!name) return;
+    if (prose.indexOf(name) !== -1) cited.push(row);
+  });
+  return cited;
+}
+
+/**
+ * Rebuild ## מראי מקום as a unique clickable list of files actually used in the body.
  */
 function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
-  const uniqueRows = dedupeMaterialsByFilePath(materialsRows).filter(function (row) {
-    return String(row.file_name || row.fileName || '').trim();
-  });
-  const lines = uniqueRows.map(function (row, idx) {
+  const citedRows = materialsCitedInSummary(summary, materialsRows);
+  const lines = citedRows.map(function (row, idx) {
     const name = String(row.file_name || row.fileName || '').trim();
     const url = materialLinkFromRow(row);
     if (url) return (idx + 1) + '. [' + name + '](' + url + ')';
@@ -462,18 +500,33 @@ function buildCitationsFromMaterials(rows) {
 
 function buildGradeEssenceSystemPrompt() {
   return [
-    'אתה יועץ פדגוגי בכיר בחינוך ולדורף.',
-    'תפקידך לנסח סיכום "מהות הגיל" עבור שכבת כיתה אחת, בהתבסס אך ורק על חומרי המאגר הקהילתי שצורפו בהודעת המשתמש.',
-    'הגבלת מקור קשיחה: אסור להוסיף ידע חיצוני, זיכרון מודל, חיפוש ברשת, או כל מקור שאינו ברשימת החומרים המצורפים.',
+    'אתה יועץ פדגוגי בכיר ומנוסה בחינוך ולדורף.',
+    'תפקידך לנסח סיכום מקיף, מובנה ועמוק בשם "מהות הגיל מתוך חומרי הקהילה" עבור שכבת כיתה אחת.',
+    'הגבלת מקור קשיחה: התבסס אך ורק על חומרי המאגר הקהילתי שצורפו בהודעת המשתמש. אסור ידע חיצוני, זיכרון מודל, חיפוש ברשת, או השלמות שאינן מופיעות בחומרים.',
     'אם פרט חסר בחומרים — ציין זאת במפורש ואל תמציא.',
-    'כתוב בעברית פדגוגית רהוטה. פלט Markdown בלבד (ללא JSON וללא גדרות קוד).',
-    'מבנה חובה בדיוק עם כותרות ##:',
-    '## מהות הגיל',
-    '## תקופות הלימוד',
-    '## תובנות כלליות',
+    'כתוב בעברית פדגוגית רהוטה, עשירה ומפורטת. פסקאות מלאות. פלט Markdown בלבד (ללא JSON וללא גדרות קוד).',
+    '',
+    'מבנה חובה בדיוק עם כותרות ## כדלקמן:',
+    '## מהות הגיל והתפתחות הילד/ה',
+    'סקירה פדגוגית עמוקה על המאפיינים ההתפתחותיים בגיל/בשכבה זו כפי שעולים מהחומרים המצורפים — תודעה, צרכים, מתחים, והדגשים הוולדורפיים המופיעים במקורות.',
+    '## תקופות הלימוד בשכבה',
+    'פירוט מורחב והסבר על כל תקופת לימוד (מיינלסון / Main Lesson) המופיעה בחומרים. ארגן לפי תקופות/נושאים שנמצאו בקטלוג ובקבצים; הרחב מעבר לרשימת כותרות.',
+    '## פרויקטים כיתתיים ועבודות',
+    'סקירת עבודות החקר, הפרויקטים והמשימות המופיעות בחומרים (למשל עבודת שורשים וכדומה). תאר מטרות, מבנה ומאפיינים כפי שמשתקפים במקורות.',
+    '## המלצות לפעילויות יצירתיות ואמנותיות',
+    'המלצות קונקרטיות לפעילויות יצירתיות ואמנותיות הנשענות על מערכי השיעור והקבצים שסופקו — לא המצאות חיצוניות.',
     '## מראי מקום',
-    'בסעיף מראי מקום ציין כל קובץ פעם אחת בלבד, בשם הקובץ המדויק כפי שמופיע בחומרים, בשורות נפרדות.',
-    'אם סופק קישור לחיץ לחומר — השתמש בפורמט Markdown: [שם הקובץ](url).',
+    'רשימה קצרה של הקבצים והמקורות שנעשה בהם שימוש בפועל בגוף הסיכום בלבד — לא רשימת כל התיקייה/הדרייב.',
+    '',
+    'שילוב מראי מקום בטקסט (Inline Citations) — חובה:',
+    'בתוך פסקאות הסיכום עצמן, ציין את שמות הקבצים המדויקים שעליהם אתה מתבסס בנקודה הרלוונטית,',
+    'למשל: «כפי שמופיע בקובץ עבודת שורשים-מעודכן1.docx».',
+    'השתמש בשם הקובץ המדויק כפי שמופיע בחומרים (כולל סיומת), כדי שניתן יהיה להמיר אותו לקישור לחיץ.',
+    '',
+    'בסעיף מראי מקום הסופי:',
+    'אל תכלול את כל קבצי הדרייב או את כל תיקיית הכיתה.',
+    'כלול אך ורק קבצים שהוזכרו/שימשו בפועל בגוף הסיכום, כל קובץ פעם אחת, בשורות נפרדות.',
+    'עדיף בפורמט: 1. שם-קובץ.docx',
   ].join(' ');
 }
 
@@ -490,8 +543,11 @@ function buildGradeEssenceUserPrompt(gradeId, rows) {
     }
   });
   return [
-    'בקשה: הפק סיכום "מהות הגיל מתוך חומרי הקהילה" עבור ' + (gradeLabel || 'הכיתה שנבחרה') + '.',
+    'בקשה: הפק סיכום מקיף "מהות הגיל מתוך חומרי הקהילה" עבור ' + (gradeLabel || 'הכיתה שנבחרה') + '.',
     'השתמש אך ורק בחומרים המצורפים להלן מתוך המאגר הקהילתי. אסור ידע חיצוני.',
+    'חובה לכלול את ארבעת סעיפי התוכן ואז מראי מקום: מהות הגיל והתפתחות הילד/ה; תקופות הלימוד בשכבה; פרויקטים כיתתיים ועבודות; המלצות לפעילויות יצירתיות ואמנותיות; מראי מקום.',
+    'שלב בגוף הטקסט שמות קבצים מדויקים כהפניות פנימיות (inline) בנקודות הרלוונטיות.',
+    'בסיום — מראי מקום רק לקבצים ששימשו בפועל בגוף הסיכום (לא כל הקטלוג).',
     'נושאים/תקופות שזוהו בקטלוג: ' + (topics.length ? topics.join(' · ') : '(לא זוהו)'),
     'מספר פריטים בקטלוג: ' + (rows || []).length,
     '',
@@ -642,6 +698,16 @@ async function runGradeEssenceSummary(options) {
   const gradeId = normalizeGradeId(rawGradeId);
   const archiveKey = buildGradeEssenceArchiveKey(gradeId);
 
+  // Invalidate old prompt-version caches (e.g. כיתה ז׳ grade_essence under v1).
+  try {
+    await purgeStaleGradeEssenceArchives(gradeId);
+  } catch (purgeErr) {
+    console.warn(
+      '[community-grade-essence] purge stale archives threw:',
+      purgeErr && purgeErr.message ? purgeErr.message : purgeErr
+    );
+  }
+
   const materialsRows = await fetchCommunityMaterialsForGrade(gradeId);
   console.log(
     '[community-grade-essence] materials for grade',
@@ -649,7 +715,11 @@ async function runGradeEssenceSummary(options) {
     '| rows:',
     materialsRows.length,
     '| topics:',
-    countDistinctTopics(materialsRows)
+    countDistinctTopics(materialsRows),
+    '| prompt:',
+    GRADE_ESSENCE_PROMPT_VERSION,
+    '| archiveKey:',
+    archiveKey.slice(0, 12)
   );
 
   if (!forceRefresh) {
@@ -658,8 +728,9 @@ async function runGradeEssenceSummary(options) {
     });
     if (instant && instant.summary) {
       const linkedSummary = finalizeGradeEssenceSummary(instant.summary, materialsRows);
-      const fileRefs = buildFileRefsFromMaterials(materialsRows);
-      const citations = buildCitationsFromMaterials(materialsRows);
+      const citedRows = materialsCitedInSummary(linkedSummary, materialsRows);
+      const fileRefs = buildFileRefsFromMaterials(citedRows.length ? citedRows : materialsRows);
+      const citations = buildCitationsFromMaterials(citedRows.length ? citedRows : materialsRows);
       return {
         success: true,
         topic: GRADE_ESSENCE_SUBJECT,
@@ -731,9 +802,10 @@ async function runGradeEssenceSummary(options) {
   );
 
   const fingerprint = buildMaterialsFingerprint(materialsRows);
-  const fileRefs = buildFileRefsFromMaterials(materialsRows);
-  const citations = buildCitationsFromMaterials(materialsRows);
   const cleanedSummary = finalizeGradeEssenceSummary(generated.summary, materialsRows);
+  const citedRows = materialsCitedInSummary(cleanedSummary, materialsRows);
+  const fileRefs = buildFileRefsFromMaterials(citedRows.length ? citedRows : materialsRows);
+  const citations = buildCitationsFromMaterials(citedRows.length ? citedRows : materialsRows);
 
   const record = {
     archive_key: archiveKey,
