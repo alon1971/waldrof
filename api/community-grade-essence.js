@@ -284,10 +284,117 @@ function sanitizeSummary(summary) {
 }
 
 function materialLinkFromRow(row) {
-  // community_materials has no google_docs_url — links/paths live in file_path.
+  // community_materials stores links/paths in file_path (no google_docs_url column).
   const path = String(row && (row.file_path || row.filePath) || '').trim();
+  if (!path) return '';
   if (/^https?:\/\//i.test(path)) return path;
-  return '';
+  const base = env.getSupabaseUrl();
+  if (!base) return '';
+  const encoded = path.split('/').map(function (seg) {
+    return encodeURIComponent(seg);
+  }).join('/');
+  return base.replace(/\/$/, '') + '/storage/v1/object/public/community-uploads/' + encoded;
+}
+
+function normalizeMaterialFileKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u05F3\u05F4׳״`'"]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Unique materials by file_path (fallback: file_name) for citations / מראי מקום.
+ */
+function dedupeMaterialsByFilePath(rows) {
+  const seen = new Set();
+  const out = [];
+  (rows || []).forEach(function (row) {
+    if (!row) return;
+    const filePath = String(row.file_path || row.filePath || '').trim();
+    const fileName = String(row.file_name || row.fileName || '').trim();
+    const key = filePath
+      ? ('path:' + normalizeMaterialFileKey(filePath))
+      : (fileName ? ('name:' + normalizeMaterialFileKey(fileName)) : '');
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(row);
+  });
+  return out;
+}
+
+/**
+ * Replace bare community file names in the summary with Markdown links to file_path.
+ * Protects existing [label](url) spans so they are not double-wrapped.
+ */
+function linkifyFileNamesInGradeEssenceSummary(summary, materialsRows) {
+  let text = String(summary || '');
+  if (!text) return '';
+
+  const uniqueRows = dedupeMaterialsByFilePath(materialsRows);
+  const entries = [];
+  uniqueRows.forEach(function (row) {
+    const name = String(row.file_name || row.fileName || '').trim();
+    const url = materialLinkFromRow(row);
+    if (!name || !url) return;
+    entries.push({ name: name, url: url, len: name.length });
+  });
+  entries.sort(function (a, b) { return b.len - a.len; });
+  if (!entries.length) return text;
+
+  const protectedSpans = [];
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (match) {
+    const idx = protectedSpans.length;
+    protectedSpans.push(match);
+    return '\u0000GELINK' + idx + '\u0000';
+  });
+
+  entries.forEach(function (entry) {
+    const re = new RegExp(escapeRegExp(entry.name), 'g');
+    text = text.replace(re, '[' + entry.name + '](' + entry.url + ')');
+  });
+
+  protectedSpans.forEach(function (span, idx) {
+    text = text.split('\u0000GELINK' + idx + '\u0000').join(span);
+  });
+  return text;
+}
+
+/**
+ * Rebuild ## מראי מקום as a unique clickable list keyed by file_path.
+ */
+function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
+  const uniqueRows = dedupeMaterialsByFilePath(materialsRows).filter(function (row) {
+    return String(row.file_name || row.fileName || '').trim();
+  });
+  const lines = uniqueRows.map(function (row, idx) {
+    const name = String(row.file_name || row.fileName || '').trim();
+    const url = materialLinkFromRow(row);
+    if (url) return (idx + 1) + '. [' + name + '](' + url + ')';
+    return (idx + 1) + '. ' + name;
+  });
+
+  const body = String(summary || '');
+  const marker = body.search(/#{1,4}\s*מראי\s*מקום/i);
+  const head = marker >= 0 ? body.slice(0, marker).trimEnd() : body.trimEnd();
+  if (!lines.length) {
+    return head;
+  }
+  return head + '\n\n## מראי מקום\n\n' + lines.join('\n');
+}
+
+/**
+ * Pass grade-essence summary through linkifier + unique sources formatter.
+ */
+function finalizeGradeEssenceSummary(summary, materialsRows) {
+  let text = linkifyFileNamesInGradeEssenceSummary(summary, materialsRows);
+  text = rebuildGradeEssenceSourcesSection(text, materialsRows);
+  return sanitizeSummary(text);
 }
 
 function buildCorpusFromMaterials(rows) {
@@ -304,8 +411,8 @@ function buildCorpusFromMaterials(rows) {
       '=== חומר ' + (idx + 1) + ' ===',
       topic ? ('נושא/תקופה: ' + topic) : '',
       fileName ? ('שם קובץ: ' + fileName) : '',
-      filePath ? ('נתיב/קישור: ' + filePath) : '',
-      (url && url !== filePath) ? ('קישור: ' + url) : '',
+      filePath ? ('נתיב/קישור (file_path): ' + filePath) : '',
+      url ? ('קישור לחיץ: ' + url) : '',
       notes ? ('הערות/תיאור: ' + notes.slice(0, MAX_MATERIAL_CHARS)) : '',
     ].filter(Boolean).join('\n');
     total += body.length;
@@ -315,7 +422,7 @@ function buildCorpusFromMaterials(rows) {
 }
 
 function buildFileRefsFromMaterials(rows) {
-  return (rows || []).map(function (row) {
+  return dedupeMaterialsByFilePath(rows).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
     const filePath = String(row.file_path || row.filePath || '').trim();
     const url = materialLinkFromRow(row);
@@ -324,6 +431,7 @@ function buildFileRefsFromMaterials(rows) {
       fileName: name,
       folder: String(row.topic || '').trim(),
       folderPath: filePath,
+      filePath: filePath,
       fileUrl: url || filePath,
       webViewLink: url,
       gradeId: String(row.grade_level || '').trim(),
@@ -333,12 +441,14 @@ function buildFileRefsFromMaterials(rows) {
 }
 
 function buildCitationsFromMaterials(rows) {
-  const cites = (rows || []).map(function (row) {
+  const cites = dedupeMaterialsByFilePath(rows).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
+    const filePath = String(row.file_path || row.filePath || '').trim();
     const url = materialLinkFromRow(row);
     return {
       title: name,
       fileName: name,
+      filePath: filePath,
       url: url,
       webViewLink: url,
       fileUrl: url,
@@ -362,7 +472,8 @@ function buildGradeEssenceSystemPrompt() {
     '## תקופות הלימוד',
     '## תובנות כלליות',
     '## מראי מקום',
-    'בסעיף מראי מקום ציין את הקבצים/המקורות הספציפיים מהמאגר ששימשו לסיכום (שם קובץ או נושא), בשורות נפרדות.',
+    'בסעיף מראי מקום ציין כל קובץ פעם אחת בלבד, בשם הקובץ המדויק כפי שמופיע בחומרים, בשורות נפרדות.',
+    'אם סופק קישור לחיץ לחומר — השתמש בפורמט Markdown: [שם הקובץ](url).',
   ].join(' ');
 }
 
@@ -546,6 +657,9 @@ async function runGradeEssenceSummary(options) {
       forceRefresh: false,
     });
     if (instant && instant.summary) {
+      const linkedSummary = finalizeGradeEssenceSummary(instant.summary, materialsRows);
+      const fileRefs = buildFileRefsFromMaterials(materialsRows);
+      const citations = buildCitationsFromMaterials(materialsRows);
       return {
         success: true,
         topic: GRADE_ESSENCE_SUBJECT,
@@ -554,10 +668,10 @@ async function runGradeEssenceSummary(options) {
         gradeId: gradeId,
         communityStatus: 'ok',
         communitySummaryHeading: instant.heading || GRADE_ESSENCE_HEADING,
-        communitySummary: instant.summary,
+        communitySummary: linkedSummary,
         communityMatchCount: materialsRows.length,
-        communityMatches: instant.fileRefs || [],
-        communityCitations: instant.citations || [],
+        communityMatches: fileRefs.length ? fileRefs : (instant.fileRefs || []),
+        communityCitations: citations.length ? citations : (instant.citations || []),
         communitySummaryFromArchive: true,
         communitySummaryDeltaUpdated: false,
         communityArchiveKey: instant.archiveKey || archiveKey,
@@ -619,7 +733,7 @@ async function runGradeEssenceSummary(options) {
   const fingerprint = buildMaterialsFingerprint(materialsRows);
   const fileRefs = buildFileRefsFromMaterials(materialsRows);
   const citations = buildCitationsFromMaterials(materialsRows);
-  const cleanedSummary = sanitizeSummary(generated.summary);
+  const cleanedSummary = finalizeGradeEssenceSummary(generated.summary, materialsRows);
 
   const record = {
     archive_key: archiveKey,

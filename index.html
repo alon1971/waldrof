@@ -21273,18 +21273,22 @@
             fileName: match.fileName || match.title || match.displayTitle || 'קובץ Drive',
             webViewLink: resolveMatchWebViewLink(match),
             driveFileId: match.driveFileId || '',
+            filePath: match.filePath || match.file_path || match.folderPath || '',
           };
         });
-      // Deduplicate by driveFileId / URL / file name so each source appears once.
+      // Deduplicate by file_path / driveFileId / URL / file name so each source appears once.
       var seen = {};
       citations = (citations || []).filter(function (cite) {
         if (!cite) return false;
         var id = String(cite.driveFileId || '').trim().toLowerCase();
+        var filePath = String(cite.filePath || cite.file_path || cite.folderPath || '')
+          .trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
         var link = String(cite.webViewLink || cite.fileUrl || cite.url || '')
           .trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
         var name = String(cite.fileName || cite.title || cite.name || '')
           .trim().toLowerCase().replace(/[\u05F3\u05F4׳״`'"]/g, '').replace(/\s+/g, ' ');
         var keys = [];
+        if (filePath) keys.push('path:' + filePath);
         if (id) keys.push('id:' + id);
         if (link) keys.push('url:' + link);
         if (name) keys.push('name:' + name);
@@ -21304,8 +21308,14 @@
             'מקור ' + (idx + 1)
           ));
           var link = String(cite.webViewLink || cite.fileUrl || cite.url || '').trim();
+          if (!link && typeof resolveCommunityFileUrl === 'function') {
+            link = resolveCommunityFileUrl({
+              file_path: cite.filePath || cite.file_path || '',
+              filePath: cite.filePath || cite.file_path || '',
+            });
+          }
           if (link) {
-            return '<li><a href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + name + '</a></li>';
+            return '<li><a class="prose-source-link" href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + name + '</a></li>';
           }
           return '<li>' + name + '</li>';
         }).join('') + '</ul></div>';
@@ -24509,8 +24519,15 @@
           || ('<p>' + escapeHtml(summary).replace(/\n/g, '<br>') + '</p>');
       }
       var citationsHtml = (isEmpty || isSummarizing) ? '' : renderHybridCommunityCitationsHtml(meta);
-      // Avoid duplicating a Gemini-authored «מראי מקום» section when we already append links.
-      if (citationsHtml && /מראי מקום/.test(summary) && /https?:\/\//.test(summary)) {
+      // Avoid duplicating a Gemini-authored «מראי מקום» section when body already has sources.
+      // Grade-essence summaries always rebuild a unique linked sources section in the body.
+      if (
+        citationsHtml
+        && (
+          Boolean(meta && meta.gradeEssence)
+          || (/מראי מקום/.test(summary) && /https?:\/\//.test(summary))
+        )
+      ) {
         citationsHtml = '';
       }
       return '<aside class="hybrid-community-summary' + (isEmpty || isSummarizing ? ' is-empty' : '') + (isSummarizing ? ' is-summarizing' : '') + '" dir="rtl" aria-label="' + escapeHtml(heading) + '" aria-busy="' + (isSummarizing ? 'true' : 'false') + '">' +
@@ -24757,8 +24774,13 @@
       bodyHtml += formatInspirationAiMarkdown(summaryText)
         || ('<p>' + escapeHtml(summaryText).replace(/\n/g, '<br>') + '</p>');
       // Dedicated blue underlined reference block for Word (leaf names only).
+      // Skip when the summary body already includes a linked «מראי מקום» section
+      // (grade-essence rebuilds unique clickable sources in-body).
       if (data.communityCitations && data.communityCitations.length
-        && !(/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))) {
+        && !(
+          Boolean(data.gradeEssence)
+          || (/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))
+        )) {
         bodyHtml += renderHybridCommunityCitationsHtml(data);
       }
 
