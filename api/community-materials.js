@@ -12,6 +12,15 @@ const MATERIALS_TABLE = 'community_materials';
 const COMMUNITY_META_FIELD = 'notes';
 const MATERIAL_PK_COLUMN = 'id';
 const VALID_GRADE_LEVELS = new Set(['1', '2', '3', '4', '5', '6', '7', '8', 'general']);
+/** Flat list columns only — avoid select=* payload bloat. */
+const LIST_SELECT =
+  'id,grade_level,topic,file_path,file_name,notes,user_id,created_at';
+const LIST_CACHE_TTL_MS = 30000;
+let communityListCache = { at: 0, rows: null, degraded: false, reason: '' };
+
+function invalidateCommunityListCache() {
+  communityListCache = { at: 0, rows: null, degraded: false, reason: '' };
+}
 
 function normalizeGradeLevel(body) {
   if (!body || typeof body !== 'object') return '';
@@ -409,7 +418,21 @@ function enrichMaterialRowTopic(row) {
   });
 }
 
-async function listCommunityMaterials() {
+async function listCommunityMaterials(opts) {
+  opts = opts || {};
+  if (
+    !opts.force
+    && communityListCache.rows
+    && (Date.now() - communityListCache.at) < LIST_CACHE_TTL_MS
+  ) {
+    return {
+      rows: communityListCache.rows,
+      degraded: communityListCache.degraded,
+      reason: communityListCache.reason,
+      cached: true,
+    };
+  }
+
   const supabaseUrl = env.getSupabaseUrl();
   if (!supabaseUrl) {
     console.warn('[community-materials] SUPABASE_URL missing — returning empty list');
@@ -430,12 +453,13 @@ async function listCommunityMaterials() {
       const from = page * pageSize;
       const to = from + pageSize - 1;
       const result = await supabaseRequestWithKeyFallback(
-        '/rest/v1/' + MATERIALS_TABLE + '?select=*&order=created_at.desc',
+        '/rest/v1/' + MATERIALS_TABLE
+          + '?select=' + encodeURIComponent(LIST_SELECT)
+          + '&order=created_at.desc',
         {
           method: 'GET',
           headers: {
             Range: from + '-' + to,
-            Prefer: 'count=exact',
           },
         },
         true
@@ -459,8 +483,15 @@ async function listCommunityMaterials() {
       for (let i = 0; i < batch.length; i++) allRows.push(batch[i]);
       if (batch.length < pageSize) break;
     }
+    const rows = allRows.map(enrichMaterialRowTopic);
+    communityListCache = {
+      at: Date.now(),
+      rows: rows,
+      degraded: false,
+      reason: '',
+    };
     return {
-      rows: allRows.map(enrichMaterialRowTopic),
+      rows: rows,
       degraded: false,
     };
   } catch (err) {
@@ -605,6 +636,7 @@ async function patchCommunityMaterial(body, req) {
     err.responseText = result.text;
     throw err;
   }
+  invalidateCommunityListCache();
   return rows[0];
 }
 
@@ -681,6 +713,7 @@ async function deleteCommunityMaterial(body, req) {
     err.responseText = result.text;
     throw err;
   }
+  invalidateCommunityListCache();
   return { id: canonicalId, deletedCount: deletedRows.length, storageDeleted: storageDeleted, kbDeleted: kbDeleted };
 }
 
@@ -696,7 +729,11 @@ async function legacyHandler(req, res) {
       const payload = { data: listed.rows || [] };
       if (listed.degraded) payload.degraded = true;
       if (listed.reason) payload.reason = listed.reason;
-      return sendJson(res, 200, payload);
+      if (listed.cached) payload.cached = true;
+      setCors(res);
+      res.setHeader('Cache-Control', 'private, max-age=30');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.status(200).json(payload);
     }
 
     if (req.method === 'PATCH') {
