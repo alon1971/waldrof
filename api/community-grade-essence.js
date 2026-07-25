@@ -145,7 +145,7 @@ async function fetchCommunityMaterialsForGrade(gradeId) {
   const params = new URLSearchParams();
   params.set(
     'select',
-    'id,grade_level,topic,file_path,file_name,notes,google_docs_url,created_at'
+    'id,grade_level,topic,file_path,file_name,notes,created_at'
   );
   params.set('grade_level', 'eq.' + gid);
   params.set('order', 'created_at.desc');
@@ -283,6 +283,13 @@ function sanitizeSummary(summary) {
   return String(summary || '').trim();
 }
 
+function materialLinkFromRow(row) {
+  // community_materials has no google_docs_url — links/paths live in file_path.
+  const path = String(row && (row.file_path || row.filePath) || '').trim();
+  if (/^https?:\/\//i.test(path)) return path;
+  return '';
+}
+
 function buildCorpusFromMaterials(rows) {
   let total = 0;
   const blocks = [];
@@ -292,13 +299,13 @@ function buildCorpusFromMaterials(rows) {
     const fileName = String(row.file_name || row.fileName || '').trim();
     const filePath = String(row.file_path || row.filePath || '').trim();
     const notes = cleanMaterialNotes(row.notes);
-    const url = String(row.google_docs_url || '').trim();
+    const url = materialLinkFromRow(row);
     const body = [
       '=== חומר ' + (idx + 1) + ' ===',
       topic ? ('נושא/תקופה: ' + topic) : '',
       fileName ? ('שם קובץ: ' + fileName) : '',
-      filePath ? ('נתיב: ' + filePath) : '',
-      url ? ('קישור: ' + url) : '',
+      filePath ? ('נתיב/קישור: ' + filePath) : '',
+      (url && url !== filePath) ? ('קישור: ' + url) : '',
       notes ? ('הערות/תיאור: ' + notes.slice(0, MAX_MATERIAL_CHARS)) : '',
     ].filter(Boolean).join('\n');
     total += body.length;
@@ -310,13 +317,14 @@ function buildCorpusFromMaterials(rows) {
 function buildFileRefsFromMaterials(rows) {
   return (rows || []).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
-    const url = String(row.google_docs_url || '').trim();
+    const filePath = String(row.file_path || row.filePath || '').trim();
+    const url = materialLinkFromRow(row);
     return {
       name: name,
       fileName: name,
       folder: String(row.topic || '').trim(),
-      folderPath: String(row.file_path || row.filePath || '').trim(),
-      fileUrl: url,
+      folderPath: filePath,
+      fileUrl: url || filePath,
       webViewLink: url,
       gradeId: String(row.grade_level || '').trim(),
       materialId: String(row.id || '').trim(),
@@ -327,7 +335,7 @@ function buildFileRefsFromMaterials(rows) {
 function buildCitationsFromMaterials(rows) {
   const cites = (rows || []).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
-    const url = String(row.google_docs_url || '').trim();
+    const url = materialLinkFromRow(row);
     return {
       title: name,
       fileName: name,
