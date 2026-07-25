@@ -143,9 +143,10 @@ async function fetchCommunityMaterialsForGrade(gradeId) {
   if (!cfg.url || !cfg.key || !gid) return [];
 
   const params = new URLSearchParams();
+  // Live schema: file_path holds storage path or Drive/file URL (no google_docs_url column).
   params.set(
     'select',
-    'id,grade_level,topic,file_path,file_name,google_docs_url,notes,created_at'
+    'id,grade_level,topic,file_path,file_name,notes,created_at'
   );
   params.set('grade_level', 'eq.' + gid);
   params.set('order', 'created_at.desc');
@@ -306,8 +307,6 @@ function sanitizeSummary(summary) {
 }
 
 function materialLinkFromRow(row) {
-  const gdocs = String(row && (row.google_docs_url || row.googleDocsUrl) || '').trim();
-  if (/^https?:\/\//i.test(gdocs)) return gdocs;
   const path = String(row && (row.file_path || row.filePath) || '').trim();
   if (!path) return '';
   if (/^https?:\/\//i.test(path)) return path;
@@ -541,7 +540,6 @@ function buildFileRefsFromMaterials(rows) {
   return dedupeMaterialsByFilePath(rows).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
     const filePath = String(row.file_path || row.filePath || '').trim();
-    const gdocs = String(row.google_docs_url || row.googleDocsUrl || '').trim();
     const url = materialLinkFromRow(row);
     return {
       name: name,
@@ -551,7 +549,6 @@ function buildFileRefsFromMaterials(rows) {
       folderPath: filePath,
       filePath: filePath,
       file_path: filePath,
-      google_docs_url: gdocs || url,
       fileUrl: url || filePath,
       webViewLink: url,
       gradeId: String(row.grade_level || '').trim(),
@@ -564,7 +561,6 @@ function buildCitationsFromMaterials(rows) {
   const cites = dedupeMaterialsByFilePath(rows).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
     const filePath = String(row.file_path || row.filePath || '').trim();
-    const gdocs = String(row.google_docs_url || row.googleDocsUrl || '').trim();
     const url = materialLinkFromRow(row);
     return {
       title: name,
@@ -572,7 +568,6 @@ function buildCitationsFromMaterials(rows) {
       file_name: name,
       filePath: filePath,
       file_path: filePath,
-      google_docs_url: gdocs || url,
       url: url,
       webViewLink: url,
       fileUrl: url,
