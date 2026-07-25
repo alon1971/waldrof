@@ -10,6 +10,13 @@ const crypto = require('crypto');
 const env = require('./env');
 const driveCatalogSync = require('./drive-catalog-sync');
 const jsonRepair = require('./json-repair');
+const catalogTopics = require('./catalog-topics');
+let communityMaterialsApi = null;
+try {
+  communityMaterialsApi = require('./community-materials');
+} catch (e) {
+  communityMaterialsApi = null;
+}
 
 const TABLE_NAME = 'community_drive_archive';
 const GEMINI_MODEL = 'gemini-2.5-pro';
@@ -136,11 +143,38 @@ function stableNormalize(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+const HEBREW_GRADE_LETTER_TO_ID = {
+  א: '1', ב: '2', ג: '3', ד: '4', ה: '5', ו: '6', ז: '7', ח: '8',
+};
+
+/**
+ * Canonical classroom id for archive keys / grade_level columns.
+ * «כיתה ו'» / «ו׳» / «Grade 6» → «6».
+ */
+function normalizeArchiveGradeId(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  const lower = value.toLowerCase();
+  if (lower === 'general' || value === 'כללי') return 'general';
+  if (/^[1-8]$/.test(value)) return value;
+  if (typeof catalogTopics.extractGradeIdFromQuery === 'function') {
+    const fromQuery = catalogTopics.extractGradeIdFromQuery(value);
+    if (fromQuery) return String(fromQuery).trim();
+  }
+  const heb = value.match(/כיתה\s*([א-ח])['׳"”]?/u) || value.match(/^([א-ח])['׳"”]?$/u);
+  if (heb && HEBREW_GRADE_LETTER_TO_ID[heb[1]]) {
+    return HEBREW_GRADE_LETTER_TO_ID[heb[1]];
+  }
+  const digit = value.match(/([1-8])/);
+  return digit ? digit[1] : value;
+}
+
 function buildArchiveKey(query, options) {
   const opts = options || {};
+  const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
   const parts = [
     stableNormalize(query),
-    String(opts.gradeId || opts.currentGrade || '').trim(),
+    gradeId,
     stableNormalize(opts.topic || opts.catalogTopic || ''),
     String(opts.phase || 'hybrid').trim(),
     PROMPT_VERSION,
@@ -184,6 +218,221 @@ function buildSourceFingerprint(fileRefs) {
     .filter(Boolean)
     .sort();
   return crypto.createHash('sha256').update(parts.join('|'), 'utf8').digest('hex');
+}
+
+/**
+ * Fingerprint from community_materials rows for a grade+topic folder.
+ * Uses row ids, paths, names, created_at, and embedded driveFileId tags.
+ */
+function buildMaterialsFingerprint(rows) {
+  const parts = (rows || []).map(function (row) {
+    if (!row) return '';
+    const notes = row.notes || '';
+    const driveFileId = typeof catalogTopics.readNotesTag === 'function'
+      ? catalogTopics.readNotesTag(notes, 'driveFileId')
+      : '';
+    return [
+      String(row.id || '').trim(),
+      String(driveFileId || '').trim(),
+      String(row.file_name || row.fileName || '').trim(),
+      String(row.file_path || row.filePath || '').trim(),
+      String(row.created_at || row.createdAt || '').trim(),
+      String(row.topic || '').trim(),
+    ].join(':');
+  }).filter(Boolean).sort();
+  return crypto
+    .createHash('sha256')
+    .update('materials|' + parts.length + '|' + parts.join('|'), 'utf8')
+    .digest('hex');
+}
+
+function expandArchiveGradeFilterValues(gradeId) {
+  if (communityMaterialsApi && typeof communityMaterialsApi.expandGradeLevelFilterValues === 'function') {
+    return communityMaterialsApi.expandGradeLevelFilterValues(gradeId);
+  }
+  const gid = normalizeArchiveGradeId(gradeId);
+  return gid ? [gid] : [];
+}
+
+async function supabaseSelectMaterials(pathQuery) {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.key) return [];
+  const res = await fetch(cfg.url + '/rest/v1/community_materials?' + pathQuery, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(function () { return ''; });
+    console.warn(
+      '[community-drive-archive] community_materials fetch failed:',
+      res.status,
+      String(text || '').slice(0, 200)
+    );
+    return [];
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
+ * Load community_materials rows for the classroom topic folder (signature source).
+ */
+async function fetchCommunityMaterialsSignatureRows(gradeId, topic) {
+  const gid = normalizeArchiveGradeId(gradeId);
+  const topicNorm = String(topic || '').trim();
+  if (!gid || !topicNorm) return [];
+
+  const gradeValues = expandArchiveGradeFilterValues(gid);
+  if (!gradeValues.length) return [];
+
+  const select = 'id,grade_level,topic,file_path,file_name,notes,created_at';
+  const gradeClause = gradeValues.length === 1
+    ? ('grade_level=eq.' + encodeURIComponent(gradeValues[0]))
+    : ('or=(' + gradeValues.map(function (v) {
+      return 'grade_level.eq.' + encodeURIComponent(v);
+    }).join(',') + ')');
+
+  async function queryTopic(topicFilter) {
+    const params = new URLSearchParams();
+    params.set('select', select);
+    params.set('order', 'created_at.desc');
+    params.set('limit', '300');
+    // grade filter appended manually so OR syntax stays intact
+    return supabaseSelectMaterials(params.toString() + '&' + gradeClause + '&' + topicFilter);
+  }
+
+  let rows = await queryTopic('topic=eq.' + encodeURIComponent(topicNorm));
+  if (rows.length) return rows;
+
+  rows = await queryTopic('topic=ilike.' + encodeURIComponent('*' + topicNorm + '*'));
+  if (rows.length) return rows;
+
+  let aliases = [];
+  if (typeof catalogTopics.expandCatalogTopicAliases === 'function') {
+    try {
+      aliases = catalogTopics.expandCatalogTopicAliases([topicNorm]) || [];
+    } catch (e) {
+      aliases = [];
+    }
+  }
+  for (let i = 0; i < aliases.length && i < 8; i++) {
+    const alias = String(aliases[i] || '').trim();
+    if (!alias || stableNormalize(alias) === stableNormalize(topicNorm)) continue;
+    rows = await queryTopic('topic=ilike.' + encodeURIComponent('*' + alias + '*'));
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
+/**
+ * Live signature of materials currently indexed for this grade+topic.
+ * Empty string when no materials rows exist (caller may fall back to Drive refs).
+ */
+async function computeCommunityMaterialsFingerprint(gradeId, topic) {
+  const rows = await fetchCommunityMaterialsSignatureRows(gradeId, topic);
+  if (!rows.length) {
+    return { fingerprint: '', rows: [], count: 0 };
+  }
+  return {
+    fingerprint: buildMaterialsFingerprint(rows),
+    rows: rows,
+    count: rows.length,
+  };
+}
+
+function normalizeCitationUrl(url) {
+  return String(url || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[?#].*$/, '')
+    .replace(/\/$/, '');
+}
+
+function normalizeCitationName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u05F3\u05F4׳״`'"]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Keep each file/source once — by driveFileId, URL, or display name.
+ */
+function dedupeCommunityCitations(citations) {
+  const seen = new Set();
+  const out = [];
+  (citations || []).forEach(function (cite) {
+    if (!cite || typeof cite !== 'object') return;
+    const id = String(cite.driveFileId || '').trim().toLowerCase();
+    const url = normalizeCitationUrl(cite.webViewLink || cite.url || cite.fileUrl || '');
+    const name = normalizeCitationName(
+      cite.fileName || cite.title || cite.name || cite.displayTitle || ''
+    );
+    const keys = [];
+    if (id) keys.push('id:' + id);
+    if (url) keys.push('url:' + url);
+    if (name) keys.push('name:' + name);
+    if (!keys.length) return;
+    if (keys.some(function (k) { return seen.has(k); })) return;
+    keys.forEach(function (k) { seen.add(k); });
+    out.push(cite);
+  });
+  return out;
+}
+
+/**
+ * Deduplicate markdown «מראי מקום» numbered link lines by URL / label.
+ */
+function dedupeCitationsInMarkdown(summary) {
+  let s = String(summary || '');
+  if (!s || !/מראי\s*מקום/.test(s)) return s;
+  const marker = s.search(/#{1,4}\s*מראי\s*מקום|מראי\s*מקום\s*והפניות/i);
+  if (marker < 0) return s;
+  const head = s.slice(0, marker);
+  const tail = s.slice(marker);
+  const lines = tail.split('\n');
+  const outLines = [];
+  const seen = new Set();
+  let inList = false;
+  lines.forEach(function (line) {
+    const m = line.match(/^\s*\d+\.\s*\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\s*$/);
+    const mNameOnly = line.match(/^\s*\d+\.\s+(.+?)\s*$/);
+    if (m) {
+      inList = true;
+      const url = normalizeCitationUrl(m[2]);
+      const name = normalizeCitationName(m[1]);
+      const key = (url && ('url:' + url)) || (name && ('name:' + name)) || '';
+      if (key && seen.has(key)) return;
+      if (url) seen.add('url:' + url);
+      if (name) seen.add('name:' + name);
+      outLines.push(line);
+      return;
+    }
+    if (inList && mNameOnly && !/^\s*#/.test(line) && !/^\s*$/.test(line)) {
+      const name = normalizeCitationName(mNameOnly[1].replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'));
+      const key = name ? ('name:' + name) : '';
+      if (key && seen.has(key)) return;
+      if (key) seen.add(key);
+      outLines.push(line);
+      return;
+    }
+    if (inList && /^\s*#/.test(line)) inList = false;
+    outLines.push(line);
+  });
+  // Renumber citation list
+  let n = 0;
+  const renumbered = outLines.map(function (line) {
+    if (/^\s*\d+\.\s+/.test(line)) {
+      n += 1;
+      return line.replace(/^\s*\d+\.\s+/, n + '. ');
+    }
+    return line;
+  });
+  return head + renumbered.join('\n');
 }
 
 function normalizeFileRefsFromMatches(matches) {
@@ -253,6 +502,52 @@ async function fetchArchiveRow(archiveKey) {
 }
 
 /**
+ * Fallback archive lookup by normalized grade + topic (when archive_key changed).
+ */
+async function fetchArchiveRowByTopicGrade(topic, gradeId) {
+  const cfg = getSupabaseConfig();
+  const topicNorm = String(topic || '').trim();
+  const gid = normalizeArchiveGradeId(gradeId);
+  if (!cfg.url || !cfg.key || !topicNorm || !gid) return null;
+
+  async function query(extra) {
+    const params = new URLSearchParams();
+    params.set('select', '*');
+    params.set('community_status', 'eq.ok');
+    params.set('order', 'updated_at.desc');
+    params.set('limit', '1');
+    Object.keys(extra).forEach(function (k) {
+      params.set(k, extra[k]);
+    });
+    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+      headers: {
+        apikey: cfg.key,
+        Authorization: 'Bearer ' + cfg.key,
+      },
+    });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  }
+
+  let row = await query({
+    topic: 'eq.' + topicNorm,
+    grade_id: 'eq.' + gid,
+  });
+  if (row) return row;
+  row = await query({
+    topic: 'eq.' + topicNorm,
+    grade_level: 'eq.' + gid,
+  });
+  if (row) return row;
+  row = await query({
+    search_query: 'eq.' + topicNorm,
+    grade_id: 'eq.' + gid,
+  });
+  return row;
+}
+
+/**
  * Convert literal escaped newlines ("\\n") into real line breaks so UI/DOCX
  * never render the characters "\n" as visible text.
  */
@@ -302,28 +597,53 @@ function sanitizeCommunitySummaryMarkdown(summary) {
   });
   // Drop " — long folder path" after a markdown link on the same line
   s = s.replace(/(\]\(https?:\/\/[^)\s]+\))\s*[—–-]\s*[^\n]+/g, '$1');
+  s = dedupeCitationsInMarkdown(s);
   return s.trim();
 }
 
 /**
- * Instant archive hit by topic + grade — ONLY when a current Drive fingerprint
- * is supplied and matches the stored source_fingerprint. Never skip the
- * fingerprint check (stale summaries must regenerate).
+ * Instant archive hit by topic + grade — ONLY when a current materials/Drive
+ * fingerprint is supplied (or computed from community_materials) and matches
+ * the stored source_fingerprint / drive_fingerprint. Never skip the check.
  */
 async function tryInstantArchiveRetrieval(query, options) {
   const opts = options || {};
   if (opts.forceRefresh === true || opts.refresh === true) return null;
   const q = String(query || '').trim();
   if (!q) return null;
-  const expectedFp = String(
-    opts.sourceFingerprint || opts.driveFingerprint || opts.fingerprint || ''
+  const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
+  const topic = String(opts.topic || opts.catalogTopic || q).trim();
+  const normalizedOpts = Object.assign({}, opts, {
+    gradeId: gradeId,
+    currentGrade: gradeId,
+    topic: topic,
+  });
+
+  let expectedFp = String(
+    opts.sourceFingerprint || opts.driveFingerprint || opts.materialsFingerprint || opts.fingerprint || ''
   ).trim();
+  let materialsMeta = null;
+  if (!expectedFp) {
+    try {
+      materialsMeta = await computeCommunityMaterialsFingerprint(gradeId, topic);
+      expectedFp = String(materialsMeta.fingerprint || '').trim();
+    } catch (fpErr) {
+      console.warn(
+        '[community-drive-archive] materials fingerprint failed:',
+        fpErr && fpErr.message ? fpErr.message : fpErr
+      );
+    }
+  }
   // Without a live fingerprint we cannot prove the folder is unchanged.
   if (!expectedFp) return null;
-  const archiveKey = buildArchiveKey(q, opts);
+
+  const archiveKey = buildArchiveKey(q, normalizedOpts);
   let existing = null;
   try {
     existing = await fetchArchiveRow(archiveKey);
+    if (!existing) {
+      existing = await fetchArchiveRowByTopicGrade(topic, gradeId);
+    }
   } catch (lookupErr) {
     console.warn('[community-drive-archive] instant lookup failed:', lookupErr.message || lookupErr);
     return null;
@@ -342,7 +662,9 @@ async function tryInstantArchiveRetrieval(query, options) {
     console.log(
       '[community-drive-archive] archive row found but fingerprint mismatch — will regenerate',
       '| key:',
-      archiveKey.slice(0, 12)
+      archiveKey.slice(0, 12),
+      '| materials:',
+      materialsMeta ? materialsMeta.count : 'n/a'
     );
     return null;
   }
@@ -365,9 +687,11 @@ async function tryInstantArchiveRetrieval(query, options) {
     '| key:',
     archiveKey.slice(0, 12),
     '| topic:',
-    String(opts.topic || q).slice(0, 60),
+    topic.slice(0, 60),
     '| grade:',
-    String(opts.gradeId || opts.currentGrade || '')
+    gradeId,
+    '| materials:',
+    materialsMeta ? materialsMeta.count : 'n/a'
   );
   return {
     heading: COMMUNITY_SUMMARY_HEADING,
@@ -377,7 +701,9 @@ async function tryInstantArchiveRetrieval(query, options) {
     deltaUpdated: false,
     archiveKey: archiveKey,
     fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : [],
-    citations: Array.isArray(existing.citations) ? existing.citations : [],
+    citations: dedupeCommunityCitations(
+      Array.isArray(existing.citations) ? existing.citations : []
+    ),
     sourceFingerprint: storedFp,
     model: existing.model || null,
     instantHit: true,
@@ -388,25 +714,25 @@ function buildCitationsPayload(fileRefs, extraCitations) {
   const fromRefs = (fileRefs || []).map(function (ref) {
     return {
       title: shortCitationDisplayName(ref && (ref.name || ref.fileName), 'קובץ Drive'),
+      fileName: shortCitationDisplayName(ref && (ref.name || ref.fileName), 'קובץ Drive'),
       url: String((ref && (ref.webViewLink || ref.fileUrl)) || '').trim(),
+      webViewLink: String((ref && (ref.webViewLink || ref.fileUrl)) || '').trim(),
+      fileUrl: String((ref && (ref.webViewLink || ref.fileUrl)) || '').trim(),
       driveFileId: String((ref && ref.driveFileId) || '').trim(),
     };
   }).filter(function (c) { return c.url || c.driveFileId; });
   const extras = Array.isArray(extraCitations) ? extraCitations : [];
-  const seen = new Set();
-  const out = [];
-  fromRefs.concat(extras).forEach(function (c) {
-    if (!c) return;
-    const key = String(c.url || c.driveFileId || c.title || '').trim().toLowerCase();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    out.push({
-      title: String(c.title || c.name || '').trim(),
+  return dedupeCommunityCitations(fromRefs.concat(extras).map(function (c) {
+    if (!c) return null;
+    return {
+      title: String(c.title || c.fileName || c.name || '').trim(),
+      fileName: String(c.fileName || c.title || c.name || '').trim(),
       url: String(c.url || c.fileUrl || c.webViewLink || '').trim(),
+      webViewLink: String(c.webViewLink || c.url || c.fileUrl || '').trim(),
+      fileUrl: String(c.fileUrl || c.webViewLink || c.url || '').trim(),
       driveFileId: String(c.driveFileId || '').trim(),
-    });
-  });
-  return out;
+    };
+  }).filter(Boolean));
 }
 
 async function upsertArchiveRow(record) {
@@ -1201,23 +1527,61 @@ function degradedNoExtractResult(fileRefs, archiveKey, fingerprint, communityErr
 
 /**
  * Delta community summary for the standalone summarizer.
- * Always re-checks Drive fingerprint; regenerates with Gemini only when sources changed.
+ * Prefer community_materials fingerprint for cache validation; regenerate with
+ * Gemini only when materials changed (or no archive row / force refresh).
  * Archive lookup is global (no userId filter).
  */
 async function resolveCommunityDriveSummary(query, matches, options) {
   const opts = options || {};
   const q = String(query || '').trim();
+  const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
+  const topic = String(opts.topic || opts.catalogTopic || q).trim();
+  const normalizedOpts = Object.assign({}, opts, {
+    gradeId: gradeId,
+    currentGrade: gradeId,
+    topic: topic,
+  });
   const fileRefs = normalizeFileRefsFromMatches(matches);
 
   if (!fileRefs.length) {
-    return emptySummaryResult(q, opts);
+    return emptySummaryResult(q, normalizedOpts);
   }
 
-  const archiveKey = buildArchiveKey(q, opts);
-  const fingerprint = buildSourceFingerprint(fileRefs);
+  const archiveKey = buildArchiveKey(q, normalizedOpts);
+  let materialsFingerprint = String(
+    opts.materialsFingerprint || opts.sourceFingerprint || opts.driveFingerprint || ''
+  ).trim();
+  if (!materialsFingerprint) {
+    try {
+      const materialsMeta = await computeCommunityMaterialsFingerprint(gradeId, topic);
+      materialsFingerprint = String(materialsMeta.fingerprint || '').trim();
+      if (materialsMeta.count) {
+        console.log(
+          '[community-drive-archive] materials fingerprint ready',
+          '| grade:',
+          gradeId,
+          '| topic:',
+          topic.slice(0, 40),
+          '| rows:',
+          materialsMeta.count
+        );
+      }
+    } catch (fpErr) {
+      console.warn(
+        '[community-drive-archive] materials fingerprint failed:',
+        fpErr && fpErr.message ? fpErr.message : fpErr
+      );
+    }
+  }
+  const driveFingerprint = buildSourceFingerprint(fileRefs);
+  // Prefer materials signature so catalog updates invalidate the archive cache.
+  const fingerprint = materialsFingerprint || driveFingerprint;
 
   try {
-    const existing = await fetchArchiveRow(archiveKey);
+    let existing = await fetchArchiveRow(archiveKey);
+    if (!existing) {
+      existing = await fetchArchiveRowByTopicGrade(topic, gradeId);
+    }
     const storedFp = existing
       ? String(existing.source_fingerprint || existing.drive_fingerprint || '').trim()
       : '';
@@ -1254,9 +1618,11 @@ async function resolveCommunityDriveSummary(query, matches, options) {
           deltaUpdated: false,
           archiveKey: archiveKey,
           fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : fileRefs,
-          citations: Array.isArray(existing.citations)
-            ? existing.citations
-            : buildCitationsPayload(fileRefs, opts.citations),
+          citations: dedupeCommunityCitations(
+            Array.isArray(existing.citations) && existing.citations.length
+              ? existing.citations
+              : buildCitationsPayload(fileRefs, opts.citations)
+          ),
           sourceFingerprint: fingerprint,
           model: existing.model || null,
         };
@@ -1358,20 +1724,19 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   );
 
   const generated = await summarizeCommunitySourcesWithGemini(q, bundles, mediaMeta, {
-    gradeId: opts.gradeId || opts.currentGrade || '',
-    topic: opts.topic || opts.catalogTopic || '',
+    gradeId: gradeId,
+    topic: topic,
   });
 
   const cleanedSummary = sanitizeCommunitySummaryMarkdown(generated.summary);
-  const gradeLevel = String(opts.gradeId || opts.currentGrade || '').trim();
   const citationsPayload = buildCitationsPayload(fileRefs, opts.citations);
   const record = {
     archive_key: archiveKey,
     search_query: q,
     query_text: q,
-    grade_id: gradeLevel,
-    grade_level: gradeLevel,
-    topic: String(opts.topic || opts.catalogTopic || '').trim(),
+    grade_id: gradeId,
+    grade_level: gradeId,
+    topic: topic,
     summary_md: cleanedSummary,
     summary_text: cleanedSummary,
     community_status: 'ok',
@@ -1391,7 +1756,9 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       '| key:',
       archiveKey.slice(0, 12),
       '| files:',
-      fileRefs.length
+      fileRefs.length,
+      '| fingerprint:',
+      fingerprint.slice(0, 12)
     );
   } catch (persistErr) {
     console.error('[community-drive-archive] persist failed (retrying once):', persistErr.message || persistErr);
@@ -1433,13 +1800,18 @@ module.exports = {
   MAX_GEMINI_MULTIMODAL_BYTES,
   buildArchiveKey,
   buildSourceFingerprint,
+  buildMaterialsFingerprint,
   buildCitationsPayload,
+  normalizeArchiveGradeId,
   normalizeFileRefsFromMatches,
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,
   shortCitationDisplayName,
   isSummaryDeepEnough,
   tryInstantArchiveRetrieval,
+  computeCommunityMaterialsFingerprint,
+  dedupeCommunityCitations,
+  dedupeCitationsInMarkdown,
   resolveCommunityDriveSummary,
   emptySummaryResult,
   resolveMultimodalMime,

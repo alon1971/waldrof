@@ -21216,17 +21216,38 @@
           return {
             fileName: match.fileName || match.title || match.displayTitle || 'קובץ Drive',
             webViewLink: resolveMatchWebViewLink(match),
+            driveFileId: match.driveFileId || '',
           };
         });
+      // Deduplicate by driveFileId / URL / file name so each source appears once.
+      var seen = {};
+      citations = (citations || []).filter(function (cite) {
+        if (!cite) return false;
+        var id = String(cite.driveFileId || '').trim().toLowerCase();
+        var link = String(cite.webViewLink || cite.fileUrl || cite.url || '')
+          .trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
+        var name = String(cite.fileName || cite.title || cite.name || '')
+          .trim().toLowerCase().replace(/[\u05F3\u05F4׳״`'"]/g, '').replace(/\s+/g, ' ');
+        var keys = [];
+        if (id) keys.push('id:' + id);
+        if (link) keys.push('url:' + link);
+        if (name) keys.push('name:' + name);
+        if (!keys.length) return false;
+        for (var i = 0; i < keys.length; i++) {
+          if (seen[keys[i]]) return false;
+        }
+        keys.forEach(function (k) { seen[k] = true; });
+        return true;
+      });
       if (!citations.length) return '';
       return '<div class="hybrid-community-citations" dir="rtl">' +
         '<h4>מראי מקום</h4>' +
         '<ul>' + citations.map(function (cite, idx) {
           var name = escapeHtml(shortCommunityCitationName(
-            cite.fileName || cite.name || '',
+            cite.fileName || cite.name || cite.title || '',
             'מקור ' + (idx + 1)
           ));
-          var link = String(cite.webViewLink || cite.fileUrl || '').trim();
+          var link = String(cite.webViewLink || cite.fileUrl || cite.url || '').trim();
           if (link) {
             return '<li><a href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + name + '</a></li>';
           }

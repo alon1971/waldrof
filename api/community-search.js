@@ -122,7 +122,6 @@ function buildCommunityCitations(matches) {
     : function (value, fallback) {
       return String(value || fallback || 'קובץ Drive').trim();
     };
-  const seen = new Set();
   const citations = [];
   (matches || []).forEach(function (match) {
     if (!match) return;
@@ -133,9 +132,6 @@ function buildCommunityCitations(matches) {
     const webViewLink = resolveWebViewLink(match);
     const driveFileId = String(match.driveFileId || '').trim()
       || (String(match.id || '').indexOf('drive:') === 0 ? String(match.id).slice(6) : '');
-    const key = (driveFileId || webViewLink || fileName).toLowerCase();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
     citations.push({
       fileName: fileName || 'קובץ Drive',
       // Keep path for internal use only — UI/DOCX must not render hierarchy.
@@ -149,15 +145,36 @@ function buildCommunityCitations(matches) {
       catalogTopic: String(match.catalogTopic || match.topic || '').trim(),
     });
   });
-  return citations;
+  if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
+    return communityDriveArchive.dedupeCommunityCitations(citations);
+  }
+  // Local fallback dedupe by id / url / name
+  const seen = new Set();
+  return citations.filter(function (cite) {
+    const id = String(cite.driveFileId || '').trim().toLowerCase();
+    const url = String(cite.webViewLink || '').trim().toLowerCase().replace(/[?#].*$/, '');
+    const name = String(cite.fileName || '').trim().toLowerCase();
+    const keys = [];
+    if (id) keys.push('id:' + id);
+    if (url) keys.push('url:' + url);
+    if (name) keys.push('name:' + name);
+    if (!keys.length || keys.some(function (k) { return seen.has(k); })) return false;
+    keys.forEach(function (k) { seen.add(k); });
+    return true;
+  });
 }
 
 function appendCitationsMarkdown(summary, citations) {
-  const list = Array.isArray(citations) ? citations : [];
+  let list = Array.isArray(citations) ? citations.slice() : [];
+  if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
+    list = communityDriveArchive.dedupeCommunityCitations(list);
+  }
   if (!list.length) return String(summary || '').trim();
   const body = String(summary || '').trim();
   if (/מראי מקום/.test(body) && /https?:\/\//.test(body)) {
-    return body;
+    return typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function'
+      ? communityDriveArchive.sanitizeCommunitySummaryMarkdown(body)
+      : body;
   }
   const shortName = typeof communityDriveArchive.shortCitationDisplayName === 'function'
     ? communityDriveArchive.shortCitationDisplayName
@@ -165,9 +182,10 @@ function appendCitationsMarkdown(summary, citations) {
       return String(value || fallback || 'קובץ Drive').trim();
     };
   const lines = list.map(function (cite, idx) {
-    const name = shortName(cite.fileName || '', 'מקור ' + (idx + 1));
-    if (cite.webViewLink) {
-      return (idx + 1) + '. [' + name + '](' + cite.webViewLink + ')';
+    const name = shortName(cite.fileName || cite.title || '', 'מקור ' + (idx + 1));
+    const link = cite.webViewLink || cite.url || cite.fileUrl || '';
+    if (link) {
+      return (idx + 1) + '. [' + name + '](' + link + ')';
     }
     return (idx + 1) + '. ' + name;
   });

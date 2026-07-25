@@ -2,10 +2,10 @@
  * POST /api/community-summarizer — standalone community Drive topic summary.
  *
  * Decoupled from live web search (phases A–C). Workflow:
- *  1) Scan community Drive for grade + topic files
- *  2) Lookup community_drive_archive by archive_key; compare drive/source fingerprint
- *     — match → return cached summary (no Gemini)
- *     — mismatch / miss → Gemini summarize from Drive texts only + upsert row
+ *  1) Fingerprint community_materials for grade + topic
+ *  2) Lookup community_drive_archive; compare drive/source fingerprint
+ *     — match → return cached summary immediately (no Drive scan, no Gemini)
+ *     — mismatch / miss → scan Drive, Gemini summarize, upsert with new fingerprint
  *  3) Clear empty message when nothing exists in Drive or archive
  *
  * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity / web search.
@@ -104,13 +104,13 @@ function withNonBillableMeta(payload) {
 
 /**
  * Full on-demand community topic summary (public archive + root Drive scan).
- * Always lists Drive sources first so fingerprint can be compared against
- * community_drive_archive before deciding whether to call Gemini.
+ * Validates community_materials fingerprint against community_drive_archive
+ * before any Drive listing or Gemini call.
  */
 async function runCommunityTopicSummary(options) {
   const opts = options || {};
   const topic = String(opts.topic || opts.query || opts.userMessage || '').trim();
-  const gradeId = String(opts.gradeId || opts.currentGrade || '').trim();
+  const rawGradeId = String(opts.gradeId || opts.currentGrade || '').trim();
   const forceRefresh = opts.forceRefresh === true || opts.refresh === true;
 
   if (!topic) {
@@ -118,7 +118,7 @@ async function runCommunityTopicSummary(options) {
     err.statusCode = 400;
     throw err;
   }
-  if (!gradeId) {
+  if (!rawGradeId) {
     const err = new Error('gradeId is required');
     err.statusCode = 400;
     throw err;
@@ -126,14 +126,111 @@ async function runCommunityTopicSummary(options) {
 
   const gradePolicy = typeof catalogTopics.resolveCommunityGradeScanPolicy === 'function'
     ? catalogTopics.resolveCommunityGradeScanPolicy(topic, {
-      gradeId: gradeId,
-      currentGrade: gradeId,
+      gradeId: rawGradeId,
+      currentGrade: rawGradeId,
       topic: topic,
       catalogTopic: topic,
     })
-    : { lockedGradeId: gradeId, allowBroadScan: false, crossCutting: false };
-  const lockedGradeId = String(gradePolicy.lockedGradeId || gradeId).trim();
+    : { lockedGradeId: rawGradeId, allowBroadScan: false, crossCutting: false };
+  const lockedGradeId = communityDriveArchive.normalizeArchiveGradeId
+    ? communityDriveArchive.normalizeArchiveGradeId(gradePolicy.lockedGradeId || rawGradeId)
+    : String(gradePolicy.lockedGradeId || rawGradeId).trim();
   const configured = driveIsConfigured();
+
+  // --- Dynamic cache validation (community_materials fingerprint) ---
+  let materialsFingerprint = '';
+  let materialsCount = 0;
+  if (!forceRefresh && typeof communityDriveArchive.computeCommunityMaterialsFingerprint === 'function') {
+    try {
+      const materialsMeta = await communityDriveArchive.computeCommunityMaterialsFingerprint(
+        lockedGradeId,
+        topic
+      );
+      materialsFingerprint = String(materialsMeta && materialsMeta.fingerprint || '').trim();
+      materialsCount = materialsMeta && materialsMeta.count ? materialsMeta.count : 0;
+      console.log(
+        '[community-summarizer] materials fingerprint',
+        '| grade:',
+        lockedGradeId,
+        '| topic:',
+        topic.slice(0, 40),
+        '| rows:',
+        materialsCount,
+        '| fp:',
+        materialsFingerprint ? materialsFingerprint.slice(0, 12) : '(none)'
+      );
+    } catch (fpErr) {
+      console.warn(
+        '[community-summarizer] materials fingerprint failed:',
+        fpErr && fpErr.message ? fpErr.message : fpErr
+      );
+    }
+  }
+
+  if (!forceRefresh && typeof communityDriveArchive.tryInstantArchiveRetrieval === 'function') {
+    try {
+      const instant = await communityDriveArchive.tryInstantArchiveRetrieval(topic, {
+        gradeId: lockedGradeId,
+        currentGrade: lockedGradeId,
+        topic: topic,
+        catalogTopic: topic,
+        phase: SUMMARIZER_PHASE,
+        materialsFingerprint: materialsFingerprint,
+        sourceFingerprint: materialsFingerprint,
+        forceRefresh: false,
+      });
+      if (instant && instant.communityStatus === 'ok' && instant.summary) {
+        let summaryText = String(instant.summary);
+        let responseCitations = Array.isArray(instant.citations) ? instant.citations : [];
+        if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
+          responseCitations = communityDriveArchive.dedupeCommunityCitations(responseCitations);
+        }
+        if (
+          responseCitations.length
+          && typeof communitySearch.appendCitationsMarkdown === 'function'
+        ) {
+          summaryText = communitySearch.appendCitationsMarkdown(summaryText, responseCitations);
+        }
+        if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
+          summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
+        }
+        console.log(
+          '[community-summarizer] serving archive hit without Drive/Gemini',
+          '| grade:',
+          lockedGradeId,
+          '| topic:',
+          topic.slice(0, 40)
+        );
+        return withNonBillableMeta({
+          success: true,
+          topic: topic,
+          gradeId: lockedGradeId,
+          communityStatus: 'ok',
+          communitySummaryHeading: instant.heading || COMMUNITY_SUMMARY_HEADING,
+          communitySummary: summaryText,
+          communityMatchCount: Array.isArray(instant.fileRefs) ? instant.fileRefs.length : materialsCount,
+          communityMatches: Array.isArray(instant.fileRefs) ? instant.fileRefs : [],
+          communityCitations: responseCitations,
+          communitySummaryFromArchive: true,
+          communitySummaryDeltaUpdated: false,
+          communityArchiveKey: instant.archiveKey || null,
+          communitySummaryModel: instant.model || null,
+          communityDriveConfigured: configured,
+          communityError: null,
+          fromArchive: true,
+          deltaUpdated: false,
+          instantArchiveHit: true,
+          sourceFingerprint: instant.sourceFingerprint || materialsFingerprint,
+          persisted: true,
+        });
+      }
+    } catch (instantErr) {
+      console.warn(
+        '[community-summarizer] instant archive check failed:',
+        instantErr && instantErr.message ? instantErr.message : instantErr
+      );
+    }
+  }
 
   // Prefer a full listing of every file under the grade/topic folder tree
   // (incl. shortcut targets) so fingerprint + Gemini see the real folder set.
@@ -188,9 +285,12 @@ async function runCommunityTopicSummary(options) {
     }).join(' | ')
   );
 
-  const citations = Array.isArray(probe && probe.communityCitations)
+  let citations = Array.isArray(probe && probe.communityCitations)
     ? probe.communityCitations
     : communitySearch.buildCommunityCitations(matches);
+  if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
+    citations = communityDriveArchive.dedupeCommunityCitations(citations);
+  }
 
   if (!matches.length) {
     const gradeTopics = driveDebug && Array.isArray(driveDebug.gradeTopicFolders)
@@ -274,12 +374,17 @@ async function runCommunityTopicSummary(options) {
       phase: SUMMARIZER_PHASE,
       citations: citations,
       forceRefresh: forceRefresh,
+      materialsFingerprint: materialsFingerprint,
+      sourceFingerprint: materialsFingerprint,
     }
   );
 
-  const responseCitations = Array.isArray(summary.citations) && summary.citations.length
+  let responseCitations = Array.isArray(summary.citations) && summary.citations.length
     ? summary.citations
     : citations;
+  if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
+    responseCitations = communityDriveArchive.dedupeCommunityCitations(responseCitations);
+  }
 
   let summaryText = summary.summary != null && String(summary.summary).trim()
     ? String(summary.summary)
@@ -318,7 +423,7 @@ async function runCommunityTopicSummary(options) {
     fromArchive: Boolean(summary.fromArchive),
     deltaUpdated: Boolean(summary.deltaUpdated),
     instantArchiveHit: false,
-    sourceFingerprint: summary.sourceFingerprint || null,
+    sourceFingerprint: summary.sourceFingerprint || materialsFingerprint || null,
     persisted: summary.persisted !== false,
   });
 }
