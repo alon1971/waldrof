@@ -1,7 +1,9 @@
 /**
  * Community Drive archive — Gemini pedagogical summaries of Drive hits.
  * Used only by the standalone /api/community-summarizer flow (not live web search).
- * Public archive (no userId). Delta-refresh: re-scan Drive fingerprint → reuse or regenerate.
+ * Public archive (no userId).
+ * Cache policy: serve community_drive_archive immediately unless community_materials
+ * gained a newer folder/file for the same grade+topic (then regenerate).
  *
  * CACHE SOURCE ISOLATION: lookups and upserts hit community_drive_archive ONLY.
  * Never read or write public.cached_results (Perplexity / live web) from this module.
@@ -503,6 +505,7 @@ async function fetchArchiveRow(archiveKey) {
 
 /**
  * Fallback archive lookup by normalized grade + topic (when archive_key changed).
+ * Tries exact topic, search_query, and ilike contains.
  */
 async function fetchArchiveRowByTopicGrade(topic, gradeId) {
   const cfg = getSupabaseConfig();
@@ -515,7 +518,7 @@ async function fetchArchiveRowByTopicGrade(topic, gradeId) {
     params.set('select', '*');
     params.set('community_status', 'eq.ok');
     params.set('order', 'updated_at.desc');
-    params.set('limit', '1');
+    params.set('limit', '3');
     Object.keys(extra).forEach(function (k) {
       params.set(k, extra[k]);
     });
@@ -527,24 +530,57 @@ async function fetchArchiveRowByTopicGrade(topic, gradeId) {
     });
     if (!res.ok) return null;
     const rows = await res.json();
-    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+    return Array.isArray(rows) && rows.length ? rows : [];
   }
 
-  let row = await query({
+  function pickBest(rows) {
+    if (!rows || !rows.length) return null;
+    const withSummary = rows.filter(function (r) {
+      return r && String(r.summary_md || r.summary_text || '').trim();
+    });
+    return withSummary[0] || rows[0] || null;
+  }
+
+  let rows = await query({
     topic: 'eq.' + topicNorm,
     grade_id: 'eq.' + gid,
   });
+  let row = pickBest(rows);
   if (row) return row;
-  row = await query({
+
+  rows = await query({
     topic: 'eq.' + topicNorm,
     grade_level: 'eq.' + gid,
   });
+  row = pickBest(rows);
   if (row) return row;
-  row = await query({
+
+  rows = await query({
     search_query: 'eq.' + topicNorm,
     grade_id: 'eq.' + gid,
   });
-  return row;
+  row = pickBest(rows);
+  if (row) return row;
+
+  rows = await query({
+    search_query: 'eq.' + topicNorm,
+    grade_level: 'eq.' + gid,
+  });
+  row = pickBest(rows);
+  if (row) return row;
+
+  rows = await query({
+    topic: 'ilike.' + encodeURIComponent('*' + topicNorm + '*'),
+    grade_id: 'eq.' + gid,
+  });
+  row = pickBest(rows);
+  if (row) return row;
+
+  rows = await query({
+    topic: 'ilike.' + encodeURIComponent('*' + topicNorm + '*'),
+    grade_level: 'eq.' + gid,
+  });
+  return pickBest(rows);
 }
 
 /**
@@ -601,98 +637,278 @@ function sanitizeCommunitySummaryMarkdown(summary) {
   return s.trim();
 }
 
+function fingerprintsMatch(storedFp, candidates) {
+  const stored = String(storedFp || '').trim();
+  if (!stored) return false;
+  const list = Array.isArray(candidates) ? candidates : [candidates];
+  for (let i = 0; i < list.length; i++) {
+    const c = String(list[i] || '').trim();
+    if (c && c === stored) return true;
+  }
+  return false;
+}
+
+function archiveTimestampMs(row) {
+  const t = Date.parse(String((row && (row.updated_at || row.created_at)) || ''));
+  return Number.isFinite(t) ? t : 0;
+}
+
+function materialRowTimestampMs(row) {
+  const t = Date.parse(String((row && (row.created_at || row.createdAt)) || ''));
+  return Number.isFinite(t) ? t : 0;
+}
+
 /**
- * Instant archive hit by topic + grade — ONLY when a current materials/Drive
- * fingerprint is supplied (or computed from community_materials) and matches
- * the stored source_fingerprint / drive_fingerprint. Never skip the check.
+ * True when community_materials has a row for this topic created after the
+ * archived summary was last written (new folder/file upload).
+ */
+function hasNewerCommunityMaterials(archiveRow, materialsRows) {
+  const archiveMs = archiveTimestampMs(archiveRow);
+  if (!archiveMs) return false;
+  const rows = Array.isArray(materialsRows) ? materialsRows : [];
+  for (let i = 0; i < rows.length; i++) {
+    if (materialRowTimestampMs(rows[i]) > archiveMs) return true;
+  }
+  return false;
+}
+
+function logArchiveMiss(reason, details) {
+  const extra = details && typeof details === 'object'
+    ? Object.keys(details).map(function (k) {
+      return k + '=' + String(details[k] == null ? '' : details[k]);
+    }).join(' ')
+    : '';
+  console.log('[Archive MISS] Reason: ' + reason + (extra ? ' | ' + extra : ''));
+}
+
+function logArchiveHit(details) {
+  const extra = details && typeof details === 'object'
+    ? Object.keys(details).map(function (k) {
+      return k + '=' + String(details[k] == null ? '' : details[k]);
+    }).join(' ')
+    : '';
+  console.log(
+    '[Archive HIT] Successfully loaded summary from community_drive_archive'
+    + (extra ? ' | ' + extra : '')
+  );
+}
+
+/**
+ * Instant archive hit by topic + grade_level.
+ * Serve community_drive_archive immediately unless community_materials gained
+ * a newer folder/file for the same grade+topic (then miss → regenerate).
+ * On HIT: return archived summary with no Drive listing and no Gemini.
  */
 async function tryInstantArchiveRetrieval(query, options) {
   const opts = options || {};
-  if (opts.forceRefresh === true || opts.refresh === true) return null;
+  if (opts.forceRefresh === true || opts.refresh === true) {
+    logArchiveMiss('forceRefresh requested');
+    return null;
+  }
   const q = String(query || '').trim();
-  if (!q) return null;
+  if (!q) {
+    logArchiveMiss('empty query');
+    return null;
+  }
   const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
   const topic = String(opts.topic || opts.catalogTopic || q).trim();
+  if (!gradeId) {
+    logArchiveMiss('missing grade_level after normalization');
+    return null;
+  }
   const normalizedOpts = Object.assign({}, opts, {
     gradeId: gradeId,
     currentGrade: gradeId,
     topic: topic,
   });
 
-  let expectedFp = String(
-    opts.sourceFingerprint || opts.driveFingerprint || opts.materialsFingerprint || opts.fingerprint || ''
-  ).trim();
-  let materialsMeta = null;
-  if (!expectedFp) {
+  // 1) Archive lookup first — never require a live fingerprint before serving.
+  const phaseVariants = [
+    opts.phase,
+    'community_summarizer',
+    'hybrid',
+    'topic_master',
+    'topic',
+    '',
+  ];
+  const seenKeys = {};
+  let existing = null;
+  let lookupPath = '';
+  for (let i = 0; i < phaseVariants.length; i++) {
+    const phase = phaseVariants[i];
+    if (phase == null) continue;
+    const keyOpts = Object.assign({}, normalizedOpts, { phase: phase });
+    const archiveKey = buildArchiveKey(q, keyOpts);
+    if (seenKeys[archiveKey]) continue;
+    seenKeys[archiveKey] = true;
     try {
-      materialsMeta = await computeCommunityMaterialsFingerprint(gradeId, topic);
-      expectedFp = String(materialsMeta.fingerprint || '').trim();
-    } catch (fpErr) {
+      existing = await fetchArchiveRow(archiveKey);
+    } catch (lookupErr) {
+      console.warn('[community-drive-archive] key lookup failed:', lookupErr.message || lookupErr);
+      existing = null;
+    }
+    if (existing && String(existing.summary_md || existing.summary_text || '').trim()) {
+      lookupPath = 'archive_key:' + archiveKey.slice(0, 12) + ':phase=' + String(phase || 'empty');
+      break;
+    }
+    existing = null;
+  }
+
+  if (!existing) {
+    try {
+      existing = await fetchArchiveRowByTopicGrade(topic, gradeId);
+      if (existing) lookupPath = 'topic+grade_level';
+    } catch (topicLookupErr) {
       console.warn(
-        '[community-drive-archive] materials fingerprint failed:',
-        fpErr && fpErr.message ? fpErr.message : fpErr
+        '[community-drive-archive] topic/grade lookup failed:',
+        topicLookupErr.message || topicLookupErr
       );
     }
   }
-  // Without a live fingerprint we cannot prove the folder is unchanged.
-  if (!expectedFp) return null;
 
-  const archiveKey = buildArchiveKey(q, normalizedOpts);
-  let existing = null;
+  if (!existing) {
+    logArchiveMiss('no entry found', {
+      grade: gradeId,
+      topic: topic.slice(0, 40),
+    });
+    return null;
+  }
+
+  if (existing.community_status && existing.community_status !== 'ok') {
+    logArchiveMiss('entry found but community_status is not ok', {
+      status: existing.community_status,
+      grade: gradeId,
+      topic: topic.slice(0, 40),
+    });
+    return null;
+  }
+
+  const archivedBody = String(existing.summary_md || existing.summary_text || '').trim();
+  if (!archivedBody) {
+    logArchiveMiss('entry found but summary_md/summary_text empty', {
+      grade: gradeId,
+      topic: topic.slice(0, 40),
+    });
+    return null;
+  }
+
+  // 2) Invalidate only when community_materials gained newer rows for this topic.
+  const candidateFingerprints = [];
+  function addFp(v) {
+    const s = String(v || '').trim();
+    if (s && candidateFingerprints.indexOf(s) === -1) candidateFingerprints.push(s);
+  }
+  addFp(opts.sourceFingerprint);
+  addFp(opts.driveFingerprint);
+  addFp(opts.materialsFingerprint);
+  addFp(opts.fingerprint);
+
+  let materialsMeta = null;
   try {
-    existing = await fetchArchiveRow(archiveKey);
-    if (!existing) {
-      existing = await fetchArchiveRowByTopicGrade(topic, gradeId);
-    }
-  } catch (lookupErr) {
-    console.warn('[community-drive-archive] instant lookup failed:', lookupErr.message || lookupErr);
-    return null;
+    materialsMeta = await computeCommunityMaterialsFingerprint(gradeId, topic);
+    addFp(materialsMeta.fingerprint);
+  } catch (fpErr) {
+    console.warn(
+      '[community-drive-archive] materials fingerprint failed:',
+      fpErr && fpErr.message ? fpErr.message : fpErr
+    );
   }
-  if (
-    !existing
-    || existing.community_status !== 'ok'
-    || !String(existing.summary_md || existing.summary_text || '').trim()
-  ) {
-    return null;
+  if (Array.isArray(opts.fileRefs) && opts.fileRefs.length) {
+    addFp(buildSourceFingerprint(opts.fileRefs));
   }
+  if (Array.isArray(opts.matches) && opts.matches.length) {
+    addFp(buildSourceFingerprint(normalizeFileRefsFromMatches(opts.matches)));
+  }
+
   const storedFp = String(
     existing.source_fingerprint || existing.drive_fingerprint || ''
   ).trim();
-  if (!storedFp || storedFp !== expectedFp) {
-    console.log(
-      '[community-drive-archive] archive row found but fingerprint mismatch — will regenerate',
-      '| key:',
-      archiveKey.slice(0, 12),
-      '| materials:',
-      materialsMeta ? materialsMeta.count : 'n/a'
-    );
+  const materialsCount = materialsMeta && materialsMeta.count ? materialsMeta.count : 0;
+  const liveMaterialsFp = materialsMeta
+    ? String(materialsMeta.fingerprint || '').trim()
+    : '';
+
+  let fpMatched = storedFp
+    ? fingerprintsMatch(storedFp, candidateFingerprints)
+    : false;
+  if (!fpMatched && storedFp && Array.isArray(existing.file_refs) && existing.file_refs.length) {
+    const archivedRefsFp = buildSourceFingerprint(existing.file_refs);
+    if (fingerprintsMatch(archivedRefsFp, candidateFingerprints)
+      || fingerprintsMatch(storedFp, [archivedRefsFp])) {
+      fpMatched = true;
+    }
+  }
+
+  const newerMaterials = hasNewerCommunityMaterials(
+    existing,
+    materialsMeta && materialsMeta.rows
+  );
+
+  // Regenerate only when a newer related folder/file appears in community_materials.
+  // Newer materials always win — even if an older Drive fingerprint still matches.
+  if (newerMaterials) {
+    logArchiveMiss('newer community_materials since archive', {
+      grade: gradeId,
+      topic: topic.slice(0, 40),
+      materials: materialsCount,
+      stored: storedFp ? storedFp.slice(0, 12) : '(none)',
+      liveMaterials: liveMaterialsFp ? liveMaterialsFp.slice(0, 12) : '(none)',
+      via: lookupPath,
+    });
     return null;
   }
-  const summary = sanitizeCommunitySummaryMarkdown(
-    existing.summary_md || existing.summary_text || ''
-  );
-  if (!summary) return null;
+
+  if (!fpMatched && materialsCount && liveMaterialsFp && storedFp
+    && liveMaterialsFp !== storedFp && !newerMaterials) {
+    console.log(
+      '[community-drive-archive] fingerprint type/set differs but no newer materials — serving archive',
+      '| grade:',
+      gradeId,
+      '| topic:',
+      topic.slice(0, 40),
+      '| materials:',
+      materialsCount
+    );
+  }
+
+  if (!materialsCount) {
+    console.log(
+      '[community-drive-archive] no community_materials for topic — serving archive without Drive/Gemini',
+      '| grade:',
+      gradeId,
+      '| topic:',
+      topic.slice(0, 40)
+    );
+  }
+
+  const summary = sanitizeCommunitySummaryMarkdown(archivedBody);
+  if (!summary) {
+    logArchiveMiss('summary empty after sanitize', {
+      grade: gradeId,
+      topic: topic.slice(0, 40),
+    });
+    return null;
+  }
+
+  // Archive HIT must stop LLM even if older rows fail the deep-workplan gate.
   if (!isSummaryDeepEnough(summary)) {
     console.warn(
-      '[community-drive-archive] INSTANT archive hit REJECTED — shallow/incomplete summary',
+      '[community-drive-archive] archive HIT with shallow summary — still serving (no LLM)',
       '| chars:',
-      summary.length,
-      '| key:',
-      archiveKey.slice(0, 12)
+      summary.length
     );
-    return null;
   }
-  console.log(
-    '[community-drive-archive] fingerprint-matched archive hit — skipping Gemini',
-    '| key:',
-    archiveKey.slice(0, 12),
-    '| topic:',
-    topic.slice(0, 60),
-    '| grade:',
-    gradeId,
-    '| materials:',
-    materialsMeta ? materialsMeta.count : 'n/a'
-  );
+
+  const archiveKey = String(existing.archive_key || buildArchiveKey(q, normalizedOpts));
+  logArchiveHit({
+    key: archiveKey.slice(0, 12),
+    grade: gradeId,
+    topic: topic.slice(0, 40),
+    via: lookupPath,
+    materials: materialsCount || 'n/a',
+    reason: fpMatched ? 'fingerprint-match' : 'no-newer-materials',
+  });
+
   return {
     heading: COMMUNITY_SUMMARY_HEADING,
     summary: summary,
@@ -704,7 +920,7 @@ async function tryInstantArchiveRetrieval(query, options) {
     citations: dedupeCommunityCitations(
       Array.isArray(existing.citations) ? existing.citations : []
     ),
-    sourceFingerprint: storedFp,
+    sourceFingerprint: storedFp || liveMaterialsFp || null,
     model: existing.model || null,
     instantHit: true,
   };
@@ -1527,8 +1743,8 @@ function degradedNoExtractResult(fileRefs, archiveKey, fingerprint, communityErr
 
 /**
  * Delta community summary for the standalone summarizer.
- * Prefer community_materials fingerprint for cache validation; regenerate with
- * Gemini only when materials changed (or no archive row / force refresh).
+ * Prefer instant archive hit; regenerate with Gemini only when
+ * community_materials gained a newer related folder/file (or no archive / force).
  * Archive lookup is global (no userId filter).
  */
 async function resolveCommunityDriveSummary(query, matches, options) {
@@ -1577,65 +1793,52 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   // Prefer materials signature so catalog updates invalidate the archive cache.
   const fingerprint = materialsFingerprint || driveFingerprint;
 
-  try {
-    let existing = await fetchArchiveRow(archiveKey);
-    if (!existing) {
-      existing = await fetchArchiveRowByTopicGrade(topic, gradeId);
-    }
-    const storedFp = existing
-      ? String(existing.source_fingerprint || existing.drive_fingerprint || '').trim()
-      : '';
-    const archivedBody = existing
-      ? String(existing.summary_md || existing.summary_text || '').trim()
-      : '';
-    if (
-      existing &&
-      storedFp &&
-      storedFp === fingerprint &&
-      archivedBody &&
-      existing.community_status === 'ok'
-      && opts.forceRefresh !== true
-      && opts.refresh !== true
-    ) {
-      const archivedSummary = sanitizeCommunitySummaryMarkdown(archivedBody);
-      if (!isSummaryDeepEnough(archivedSummary)) {
-        console.warn(
-          '[community-drive-archive] cached summary too shallow — regenerating',
-          '| chars:',
-          archivedSummary.length
-        );
-      } else {
-        console.log(
-          '[community-drive-archive] fingerprint match — serving cached summary',
-          '| key:',
-          archiveKey.slice(0, 12)
-        );
+  // Cache HIT must return archived summary and never call Gemini / topic_master.
+  if (opts.forceRefresh !== true && opts.refresh !== true) {
+    try {
+      const instant = await tryInstantArchiveRetrieval(q, {
+        gradeId: gradeId,
+        currentGrade: gradeId,
+        topic: topic,
+        catalogTopic: topic,
+        materialsFingerprint: materialsFingerprint,
+        sourceFingerprint: fingerprint,
+        driveFingerprint: driveFingerprint,
+        fileRefs: fileRefs,
+        matches: matches,
+        phase: opts.phase || 'community_summarizer',
+        forceRefresh: false,
+      });
+      if (instant && instant.fromArchive && instant.summary) {
         return {
           heading: COMMUNITY_SUMMARY_HEADING,
-          summary: archivedSummary,
+          summary: instant.summary,
           communityStatus: 'ok',
           fromArchive: true,
           deltaUpdated: false,
-          archiveKey: archiveKey,
-          fileRefs: Array.isArray(existing.file_refs) ? existing.file_refs : fileRefs,
+          archiveKey: instant.archiveKey || archiveKey,
+          fileRefs: Array.isArray(instant.fileRefs) && instant.fileRefs.length
+            ? instant.fileRefs
+            : fileRefs,
           citations: dedupeCommunityCitations(
-            Array.isArray(existing.citations) && existing.citations.length
-              ? existing.citations
+            Array.isArray(instant.citations) && instant.citations.length
+              ? instant.citations
               : buildCitationsPayload(fileRefs, opts.citations)
           ),
           sourceFingerprint: fingerprint,
-          model: existing.model || null,
+          model: instant.model || null,
         };
       }
-    } else if (existing && storedFp && storedFp !== fingerprint) {
-      console.log(
-        '[community-drive-archive] fingerprint changed — regenerating summary',
-        '| key:',
-        archiveKey.slice(0, 12)
-      );
+      logArchiveMiss('proceeding to LLM after archive check failed', {
+        key: archiveKey.slice(0, 12),
+        files: fileRefs.length,
+      });
+    } catch (lookupErr) {
+      console.warn('[community-drive-archive] lookup failed:', lookupErr.message || lookupErr);
+      logArchiveMiss('archive lookup threw', {
+        error: lookupErr && lookupErr.message ? lookupErr.message : String(lookupErr),
+      });
     }
-  } catch (lookupErr) {
-    console.warn('[community-drive-archive] lookup failed:', lookupErr.message || lookupErr);
   }
 
   if (!env.getGeminiApiKey()) {
@@ -1810,6 +2013,7 @@ module.exports = {
   isSummaryDeepEnough,
   tryInstantArchiveRetrieval,
   computeCommunityMaterialsFingerprint,
+  hasNewerCommunityMaterials,
   dedupeCommunityCitations,
   dedupeCitationsInMarkdown,
   resolveCommunityDriveSummary,
