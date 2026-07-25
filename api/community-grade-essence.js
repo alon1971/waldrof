@@ -14,7 +14,7 @@ const TABLE_NAME = 'community_drive_archive';
 const MATERIALS_TABLE = 'community_materials';
 const GRADE_ESSENCE_SUBJECT = 'grade_essence';
 const GRADE_ESSENCE_PHASE = 'grade_essence';
-const GRADE_ESSENCE_PROMPT_VERSION = 'v2-grade-essence-deep';
+const GRADE_ESSENCE_PROMPT_VERSION = 'v3-grade-essence-clean-cites';
 const GRADE_ESSENCE_HEADING = 'מהות הגיל מתוך חומרי הקהילה';
 const GRADE_ESSENCE_INSUFFICIENT = 'אין מספיק חומרים ליצירת הסיכום הכללי.';
 const MIN_MATERIALS_THRESHOLD = 3;
@@ -351,8 +351,62 @@ function dedupeMaterialsByFilePath(rows) {
 }
 
 /**
+ * Strip Gemini-produced raw URLs and Markdown link syntax so only bare file
+ * names remain for the server/frontend linkifier.
+ */
+function scrubGeminiUrlAndMarkdownLinkArtifacts(summary) {
+  let text = String(summary || '');
+  if (!text) return '';
+
+  // [https://...](https://...) or [label](https://...) → keep readable label only
+  // when label is not itself a URL; otherwise drop the whole markdown link.
+  text = text.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label) {
+    const clean = String(label || '').trim();
+    if (!clean || /^https?:\/\//i.test(clean) || /docs\.google\.com|drive\.google\.com/i.test(clean)) {
+      return '';
+    }
+    return clean;
+  });
+
+  // Bare URLs on their own or inline
+  text = text.replace(/https?:\/\/[^\s)\]>]+/gi, '');
+
+  // Cleanup leftover empty parentheses / double spaces from removals
+  text = text
+    .replace(/\(\s*\)/g, '')
+    .replace(/\[\s*\]/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ *\n{3,}/g, '\n\n');
+
+  return text.trim();
+}
+
+/**
+ * Drop disclaimer / apology openers — start at the first ## heading.
+ */
+function stripLeadingDisclaimers(summary) {
+  let text = String(summary || '').trim();
+  if (!text) return '';
+
+  const headingMatch = text.match(/^#{1,4}\s+\S/m);
+  if (headingMatch && headingMatch.index != null && headingMatch.index > 0) {
+    text = text.slice(headingMatch.index).trim();
+  }
+
+  // Also drop leading disclaimer paragraphs even without a later heading match.
+  const disclaimerRe = /^(?:.{0,40})?(?:החומרים אינם|מתוך החומרים|לא ניתן לדעת|חשוב לציין|יש לציין|דיסקליימר|הבהרה|אין בידי|המסמכים שסופקו אינם)[\s\S]*?(?=\n#{1,4}\s+|$)/u;
+  text = text.replace(disclaimerRe, '').trim();
+
+  const again = text.match(/^#{1,4}\s+\S/m);
+  if (again && again.index != null && again.index > 0) {
+    text = text.slice(again.index).trim();
+  }
+  return text;
+}
+
+/**
  * Replace bare community file names in the summary with Markdown links to file_path.
- * Protects existing [label](url) spans so they are not double-wrapped.
+ * Link label is the readable file name only (never a raw URL).
  */
 function linkifyFileNamesInGradeEssenceSummary(summary, materialsRows) {
   let text = String(summary || '');
@@ -382,7 +436,15 @@ function linkifyFileNamesInGradeEssenceSummary(summary, materialsRows) {
   });
 
   protectedSpans.forEach(function (span, idx) {
-    text = text.split('\u0000GELINK' + idx + '\u0000').join(span);
+    // Re-normalize protected spans: keep readable label, never URL-as-label.
+    const rebuilt = span.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/, function (_m, label, url) {
+      const clean = String(label || '').trim();
+      if (!clean || /^https?:\/\//i.test(clean)) {
+        return '';
+      }
+      return '[' + clean + '](' + url + ')';
+    });
+    text = text.split('\u0000GELINK' + idx + '\u0000').join(rebuilt);
   });
   return text;
 }
@@ -407,6 +469,7 @@ function materialsCitedInSummary(summary, materialsRows) {
 
 /**
  * Rebuild ## מראי מקום as a unique clickable list of files actually used in the body.
+ * Format: numbered Markdown links with readable file-name labels only (no raw URL text).
  */
 function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
   const citedRows = materialsCitedInSummary(summary, materialsRows);
@@ -427,10 +490,12 @@ function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
 }
 
 /**
- * Pass grade-essence summary through linkifier + unique sources formatter.
+ * Pass grade-essence summary through scrubber + linkifier + unique sources formatter.
  */
 function finalizeGradeEssenceSummary(summary, materialsRows) {
-  let text = linkifyFileNamesInGradeEssenceSummary(summary, materialsRows);
+  let text = scrubGeminiUrlAndMarkdownLinkArtifacts(summary);
+  text = stripLeadingDisclaimers(text);
+  text = linkifyFileNamesInGradeEssenceSummary(text, materialsRows);
   text = rebuildGradeEssenceSourcesSection(text, materialsRows);
   return sanitizeSummary(text);
 }
@@ -442,15 +507,13 @@ function buildCorpusFromMaterials(rows) {
     if (total >= MAX_TOTAL_CHARS) return;
     const topic = String(row.topic || '').trim();
     const fileName = String(row.file_name || row.fileName || '').trim();
-    const filePath = String(row.file_path || row.filePath || '').trim();
     const notes = cleanMaterialNotes(row.notes);
-    const url = materialLinkFromRow(row);
+    // Do NOT include raw URLs / public links in the corpus — Gemini must cite
+    // bare file names only; the linkifier attaches hrefs later.
     const body = [
       '=== חומר ' + (idx + 1) + ' ===',
       topic ? ('נושא/תקופה: ' + topic) : '',
-      fileName ? ('שם קובץ: ' + fileName) : '',
-      filePath ? ('נתיב/קישור (file_path): ' + filePath) : '',
-      url ? ('קישור לחיץ: ' + url) : '',
+      fileName ? ('שם קובץ מדויק לציטוט: ' + fileName) : '',
       notes ? ('הערות/תיאור: ' + notes.slice(0, MAX_MATERIAL_CHARS)) : '',
     ].filter(Boolean).join('\n');
     total += body.length;
@@ -503,30 +566,34 @@ function buildGradeEssenceSystemPrompt() {
     'אתה יועץ פדגוגי בכיר ומנוסה בחינוך ולדורף.',
     'תפקידך לנסח סיכום מקיף, מובנה ועמוק בשם "מהות הגיל מתוך חומרי הקהילה" עבור שכבת כיתה אחת.',
     'הגבלת מקור קשיחה: התבסס אך ורק על חומרי המאגר הקהילתי שצורפו בהודעת המשתמש. אסור ידע חיצוני, זיכרון מודל, חיפוש ברשת, או השלמות שאינן מופיעות בחומרים.',
-    'אם פרט חסר בחומרים — ציין זאת במפורש ואל תמציא.',
+    'אם פרט חסר בחומרים — דלג עליו בשקט והתמקד במה שכן מופיע. אל תכתוב התנצלות או דיסקליימר על החוסר.',
     'כתוב בעברית פדגוגית רהוטה, עשירה ומפורטת. פסקאות מלאות. פלט Markdown בלבד (ללא JSON וללא גדרות קוד).',
+    '',
+    'סגנון ישיר — חובה:',
+    'אל תכלול פתיחים, דיסקליימרים או התנצלויות כגון «החומרים אינם מפרטים באופן מפורש...», «מתוך החומרים שסופקו לא ניתן לדעת...», «חשוב לציין ש...» וכדומה.',
+    'התחל מיד בגוף התשובה תחת הכותרת הראשונה, בטון מקצועי, בטוח וישיר.',
+    'השורה הראשונה בפלט חייבת להיות כותרת ## מהות הגיל והתפתחות הילד/ה.',
+    '',
+    'איסור מוחלט על קישורי Markdown וכתובות URL:',
+    'אסור לכתוב כתובות URL גולמיות (http/https, docs.google.com, drive.google.com וכו׳).',
+    'אסור להשתמש בתחביר Markdown של קישורים מהסוג [שם](URL) או [https://...](https://...).',
+    'כדי להפנות למקור — ציין אך ורק את שם הקובץ המדויק כטקסט חופשי או במרכאות,',
+    'לדוגמה: כפי שמתואר בקובץ עבודת שורשים-מעודכן1.docx',
+    'המערכת החיצונית תמיר את שמות הקבצים לקישורים לחיצים. אל תנסה ליצור קישורים בעצמך.',
     '',
     'מבנה חובה בדיוק עם כותרות ## כדלקמן:',
     '## מהות הגיל והתפתחות הילד/ה',
-    'סקירה פדגוגית עמוקה על המאפיינים ההתפתחותיים בגיל/בשכבה זו כפי שעולים מהחומרים המצורפים — תודעה, צרכים, מתחים, והדגשים הוולדורפיים המופיעים במקורות.',
+    'סקירה פדגוגית עמוקה על המאפיינים ההתפתחותיים בגיל/בשכבה זו כפי שעולים מהחומרים המצורפים.',
     '## תקופות הלימוד בשכבה',
-    'פירוט מורחב והסבר על כל תקופת לימוד (מיינלסון / Main Lesson) המופיעה בחומרים. ארגן לפי תקופות/נושאים שנמצאו בקטלוג ובקבצים; הרחב מעבר לרשימת כותרות.',
+    'פירוט מורחב והסבר על כל תקופת לימוד (מיינלסון / Main Lesson) המופיעה בחומרים.',
     '## פרויקטים כיתתיים ועבודות',
-    'סקירת עבודות החקר, הפרויקטים והמשימות המופיעות בחומרים (למשל עבודת שורשים וכדומה). תאר מטרות, מבנה ומאפיינים כפי שמשתקפים במקורות.',
+    'סקירת עבודות החקר, הפרויקטים והמשימות המופיעות בחומרים (למשל עבודת שורשים וכדומה).',
     '## המלצות לפעילויות יצירתיות ואמנותיות',
-    'המלצות קונקרטיות לפעילויות יצירתיות ואמנותיות הנשענות על מערכי השיעור והקבצים שסופקו — לא המצאות חיצוניות.',
+    'המלצות קונקרטיות הנשענות על מערכי השיעור והקבצים שסופקו.',
     '## מראי מקום',
-    'רשימה קצרה של הקבצים והמקורות שנעשה בהם שימוש בפועל בגוף הסיכום בלבד — לא רשימת כל התיקייה/הדרייב.',
-    '',
-    'שילוב מראי מקום בטקסט (Inline Citations) — חובה:',
-    'בתוך פסקאות הסיכום עצמן, ציין את שמות הקבצים המדויקים שעליהם אתה מתבסס בנקודה הרלוונטית,',
-    'למשל: «כפי שמופיע בקובץ עבודת שורשים-מעודכן1.docx».',
-    'השתמש בשם הקובץ המדויק כפי שמופיע בחומרים (כולל סיומת), כדי שניתן יהיה להמיר אותו לקישור לחיץ.',
-    '',
-    'בסעיף מראי מקום הסופי:',
-    'אל תכלול את כל קבצי הדרייב או את כל תיקיית הכיתה.',
-    'כלול אך ורק קבצים שהוזכרו/שימשו בפועל בגוף הסיכום, כל קובץ פעם אחת, בשורות נפרדות.',
-    'עדיף בפורמט: 1. שם-קובץ.docx',
+    'רשימה קצרה של שמות הקבצים שנעשה בהם שימוש בפועל בגוף הסיכום בלבד — לא רשימת כל התיקייה/הדרייב.',
+    'כל קובץ פעם אחת, בשורה נפרדת, כשם קובץ קריא בלבד (בלי URL ובלי Markdown של קישור), למשל:',
+    '1. עבודת שורשים-מעודכן1.docx',
   ].join(' ');
 }
 
@@ -545,9 +612,10 @@ function buildGradeEssenceUserPrompt(gradeId, rows) {
   return [
     'בקשה: הפק סיכום מקיף "מהות הגיל מתוך חומרי הקהילה" עבור ' + (gradeLabel || 'הכיתה שנבחרה') + '.',
     'השתמש אך ורק בחומרים המצורפים להלן מתוך המאגר הקהילתי. אסור ידע חיצוני.',
-    'חובה לכלול את ארבעת סעיפי התוכן ואז מראי מקום: מהות הגיל והתפתחות הילד/ה; תקופות הלימוד בשכבה; פרויקטים כיתתיים ועבודות; המלצות לפעילויות יצירתיות ואמנותיות; מראי מקום.',
-    'שלב בגוף הטקסט שמות קבצים מדויקים כהפניות פנימיות (inline) בנקודות הרלוונטיות.',
-    'בסיום — מראי מקום רק לקבצים ששימשו בפועל בגוף הסיכום (לא כל הקטלוג).',
+    'התחל מיד בכותרת ## מהות הגיל והתפתחות הילד/ה — בלי פתיח ובלי התנצלות.',
+    'אסור URL ואסור [טקסט](קישור). ציין שמות קבצים מדויקים כטקסט בלבד.',
+    'חובה לכלול: מהות הגיל והתפתחות הילד/ה; תקופות הלימוד בשכבה; פרויקטים כיתתיים ועבודות; המלצות לפעילויות יצירתיות ואמנותיות; מראי מקום.',
+    'בסיום — מראי מקום רק לשמות קבצים ששימשו בפועל בגוף הסיכום (לא כל הקטלוג), בלי כתובות.',
     'נושאים/תקופות שזוהו בקטלוג: ' + (topics.length ? topics.join(' · ') : '(לא זוהו)'),
     'מספר פריטים בקטלוג: ' + (rows || []).length,
     '',
