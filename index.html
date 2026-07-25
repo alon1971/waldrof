@@ -7618,7 +7618,7 @@
     const COMMUNITY_OWNED_STORAGE_KEY = 'waldrof_community_owned_materials';
     const COMMUNITY_UPLOAD_DRAFT_KEY = 'community_upload_draft';
     const COMMUNITY_MATERIALS_CACHE_KEY = 'community_materials_cache';
-    const COMMUNITY_LIST_SELECT = 'id,grade_level,topic,file_path,file_name,notes,user_id,created_at';
+    const COMMUNITY_LIST_SELECT = 'id,grade_level,topic,file_path,file_name,notes,created_at';
     const COMMUNITY_CACHE_TTL_MS = 60000;
     const COMMUNITY_LOCAL_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
     let communityCacheFetchedAt = 0;
@@ -18368,7 +18368,7 @@
       const pageSize = 1000;
       const maxPages = 50;
       const all = [];
-      const gradeLevel = String(opts.gradeLevel || opts.grade_level || '').trim();
+      const gradeValues = expandCommunityGradeLevelValues(opts.gradeLevel || opts.grade_level || '');
       for (let page = 0; page < maxPages; page++) {
         const from = page * pageSize;
         const to = from + pageSize - 1;
@@ -18376,7 +18376,13 @@
           .from(SUPABASE_TABLE)
           .select(COMMUNITY_LIST_SELECT)
           .order('created_at', { ascending: false });
-        if (gradeLevel) query = query.eq('grade_level', gradeLevel);
+        if (gradeValues.length === 1) {
+          query = query.eq('grade_level', gradeValues[0]);
+        } else if (gradeValues.length > 1) {
+          query = query.or(gradeValues.map(function (v) {
+            return 'grade_level.eq.' + v;
+          }).join(','));
+        }
         const { data, error } = await query.range(from, to);
         if (error) throw error;
         const batch = Array.isArray(data) ? data : [];
@@ -19776,14 +19782,15 @@
         throw new Error('Invalid community materials response');
       }
       if (json.degraded) {
-        console.warn('[community] server returned degraded empty list:', json.reason || 'unknown');
+        // Server list failed (e.g. bad SELECT) — force direct Supabase fallback.
+        throw new Error('Community materials degraded: ' + (json.reason || 'unknown'));
       }
       return rows;
     }
 
     async function fetchCommunityMaterialsOfflineFallback(opts) {
       opts = opts || {};
-      const gradeLevel = String(opts.gradeLevel || opts.grade_level || '').trim();
+      const gradeValues = expandCommunityGradeLevelValues(opts.gradeLevel || opts.grade_level || '');
       try {
         const clientRows = await fetchCommunityMaterialsViaClient(opts);
         if (clientRows) return clientRows;
@@ -19806,8 +19813,12 @@
           let url = SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE
             + '?select=' + encodeURIComponent(COMMUNITY_LIST_SELECT)
             + '&order=created_at.desc';
-          if (gradeLevel) {
-            url += '&grade_level=eq.' + encodeURIComponent(gradeLevel);
+          if (gradeValues.length === 1) {
+            url += '&grade_level=eq.' + encodeURIComponent(gradeValues[0]);
+          } else if (gradeValues.length > 1) {
+            url += '&or=(' + gradeValues.map(function (v) {
+              return 'grade_level.eq.' + encodeURIComponent(v);
+            }).join(',') + ')';
           }
           const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
           const timeoutId = controller
@@ -20659,7 +20670,58 @@
         const numericId = String(parseInt(digitMatch[1], 10));
         if (GRADES.some(function (g) { return g.id === numericId; })) return numericId;
       }
+      const heb = value.match(/כיתה\s*([א-ח])['׳"”]?/u) || value.match(/^([א-ח])['׳"”]?$/u);
+      if (heb) {
+        const map = { א: '1', ב: '2', ג: '3', ד: '4', ה: '5', ו: '6', ז: '7', ח: '8' };
+        if (map[heb[1]]) return map[heb[1]];
+      }
       return '';
+    }
+
+    /**
+     * Query values for community_materials.grade_level for one class card.
+     * Canonical DB value is '3'; also accept Hebrew labels like «כיתה ג׳».
+     */
+    function expandCommunityGradeLevelValues(raw) {
+      const input = String(raw || '').trim();
+      if (!input) return [];
+      const gid = resolveCommunityGradeIdFromAny(input) || input;
+      if (gid === GENERAL_GRADE_ID) return ['general'];
+      const values = [];
+      function add(v) {
+        const s = String(v || '').trim();
+        if (!s) return;
+        if (values.indexOf(s) === -1) values.push(s);
+      }
+      add(input);
+      add(gid);
+      const letterMap = { '1': 'א', '2': 'ב', '3': 'ג', '4': 'ד', '5': 'ה', '6': 'ו', '7': 'ז', '8': 'ח' };
+      const letter = letterMap[gid];
+      if (letter) {
+        add('כיתה ' + letter);
+        add("כיתה " + letter + "'");
+        add('כיתה ' + letter + '׳');
+        add(letter);
+        add(letter + "'");
+        add(letter + '׳');
+      }
+      const catalog = findCatalogGrade(gid);
+      if (catalog && catalog.label) add(catalog.label);
+      try {
+        const i18nLabel = getGradeLabelById(gid);
+        if (i18nLabel) add(i18nLabel);
+      } catch (e) { /* ignore */ }
+      return values;
+    }
+
+    function communityGradeLevelsMatch(storedLevel, wantedGradeId) {
+      const wanted = resolveCommunityGradeIdFromAny(wantedGradeId);
+      if (!wanted) return false;
+      const stored = String(storedLevel || '').trim();
+      if (!stored) return false;
+      if (stored === String(wantedGradeId).trim() || stored === wanted) return true;
+      const resolvedStored = resolveCommunityGradeIdFromAny(stored);
+      return Boolean(resolvedStored && resolvedStored === wanted);
     }
 
     function resolveCommunityMatchFileUrl(match) {
@@ -21691,9 +21753,9 @@
           return !level || level === GENERAL_GRADE_ID || level === 'general';
         });
       }
-      // Strict match on community_materials.grade_level (e.g. '7').
+      // Match community_materials.grade_level digit ('3') or Hebrew label («כיתה ג׳»).
       return items.filter(function (i) {
-        return String(i.gradeLevel || '').trim() === gid;
+        return communityGradeLevelsMatch(i.gradeLevel, gid);
       });
     }
 
@@ -21705,7 +21767,7 @@
         return;
       }
       const others = (appState.communityCache || []).filter(function (m) {
-        return String(m.gradeLevel || '').trim() !== gid;
+        return !communityGradeLevelsMatch(m.gradeLevel, gid);
       });
       applyCommunityMappedRows(incoming.concat(others));
     }
@@ -21717,11 +21779,18 @@
         try { await loadRuntimeConfig(); } catch (e) { /* ignore */ }
       }
       if (!isCloudConfigured()) return;
+      const previousForGrade = filterByGrade(appState.communityCache || [], gid);
       try {
+        // Direct SELECT from community_materials filtered by grade_level.
         const rows = await fetchCommunityMaterials({ gradeLevel: gid });
         const mapped = (rows || []).map(mapRow).filter(function (item) {
           return Boolean(resolveCommunityMaterialId(item));
         });
+        if (!mapped.length && previousForGrade.length) {
+          // Avoid wiping a warm cache if a filtered fetch returned nothing unexpectedly.
+          console.warn('[community] loadCommunityForGrade empty for', gid, '— keeping previous', previousForGrade.length, 'rows');
+          return previousForGrade;
+        }
         mergeCommunityCacheForGrade(gid, mapped);
         return mapped;
       } catch (err) {

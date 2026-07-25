@@ -1,6 +1,6 @@
 /**
  * GET    /api/community-materials — list community_materials
- *        Optional: ?grade_level=<id> filters rows for one class (exact match)
+ *        Optional: ?grade_level=<id> filters by grade (digit and Hebrew label variants)
  * PATCH  /api/community-materials?id=<uuid> — update grade / topic / description / author
  * DELETE /api/community-materials?id=<uuid> — delete row + storage object
  */
@@ -13,11 +13,74 @@ const MATERIALS_TABLE = 'community_materials';
 const COMMUNITY_META_FIELD = 'notes';
 const MATERIAL_PK_COLUMN = 'id';
 const VALID_GRADE_LEVELS = new Set(['1', '2', '3', '4', '5', '6', '7', '8', 'general']);
-/** Flat list columns only — avoid select=* payload bloat. */
+/** Flat list columns only — avoid select=* payload bloat. user_id is not a table column. */
 const LIST_SELECT =
-  'id,grade_level,topic,file_path,file_name,notes,user_id,created_at';
+  'id,grade_level,topic,file_path,file_name,notes,created_at';
 const LIST_CACHE_TTL_MS = 30000;
 let communityListCache = { at: 0, rows: null, degraded: false, reason: '' };
+
+const HEBREW_GRADE_ID_TO_LETTER = {
+  '1': 'א', '2': 'ב', '3': 'ג', '4': 'ד', '5': 'ה', '6': 'ו', '7': 'ז', '8': 'ח',
+};
+
+/**
+ * Values that may appear in community_materials.grade_level for one class card.
+ * Canonical storage is '3', but legacy rows may use Hebrew labels.
+ */
+function expandGradeLevelFilterValues(raw) {
+  const input = String(raw || '').trim();
+  if (!input) return [];
+  const lower = input.toLowerCase();
+  if (lower === 'general' || input === 'כללי') return ['general'];
+
+  const values = [];
+  function add(v) {
+    const s = String(v || '').trim();
+    if (!s) return;
+    if (values.indexOf(s) === -1) values.push(s);
+  }
+
+  add(input);
+
+  let gid = '';
+  if (/^[1-8]$/.test(input)) {
+    gid = input;
+  } else {
+    const heb = input.match(/כיתה\s*([א-ח])['׳"”]?/u) || input.match(/^([א-ח])['׳"”]?$/u);
+    const map = { א: '1', ב: '2', ג: '3', ד: '4', ה: '5', ו: '6', ז: '7', ח: '8' };
+    if (heb && map[heb[1]]) gid = map[heb[1]];
+    else {
+      const digit = input.match(/([1-8])/);
+      if (digit) gid = digit[1];
+    }
+  }
+
+  if (gid) {
+    add(gid);
+    const letter = HEBREW_GRADE_ID_TO_LETTER[gid];
+    if (letter) {
+      add('כיתה ' + letter);
+      add('כיתה ' + letter + "'");
+      add('כיתה ' + letter + '׳');
+      add(letter);
+      add(letter + "'");
+      add(letter + '׳');
+    }
+  }
+  return values;
+}
+
+function appendGradeLevelQueryFilter(listPath, gradeFilter) {
+  const values = expandGradeLevelFilterValues(gradeFilter);
+  if (!values.length) return listPath;
+  if (values.length === 1) {
+    return listPath + '&grade_level=eq.' + encodeURIComponent(values[0]);
+  }
+  // PostgREST OR: match digit id and Hebrew label variants.
+  return listPath + '&or=(' + values.map(function (v) {
+    return 'grade_level.eq.' + encodeURIComponent(v);
+  }).join(',') + ')';
+}
 
 function invalidateCommunityListCache() {
   communityListCache = { at: 0, rows: null, degraded: false, reason: '' };
@@ -477,8 +540,8 @@ async function listCommunityMaterials(opts) {
       + '?select=' + encodeURIComponent(LIST_SELECT)
       + '&order=created_at.desc';
     if (gradeFilter) {
-      // Exact match on grade_level (e.g. '7' / 7 stored as text).
-      listPath += '&grade_level=eq.' + encodeURIComponent(gradeFilter);
+      // Match grade_level digit ('3') and Hebrew label variants («כיתה ג׳»).
+      listPath = appendGradeLevelQueryFilter(listPath, gradeFilter);
     }
     for (let page = 0; page < maxPages; page++) {
       const from = page * pageSize;
@@ -798,4 +861,5 @@ module.exports = {
   listCommunityMaterials,
   patchCommunityMaterial,
   deleteCommunityMaterial,
+  expandGradeLevelFilterValues,
 };
