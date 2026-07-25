@@ -21270,6 +21270,174 @@
       return s.trim();
     }
 
+    function normalizeGradeEssenceCitationKey(value) {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\u05F3\u05F4׳״`'"]/g, '')
+        .replace(/\s+/g, ' ');
+    }
+
+    function resolveGradeEssenceMaterialUrl(row) {
+      if (!row || typeof row !== 'object') return '';
+      var gdocs = String(row.google_docs_url || row.googleDocsUrl || '').trim();
+      if (gdocs && typeof isHttpUrl === 'function' && isHttpUrl(gdocs)) return gdocs;
+      if (gdocs && /^https?:\/\//i.test(gdocs)) return gdocs;
+      if (typeof resolveCommunityFileUrl === 'function') {
+        var resolved = resolveCommunityFileUrl(row);
+        if (resolved) return resolved;
+      }
+      var direct = String(
+        row.webViewLink || row.fileUrl || row.url || row.file_path || row.filePath || ''
+      ).trim();
+      if (direct && /^https?:\/\//i.test(direct)) return direct;
+      return '';
+    }
+
+    /**
+     * Build a file_name → URL lookup from community_materials-backed rows
+     * (API matches/citations + local community cache).
+     */
+    function collectGradeEssenceMaterialEntries(meta) {
+      var entries = [];
+      var seen = {};
+      function addRow(row) {
+        if (!row) return;
+        var name = String(
+          row.file_name || row.fileName || row.title || row.name || ''
+        ).trim();
+        if (!name) return;
+        var key = normalizeGradeEssenceCitationKey(name);
+        if (!key || seen[key]) return;
+        var url = resolveGradeEssenceMaterialUrl(row);
+        if (!url) return;
+        seen[key] = true;
+        entries.push({ name: name, url: url, key: key, len: name.length });
+      }
+      (meta && Array.isArray(meta.communityMatches) ? meta.communityMatches : []).forEach(addRow);
+      (meta && Array.isArray(meta.communityCitations) ? meta.communityCitations : []).forEach(addRow);
+      var cache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
+      var gradeHint = String(
+        (meta && (meta.gradeId || meta.grade_id || meta.gradeLevel))
+        || appState.communitySummarizerGradeId
+        || appState.grade
+        || ''
+      ).trim();
+      var scoped = gradeHint && typeof filterByGrade === 'function'
+        ? filterByGrade(cache, gradeHint)
+        : cache;
+      (scoped || []).forEach(addRow);
+      entries.sort(function (a, b) { return b.len - a.len; });
+      return entries;
+    }
+
+    function findGradeEssenceMaterialEntry(quotedName, entries) {
+      var raw = String(quotedName || '').trim();
+      if (!raw) return null;
+      var key = normalizeGradeEssenceCitationKey(raw);
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].name === raw || entries[i].key === key) return entries[i];
+      }
+      return null;
+    }
+
+    /**
+     * Grade-essence linkifier: convert double-quoted file names that exist in
+     * community_materials into clean HTML anchors (no Markdown, no raw URLs).
+     */
+    function linkifyGradeEssenceQuotedFileNames(summary, entries) {
+      var text = String(summary || '');
+      if (!text || !entries || !entries.length) {
+        return { text: text, placeholders: [], cited: [] };
+      }
+      text = text.replace(/[“”‟″״]/g, '"');
+      var placeholders = [];
+      var cited = [];
+      var seenCite = {};
+      text = text.replace(/"([^"]{1,500})"/g, function (match, inner) {
+        var entry = findGradeEssenceMaterialEntry(inner, entries);
+        if (!entry) return match;
+        if (!seenCite[entry.key]) {
+          seenCite[entry.key] = true;
+          cited.push(entry);
+        }
+        var idx = placeholders.length;
+        placeholders.push(
+          '<a href="' + escapeHtml(entry.url) + '" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline prose-source-link">'
+          + escapeHtml('"' + entry.name + '"')
+          + '</a>'
+        );
+        // ASCII-safe token — survives DOM-based escapeHtml (null bytes do not).
+        return '%%GECITE' + idx + '%%';
+      });
+      return { text: text, placeholders: placeholders, cited: cited };
+    }
+
+    function applyGradeEssenceCitePlaceholders(html, placeholders) {
+      var out = String(html || '');
+      (placeholders || []).forEach(function (anchorHtml, idx) {
+        out = out.split('%%GECITE' + idx + '%%').join(anchorHtml);
+      });
+      return out;
+    }
+
+    function scrubGradeEssenceDisplayArtifacts(summary) {
+      var text = String(summary || '');
+      if (!text) return '';
+      // Collapse leftover Markdown / URL artifacts into bare labels (prefer quoted).
+      text = text.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]*)\)/gi, function (_m, label) {
+        var clean = String(label || '').trim();
+        if (!clean || /^https?:\/\//i.test(clean)) return '';
+        clean = clean.replace(/^["“”״]+|["“”״]+$/g, '');
+        return clean ? ('"' + clean + '"') : '';
+      });
+      text = text.replace(/\[https?:\/\/[^\]]*\]/gi, '');
+      text = text.replace(/(^|[\s(])https?:\/\/[^\s)\]>]+/gi, '$1');
+      text = text
+        .replace(/\(\s*\)\s*\(\s*\[\s*\]\s*\)/g, '')
+        .replace(/\(\s*\[\s*\]\s*\)/g, '')
+        .replace(/\(\s*\)/g, '')
+        .replace(/\[\s*\]/g, '')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+      return text;
+    }
+
+    function renderGradeEssenceCitedSourcesHtml(citedEntries) {
+      if (!citedEntries || !citedEntries.length) return '';
+      var seen = {};
+      var items = [];
+      citedEntries.forEach(function (entry) {
+        if (!entry || !entry.name || !entry.url) return;
+        var key = entry.key || normalizeGradeEssenceCitationKey(entry.name);
+        if (!key || seen[key]) return;
+        seen[key] = true;
+        items.push(
+          '<li><a class="prose-source-link" href="' + escapeHtml(entry.url)
+          + '" target="_blank" rel="noopener noreferrer">'
+          + escapeHtml(entry.name) + '</a></li>'
+        );
+      });
+      if (!items.length) return '';
+      return '<div class="hybrid-community-citations" dir="rtl">'
+        + '<h4>מראי מקום</h4>'
+        + '<ul>' + items.join('') + '</ul></div>';
+    }
+
+    function formatGradeEssenceSummaryHtml(summary, meta) {
+      var scrubbed = scrubGradeEssenceDisplayArtifacts(summary);
+      var entries = collectGradeEssenceMaterialEntries(meta);
+      // Citations footer: only files quoted in the prose body (before ## מראי מקום).
+      var sourcesMarker = scrubbed.search(/#{1,4}\s*מראי\s*מקום/i);
+      var proseOnly = sourcesMarker >= 0 ? scrubbed.slice(0, sourcesMarker) : scrubbed;
+      var citedFromBody = linkifyGradeEssenceQuotedFileNames(proseOnly, entries).cited;
+      var linked = linkifyGradeEssenceQuotedFileNames(scrubbed, entries);
+      var bodyHtml = formatInspirationAiMarkdown(linked.text)
+        || ('<p>' + escapeHtml(linked.text).replace(/\n/g, '<br>') + '</p>');
+      bodyHtml = applyGradeEssenceCitePlaceholders(bodyHtml, linked.placeholders);
+      return { bodyHtml: bodyHtml, cited: citedFromBody };
+    }
+
     function renderHybridCommunityCitationsHtml(meta) {
       var citations = (meta && Array.isArray(meta.communityCitations) && meta.communityCitations.length)
         ? meta.communityCitations
@@ -24510,14 +24678,7 @@
           || 'אין מספיק חומרים ליצירת הסיכום הכללי.';
       }
       summary = sanitizeCommunitySummaryForDisplay(summary);
-      if (meta && meta.gradeEssence) {
-        // Grade-essence: never show raw URLs in prose; linkifier uses file-name labels only.
-        summary = String(summary || '')
-          .replace(/\[(https?:\/\/[^\]]*)\]\((https?:\/\/[^)\s]+)\)/gi, '')
-          .replace(/(^|[\s(])https?:\/\/[^\s)\]>]+/gi, '$1')
-          .replace(/[ \t]{2,}/g, ' ')
-          .trim();
-      }
+      var gradeEssenceCited = [];
       var bodyHtml;
       if (isSummarizing) {
         bodyHtml = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>'
@@ -24527,21 +24688,31 @@
           + '<i class="fa-regular fa-folder-open" aria-hidden="true"></i>'
           + '<p>' + escapeHtml(summary) + '</p>'
           + '</div>';
+      } else if (meta && meta.gradeEssence) {
+        // Grade-essence: quoted file names → HTML anchors; no Markdown link parsing collision.
+        var gradeFormatted = formatGradeEssenceSummaryHtml(summary, meta);
+        bodyHtml = gradeFormatted.bodyHtml;
+        gradeEssenceCited = gradeFormatted.cited || [];
+        // Drop in-body «מראי מקום» so the deduped footer is the single sources list.
+        bodyHtml = String(bodyHtml || '').replace(
+          /<h[1-6][^>]*>\s*מראי\s*מקום\s*<\/h[1-6]>[\s\S]*$/i,
+          ''
+        ).trim();
       } else {
         bodyHtml = formatInspirationAiMarkdown(summary)
           || ('<p>' + escapeHtml(summary).replace(/\n/g, '<br>') + '</p>');
       }
-      var citationsHtml = (isEmpty || isSummarizing) ? '' : renderHybridCommunityCitationsHtml(meta);
-      // Avoid duplicating a Gemini-authored «מראי מקום» section when body already has sources.
-      // Grade-essence summaries always rebuild a unique linked sources section in the body.
-      if (
-        citationsHtml
-        && (
-          Boolean(meta && meta.gradeEssence)
-          || (/מראי מקום/.test(summary) && /https?:\/\//.test(summary))
-        )
-      ) {
-        citationsHtml = '';
+      var citationsHtml = '';
+      if (!isEmpty && !isSummarizing) {
+        if (meta && meta.gradeEssence) {
+          // Footer only from files actually quoted/used in the body (deduped).
+          citationsHtml = renderGradeEssenceCitedSourcesHtml(gradeEssenceCited);
+        } else {
+          citationsHtml = renderHybridCommunityCitationsHtml(meta);
+          if (citationsHtml && /מראי מקום/.test(summary) && /https?:\/\//.test(summary)) {
+            citationsHtml = '';
+          }
+        }
       }
       return '<aside class="hybrid-community-summary' + (isEmpty || isSummarizing ? ' is-empty' : '') + (isSummarizing ? ' is-summarizing' : '') + '" dir="rtl" aria-label="' + escapeHtml(heading) + '" aria-busy="' + (isSummarizing ? 'true' : 'false') + '">' +
         '<h3><i class="fa-solid fa-people-roof text-sage ml-1" aria-hidden="true"></i> ' + escapeHtml(heading) + '</h3>' +
@@ -24787,17 +24958,24 @@
       if (heading) {
         bodyHtml += '<h1>' + escapeHtml(heading) + '</h1>';
       }
-      bodyHtml += formatInspirationAiMarkdown(summaryText)
-        || ('<p>' + escapeHtml(summaryText).replace(/\n/g, '<br>') + '</p>');
-      // Dedicated blue underlined reference block for Word (leaf names only).
-      // Skip when the summary body already includes a linked «מראי מקום» section
-      // (grade-essence rebuilds unique clickable sources in-body).
-      if (data.communityCitations && data.communityCitations.length
-        && !(
-          Boolean(data.gradeEssence)
-          || (/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))
-        )) {
-        bodyHtml += renderHybridCommunityCitationsHtml(data);
+      if (data.gradeEssence) {
+        var gradeWord = formatGradeEssenceSummaryHtml(summaryText, data);
+        var gradeBody = String(gradeWord.bodyHtml || '').replace(
+          /<h[1-6][^>]*>\s*מראי\s*מקום\s*<\/h[1-6]>[\s\S]*$/i,
+          ''
+        ).trim();
+        bodyHtml += gradeBody
+          || ('<p>' + escapeHtml(summaryText).replace(/\n/g, '<br>') + '</p>');
+        bodyHtml += renderGradeEssenceCitedSourcesHtml(gradeWord.cited || []);
+      } else {
+        bodyHtml += formatInspirationAiMarkdown(summaryText)
+          || ('<p>' + escapeHtml(summaryText).replace(/\n/g, '<br>') + '</p>');
+        // Dedicated blue underlined reference block for Word (leaf names only).
+        // Skip when the summary body already includes a linked «מראי מקום» section.
+        if (data.communityCitations && data.communityCitations.length
+          && !(/מראי מקום/.test(summaryText) && /https?:\/\//.test(summaryText))) {
+          bodyHtml += renderHybridCommunityCitationsHtml(data);
+        }
       }
 
       try {

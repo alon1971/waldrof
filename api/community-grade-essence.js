@@ -14,7 +14,7 @@ const TABLE_NAME = 'community_drive_archive';
 const MATERIALS_TABLE = 'community_materials';
 const GRADE_ESSENCE_SUBJECT = 'grade_essence';
 const GRADE_ESSENCE_PHASE = 'grade_essence';
-const GRADE_ESSENCE_PROMPT_VERSION = 'v3-grade-essence-clean-cites';
+const GRADE_ESSENCE_PROMPT_VERSION = 'v4-grade-essence-clean-inline';
 const GRADE_ESSENCE_HEADING = 'מהות הגיל מתוך חומרי הקהילה';
 const GRADE_ESSENCE_INSUFFICIENT = 'אין מספיק חומרים ליצירת הסיכום הכללי.';
 const MIN_MATERIALS_THRESHOLD = 3;
@@ -145,7 +145,7 @@ async function fetchCommunityMaterialsForGrade(gradeId) {
   const params = new URLSearchParams();
   params.set(
     'select',
-    'id,grade_level,topic,file_path,file_name,notes,created_at'
+    'id,grade_level,topic,file_path,file_name,google_docs_url,notes,created_at'
   );
   params.set('grade_level', 'eq.' + gid);
   params.set('order', 'created_at.desc');
@@ -306,7 +306,8 @@ function sanitizeSummary(summary) {
 }
 
 function materialLinkFromRow(row) {
-  // community_materials stores links/paths in file_path (no google_docs_url column).
+  const gdocs = String(row && (row.google_docs_url || row.googleDocsUrl) || '').trim();
+  if (/^https?:\/\//i.test(gdocs)) return gdocs;
   const path = String(row && (row.file_path || row.filePath) || '').trim();
   if (!path) return '';
   if (/^https?:\/\//i.test(path)) return path;
@@ -351,8 +352,8 @@ function dedupeMaterialsByFilePath(rows) {
 }
 
 /**
- * Strip Gemini-produced raw URLs and Markdown link syntax so only bare file
- * names remain for the server/frontend linkifier.
+ * Strip Gemini-produced raw URLs and Markdown link syntax so only clean
+ * double-quoted file names remain for the frontend linkifier.
  */
 function scrubGeminiUrlAndMarkdownLinkArtifacts(summary) {
   let text = String(summary || '');
@@ -360,7 +361,7 @@ function scrubGeminiUrlAndMarkdownLinkArtifacts(summary) {
 
   // [https://...](https://...) or [label](https://...) → keep readable label only
   // when label is not itself a URL; otherwise drop the whole markdown link.
-  text = text.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label) {
+  text = text.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]*)\)/g, function (_m, label) {
     const clean = String(label || '').trim();
     if (!clean || /^https?:\/\//i.test(clean) || /docs\.google\.com|drive\.google\.com/i.test(clean)) {
       return '';
@@ -368,11 +369,25 @@ function scrubGeminiUrlAndMarkdownLinkArtifacts(summary) {
     return clean;
   });
 
+  // [https://...] without a destination, or empty markdown remnants
+  text = text.replace(/\[https?:\/\/[^\]]*\]/gi, '');
+  text = text.replace(/\[([^\]]*)\]\(\s*\)/g, function (_m, label) {
+    const clean = String(label || '').trim();
+    if (!clean || /^https?:\/\//i.test(clean)) return '';
+    return clean;
+  });
+
+  // Parenthesized bare URLs: (https://...) or (docs.google.com/...)
+  text = text.replace(/\((?:https?:\/\/|docs\.google\.com|drive\.google\.com)[^)\s]*\)/gi, '');
+
   // Bare URLs on their own or inline
   text = text.replace(/https?:\/\/[^\s)\]>]+/gi, '');
+  text = text.replace(/\b(?:docs|drive)\.google\.com\/[^\s)\]>]+/gi, '');
 
-  // Cleanup leftover empty parentheses / double spaces from removals
+  // Cleanup leftover empty parentheses / brackets (incl. ()([]) artifacts)
   text = text
+    .replace(/\(\s*\)\s*\(\s*\[\s*\]\s*\)/g, '')
+    .replace(/\(\s*\[\s*\]\s*\)/g, '')
     .replace(/\(\s*\)/g, '')
     .replace(/\[\s*\]/g, '')
     .replace(/[ \t]{2,}/g, ' ')
@@ -405,10 +420,10 @@ function stripLeadingDisclaimers(summary) {
 }
 
 /**
- * Replace bare community file names in the summary with Markdown links to file_path.
- * Link label is the readable file name only (never a raw URL).
+ * Ensure known community file names appear as clean double-quoted citations.
+ * Does NOT emit Markdown links or URLs — the frontend linkifier attaches hrefs.
  */
-function linkifyFileNamesInGradeEssenceSummary(summary, materialsRows) {
+function normalizeQuotedFileNamesInGradeEssenceSummary(summary, materialsRows) {
   let text = String(summary || '');
   if (!text) return '';
 
@@ -416,35 +431,36 @@ function linkifyFileNamesInGradeEssenceSummary(summary, materialsRows) {
   const entries = [];
   uniqueRows.forEach(function (row) {
     const name = String(row.file_name || row.fileName || '').trim();
-    const url = materialLinkFromRow(row);
-    if (!name || !url) return;
-    entries.push({ name: name, url: url, len: name.length });
+    if (!name) return;
+    entries.push({ name: name, len: name.length });
   });
   entries.sort(function (a, b) { return b.len - a.len; });
   if (!entries.length) return text;
 
-  const protectedSpans = [];
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (match) {
-    const idx = protectedSpans.length;
-    protectedSpans.push(match);
-    return '\u0000GELINK' + idx + '\u0000';
-  });
+  // Normalize Hebrew gershayim / fancy quotes to ASCII " for the frontend linkifier.
+  text = text.replace(/[“”‟″״]/g, '"');
 
   entries.forEach(function (entry) {
-    const re = new RegExp(escapeRegExp(entry.name), 'g');
-    text = text.replace(re, '[' + entry.name + '](' + entry.url + ')');
-  });
-
-  protectedSpans.forEach(function (span, idx) {
-    // Re-normalize protected spans: keep readable label, never URL-as-label.
-    const rebuilt = span.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/, function (_m, label, url) {
-      const clean = String(label || '').trim();
-      if (!clean || /^https?:\/\//i.test(clean)) {
-        return '';
+    const name = entry.name;
+    let out = '';
+    let cursor = 0;
+    while (cursor < text.length) {
+      const idx = text.indexOf(name, cursor);
+      if (idx === -1) {
+        out += text.slice(cursor);
+        break;
       }
-      return '[' + clean + '](' + url + ')';
-    });
-    text = text.split('\u0000GELINK' + idx + '\u0000').join(rebuilt);
+      out += text.slice(cursor, idx);
+      const before = idx > 0 ? text.charAt(idx - 1) : '';
+      const after = text.charAt(idx + name.length) || '';
+      if (before === '"' && after === '"') {
+        out += name;
+      } else {
+        out += '"' + name + '"';
+      }
+      cursor = idx + name.length;
+    }
+    text = out;
   });
   return text;
 }
@@ -468,16 +484,14 @@ function materialsCitedInSummary(summary, materialsRows) {
 }
 
 /**
- * Rebuild ## מראי מקום as a unique clickable list of files actually used in the body.
- * Format: numbered Markdown links with readable file-name labels only (no raw URL text).
+ * Rebuild ## מראי מקום as a unique list of files actually used in the body.
+ * Format: numbered clean double-quoted file names only (no URLs, no Markdown links).
  */
 function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
   const citedRows = materialsCitedInSummary(summary, materialsRows);
   const lines = citedRows.map(function (row, idx) {
     const name = String(row.file_name || row.fileName || '').trim();
-    const url = materialLinkFromRow(row);
-    if (url) return (idx + 1) + '. [' + name + '](' + url + ')';
-    return (idx + 1) + '. ' + name;
+    return (idx + 1) + '. "' + name + '"';
   });
 
   const body = String(summary || '');
@@ -490,12 +504,12 @@ function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
 }
 
 /**
- * Pass grade-essence summary through scrubber + linkifier + unique sources formatter.
+ * Pass grade-essence summary through scrubber + quoted-name normalizer + sources formatter.
  */
 function finalizeGradeEssenceSummary(summary, materialsRows) {
   let text = scrubGeminiUrlAndMarkdownLinkArtifacts(summary);
   text = stripLeadingDisclaimers(text);
-  text = linkifyFileNamesInGradeEssenceSummary(text, materialsRows);
+  text = normalizeQuotedFileNamesInGradeEssenceSummary(text, materialsRows);
   text = rebuildGradeEssenceSourcesSection(text, materialsRows);
   return sanitizeSummary(text);
 }
@@ -509,11 +523,12 @@ function buildCorpusFromMaterials(rows) {
     const fileName = String(row.file_name || row.fileName || '').trim();
     const notes = cleanMaterialNotes(row.notes);
     // Do NOT include raw URLs / public links in the corpus — Gemini must cite
-    // bare file names only; the linkifier attaches hrefs later.
+    // exact file names inside ASCII double quotes only; the frontend linkifier
+    // attaches hrefs later.
     const body = [
       '=== חומר ' + (idx + 1) + ' ===',
       topic ? ('נושא/תקופה: ' + topic) : '',
-      fileName ? ('שם קובץ מדויק לציטוט: ' + fileName) : '',
+      fileName ? ('שם קובץ מדויק לציטוט (במרכאות כפולות בלבד): "' + fileName + '"') : '',
       notes ? ('הערות/תיאור: ' + notes.slice(0, MAX_MATERIAL_CHARS)) : '',
     ].filter(Boolean).join('\n');
     total += body.length;
@@ -526,13 +541,17 @@ function buildFileRefsFromMaterials(rows) {
   return dedupeMaterialsByFilePath(rows).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
     const filePath = String(row.file_path || row.filePath || '').trim();
+    const gdocs = String(row.google_docs_url || row.googleDocsUrl || '').trim();
     const url = materialLinkFromRow(row);
     return {
       name: name,
       fileName: name,
+      file_name: name,
       folder: String(row.topic || '').trim(),
       folderPath: filePath,
       filePath: filePath,
+      file_path: filePath,
+      google_docs_url: gdocs || url,
       fileUrl: url || filePath,
       webViewLink: url,
       gradeId: String(row.grade_level || '').trim(),
@@ -545,11 +564,15 @@ function buildCitationsFromMaterials(rows) {
   const cites = dedupeMaterialsByFilePath(rows).map(function (row) {
     const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
     const filePath = String(row.file_path || row.filePath || '').trim();
+    const gdocs = String(row.google_docs_url || row.googleDocsUrl || '').trim();
     const url = materialLinkFromRow(row);
     return {
       title: name,
       fileName: name,
+      file_name: name,
       filePath: filePath,
+      file_path: filePath,
+      google_docs_url: gdocs || url,
       url: url,
       webViewLink: url,
       fileUrl: url,
@@ -575,11 +598,13 @@ function buildGradeEssenceSystemPrompt() {
     'השורה הראשונה בפלט חייבת להיות כותרת ## מהות הגיל והתפתחות הילד/ה.',
     '',
     'איסור מוחלט על קישורי Markdown וכתובות URL:',
-    'אסור לכתוב כתובות URL גולמיות (http/https, docs.google.com, drive.google.com וכו׳).',
-    'אסור להשתמש בתחביר Markdown של קישורים מהסוג [שם](URL) או [https://...](https://...).',
-    'כדי להפנות למקור — ציין אך ורק את שם הקובץ המדויק כטקסט חופשי או במרכאות,',
-    'לדוגמה: כפי שמתואר בקובץ עבודת שורשים-מעודכן1.docx',
-    'המערכת החיצונית תמיר את שמות הקבצים לקישורים לחיצים. אל תנסה ליצור קישורים בעצמך.',
+    'אסור להשתמש בשום פורמט Markdown עבור קישורים או מראי מקום.',
+    'אסור להשתמש בסימונים [text](url) או [url] או (url).',
+    'אסור לכתוב כתובות URL מלאות או חלקיות בגוף הטקסט (כולל http/https, google.com, docs.google.com, drive.google.com).',
+    'חובה — פורמט שמות קבצים נקי: כאשר מתייחסים לקובץ או מקור מסוים, ציין אך ורק את שם הקובץ המדויק והמלא בתוך מרכאות כפולות ASCII (\") בלבד, ללא שום סימון נוסף.',
+    'לדוגמה: כפי שמתואר בקובץ "עבודת שורשים-מעודכן1.docx", ניתן לראות כי...',
+    'המשך לייצר ציטוטים מובלעים (inline citations) בתוך הטקסט, אך רק באמצעות פורמט שם הקובץ הנקי במרכאות כפולות.',
+    'המערכת החיצונית תמיר את המחרוזות שבמרכאות לקישורים לחיצים. אל תנסה ליצור קישורים בעצמך.',
     '',
     'מבנה חובה בדיוק עם כותרות ## כדלקמן:',
     '## מהות הגיל והתפתחות הילד/ה',
@@ -592,8 +617,8 @@ function buildGradeEssenceSystemPrompt() {
     'המלצות קונקרטיות הנשענות על מערכי השיעור והקבצים שסופקו.',
     '## מראי מקום',
     'רשימה קצרה של שמות הקבצים שנעשה בהם שימוש בפועל בגוף הסיכום בלבד — לא רשימת כל התיקייה/הדרייב.',
-    'כל קובץ פעם אחת, בשורה נפרדת, כשם קובץ קריא בלבד (בלי URL ובלי Markdown של קישור), למשל:',
-    '1. עבודת שורשים-מעודכן1.docx',
+    'כל קובץ פעם אחת, בשורה נפרדת, כשם קובץ מדויק בתוך מרכאות כפולות בלבד (בלי URL ובלי Markdown של קישור), למשל:',
+    '1. "עבודת שורשים-מעודכן1.docx"',
   ].join(' ');
 }
 
@@ -613,9 +638,9 @@ function buildGradeEssenceUserPrompt(gradeId, rows) {
     'בקשה: הפק סיכום מקיף "מהות הגיל מתוך חומרי הקהילה" עבור ' + (gradeLabel || 'הכיתה שנבחרה') + '.',
     'השתמש אך ורק בחומרים המצורפים להלן מתוך המאגר הקהילתי. אסור ידע חיצוני.',
     'התחל מיד בכותרת ## מהות הגיל והתפתחות הילד/ה — בלי פתיח ובלי התנצלות.',
-    'אסור URL ואסור [טקסט](קישור). ציין שמות קבצים מדויקים כטקסט בלבד.',
+    'אסור URL, אסור [text](url), אסור [url], אסור (url). ציין שמות קבצים מדויקים אך ורק בתוך מרכאות כפולות, למשל "עבודת שורשים-מעודכן1.docx".',
     'חובה לכלול: מהות הגיל והתפתחות הילד/ה; תקופות הלימוד בשכבה; פרויקטים כיתתיים ועבודות; המלצות לפעילויות יצירתיות ואמנותיות; מראי מקום.',
-    'בסיום — מראי מקום רק לשמות קבצים ששימשו בפועל בגוף הסיכום (לא כל הקטלוג), בלי כתובות.',
+    'בסיום — מראי מקום רק לשמות קבצים ששימשו בפועל בגוף הסיכום (לא כל הקטלוג), כל אחד במרכאות כפולות ובלי כתובות.',
     'נושאים/תקופות שזוהו בקטלוג: ' + (topics.length ? topics.join(' · ') : '(לא זוהו)'),
     'מספר פריטים בקטלוג: ' + (rows || []).length,
     '',
