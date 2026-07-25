@@ -24586,11 +24586,14 @@
         html += '<option value="' + escapeHtml(id) + '">' + escapeHtml(label) + '</option>';
       });
       select.innerHTML = html;
-      var preferred = previous
-        || String(appState.communitySummarizerGradeId || '').trim()
-        || String(appState.grade || '').trim();
+      // Prefer summarizer state, then current select value. Do NOT fall back to
+      // appState.grade — that re-fills the field after "נקה חיפוש" / async reload.
+      var preferred = String(appState.communitySummarizerGradeId || '').trim() || previous;
       if (preferred && Array.prototype.some.call(select.options, function (opt) { return opt.value === preferred; })) {
         select.value = preferred;
+      } else {
+        select.value = '';
+        select.selectedIndex = 0;
       }
     }
 
@@ -24832,8 +24835,9 @@
       var gradeEl = document.getElementById('community-summarizer-grade');
       var topicEl = document.getElementById('community-summarizer-topic');
       var essenceEl = document.getElementById('community-summarizer-grade-essence');
-      if (gradeEl && appState.communitySummarizerGradeId) {
-        gradeEl.value = appState.communitySummarizerGradeId;
+      if (gradeEl) {
+        gradeEl.value = String(appState.communitySummarizerGradeId || '');
+        if (!gradeEl.value) gradeEl.selectedIndex = 0;
       }
       if (essenceEl) {
         essenceEl.checked = Boolean(appState.communitySummarizerGradeEssence);
@@ -28023,9 +28027,13 @@
       appState.communitySummarizerGradeEssence = false;
       appState.communitySummarizerResult = null;
       appState.communitySummarizerBgPending = false;
-      if (gradeEl) gradeEl.value = '';
+      if (gradeEl) {
+        gradeEl.value = '';
+        gradeEl.selectedIndex = 0;
+      }
       if (topicEl) topicEl.value = '';
       if (essenceEl) essenceEl.checked = false;
+      populateCommunitySummarizerGradeSelect();
       populateCommunitySummarizerTopicSelect();
       setCommunitySummarizerLoading(false);
       syncCommunitySummarizerGradeEssenceUi();
