@@ -2158,6 +2158,35 @@
       border-color: rgba(107, 142, 107, 0.65);
       box-shadow: 0 0 0 3px rgba(107, 142, 107, 0.15);
     }
+    .community-summarizer-form select:disabled,
+    .community-summarizer-form input[type="text"]:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      background: rgba(245, 240, 230, 0.85);
+    }
+    .community-summarizer-essence-field {
+      margin-top: 0.15rem;
+    }
+    .community-summarizer-essence-label {
+      display: flex !important;
+      align-items: flex-start;
+      gap: 0.65rem;
+      margin-bottom: 0 !important;
+      font-weight: 600;
+      cursor: pointer;
+      line-height: 1.35;
+    }
+    .community-summarizer-essence-label input[type="checkbox"] {
+      width: 1.15rem;
+      height: 1.15rem;
+      margin-top: 0.15rem;
+      flex-shrink: 0;
+      accent-color: #6b8e6b;
+      cursor: pointer;
+    }
+    .community-summarizer-topic-field.is-essence-hidden {
+      display: none;
+    }
     .catalog-file-type-badge {
       display: inline-flex;
       align-items: center;
@@ -6333,9 +6362,15 @@
               <option value="" data-i18n="grade_placeholder">— בחרו כיתה —</option>
             </select>
           </div>
-          <div>
+          <div class="community-summarizer-topic-field" id="community-summarizer-topic-field">
             <label for="community-summarizer-topic" data-i18n="community_summarizer_topic">נושא</label>
             <input type="text" id="community-summarizer-topic" name="topic" required maxlength="160" autocomplete="off" data-i18n-placeholder="community_summarizer_topic_placeholder" placeholder="הקלידו נושא לסיכום" />
+          </div>
+          <div class="community-summarizer-essence-field">
+            <label class="community-summarizer-essence-label" for="community-summarizer-grade-essence">
+              <input type="checkbox" id="community-summarizer-grade-essence" name="gradeEssence" value="1" />
+              <span data-i18n="community_summarizer_grade_essence">מהות הגיל מתוך חומרי הקהילה</span>
+            </label>
           </div>
           <div class="community-summarizer-actions">
             <button type="submit" id="community-summarizer-submit" class="community-summarizer-submit touch-btn">
@@ -8644,6 +8679,7 @@
       communitySummarizerResult: null,
       communitySummarizerGradeId: '',
       communitySummarizerTopic: '',
+      communitySummarizerGradeEssence: false,
       communitySummarizerModalOpen: false,
       communitySummarizerBgPending: false,
       isSubmitting: false,
@@ -24433,7 +24469,11 @@
       } else {
         summary = t('community_summarizer_empty');
       }
+      var isInsufficient = status === 'insufficient'
+        || summary === t('community_summarizer_grade_essence_insufficient')
+        || /אין מספיק חומרים ליצירת הסיכום הכללי/.test(summary);
       var isEmpty = status === 'empty'
+        || isInsufficient
         || summary === t('community_summarizer_empty')
         || summary === t('hybrid_community_empty')
         || /אין חומר מהארכיון/.test(summary)
@@ -24447,8 +24487,12 @@
         || /סורק את המאגר הקהילתי/.test(summary)
         || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary);
       // Prefer localized empty copy over older archived/server strings.
-      if (isEmpty && !isSummarizing) {
+      // Keep grade-essence threshold copy (do not replace with topic-empty text).
+      if (isEmpty && !isSummarizing && !isInsufficient) {
         summary = t('community_summarizer_empty');
+      } else if (isInsufficient) {
+        summary = t('community_summarizer_grade_essence_insufficient')
+          || 'אין מספיק חומרים ליצירת הסיכום הכללי.';
       }
       summary = sanitizeCommunitySummaryForDisplay(summary);
       var bodyHtml;
@@ -24556,7 +24600,33 @@
       if (appState.communitySummarizerTopic && (appState.isSummarizing || appState.communitySummarizerLoading)) {
         input.value = String(appState.communitySummarizerTopic);
       }
-      input.disabled = Boolean(appState.communitySummarizerLoading || appState.isSummarizing);
+      syncCommunitySummarizerGradeEssenceUi();
+    }
+
+    function isCommunitySummarizerGradeEssenceChecked() {
+      var essenceEl = document.getElementById('community-summarizer-grade-essence');
+      if (essenceEl) return Boolean(essenceEl.checked);
+      return Boolean(appState.communitySummarizerGradeEssence);
+    }
+
+    function syncCommunitySummarizerGradeEssenceUi() {
+      var essenceEl = document.getElementById('community-summarizer-grade-essence');
+      var topicEl = document.getElementById('community-summarizer-topic');
+      var topicField = document.getElementById('community-summarizer-topic-field');
+      var busy = Boolean(appState.communitySummarizerLoading || appState.isSummarizing);
+      var essenceOn = essenceEl ? Boolean(essenceEl.checked) : Boolean(appState.communitySummarizerGradeEssence);
+      appState.communitySummarizerGradeEssence = essenceOn;
+      if (essenceEl) essenceEl.disabled = busy;
+      if (topicField) topicField.classList.toggle('is-essence-hidden', essenceOn);
+      if (topicEl) {
+        topicEl.disabled = busy || essenceOn;
+        topicEl.required = !essenceOn;
+        if (essenceOn) {
+          topicEl.removeAttribute('required');
+        } else {
+          topicEl.setAttribute('required', 'required');
+        }
+      }
     }
 
     function setCommunitySummarizerLoading(loading) {
@@ -24568,18 +24638,23 @@
       var submitBtn = document.getElementById('community-summarizer-submit');
       var gradeEl = document.getElementById('community-summarizer-grade');
       var topicEl = document.getElementById('community-summarizer-topic');
+      var essenceMode = isCommunitySummarizerGradeEssenceChecked();
       if (loadingEl) {
         loadingEl.classList.toggle('hidden', !busy);
         loadingEl.setAttribute('aria-busy', busy ? 'true' : 'false');
       }
       if (loadingTextEl) {
-        loadingTextEl.setAttribute('data-i18n', 'community_summarizer_loading');
-        loadingTextEl.textContent = t('community_summarizer_loading');
+        var loadingKey = essenceMode
+          ? 'community_summarizer_grade_essence_loading'
+          : 'community_summarizer_loading';
+        loadingTextEl.setAttribute('data-i18n', loadingKey);
+        loadingTextEl.textContent = t(loadingKey);
       }
       // Only disable controls inside the summarizer modal — never the archive search UI.
       if (submitBtn) submitBtn.disabled = busy;
       if (gradeEl) gradeEl.disabled = busy;
-      if (topicEl) topicEl.disabled = busy;
+      if (topicEl) topicEl.disabled = busy || essenceMode;
+      syncCommunitySummarizerGradeEssenceUi();
       if (busy) syncCommunitySummarizerExportButton(null);
       else syncCommunitySummarizerExportButton(appState.communitySummarizerResult);
       syncCommunitySummarizerBgIndicator();
@@ -24609,7 +24684,13 @@
       var status = data.communityStatus ? String(data.communityStatus) : '';
       var summary = data.communitySummary != null ? String(data.communitySummary).trim() : '';
       if (!summary) return false;
-      if (status === 'empty' || status === 'unavailable' || status === 'not_configured' || status === 'summarizing') {
+      if (
+        status === 'empty'
+        || status === 'insufficient'
+        || status === 'unavailable'
+        || status === 'not_configured'
+        || status === 'summarizing'
+      ) {
         return false;
       }
       if (
@@ -24715,13 +24796,19 @@
       renderCommunitySummarizerResult(appState.communitySummarizerResult);
       var gradeEl = document.getElementById('community-summarizer-grade');
       var topicEl = document.getElementById('community-summarizer-topic');
+      var essenceEl = document.getElementById('community-summarizer-grade-essence');
       if (gradeEl && appState.communitySummarizerGradeId) {
         gradeEl.value = appState.communitySummarizerGradeId;
       }
+      if (essenceEl) {
+        essenceEl.checked = Boolean(appState.communitySummarizerGradeEssence);
+      }
       if (topicEl && (appState.isSummarizing || appState.communitySummarizerLoading)
-        && appState.communitySummarizerTopic) {
+        && appState.communitySummarizerTopic
+        && !appState.communitySummarizerGradeEssence) {
         topicEl.value = appState.communitySummarizerTopic;
       }
+      syncCommunitySummarizerGradeEssenceUi();
     }
 
     function placeCommunitySummarizerBgHost() {
@@ -24866,6 +24953,7 @@
       var topicEl = document.getElementById('community-summarizer-topic');
       var resultEl = document.getElementById('community-summarizer-result');
       var gradeId = gradeEl ? String(gradeEl.value || '').trim() : '';
+      var gradeEssence = isCommunitySummarizerGradeEssenceChecked();
       var topic = topicEl ? String(topicEl.value || '').trim() : '';
       if (!gradeId) {
         if (resultEl) {
@@ -24873,14 +24961,17 @@
         }
         return;
       }
-      if (!topic) {
+      if (!gradeEssence && !topic) {
         if (resultEl) {
           resultEl.innerHTML = '<p class="text-burgundy text-sm m-0">' + escapeHtml(t('community_summarizer_need_topic')) + '</p>';
         }
         return;
       }
       appState.communitySummarizerGradeId = gradeId;
-      appState.communitySummarizerTopic = topic;
+      appState.communitySummarizerGradeEssence = gradeEssence;
+      appState.communitySummarizerTopic = gradeEssence
+        ? (t('community_summarizer_grade_essence') || 'מהות הגיל מתוך חומרי הקהילה')
+        : topic;
       appState.communitySummarizerResult = null;
       appState.communitySummarizerBgPending = false;
       renderCommunitySummarizerResult(null);
@@ -24893,11 +24984,20 @@
       appState.communitySummarizerAbort = controller;
       var requestId = (appState.communitySummarizerRequestId = (appState.communitySummarizerRequestId || 0) + 1);
       try {
-        var response = await invokePureApi('/api/community-summarizer', {
-          topic: topic,
-          gradeId: gradeId,
-          currentGrade: gradeId,
-        }, controller && controller.signal);
+        var payload = gradeEssence
+          ? {
+              gradeEssence: true,
+              subject: 'grade_essence',
+              topic: 'grade_essence',
+              gradeId: gradeId,
+              currentGrade: gradeId,
+            }
+          : {
+              topic: topic,
+              gradeId: gradeId,
+              currentGrade: gradeId,
+            };
+        var response = await invokePureApi('/api/community-summarizer', payload, controller && controller.signal);
         if (requestId !== appState.communitySummarizerRequestId) return;
         var data = response && response.data ? response.data : response;
         appState.communitySummarizerResult = data || {};
@@ -24911,7 +25011,9 @@
         if (requestId !== appState.communitySummarizerRequestId) return;
         var message = (err && err.message) ? String(err.message) : t('hybrid_community_unavailable');
         appState.communitySummarizerResult = {
-          communitySummaryHeading: t('community_summarizer_heading'),
+          communitySummaryHeading: gradeEssence
+            ? (t('community_summarizer_grade_essence_heading') || t('community_summarizer_heading'))
+            : t('community_summarizer_heading'),
           communityStatus: 'unavailable',
           communitySummary: message,
         };
@@ -24938,6 +25040,7 @@
       var bgBadge = document.getElementById('community-summarizer-bg-indicator');
       var gradeEl = document.getElementById('community-summarizer-grade');
       var topicEl = document.getElementById('community-summarizer-topic');
+      var essenceEl = document.getElementById('community-summarizer-grade-essence');
       if (form && !form._communitySummarizerBound) {
         form._communitySummarizerBound = true;
         form.addEventListener('submit', function (e) {
@@ -24958,6 +25061,13 @@
         topicEl._communitySummarizerBound = true;
         topicEl.addEventListener('input', function () {
           appState.communitySummarizerTopic = String(topicEl.value || '').trim();
+        });
+      }
+      if (essenceEl && !essenceEl._communitySummarizerBound) {
+        essenceEl._communitySummarizerBound = true;
+        essenceEl.addEventListener('change', function () {
+          appState.communitySummarizerGradeEssence = Boolean(essenceEl.checked);
+          syncCommunitySummarizerGradeEssenceUi();
         });
       }
       if (exportBtn && !exportBtn._communitySummarizerBound) {
@@ -27866,20 +27976,24 @@
 
     function clearCommunitySummarizerSearch() {
       var topicEl = document.getElementById('community-summarizer-topic');
+      var essenceEl = document.getElementById('community-summarizer-grade-essence');
       if (appState.communitySummarizerAbort) {
         try { appState.communitySummarizerAbort.abort(); } catch (e) { /* ignore */ }
         appState.communitySummarizerAbort = null;
       }
       appState.communitySummarizerRequestId = (appState.communitySummarizerRequestId || 0) + 1;
       appState.communitySummarizerTopic = '';
+      appState.communitySummarizerGradeEssence = false;
       appState.communitySummarizerResult = null;
       appState.communitySummarizerBgPending = false;
       if (topicEl) topicEl.value = '';
+      if (essenceEl) essenceEl.checked = false;
       setCommunitySummarizerLoading(false);
+      syncCommunitySummarizerGradeEssenceUi();
       renderCommunitySummarizerResult(null);
       syncCommunitySummarizerBgIndicator();
       ensureArchiveSearchControlsUnlocked();
-      if (topicEl && typeof topicEl.focus === 'function') {
+      if (topicEl && typeof topicEl.focus === 'function' && !isCommunitySummarizerGradeEssenceChecked()) {
         try { topicEl.focus({ preventScroll: true }); } catch (e2) { topicEl.focus(); }
       }
     }

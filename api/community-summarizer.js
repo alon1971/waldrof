@@ -15,6 +15,7 @@ const communitySearch = require('./community-search');
 const communityDriveArchive = require('./community-drive-archive');
 const driveCatalogSync = require('./drive-catalog-sync');
 const catalogTopics = require('./catalog-topics');
+const communityGradeEssence = require('./community-grade-essence');
 
 const COMMUNITY_SUMMARY_HEADING =
   communityDriveArchive.COMMUNITY_SUMMARY_HEADING || 'סיכום נושא מתוך המאגר הקהילתי';
@@ -516,6 +517,22 @@ async function executeCommunitySummarizer(req) {
     err.statusCode = 400;
     throw err;
   }
+
+  // Conditional Branch: grade essence — fully isolated from topic archive flow.
+  if (communityGradeEssence.isGradeEssenceRequest(body)) {
+    console.log(
+      '[community-summarizer] grade_essence branch | grade:',
+      String(body.gradeId || body.currentGrade || '').trim()
+    );
+    return withNonBillableMeta(
+      await communityGradeEssence.runGradeEssenceSummary({
+        gradeId: body.gradeId || body.currentGrade,
+        currentGrade: body.currentGrade || body.gradeId,
+        forceRefresh: body.forceRefresh === true || body.refresh === true,
+      })
+    );
+  }
+
   return runCommunityTopicSummary({
     topic: body.topic || body.query || body.userMessage || body.q,
     gradeId: body.gradeId || body.currentGrade,
@@ -561,4 +578,6 @@ module.exports = {
   runCommunityTopicSummary,
   executeCommunitySummarizer,
   legacyHandler,
+  runGradeEssenceSummary: communityGradeEssence.runGradeEssenceSummary,
+  isGradeEssenceRequest: communityGradeEssence.isGradeEssenceRequest,
 };
