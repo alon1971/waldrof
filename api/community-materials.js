@@ -202,36 +202,67 @@ function requireValidMaterialId(id, label) {
 function packCommunityExtras(extras) {
   const e = extras || {};
   const parts = [];
+  if ((e.title || '').trim()) parts.push('[title:' + String(e.title).trim() + ']');
   if ((e.author || '').trim()) parts.push('[author:' + String(e.author).trim() + ']');
   if ((e.description || '').trim()) parts.push('[desc:' + String(e.description).trim() + ']');
   if (e.fileSize != null && e.fileSize !== '') parts.push('[size:' + e.fileSize + ']');
   if ((e.fileType || '').trim()) parts.push('[type:' + String(e.fileType).trim() + ']');
+  if ((e.topicLegacy || '').trim()) parts.push('[topic:' + String(e.topicLegacy).trim() + ']');
+  if ((e.subfolder || '').trim()) parts.push('[subfolder:' + String(e.subfolder).trim() + ']');
+  if ((e.catalogTopic || '').trim()) parts.push('[catalogTopic:' + String(e.catalogTopic).trim() + ']');
+  if ((e.drivePath || '').trim()) parts.push('[drivePath:' + String(e.drivePath).trim() + ']');
+  if ((e.driveFileId || '').trim()) parts.push('[driveFileId:' + String(e.driveFileId).trim() + ']');
+  if ((e.freeText || '').trim()) parts.push(String(e.freeText).trim());
   return parts.length ? parts.join(' ') : null;
 }
 
 function parseCommunityNotes(rawNotes) {
+  const out = {
+    title: '',
+    author: '',
+    description: '',
+    fileSize: null,
+    fileType: '',
+    topicLegacy: '',
+    subfolder: '',
+    catalogTopic: '',
+    drivePath: '',
+    driveFileId: '',
+    freeText: '',
+  };
   let rest = String(rawNotes || '');
-  const out = { author: '', description: '', fileSize: null, fileType: '' };
-  const tagDefs = [
-    { field: 'author', re: /^\[author:([^\]]+)\]\s*/ },
-    { field: 'description', re: /^\[desc:([^\]]+)\]\s*/ },
-    { field: 'fileSize', re: /^\[size:([^\]]+)\]\s*/, parse: function (v) { return parseInt(v, 10) || null; } },
-    { field: 'fileType', re: /^\[type:([^\]]+)\]\s*/ },
-  ];
-  let matched = true;
-  while (matched) {
-    matched = false;
-    for (let i = 0; i < tagDefs.length; i++) {
-      const def = tagDefs[i];
-      const m = rest.match(def.re);
-      if (!m) continue;
-      out[def.field] = def.parse ? def.parse(m[1]) : m[1];
-      rest = rest.slice(m[0].length);
-      matched = true;
-      break;
+  rest = rest.replace(/\[([a-zA-Z_]+):([^\]]*)\]/g, function (_full, key, val) {
+    const v = String(val || '').trim();
+    switch (String(key || '')) {
+      case 'title': out.title = v; break;
+      case 'author': out.author = v; break;
+      case 'desc': out.description = v; break;
+      case 'size': out.fileSize = parseInt(v, 10) || null; break;
+      case 'type': out.fileType = v; break;
+      case 'topic': out.topicLegacy = v; break;
+      case 'subfolder': out.subfolder = v; break;
+      case 'catalogTopic': out.catalogTopic = v; break;
+      case 'drivePath': out.drivePath = v; break;
+      case 'driveFileId': out.driveFileId = v; break;
+      case 'tags': break;
+      default: return _full;
     }
-  }
+    return '';
+  });
+  out.freeText = rest.replace(/\s+/g, ' ').trim();
   return out;
+}
+
+function isPlaceholderLinkFileName(name) {
+  return /^(קישור (Google Docs|Google Drive|שיתוף))$/i.test(String(name || '').trim());
+}
+
+function mergeCommunityNotesForPatch(currentNotes, body) {
+  const parsed = parseCommunityNotes(currentNotes || '');
+  if (body.title != null) parsed.title = String(body.title).trim();
+  if (body.author != null) parsed.author = String(body.author).trim();
+  if (body.description != null) parsed.description = String(body.description).trim();
+  return packCommunityExtras(parsed);
 }
 
 function supabaseAuthHeaders(apiKey, bearerToken, extraHeaders) {
@@ -507,16 +538,32 @@ async function patchCommunityMaterial(body, req) {
     payload.topic = String(body.topic).trim();
   }
 
-  const parsed = parseCommunityNotes(current[COMMUNITY_META_FIELD] || '');
-  const hasMetaUpdate = body.description != null || body.author != null;
+  // Rename display name on the SAME row (never INSERT a duplicate).
+  const renameTitle = body.title != null
+    ? String(body.title).trim()
+    : (body.file_name != null ? String(body.file_name).trim() : '');
+  if (renameTitle) {
+    payload.file_name = renameTitle;
+  } else if (
+    payload.topic
+    && isPlaceholderLinkFileName(current.file_name)
+  ) {
+    // Editing topic on a placeholder Drive/Docs link → rename file_name in place.
+    payload.file_name = payload.topic;
+  }
+
+  const hasMetaUpdate = body.description != null
+    || body.author != null
+    || body.title != null
+    || Boolean(renameTitle)
+    || Boolean(payload.file_name && payload.file_name !== String(current.file_name || '').trim());
   if (hasMetaUpdate) {
-    const notes = packCommunityExtras({
-      author: body.author != null ? String(body.author).trim() : parsed.author,
-      description: body.description != null ? String(body.description).trim() : parsed.description,
-      fileSize: parsed.fileSize,
-      fileType: parsed.fileType,
-    });
-    payload[COMMUNITY_META_FIELD] = notes || null;
+    const notesBody = Object.assign({}, body);
+    if (payload.file_name && body.title == null) notesBody.title = payload.file_name;
+    payload[COMMUNITY_META_FIELD] = mergeCommunityNotesForPatch(
+      current[COMMUNITY_META_FIELD] || '',
+      notesBody
+    );
   }
 
   if (!Object.keys(payload).length) {

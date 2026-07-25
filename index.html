@@ -18405,16 +18405,39 @@
       if (fields.grade != null || fields.grade_level != null) {
         payload.grade_level = String(fields.grade_level != null ? fields.grade_level : fields.grade).trim();
       }
-      if (fields.description != null || fields.author != null || fields.title != null) {
-        const item = findCommunityItemById(pk);
-        const notes = packCommunityExtras({
-          title: fields.title != null ? String(fields.title).trim() : ((item && item.title) || fields.topic || ''),
-          author: fields.author != null ? String(fields.author).trim() : ((item && item.authorName) || ''),
-          description: fields.description != null ? String(fields.description).trim() : ((item && item.notes) || ''),
-          fileSize: item && item.fileSize,
-          fileType: item && item.fileType,
-        });
-        payload[COMMUNITY_META_FIELD] = notes || null;
+      const item = findCommunityItemById(pk);
+      const renameTitle = fields.title != null
+        ? String(fields.title).trim()
+        : (fields.file_name != null ? String(fields.file_name).trim() : '');
+      if (renameTitle) {
+        payload.file_name = renameTitle;
+      } else if (
+        payload.topic
+        && item
+        && isPlaceholderCommunityLinkName(item.fileName || item.title || '')
+      ) {
+        payload.file_name = payload.topic;
+      }
+      if (
+        fields.description != null
+        || fields.author != null
+        || fields.title != null
+        || payload.file_name
+      ) {
+        const parsed = parseCommunityNotes((item && item.rawNotes) || '');
+        if (fields.title != null || payload.file_name) {
+          parsed.title = renameTitle || payload.file_name || String(fields.title || '').trim();
+        } else if (!parsed.title && item && item.title && !isPlaceholderCommunityLinkName(item.title)) {
+          parsed.title = String(item.title).trim();
+        }
+        if (fields.author != null) parsed.author = String(fields.author).trim();
+        else if (!parsed.author && item && item.authorName) parsed.author = String(item.authorName).trim();
+        if (fields.description != null) parsed.description = String(fields.description).trim();
+        else if (!parsed.description && item && item.notes) parsed.description = String(item.notes).trim();
+        if (parsed.fileSize == null && item && item.fileSize != null) parsed.fileSize = item.fileSize;
+        if (!parsed.fileType && item && item.fileType) parsed.fileType = item.fileType;
+        if (!parsed.drivePath && item && item.drivePath) parsed.drivePath = item.drivePath;
+        payload[COMMUNITY_META_FIELD] = packCommunityExtras(parsed) || null;
       }
       return payload;
     }
@@ -19035,21 +19058,15 @@
       try {
         await deleteCommunityMaterialRecord(materialId);
         var pk = normalizeMaterialUuid(resolveCommunityMaterialId(materialId) || String(materialId || '').trim());
-        if (pk) {
-          appState.communityCache = appState.communityCache.filter(function (m) {
-            var rowPk = normalizeMaterialUuid(m.id || m.dbId || resolveCommunityMaterialId(m) || '');
-            return rowPk !== pk;
-          });
-          appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
-          try { localStorage.removeItem(COMMUNITY_MATERIALS_CACHE_KEY); } catch (e) { /* ignore */ }
-        }
+        // Remove the card immediately, then refresh catalog views (incl. grade Drive links).
         removeArchiveListItemFromDom(triggerEl);
-        updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
-        if (catalogState.view === 'materials') {
-          await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, { skipCommunityReload: true });
+        if (pk) {
+          await refreshCatalogAfterCommunityDelete(pk);
+        } else {
+          updateCommunityBadge(filterByGrade(appState.communityCache, appState.grade).length);
+          if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
+          renderCommunityMaterials();
         }
-        if (appState.step >= 1 && appState.grade) renderGradeCommunityList();
-        renderCommunityMaterials();
       } catch (err) {
         alert('מחיקת החומר מהארכיון נכשלה: ' + (err && err.message ? err.message : String(err)));
         if (triggerEl) triggerEl.disabled = false;
@@ -19811,7 +19828,7 @@
       return fetchCommunityMaterialsOfflineFallback();
     }
 
-    /** מבנה insert רזה — רק עמודות שקיימות בטבלה: grade, topic, file_path, file_name, notes */
+    /** מבנה insert/patch — עמודות + תגי notes (כולל Drive) בלי למחוק מטא-דאטה קיים */
     function packCommunityExtras(extras) {
       const e = extras || {};
       const parts = [];
@@ -19820,6 +19837,12 @@
       if ((e.description || '').trim()) parts.push('[desc:' + String(e.description).trim() + ']');
       if (e.fileSize != null && e.fileSize !== '') parts.push('[size:' + e.fileSize + ']');
       if ((e.fileType || '').trim()) parts.push('[type:' + String(e.fileType).trim() + ']');
+      if ((e.topicLegacy || '').trim()) parts.push('[topic:' + String(e.topicLegacy).trim() + ']');
+      if ((e.subfolder || '').trim()) parts.push('[subfolder:' + String(e.subfolder).trim() + ']');
+      if ((e.catalogTopic || '').trim()) parts.push('[catalogTopic:' + String(e.catalogTopic).trim() + ']');
+      if ((e.drivePath || '').trim()) parts.push('[drivePath:' + String(e.drivePath).trim() + ']');
+      if ((e.driveFileId || '').trim()) parts.push('[driveFileId:' + String(e.driveFileId).trim() + ']');
+      if ((e.freeText || '').trim()) parts.push(String(e.freeText).trim());
       return parts.length ? parts.join(' ') : null;
     }
 
@@ -21515,9 +21538,11 @@
         const url = normalizeShareUrl(linkRaw);
         filePath = url;
         const lower = url.toLowerCase();
-        fileName = lower.indexOf('docs.google.com') !== -1
+        const placeholderName = lower.indexOf('docs.google.com') !== -1
           ? 'קישור Google Docs'
           : (lower.indexOf('drive.google.com') !== -1 ? 'קישור Google Drive' : 'קישור שיתוף');
+        // Prefer the user-entered topic/title so cards are not stuck as "קישור Google Drive".
+        fileName = topicNorm || placeholderName;
         fileType = 'application/link';
       } else if (files.length) {
         for (let fi = 0; fi < files.length; fi++) {
@@ -21620,6 +21645,7 @@
         userId: row.user_id || row.userId || null,
         title: displayTitle,
         notes: displayNotes,
+        rawNotes: String(rawNotes || ''),
         authorName: extras.author || '',
         gradeLevel: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : ''),
         topic: topic,
@@ -30006,6 +30032,7 @@
         title: item.title,
         topic: item.topic,
         notes: item.notes,
+        rawNotes: item.rawNotes || '',
         authorName: item.authorName,
         userId: item.userId || null,
         gradeLevel: item.gradeLevel,
@@ -30015,6 +30042,7 @@
         fileUrl: item.fileUrl,
         fileSize: item.fileSize,
         fileType: item.fileType,
+        drivePath: item.drivePath || '',
         canManage: false,
       };
     }
@@ -30976,6 +31004,7 @@
       }
       form.addEventListener('submit', function (e) {
         e.preventDefault();
+        e.stopPropagation();
         saveCatalogMaterialEdit(form);
       });
       const topicInput = form.querySelector('[name="edit-topic"]');
@@ -31007,9 +31036,12 @@
         setElementTextContent(submitBtn, t('catalog_edit_saving'));
       }
       try {
+        // UPDATE existing row by UUID only — never INSERT a duplicate.
+        // title + topic both receive the edited name so file_name / [title:] stay in sync.
         await updateCommunityMaterial(materialId, {
           grade: gradeTrim,
           topic: topicTrim,
+          title: topicTrim,
           description: descTrim,
           author: authorTrim,
         });
