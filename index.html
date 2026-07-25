@@ -30229,106 +30229,105 @@
         || /docs\.google\.com\/(document|presentation|spreadsheets)\//i.test(url);
     }
 
-    /** Synced Drive tree rows (path-derived) — hidden from flat grade UI to avoid nested explosion. */
+    /** Drive-sync path rows (tree unpack) — never expand into nested UI cards. */
     function isDriveSyncedTreeItem(item) {
       if (!item || isDriveFolderLinkItem(item)) return false;
       return Boolean(String(item.drivePath || '').trim());
     }
 
-    /**
-     * Flat grade items from community_materials for this grade_level.
-     * No Drive-path nesting / subfolder explosion — every row is one openable link.
-     */
-    function collectFlatCatalogGradeItems(gradeId) {
-      return filterByGrade(appState.communityCache || [], gradeId)
-        .filter(function (item) { return item && !item.isDemo; })
-        .map(mapCacheItemToCatalogFile)
-        .filter(function (item) { return Boolean(item.id); })
-        .sort(function (a, b) {
-          const aFolder = isDriveFolderLinkItem(a) ? 0 : 1;
-          const bFolder = isDriveFolderLinkItem(b) ? 0 : 1;
-          if (aFolder !== bFolder) return aFolder - bFolder;
-          const la = String(a.topic || a.title || a.fileName || '');
-          const lb = String(b.topic || b.title || b.fileName || '');
-          return la.localeCompare(lb, 'he');
-        });
+    function resolveCatalogMaterialOpenUrl(item) {
+      if (!item) return '';
+      return String(
+        resolveCommunityFileUrl(item)
+        || item.fileUrl
+        || item.filePath
+        || item.file_path
+        || ''
+      ).trim();
+    }
+
+    function resolveCatalogCardTitle(item) {
+      return resolveCatalogMaterialSubject(item || {}) || '';
     }
 
     /**
-     * Grade browse cards: prefer original Drive folder links as single cards.
-     * Do not explode Drive-synced trees into dozens of path-derived topic folders.
-     * Manual community uploads still appear as normal topic cards.
+     * Strict catalog card gate: real community_materials row with title + openable link.
+     * Excludes Drive-sync tree explosions and empty/orphan rows.
+     */
+    function isValidCatalogMaterialCard(item) {
+      if (!item || item.isDemo) return false;
+      if (isDriveSyncedTreeItem(item)) return false;
+      const id = normalizeMaterialUuid(
+        item.dbId || item.id || resolveCommunityMaterialId(item) || ''
+      );
+      if (!id) return false;
+      if (!resolveCatalogCardTitle(item)) return false;
+      if (!resolveCatalogMaterialOpenUrl(item)) return false;
+      return true;
+    }
+
+    /** One card per unique material id / open URL. */
+    function dedupeCatalogMaterialCards(items) {
+      const seenId = {};
+      const seenUrl = {};
+      const out = [];
+      (items || []).forEach(function (item) {
+        if (!item) return;
+        const id = normalizeMaterialUuid(item.id || item.dbId || resolveCommunityMaterialId(item) || '');
+        const urlKey = resolveCatalogMaterialOpenUrl(item)
+          .replace(/[?#].*$/, '')
+          .toLowerCase();
+        if (id && seenId[id]) return;
+        if (urlKey && seenUrl[urlKey]) return;
+        if (id) seenId[id] = true;
+        if (urlKey) seenUrl[urlKey] = true;
+        out.push(item);
+      });
+      return out;
+    }
+
+    /**
+     * Strict 1-to-1: map community_materials rows for this grade only.
+     * No topic grouping, no synthetic Drive cards, no nested unpacking.
+     */
+    function collectFlatCatalogGradeItems(gradeId) {
+      const mapped = filterByGrade(appState.communityCache || [], gradeId)
+        .filter(isValidCatalogMaterialCard)
+        .map(mapCacheItemToCatalogFile)
+        .filter(function (item) {
+          return item
+            && item.id
+            && resolveCatalogCardTitle(item)
+            && resolveCatalogMaterialOpenUrl(item);
+        });
+      return dedupeCatalogMaterialCards(mapped).sort(function (a, b) {
+        const aFolder = isDriveFolderLinkItem(a) ? 0 : 1;
+        const bFolder = isDriveFolderLinkItem(b) ? 0 : 1;
+        if (aFolder !== bFolder) return aFolder - bFolder;
+        const la = resolveCatalogCardTitle(a);
+        const lb = resolveCatalogCardTitle(b);
+        return la.localeCompare(lb, 'he');
+      });
+    }
+
+    /**
+     * Compatibility helper for search/navigation — same 1-to-1 material cards
+     * (no synthetic folder unpacking).
      */
     function getCatalogGradeCards(gradeId) {
-      const items = filterByGrade(appState.communityCache || [], gradeId)
-        .filter(function (i) { return i && !i.isDemo; });
-      const cards = [];
-      const seenFolder = {};
-
-      items.forEach(function (item) {
-        if (!isDriveFolderLinkItem(item)) return;
-        const url = String(resolveCommunityFileUrl(item) || item.fileUrl || item.filePath || '').trim();
-        if (!url) return;
-        const key = url.replace(/[?#].*$/, '');
-        if (seenFolder[key]) return;
-        seenFolder[key] = true;
-        const label = String(
-          item.topic || item.title || item.fileName || ''
-        ).trim();
-        cards.push({
-          type: 'drive-folder',
-          id: 'drive-folder:' + key,
-          label: (label && !isGenericCommunityFolderName(label))
-            ? label
-            : ((typeof t === 'function' ? t('catalog_drive_folder_card') : '') || 'תיקיית Google Drive'),
+      return collectFlatCatalogGradeItems(gradeId).map(function (item) {
+        const url = resolveCatalogMaterialOpenUrl(item);
+        return {
+          type: isDriveFolderLinkItem(item) ? 'drive-folder' : 'material',
+          id: item.id,
+          label: resolveCatalogCardTitle(item),
           url: url,
-          count: 0,
-        });
-      });
-
-      const hasDriveFolderCard = cards.some(function (c) { return c.type === 'drive-folder'; });
-      const topicMap = {};
-      items.forEach(function (item) {
-        if (isDriveFolderLinkItem(item)) return;
-        // Hide exploded Drive-synced file trees from topic cards.
-        if (isDriveSyncedFileItem(item)) return;
-        const topic = String(item.topic || '').trim();
-        if (!topic || isGenericCommunityFolderName(topic)) return;
-        const key = normalizeTopicKey(topic);
-        if (!topicMap[key]) topicMap[key] = { type: 'topic', id: topic, label: topic, count: 0 };
-        topicMap[key].count++;
-      });
-
-      Object.keys(topicMap).forEach(function (k) { cards.push(topicMap[k]); });
-
-      // No folder link uploaded, but Drive-synced files exist → one synthetic card
-      // pointing at the first file's parent folder is unavailable; open first Drive URL.
-      if (!hasDriveFolderCard) {
-        const synced = items.filter(isDriveSyncedFileItem);
-        if (synced.length) {
-          const openUrl = String(
-            resolveCommunityFileUrl(synced[0]) || synced[0].fileUrl || synced[0].filePath || ''
-          ).trim();
-          cards.unshift({
-            type: 'drive-folder',
-            id: 'drive-synced:' + String(gradeId),
-            label: (typeof t === 'function' ? t('catalog_drive_synced_card') : '')
-              || 'תיקיית המאגר ב-Google Drive',
-            url: openUrl,
-            count: synced.length,
-            openFirstFile: true,
-          });
-        }
-      }
-
-      return cards.sort(function (a, b) {
-        if (a.type !== b.type) return a.type === 'drive-folder' ? -1 : 1;
-        return String(a.label).localeCompare(String(b.label), 'he');
+          count: 1,
+        };
       });
     }
 
     function getDynamicTopicsForGrade(gradeId) {
-      // Catalog cards for this grade (Drive folder links + manual topics only).
       return getCatalogGradeCards(gradeId).map(function (card) {
         return {
           id: card.id,
@@ -30364,14 +30363,11 @@
     }
 
     function collectCatalogFilesForGrade(gradeId) {
-      return filterByGrade(appState.communityCache, gradeId)
-        .map(mapCacheItemToCatalogFile)
-        .filter(function (item) { return Boolean(item.id); })
-        .sort(function (a, b) {
-          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return tb - ta;
-        });
+      return collectFlatCatalogGradeItems(gradeId).sort(function (a, b) {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+      });
     }
 
     function collectCatalogFiles(gradeId, topicId) {
@@ -31213,17 +31209,14 @@
 
     function renderCatalogFileRow(file) {
       const materialId = normalizeMaterialUuid(file.id || resolveCommunityMaterialId(file) || '');
-      if (!materialId) return '';
-      const downloadUrl = resolveCommunityFileUrl(file) || file.fileUrl || file.filePath || '';
-      const fileForLink = Object.assign({}, file, { fileUrl: downloadUrl });
-      const external = isExternalCommunityLink(downloadUrl);
-      const btnLabel = communityLinkLabel(fileForLink);
-      const btnIcon = communityLinkIconClass(fileForLink);
-      const typeBadge = communityFileTypeBadgeHtml(fileForLink);
-      const downloadBtn = downloadUrl
-        ? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer" class="touch-btn inline-flex items-center gap-1.5 text-sm ' +
-          (external ? 'bg-sky hover:bg-sky/90' : 'bg-sage hover:bg-sage-dark') + ' text-white px-4 py-2 rounded-lg"><i class="' + btnIcon + '"></i> ' + escapeHtml(btnLabel) + '</a>'
-        : '<span class="text-xs text-walnut/50">' + escapeHtml(t('community_no_file')) + '</span>';
+      const downloadUrl = resolveCatalogMaterialOpenUrl(file);
+      const title = resolveCatalogCardTitle(file);
+      if (!materialId || !downloadUrl || !title) return '';
+      const desc = resolveCatalogMaterialDescription(file, title);
+      const dateLine = file.createdAt ? formatCatalogCardDate(file.createdAt) : '';
+      const openLabel = (typeof t === 'function' && t('catalog_open_in_drive')) || 'פתיחה ב-Google Drive';
+      const openBtn = '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer" class="touch-btn inline-flex items-center gap-1.5 text-sm bg-sage hover:bg-sage-dark text-white px-4 py-2 rounded-lg">' +
+        '<i class="fa-brands fa-google-drive" aria-hidden="true"></i> ' + escapeHtml(openLabel) + '</a>';
       const isAdmin = isArchiveAdminUser();
       const canManage = Boolean(file.canManage) || isAdmin;
       const manageBtns = canManage
@@ -31234,14 +31227,17 @@
             : '<button type="button" class="catalog-material-btn catalog-material-btn--delete catalog-material-delete" data-id="' + escapeHtml(materialId) + '" title="' + escapeHtml(t('catalog_delete_material')) + '" aria-label="' + escapeHtml(t('catalog_delete_material')) + '">🗑️</button>') +
           '</div>'
         : '';
-      const openAttr = downloadUrl ? ' data-open-url="' + escapeHtml(downloadUrl) + '" style="cursor:pointer"' : '';
-      return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '"' + openAttr + '>' +
+      let metaHtml = '<p class="catalog-material-title">' + escapeHtml(title) + '</p>';
+      if (desc) {
+        metaHtml += '<p class="catalog-material-desc">' + escapeHtml(desc) + '</p>';
+      }
+      if (dateLine) {
+        metaHtml += '<p class="catalog-material-meta catalog-material-date">' + escapeHtml(dateLine) + '</p>';
+      }
+      return '<div class="catalog-material-row flex flex-col gap-3 bg-cream rounded-xl border border-gold/25 p-4" data-id="' + escapeHtml(materialId) + '" data-open-url="' + escapeHtml(downloadUrl) + '" style="cursor:pointer">' +
         '<div class="catalog-material-view flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">' +
-        '<div class="min-w-0 flex-1 catalog-material-text text-dir-start">' +
-        buildCatalogMaterialMetadataHtml(file) +
-        typeBadge +
-        '</div>' +
-        '<div class="flex flex-wrap items-center gap-2 shrink-0">' + manageBtns + downloadBtn + '</div></div>' +
+        '<div class="min-w-0 flex-1 catalog-material-text text-dir-start">' + metaHtml + '</div>' +
+        '<div class="flex flex-wrap items-center gap-2 shrink-0">' + manageBtns + openBtn + '</div></div>' +
         '<div class="catalog-material-edit-panel hidden" aria-live="polite"></div></div>';
     }
 
