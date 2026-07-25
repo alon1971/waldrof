@@ -1,5 +1,6 @@
 /**
  * GET    /api/community-materials — list community_materials
+ *        Optional: ?grade_level=<id> filters rows for one class (exact match)
  * PATCH  /api/community-materials?id=<uuid> — update grade / topic / description / author
  * DELETE /api/community-materials?id=<uuid> — delete row + storage object
  */
@@ -418,10 +419,33 @@ function enrichMaterialRowTopic(row) {
   });
 }
 
+function extractGradeLevelFilter(req) {
+  if (!req) return '';
+  if (req.query && req.query.grade_level != null && String(req.query.grade_level).trim()) {
+    return String(req.query.grade_level).trim();
+  }
+  if (req.query && req.query.gradeId != null && String(req.query.gradeId).trim()) {
+    return String(req.query.gradeId).trim();
+  }
+  if (req.url) {
+    try {
+      const host = (req.headers && req.headers.host) || 'localhost';
+      const url = new URL(req.url, 'http://' + host);
+      const fromQuery = url.searchParams.get('grade_level') || url.searchParams.get('gradeId');
+      if (fromQuery) return String(fromQuery).trim();
+    } catch (e) { /* ignore */ }
+  }
+  return '';
+}
+
 async function listCommunityMaterials(opts) {
   opts = opts || {};
+  const gradeFilter = String(opts.gradeLevel || opts.grade_level || '').trim();
+
+  // Full-list memory cache only (grade-scoped queries always hit Supabase).
   if (
     !opts.force
+    && !gradeFilter
     && communityListCache.rows
     && (Date.now() - communityListCache.at) < LIST_CACHE_TTL_MS
   ) {
@@ -449,13 +473,18 @@ async function listCommunityMaterials(opts) {
     const pageSize = 1000;
     const maxPages = 50;
     const allRows = [];
+    let listPath = '/rest/v1/' + MATERIALS_TABLE
+      + '?select=' + encodeURIComponent(LIST_SELECT)
+      + '&order=created_at.desc';
+    if (gradeFilter) {
+      // Exact match on grade_level (e.g. '7' / 7 stored as text).
+      listPath += '&grade_level=eq.' + encodeURIComponent(gradeFilter);
+    }
     for (let page = 0; page < maxPages; page++) {
       const from = page * pageSize;
       const to = from + pageSize - 1;
       const result = await supabaseRequestWithKeyFallback(
-        '/rest/v1/' + MATERIALS_TABLE
-          + '?select=' + encodeURIComponent(LIST_SELECT)
-          + '&order=created_at.desc',
+        listPath,
         {
           method: 'GET',
           headers: {
@@ -484,15 +513,18 @@ async function listCommunityMaterials(opts) {
       if (batch.length < pageSize) break;
     }
     const rows = allRows.map(enrichMaterialRowTopic);
-    communityListCache = {
-      at: Date.now(),
-      rows: rows,
-      degraded: false,
-      reason: '',
-    };
+    if (!gradeFilter) {
+      communityListCache = {
+        at: Date.now(),
+        rows: rows,
+        degraded: false,
+        reason: '',
+      };
+    }
     return {
       rows: rows,
       degraded: false,
+      gradeLevel: gradeFilter || null,
     };
   } catch (err) {
     console.warn('[community-materials] list error:', err.message || err);
@@ -725,13 +757,18 @@ async function legacyHandler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const listed = await listCommunityMaterials();
+      const gradeLevel = extractGradeLevelFilter(req);
+      const listed = await listCommunityMaterials({
+        gradeLevel: gradeLevel,
+        force: Boolean(gradeLevel),
+      });
       const payload = { data: listed.rows || [] };
       if (listed.degraded) payload.degraded = true;
       if (listed.reason) payload.reason = listed.reason;
       if (listed.cached) payload.cached = true;
+      if (listed.gradeLevel) payload.gradeLevel = listed.gradeLevel;
       setCors(res);
-      res.setHeader('Cache-Control', 'private, max-age=30');
+      res.setHeader('Cache-Control', gradeLevel ? 'private, max-age=15' : 'private, max-age=30');
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       return res.status(200).json(payload);
     }
