@@ -151,7 +151,9 @@ const HEBREW_GRADE_LETTER_TO_ID = {
 
 /**
  * Canonical classroom id for archive keys / grade_level columns.
- * «כיתה ו'» / «ו׳» / «Grade 6» → «6».
+ * «כיתה ו'» / «ו׳» / «כיתה 6» / «Grade 6» → «6».
+ *
+ * community_materials.grade_level stores digits only ('1'..'8' or 'general').
  */
 function normalizeArchiveGradeId(raw) {
   const value = String(raw || '').trim();
@@ -159,6 +161,9 @@ function normalizeArchiveGradeId(raw) {
   const lower = value.toLowerCase();
   if (lower === 'general' || value === 'כללי') return 'general';
   if (/^[1-8]$/.test(value)) return value;
+  // «כיתה 7» / «כיתה7» — digit form before Hebrew-letter / free-text extractors.
+  const hebDigit = value.match(/כיתה\s*([1-8])/u);
+  if (hebDigit) return hebDigit[1];
   if (typeof catalogTopics.extractGradeIdFromQuery === 'function') {
     const fromQuery = catalogTopics.extractGradeIdFromQuery(value);
     if (fromQuery) return String(fromQuery).trim();
@@ -169,6 +174,18 @@ function normalizeArchiveGradeId(raw) {
   }
   const digit = value.match(/([1-8])/);
   return digit ? digit[1] : value;
+}
+
+/**
+ * Map any request grade label to the exact community_materials.grade_level value.
+ * DB stores digits only — never query with «כיתה ז׳» labels.
+ */
+function toCommunityMaterialsGradeLevel(raw) {
+  const gid = normalizeArchiveGradeId(raw);
+  if (!gid) return '';
+  if (gid === 'general') return 'general';
+  if (/^[1-8]$/.test(gid)) return gid;
+  return '';
 }
 
 function buildArchiveKey(query, options) {
@@ -2006,6 +2023,7 @@ module.exports = {
   buildMaterialsFingerprint,
   buildCitationsPayload,
   normalizeArchiveGradeId,
+  toCommunityMaterialsGradeLevel,
   normalizeFileRefsFromMatches,
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,
