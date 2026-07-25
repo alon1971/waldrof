@@ -17601,7 +17601,27 @@
     function stripCommunityInstructorPrefix(raw) {
       return String(raw || '').trim()
         .replace(/^שם המורה\s*\(אופציונלי\)\s*:\s*/i, '')
-        .replace(/^Teacher name\s*\(optional\)\s*:\s*/i, '');
+        .replace(/^Teacher name\s*\(optional\)\s*:\s*/i, '')
+        .replace(/^מורה\s*:\s*/i, '')
+        .replace(/^Teacher\s*:\s*/i, '');
+    }
+
+    /** Teacher display name from card fields / notes tags (author / teacher_name). */
+    function resolveCatalogTeacherName(file) {
+      if (!file || typeof file !== 'object') return '';
+      return stripCommunityInstructorPrefix(
+        file.authorName
+        || file.teacherName
+        || file.teacher_name
+        || file.instructor_name
+        || file.author
+        || ''
+      );
+    }
+
+    function formatCatalogTeacherLine(file) {
+      const name = resolveCatalogTeacherName(file);
+      return name ? ('מורה: ' + name) : '';
     }
 
     function resolveCatalogMaterialSubject(file) {
@@ -17624,7 +17644,7 @@
     function buildCatalogMaterialMetadataHtml(file) {
       const subjectLine = resolveCatalogMaterialSubject(file);
       const descLine = resolveCatalogMaterialDescription(file, subjectLine);
-      const instructorLine = stripCommunityInstructorPrefix(file.authorName || file.instructor_name || '');
+      const instructorLine = formatCatalogTeacherLine(file);
       const dateLine = file.createdAt ? formatCatalogCardDate(file.createdAt) : '';
       let html = '';
       if (subjectLine) {
@@ -21751,7 +21771,10 @@
         title: displayTitle,
         notes: displayNotes,
         rawNotes: String(rawNotes || ''),
-        authorName: extras.author || '',
+        authorName: extras.author
+          || String(row.teacher_name || row.teacherName || row.author_name || row.authorName || '').trim()
+          || '',
+        teacherName: String(row.teacher_name || row.teacherName || extras.author || '').trim() || '',
         gradeLevel: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : ''),
         topic: topic,
         rawTopic: rawTopic,
@@ -31174,7 +31197,7 @@
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_topic_label')) + ' <span class="text-terracotta">*</span></label>' +
         '<input type="text" name="edit-topic" required maxlength="120" value="' + escapeHtml(file.topic || file.title || '') + '" class="' + fc + '" /></div>' +
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_author_label')) + '</label>' +
-        '<input type="text" name="edit-author" maxlength="60" value="' + escapeHtml(file.authorName || '') + '" class="' + fc + '" /></div></div>' +
+        '<input type="text" name="edit-author" maxlength="60" value="' + escapeHtml(resolveCatalogTeacherName(file) || file.authorName || '') + '" class="' + fc + '" /></div></div>' +
         '<div class="w-full"><label class="catalog-field-label">' + escapeHtml(t('catalog_desc_label')) + '</label>' +
         '<input type="text" name="edit-desc" maxlength="200" value="' + escapeHtml(file.notes || '') + '" class="' + fc + '" /></div>' +
         '<div class="flex flex-wrap gap-2">' +
@@ -31213,6 +31236,7 @@
       const title = resolveCatalogCardTitle(file);
       if (!materialId || !downloadUrl || !title) return '';
       const desc = resolveCatalogMaterialDescription(file, title);
+      const teacherLine = formatCatalogTeacherLine(file);
       const dateLine = file.createdAt ? formatCatalogCardDate(file.createdAt) : '';
       const openLabel = (typeof t === 'function' && t('catalog_open_in_drive')) || 'פתיחה ב-Google Drive';
       const openBtn = '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener noreferrer" class="touch-btn inline-flex items-center gap-1.5 text-sm bg-sage hover:bg-sage-dark text-white px-4 py-2 rounded-lg">' +
@@ -31230,6 +31254,9 @@
       let metaHtml = '<p class="catalog-material-title">' + escapeHtml(title) + '</p>';
       if (desc) {
         metaHtml += '<p class="catalog-material-desc">' + escapeHtml(desc) + '</p>';
+      }
+      if (teacherLine) {
+        metaHtml += '<p class="catalog-material-meta catalog-material-instructor">' + escapeHtml(teacherLine) + '</p>';
       }
       if (dateLine) {
         metaHtml += '<p class="catalog-material-meta catalog-material-date">' + escapeHtml(dateLine) + '</p>';
