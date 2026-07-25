@@ -28011,25 +28011,31 @@
 
     function clearCommunitySummarizerSearch() {
       var topicEl = document.getElementById('community-summarizer-topic');
+      var gradeEl = document.getElementById('community-summarizer-grade');
       var essenceEl = document.getElementById('community-summarizer-grade-essence');
       if (appState.communitySummarizerAbort) {
         try { appState.communitySummarizerAbort.abort(); } catch (e) { /* ignore */ }
         appState.communitySummarizerAbort = null;
       }
       appState.communitySummarizerRequestId = (appState.communitySummarizerRequestId || 0) + 1;
+      appState.communitySummarizerGradeId = '';
       appState.communitySummarizerTopic = '';
       appState.communitySummarizerGradeEssence = false;
       appState.communitySummarizerResult = null;
       appState.communitySummarizerBgPending = false;
+      if (gradeEl) gradeEl.value = '';
       if (topicEl) topicEl.value = '';
       if (essenceEl) essenceEl.checked = false;
+      populateCommunitySummarizerTopicSelect();
       setCommunitySummarizerLoading(false);
       syncCommunitySummarizerGradeEssenceUi();
       renderCommunitySummarizerResult(null);
       syncCommunitySummarizerBgIndicator();
       ensureArchiveSearchControlsUnlocked();
-      if (topicEl && typeof topicEl.focus === 'function' && !isCommunitySummarizerGradeEssenceChecked()) {
-        try { topicEl.focus({ preventScroll: true }); } catch (e2) { topicEl.focus(); }
+      if (gradeEl && typeof gradeEl.focus === 'function') {
+        try { gradeEl.focus({ preventScroll: true }); } catch (e2) { gradeEl.focus(); }
+      } else if (topicEl && typeof topicEl.focus === 'function' && !isCommunitySummarizerGradeEssenceChecked()) {
+        try { topicEl.focus({ preventScroll: true }); } catch (e3) { topicEl.focus(); }
       }
     }
 
