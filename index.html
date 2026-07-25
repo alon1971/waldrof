@@ -2005,6 +2005,11 @@
       text-underline-offset: 2px;
       font-weight: 500;
     }
+    /* Never paint raw href/URL text after a community summary link. */
+    .hybrid-community-summary-body a::after,
+    .hybrid-community-citations a::after {
+      content: none !important;
+    }
     .hybrid-community-summary.is-empty .hybrid-community-summary-body {
       color: rgba(92, 74, 58, 0.88);
       font-style: normal;
@@ -24505,6 +24510,14 @@
           || 'אין מספיק חומרים ליצירת הסיכום הכללי.';
       }
       summary = sanitizeCommunitySummaryForDisplay(summary);
+      if (meta && meta.gradeEssence) {
+        // Grade-essence: never show raw URLs in prose; linkifier uses file-name labels only.
+        summary = String(summary || '')
+          .replace(/\[(https?:\/\/[^\]]*)\]\((https?:\/\/[^)\s]+)\)/gi, '')
+          .replace(/(^|[\s(])https?:\/\/[^\s)\]>]+/gi, '$1')
+          .replace(/[ \t]{2,}/g, ' ')
+          .trim();
+      }
       var bodyHtml;
       if (isSummarizing) {
         bodyHtml = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>'
