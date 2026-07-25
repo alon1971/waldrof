@@ -33,21 +33,14 @@ function getSupabaseConfig() {
 }
 
 function normalizeGradeId(raw) {
+  if (typeof communityDriveArchive.toCommunityMaterialsGradeLevel === 'function') {
+    const mapped = communityDriveArchive.toCommunityMaterialsGradeLevel(raw);
+    if (mapped) return mapped;
+  }
   if (typeof communityDriveArchive.normalizeArchiveGradeId === 'function') {
     return communityDriveArchive.normalizeArchiveGradeId(raw);
   }
   return String(raw || '').trim();
-}
-
-function expandGradeFilterValues(gradeId) {
-  try {
-    const materialsApi = require('./community-materials');
-    if (materialsApi && typeof materialsApi.expandGradeLevelFilterValues === 'function') {
-      return materialsApi.expandGradeLevelFilterValues(gradeId);
-    }
-  } catch (e) { /* optional */ }
-  const gid = normalizeGradeId(gradeId);
-  return gid ? [gid] : [];
 }
 
 function buildGradeEssenceArchiveKey(gradeId) {
@@ -145,28 +138,27 @@ function cleanMaterialNotes(notes) {
 
 async function fetchCommunityMaterialsForGrade(gradeId) {
   const cfg = getSupabaseConfig();
+  // community_materials.grade_level is digit-only ('7'), never Hebrew labels.
   const gid = normalizeGradeId(gradeId);
   if (!cfg.url || !cfg.key || !gid) return [];
-
-  const gradeValues = expandGradeFilterValues(gid);
-  if (!gradeValues.length) return [];
-
-  const gradeClause = gradeValues.length === 1
-    ? ('grade_level=eq.' + encodeURIComponent(gradeValues[0]))
-    : ('or=(' + gradeValues.map(function (v) {
-      return 'grade_level.eq.' + encodeURIComponent(v);
-    }).join(',') + ')');
 
   const params = new URLSearchParams();
   params.set(
     'select',
     'id,grade_level,topic,file_path,file_name,notes,google_docs_url,created_at'
   );
+  params.set('grade_level', 'eq.' + gid);
   params.set('order', 'created_at.desc');
   params.set('limit', '500');
 
+  console.log(
+    '[community-grade-essence] querying community_materials.grade_level=eq.' + gid,
+    '| rawGrade:',
+    String(gradeId || '').trim().slice(0, 40)
+  );
+
   const res = await fetch(
-    cfg.url + '/rest/v1/' + MATERIALS_TABLE + '?' + params.toString() + '&' + gradeClause,
+    cfg.url + '/rest/v1/' + MATERIALS_TABLE + '?' + params.toString(),
     {
       headers: {
         apikey: cfg.key,
