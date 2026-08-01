@@ -21278,6 +21278,42 @@
         .replace(/\s+/g, ' ');
     }
 
+    var GRADE_ESSENCE_CITABLE_EXT_RE =
+      /\.(docx?|pdf|pptx?|xlsx?|odt|ods|odp|txt|md|rtf|mp4|mov|webm|mp3|wav|m4a|png|jpe?g|gif|webp)$/i;
+    var GRADE_ESSENCE_IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|tiff?)$/i;
+
+    function gradeEssenceHasCitableExt(name) {
+      return GRADE_ESSENCE_CITABLE_EXT_RE.test(String(name || '').trim());
+    }
+
+    /** Raw machine image dumps / ambiguous short bare words — never linkify or list. */
+    function isGradeEssenceNoiseAssetName(name) {
+      var n = String(name || '').trim();
+      if (!n) return true;
+      var base = n.replace(/\.[^.]+$/, '');
+      if (!gradeEssenceHasCitableExt(n) && base.length <= 3) return true;
+      if (!GRADE_ESSENCE_IMAGE_EXT_RE.test(n)) return false;
+      var sepCount = (n.match(/[_\-]/g) || []).length;
+      if (/_SMU\b|\bSMU_/i.test(n)) return true;
+      if (/[A-Za-z]/.test(n) && sepCount >= 2) return true;
+      if (/[A-Za-z].*\d+/i.test(n) && sepCount >= 1) return true;
+      return false;
+    }
+
+    /**
+     * Linkify / מראי מקום only for real filenames with extensions.
+     * Never short bare Hebrew words (רות/בר) or machine image dumps.
+     */
+    function isGradeEssenceLinkableName(name) {
+      var n = String(name || '').trim();
+      if (!n || isGradeEssenceNoiseAssetName(n)) return false;
+      if (!gradeEssenceHasCitableExt(n)) return false;
+      if (GRADE_ESSENCE_IMAGE_EXT_RE.test(n) && /[A-Za-z]{3,}/.test(n) && /[_\-]/.test(n)) {
+        return false;
+      }
+      return true;
+    }
+
     function resolveGradeEssenceMaterialUrl(row) {
       if (!row || typeof row !== 'object') return '';
       var gdocs = String(row.google_docs_url || row.googleDocsUrl || '').trim();
@@ -21306,7 +21342,7 @@
         var name = String(
           row.file_name || row.fileName || row.title || row.name || ''
         ).trim();
-        if (!name) return;
+        if (!isGradeEssenceLinkableName(name)) return;
         var key = normalizeGradeEssenceCitationKey(name);
         if (!key || seen[key]) return;
         var url = resolveGradeEssenceMaterialUrl(row);
@@ -21333,7 +21369,7 @@
 
     function findGradeEssenceMaterialEntry(quotedName, entries) {
       var raw = String(quotedName || '').trim();
-      if (!raw) return null;
+      if (!isGradeEssenceLinkableName(raw)) return null;
       var key = normalizeGradeEssenceCitationKey(raw);
       for (var i = 0; i < entries.length; i++) {
         if (entries[i].name === raw || entries[i].key === key) return entries[i];
@@ -21342,8 +21378,8 @@
     }
 
     /**
-     * Grade-essence linkifier: convert double-quoted file names that exist in
-     * community_materials into clean HTML anchors (no Markdown, no raw URLs).
+     * Grade-essence linkifier: ONLY convert double-quoted file names that include
+     * a valid extension and exist in community_materials. Never partial Hebrew words.
      */
     function linkifyGradeEssenceQuotedFileNames(summary, entries) {
       var text = String(summary || '');
@@ -21351,11 +21387,23 @@
         return { text: text, placeholders: [], cited: [] };
       }
       text = text.replace(/[“”‟″״]/g, '"');
+      // Drop dumped machine image filenames left as raw tokens in the narrative.
+      text = text.replace(
+        /(^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9]*(?:[_\-][A-Za-z0-9]+){2,}\.(?:jpe?g|png|gif|webp|svg))(?![A-Za-z0-9_])/g,
+        '$1'
+      );
       var placeholders = [];
       var cited = [];
       var seenCite = {};
       text = text.replace(/"([^"]{1,500})"/g, function (match, inner) {
-        var entry = findGradeEssenceMaterialEntry(inner, entries);
+        var rawInner = String(inner || '').trim();
+        // Unwrap false short-word quotes; never linkify without a file extension.
+        if (!gradeEssenceHasCitableExt(rawInner)) {
+          if (rawInner.length <= 3) return rawInner;
+          return match;
+        }
+        if (isGradeEssenceNoiseAssetName(rawInner)) return '';
+        var entry = findGradeEssenceMaterialEntry(rawInner, entries);
         if (!entry) return match;
         if (!seenCite[entry.key]) {
           seenCite[entry.key] = true;
@@ -21409,6 +21457,7 @@
       var items = [];
       citedEntries.forEach(function (entry) {
         if (!entry || !entry.name || !entry.url) return;
+        if (!isGradeEssenceLinkableName(entry.name)) return;
         var key = entry.key || normalizeGradeEssenceCitationKey(entry.name);
         if (!key || seen[key]) return;
         seen[key] = true;
@@ -24655,14 +24704,18 @@
       var isInsufficient = status === 'insufficient'
         || summary === t('community_summarizer_grade_essence_insufficient')
         || /אין מספיק חומרים ליצירת הסיכום הכללי/.test(summary);
+      var isGradeScopedEmpty = /לא נמצאו חומרים בנושא/.test(summary)
+        && /במאגר הקהילתי/.test(summary);
       var isEmpty = status === 'empty'
         || isInsufficient
+        || isGradeScopedEmpty
         || summary === t('community_summarizer_empty')
         || summary === t('hybrid_community_empty')
         || /אין חומר מהארכיון/.test(summary)
         || /כרגע אין חומר רלוונטי/.test(summary)
         || /לצערי,?\s*הנושא שביקשת/.test(summary)
-        || /אינו נמצא במאגר/.test(summary);
+        || /אינו נמצא במאגר/.test(summary)
+        || /No materials were found for the requested topic/.test(summary);
       var isSummarizing = status === 'summarizing'
         || summary === t('community_summarizer_loading')
         || summary === t('hybrid_community_summarizing')
@@ -24670,8 +24723,8 @@
         || /סורק את המאגר הקהילתי/.test(summary)
         || /מחפש ומעבד נתונים מהמאגר הקהילתי/.test(summary);
       // Prefer localized empty copy over older archived/server strings.
-      // Keep grade-essence threshold copy (do not replace with topic-empty text).
-      if (isEmpty && !isSummarizing && !isInsufficient) {
+      // Keep grade-essence threshold copy and server grade-scoped empty (topic + grade).
+      if (isEmpty && !isSummarizing && !isInsufficient && !isGradeScopedEmpty) {
         summary = t('community_summarizer_empty');
       } else if (isInsufficient) {
         summary = t('community_summarizer_grade_essence_insufficient')

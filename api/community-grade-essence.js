@@ -14,10 +14,15 @@ const TABLE_NAME = 'community_drive_archive';
 const MATERIALS_TABLE = 'community_materials';
 const GRADE_ESSENCE_SUBJECT = 'grade_essence';
 const GRADE_ESSENCE_PHASE = 'grade_essence';
-const GRADE_ESSENCE_PROMPT_VERSION = 'v4-grade-essence-clean-inline';
+const GRADE_ESSENCE_PROMPT_VERSION = 'v5-grade-essence-strict-cite';
 const GRADE_ESSENCE_HEADING = 'מהות הגיל מתוך חומרי הקהילה';
 const GRADE_ESSENCE_INSUFFICIENT = 'אין מספיק חומרים ליצירת הסיכום הכללי.';
 const MIN_MATERIALS_THRESHOLD = 3;
+/** Learning / media extensions allowed for linkify + citations. */
+const CITABLE_FILE_EXT_RE =
+  /\.(docx?|pdf|pptx?|xlsx?|odt|ods|odp|txt|md|rtf|mp4|mov|webm|mp3|wav|m4a|png|jpe?g|gif|webp)$/i;
+const LEARNING_FILE_EXT_RE = /\.(docx?|pdf|pptx?|xlsx?|odt|ods|odp|txt|md|rtf)$/i;
+const IMAGE_FILE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|tiff?)$/i;
 const GEMINI_MODEL = 'gemini-2.5-pro';
 const GEMINI_FALLBACK_MODELS = ['gemini-2.5-flash'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -330,6 +335,68 @@ function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function isWordChar(ch) {
+  return !!ch && /[0-9A-Za-z\u0590-\u05FF]/.test(ch);
+}
+
+/** True when match at idx is a whole token (not a substring inside התבגרות → רות). */
+function isStandaloneTokenMatch(text, idx, len) {
+  const before = idx > 0 ? text.charAt(idx - 1) : '';
+  const after = text.charAt(idx + len) || '';
+  if (before === '"' && after === '"') return true;
+  if (before && isWordChar(before)) return false;
+  if (after && isWordChar(after)) return false;
+  return true;
+}
+
+function hasCitableFileExtension(name) {
+  return CITABLE_FILE_EXT_RE.test(String(name || '').trim());
+}
+
+function hasLearningFileExtension(name) {
+  return LEARNING_FILE_EXT_RE.test(String(name || '').trim());
+}
+
+/**
+ * Raw / machine image assets (Wise_men_or_3_kings..._SMU.jpg) — never auto-cite.
+ */
+function isNoiseAssetFileName(name) {
+  const n = String(name || '').trim();
+  if (!n) return true;
+  const base = n.replace(/\.[^.]+$/, '');
+  // Ambiguous short bare labels without a real filename shape.
+  if (!hasCitableFileExtension(n) && base.length <= 3) return true;
+  if (!IMAGE_FILE_EXT_RE.test(n)) return false;
+  const underscoreCount = (n.match(/_/g) || []).length;
+  const hyphenCount = (n.match(/-/g) || []).length;
+  if (/_SMU\b|\bSMU_/i.test(n)) return true;
+  if (/[A-Za-z]/.test(n) && (underscoreCount + hyphenCount) >= 2) return true;
+  if (/[A-Za-z].*\d+.*\.(?:jpe?g|png|gif|webp)$/i.test(n) && (underscoreCount + hyphenCount) >= 1) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Names safe to quote-normalize / linkify / list in מראי מקום.
+ * Requires a real file extension; rejects noise image assets and bare short words.
+ */
+function isLinkableMaterialName(name) {
+  const n = String(name || '').trim();
+  if (!n || isNoiseAssetFileName(n)) return false;
+  if (!hasCitableFileExtension(n)) return false;
+  // מראי מקום prefers docs/presentations; keep pedagogical images only if not noise.
+  if (IMAGE_FILE_EXT_RE.test(n) && !hasLearningFileExtension(n)) {
+    // Allow simple Hebrew/human image titles; reject English machine dumps above.
+    if (/[A-Za-z]{3,}/.test(n) && (/_/.test(n) || /-/.test(n))) return false;
+  }
+  return true;
+}
+
+function materialDisplayName(row) {
+  return String((row && (row.file_name || row.fileName)) || '').trim();
+}
+
 /**
  * Unique materials by file_path (fallback: file_name) for citations / מראי מקום.
  */
@@ -419,7 +486,34 @@ function stripLeadingDisclaimers(summary) {
 }
 
 /**
+ * Strip dumped machine image filenames; unwrap false short-word "citations".
+ */
+function scrubNoiseAssetFileNamesFromSummary(summary) {
+  let text = String(summary || '');
+  if (!text) return '';
+  // English machine dumps: Wise_men_or_3_kings...jpg / Crucifixion-3-Crosses.jpg
+  text = text.replace(
+    /(^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9]*(?:[_\-][A-Za-z0-9]+){2,}\.(?:jpe?g|png|gif|webp|svg))(?![A-Za-z0-9_])/g,
+    '$1'
+  );
+  // Quoted noise image assets — drop the whole quoted token.
+  text = text.replace(/"([^"]{1,500})"/g, function (match, inner) {
+    const n = String(inner || '').trim();
+    if (isNoiseAssetFileName(n) && IMAGE_FILE_EXT_RE.test(n)) return '';
+    // Unwrap false quotes around short bare words (רות/בר) — keep the word.
+    if (!hasCitableFileExtension(n) && n.length <= 3) return n;
+    return match;
+  });
+  text = text
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ *\n{3,}/g, '\n\n');
+  return text.trim();
+}
+
+/**
  * Ensure known community file names appear as clean double-quoted citations.
+ * ONLY wraps names that already have a real file extension, and ONLY at
+ * standalone token boundaries — never substrings inside Hebrew words.
  * Does NOT emit Markdown links or URLs — the frontend linkifier attaches hrefs.
  */
 function normalizeQuotedFileNamesInGradeEssenceSummary(summary, materialsRows) {
@@ -429,8 +523,8 @@ function normalizeQuotedFileNamesInGradeEssenceSummary(summary, materialsRows) {
   const uniqueRows = dedupeMaterialsByFilePath(materialsRows);
   const entries = [];
   uniqueRows.forEach(function (row) {
-    const name = String(row.file_name || row.fileName || '').trim();
-    if (!name) return;
+    const name = materialDisplayName(row);
+    if (!isLinkableMaterialName(name)) return;
     entries.push({ name: name, len: name.length });
   });
   entries.sort(function (a, b) { return b.len - a.len; });
@@ -454,8 +548,11 @@ function normalizeQuotedFileNamesInGradeEssenceSummary(summary, materialsRows) {
       const after = text.charAt(idx + name.length) || '';
       if (before === '"' && after === '"') {
         out += name;
-      } else {
+      } else if (isStandaloneTokenMatch(text, idx, name.length)) {
         out += '"' + name + '"';
+      } else {
+        // Substring inside a larger word (e.g. רות inside התבגרות) — leave untouched.
+        out += name;
       }
       cursor = idx + name.length;
     }
@@ -465,7 +562,7 @@ function normalizeQuotedFileNamesInGradeEssenceSummary(summary, materialsRows) {
 }
 
 /**
- * Materials whose file names appear in the summary body (inline citations).
+ * Materials whose file names appear as explicit quoted citations in the body.
  * Used to build מראי מקום from files actually referenced — not the whole catalog.
  */
 function materialsCitedInSummary(summary, materialsRows) {
@@ -475,9 +572,23 @@ function materialsCitedInSummary(summary, materialsRows) {
   const uniqueRows = dedupeMaterialsByFilePath(materialsRows);
   const cited = [];
   uniqueRows.forEach(function (row) {
-    const name = String(row.file_name || row.fileName || '').trim();
-    if (!name) return;
-    if (prose.indexOf(name) !== -1) cited.push(row);
+    const name = materialDisplayName(row);
+    if (!isLinkableMaterialName(name)) return;
+    // Prefer explicit quoted citations; also accept standalone extension-bearing tokens.
+    if (prose.indexOf('"' + name + '"') !== -1) {
+      cited.push(row);
+      return;
+    }
+    let from = 0;
+    while (from < prose.length) {
+      const idx = prose.indexOf(name, from);
+      if (idx === -1) break;
+      if (isStandaloneTokenMatch(prose, idx, name.length)) {
+        cited.push(row);
+        return;
+      }
+      from = idx + name.length;
+    }
   });
   return cited;
 }
@@ -487,9 +598,11 @@ function materialsCitedInSummary(summary, materialsRows) {
  * Format: numbered clean double-quoted file names only (no URLs, no Markdown links).
  */
 function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
-  const citedRows = materialsCitedInSummary(summary, materialsRows);
+  const citedRows = materialsCitedInSummary(summary, materialsRows).filter(function (row) {
+    return isLinkableMaterialName(materialDisplayName(row));
+  });
   const lines = citedRows.map(function (row, idx) {
-    const name = String(row.file_name || row.fileName || '').trim();
+    const name = materialDisplayName(row);
     return (idx + 1) + '. "' + name + '"';
   });
 
@@ -508,6 +621,7 @@ function rebuildGradeEssenceSourcesSection(summary, materialsRows) {
 function finalizeGradeEssenceSummary(summary, materialsRows) {
   let text = scrubGeminiUrlAndMarkdownLinkArtifacts(summary);
   text = stripLeadingDisclaimers(text);
+  text = scrubNoiseAssetFileNamesFromSummary(text);
   text = normalizeQuotedFileNamesInGradeEssenceSummary(text, materialsRows);
   text = rebuildGradeEssenceSourcesSection(text, materialsRows);
   return sanitizeSummary(text);
@@ -516,18 +630,31 @@ function finalizeGradeEssenceSummary(summary, materialsRows) {
 function buildCorpusFromMaterials(rows) {
   let total = 0;
   const blocks = [];
-  (rows || []).forEach(function (row, idx) {
+  let materialIdx = 0;
+  (rows || []).forEach(function (row) {
     if (total >= MAX_TOTAL_CHARS) return;
     const topic = String(row.topic || '').trim();
-    const fileName = String(row.file_name || row.fileName || '').trim();
+    const fileName = materialDisplayName(row);
+    // Keep short/ambiguous/noise image assets out of the Gemini corpus so they
+    // cannot be dumped into narrative or citations.
+    if (fileName && !isLinkableMaterialName(fileName) && isNoiseAssetFileName(fileName)) {
+      return;
+    }
+    if (fileName && !hasCitableFileExtension(fileName) && fileName.length <= 3) {
+      return;
+    }
+    materialIdx += 1;
     const notes = cleanMaterialNotes(row.notes);
     // Do NOT include raw URLs / public links in the corpus — Gemini must cite
     // exact file names inside ASCII double quotes only; the frontend linkifier
     // attaches hrefs later.
+    const citeHint = isLinkableMaterialName(fileName)
+      ? ('שם קובץ מדויק לציטוט (במרכאות כפולות בלבד): "' + fileName + '"')
+      : (fileName ? ('שם פריט (לא לציטוט כשם קובץ): ' + fileName) : '');
     const body = [
-      '=== חומר ' + (idx + 1) + ' ===',
+      '=== חומר ' + materialIdx + ' ===',
       topic ? ('נושא/תקופה: ' + topic) : '',
-      fileName ? ('שם קובץ מדויק לציטוט (במרכאות כפולות בלבד): "' + fileName + '"') : '',
+      citeHint,
       notes ? ('הערות/תיאור: ' + notes.slice(0, MAX_MATERIAL_CHARS)) : '',
     ].filter(Boolean).join('\n');
     total += body.length;
@@ -537,8 +664,11 @@ function buildCorpusFromMaterials(rows) {
 }
 
 function buildFileRefsFromMaterials(rows) {
-  return dedupeMaterialsByFilePath(rows).map(function (row) {
-    const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
+  return dedupeMaterialsByFilePath(rows).filter(function (row) {
+    const name = materialDisplayName(row);
+    return !name || isLinkableMaterialName(name);
+  }).map(function (row) {
+    const name = materialDisplayName(row) || String(row.topic || 'חומר קהילתי').trim();
     const filePath = String(row.file_path || row.filePath || '').trim();
     const url = materialLinkFromRow(row);
     return {
@@ -559,7 +689,8 @@ function buildFileRefsFromMaterials(rows) {
 
 function buildCitationsFromMaterials(rows) {
   const cites = dedupeMaterialsByFilePath(rows).map(function (row) {
-    const name = String(row.file_name || row.fileName || row.topic || 'חומר קהילתי').trim();
+    const name = materialDisplayName(row);
+    if (!isLinkableMaterialName(name)) return null;
     const filePath = String(row.file_path || row.filePath || '').trim();
     const url = materialLinkFromRow(row);
     return {
@@ -572,7 +703,7 @@ function buildCitationsFromMaterials(rows) {
       webViewLink: url,
       fileUrl: url,
     };
-  }).filter(function (c) { return c.fileName; });
+  }).filter(function (c) { return c && c.fileName; });
   if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
     return communityDriveArchive.dedupeCommunityCitations(cites);
   }
@@ -596,9 +727,10 @@ function buildGradeEssenceSystemPrompt() {
     'אסור להשתמש בשום פורמט Markdown עבור קישורים או מראי מקום.',
     'אסור להשתמש בסימונים [text](url) או [url] או (url).',
     'אסור לכתוב כתובות URL מלאות או חלקיות בגוף הטקסט (כולל http/https, google.com, docs.google.com, drive.google.com).',
-    'חובה — פורמט שמות קבצים נקי: כאשר מתייחסים לקובץ או מקור מסוים, ציין אך ורק את שם הקובץ המדויק והמלא בתוך מרכאות כפולות ASCII (\") בלבד, ללא שום סימון נוסף.',
+    'חובה — פורמט שמות קבצים נקי: כאשר מתייחסים לקובץ או מקור מסוים, ציין אך ורק את שם הקובץ המדויק והמלא כולל סיומת (למשל .docx / .pdf / .pptx) בתוך מרכאות כפולות ASCII (\") בלבד, ללא שום סימון נוסף.',
     'לדוגמה: כפי שמתואר בקובץ "עבודת שורשים-מעודכן1.docx", ניתן לראות כי...',
-    'המשך לייצר ציטוטים מובלעים (inline citations) בתוך הטקסט, אך רק באמצעות פורמט שם הקובץ הנקי במרכאות כפולות.',
+    'אסור לצטט מילים קצרות בלי סיומת קובץ (כגון "רות", "בר", "דוד") ואסור להדביק שמות קבצי תמונה גולמיים באנגלית עם קווים תחתונים.',
+    'המשך לייצר ציטוטים מובלעים (inline citations) בתוך הטקסט, אך רק באמצעות פורמט שם הקובץ הנקי במרכאות כפולות ועם סיומת.',
     'המערכת החיצונית תמיר את המחרוזות שבמרכאות לקישורים לחיצים. אל תנסה ליצור קישורים בעצמך.',
     '',
     'מבנה חובה בדיוק עם כותרות ## כדלקמן:',
@@ -817,8 +949,28 @@ async function runGradeEssenceSummary(options) {
     if (instant && instant.summary) {
       const linkedSummary = finalizeGradeEssenceSummary(instant.summary, materialsRows);
       const citedRows = materialsCitedInSummary(linkedSummary, materialsRows);
-      const fileRefs = buildFileRefsFromMaterials(citedRows.length ? citedRows : materialsRows);
-      const citations = buildCitationsFromMaterials(citedRows.length ? citedRows : materialsRows);
+      // Citations only from files actually quoted in the body — never the whole catalog.
+      const fileRefs = buildFileRefsFromMaterials(citedRows);
+      const citations = buildCitationsFromMaterials(citedRows);
+      const archiveFileRefs = buildFileRefsFromMaterials(
+        (instant.fileRefs || []).map(function (ref) {
+          return {
+            file_name: ref.fileName || ref.file_name || ref.name,
+            file_path: ref.filePath || ref.file_path || '',
+            id: ref.materialId || ref.id,
+            grade_level: ref.gradeId || gradeId,
+            topic: ref.folder || '',
+          };
+        })
+      );
+      const archiveCitations = buildCitationsFromMaterials(
+        (instant.citations || []).map(function (cite) {
+          return {
+            file_name: cite.fileName || cite.file_name || cite.title,
+            file_path: cite.filePath || cite.file_path || '',
+          };
+        })
+      );
       return {
         success: true,
         topic: GRADE_ESSENCE_SUBJECT,
@@ -829,8 +981,8 @@ async function runGradeEssenceSummary(options) {
         communitySummaryHeading: instant.heading || GRADE_ESSENCE_HEADING,
         communitySummary: linkedSummary,
         communityMatchCount: materialsRows.length,
-        communityMatches: fileRefs.length ? fileRefs : (instant.fileRefs || []),
-        communityCitations: citations.length ? citations : (instant.citations || []),
+        communityMatches: fileRefs.length ? fileRefs : archiveFileRefs,
+        communityCitations: citations.length ? citations : archiveCitations,
         communitySummaryFromArchive: true,
         communitySummaryDeltaUpdated: false,
         communityArchiveKey: instant.archiveKey || archiveKey,
@@ -892,8 +1044,9 @@ async function runGradeEssenceSummary(options) {
   const fingerprint = buildMaterialsFingerprint(materialsRows);
   const cleanedSummary = finalizeGradeEssenceSummary(generated.summary, materialsRows);
   const citedRows = materialsCitedInSummary(cleanedSummary, materialsRows);
-  const fileRefs = buildFileRefsFromMaterials(citedRows.length ? citedRows : materialsRows);
-  const citations = buildCitationsFromMaterials(citedRows.length ? citedRows : materialsRows);
+  // Citations only from files actually quoted in the body — never the whole catalog.
+  const fileRefs = buildFileRefsFromMaterials(citedRows);
+  const citations = buildCitationsFromMaterials(citedRows);
 
   const record = {
     archive_key: archiveKey,
@@ -973,4 +1126,8 @@ module.exports = {
   buildGradeEssenceArchiveKey,
   fetchCommunityMaterialsForGrade,
   tryInstantGradeEssenceArchive,
+  finalizeGradeEssenceSummary,
+  materialsCitedInSummary,
+  isLinkableMaterialName,
+  isNoiseAssetFileName,
 };
