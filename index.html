@@ -8703,7 +8703,14 @@
       failedByKey: summaryFailedByKey,
     };
 
-    const catalogState = { view: 'grades', gradeId: null, topic: null, gradeFolderId: null, searchActive: false };
+    const catalogState = {
+      view: 'grades',
+      gradeId: null,
+      topic: null,
+      gradeFolderId: null,
+      searchActive: false,
+      searchQuery: '',
+    };
     const ACTIVE_STEP_STORAGE_KEY = 'waldorf_active_step';
     const LESSON_SNAPSHOT_STORAGE_KEY = 'waldorf_lesson_snapshot';
     const SCROLL_MEMORY_STORAGE_KEY = 'waldorf_scroll_positions';
@@ -8817,6 +8824,8 @@
       catalogState.view = 'grades';
       catalogState.gradeId = null;
       catalogState.topic = null;
+      catalogState.searchActive = false;
+      catalogState.searchQuery = '';
       resetSummarySession();
       abortAllInlineExpansions();
       if (typeof LessonChatSidebar !== 'undefined') LessonChatSidebar.reset();
@@ -8961,6 +8970,11 @@
           catalogView: catalogState.view || 'grades',
           catalogGradeId: catalogState.gradeId || null,
           catalogTopic: catalogState.topic || null,
+          catalogSearchQuery: catalogState.searchQuery || '',
+          catalogSearchActive: Boolean(catalogState.searchActive),
+          communitySummarizerGradeId: appState.communitySummarizerGradeId || '',
+          communitySummarizerTopic: appState.communitySummarizerTopic || '',
+          communitySummarizerGradeEssence: Boolean(appState.communitySummarizerGradeEssence),
         }));
         persistLessonSnapshot();
       } catch (e) { /* private mode / quota */ }
@@ -9015,6 +9029,8 @@
         catalogState.view = 'grades';
         catalogState.gradeId = null;
         catalogState.topic = null;
+        catalogState.searchActive = false;
+        catalogState.searchQuery = '';
         touched = true;
       }
       if (!touched) {
@@ -9093,6 +9109,8 @@
         catalogState.view = 'grades';
         catalogState.gradeId = null;
         catalogState.topic = null;
+        catalogState.searchActive = false;
+        catalogState.searchQuery = '';
         touched = true;
       }
       if (!touched) {
@@ -21656,6 +21674,7 @@
       const input = document.getElementById('catalog-search-input');
       const resultsEl = document.getElementById('catalog-search-results');
       catalogState.searchActive = false;
+      catalogState.searchQuery = '';
       if (input) input.value = '';
       if (resultsEl) {
         resultsEl.classList.add('hidden');
@@ -21665,11 +21684,37 @@
       setCatalogFolderListingVisible(true);
       updateCatalogSearchPlaceholder();
       showCatalogStatus('', '');
+      persistActiveStep();
       // Only re-render when the folder panel is missing/empty; otherwise restore instantly.
       if (options.forceRerender
         && (catalogState.view === 'grade' || catalogState.view === 'materials')
         && catalogState.gradeId) {
         renderCatalog(catalogState.view, catalogState.gradeId, catalogState.topic, { force: true });
+      }
+    }
+
+    function restoreCatalogSearchUiFromState() {
+      const input = document.getElementById('catalog-search-input');
+      const resultsEl = document.getElementById('catalog-search-results');
+      const q = String(catalogState.searchQuery || '').trim();
+      const insideFolder = (catalogState.view === 'grade' || catalogState.view === 'materials')
+        && catalogState.gradeId;
+      if (!insideFolder) return;
+      if (input && q && String(input.value || '').trim() !== q) {
+        input.value = q;
+      } else if (input && !q) {
+        // Keep whatever the user typed if we have no stored query.
+      }
+      syncCatalogSearchClearButton();
+      if (!q || !catalogState.searchActive) return;
+      const resultsMissing = !resultsEl
+        || resultsEl.classList.contains('hidden')
+        || !String(resultsEl.innerHTML || '').trim();
+      if (resultsMissing) {
+        runCatalogDeepSearch(q, input);
+      } else {
+        setCatalogFolderListingVisible(false);
+        setCatalogSearchClearVisible(true);
       }
     }
 
@@ -21688,11 +21733,9 @@
         try { await loadCommunity(); } catch (e) { /* ignore */ }
       }
       showCatalogStatus('מחפש במאגר הקהילתי…', 'info');
-      // Hard-lock to the open grade page (catalogState) — never let curriculum inference
-      // expand search into another classroom.
-      const scopeGradeId = resolveCommunityGradeIdFromAny(
-        catalogState.gradeId || appState.grade || ''
-      ) || '';
+      // Hard-lock to the open grade page (catalogState) — never inherit wizard
+      // appState.grade (that forced Grade 1 / "כיתה א׳" into unrelated queries).
+      const scopeGradeId = resolveCommunityGradeIdFromAny(catalogState.gradeId || '') || '';
       const probeGradeId = scopeGradeId;
       if (!probeGradeId) {
         showCatalogStatus('בחרו כיתה כדי לחפש במאגר הקהילתי', 'info');
@@ -21741,6 +21784,7 @@
         html += '<p class="text-sm text-walnut/70 py-2">' + escapeHtml(emptyMsg) + '</p>';
       }
       catalogState.searchActive = true;
+      catalogState.searchQuery = q;
       mutateCatalogDom(function () {
         resultsEl.innerHTML = html;
         resultsEl.classList.remove('hidden');
@@ -21750,6 +21794,7 @@
         updateCatalogSearchPlaceholder();
       });
       showCatalogStatus('', '');
+      persistActiveStep();
       return hasResults;
     }
 
@@ -21765,20 +21810,25 @@
       }
       updateCatalogSearchPlaceholder();
       if (!insideFolder) {
-        catalogState.searchActive = false;
+        // Hide search UI on the grades hub, but keep query/grade state until
+        // explicit "נקה חיפוש" or a deliberate hub navigation that clears it.
         if (results) {
           results.classList.add('hidden');
-          results.innerHTML = '';
         }
-        if (input) input.value = '';
         setCatalogSearchClearVisible(false);
       } else if (!catalogState.searchActive) {
         if (results) {
           results.classList.add('hidden');
           results.innerHTML = '';
         }
+        if (input && catalogState.searchQuery) {
+          input.value = catalogState.searchQuery;
+        }
         syncCatalogSearchClearButton();
       } else {
+        if (input && catalogState.searchQuery && !String(input.value || '').trim()) {
+          input.value = catalogState.searchQuery;
+        }
         syncCatalogSearchClearButton();
       }
     }
@@ -24926,7 +24976,9 @@
         || 'הקלידו נושא לסיכום';
       input.setAttribute('placeholder', placeholder);
       input.removeAttribute('list');
-      if (appState.communitySummarizerTopic && (appState.isSummarizing || appState.communitySummarizerLoading)) {
+      if (appState.communitySummarizerGradeEssence) {
+        // Topic field is hidden/disabled for grade-essence mode.
+      } else if (appState.communitySummarizerTopic) {
         input.value = String(appState.communitySummarizerTopic);
       }
       syncCommunitySummarizerGradeEssenceUi();
@@ -25139,15 +25191,14 @@
       var topicEl = document.getElementById('community-summarizer-topic');
       var essenceEl = document.getElementById('community-summarizer-grade-essence');
       if (gradeEl) {
-        gradeEl.value = String(appState.communitySummarizerGradeId || '');
+        var gradeId = String(appState.communitySummarizerGradeId || '').trim();
+        gradeEl.value = gradeId;
         if (!gradeEl.value) gradeEl.selectedIndex = 0;
       }
       if (essenceEl) {
         essenceEl.checked = Boolean(appState.communitySummarizerGradeEssence);
       }
-      if (topicEl && (appState.isSummarizing || appState.communitySummarizerLoading)
-        && appState.communitySummarizerTopic
-        && !appState.communitySummarizerGradeEssence) {
+      if (topicEl && appState.communitySummarizerTopic && !appState.communitySummarizerGradeEssence) {
         topicEl.value = appState.communitySummarizerTopic;
       }
       syncCommunitySummarizerGradeEssenceUi();
@@ -25208,14 +25259,8 @@
       if (wizard) wizard.classList.add('hidden');
       populateCommunitySummarizerGradeSelect();
       var topicEl = document.getElementById('community-summarizer-topic');
-      // Keep topic only while a summary is in flight; otherwise always start empty.
-      if (!(appState.isSummarizing || appState.communitySummarizerLoading)) {
-        appState.communitySummarizerTopic = '';
-      }
+      // Preserve grade/topic/result across tab switches; only "נקה חיפוש" clears them.
       populateCommunitySummarizerTopicSelect();
-      if (topicEl && !(appState.isSummarizing || appState.communitySummarizerLoading)) {
-        topicEl.value = '';
-      }
       // Preload community_materials for grade context (topic field stays free text).
       Promise.resolve()
         .then(function () {
@@ -25229,13 +25274,8 @@
         })
         .then(function () {
           populateCommunitySummarizerGradeSelect();
-          if (!(appState.isSummarizing || appState.communitySummarizerLoading)) {
-            appState.communitySummarizerTopic = '';
-          }
           populateCommunitySummarizerTopicSelect();
-          if (topicEl && !(appState.isSummarizing || appState.communitySummarizerLoading)) {
-            topicEl.value = '';
-          }
+          syncCommunitySummarizerModalFromState();
         });
       appState.communitySummarizerModalOpen = true;
       appState.communitySummarizerBgPending = false;
@@ -25397,12 +25437,14 @@
           appState.communitySummarizerTopic = '';
           if (topicEl) topicEl.value = '';
           populateCommunitySummarizerTopicSelect();
+          persistActiveStep();
         });
       }
       if (topicEl && !topicEl._communitySummarizerBound) {
         topicEl._communitySummarizerBound = true;
         topicEl.addEventListener('input', function () {
           appState.communitySummarizerTopic = String(topicEl.value || '').trim();
+          persistActiveStep();
         });
       }
       if (essenceEl && !essenceEl._communitySummarizerBound) {
@@ -27738,6 +27780,8 @@
       catalogState.view = 'grades';
       catalogState.gradeId = null;
       catalogState.topic = null;
+      catalogState.searchActive = false;
+      catalogState.searchQuery = '';
       var gradeSel = document.getElementById('grade-select');
       if (gradeSel) {
         gradeSel.value = '';
@@ -27763,6 +27807,23 @@
       if (saved.catalogView) catalogState.view = saved.catalogView;
       if (saved.catalogGradeId) catalogState.gradeId = saved.catalogGradeId;
       if (saved.catalogTopic) catalogState.topic = saved.catalogTopic;
+      if (typeof saved.catalogSearchQuery === 'string') {
+        catalogState.searchQuery = saved.catalogSearchQuery;
+      }
+      if (typeof saved.catalogSearchActive === 'boolean') {
+        catalogState.searchActive = saved.catalogSearchActive;
+      } else if (catalogState.searchQuery) {
+        catalogState.searchActive = true;
+      }
+      if (typeof saved.communitySummarizerGradeId === 'string') {
+        appState.communitySummarizerGradeId = saved.communitySummarizerGradeId;
+      }
+      if (typeof saved.communitySummarizerTopic === 'string') {
+        appState.communitySummarizerTopic = saved.communitySummarizerTopic;
+      }
+      if (typeof saved.communitySummarizerGradeEssence === 'boolean') {
+        appState.communitySummarizerGradeEssence = saved.communitySummarizerGradeEssence;
+      }
     }
 
     function restoreWizardStepView(step, navSection, options) {
@@ -28343,6 +28404,7 @@
       renderCommunitySummarizerResult(null);
       syncCommunitySummarizerBgIndicator();
       ensureArchiveSearchControlsUnlocked();
+      persistActiveStep();
       if (gradeEl && typeof gradeEl.focus === 'function') {
         try { gradeEl.focus({ preventScroll: true }); } catch (e2) { gradeEl.focus(); }
       } else if (topicEl && typeof topicEl.focus === 'function' && !isCommunitySummarizerGradeEssenceChecked()) {
@@ -28453,19 +28515,27 @@
       appState.navSection = 'community';
       showWorkspaceShell();
       switchTab('catalog');
-      var targetView = appState.grade
-        ? 'grade'
-        : (!catalogState.gradeId ? 'grades' : catalogState.view);
-      var targetGrade = appState.grade || catalogState.gradeId || null;
-      var targetTopic = targetView === 'materials' ? catalogState.topic : null;
+      // Prefer explicit community-catalog state only. Never inherit wizard
+      // appState.grade — that forced "כיתה א׳" (or any wizard grade) on reopen.
+      var targetGrade = catalogState.gradeId || null;
+      var targetView = !targetGrade
+        ? 'grades'
+        : (catalogState.view === 'materials' || catalogState.view === 'grade'
+          ? catalogState.view
+          : 'grade');
+      var targetTopic = targetView === 'materials' ? (catalogState.topic || null) : null;
       Promise.resolve()
         .then(function () { return loadCommunity(); })
         .then(function () {
           return renderCatalog(targetView, targetGrade, targetTopic, { force: true });
         })
+        .then(function () {
+          restoreCatalogSearchUiFromState();
+        })
         .catch(function (err) {
           console.warn('[community] openCommunityRepo load failed:', formatSupabaseError(err));
           renderCatalog(targetView, targetGrade, targetTopic, { force: true });
+          restoreCatalogSearchUiFromState();
         });
       renderStepProgress();
       updateWorkspaceChrome();
@@ -32019,6 +32089,21 @@
       if (!nextGradeId || String(prevGradeId) !== String(nextGradeId)) {
         catalogState.gradeFolderId = null;
       }
+      // Changing classroom (or returning to hub) drops in-folder search context.
+      if (contextChanged && (
+        nextView === 'grades'
+        || String(prevGradeId || '') !== String(nextGradeId || '')
+      )) {
+        catalogState.searchActive = false;
+        catalogState.searchQuery = '';
+        const searchInputReset = document.getElementById('catalog-search-input');
+        const searchResultsReset = document.getElementById('catalog-search-results');
+        if (searchInputReset) searchInputReset.value = '';
+        if (searchResultsReset) {
+          searchResultsReset.classList.add('hidden');
+          searchResultsReset.innerHTML = '';
+        }
+      }
       renderCatalogBreadcrumb();
       showCatalogStatus('', '');
       bindCatalogSearchBar();
@@ -32044,6 +32129,7 @@
         if (contextChanged && !opts.skipScroll) scrollToCatalogContent('materials');
       }
       if (catalogState.view === 'grades') restorePageScrollY(scrollY);
+      if (!contextChanged) restoreCatalogSearchUiFromState();
       persistActiveStep();
     }
 
@@ -32157,6 +32243,8 @@
       catalogState.view = 'grades';
       catalogState.gradeId = null;
       catalogState.topic = null;
+      catalogState.searchActive = false;
+      catalogState.searchQuery = '';
       setGradeInsightsLoadingUi(false);
       const hintStep1 = document.getElementById('api-hint-step1');
       if (hintStep1) hintStep1.classList.add('hidden');
