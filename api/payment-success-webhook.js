@@ -5,13 +5,16 @@
  * webhook that generates a paymentLinkProcessId for the teacher.
  *
  * Required payload:
- *   { email, plan, paymentStatus: "success" }
- * Optional: name, phone, transactionId / asmachta, paid: true
+ *   { plan, paymentStatus: "success", user_id }  — preferred (stable account match)
+ *   or { plan, paymentStatus: "success", email } — fallback when user_id missing
+ * Optional: name, phone, account_email, metadata.user_id, transactionId / asmachta, paid: true
  *
  * plan examples: "annual_pro", "one_time_support", "standard", "pro"
  */
 const env = require('./env');
 const billingDb = require('./billing-db');
+const billingEmail = require('./billing-email');
+const authContext = require('./auth-context');
 
 const LOG_PREFIX = '[payment-success-webhook]';
 
@@ -146,6 +149,142 @@ function expiresAtOneYearFromNow() {
   return now.toISOString();
 }
 
+/**
+ * Extract user_id from webhook payload / nested metadata (Make/Grow custom fields).
+ */
+function extractUserIdFromPayload(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const meta = (p.metadata && typeof p.metadata === 'object') ? p.metadata : {};
+  const custom = (p.custom && typeof p.custom === 'object') ? p.custom : {};
+  const data = (p.data && typeof p.data === 'object') ? p.data : {};
+  const dataMeta = (data.metadata && typeof data.metadata === 'object') ? data.metadata : {};
+
+  const candidates = [
+    p.user_id,
+    p.userId,
+    meta.user_id,
+    meta.userId,
+    custom.user_id,
+    custom.userId,
+    data.user_id,
+    data.userId,
+    dataMeta.user_id,
+    dataMeta.userId,
+  ];
+
+  for (let i = 0; i < candidates.length; i++) {
+    const id = String(candidates[i] || '').trim();
+    if (id && authContext.isUuidShaped(id)) return id;
+  }
+  return '';
+}
+
+/**
+ * Prefer registered account email over payer/checkout email for subscription identity.
+ */
+function extractAccountEmailFromPayload(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const meta = (p.metadata && typeof p.metadata === 'object') ? p.metadata : {};
+  return normalizeEmail(
+    p.account_email ||
+    p.accountEmail ||
+    meta.account_email ||
+    meta.accountEmail ||
+    ''
+  );
+}
+
+async function alertUnmatchedPayment(details) {
+  const d = details || {};
+  log('user_not_found', d);
+  console.error(LOG_PREFIX, 'ALERT unmatched_payment', JSON.stringify(d));
+  try {
+    await billingEmail.sendUnmatchedPaymentAlert(d);
+  } catch (alertErr) {
+    log('unmatched_payment_alert_failed', {
+      message: alertErr && alertErr.message ? alertErr.message : String(alertErr),
+    });
+  }
+}
+
+/**
+ * Resolve the auth user for a Grow payment.
+ * Primary: user_id / metadata.user_id (set at checkout initiation).
+ * Fallback: payer email / account_email via Auth admin lookup.
+ */
+async function resolvePaymentUser(payload) {
+  const checkoutEmail = normalizeEmail(payload.email);
+  const accountEmail = extractAccountEmailFromPayload(payload);
+  const metadataUserId = extractUserIdFromPayload(payload);
+  const plan = payload.plan;
+
+  if (metadataUserId) {
+    const authUser = await billingDb.findAuthUserById(metadataUserId);
+    if (authUser && authUser.id) {
+      const registeredEmail = normalizeEmail(authUser.email);
+      if (checkoutEmail && registeredEmail && checkoutEmail !== registeredEmail) {
+        log('email_mismatch_using_user_id', {
+          userId: authUser.id,
+          checkoutEmail: checkoutEmail,
+          registeredEmail: registeredEmail,
+          plan: plan,
+        });
+      }
+      return {
+        userId: authUser.id,
+        // Keep subscription keyed to the registered account email.
+        email: registeredEmail || accountEmail || checkoutEmail,
+        checkoutEmail: checkoutEmail || undefined,
+        matchMethod: 'user_id',
+      };
+    }
+    log('user_id_not_found', {
+      userId: metadataUserId,
+      checkoutEmail: checkoutEmail || undefined,
+      plan: plan,
+    });
+  }
+
+  const emailForLookup = accountEmail || checkoutEmail;
+  if (emailForLookup) {
+    const authUser = await billingDb.findAuthUserByEmail(emailForLookup);
+    if (authUser && authUser.id) {
+      return {
+        userId: authUser.id,
+        email: normalizeEmail(authUser.email) || emailForLookup,
+        checkoutEmail: checkoutEmail || undefined,
+        matchMethod: 'email',
+      };
+    }
+  }
+
+  // Last resort: payer email differed from account_email — try payer email too.
+  if (checkoutEmail && checkoutEmail !== emailForLookup) {
+    const authUser = await billingDb.findAuthUserByEmail(checkoutEmail);
+    if (authUser && authUser.id) {
+      return {
+        userId: authUser.id,
+        email: normalizeEmail(authUser.email) || checkoutEmail,
+        checkoutEmail: checkoutEmail,
+        matchMethod: 'checkout_email',
+      };
+    }
+  }
+
+  await alertUnmatchedPayment({
+    userId: metadataUserId || undefined,
+    email: checkoutEmail || accountEmail || undefined,
+    accountEmail: accountEmail || undefined,
+    checkoutEmail: checkoutEmail || undefined,
+    plan: plan,
+    reason: metadataUserId
+      ? 'user_id_and_email_not_found'
+      : 'email_not_found',
+  });
+
+  return null;
+}
+
 async function handlePaymentSuccessRequest(req, body) {
   assertAuthorized(req);
 
@@ -162,17 +301,21 @@ async function handlePaymentSuccessRequest(req, body) {
   const name = String(payload.name || '').trim();
   const phone = String(payload.phone || '').trim();
   const plan = payload.plan;
+  const metadataUserId = extractUserIdFromPayload(payload);
 
-  if (!email) {
-    const err = new Error('Missing required field: email');
+  if (!metadataUserId && !email && !extractAccountEmailFromPayload(payload)) {
+    const err = new Error('Missing required field: user_id or email');
     err.statusCode = 400;
     throw err;
   }
 
-  const userId = await billingDb.findUserIdByEmail(email);
-  if (!userId) {
-    log('user_not_found', { email: email, plan: plan });
-    const err = new Error('User not found for email: ' + email);
+  const resolved = await resolvePaymentUser(payload);
+  if (!resolved || !resolved.userId) {
+    const err = new Error(
+      'User not found for payment' +
+      (metadataUserId ? ' user_id=' + metadataUserId : '') +
+      (email ? ' email=' + email : '')
+    );
     err.statusCode = 404;
     throw err;
   }
@@ -180,8 +323,8 @@ async function handlePaymentSuccessRequest(req, body) {
   const parsed = parsePlan(plan);
 
   const activateOpts = {
-    userId: userId,
-    email: email,
+    userId: resolved.userId,
+    email: resolved.email,
     fullName: name,
     phone: phone,
     planType: parsed.planType,
@@ -196,8 +339,10 @@ async function handlePaymentSuccessRequest(req, body) {
   const subRow = await billingDb.activatePaidSubscription(activateOpts);
 
   log('activated', {
-    userId: userId,
-    email: email,
+    userId: resolved.userId,
+    email: resolved.email,
+    checkoutEmail: resolved.checkoutEmail,
+    matchMethod: resolved.matchMethod,
     plan: plan,
     planType: parsed.planType,
     billingCycle: parsed.billingCycle,
@@ -207,8 +352,10 @@ async function handlePaymentSuccessRequest(req, body) {
 
   return {
     ok: true,
-    userId: userId,
-    email: email,
+    userId: resolved.userId,
+    email: resolved.email,
+    checkoutEmail: resolved.checkoutEmail,
+    matchMethod: resolved.matchMethod,
     planType: parsed.planType,
     billingCycle: parsed.billingCycle,
     expiresAt: parsed.expiresAt,
@@ -220,4 +367,6 @@ module.exports = {
   handlePaymentSuccessRequest,
   parsePlan,
   assertGrowPaymentConfirmed,
+  extractUserIdFromPayload,
+  resolvePaymentUser,
 };

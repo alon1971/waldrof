@@ -21,9 +21,47 @@ const COMMUNITY_SUMMARY_HEADING =
   communityDriveArchive.COMMUNITY_SUMMARY_HEADING || 'סיכום נושא מתוך המאגר הקהילתי';
 const COMMUNITY_SUMMARY_EMPTY =
   communityDriveArchive.COMMUNITY_SUMMARY_EMPTY ||
-  'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
+  'לא נמצאו חומרים בנושא המבוקש עבור הכיתה שנבחרה במאגר הקהילתי';
 
 const SUMMARIZER_PHASE = 'community_summarizer';
+
+function buildSummarizerEmptyMessage(topic, gradeId) {
+  if (typeof communityDriveArchive.buildCommunitySummaryEmptyMessage === 'function') {
+    return communityDriveArchive.buildCommunitySummaryEmptyMessage(topic, gradeId);
+  }
+  const topicName = String(topic || '').trim() || 'המבוקש';
+  return 'לא נמצאו חומרים בנושא ' + topicName + ' עבור הכיתה שנבחרה במאגר הקהילתי';
+}
+
+/**
+ * Keep only Drive hits that belong explicitly to the locked classroom.
+ * Drops other-grade files, ungraded/root fallbacks, and names/topics that
+ * embed a different classroom (e.g. «מכניקה ח» when locked to grade 6).
+ */
+function filterMatchesToLockedGrade(matches, lockedGradeId, options) {
+  const gid = String(lockedGradeId || '').trim();
+  if (!gid) return [];
+  const opts = options || {};
+  const belongs = typeof communityDriveArchive.materialBelongsToLockedGrade === 'function'
+    ? communityDriveArchive.materialBelongsToLockedGrade
+    : null;
+  return (matches || []).filter(function (match) {
+    if (!match) return false;
+    if (match.ungradedTopicFallback) return false;
+    if (belongs) return belongs(match, gid, opts);
+    const matchGrade = communityDriveArchive.normalizeArchiveGradeId
+      ? communityDriveArchive.normalizeArchiveGradeId(
+        match.gradeId || match.grade_level || match.gradeLevel || ''
+      )
+      : String(match.gradeId || match.grade_level || match.gradeLevel || '').trim();
+    return matchGrade === gid;
+  });
+}
+
+/** Citation stubs may omit gradeId — still drop explicit other-grade names. */
+function filterCitationsToLockedGrade(citations, lockedGradeId) {
+  return filterMatchesToLockedGrade(citations, lockedGradeId, { requireGradeTag: false });
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -183,7 +221,10 @@ async function runCommunityTopicSummary(options) {
       });
       if (instant && instant.communityStatus === 'ok' && instant.summary) {
         let summaryText = String(instant.summary);
-        let responseCitations = Array.isArray(instant.citations) ? instant.citations : [];
+        let responseCitations = filterCitationsToLockedGrade(
+          Array.isArray(instant.citations) ? instant.citations : [],
+          lockedGradeId
+        );
         if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
           responseCitations = communityDriveArchive.dedupeCommunityCitations(responseCitations);
         }
@@ -246,8 +287,13 @@ async function runCommunityTopicSummary(options) {
         limit: listLimit,
         topic: topic,
         catalogTopic: topic,
+        // Never admit root/ungraded or other-grade files into the Gemini corpus.
+        strictGradeScope: true,
       });
-      matches = Array.isArray(listed.matches) ? listed.matches : [];
+      matches = filterMatchesToLockedGrade(
+        Array.isArray(listed.matches) ? listed.matches : [],
+        lockedGradeId
+      );
       if (listed.communityError) probeError = listed.communityError;
       if (listed.debug) driveDebug = listed.debug;
     } catch (listErr) {
@@ -272,15 +318,19 @@ async function runCommunityTopicSummary(options) {
       limit: listLimit,
       driveSearch: true,
       requireCentralMatch: false,
+      strictGradeScope: true,
     });
-    matches = Array.isArray(probe.matches) ? probe.matches : [];
+    matches = filterMatchesToLockedGrade(
+      Array.isArray(probe.matches) ? probe.matches : [],
+      lockedGradeId
+    );
     if (probe.communityError) probeError = probe.communityError;
     if (probe.driveDebug) driveDebug = probe.driveDebug;
     else if (probe.debug) driveDebug = probe.debug;
   }
 
   console.log(
-    '[community-summarizer] files selected for summary:',
+    '[community-summarizer] files selected for summary (strict grade ' + lockedGradeId + '):',
     matches.length,
     matches.map(function (m) {
       return m.fileName || m.title || m.driveFileId;
@@ -290,6 +340,7 @@ async function runCommunityTopicSummary(options) {
   let citations = Array.isArray(probe && probe.communityCitations)
     ? probe.communityCitations
     : communitySearch.buildCommunityCitations(matches);
+  citations = filterCitationsToLockedGrade(citations, lockedGradeId);
   if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
     citations = communityDriveArchive.dedupeCommunityCitations(citations);
   }
@@ -336,7 +387,7 @@ async function runCommunityTopicSummary(options) {
       JSON.stringify(topic) + ':',
       failureReasons.length
         ? failureReasons.join(' ; ')
-        : 'no Drive files matched topic aliases under this grade (and root fallback found none)'
+        : 'no Drive files matched topic aliases under this locked grade (strict scope — no other-grade fallback)'
     );
 
     return withNonBillableMeta({
@@ -345,7 +396,7 @@ async function runCommunityTopicSummary(options) {
       gradeId: lockedGradeId,
       communityStatus: configured ? 'empty' : 'not_configured',
       communitySummaryHeading: COMMUNITY_SUMMARY_HEADING,
-      communitySummary: COMMUNITY_SUMMARY_EMPTY,
+      communitySummary: buildSummarizerEmptyMessage(topic, lockedGradeId),
       communityMatchCount: 0,
       communityMatches: [],
       communityCitations: [],
@@ -390,9 +441,12 @@ async function runCommunityTopicSummary(options) {
       });
       if (postListHit && postListHit.communityStatus === 'ok' && postListHit.summary) {
         let summaryText = String(postListHit.summary);
-        let responseCitations = Array.isArray(postListHit.citations) && postListHit.citations.length
-          ? postListHit.citations
-          : citations;
+        let responseCitations = filterCitationsToLockedGrade(
+          Array.isArray(postListHit.citations) && postListHit.citations.length
+            ? postListHit.citations
+            : citations,
+          lockedGradeId
+        );
         if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
           responseCitations = communityDriveArchive.dedupeCommunityCitations(responseCitations);
         }
@@ -461,9 +515,12 @@ async function runCommunityTopicSummary(options) {
     }
   );
 
-  let responseCitations = Array.isArray(summary.citations) && summary.citations.length
-    ? summary.citations
-    : citations;
+  let responseCitations = filterCitationsToLockedGrade(
+    Array.isArray(summary.citations) && summary.citations.length
+      ? summary.citations
+      : citations,
+    lockedGradeId
+  );
   if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
     responseCitations = communityDriveArchive.dedupeCommunityCitations(responseCitations);
   }

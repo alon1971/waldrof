@@ -551,14 +551,38 @@ function filterCommunityHitsByCurriculumGrade(query, hits) {
 /**
  * Hard classroom lock for community search: keep only hits explicitly tagged
  * with the current grade_id / grade_level. Never admit other grades or untagged rows.
+ * Also rejects hits whose topic/file name embeds a different classroom
+ * (e.g. «מכניקה ח» when gradeId is 6).
  */
 function filterCommunityHitsByStrictGrade(hits, gradeId) {
   const gid = String(gradeId || '').trim();
   if (!gid || !Array.isArray(hits) || !hits.length) {
     return { hits: hits || [], filtered: false, gradeId: gid };
   }
+  const letterMap = { א: '1', ב: '2', ג: '3', ד: '4', ה: '5', ו: '6', ז: '7', ח: '8' };
   const aligned = hits.filter(function (hit) {
-    return resolveHitGradeId(hit) === gid;
+    if (resolveHitGradeId(hit) !== gid) return false;
+    const fields = [
+      resolveHitTopicText(hit),
+      hit && hit.fileName,
+      hit && hit.title,
+      hit && hit.name,
+      hit && hit.catalogTopic,
+      hit && hit.locationPath,
+      hit && hit.drivePath,
+    ];
+    for (let i = 0; i < fields.length; i++) {
+      const field = String(fields[i] || '').trim();
+      if (!field) continue;
+      if (typeof catalogTopics.extractGradeIdFromQuery === 'function') {
+        const embedded = catalogTopics.extractGradeIdFromQuery(field);
+        if (embedded && String(embedded) !== gid) return false;
+      }
+      // Trailing Hebrew grade letter token: «מכניקה ח»
+      const endHeb = field.match(/(?:^|[\s\-_/])([א-ח])['׳"”]?\s*$/u);
+      if (endHeb && letterMap[endHeb[1]] && letterMap[endHeb[1]] !== gid) return false;
+    }
+    return true;
   });
   return {
     hits: aligned,

@@ -14,7 +14,7 @@ const TABLE_NAME = 'community_drive_archive';
 const MATERIALS_TABLE = 'community_materials';
 const GRADE_ESSENCE_SUBJECT = 'grade_essence';
 const GRADE_ESSENCE_PHASE = 'grade_essence';
-const GRADE_ESSENCE_PROMPT_VERSION = 'v5-grade-essence-strict-cite';
+const GRADE_ESSENCE_PROMPT_VERSION = 'v6-hard-grade-filter-cite';
 const GRADE_ESSENCE_HEADING = 'מהות הגיל מתוך חומרי הקהילה';
 const GRADE_ESSENCE_INSUFFICIENT = 'אין מספיק חומרים ליצירת הסיכום הכללי.';
 const MIN_MATERIALS_THRESHOLD = 3;
@@ -153,6 +153,7 @@ async function fetchCommunityMaterialsForGrade(gradeId) {
     'select',
     'id,grade_level,topic,file_path,file_name,notes,created_at'
   );
+  // Absolute rule: .eq('grade_level', targetGrade) — never other classrooms.
   params.set('grade_level', 'eq.' + gid);
   params.set('order', 'created_at.desc');
   params.set('limit', '500');
@@ -183,7 +184,24 @@ async function fetchCommunityMaterialsForGrade(gradeId) {
     return [];
   }
   const rows = await res.json();
-  return Array.isArray(rows) ? rows : [];
+  const list = Array.isArray(rows) ? rows : [];
+  // Defense in depth: drop any row whose grade_level mismatches or whose
+  // topic/file name embeds another classroom (e.g. «מכניקה ח» for grade 6).
+  if (typeof communityDriveArchive.filterRowsToLockedGrade === 'function') {
+    const filtered = communityDriveArchive.filterRowsToLockedGrade(list, gid);
+    if (filtered.length !== list.length) {
+      console.warn(
+        '[community-grade-essence] dropped cross-grade materials after eq filter:',
+        list.length - filtered.length,
+        '| kept:',
+        filtered.length
+      );
+    }
+    return filtered;
+  }
+  return list.filter(function (row) {
+    return String(row && row.grade_level || '').trim() === gid;
+  });
 }
 
 async function fetchGradeEssenceArchiveRow(archiveKey, gradeId) {
@@ -710,11 +728,18 @@ function buildCitationsFromMaterials(rows) {
   return cites;
 }
 
-function buildGradeEssenceSystemPrompt() {
+function buildGradeEssenceSystemPrompt(gradeId) {
+  const gradeLabel = resolveGradeLabel(gradeId);
+  const gradeToken = normalizeGradeId(gradeId) || gradeLabel || 'the selected grade';
   return [
     'אתה יועץ פדגוגי בכיר ומנוסה בחינוך ולדורף.',
     'תפקידך לנסח סיכום מקיף, מובנה ועמוק בשם "מהות הגיל מתוך חומרי הקהילה" עבור שכבת כיתה אחת.',
     'הגבלת מקור קשיחה: התבסס אך ורק על חומרי המאגר הקהילתי שצורפו בהודעת המשתמש. אסור ידע חיצוני, זיכרון מודל, חיפוש ברשת, או השלמות שאינן מופיעות בחומרים.',
+    'You MUST ONLY cite files that strictly belong to the requested grade level. Never include references, topics, or filenames from other grade levels.',
+    'You must ONLY summarize and cite materials from the specified grade level (' + gradeToken + '). Do NOT include, infer, or cross-reference topics, terms, or files from other grade levels under any circumstances.',
+    gradeLabel
+      ? ('הגבלת כיתה קשיחה: סכם וצטט אך ורק חומרים מ' + gradeLabel + '. אסור לכלול נושאים או שמות קבצים מכיתות אחרות (למשל «מכניקה ח» או חומרי כיתה ז׳/ח׳ כאשר מתבקשת כיתה ו׳).')
+      : 'הגבלת כיתה קשיחה: סכם וצטט אך ורק חומרים מהכיתה שצוינה. אסור לכלול חומרים מכיתות אחרות.',
     'אם פרט חסר בחומרים — דלג עליו בשקט והתמקד במה שכן מופיע. אל תכתוב התנצלות או דיסקליימר על החוסר.',
     'כתוב בעברית פדגוגית רהוטה, עשירה ומפורטת. פסקאות מלאות. פלט Markdown בלבד (ללא JSON וללא גדרות קוד).',
     '',
@@ -764,6 +789,7 @@ function buildGradeEssenceUserPrompt(gradeId, rows) {
   return [
     'בקשה: הפק סיכום מקיף "מהות הגיל מתוך חומרי הקהילה" עבור ' + (gradeLabel || 'הכיתה שנבחרה') + '.',
     'השתמש אך ורק בחומרים המצורפים להלן מתוך המאגר הקהילתי. אסור ידע חיצוני.',
+    'You MUST ONLY cite files that strictly belong to the requested grade level. Never include references, topics, or filenames from other grade levels.',
     'התחל מיד בכותרת ## מהות הגיל והתפתחות הילד/ה — בלי פתיח ובלי התנצלות.',
     'אסור URL, אסור [text](url), אסור [url], אסור (url). ציין שמות קבצים מדויקים אך ורק בתוך מרכאות כפולות, למשל "עבודת שורשים-מעודכן1.docx".',
     'חובה לכלול: מהות הגיל והתפתחות הילד/ה; תקופות הלימוד בשכבה; פרויקטים כיתתיים ועבודות; המלצות לפעילויות יצירתיות ואמנותיות; מראי מקום.',
@@ -1037,7 +1063,7 @@ async function runGradeEssenceSummary(options) {
   }
 
   const generated = await callGeminiGradeEssence(
-    buildGradeEssenceSystemPrompt(),
+    buildGradeEssenceSystemPrompt(gradeId),
     buildGradeEssenceUserPrompt(gradeId, materialsRows)
   );
 

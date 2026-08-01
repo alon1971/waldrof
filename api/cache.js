@@ -5359,6 +5359,7 @@ async function findCommunityMaterials(options) {
         navigationSearch: opts.navigationSearch === true,
         requireCentralMatch: opts.requireCentralMatch === true,
         skipGeminiExpand: opts.skipGeminiExpand === true,
+        strictGradeScope: opts.strictGradeScope === true,
       });
       if (driveResult && driveResult.communityStatus === 'unavailable') {
         driveFailed = true;
@@ -5634,6 +5635,7 @@ async function probeCommunityGlobalSearch(query, options) {
     navigationSearch: navigationMode,
     requireCentralMatch: navigationMode,
     skipGeminiExpand: opts.skipGeminiExpand === true,
+    strictGradeScope: opts.strictGradeScope === true,
   };
 
   let result = await findCommunityMaterials(baseOpts);

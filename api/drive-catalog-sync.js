@@ -2181,9 +2181,13 @@ async function searchDriveCommunityCatalog(query, options) {
   // When the grade has no matching topic folder (or scoped search is empty), also
   // search the catalog root / ungraded layers by bare topic name — materials like
   // «תזונה ונשימה…» often live as root shortcuts outside כיתה folders.
-  // Skip this entirely when a parentFolderId branch lock is active (catalog UI).
+  // Skip entirely when parentFolderId is locked, or when strictGradeScope is on
+  // (community summarizer must never pull other-grade / ungraded files).
   const branchLocked = Boolean(parentFolderId);
-  const needsUngradedPass = !branchLocked && (topicRelaxed || !rawFiles.length);
+  const strictGradeScope = opts.strictGradeScope === true;
+  const needsUngradedPass = !strictGradeScope
+    && !branchLocked
+    && (topicRelaxed || !rawFiles.length);
   let ungradedPassRan = false;
   if (needsUngradedPass && scope.topic) {
     ungradedPassRan = true;
@@ -2194,6 +2198,7 @@ async function searchDriveCommunityCatalog(query, options) {
     }
   }
   debugInfo.ungradedPassRan = ungradedPassRan;
+  debugInfo.strictGradeScope = strictGradeScope;
   debugInfo.rawHitCount = rawFiles.length;
 
   if (!rawFiles.length && driveQueryErrors > 0) {
@@ -2243,13 +2248,13 @@ async function searchDriveCommunityCatalog(query, options) {
       || (fileScope && !fileScope.gradeId);
     const nameCentral = nameMatchesTopicCentrally(file.name || '', scope.topic || q, q);
 
-    // Grade-locked search: keep in-scope hits; also admit root/ungraded files whose
-    // names centrally match the topic when the classroom has no dedicated topic folder.
+    // Grade-locked search: keep in-scope hits; optionally admit root/ungraded
+    // topic-named files unless strictGradeScope forbids leaving the classroom.
     if (!inScope) {
-      if (!(needsUngradedPass && isRootOrUngraded && nameCentral)) {
+      if (strictGradeScope || !(needsUngradedPass && isRootOrUngraded && nameCentral)) {
         debugInfo.rejected.push({
           name: file.name,
-          reason: 'out_of_scope_folder',
+          reason: strictGradeScope ? 'strict_grade_out_of_scope' : 'out_of_scope_folder',
           gradeId: fileScope && fileScope.gradeId,
           catalogTopic: fileScope && fileScope.catalogTopic,
         });
@@ -2272,7 +2277,7 @@ async function searchDriveCommunityCatalog(query, options) {
     }
 
     if (!fileScope || !fileScope.gradeId) {
-      if (needsUngradedPass && nameCentral) {
+      if (!strictGradeScope && needsUngradedPass && nameCentral) {
         fileScope = {
           parentId: parents[0] || '',
           gradeId: scope.gradeId || 'general',
@@ -2291,10 +2296,23 @@ async function searchDriveCommunityCatalog(query, options) {
         return;
       }
     }
-    if (scope.gradeId && fileScope.gradeId && fileScope.gradeId !== scope.gradeId && !fileScope.ungradedTopicFallback) {
+    if (
+      scope.gradeId
+      && fileScope.gradeId
+      && fileScope.gradeId !== scope.gradeId
+      && (strictGradeScope || !fileScope.ungradedTopicFallback)
+    ) {
       debugInfo.rejected.push({
         name: file.name,
         reason: 'grade_mismatch',
+        gradeId: fileScope.gradeId,
+      });
+      return;
+    }
+    if (strictGradeScope && fileScope.ungradedTopicFallback) {
+      debugInfo.rejected.push({
+        name: file.name,
+        reason: 'strict_grade_no_ungraded',
         gradeId: fileScope.gradeId,
       });
       return;
@@ -2461,13 +2479,15 @@ function uniquePrioritySearchTerms(query, topic, existingTerms) {
  * Used by the community summarizer for multi-file merge (not keyword search).
  *
  * When the grade has no matching topic folder, still keep only files whose names
- * centrally match the topic, and also pull root/ungraded topic-named materials.
+ * centrally match the topic. Root/ungraded fallback is disabled when
+ * opts.strictGradeScope is true (community summarizer).
  */
 async function listDriveFilesForGradeTopic(gradeId, topic, options) {
   const opts = options || {};
   const gid = String(gradeId || '').trim();
   const topicStr = String(topic || '').trim();
   const limit = Math.max(1, Math.min(Number(opts.limit) || MAX_TOPIC_FOLDER_FILES, 80));
+  const strictGradeScope = opts.strictGradeScope === true;
 
   const debugInfo = {
     scannedFolderCount: 0,
@@ -2477,6 +2497,7 @@ async function listDriveFilesForGradeTopic(gradeId, topic, options) {
     rejected: [],
     topicFilterFailureReasons: [],
     ungradedPassRan: false,
+    strictGradeScope: strictGradeScope,
     searchTerms: topicStr ? [topicStr] : [],
   };
 
@@ -2579,11 +2600,22 @@ async function listDriveFilesForGradeTopic(gradeId, topic, options) {
       }
     }
 
-    if (!asUngradedFallback && String(fileScope.gradeId || '') !== gid) {
+    // Strict grade scoping: never admit another classroom or ungraded fallbacks.
+    if (strictGradeScope) {
+      if (asUngradedFallback || !fileScope.gradeId || String(fileScope.gradeId) !== gid) {
+        debugInfo.rejected.push({
+          name: item.name,
+          reason: asUngradedFallback ? 'strict_grade_no_ungraded' : 'grade_mismatch',
+          gradeId: fileScope.gradeId,
+        });
+        return false;
+      }
+    } else if (!asUngradedFallback && String(fileScope.gradeId || '') !== gid) {
       debugInfo.rejected.push({ name: item.name, reason: 'grade_mismatch', gradeId: fileScope.gradeId });
       return false;
     }
     if (asUngradedFallback) {
+      if (strictGradeScope) return false;
       fileScope.gradeId = gid;
       fileScope.ungradedTopicFallback = true;
       if (!nameCentral && !topicsStrictlyCompatible(topicStr, item.name || '')) {
@@ -2629,7 +2661,13 @@ async function listDriveFilesForGradeTopic(gradeId, topic, options) {
 
   // Root / ungraded fallback: keyword-search the whole catalog for topic names
   // when the grade tree had no dedicated topic folder (or yielded nothing).
-  if (topicStr && (topicRelaxed || !matches.length) && matches.length < limit) {
+  // Disabled under strictGradeScope — never pull files from outside the locked grade.
+  if (
+    !strictGradeScope
+    && topicStr
+    && (topicRelaxed || !matches.length)
+    && matches.length < limit
+  ) {
     debugInfo.ungradedPassRan = true;
     const ungradedTerms = uniquePrioritySearchTerms(topicStr, topicStr, []);
     debugInfo.searchTerms = ungradedTerms.slice();
@@ -2676,6 +2714,9 @@ async function listDriveFilesForGradeTopic(gradeId, topic, options) {
 
   if (!matches.length) {
     const why = [];
+    if (strictGradeScope) {
+      why.push('strict_grade_scope_no_ungraded_fallback');
+    }
     if (topicRelaxed) {
       why.push('no_folder_compatible_with_topic_' + topicStr);
       why.push('grade_topics=' + debugInfo.gradeTopicFolders.slice(0, 12).join(','));

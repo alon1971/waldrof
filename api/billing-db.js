@@ -153,6 +153,12 @@ function extractFullNameFromAuthUser(authUser) {
   }
 
 async function findUserIdByEmail(email) {
+  const authUser = await findAuthUserByEmail(email);
+  return authUser && authUser.id ? authUser.id : null;
+}
+
+/** Look up a Supabase Auth user by email (admin API). */
+async function findAuthUserByEmail(email) {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized) return null;
 
@@ -162,8 +168,24 @@ async function findUserIdByEmail(email) {
   );
   const authData = await readResponse(authRes, 'auth users');
   if (authData && Array.isArray(authData.users) && authData.users.length) {
-    return authData.users[0].id;
+    return authData.users[0];
   }
+  return null;
+}
+
+/** Look up a Supabase Auth user by id (admin API). Returns null if missing/invalid. */
+async function findAuthUserById(userId) {
+  const id = String(userId || '').trim();
+  if (!id || !authContext.isUuidShaped(id)) return null;
+
+  const authRes = await fetch(
+    getConfig().url + '/auth/v1/admin/users/' + encodeURIComponent(id),
+    { headers: authHeaders() }
+  );
+  if (authRes.status === 404) return null;
+  const authData = await readResponse(authRes, 'auth user by id');
+  if (authData && authData.id) return authData;
+  if (authData && authData.user && authData.user.id) return authData.user;
   return null;
 }
 
@@ -556,6 +578,8 @@ async function processExpiredSubscriptions() {
 module.exports = {
   isEnabled,
   findUserIdByEmail,
+  findAuthUserByEmail,
+  findAuthUserById,
   fetchSubscriptionByUserId,
   fetchSubscriptionByStripeId,
   activatePaidSubscription,

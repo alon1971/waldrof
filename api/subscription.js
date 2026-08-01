@@ -210,12 +210,12 @@ function monthFromRow(row) {
 /**
  * At calendar-month boundary for pro: hard-reset search_count_monthly to 0 and
  * stamp usage_month + search_limit_monthly=25. Never carry leftover quota forward.
+ * Compares current YYYY-MM to usage_month; NULL or different → reset count to 0.
  */
 async function resetMonthlySearchUsageIfNeeded(user, row, userToken) {
   if (!row || !user || !user.id) return row;
   const tier = effectiveTierFromRow(row);
   const month = currentMonthKey();
-  const rowMonth = monthFromRow(row);
   const isMonthly = !isLifetimeSearchTier(tier);
   const hasUsageMonthCol = Object.prototype.hasOwnProperty.call(row, 'usage_month');
 
@@ -235,11 +235,22 @@ async function resetMonthlySearchUsageIfNeeded(user, row, userToken) {
     return row;
   }
 
-  const needsMonthReset = Boolean(rowMonth) && rowMonth !== month;
+  // Prefer usage_month directly (NULL or different YYYY-MM → reset).
+  // Legacy fallback to updated_at only when the column is absent from the row.
+  let storedUsageMonth = null;
+  let needsMonthReset = false;
+  if (hasUsageMonthCol) {
+    storedUsageMonth = (row.usage_month != null && row.usage_month !== '')
+      ? String(row.usage_month).slice(0, 7)
+      : null;
+    needsMonthReset = storedUsageMonth == null || storedUsageMonth !== month;
+  } else {
+    storedUsageMonth = monthFromRow(row);
+    needsMonthReset = Boolean(storedUsageMonth) && storedUsageMonth !== month;
+  }
   const needsLimitSync = Number(row.search_limit_monthly) !== PRO_MONTHLY_SEARCH_LIMIT;
-  const needsUsageMonthInit = hasUsageMonthCol && (row.usage_month == null || row.usage_month === '');
 
-  if (!needsMonthReset && !needsLimitSync && !needsUsageMonthInit) return row;
+  if (!needsMonthReset && !needsLimitSync) return row;
 
   const patch = {
     search_limit_monthly: PRO_MONTHLY_SEARCH_LIMIT,
@@ -253,7 +264,7 @@ async function resetMonthlySearchUsageIfNeeded(user, row, userToken) {
     patch.search_count_monthly = 0;
     logUsage('monthly_reset', {
       user_id: user.id,
-      from_month: rowMonth,
+      from_month: storedUsageMonth,
       to_month: month,
       previous_count: Number(row.search_count_monthly) || 0,
     });
@@ -271,12 +282,17 @@ function readSearchCountFromRow(row, tier) {
   // Lifetime pools (trial + one-time support) never reset by calendar month.
   if (isLifetimeSearchTier(plan)) return raw;
   const month = currentMonthKey();
-  const rowMonth = monthFromRow(row);
-  if (row && row.monthly_searches_used != null && row.usage_month) {
-    return String(row.usage_month).slice(0, 7) === month
-      ? (Number(row.monthly_searches_used) || 0)
-      : 0;
+  const hasUsageMonthCol = row && Object.prototype.hasOwnProperty.call(row, 'usage_month');
+  // Monthly plans: NULL or mismatched usage_month counts as a fresh month (0 used).
+  if (hasUsageMonthCol) {
+    const stored = (row.usage_month != null && row.usage_month !== '')
+      ? String(row.usage_month).slice(0, 7)
+      : null;
+    if (stored == null || stored !== month) return 0;
+    if (row.monthly_searches_used != null) return Number(row.monthly_searches_used) || 0;
+    return raw;
   }
+  const rowMonth = monthFromRow(row);
   return rowMonth === month ? raw : 0;
 }
 
@@ -1265,8 +1281,13 @@ async function incrementSearchCountForUser(user, userToken) {
   // Monthly plans (pro) reset at calendar month boundary; lifetime pools accumulate.
   // Hard overwrite to 1 for the new month — never add remaining from last month.
   if (!isLifetimeSearchTier(tier)) {
-    const rowMonth = monthFromRow(row);
-    if (rowMonth !== month) {
+    const hasUsageMonthCol = Object.prototype.hasOwnProperty.call(row, 'usage_month');
+    const storedUsageMonth = hasUsageMonthCol
+      ? ((row.usage_month != null && row.usage_month !== '')
+        ? String(row.usage_month).slice(0, 7)
+        : null)
+      : monthFromRow(row);
+    if (storedUsageMonth == null || storedUsageMonth !== month) {
       nextCount = 1;
     }
   }

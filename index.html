@@ -21334,35 +21334,63 @@
      * Build a file_name → URL lookup from community_materials-backed rows
      * (API matches/citations + local community cache).
      */
+    function extractEmbeddedGradeIdFromLabel(text) {
+      var s = String(text || '').trim();
+      if (!s) return '';
+      var hebClass = s.match(/כיתה\s*([א-ח])['׳"”]?/)
+        || s.match(/בכיתה\s*([א-ח])['׳"”]?/)
+        || s.match(/לכיתה\s*([א-ח])['׳"”]?/);
+      var letterMap = { א: '1', ב: '2', ג: '3', ד: '4', ה: '5', ו: '6', ז: '7', ח: '8' };
+      if (hebClass && letterMap[hebClass[1]]) return letterMap[hebClass[1]];
+      var endHeb = s.match(/(?:^|[\s\-_/])([א-ח])['׳"”]?\s*$/);
+      if (endHeb && letterMap[endHeb[1]]) return letterMap[endHeb[1]];
+      var en = s.match(/(?:grade|class)\s*([1-8])\b/i);
+      if (en) return String(en[1]);
+      return '';
+    }
+
     function collectGradeEssenceMaterialEntries(meta) {
       var entries = [];
       var seen = {};
-      function addRow(row) {
-        if (!row) return;
-        var name = String(
-          row.file_name || row.fileName || row.title || row.name || ''
-        ).trim();
-        if (!isGradeEssenceLinkableName(name)) return;
-        var key = normalizeGradeEssenceCitationKey(name);
-        if (!key || seen[key]) return;
-        var url = resolveGradeEssenceMaterialUrl(row);
-        if (!url) return;
-        seen[key] = true;
-        entries.push({ name: name, url: url, key: key, len: name.length });
-      }
-      (meta && Array.isArray(meta.communityMatches) ? meta.communityMatches : []).forEach(addRow);
-      (meta && Array.isArray(meta.communityCitations) ? meta.communityCitations : []).forEach(addRow);
-      var cache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
       var gradeHint = String(
         (meta && (meta.gradeId || meta.grade_id || meta.gradeLevel))
         || appState.communitySummarizerGradeId
         || appState.grade
         || ''
       ).trim();
+      function addRow(row) {
+        if (!row) return;
+        var name = String(
+          row.file_name || row.fileName || row.title || row.name || ''
+        ).trim();
+        if (!isGradeEssenceLinkableName(name)) return;
+        var topic = String(row.topic || row.catalogTopic || row.folder || '').trim();
+        if (gradeHint) {
+          var embeddedName = extractEmbeddedGradeIdFromLabel(name);
+          var embeddedTopic = extractEmbeddedGradeIdFromLabel(topic);
+          if (embeddedName && embeddedName !== gradeHint) return;
+          if (embeddedTopic && embeddedTopic !== gradeHint) return;
+          var rowGrade = String(row.gradeId || row.grade_level || row.gradeLevel || '').trim();
+          if (rowGrade && rowGrade !== gradeHint && rowGrade.toLowerCase() !== 'general') return;
+        }
+        var key = normalizeGradeEssenceCitationKey(name);
+        if (!key || seen[key]) return;
+        var url = resolveGradeEssenceMaterialUrl(row);
+        if (!url) return;
+        var urlKey = String(url).trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
+        if (urlKey && seen[urlKey]) return;
+        seen[key] = true;
+        if (urlKey) seen[urlKey] = true;
+        entries.push({ name: name, url: url, key: key, len: name.length });
+      }
+      (meta && Array.isArray(meta.communityMatches) ? meta.communityMatches : []).forEach(addRow);
+      (meta && Array.isArray(meta.communityCitations) ? meta.communityCitations : []).forEach(addRow);
+      var cache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
       var scoped = gradeHint && typeof filterByGrade === 'function'
         ? filterByGrade(cache, gradeHint)
         : cache;
       (scoped || []).forEach(addRow);
+      entries = dedupeCommunitySourceLinks(entries);
       entries.sort(function (a, b) { return b.len - a.len; });
       return entries;
     }
@@ -21451,16 +21479,55 @@
       return text;
     }
 
+    function dedupeCommunitySourceLinks(entries) {
+      var list = Array.isArray(entries) ? entries : [];
+      var keyFns = [
+        function (e) {
+          return String((e && (e.url || e.webViewLink || e.fileUrl)) || '')
+            .trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
+        },
+        function (e) {
+          return String((e && (e.driveFileId || e.id)) || '').trim().toLowerCase();
+        },
+        function (e) {
+          return normalizeGradeEssenceCitationKey(
+            (e && (e.name || e.fileName || e.title || e.file_name)) || ''
+          );
+        },
+      ];
+      // Unique keys first (URL / id / name), then rebuild first-seen order.
+      var uniqueKeys = Array.from(new Set(list.map(function (entry) {
+        if (!entry) return '';
+        for (var i = 0; i < keyFns.length; i++) {
+          var k = keyFns[i](entry);
+          if (k) return k;
+        }
+        return '';
+      }).filter(Boolean)));
+      var want = {};
+      uniqueKeys.forEach(function (k) { want[k] = true; });
+      var out = [];
+      var used = {};
+      list.forEach(function (entry) {
+        if (!entry) return;
+        for (var i = 0; i < keyFns.length; i++) {
+          var k = keyFns[i](entry);
+          if (!k || !want[k] || used[k]) continue;
+          used[k] = true;
+          out.push(entry);
+          return;
+        }
+      });
+      return out;
+    }
+
     function renderGradeEssenceCitedSourcesHtml(citedEntries) {
       if (!citedEntries || !citedEntries.length) return '';
-      var seen = {};
+      var linkable = (citedEntries || []).filter(function (entry) {
+        return entry && entry.name && entry.url && isGradeEssenceLinkableName(entry.name);
+      });
       var items = [];
-      citedEntries.forEach(function (entry) {
-        if (!entry || !entry.name || !entry.url) return;
-        if (!isGradeEssenceLinkableName(entry.name)) return;
-        var key = entry.key || normalizeGradeEssenceCitationKey(entry.name);
-        if (!key || seen[key]) return;
-        seen[key] = true;
+      dedupeCommunitySourceLinks(linkable).forEach(function (entry) {
         items.push(
           '<li><a class="prose-source-link" href="' + escapeHtml(entry.url)
           + '" target="_blank" rel="noopener noreferrer">'
@@ -21496,51 +21563,56 @@
             webViewLink: resolveMatchWebViewLink(match),
             driveFileId: match.driveFileId || '',
             filePath: match.filePath || match.file_path || match.folderPath || '',
+            name: match.fileName || match.title || match.displayTitle || '',
+            url: resolveMatchWebViewLink(match),
           };
         });
-      // Deduplicate by file_path / driveFileId / URL / file name so each source appears once.
-      var seen = {};
-      citations = (citations || []).filter(function (cite) {
-        if (!cite) return false;
-        var id = String(cite.driveFileId || '').trim().toLowerCase();
-        var filePath = String(cite.filePath || cite.file_path || cite.folderPath || '')
-          .trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
-        var link = String(cite.webViewLink || cite.fileUrl || cite.url || '')
-          .trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
-        var name = String(cite.fileName || cite.title || cite.name || '')
-          .trim().toLowerCase().replace(/[\u05F3\u05F4׳״`'"]/g, '').replace(/\s+/g, ' ');
-        var keys = [];
-        if (filePath) keys.push('path:' + filePath);
-        if (id) keys.push('id:' + id);
-        if (link) keys.push('url:' + link);
-        if (name) keys.push('name:' + name);
-        if (!keys.length) return false;
-        for (var i = 0; i < keys.length; i++) {
-          if (seen[keys[i]]) return false;
-        }
-        keys.forEach(function (k) { seen[k] = true; });
-        return true;
-      });
+      // Deduplicate extracted source links so no file URL/name appears more than once.
+      citations = dedupeCommunitySourceLinks(citations || []);
       if (!citations.length) return '';
+      // Also collapse duplicate URLs via Set before render (belt-and-suspenders).
+      var renderedUrls = Array.from(new Set(citations.map(function (cite) {
+        return String(cite.webViewLink || cite.fileUrl || cite.url || '')
+          .trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
+      }).filter(Boolean)));
+      var urlSeen = {};
+      renderedUrls.forEach(function (u) { urlSeen[u] = true; });
+      var nameSeen = {};
+      var items = [];
+      citations.forEach(function (cite, idx) {
+        var name = shortCommunityCitationName(
+          cite.fileName || cite.name || cite.title || '',
+          'מקור ' + (idx + 1)
+        );
+        var nameKey = normalizeGradeEssenceCitationKey(name);
+        var link = String(cite.webViewLink || cite.fileUrl || cite.url || '').trim();
+        if (!link && typeof resolveCommunityFileUrl === 'function') {
+          link = resolveCommunityFileUrl({
+            file_path: cite.filePath || cite.file_path || '',
+            filePath: cite.filePath || cite.file_path || '',
+          });
+        }
+        var linkKey = String(link || '').trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/$/, '');
+        if (linkKey) {
+          if (!urlSeen[linkKey]) return;
+          delete urlSeen[linkKey];
+        } else if (nameKey) {
+          if (nameSeen[nameKey]) return;
+          nameSeen[nameKey] = true;
+        }
+        if (link) {
+          items.push(
+            '<li><a class="prose-source-link" href="' + escapeHtml(link)
+            + '" target="_blank" rel="noopener">' + escapeHtml(name) + '</a></li>'
+          );
+        } else {
+          items.push('<li>' + escapeHtml(name) + '</li>');
+        }
+      });
+      if (!items.length) return '';
       return '<div class="hybrid-community-citations" dir="rtl">' +
         '<h4>מראי מקום</h4>' +
-        '<ul>' + citations.map(function (cite, idx) {
-          var name = escapeHtml(shortCommunityCitationName(
-            cite.fileName || cite.name || cite.title || '',
-            'מקור ' + (idx + 1)
-          ));
-          var link = String(cite.webViewLink || cite.fileUrl || cite.url || '').trim();
-          if (!link && typeof resolveCommunityFileUrl === 'function') {
-            link = resolveCommunityFileUrl({
-              file_path: cite.filePath || cite.file_path || '',
-              filePath: cite.filePath || cite.file_path || '',
-            });
-          }
-          if (link) {
-            return '<li><a class="prose-source-link" href="' + escapeHtml(link) + '" target="_blank" rel="noopener">' + name + '</a></li>';
-          }
-          return '<li>' + name + '</li>';
-        }).join('') + '</ul></div>';
+        '<ul>' + items.join('') + '</ul></div>';
     }
 
     function setCatalogSearchClearVisible(visible) {
@@ -28643,9 +28715,7 @@
       setGradeInsightsLoadingUi(true);
       prepareGradeResearchView();
       renderTopicCommunitySlot();
-      runAfterLayout(function () {
-        runAfterLayout(scrollToGradeResults);
-      });
+      // Stay on Step A after grade selection — no auto-scroll / no Step B jump.
 
       const communityPromise = isCloudConfigured()
         ? loadCommunity().then(function () {
@@ -28695,11 +28765,21 @@
         gradeResearchAbort = null;
         setGradeInsightsLoadingUi(false);
         await communityPromise;
-        revealStepBQuietly();
-        runAfterLayout(function () {
-          enableWizardTopicStepNavigation();
-          runAfterLayout(scrollToGradeResults);
-        });
+        // Unlock Step B nav only — keep Step A visible/active so the teacher
+        // can read the loaded grade content and move on when ready.
+        appState.step = 1;
+        appState.navSection = 'wizard';
+        var step1Stay = document.getElementById('step-1');
+        var step2Stay = document.getElementById('step-2');
+        if (step1Stay) step1Stay.classList.remove('hidden');
+        if (step2Stay) {
+          step2Stay.classList.add('hidden');
+          step2Stay.classList.remove('step-reveal-quiet');
+        }
+        enableWizardTopicStepNavigation();
+        renderStepProgress();
+        updateWorkspaceChrome();
+        persistActiveStep();
       }
     }
 
@@ -32150,19 +32230,16 @@
             goToStep2FromStep1();
             return;
           }
+          // Grade selection / submit must stay on Step A — never auto-jump to Step B.
           if (active.id === 'btn-grade-submit' && !active.disabled) {
             e.preventDefault();
-            if (isGradeInsightsVisible() && appState.grade) goToStep2FromStep1();
-            else onGradeSubmit();
+            onGradeSubmit();
             return;
           }
           if (active.id === 'grade-select' && active.value) {
             e.preventDefault();
-            if (isGradeInsightsVisible() && appState.grade) goToStep2FromStep1();
-            else {
-              const submitBtn = document.getElementById('btn-grade-submit');
-              if (submitBtn && !submitBtn.disabled) onGradeSubmit();
-            }
+            const submitBtn = document.getElementById('btn-grade-submit');
+            if (submitBtn && !submitBtn.disabled) onGradeSubmit();
             return;
           }
         }

@@ -242,6 +242,7 @@ async function runCommunitySearch(query, options) {
       navigationSearch: true,
       requireCentralMatch: opts.requireCentralMatch === true,
       skipGeminiExpand: opts.skipGeminiExpand === true,
+      strictGradeScope: opts.strictGradeScope === true,
     });
 
     const probe = result

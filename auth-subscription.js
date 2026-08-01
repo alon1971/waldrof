@@ -1637,6 +1637,14 @@
     return getIdentityEmail() || '';
   }
 
+  /** Authenticated Supabase user id for payment metadata (Grow/Make → webhook matching). */
+  function getUpgradeUserId() {
+    if (authState.isAuthenticated && authState.user && authState.user.id) {
+      return String(authState.user.id || '').trim();
+    }
+    return '';
+  }
+
   function getUpgradeUserFullName() {
     var name = String(getUserDisplayName() || '').trim();
     return name || 'מנוי מרוצה';
@@ -1703,12 +1711,14 @@
    * Ask Make for a dynamic Grow checkout URL (paymentLinkProcessId).
    * This request must NEVER activate a subscription — Supabase upgrades only via
    * POST /api/webhooks/payment-success after Grow confirms a real charge.
+   * Passes user_id so the success webhook can match even if checkout email differs.
    */
   function requestMakeCheckoutUrl(email, planKey) {
     var webhookUrl = String(MAKE_UPGRADE_WEBHOOK_URL || '').trim();
     var plan = planKey === 'one_time' ? 'one_time_support' : 'annual_pro';
     var price = planKey === 'one_time' ? 100 : 220;
     var fallbackUrl = fallbackGrowCheckoutUrl(planKey);
+    var userId = getUpgradeUserId();
 
     if (!email || !/^https?:\/\//i.test(webhookUrl)) {
       return Promise.resolve(fallbackUrl);
@@ -1719,6 +1729,10 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: email,
+        // Registered account email — webhook should prefer user_id over payer email.
+        account_email: email,
+        user_id: userId || undefined,
+        metadata: userId ? { user_id: userId, account_email: email } : undefined,
         name: getUpgradeUserFullName(),
         phone: getUpgradeUserPhone() || '0500000000',
         plan: plan,
