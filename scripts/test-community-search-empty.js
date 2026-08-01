@@ -12,7 +12,7 @@ function assert(cond, msg) {
   }
 }
 
-const EMPTY = 'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
+const EMPTY = 'לא נמצאו חומרים בנושא המבוקש עבור הכיתה שנבחרה במאגר הקהילתי';
 const HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
 
 assert(communitySearch.COMMUNITY_SUMMARY_EMPTY === EMPTY, 'community-search empty copy');
@@ -24,6 +24,12 @@ assert(communitySummarizer.COMMUNITY_SUMMARY_HEADING === HEADING, 'summarizer he
 assert(
   communitySearch.EMPTY_COMMUNITY_PROBE.communitySummary == null,
   'EMPTY_COMMUNITY_PROBE has no auto summary'
+);
+
+const scopedEmpty = communityDriveArchive.buildCommunitySummaryEmptyMessage('פיזיקה', '7');
+assert(
+  scopedEmpty === 'לא נמצאו חומרים בנושא פיזיקה עבור כיתה ז׳ במאגר הקהילתי',
+  'grade-scoped empty message includes topic + grade: ' + scopedEmpty
 );
 
 assert(
@@ -102,6 +108,10 @@ assert(
 assert(
   communityDriveArchive.MAX_GEMINI_MULTIMODAL_BYTES >= communityDriveArchive.MAX_GEMINI_INLINE_BYTES,
   'multimodal cap >= inline cap'
+);
+assert(
+  communityDriveArchive.PROMPT_VERSION === 'v4-strict-grade-scope',
+  'prompt version bumps archive keys for strict grade scope'
 );
 
 console.log('OK community-search + community-summarizer empty-copy + mode tests');

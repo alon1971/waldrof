@@ -73,8 +73,45 @@ async function sendCancellationAlert(details) {
   return sendEmail({ subject: subject, text: text });
 }
 
+/**
+ * Alert when a Grow payment webhook cannot match any registered auth user.
+ * Typically checkout email ≠ registered email and user_id metadata was missing.
+ */
+async function sendUnmatchedPaymentAlert(details) {
+  const d = details || {};
+  const email = String(d.email || d.checkoutEmail || '').trim() || '(unknown)';
+  const accountEmail = String(d.accountEmail || '').trim() || '—';
+  const checkoutEmail = String(d.checkoutEmail || d.email || '').trim() || '—';
+  const userId = String(d.userId || '').trim() || '—';
+  const plan = String(d.plan || d.planType || '').trim() || '—';
+  const reason = String(d.reason || 'email_not_found').trim();
+  const receivedAt = String(d.receivedAt || new Date().toISOString()).trim();
+
+  const subject = '[Waldrof] תשלום ללא משתמש מזוהה — ' + email;
+  const text = [
+    'התקבל webhook של תשלום מוצלח, אך לא נמצא משתמש רשום במערכת.',
+    'המנוי לא עודכן — יש לטפל ידנית.',
+    '',
+    'מייל בתשלום (checkout): ' + checkoutEmail,
+    'מייל חשבון (account_email): ' + accountEmail,
+    'מזהה משתמש (user_id): ' + userId,
+    'מסלול: ' + plan,
+    'סיבה: ' + reason,
+    'זמן: ' + receivedAt,
+  ].join('\n');
+
+  log('unmatched_payment_alert', {
+    email: email,
+    userId: userId === '—' ? undefined : userId,
+    plan: plan,
+    reason: reason,
+  });
+  return sendEmail({ subject: subject, text: text });
+}
+
 module.exports = {
   isEmailEnabled,
   sendEmail,
   sendCancellationAlert,
+  sendUnmatchedPaymentAlert,
 };

@@ -33,11 +33,21 @@ const GEMINI_MAX_OUTPUT_TOKENS = 16384;
  * Bump this when the pedagogical prompt / depth contract changes so old shallow
  * archive rows are not reused (fingerprint alone is not enough).
  */
-const PROMPT_VERSION = 'v3-deep-workplan';
+const PROMPT_VERSION = 'v5-hard-grade-filter-cite';
 
 /** Exact UI copy from product spec (Hebrew). */
 const COMMUNITY_SUMMARY_HEADING = 'סיכום נושא מתוך המאגר הקהילתי';
-const COMMUNITY_SUMMARY_EMPTY = 'לצערי, הנושא שביקשת אינו נמצא במאגר (ייתכן והוא נקרא בשם אחר, ולכן כדאי לבדוק בתיקיות באופן ידני).';
+const COMMUNITY_SUMMARY_EMPTY = 'לא נמצאו חומרים בנושא המבוקש עבור הכיתה שנבחרה במאגר הקהילתי';
+
+/**
+ * Empty-state copy when no materials match both topic and the locked grade.
+ * Never implies falling back to other grades.
+ */
+function buildCommunitySummaryEmptyMessage(topic, gradeId) {
+  const topicName = String(topic || '').trim() || 'המבוקש';
+  const gradeLabel = resolveGradeLabelForPrompt(gradeId) || 'הכיתה שנבחרה';
+  return 'לא נמצאו חומרים בנושא ' + topicName + ' עבור ' + gradeLabel + ' במאגר הקהילתי';
+}
 
 const MAX_FILES_FOR_SUMMARY = 40;
 const MAX_CHARS_PER_FILE = 22000;
@@ -188,6 +198,91 @@ function toCommunityMaterialsGradeLevel(raw) {
   return '';
 }
 
+/**
+ * Detect an explicit classroom encoded in a topic/file name
+ * (e.g. «מכניקה ח», «פיזיקה כיתה ז׳», «Grade 8 Mechanics»).
+ * Returns '' when no hard grade marker is present.
+ */
+function extractEmbeddedGradeId(text) {
+  const s = String(text || '').trim();
+  if (!s) return '';
+  if (typeof catalogTopics.extractGradeIdFromQuery === 'function') {
+    const fromQuery = catalogTopics.extractGradeIdFromQuery(s);
+    if (fromQuery) return String(fromQuery).trim();
+  }
+  const hebClass = s.match(/כיתה\s*([א-ח])['׳"”]?/u)
+    || s.match(/בכיתה\s*([א-ח])['׳"”]?/u)
+    || s.match(/לכיתה\s*([א-ח])['׳"”]?/u);
+  if (hebClass && HEBREW_GRADE_LETTER_TO_ID[hebClass[1]]) {
+    return HEBREW_GRADE_LETTER_TO_ID[hebClass[1]];
+  }
+  // Trailing standalone Hebrew grade letter: «מכניקה ח» / «מכניקה-ח׳»
+  // Require a separator so words like «תורה» are not treated as grade ה׳.
+  const endHeb = s.match(/(?:^|[\s\-_/])([א-ח])['׳"”]?\s*$/u);
+  if (endHeb && HEBREW_GRADE_LETTER_TO_ID[endHeb[1]]) {
+    return HEBREW_GRADE_LETTER_TO_ID[endHeb[1]];
+  }
+  const en = s.match(/(?:grade|class)\s*([1-8])\b/i);
+  if (en) return String(en[1]);
+  const trailingDigit = s.match(/(?:^|[\s\-_/])([1-8])\s*$/);
+  if (trailingDigit) return trailingDigit[1];
+  return '';
+}
+
+/**
+ * Absolute grade lock for materials / Drive hits before Gemini or citations.
+ * @param {object} [options]
+ * @param {boolean} [options.requireGradeTag=true] When true, missing grade_level
+ *   rejects the row (DB/Drive corpus). When false, citation stubs without a tag
+ *   are kept unless a name/topic embeds another classroom.
+ */
+function materialBelongsToLockedGrade(rowOrMatch, lockedGradeId, options) {
+  const opts = options || {};
+  const requireGradeTag = opts.requireGradeTag !== false;
+  const gid = toCommunityMaterialsGradeLevel(lockedGradeId)
+    || normalizeArchiveGradeId(lockedGradeId);
+  if (!gid || !rowOrMatch || typeof rowOrMatch !== 'object') return false;
+
+  const rawGrade = rowOrMatch.gradeId || rowOrMatch.grade_level || rowOrMatch.gradeLevel || '';
+  const rowGrade = toCommunityMaterialsGradeLevel(rawGrade)
+    || normalizeArchiveGradeId(rawGrade);
+  if (rowGrade) {
+    if (rowGrade === 'general') return false;
+    if (rowGrade !== gid) return false;
+  } else if (requireGradeTag) {
+    return false;
+  }
+
+  const fields = [
+    rowOrMatch.topic,
+    rowOrMatch.catalogTopic,
+    rowOrMatch.folder,
+    rowOrMatch.fileName,
+    rowOrMatch.file_name,
+    rowOrMatch.title,
+    rowOrMatch.displayTitle,
+    rowOrMatch.name,
+    rowOrMatch.locationPath,
+    rowOrMatch.drivePath,
+    rowOrMatch.folderPath,
+    rowOrMatch.filePath,
+    rowOrMatch.file_path,
+  ];
+  for (let i = 0; i < fields.length; i++) {
+    const embedded = extractEmbeddedGradeId(fields[i]);
+    if (embedded && embedded !== gid && embedded !== 'general') {
+      return false;
+    }
+  }
+  return true;
+}
+
+function filterRowsToLockedGrade(rows, lockedGradeId, options) {
+  return (rows || []).filter(function (row) {
+    return materialBelongsToLockedGrade(row, lockedGradeId, options);
+  });
+}
+
 function buildArchiveKey(query, options) {
   const opts = options || {};
   const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
@@ -298,29 +393,27 @@ async function supabaseSelectMaterials(pathQuery) {
 
 /**
  * Load community_materials rows for the classroom topic folder (signature source).
+ * Hard DB filter: grade_level=eq.<targetGrade> (digit/general only).
+ * Never admits other classrooms into the Gemini corpus or archive fingerprint.
  */
 async function fetchCommunityMaterialsSignatureRows(gradeId, topic) {
-  const gid = normalizeArchiveGradeId(gradeId);
+  const targetGrade = toCommunityMaterialsGradeLevel(gradeId);
   const topicNorm = String(topic || '').trim();
-  if (!gid || !topicNorm) return [];
-
-  const gradeValues = expandArchiveGradeFilterValues(gid);
-  if (!gradeValues.length) return [];
+  if (!targetGrade || !topicNorm) return [];
 
   const select = 'id,grade_level,topic,file_path,file_name,notes,created_at';
-  const gradeClause = gradeValues.length === 1
-    ? ('grade_level=eq.' + encodeURIComponent(gradeValues[0]))
-    : ('or=(' + gradeValues.map(function (v) {
-      return 'grade_level.eq.' + encodeURIComponent(v);
-    }).join(',') + ')');
+  // Absolute rule: .eq('grade_level', targetGrade) — no other-grade OR expansion.
+  const gradeClause = 'grade_level=eq.' + encodeURIComponent(targetGrade);
 
   async function queryTopic(topicFilter) {
     const params = new URLSearchParams();
     params.set('select', select);
     params.set('order', 'created_at.desc');
     params.set('limit', '300');
-    // grade filter appended manually so OR syntax stays intact
-    return supabaseSelectMaterials(params.toString() + '&' + gradeClause + '&' + topicFilter);
+    const rows = await supabaseSelectMaterials(
+      params.toString() + '&' + gradeClause + '&' + topicFilter
+    );
+    return filterRowsToLockedGrade(rows, targetGrade);
   }
 
   let rows = await queryTopic('topic=eq.' + encodeURIComponent(topicNorm));
@@ -1393,13 +1486,22 @@ async function callGeminiModel(model, systemPrompt, userParts, options) {
   return sanitizeCommunitySummaryMarkdown(parsed);
 }
 
-function buildCommunitySummarySystemPrompt() {
+function buildCommunitySummarySystemPrompt(options) {
+  const opts = options || {};
+  const targetGrade = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
+  const gradeLabel = resolveGradeLabelForPrompt(targetGrade);
+  const gradeToken = targetGrade || gradeLabel || 'the selected grade';
   return [
     'אתה יועץ פדגוגי בכיר ומנוסה בחינוך ולדורף, הכותב תכניות עבודה לימודיות מעמיקות ומפורטות למורים.',
     'תפקידך לעבד ולחלץ טקסט מכל הקבצים שסופקו בתיקיית הנושא — ללא יוצא מן הכלל — תוך תשומת לב מיוחדת למחברות תלמידים, מחברות מורים, ספרי שיעור ראשי (main lesson books), מסמכי Word/Google Docs, וקבצי PDF (כולל סרוקים).',
     'אסור בתכלית האיסור להפיק תקציר שטחי, סיכום קצר, רשימת בולטים דלה, או אבסטרקט כללי. המורה הקורא חייב להרגיש שנעשתה עבודה רצינית, איכותית ועמוקה — מסמך תכנית עבודה מקיף ובר־יישום בכיתה.',
     'בצע סינתזה אמיתית בין כל המקורות לכדי מסמך פדגוגי אחד אחיד ועשיר — לא העתקה של קטעים זה לצד זה, ולא כותרות עם משפט בודד.',
     'מקור מידע יחיד: אך ורק הטקסטים/המסמכים/ה־PDF שסופקו בהודעת המשתמש מתוך המאגר הקהילתי.',
+    'You MUST ONLY cite files that strictly belong to the requested grade level. Never include references, topics, or filenames from other grade levels.',
+    'You must ONLY summarize and cite materials from the specified grade level (' + gradeToken + '). Do NOT include, infer, or cross-reference topics, terms, or files from other grade levels under any circumstances.',
+    gradeLabel
+      ? ('הגבלת כיתה קשיחה: סכם וצטט אך ורק חומרים מ' + gradeLabel + '. אסור לכלול, להסיק או להפנות לנושאים, מונחים או קבצים מכיתות אחרות — גם אם שם הנושא דומה (למשל «פיזיקה» / «מכניקה ח»).')
+      : 'הגבלת כיתה קשיחה: סכם וצטט אך ורק חומרים מהכיתה שצוינה. אסור לכלול חומרים מכיתות אחרות.',
     'אסור לחלוטין להסתמך על ידע כללי, זיכרון מודל, חיפוש ברשת, Google Search, Web Search, או כל כלי חיצוני.',
     'אסור להמציא עובדות, ציטוטים, פעילויות, מבחנים, או מראי מקום שאינם מופיעים במסמכים שסופקו. אם פרט חסר במקורות — כתוב במפורש שאינו נמצא בחומרים שסופקו.',
     'כתוב בעברית פדגוגית עשירה, רהוטה, מקצועית ועמוקה. פסקאות מלאות (לא שורות בודדות). סיים כל פסקה וכל סעיף בצורה מלאה — אל תקטע משפטים באמצע.',
@@ -1456,6 +1558,7 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
     ].filter(Boolean).join('\n');
   }).join('\n\n');
 
+  const targetGrade = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
   return [
     'נושא החיפוש: ' + String(query || '').trim(),
     gradeLabel ? ('שכבת גיל / כיתה: ' + gradeLabel) : '',
@@ -1463,6 +1566,13 @@ function buildCommunitySummaryTextPreamble(query, options, fileBundles, mediaMet
     '',
     'עבד וחלץ טקסט מכל הקבצים והמסמכים שלהלן (מחברות תלמידים/מורים, ספרי שיעור ראשי, מסמכים ו־PDF כולל סרוקים) ובנה תכנית עבודה לימודית מעמיקה, מפורטת ומורחבת למורה — סינתזה אמיתית בין המקורות, לא תקציר שטחי ולא סיכום קצר/דל.',
     'הגבלת מקור (חובה): השתמש אך ורק בטקסטים/מסמכים שלהלן מהמאגר הקהילתי. אסור חיפוש ברשת, אסור ידע חיצוני, ואסור להמציא פרטים שאינם מופיעים במקורות.',
+    'You MUST ONLY cite files that strictly belong to the requested grade level. Never include references, topics, or filenames from other grade levels.',
+    'You must ONLY summarize and cite materials from the specified grade level ('
+      + (targetGrade || gradeLabel || 'the selected grade')
+      + '). Do NOT include, infer, or cross-reference topics, terms, or files from other grade levels under any circumstances.',
+    gradeLabel
+      ? ('הגבלת כיתה קשיחה: כל המקורות שלהלן שייכים ל' + gradeLabel + ' בלבד. אל תכלול או תסיק חומרים מכיתות אחרות (למשל «מכניקה ח» לכיתה שאינה ח׳).')
+      : '',
     'כשיש חומר במקורות: כתוב מסמך מפורט באורך מינימום 1200–2000 מילים (או יותר לפי עומק החומר). כל סעיף ראשי חייב להיות עשיר בתוכן — לא כותרת עם משפט בודד ולא רשימת בולטים שטחית.',
     'חובה לכלול את חמשת הסעיפים עם כותרות ## (<h2>) ותתי־סעיפים ### (<h3>)/בולטים מפורטים: (1) רקע והדגשה פדגוגית; (2) סינתזה רחבה של החומרים; (3) הצעות לפעילויות יצירתיות ואמנותיות; (4) דרכי הערכה ומודלים למבחן/עבודה; (5) מראי מקום והפניות למאגר.',
     'שלב בין מערכי שיעור, מחברות, ספרי שיעור ראשי, דפי עבודה, מבחנים, PDF וחומרי רקע לכתיבה קוהרנטית אחת עם ## / ### ובולטים מפורטים.',
@@ -1488,7 +1598,7 @@ async function summarizeWithGemini15Pro(query, fileBundles, options) {
  */
 async function summarizeCommunitySourcesWithGemini(query, fileBundles, mediaMeta, options) {
   const opts = options || {};
-  const systemPrompt = buildCommunitySummarySystemPrompt();
+  const systemPrompt = buildCommunitySummarySystemPrompt(opts);
   const preamble = buildCommunitySummaryTextPreamble(query, opts, fileBundles, mediaMeta);
   const userParts = [{ text: preamble }];
   (mediaMeta || []).forEach(function (item) {
@@ -1722,9 +1832,12 @@ async function extractTextsForRefs(fileRefs, accessToken) {
 }
 
 function emptySummaryResult(query, options) {
+  const opts = options || {};
+  const topic = String(opts.topic || opts.catalogTopic || query || '').trim();
+  const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
   return {
     heading: COMMUNITY_SUMMARY_HEADING,
-    summary: COMMUNITY_SUMMARY_EMPTY,
+    summary: buildCommunitySummaryEmptyMessage(topic, gradeId),
     communityStatus: 'empty',
     fromArchive: false,
     deltaUpdated: false,
@@ -1774,7 +1887,14 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     currentGrade: gradeId,
     topic: topic,
   });
-  const fileRefs = normalizeFileRefsFromMatches(matches);
+  // Strict grade scoping: never send other-grade / ungraded fallback files to Gemini.
+  const scopedMatches = filterRowsToLockedGrade(
+    (matches || []).filter(function (match) {
+      return match && !match.ungradedTopicFallback;
+    }),
+    gradeId
+  );
+  const fileRefs = normalizeFileRefsFromMatches(scopedMatches);
 
   if (!fileRefs.length) {
     return emptySummaryResult(q, normalizedOpts);
@@ -2014,6 +2134,7 @@ module.exports = {
   TABLE_NAME,
   COMMUNITY_SUMMARY_HEADING,
   COMMUNITY_SUMMARY_EMPTY,
+  buildCommunitySummaryEmptyMessage,
   GEMINI_MODEL,
   PROMPT_VERSION,
   MAX_GEMINI_INLINE_BYTES,
@@ -2024,6 +2145,9 @@ module.exports = {
   buildCitationsPayload,
   normalizeArchiveGradeId,
   toCommunityMaterialsGradeLevel,
+  extractEmbeddedGradeId,
+  materialBelongsToLockedGrade,
+  filterRowsToLockedGrade,
   normalizeFileRefsFromMatches,
   normalizeEscapedNewlines,
   sanitizeCommunitySummaryMarkdown,
