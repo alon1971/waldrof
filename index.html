@@ -22577,33 +22577,97 @@
       });
     }
 
+    function cleanSpeakablePlainText(raw) {
+      var text = String(raw || '');
+      if (!text.trim()) return '';
+      if (/<[a-z][\s\S]*>/i.test(text)) {
+        var div = document.createElement('div');
+        div.innerHTML = text;
+        div.querySelectorAll('script, style, button, noscript').forEach(function (el) { el.remove(); });
+        text = String(div.innerText || div.textContent || '');
+      }
+      return text
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/^#{1,6}\s+/gm, '')
+        .replace(/[*_`>~]/g, ' ')
+        .replace(/\u00a0/g, ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function isVisibleSpeakSource(el) {
+      if (!el) return false;
+      if (el.classList && el.classList.contains('hidden')) return false;
+      var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+      if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+      return true;
+    }
+
     function getCommunitySummarizerSpeakableText() {
-      var resultEl = document.getElementById('community-summarizer-result');
-      if (!resultEl) return '';
-      var body = resultEl.querySelector('.hybrid-community-summary-body');
-      return getSpeakableTextFromContainer(body || resultEl);
+      // Prefer the generated summary payload (no headers / UI chrome).
+      try {
+        var data = appState && appState.communitySummarizerResult;
+        if (data && typeof isCommunitySummarizerSummaryReady === 'function'
+          && isCommunitySummarizerSummaryReady(data)
+          && !appState.isSummarizing
+          && !appState.communitySummarizerLoading) {
+          var rawSummary = String(data.communitySummary || '').trim();
+          if (typeof sanitizeCommunitySummaryForDisplay === 'function') {
+            rawSummary = sanitizeCommunitySummaryForDisplay(rawSummary);
+          }
+          var fromState = cleanSpeakablePlainText(rawSummary);
+          if (fromState) return fromState;
+        }
+      } catch (eState) { /* fall through to DOM */ }
+
+      var body = document.getElementById('summary-text-body')
+        || document.querySelector('#community-summarizer-result .hybrid-community-summary-body')
+        || document.querySelector('#community-summarizer-result .summary-content');
+      if (!body || !isVisibleSpeakSource(body.closest('#community-summarizer-view') || body)) {
+        body = document.querySelector('.hybrid-community-summary:not(.is-empty):not(.is-summarizing) .hybrid-community-summary-body');
+      }
+      return getSpeakableTextFromContainer(body, { bodyOnly: true });
     }
 
     function getActiveContentSpeakableText() {
       var text = getCommunitySummarizerSpeakableText();
       if (text) return text;
-      var candidates = [
-        'community-summarizer-result',
-        'phase-c-unified-root',
-        'phase-c-narrative-root',
-        'panel-narrative',
-        'general-search-results',
-        'grade-insights-body',
-        'web-research-result',
+
+      // Inner body containers only — never outer wrappers / section headers.
+      var bodySelectors = [
+        '#summary-text-body',
+        '.hybrid-community-summary:not(.is-empty):not(.is-summarizing) .hybrid-community-summary-body',
+        '.summary-content',
+        '#theoretical-content',
+        '#inspiration-content',
+        '#pedagogical-essence-content',
+        '#general-search-results .pure-card-body',
+        '#general-search-results article.pure-data-card',
+        '#grade-insights-body .grade-insights-part .prose-ai',
+        '#grade-insights-body .grade-insights-part',
+        '#web-research-result .prose-ai',
+        '#web-research-result',
       ];
-      for (var i = 0; i < candidates.length; i++) {
-        var el = document.getElementById(candidates[i]);
-        if (!el || (el.classList && el.classList.contains('hidden'))) continue;
-        var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
-        if (style && (style.display === 'none' || style.visibility === 'hidden')) continue;
-        var next = getSpeakableTextFromContainer(el);
-        if (next) return next;
-      }
+      var chunks = [];
+      var seen = {};
+      bodySelectors.forEach(function (selector) {
+        document.querySelectorAll(selector).forEach(function (el) {
+          if (!isVisibleSpeakSource(el)) return;
+          // Skip empty shells / loading placeholders.
+          if (el.classList && (el.classList.contains('is-empty') || el.classList.contains('is-summarizing'))) return;
+          var next = getSpeakableTextFromContainer(el, { bodyOnly: true });
+          if (!next || next.length < 20) return;
+          var key = next.slice(0, 160);
+          if (seen[key]) return;
+          seen[key] = true;
+          chunks.push(next);
+        });
+      });
+      if (chunks.length) return chunks.join('\n\n').replace(/\s+/g, ' ').trim();
       return '';
     }
 
@@ -22655,15 +22719,30 @@
       ) || btn.parentElement;
     }
 
-    function getSpeakableTextFromContainer(container) {
+    function getSpeakableTextFromContainer(container, options) {
+      options = options || {};
       if (!container) return '';
       var clone = container.cloneNode(true);
-      clone.querySelectorAll(
-        '[data-tts-speak], .tts-listen-btn, script, style, button, .hybrid-community-citations, .inline-expand-close, .archive-admin-delete-btn'
-      ).forEach(function (el) {
+      clone.querySelectorAll([
+        'script', 'style', 'noscript', 'button', 'nav', 'svg', 'i[aria-hidden="true"]',
+        '[data-tts-speak]', '.tts-listen-btn', '#read-aloud-btn', '.js-read-aloud-btn',
+        '.hybrid-community-summary-head', '.hybrid-community-citations',
+        '.content-card-head', '.curriculum-card-toggle', '.card-chevron',
+        '.inline-expand-close', '.archive-admin-delete-btn',
+        '.phase-c-unified-header', '.app-page-title', '.community-summarizer-empty-notice',
+        '.fa-spinner', '[aria-busy="true"] .fa-spin',
+      ].join(',')).forEach(function (el) {
         el.remove();
       });
-      return String(clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+      if (options.bodyOnly) {
+        // Drop chrome headings that may still sit inside wrappers.
+        clone.querySelectorAll('h1, h2, h3').forEach(function (heading) {
+          var headingText = String(heading.textContent || '').replace(/\s+/g, ' ').trim();
+          // Keep long in-content headings; strip short UI titles.
+          if (headingText.length <= 80) heading.remove();
+        });
+      }
+      return cleanSpeakablePlainText(clone.innerText || clone.textContent || '');
     }
 
     function stopSpeaking() {
@@ -22696,7 +22775,8 @@
       stopSpeaking();
       // stopSpeaking clears activeBtn; keep prior button reset already done.
 
-      var utterance = new SpeechSynthesisUtterance(clean);
+      var textToRead = clean;
+      var utterance = new SpeechSynthesisUtterance(textToRead);
       utterance.lang = lang || getUiSpeechLang();
       ttsState.utterance = utterance;
       ttsState.speaking = true;
@@ -22715,6 +22795,7 @@
       utterance.onerror = clearIfCurrent;
 
       try {
+        console.log('Speaking text:', textToRead);
         window.speechSynthesis.speak(utterance);
       } catch (speakErr) {
         clearIfCurrent();
@@ -25261,7 +25342,7 @@
         '<h3><i class="fa-solid fa-people-roof text-sage ml-1" aria-hidden="true"></i> ' + escapeHtml(heading) + '</h3>' +
         listenBtn +
         '</div>' +
-        '<div class="hybrid-community-summary-body">' + bodyHtml + '</div>' +
+        '<div id="summary-text-body" class="hybrid-community-summary-body summary-content">' + bodyHtml + '</div>' +
         citationsHtml +
         '</aside>';
     }
