@@ -41,6 +41,7 @@ const billingReport = require('./api/billing-report');
 const purePhaseCApi = require('./api/pure-phase-c');
 const pureGeneralSearchApi = require('./api/pure-general-search');
 const googleDriveOauthApi = require('./api/google-drive-oauth');
+const ttsApi = require('./api/tts');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
   console.error('api/generate.js must export handleGeneratePost for Render Node hosting.');
@@ -659,6 +660,35 @@ async function handleApiConfig(req, res) {
   }
 }
 
+async function handleApiTts(req, res) {
+  const apiRes = createApiResponse(res);
+  try {
+    let body;
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const raw = await readBody(req);
+      if (raw && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch (parseErr) {
+          apiRes.status(400).json({
+            ok: false,
+            error: parseErr instanceof Error ? parseErr.message : 'Invalid JSON body',
+          });
+          return;
+        }
+      }
+    }
+    await ttsApi.legacyHandler({ method: req.method, headers: req.headers, body: body }, apiRes);
+  } catch (err) {
+    if (!res.headersSent) {
+      apiRes.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
 async function handleApiBillingCheckout(req, res) {
   const apiRes = createApiResponse(res);
   try {
@@ -880,6 +910,10 @@ const server = http.createServer(async function (req, res) {
     return handleApiConfig(req, res);
   }
 
+  if (pathname === '/api/tts') {
+    return handleApiTts(req, res);
+  }
+
   if (pathname === '/api/billing/checkout') {
     return handleApiBillingCheckout(req, res);
   }
@@ -941,7 +975,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET /api/auth/google-drive | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/tts | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET /api/auth/google-drive | Health: GET /health');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');

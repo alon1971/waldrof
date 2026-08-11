@@ -22514,11 +22514,15 @@
       return d.innerHTML;
     }
 
-    // ---------- Text-to-Speech (Web Speech API) ----------
+    // ---------- Text-to-Speech (Google Cloud TTS via /api/tts, Web Speech fallback) ----------
     var ttsState = {
       speaking: false,
       activeBtn: null,
       utterance: null,
+      audio: null,
+      audioQueue: [],
+      requestId: 0,
+      usingGoogle: false,
     };
 
     function getUiSpeechLang() {
@@ -22683,11 +22687,17 @@
       });
     }
 
+    function isReadAloudPlaying() {
+      if (ttsState.speaking) return true;
+      if (ttsState.audio && !ttsState.audio.paused && !ttsState.audio.ended) return true;
+      if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) return true;
+      return false;
+    }
+
     function toggleReadAloudButton(triggerBtn) {
       var btn = triggerBtn || document.getElementById('read-aloud-btn') || document.querySelector('.js-read-aloud-btn');
       if (!btn) return;
-      if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
-        try { window.speechSynthesis.cancel(); } catch (eCancel) { /* ignore */ }
+      if (isReadAloudPlaying()) {
         stopSpeaking();
         resetReadAloudButtonLabel(btn);
         return;
@@ -22746,43 +22756,97 @@
     }
 
     function stopSpeaking() {
+      ttsState.requestId = (ttsState.requestId || 0) + 1;
+      ttsState.audioQueue = [];
+      if (ttsState.audio) {
+        try {
+          ttsState.audio.onended = null;
+          ttsState.audio.onerror = null;
+          ttsState.audio.pause();
+          ttsState.audio.removeAttribute('src');
+          ttsState.audio.load();
+        } catch (eAudio) { /* ignore */ }
+        ttsState.audio = null;
+      }
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         try { window.speechSynthesis.cancel(); } catch (eCancel) { /* ignore */ }
       }
       if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
       else resetReadAloudButtonLabel(document.getElementById('read-aloud-btn'));
       ttsState.speaking = false;
+      ttsState.usingGoogle = false;
       ttsState.activeBtn = null;
       ttsState.utterance = null;
     }
 
-    /**
-     * Speak plain text via the Web Speech API.
-     * @param {string} text
-     * @param {string} [lang] BCP-47 tag; defaults from current UI language (en-US / he-IL).
-     * @param {{ button?: HTMLElement }} [options]
-     * @returns {boolean}
-     */
-    function speakText(text, lang, options) {
+    function playGoogleTtsChunkQueue(uris, requestId, button) {
+      if (!uris || !uris.length) {
+        if (ttsState.requestId === requestId) {
+          if (button) setTtsButtonSpeaking(button, false);
+          ttsState.speaking = false;
+          ttsState.activeBtn = null;
+          ttsState.audio = null;
+        }
+        return Promise.resolve();
+      }
+      var uri = uris[0];
+      var rest = uris.slice(1);
+      return new Promise(function (resolve) {
+        if (ttsState.requestId !== requestId) {
+          resolve();
+          return;
+        }
+        var audio = new Audio(uri);
+        ttsState.audio = audio;
+        ttsState.speaking = true;
+        ttsState.usingGoogle = true;
+        ttsState.activeBtn = button || ttsState.activeBtn;
+        if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, true);
+        audio.onended = function () {
+          if (ttsState.requestId !== requestId) {
+            resolve();
+            return;
+          }
+          playGoogleTtsChunkQueue(rest, requestId, button).then(resolve);
+        };
+        audio.onerror = function () {
+          console.warn('[tts] audio playback error');
+          if (ttsState.requestId === requestId) {
+            if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+            ttsState.speaking = false;
+            ttsState.activeBtn = null;
+            ttsState.audio = null;
+          }
+          resolve();
+        };
+        var playPromise = audio.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(function (err) {
+            console.warn('[tts] audio.play failed', err);
+            if (ttsState.requestId === requestId) {
+              if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+              ttsState.speaking = false;
+              ttsState.activeBtn = null;
+              ttsState.audio = null;
+            }
+            resolve();
+          });
+        }
+      });
+    }
+
+    function speakTextWithWebSpeech(textToRead, lang, options) {
       options = options || {};
       if (typeof window === 'undefined' || !window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== 'function') {
         return false;
       }
-      var clean = String(text || '').replace(/\s+/g, ' ').trim();
-      if (!clean) return false;
-
-      var prevBtn = ttsState.activeBtn;
-      stopSpeaking();
-      // stopSpeaking clears activeBtn; keep prior button reset already done.
-
-      var textToRead = clean;
       var utterance = new SpeechSynthesisUtterance(textToRead);
       utterance.lang = lang || getUiSpeechLang();
       ttsState.utterance = utterance;
       ttsState.speaking = true;
+      ttsState.usingGoogle = false;
       ttsState.activeBtn = options.button || null;
       if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, true);
-      else if (prevBtn) setTtsButtonSpeaking(prevBtn, false);
 
       var clearIfCurrent = function () {
         if (ttsState.utterance !== utterance) return;
@@ -22793,15 +22857,75 @@
       };
       utterance.onend = clearIfCurrent;
       utterance.onerror = clearIfCurrent;
-
       try {
-        console.log('Speaking text:', textToRead);
         window.speechSynthesis.speak(utterance);
+        return true;
       } catch (speakErr) {
         clearIfCurrent();
         return false;
       }
-      return true;
+    }
+
+    /**
+     * Speak plain text via Google Cloud TTS (/api/tts), falling back to Web Speech API.
+     * @param {string} text
+     * @param {string} [lang] BCP-47 tag; defaults from current UI language (en-US / he-IL).
+     * @param {{ button?: HTMLElement }} [options]
+     * @returns {Promise<boolean>|boolean}
+     */
+    function speakText(text, lang, options) {
+      options = options || {};
+      var clean = cleanSpeakablePlainText(text);
+      if (!clean) return false;
+
+      stopSpeaking();
+      var textToRead = clean;
+      var requestId = ttsState.requestId;
+      var button = options.button || null;
+      ttsState.activeBtn = button;
+      if (button) setTtsButtonSpeaking(button, true);
+      ttsState.speaking = true;
+
+      console.log('Speaking text:', textToRead);
+
+      var langCode = lang || getUiSpeechLang();
+      var endpoint = (typeof location !== 'undefined' && location.origin)
+        ? (location.origin + '/api/tts')
+        : '/api/tts';
+
+      return fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textToRead, lang: langCode }),
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          return { res: res, data: data || {} };
+        });
+      }).then(function (result) {
+        if (ttsState.requestId !== requestId) return false;
+        if (!result.res.ok || !result.data) {
+          throw new Error((result.data && result.data.error) || ('TTS HTTP ' + result.res.status));
+        }
+        var uris = [];
+        if (Array.isArray(result.data.chunks) && result.data.chunks.length) {
+          uris = result.data.chunks.map(function (chunk) {
+            return 'data:audio/mpeg;base64,' + chunk;
+          });
+        } else if (result.data.audioDataUri) {
+          uris = [result.data.audioDataUri];
+        } else if (result.data.audioContent) {
+          uris = ['data:audio/mpeg;base64,' + result.data.audioContent];
+        }
+        if (!uris.length) throw new Error('TTS response had no audio');
+        ttsState.audioQueue = uris;
+        return playGoogleTtsChunkQueue(uris, requestId, button).then(function () {
+          return true;
+        });
+      }).catch(function (err) {
+        console.warn('[tts] Google TTS failed, falling back to Web Speech:', err && err.message ? err.message : err);
+        if (ttsState.requestId !== requestId) return false;
+        return speakTextWithWebSpeech(textToRead, langCode, { button: button });
+      });
     }
 
     function toggleTtsForButton(btn) {
