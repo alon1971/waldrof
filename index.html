@@ -2355,7 +2355,8 @@
       margin-top: 1rem;
     }
     #community-summarizer-export-word,
-    #read-aloud-btn {
+    #download-word-btn,
+    .community-summarizer-export-word {
       display: none;
       width: 100%;
       margin-top: 0;
@@ -2372,27 +2373,43 @@
       cursor: pointer;
     }
     #community-summarizer-export-word.is-visible,
-    #read-aloud-btn:not(.hidden) {
+    #download-word-btn.is-visible,
+    .community-summarizer-export-word.is-visible {
       display: inline-flex;
     }
-    #read-aloud-btn {
+    #read-aloud-btn.btn {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      margin-top: 8px;
+      border: 1px solid rgba(92, 125, 88, 0.55);
       background: linear-gradient(160deg, rgba(122, 155, 118, 0.95), rgba(90, 122, 90, 0.95));
-      border-color: rgba(92, 125, 88, 0.55);
       color: #fffdf8;
+      border-radius: 0.85rem;
+      padding: 0.85rem 1rem;
+      font-size: 0.98rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-sizing: border-box;
     }
-    #read-aloud-btn.is-speaking,
-    #read-aloud-btn[aria-pressed="true"] {
+    #read-aloud-btn.btn.is-speaking,
+    #read-aloud-btn.btn[aria-pressed="true"] {
       background: linear-gradient(160deg, #8a6a4a, #6e553a);
       border-color: rgba(138, 106, 74, 0.65);
     }
-    #community-summarizer-export-word:hover {
+    #community-summarizer-export-word:hover,
+    #download-word-btn:hover,
+    .community-summarizer-export-word:hover {
       background: linear-gradient(160deg, #5a7a5a, #4d6b4d);
     }
-    #read-aloud-btn:hover {
+    #read-aloud-btn.btn:hover {
       background: linear-gradient(160deg, #5a7a5a, #4d6b4d);
     }
     #community-summarizer-export-word:disabled,
-    #read-aloud-btn:disabled {
+    #download-word-btn:disabled,
+    .community-summarizer-export-word:disabled {
       opacity: 0.55;
       cursor: not-allowed;
     }
@@ -6469,13 +6486,11 @@
         </div>
         <div id="community-summarizer-result" aria-live="polite"></div>
         <div id="community-summarizer-export-actions" dir="rtl">
-          <button type="button" id="community-summarizer-export-word" class="touch-btn" dir="rtl" aria-hidden="true" data-i18n-aria="community_summarizer_export_word" aria-label="הורד למסמך Word">
+          <button type="button" id="download-word-btn" class="touch-btn community-summarizer-export-word" dir="rtl" aria-hidden="true" data-i18n-aria="community_summarizer_export_word" aria-label="הורד למסמך Word">
             <i class="fa-solid fa-file-word" aria-hidden="true"></i>
             <span data-i18n="community_summarizer_export_word">הורד למסמך Word</span>
           </button>
-          <button type="button" id="read-aloud-btn" class="touch-btn hidden" dir="rtl" aria-hidden="true" aria-pressed="false" data-i18n-aria="tts_read_aloud_aria" aria-label="השמע את הסיכום בקול">
-            <span class="tts-listen-label" data-i18n="tts_read_aloud">🔊 האזנה לטקסט</span>
-          </button>
+          <button id="read-aloud-btn" class="btn" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
         </div>
       </div>
     </div>
@@ -22539,14 +22554,48 @@
       return getSpeakableTextFromContainer(body || resultEl);
     }
 
+    function getActiveContentSpeakableText() {
+      var text = getCommunitySummarizerSpeakableText();
+      if (text) return text;
+      var candidates = [
+        'community-summarizer-result',
+        'phase-c-unified-root',
+        'phase-c-narrative-root',
+        'panel-narrative',
+        'general-search-results',
+        'grade-insights-body',
+        'web-research-result',
+      ];
+      for (var i = 0; i < candidates.length; i++) {
+        var el = document.getElementById(candidates[i]);
+        if (!el || (el.classList && el.classList.contains('hidden'))) continue;
+        var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+        if (style && (style.display === 'none' || style.visibility === 'hidden')) continue;
+        var next = getSpeakableTextFromContainer(el);
+        if (next) return next;
+      }
+      return '';
+    }
+
+    function resetReadAloudButtonLabel(btn) {
+      var target = btn || document.getElementById('read-aloud-btn');
+      if (!target) return;
+      var label = (typeof t === 'function' ? t('tts_read_aloud') : '') || '🔊 האזנה לטקסט';
+      target.textContent = label;
+      target.classList.remove('is-speaking');
+      target.setAttribute('aria-pressed', 'false');
+    }
+
     function toggleReadAloudButton() {
       var btn = document.getElementById('read-aloud-btn');
-      if (!btn || btn.classList.contains('hidden') || btn.disabled) return;
-      if (ttsState.speaking && ttsState.activeBtn === btn) {
+      if (!btn) return;
+      if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+        try { window.speechSynthesis.cancel(); } catch (eCancel) { /* ignore */ }
         stopSpeaking();
+        resetReadAloudButtonLabel(btn);
         return;
       }
-      var text = getCommunitySummarizerSpeakableText();
+      var text = getActiveContentSpeakableText();
       if (!text) return;
       speakText(text, getUiSpeechLang(), { button: btn });
     }
@@ -22578,6 +22627,7 @@
         try { window.speechSynthesis.cancel(); } catch (eCancel) { /* ignore */ }
       }
       if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+      else resetReadAloudButtonLabel(document.getElementById('read-aloud-btn'));
       ttsState.speaking = false;
       ttsState.activeBtn = null;
       ttsState.utterance = null;
@@ -25368,8 +25418,8 @@
     }
 
     function syncCommunitySummarizerExportButton(data) {
-      var btn = document.getElementById('community-summarizer-export-word');
-      var readBtn = document.getElementById('read-aloud-btn');
+      var btn = document.getElementById('download-word-btn')
+        || document.getElementById('community-summarizer-export-word');
       var ready = isCommunitySummarizerSummaryReady(data)
         && !appState.isSummarizing
         && !appState.communitySummarizerLoading;
@@ -25378,16 +25428,7 @@
         btn.setAttribute('aria-hidden', ready ? 'false' : 'true');
         btn.disabled = !ready;
       }
-      if (readBtn) {
-        readBtn.classList.toggle('hidden', !ready);
-        readBtn.setAttribute('aria-hidden', ready ? 'false' : 'true');
-        readBtn.disabled = !ready;
-        if (!ready && ttsState.activeBtn === readBtn) {
-          stopSpeaking();
-        } else if (!ready) {
-          setTtsButtonSpeaking(readBtn, false);
-        }
-      }
+      // #read-aloud-btn stays visible whenever the action panel is shown (never hidden).
     }
 
     function renderCommunitySummarizerResult(data) {
@@ -25709,7 +25750,8 @@
       var cancelBtn = document.getElementById('community-summarizer-cancel');
       var clearBtn = document.getElementById('community-summarizer-clear');
       var returnHomeBtn = document.getElementById('community-summarizer-return-home');
-      var exportBtn = document.getElementById('community-summarizer-export-word');
+      var exportBtn = document.getElementById('download-word-btn')
+        || document.getElementById('community-summarizer-export-word');
       var readAloudBtn = document.getElementById('read-aloud-btn');
       var bgBadge = document.getElementById('community-summarizer-bg-indicator');
       var gradeEl = document.getElementById('community-summarizer-grade');
