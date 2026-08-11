@@ -154,7 +154,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712k" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20260712m" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -1980,11 +1980,58 @@
       width: 100%;
     }
     .hybrid-community-summary h3 {
-      margin: 0 0 0.75rem;
+      margin: 0;
       font-family: var(--font-display, Georgia, serif);
       font-size: 1.15rem;
       color: var(--color-walnut, #5c4a3a);
       line-height: 1.35;
+    }
+    .hybrid-community-summary-head,
+    .content-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin: 0 0 0.75rem;
+    }
+    .hybrid-community-summary-head h3,
+    .content-card-head h3 {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin: 0;
+    }
+    .tts-listen-btn {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0.4rem 0.75rem;
+      border-radius: 0.7rem;
+      border: 1px solid rgba(92, 125, 88, 0.4);
+      background: rgba(255, 252, 246, 0.95);
+      color: #5C4A3A;
+      font-family: 'Heebo', sans-serif;
+      font-size: 0.88rem;
+      font-weight: 600;
+      line-height: 1.3;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .tts-listen-btn:hover {
+      background: #fff;
+      border-color: rgba(92, 125, 88, 0.65);
+    }
+    .tts-listen-btn.is-speaking,
+    .tts-listen-btn[aria-pressed="true"] {
+      background: rgba(122, 155, 118, 0.18);
+      border-color: rgba(92, 125, 88, 0.7);
+      color: #3f5a3f;
+    }
+    .pure-data-card > .content-card-head {
+      margin-bottom: 0.85rem;
     }
     .hybrid-community-summary-body {
       color: rgba(92, 74, 58, 0.92);
@@ -2678,6 +2725,9 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
+    }
+    .pure-data-card > .content-card-head > h3 {
+      margin: 0;
     }
     .pure-data-card .pure-card-body p,
     .pure-data-card .pure-card-body li {
@@ -14111,6 +14161,7 @@
     }
 
     function collapseBibInline(sourceId) {
+      stopSpeaking();
       holdPageScroll(function () {
         const source = appState.bibliographyRegistry[sourceId];
         const cacheKey = source ? getBibliographySummaryCacheKey(source) : sourceId;
@@ -14123,6 +14174,7 @@
     }
 
     function collapsePedagogyInline(sourceId, triggerEl) {
+      stopSpeaking();
       holdPageScroll(function () {
         const source = appState.pedagogyRegistry[sourceId];
         const cacheKey = source ? getPedagogySummaryCacheKey(source) : sourceId;
@@ -14347,7 +14399,9 @@
         return;
       }
       holdPageScroll(function () {
-        panel.innerHTML = '<div class="inline-expand-inner">' + content +
+        panel.innerHTML = '<div class="inline-expand-inner">' +
+          '<div class="content-card-head" style="margin-bottom:0.65rem">' + buildTtsListenButtonHtml() + '</div>' +
+          content +
           '<button type="button" class="inline-expand-close" data-bib-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         applyExpansionDomDedupe(panel);
         panel.classList.remove('hidden');
@@ -15791,8 +15845,8 @@
       var rows = padCurriculumRowsToFifteen(curriculum || []);
       if (!rows.some(curriculumRowHasRenderableText)) return '';
       var html = '<article class="pure-data-card general-search-card general-search-curriculum-wrap">' +
-        '<h3><i class="fa-solid fa-calendar-days text-terracotta"></i> ' +
-        escapeHtml(t('general_search_section_curriculum')) + '</h3>' +
+        '<div class="content-card-head"><h3><i class="fa-solid fa-calendar-days text-terracotta"></i> ' +
+        escapeHtml(t('general_search_section_curriculum')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' +
         '<div class="overflow-x-auto">' +
         '<table class="general-search-curriculum-table" dir="rtl">' +
         '<thead><tr>' +
@@ -17514,7 +17568,9 @@
           return;
         }
         var src = appState.pedagogyRegistry[sourceId];
-        panel.innerHTML = '<div class="inline-expand-inner">' + buildPedagogySummaryHtml(summary, src) +
+        panel.innerHTML = '<div class="inline-expand-inner">' +
+          '<div class="content-card-head" style="margin-bottom:0.65rem">' + buildTtsListenButtonHtml() + '</div>' +
+          buildPedagogySummaryHtml(summary, src) +
           '<button type="button" class="inline-expand-close" data-ped-collapse="' + escapeHtml(sourceId) + '">' + escapeHtml(t('inline_expand_close')) + '</button></div>';
         applyExpansionDomDedupe(panel);
         panel.classList.remove('hidden');
@@ -22399,6 +22455,166 @@
       return d.innerHTML;
     }
 
+    // ---------- Text-to-Speech (Web Speech API) ----------
+    var ttsState = {
+      speaking: false,
+      activeBtn: null,
+      utterance: null,
+    };
+
+    function getUiSpeechLang() {
+      var code = (typeof getLang === 'function' ? getLang() : '') ||
+        (typeof isEnglish === 'function' && isEnglish() ? 'en' : 'he');
+      code = String(code || 'he').trim().toLowerCase();
+      if (code.indexOf('en') === 0) return 'en-US';
+      if (code.indexOf('de') === 0) return 'de-DE';
+      if (code.indexOf('es') === 0) return 'es-ES';
+      return 'he-IL';
+    }
+
+    function buildTtsListenButtonHtml() {
+      var label = (typeof t === 'function' ? t('tts_listen') : '') || '🔊 Listen';
+      var aria = (typeof t === 'function' ? t('tts_listen_aria') : '') || label;
+      return '<button type="button" class="tts-listen-btn" data-tts-speak aria-pressed="false" data-i18n-aria="tts_listen_aria" aria-label="' +
+        escapeHtml(aria) + '"><span class="tts-listen-label" data-i18n="tts_listen">' +
+        escapeHtml(label) + '</span></button>';
+    }
+
+    function setTtsButtonSpeaking(btn, speaking) {
+      if (!btn) return;
+      var listenLabel = (typeof t === 'function' ? t('tts_listen') : '') || '🔊 Listen';
+      var stopLabel = (typeof t === 'function' ? t('tts_stop') : '') || '⏹️ Stop';
+      var listenAria = (typeof t === 'function' ? t('tts_listen_aria') : '') || listenLabel;
+      var stopAria = (typeof t === 'function' ? t('tts_stop_aria') : '') || stopLabel;
+      btn.classList.toggle('is-speaking', !!speaking);
+      btn.setAttribute('aria-pressed', speaking ? 'true' : 'false');
+      btn.setAttribute('aria-label', speaking ? stopAria : listenAria);
+      btn.setAttribute('data-i18n-aria', speaking ? 'tts_stop_aria' : 'tts_listen_aria');
+      var labelEl = btn.querySelector('.tts-listen-label');
+      if (labelEl) {
+        labelEl.setAttribute('data-i18n', speaking ? 'tts_stop' : 'tts_listen');
+        labelEl.textContent = speaking ? stopLabel : listenLabel;
+      }
+    }
+
+    function resolveTtsSourceEl(btn) {
+      if (!btn) return null;
+      var summary = btn.closest('.hybrid-community-summary');
+      if (summary) {
+        return summary.querySelector('.hybrid-community-summary-body') || summary;
+      }
+      return btn.closest(
+        'article.pure-data-card, article.pedagogical-essence-card, .inline-expand-inner, .archive-summary-panel, .archive-content-block'
+      ) || btn.parentElement;
+    }
+
+    function getSpeakableTextFromContainer(container) {
+      if (!container) return '';
+      var clone = container.cloneNode(true);
+      clone.querySelectorAll(
+        '[data-tts-speak], .tts-listen-btn, script, style, button, .hybrid-community-citations, .inline-expand-close, .archive-admin-delete-btn'
+      ).forEach(function (el) {
+        el.remove();
+      });
+      return String(clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function stopSpeaking() {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        try { window.speechSynthesis.cancel(); } catch (eCancel) { /* ignore */ }
+      }
+      if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+      ttsState.speaking = false;
+      ttsState.activeBtn = null;
+      ttsState.utterance = null;
+    }
+
+    /**
+     * Speak plain text via the Web Speech API.
+     * @param {string} text
+     * @param {string} [lang] BCP-47 tag; defaults from current UI language (en-US / he-IL).
+     * @param {{ button?: HTMLElement }} [options]
+     * @returns {boolean}
+     */
+    function speakText(text, lang, options) {
+      options = options || {};
+      if (typeof window === 'undefined' || !window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== 'function') {
+        return false;
+      }
+      var clean = String(text || '').replace(/\s+/g, ' ').trim();
+      if (!clean) return false;
+
+      var prevBtn = ttsState.activeBtn;
+      stopSpeaking();
+      // stopSpeaking clears activeBtn; keep prior button reset already done.
+
+      var utterance = new SpeechSynthesisUtterance(clean);
+      utterance.lang = lang || getUiSpeechLang();
+      ttsState.utterance = utterance;
+      ttsState.speaking = true;
+      ttsState.activeBtn = options.button || null;
+      if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, true);
+      else if (prevBtn) setTtsButtonSpeaking(prevBtn, false);
+
+      var clearIfCurrent = function () {
+        if (ttsState.utterance !== utterance) return;
+        if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+        ttsState.speaking = false;
+        ttsState.activeBtn = null;
+        ttsState.utterance = null;
+      };
+      utterance.onend = clearIfCurrent;
+      utterance.onerror = clearIfCurrent;
+
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch (speakErr) {
+        clearIfCurrent();
+        return false;
+      }
+      return true;
+    }
+
+    function toggleTtsForButton(btn) {
+      if (!btn) return;
+      if (ttsState.speaking && ttsState.activeBtn === btn) {
+        stopSpeaking();
+        return;
+      }
+      var sourceEl = resolveTtsSourceEl(btn);
+      var text = getSpeakableTextFromContainer(sourceEl);
+      if (!text) return;
+      speakText(text, getUiSpeechLang(), { button: btn });
+    }
+
+    function enhanceContentCardsWithTts(root) {
+      if (!root || !root.querySelectorAll) return;
+      root.querySelectorAll('article.pure-data-card').forEach(function (card) {
+        if (card.querySelector('[data-tts-speak]')) return;
+        var heading = card.querySelector(':scope > h3');
+        if (!heading) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'content-card-head';
+        heading.parentNode.insertBefore(wrap, heading);
+        wrap.appendChild(heading);
+        wrap.insertAdjacentHTML('beforeend', buildTtsListenButtonHtml());
+      });
+    }
+
+    function bindTtsListenControls() {
+      if (document.documentElement._ttsListenBound) return;
+      document.documentElement._ttsListenBound = true;
+      document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('[data-tts-speak]') : null;
+        if (!btn) return;
+        e.preventDefault();
+        toggleTtsForButton(btn);
+      });
+    }
+
+    window.speakText = speakText;
+    window.stopSpeaking = stopSpeaking;
+
     // ---------- Global raw-URL linkifier ----------
     // Turns any bare http(s) URL rendered as plain text into a clickable anchor
     // (target="_blank"). DOM-based and idempotent: URLs already inside an <a> (or
@@ -23582,6 +23798,7 @@
 
     function openHomeView(opts) {
       opts = opts || {};
+      stopSpeaking();
       rememberNavScrollPosition(getNavScrollKey());
       appState.navSection = 'home';
       hideGeneralSearchView();
@@ -23762,6 +23979,7 @@
         updateTopNavButtons();
         return;
       }
+      stopSpeaking();
       var fromHome = isHomeView() || appState.navSection === 'home';
       rememberNavScrollPosition(getNavScrollKey());
       appState.navSection = 'waldorf-sites';
@@ -24889,8 +25107,12 @@
           }
         }
       }
+      var listenBtn = (!isEmpty && !isSummarizing) ? buildTtsListenButtonHtml() : '';
       return '<aside class="hybrid-community-summary' + (isEmpty || isSummarizing ? ' is-empty' : '') + (isSummarizing ? ' is-summarizing' : '') + '" dir="rtl" aria-label="' + escapeHtml(heading) + '" aria-busy="' + (isSummarizing ? 'true' : 'false') + '">' +
+        '<div class="hybrid-community-summary-head">' +
         '<h3><i class="fa-solid fa-people-roof text-sage ml-1" aria-hidden="true"></i> ' + escapeHtml(heading) + '</h3>' +
+        listenBtn +
+        '</div>' +
         '<div class="hybrid-community-summary-body">' + bodyHtml + '</div>' +
         citationsHtml +
         '</aside>';
@@ -25105,6 +25327,7 @@
     function renderCommunitySummarizerResult(data) {
       var resultEl = document.getElementById('community-summarizer-result');
       if (!resultEl) return;
+      stopSpeaking();
       if (!data) {
         resultEl.innerHTML = '';
         syncCommunitySummarizerExportButton(null);
@@ -25247,6 +25470,7 @@
     function openCommunitySummarizerModal() {
       var view = document.getElementById('community-summarizer-view');
       if (!view) return;
+      stopSpeaking();
       rememberNavScrollPosition(getNavScrollKey());
       appState.navSection = 'community-summarizer';
       hideHomeView();
@@ -25305,6 +25529,7 @@
 
     function closeCommunitySummarizerModal(options) {
       options = options || {};
+      stopSpeaking();
       var view = document.getElementById('community-summarizer-view');
       // Keep the in-flight request alive; only surface a background indicator.
       if (appState.isSummarizing || appState.communitySummarizerLoading) {
@@ -25494,6 +25719,7 @@
     function renderGeneralSearchResults(data, meta) {
       var resultsEl = document.getElementById('general-search-results');
       if (!resultsEl) return;
+      stopSpeaking();
       if (!data) {
         resultsEl.classList.add('hidden');
         resultsEl.innerHTML = '';
@@ -25505,10 +25731,10 @@
         : '';
       resultsEl.innerHTML =
         '<div class="pure-phase-c-grid">' +
-        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + renderPureTextBlock(data.developmental_axis, { blockPath: 'developmental_axis', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
-        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + renderPureTextBlock(data.core_pedagogical_emphases, { blockPath: 'core_pedagogical_emphases', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
-        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-book text-gold"></i> ' + escapeHtml(t('general_search_section_literature')) + '</h3>' + renderPureReadingBlock(data.recommended_literature) + '</article>' +
-        '<article class="pure-data-card general-search-card"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + renderPureLinksBlock(data.relevant_links, { showAdminDelete: true }) + '</article>' +
+        '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.developmental_axis, { blockPath: 'developmental_axis', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
+        '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.core_pedagogical_emphases, { blockPath: 'core_pedagogical_emphases', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
+        '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-book text-gold"></i> ' + escapeHtml(t('general_search_section_literature')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureReadingBlock(data.recommended_literature) + '</article>' +
+        '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureLinksBlock(data.relevant_links, { showAdminDelete: true }) + '</article>' +
         '</div>' +
         curriculumHtml +
         '<div class="mt-4" dir="rtl">' +
@@ -25517,6 +25743,7 @@
             '<span class="general-search-export-label phase-c-unified-export-label" data-i18n="general_search_export_word">' + escapeHtml(t('general_search_export_word')) + '</span>' +
           '</button>' +
         '</div>';
+      enhanceContentCardsWithTts(resultsEl);
       bindGeneralSearchExportButton();
       ensureArchiveUpgradeQueryEvents();
       mountArchiveUpgradeQuery(resultsEl, 'general-search');
@@ -25775,6 +26002,7 @@
 
     function openPhaseCWorkspace(options) {
       options = options || {};
+      stopSpeaking();
       repairCorruptedProductTabHash();
       syncTopicFromInput();
       appState.navSection = 'phase-c';
@@ -25799,6 +26027,7 @@
 
     function openGeneralSearchView(opts) {
       opts = opts || {};
+      stopSpeaking();
       var fromHome = isHomeView() || appState.navSection === 'home';
       appState.navSection = 'general-search';
       hideHomeView();
@@ -28367,6 +28596,7 @@
     function hideCommunitySummarizerViewForNavigation() {
       var summarizerView = document.getElementById('community-summarizer-view');
       if (!summarizerView || summarizerView.classList.contains('hidden')) return;
+      stopSpeaking();
       if (appState.isSummarizing || appState.communitySummarizerLoading) {
         appState.communitySummarizerBgPending = true;
       }
@@ -28508,6 +28738,7 @@
 
     function openCommunityRepo(opts) {
       opts = opts || {};
+      stopSpeaking();
       syncTopicFromInput();
       hideHomeView();
       hideGeneralSearchView();
@@ -30592,6 +30823,7 @@
         '<i class="fa-solid card-chevron ' + (isOpen ? 'fa-chevron-up' : 'fa-chevron-down') + ' text-sage-dark shrink-0" aria-hidden="true"></i>' +
         '</button>' +
         '<div class="curriculum-card-detail pedagogical-essence-detail px-4 py-4 min-w-0' + (isOpen ? '' : ' hidden') + '">' +
+        '<div class="content-card-head" style="margin-bottom:0.65rem;justify-content:flex-end">' + buildTtsListenButtonHtml() + '</div>' +
         renderPedagogicalEssenceFieldBody(fieldKey, essence[fieldKey]) +
         '</div></article>'
       );
@@ -32480,6 +32712,7 @@
       bindWizardNavClick(document.getElementById('btn-nav-general-search'), function () { openGeneralSearchView(); });
       bindWizardNavClick(document.getElementById('btn-nav-waldorf-sites'), function () { openWaldorfSitesView(); });
       bindCommunitySummarizerModal();
+      bindTtsListenControls();
       bindHomePortalNavigation();
       window.addEventListener('hashchange', function () {
         repairCorruptedProductTabHash();
@@ -32639,6 +32872,7 @@
     }
 
     function refreshUiOnLanguageChange() {
+      stopSpeaking();
       syncGradeLabelFromState();
       populateGradeSelect();
       populateCommunitySummarizerGradeSelect();
