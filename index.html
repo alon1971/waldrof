@@ -2174,9 +2174,7 @@
       max-width: 46rem;
       line-height: 1.55;
     }
-    body.community-summarizer-open #global-word-export-bar {
-      display: none !important;
-    }
+    /* Keep the global Word/Read-aloud stack available in community summarizer too. */
     .community-summarizer-form {
       display: flex;
       flex-direction: column;
@@ -2377,7 +2375,8 @@
     .community-summarizer-export-word.is-visible {
       display: inline-flex;
     }
-    #read-aloud-btn.btn {
+    #read-aloud-btn.btn,
+    .js-read-aloud-btn.btn {
       display: inline-flex !important;
       align-items: center;
       justify-content: center;
@@ -2395,7 +2394,9 @@
       box-sizing: border-box;
     }
     #read-aloud-btn.btn.is-speaking,
-    #read-aloud-btn.btn[aria-pressed="true"] {
+    #read-aloud-btn.btn[aria-pressed="true"],
+    .js-read-aloud-btn.btn.is-speaking,
+    .js-read-aloud-btn.btn[aria-pressed="true"] {
       background: linear-gradient(160deg, #8a6a4a, #6e553a);
       border-color: rgba(138, 106, 74, 0.65);
     }
@@ -2404,7 +2405,8 @@
     .community-summarizer-export-word:hover {
       background: linear-gradient(160deg, #5a7a5a, #4d6b4d);
     }
-    #read-aloud-btn.btn:hover {
+    #read-aloud-btn.btn:hover,
+    .js-read-aloud-btn.btn:hover {
       background: linear-gradient(160deg, #5a7a5a, #4d6b4d);
     }
     #community-summarizer-export-word:disabled,
@@ -3749,6 +3751,19 @@
       pointer-events: auto !important;
       width: auto;
       max-width: min(42vw, 12.5rem);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.45rem;
+    }
+    #global-word-export-bar #read-aloud-btn.btn {
+      width: 100%;
+      max-width: 100%;
+      margin-top: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-shadow: 0 6px 20px rgba(92, 125, 88, 0.28);
     }
     #global-word-export-bar .phase-c-unified-export-btn,
     #btn-phase-c-export-word {
@@ -6331,6 +6346,7 @@
       <i class="fa-solid fa-file-word" aria-hidden="true"></i>
       <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
     </button>
+    <button id="read-aloud-btn" class="btn" type="button" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
   </div>
 
   <!-- Welcome splash — first visit until user opts out -->
@@ -6490,7 +6506,7 @@
             <i class="fa-solid fa-file-word" aria-hidden="true"></i>
             <span data-i18n="community_summarizer_export_word">הורד למסמך Word</span>
           </button>
-          <button id="read-aloud-btn" class="btn" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
+          <button type="button" class="btn js-read-aloud-btn" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
         </div>
       </div>
     </div>
@@ -22523,9 +22539,19 @@
         escapeHtml(label) + '</span></button>';
     }
 
+    function isReadAloudControl(btn) {
+      return !!(btn && (btn.id === 'read-aloud-btn' || btn.classList.contains('js-read-aloud-btn')));
+    }
+
+    function getReadAloudControls() {
+      return Array.prototype.slice.call(
+        document.querySelectorAll('#read-aloud-btn, .js-read-aloud-btn')
+      );
+    }
+
     function setTtsButtonSpeaking(btn, speaking) {
       if (!btn) return;
-      var isReadAloud = btn.id === 'read-aloud-btn';
+      var isReadAloud = isReadAloudControl(btn);
       var listenKey = isReadAloud ? 'tts_read_aloud' : 'tts_listen';
       var stopKey = isReadAloud ? 'tts_stop_reading' : 'tts_stop';
       var listenAriaKey = isReadAloud ? 'tts_read_aloud_aria' : 'tts_listen_aria';
@@ -22534,17 +22560,21 @@
       var stopLabel = (typeof t === 'function' ? t(stopKey) : '') || (isReadAloud ? '⏹️ עצור הקראה' : '⏹️ Stop');
       var listenAria = (typeof t === 'function' ? t(listenAriaKey) : '') || listenLabel;
       var stopAria = (typeof t === 'function' ? t(stopAriaKey) : '') || stopLabel;
-      btn.classList.toggle('is-speaking', !!speaking);
-      btn.setAttribute('aria-pressed', speaking ? 'true' : 'false');
-      btn.setAttribute('aria-label', speaking ? stopAria : listenAria);
-      btn.setAttribute('data-i18n-aria', speaking ? stopAriaKey : listenAriaKey);
-      var labelEl = btn.querySelector('.tts-listen-label');
-      if (labelEl) {
-        labelEl.setAttribute('data-i18n', speaking ? stopKey : listenKey);
-        labelEl.textContent = speaking ? stopLabel : listenLabel;
-      } else {
-        btn.textContent = speaking ? stopLabel : listenLabel;
-      }
+      var targets = isReadAloud ? getReadAloudControls() : [btn];
+      targets.forEach(function (target) {
+        if (!target) return;
+        target.classList.toggle('is-speaking', !!speaking);
+        target.setAttribute('aria-pressed', speaking ? 'true' : 'false');
+        target.setAttribute('aria-label', speaking ? stopAria : listenAria);
+        target.setAttribute('data-i18n-aria', speaking ? stopAriaKey : listenAriaKey);
+        var labelEl = target.querySelector('.tts-listen-label');
+        if (labelEl) {
+          labelEl.setAttribute('data-i18n', speaking ? stopKey : listenKey);
+          labelEl.textContent = speaking ? stopLabel : listenLabel;
+        } else {
+          target.textContent = speaking ? stopLabel : listenLabel;
+        }
+      });
     }
 
     function getCommunitySummarizerSpeakableText() {
@@ -22578,16 +22608,19 @@
     }
 
     function resetReadAloudButtonLabel(btn) {
-      var target = btn || document.getElementById('read-aloud-btn');
-      if (!target) return;
       var label = (typeof t === 'function' ? t('tts_read_aloud') : '') || '🔊 האזנה לטקסט';
-      target.textContent = label;
-      target.classList.remove('is-speaking');
-      target.setAttribute('aria-pressed', 'false');
+      var targets = btn && isReadAloudControl(btn) ? getReadAloudControls() : getReadAloudControls();
+      if (btn && !isReadAloudControl(btn)) targets = [btn];
+      targets.forEach(function (target) {
+        if (!target) return;
+        target.textContent = label;
+        target.classList.remove('is-speaking');
+        target.setAttribute('aria-pressed', 'false');
+      });
     }
 
-    function toggleReadAloudButton() {
-      var btn = document.getElementById('read-aloud-btn');
+    function toggleReadAloudButton(triggerBtn) {
+      var btn = triggerBtn || document.getElementById('read-aloud-btn') || document.querySelector('.js-read-aloud-btn');
       if (!btn) return;
       if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
         try { window.speechSynthesis.cancel(); } catch (eCancel) { /* ignore */ }
@@ -22598,6 +22631,17 @@
       var text = getActiveContentSpeakableText();
       if (!text) return;
       speakText(text, getUiSpeechLang(), { button: btn });
+    }
+
+    function bindReadAloudButtons() {
+      getReadAloudControls().forEach(function (btn) {
+        if (!btn || btn._readAloudBound) return;
+        btn._readAloudBound = true;
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          toggleReadAloudButton(btn);
+        });
+      });
     }
 
     function resolveTtsSourceEl(btn) {
@@ -25752,7 +25796,6 @@
       var returnHomeBtn = document.getElementById('community-summarizer-return-home');
       var exportBtn = document.getElementById('download-word-btn')
         || document.getElementById('community-summarizer-export-word');
-      var readAloudBtn = document.getElementById('read-aloud-btn');
       var bgBadge = document.getElementById('community-summarizer-bg-indicator');
       var gradeEl = document.getElementById('community-summarizer-grade');
       var topicEl = document.getElementById('community-summarizer-topic');
@@ -25795,13 +25838,7 @@
           downloadCommunitySummarizerWord();
         });
       }
-      if (readAloudBtn && !readAloudBtn._communitySummarizerBound) {
-        readAloudBtn._communitySummarizerBound = true;
-        readAloudBtn.addEventListener('click', function (e) {
-          e.preventDefault();
-          toggleReadAloudButton();
-        });
-      }
+      bindReadAloudButtons();
       if (clearBtn && !clearBtn._communitySummarizerBound) {
         clearBtn._communitySummarizerBound = true;
         clearBtn.addEventListener('click', function (e) {
@@ -32829,6 +32866,7 @@
       bindWizardNavClick(document.getElementById('btn-nav-waldorf-sites'), function () { openWaldorfSitesView(); });
       bindCommunitySummarizerModal();
       bindTtsListenControls();
+      bindReadAloudButtons();
       bindHomePortalNavigation();
       window.addEventListener('hashchange', function () {
         repairCorruptedProductTabHash();
