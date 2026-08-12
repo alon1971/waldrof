@@ -18,7 +18,7 @@
     "organize-drive:apply": "node scripts/organize-and-convert.js --apply --from-community --default-grade=7 --default-topic=כללי --min-pdf-bytes=0",
     "drive-oauth-setup": "node scripts/google-drive-oauth-setup.js --write-env",
     "upload-community-drive": "node scripts/upload-community-to-drive.js",
-    "upload-community-drive:apply": "node scripts/upload-community-to-drive.js --apply --summarize",
+    "upload-community-drive:apply": "node scripts/upload-community-to-drive.js --apply",
     "summarize-community-drive": "node scripts/upload-community-to-drive.js --summarize-only"
   },
   "dependencies": {
