@@ -86,6 +86,28 @@ function getCatalogRootFolderId(options) {
   return DEFAULT_CATALOG_ROOT_FOLDER_ID;
 }
 
+function normalizeServiceAccountPrivateKey(sa) {
+  if (!sa || typeof sa !== 'object') return sa;
+  let key = String(sa.private_key || '');
+  if (!key) return sa;
+  // Render / .env paste often leaves literal "\\n" instead of real newlines.
+  if (key.indexOf('\\n') !== -1 && key.indexOf('-----BEGIN') !== -1 && key.indexOf('\n') === -1) {
+    key = key.replace(/\\n/g, '\n');
+  }
+  sa.private_key = key;
+  return sa;
+}
+
+function tryDecodeServiceAccountBase64(text) {
+  const compact = String(text || '').replace(/\s+/g, '');
+  if (compact.length < 80 || !/^[A-Za-z0-9+/=]+$/.test(compact)) return '';
+  try {
+    const decoded = Buffer.from(compact, 'base64').toString('utf8').trim();
+    if (decoded.charAt(0) === '{' || decoded.charAt(0) === '[') return decoded;
+  } catch (e) { /* ignore */ }
+  return '';
+}
+
 function tryParseServiceAccountObject(raw, sourceLabel) {
   const label = sourceLabel || 'service account';
   if (!raw) return null;
@@ -96,21 +118,29 @@ function tryParseServiceAccountObject(raw, sourceLabel) {
   ) {
     text = text.slice(1, -1).trim();
   }
-  try {
-    const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== 'object' || !parsed.client_email || !parsed.private_key) {
-      console.warn(
-        '[drive-catalog-sync]',
-        label,
-        'is set but missing client_email/private_key — Drive disabled'
-      );
-      return null;
+
+  const candidates = [text];
+  const asBase64 = tryDecodeServiceAccountBase64(text);
+  if (asBase64) candidates.push(asBase64);
+
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const parsed = JSON.parse(candidates[i]);
+      if (!parsed || typeof parsed !== 'object' || !parsed.client_email || !parsed.private_key) {
+        continue;
+      }
+      return normalizeServiceAccountPrivateKey(parsed);
+    } catch (e) {
+      // try next candidate
     }
-    return parsed;
-  } catch (e) {
-    console.warn('[drive-catalog-sync] invalid', label, '(Drive disabled):', e.message || e);
-    return null;
   }
+
+  console.warn(
+    '[drive-catalog-sync] invalid',
+    label,
+    '(Drive disabled): could not parse JSON/base64 service account'
+  );
+  return null;
 }
 
 function loadServiceAccountFromFile() {
@@ -144,6 +174,23 @@ function parseServiceAccountJson() {
     'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON'
   );
   if (fromEnv) return fromEnv;
+
+  const fromBase64Env = tryParseServiceAccountObject(
+    process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64
+      || process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+      || '',
+    'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64'
+  );
+  if (fromBase64Env) return fromBase64Env;
+
+  const fromAltEnv = tryParseServiceAccountObject(
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+      || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
+      || '',
+    'GOOGLE_SERVICE_ACCOUNT_JSON'
+  );
+  if (fromAltEnv) return fromAltEnv;
+
   return loadServiceAccountFromFile();
 }
 

@@ -22904,7 +22904,10 @@
       }).then(function (result) {
         if (ttsState.requestId !== requestId) return false;
         if (!result.res.ok || !result.data) {
-          throw new Error((result.data && result.data.error) || ('TTS HTTP ' + result.res.status));
+          var fail = new Error((result.data && result.data.error) || ('TTS HTTP ' + result.res.status));
+          fail.reason = result.data && result.data.reason;
+          fail.enableApiUrl = result.data && result.data.enableApiUrl;
+          throw fail;
         }
         var uris = [];
         if (Array.isArray(result.data.chunks) && result.data.chunks.length) {
@@ -22922,7 +22925,12 @@
           return true;
         });
       }).catch(function (err) {
-        console.warn('[tts] Google TTS failed, falling back to Web Speech:', err && err.message ? err.message : err);
+        console.warn(
+          '[tts] Google TTS failed, falling back to Web Speech:',
+          (err && err.reason ? ('[' + err.reason + '] ') : '')
+            + (err && err.message ? err.message : err)
+            + (err && err.enableApiUrl ? (' | ' + err.enableApiUrl) : '')
+        );
         if (ttsState.requestId !== requestId) return false;
         return speakTextWithWebSpeech(textToRead, langCode, { button: button });
       });

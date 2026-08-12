@@ -1,15 +1,16 @@
 /**
  * POST /api/tts — Google Cloud Text-to-Speech synthesis.
+ * GET  /api/tts — configuration status (no secrets).
  *
  * Body: { text: string, lang?: 'he' | 'en' | 'he-IL' | 'en-US' }
- * Auth: service-account JWT (GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON / service-account.json)
- *       with scope cloud-platform, or API key fallback
- *       (GOOGLE_TTS_API_KEY / GEMINI_API_KEY / GOOGLE_API_KEY / GOOGLE_CLOUD_API_KEY).
+ * Auth: service-account JWT (GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON /
+ *       GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64 / service-account.json)
+ *       with scope cloud-platform.
+ * Note: Cloud TTS does not accept API keys for text:synthesize.
  */
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const env = require('./env');
 const driveCatalogSync = require('./drive-catalog-sync');
 
 const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
@@ -19,7 +20,7 @@ const MAX_INPUT_BYTES = 4500;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-email',
   'Cache-Control': 'no-store, max-age=0',
 };
@@ -34,10 +35,6 @@ function sendJson(res, statusCode, payload) {
   setCors(res);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   return res.status(statusCode).json(payload);
-}
-
-function cleanKey(value) {
-  return String(value || '').trim().replace(/^["']|["']$/g, '');
 }
 
 function base64url(input) {
@@ -94,7 +91,6 @@ function splitTextForTts(text) {
     if (Buffer.byteLength(next, 'utf8') > MAX_INPUT_BYTES) {
       if (buf) parts.push(buf);
       if (Buffer.byteLength(sentence, 'utf8') > MAX_INPUT_BYTES) {
-        // Hard-split oversized sentence by characters.
         let chunk = '';
         for (let i = 0; i < sentence.length; i++) {
           const trial = chunk + sentence[i];
@@ -151,13 +147,83 @@ function loadServiceAccount() {
   return null;
 }
 
-function getTtsApiKey() {
-  return cleanKey(
-    process.env.GOOGLE_TTS_API_KEY
-    || process.env.GOOGLE_CLOUD_API_KEY
-    || process.env.GOOGLE_API_KEY
-    || env.getGeminiApiKey()
-  );
+function resolveServiceAccount() {
+  const saFromDrive = typeof driveCatalogSync.parseServiceAccountJson === 'function'
+    ? driveCatalogSync.parseServiceAccountJson()
+    : null;
+  if (saFromDrive && saFromDrive.client_email && saFromDrive.private_key) {
+    return saFromDrive;
+  }
+  return loadServiceAccount();
+}
+
+function projectNumberFromError(message) {
+  const m = String(message || '').match(/project\s+(\d{6,})/i);
+  return m ? m[1] : '';
+}
+
+function classifyTtsError(err) {
+  const message = String((err && err.message) || err || '');
+  const status = (err && err.statusCode) || 500;
+  const project = projectNumberFromError(message) || '313816048472';
+  const enableApiUrl =
+    'https://console.developers.google.com/apis/api/texttospeech.googleapis.com/overview?project='
+    + project;
+
+  if (/has not been used|is disabled|SERVICE_DISABLED|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(message)
+    || (/Cloud Text-to-Speech API/i.test(message) && status === 403)) {
+    return {
+      statusCode: 503,
+      reason: 'api_not_enabled',
+      error:
+        'Cloud Text-to-Speech API is not enabled for this GCP project. Enable it at '
+        + enableApiUrl
+        + ' then retry.',
+      enableApiUrl: enableApiUrl,
+    };
+  }
+  if (/service account OAuth token|not configured|API keys are not supported/i.test(message)) {
+    return {
+      statusCode: 503,
+      reason: 'missing_service_account',
+      error: message,
+      enableApiUrl: enableApiUrl,
+    };
+  }
+  if (/token exchange|service-account auth failed/i.test(message)) {
+    return {
+      statusCode: 503,
+      reason: 'service_account_auth_failed',
+      error: message,
+      enableApiUrl: enableApiUrl,
+    };
+  }
+  return {
+    statusCode: status >= 400 && status < 600 ? status : 500,
+    reason: 'tts_failed',
+    error: message || 'TTS failed',
+    enableApiUrl: enableApiUrl,
+  };
+}
+
+function getTtsStatus() {
+  const sa = resolveServiceAccount();
+  const projectId = sa && sa.project_id ? String(sa.project_id) : '';
+  const email = sa && sa.client_email ? String(sa.client_email) : '';
+  return {
+    ok: true,
+    configured: Boolean(sa),
+    auth: sa ? 'service_account' : 'missing',
+    projectId: projectId || null,
+    serviceAccountEmail: email || null,
+    enableApiUrl: projectId
+      ? ('https://console.developers.google.com/apis/api/texttospeech.googleapis.com/overview?project='
+        + encodeURIComponent(projectId))
+      : 'https://console.developers.google.com/apis/api/texttospeech.googleapis.com/overview',
+    note:
+      'Cloud TTS requires GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON (or _BASE64) and '
+      + 'Cloud Text-to-Speech API enabled on that GCP project. API keys are not supported.',
+  };
 }
 
 function createServiceAccountJwt(sa) {
@@ -198,20 +264,14 @@ async function exchangeServiceAccountJwt(sa) {
 }
 
 async function resolveTtsAuth() {
-  // Prefer the same SA loader used by Drive (handles Render env escaping).
-  const saFromDrive = typeof driveCatalogSync.parseServiceAccountJson === 'function'
-    ? driveCatalogSync.parseServiceAccountJson()
-    : null;
-  const sa = (saFromDrive && saFromDrive.client_email && saFromDrive.private_key)
-    ? saFromDrive
-    : loadServiceAccount();
+  const sa = resolveServiceAccount();
 
   if (sa && sa.client_email && sa.private_key) {
     try {
       const accessToken = (typeof driveCatalogSync.exchangeServiceAccountJwt === 'function')
         ? await driveCatalogSync.exchangeServiceAccountJwt(sa, CLOUD_PLATFORM_SCOPE, '')
         : await exchangeServiceAccountJwt(sa);
-      return { type: 'bearer', accessToken: accessToken };
+      return { type: 'bearer', accessToken: accessToken, serviceAccountEmail: sa.client_email };
     } catch (tokenErr) {
       console.error('[api/tts] service-account token exchange failed:', tokenErr.message || tokenErr);
       const err = new Error(
@@ -224,19 +284,10 @@ async function resolveTtsAuth() {
     }
   }
 
-  // Cloud TTS does not accept API keys for text:synthesize — fail clearly.
-  const apiKey = getTtsApiKey();
-  if (apiKey) {
-    const err = new Error(
-      'Cloud Text-to-Speech requires a service account OAuth token '
-      + '(GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON). API keys are not supported by this API.'
-    );
-    err.statusCode = 503;
-    throw err;
-  }
   const err = new Error(
     'Google TTS is not configured. Set GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON '
-    + 'and enable Cloud Text-to-Speech API on that GCP project.'
+    + '(or GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64) on this host and enable '
+    + 'Cloud Text-to-Speech API on that GCP project. API keys are not supported.'
   );
   err.statusCode = 503;
   throw err;
@@ -351,6 +402,9 @@ async function legacyHandler(req, res) {
     setCors(res);
     return res.status(204).end();
   }
+  if (req.method === 'GET') {
+    return sendJson(res, 200, getTtsStatus());
+  }
   if (req.method !== 'POST') {
     return sendJson(res, 405, { error: 'Method not allowed' });
   }
@@ -358,11 +412,13 @@ async function legacyHandler(req, res) {
     const data = await executeTts(req);
     return sendJson(res, 200, data);
   } catch (err) {
-    const status = err.statusCode || 500;
-    console.error('[api/tts]', status, err.message || err);
-    return sendJson(res, status, {
+    const classified = classifyTtsError(err);
+    console.error('[api/tts]', classified.statusCode, classified.reason, classified.error);
+    return sendJson(res, classified.statusCode, {
       ok: false,
-      error: err.message || String(err),
+      error: classified.error,
+      reason: classified.reason,
+      enableApiUrl: classified.enableApiUrl,
     });
   }
 }
@@ -372,6 +428,9 @@ async function fetchHandler(request) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: headers });
   }
+  if (request.method === 'GET') {
+    return Response.json(getTtsStatus(), { status: 200, headers: headers });
+  }
   if (request.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 405, headers: headers });
   }
@@ -380,10 +439,15 @@ async function fetchHandler(request) {
     const data = await executeTts({ body: body });
     return Response.json(data, { status: 200, headers: headers });
   } catch (err) {
-    const status = err.statusCode || 500;
-    console.error('[api/tts]', status, err.message || err);
-    return Response.json({ ok: false, error: err.message || String(err) }, {
-      status: status,
+    const classified = classifyTtsError(err);
+    console.error('[api/tts]', classified.statusCode, classified.reason, classified.error);
+    return Response.json({
+      ok: false,
+      error: classified.error,
+      reason: classified.reason,
+      enableApiUrl: classified.enableApiUrl,
+    }, {
+      status: classified.statusCode,
       headers: headers,
     });
   }
@@ -396,3 +460,5 @@ module.exports.executeTts = executeTts;
 module.exports.cleanTtsText = cleanTtsText;
 module.exports.normalizeLang = normalizeLang;
 module.exports.splitTextForTts = splitTextForTts;
+module.exports.getTtsStatus = getTtsStatus;
+module.exports.classifyTtsError = classifyTtsError;
