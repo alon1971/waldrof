@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const env = require('./env');
+const driveCatalogSync = require('./drive-catalog-sync');
 
 const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -197,29 +198,60 @@ async function exchangeServiceAccountJwt(sa) {
 }
 
 async function resolveTtsAuth() {
-  const sa = loadServiceAccount();
+  // Prefer the same SA loader used by Drive (handles Render env escaping).
+  const saFromDrive = typeof driveCatalogSync.parseServiceAccountJson === 'function'
+    ? driveCatalogSync.parseServiceAccountJson()
+    : null;
+  const sa = (saFromDrive && saFromDrive.client_email && saFromDrive.private_key)
+    ? saFromDrive
+    : loadServiceAccount();
+
   if (sa && sa.client_email && sa.private_key) {
-    const accessToken = await exchangeServiceAccountJwt(sa);
-    return { type: 'bearer', accessToken: accessToken };
+    try {
+      const accessToken = (typeof driveCatalogSync.exchangeServiceAccountJwt === 'function')
+        ? await driveCatalogSync.exchangeServiceAccountJwt(sa, CLOUD_PLATFORM_SCOPE, '')
+        : await exchangeServiceAccountJwt(sa);
+      return { type: 'bearer', accessToken: accessToken };
+    } catch (tokenErr) {
+      console.error('[api/tts] service-account token exchange failed:', tokenErr.message || tokenErr);
+      const err = new Error(
+        'Google TTS service-account auth failed. Enable Cloud Text-to-Speech API for project of '
+        + sa.client_email + ' and ensure the SA can mint cloud-platform tokens. '
+        + (tokenErr.message || '')
+      );
+      err.statusCode = 503;
+      throw err;
+    }
   }
+
+  // Cloud TTS does not accept API keys for text:synthesize — fail clearly.
   const apiKey = getTtsApiKey();
-  if (apiKey) return { type: 'apiKey', apiKey: apiKey };
+  if (apiKey) {
+    const err = new Error(
+      'Cloud Text-to-Speech requires a service account OAuth token '
+      + '(GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON). API keys are not supported by this API.'
+    );
+    err.statusCode = 503;
+    throw err;
+  }
   const err = new Error(
     'Google TTS is not configured. Set GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON '
-    + '(Cloud Text-to-Speech enabled) or GOOGLE_TTS_API_KEY / GEMINI_API_KEY.'
+    + 'and enable Cloud Text-to-Speech API on that GCP project.'
   );
   err.statusCode = 503;
   throw err;
 }
 
 async function synthesizeChunk(text, voiceConfig, auth, voiceName) {
-  const url = auth.type === 'apiKey'
-    ? TTS_ENDPOINT + '?key=' + encodeURIComponent(auth.apiKey)
-    : TTS_ENDPOINT;
   const headers = { 'Content-Type': 'application/json' };
-  if (auth.type === 'bearer') headers.Authorization = 'Bearer ' + auth.accessToken;
+  if (!auth || auth.type !== 'bearer' || !auth.accessToken) {
+    const err = new Error('Cloud TTS requires a Bearer access token');
+    err.statusCode = 503;
+    throw err;
+  }
+  headers.Authorization = 'Bearer ' + auth.accessToken;
 
-  const res = await fetch(url, {
+  const res = await fetch(TTS_ENDPOINT, {
     method: 'POST',
     headers: headers,
     body: JSON.stringify({
