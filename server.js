@@ -41,6 +41,7 @@ const billingReport = require('./api/billing-report');
 const purePhaseCApi = require('./api/pure-phase-c');
 const pureGeneralSearchApi = require('./api/pure-general-search');
 const googleDriveOauthApi = require('./api/google-drive-oauth');
+const adminSyncDriveApi = require('./api/admin-sync-drive');
 const ttsApi = require('./api/tts');
 
 if (typeof generateApi.handleGeneratePost !== 'function') {
@@ -848,22 +849,30 @@ async function handleApiDriveCatalogSyncCron(req, res) {
   }
 }
 
+async function handleApiAdminSyncDrive(req, res) {
+  try {
+    const parsedUrl = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost'));
+    const query = Object.fromEntries(parsedUrl.searchParams.entries());
+    assertCronAuthorized(req, query);
+    await adminSyncDriveApi.handleAdminSyncDriveRequest(req, res, query, writeJsonResponse);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    console.error('[api/admin/sync-drive]', status, err.message || err);
+    writeJsonResponse(res, status, { error: err.message || String(err) });
+  }
+}
+
 const server = http.createServer(async function (req, res) {
   const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
 
-  if (pathname === '/health' || pathname === '/api/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify({
-      ok: true,
-      service: 'waldrof',
-      runtime: 'render-node',
-      generateHandler: 'handleGeneratePost',
-      archiveOnly: typeof generateApi.isArchiveOnlyMode === 'function' ? generateApi.isArchiveOnlyMode() : false,
-      cacheBackend: cacheDb.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
-      gradeCacheKey: 'phase+gradeId',
-      perplexityKey: Boolean(env.getPerplexityApiKey()),
-      communityServiceRole: env.hasRealServiceRoleKey ? env.hasRealServiceRoleKey() : Boolean(env.getSupabaseServiceRoleKey()),
-    }));
+  // Lightweight public ping — no auth, no DB/Supabase. Used by Render health checks + keep-warm.
+  if (pathname === '/health' || pathname === '/api/health' || pathname === '/api/ping') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': '*',
+    });
+    return res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
   }
 
   if (pathname === '/api/generate') {
@@ -934,6 +943,11 @@ const server = http.createServer(async function (req, res) {
     return handleApiDriveCatalogSyncCron(req, res);
   }
 
+  if (pathname === '/api/admin/sync-drive') {
+    applyLongRunningRouteTimeout(req, res);
+    return handleApiAdminSyncDrive(req, res);
+  }
+
   if (
     pathname === '/api/auth/google-drive'
     || pathname === '/api/auth/google-drive/'
@@ -975,7 +989,7 @@ server.listen(PORT, HOST, function () {
   console.log('Waldrof listening on http://' + HOST + ':' + PORT);
   console.log('[api/generate] route timeout:', GENERATE_ROUTE_TIMEOUT_MS, 'ms');
   console.log('Runtime: Render Node.js (server.js) — NOT Vercel serverless');
-  console.log('API: GET /api/config | POST /api/tts | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET /api/auth/google-drive | Health: GET /health');
+  console.log('API: GET /api/config | POST /api/tts | POST /api/generate | POST /api/pure-phase-c | POST /api/pure-general-search | POST /api/share-material | GET/PATCH/DELETE /api/community-materials | POST /api/community-upload | POST /api/community-ingest | POST /api/community-search | POST /api/community-summarizer | POST /api/search-history | POST /api/archive-link | POST /api/subscription | POST /api/billing/checkout | POST /api/webhooks/stripe | POST /api/webhooks/payment-success | GET /api/cron/billing-report | GET/POST /api/cron/drive-catalog-sync | GET/POST /api/admin/sync-drive | GET /api/auth/google-drive | Health: GET /health | GET /api/health | GET /api/ping');
   console.log('Local: http://localhost:' + PORT);
   console.log('[env] PERPLEXITY_API_KEY:', env.getPerplexityApiKey() ? 'set' : 'MISSING');
   console.log('[env] SUPABASE_URL:', env.getSupabaseUrl() ? 'set' : 'MISSING');
@@ -1052,6 +1066,20 @@ server.listen(PORT, HOST, function () {
     } else {
       console.warn(
         '[drive-catalog-sync] DRIVE_CATALOG_SYNC_ON_BOOT=1 but Drive env is incomplete — skipping boot sync (see docs/google-drive-setup.md)'
+      );
+    }
+  }
+  // Full-history Supabase → Drive content backfill (optional; also via /api/admin/sync-drive).
+  if (process.env.DRIVE_SUPABASE_SYNC_ON_BOOT === '1') {
+    try {
+      if (typeof adminSyncDriveApi.scheduleBackgroundSync === 'function') {
+        console.log('[admin-sync-drive] scheduling Supabase→Drive backfill on boot');
+        adminSyncDriveApi.scheduleBackgroundSync({ dryRun: false, force: false });
+      }
+    } catch (bootBackfillErr) {
+      console.warn(
+        '[admin-sync-drive] boot backfill could not start (server continues):',
+        bootBackfillErr.message || bootBackfillErr
       );
     }
   }

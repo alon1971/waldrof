@@ -48,11 +48,21 @@ https://waldrof.onrender.com/api/auth/google-drive?secret=YOUR_CRON_SECRET
 ```
 
 6. Sign in as the **owner** of `waldorfplanner drive`
-7. After success, run catalog sync:
+7. After success, run catalog sync (Drive → Supabase index):
 
 ```
 https://waldrof.onrender.com/api/cron/drive-catalog-sync?secret=YOUR_CRON_SECRET
 ```
+
+8. Full-history backfill (Supabase → Drive: content docs + binaries + description metadata):
+
+```
+https://waldrof.onrender.com/api/admin/sync-drive?secret=YOUR_CRON_SECRET
+```
+
+Optional query flags: `dryRun=1`, `force=1`, `limit=50`, `background=1`.  
+Optional boot: `DRIVE_SUPABASE_SYNC_ON_BOOT=1`.  
+Local CLI: `npm run upload-community-drive` / `npm run upload-community-drive:apply`.
 
 Status check: `https://waldrof.onrender.com/api/auth/google-drive/status?secret=YOUR_CRON_SECRET`
 
