@@ -18751,10 +18751,39 @@
     }
 
     async function deleteCommunityMaterialViaClient(id) {
-      const client = getCommunitySupabaseClient();
-      if (!client) return null;
+      // Prefer the server DELETE so Drive file/shortcut cascade runs with the service account.
+      // Direct Supabase client deletes would leave orphan catalog files in Google Drive.
       const pk = resolveCommunityMaterialId(id) || String(id || '').trim();
       if (!pk) return null;
+      if (canUseCommunityUploadApi()) {
+        const headers = await getCommunityMutateHeaders();
+        const response = await fetch(communityMaterialsMutateUrl(pk), {
+          method: 'DELETE',
+          headers: headers,
+          cache: 'no-store',
+        });
+        const text = await response.text();
+        if (response.ok) {
+          const json = parseCommunityMutateJson(text, response.status);
+          try {
+            const result = assertCommunityDeleteResult(json, pk);
+            forgetCommunityOwnership(pk);
+            return result;
+          } catch (assertErr) {
+            /* fall through to client delete only for orphan rows */
+            if (!isOrphanCommunityMaterialError(assertErr && assertErr.message)) {
+              throw assertErr;
+            }
+          }
+        } else {
+          const errMsg = parseCommunityApiError(text, response.status);
+          if (!isOrphanCommunityMaterialError(errMsg)) {
+            throw new Error(errMsg);
+          }
+        }
+      }
+      const client = getCommunitySupabaseClient();
+      if (!client) return null;
       const { data, error } = await client.from(SUPABASE_TABLE).delete().eq('id', pk).select('id');
       if (error) throw error;
       if (!data || !data.length) {
@@ -18763,7 +18792,7 @@
         throw err;
       }
       forgetCommunityOwnership(pk);
-      return { id: pk };
+      return { id: pk, driveDeleted: false };
     }
 
     async function uploadFileToStorageViaClient(file, gradeId, topic) {

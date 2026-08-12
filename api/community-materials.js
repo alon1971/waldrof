@@ -2,10 +2,11 @@
  * GET    /api/community-materials — list community_materials
  *        Optional: ?grade_level=<id> filters by grade (digit and Hebrew label variants)
  * PATCH  /api/community-materials?id=<uuid> — update grade / topic / description / author
- * DELETE /api/community-materials?id=<uuid> — delete row + storage object
+ * DELETE /api/community-materials?id=<uuid> — delete row + storage object + linked Drive file/shortcut
  */
 const communityIngest = require('./community-ingest');
 const catalogTopics = require('./catalog-topics');
+const driveCatalogSync = require('./drive-catalog-sync');
 const env = require('./env');
 
 const STORAGE_BUCKET = 'community-uploads';
@@ -762,6 +763,36 @@ async function deleteCommunityMaterial(body, req) {
     console.warn('[community-materials] knowledge base delete failed:', kbErr.message || kbErr);
   }
 
+  // Cascade: permanently remove the linked Drive file/shortcut (EN archive catalog) before DB row.
+  let driveDeleted = false;
+  let driveDeleteInfo = null;
+  try {
+    if (typeof driveCatalogSync.deleteDriveFileForCommunityMaterial === 'function') {
+      driveDeleteInfo = await driveCatalogSync.deleteDriveFileForCommunityMaterial(current);
+      driveDeleted = Boolean(driveDeleteInfo && driveDeleteInfo.deleted);
+      if (driveDeleteInfo && driveDeleteInfo.fileId) {
+        console.log('[community-materials] Drive cascade delete:', {
+          materialId: canonicalId,
+          fileId: driveDeleteInfo.fileId,
+          deleted: driveDeleted,
+          reason: driveDeleteInfo.reason || null,
+          kind: driveDeleteInfo.kind || null,
+          alreadyGone: driveDeleteInfo.alreadyGone || false,
+        });
+      }
+    }
+  } catch (driveErr) {
+    console.warn(
+      '[community-materials] Drive cascade delete failed (continuing with Supabase delete):',
+      driveErr && driveErr.message ? driveErr.message : driveErr
+    );
+    driveDeleteInfo = {
+      deleted: false,
+      reason: 'exception',
+      error: driveErr && driveErr.message ? driveErr.message : String(driveErr),
+    };
+  }
+
   const filePath = (current.file_path || '').trim();
   let storageDeleted = false;
   if (filePath) {
@@ -809,7 +840,14 @@ async function deleteCommunityMaterial(body, req) {
     throw err;
   }
   invalidateCommunityListCache();
-  return { id: canonicalId, deletedCount: deletedRows.length, storageDeleted: storageDeleted, kbDeleted: kbDeleted };
+  return {
+    id: canonicalId,
+    deletedCount: deletedRows.length,
+    storageDeleted: storageDeleted,
+    kbDeleted: kbDeleted,
+    driveDeleted: driveDeleted,
+    driveDelete: driveDeleteInfo,
+  };
 }
 
 async function legacyHandler(req, res) {
