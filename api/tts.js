@@ -94,7 +94,7 @@ function cleanTtsText(raw) {
     ),
     function (_m, inner) {
       headerStore.push(String(inner || '').replace(/\s+/g, ' ').trim());
-      return '\n%%TTSH' + (headerStore.length - 1) + '%%\n';
+      return '\nZZHDR' + (headerStore.length - 1) + 'ZZ\n';
     }
   );
 
@@ -105,14 +105,14 @@ function cleanTtsText(raw) {
       .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
       .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
       .replace(/<template[\s\S]*?<\/template>/gi, ' ')
-      .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, function (_m, inner) {
+      .replace(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/gi, function (_m, inner) {
         var title = String(inner || '')
           .replace(/<[^>]+>/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
         if (!title) return '\n';
         headerStore.push(title);
-        return '\n%%TTSH' + (headerStore.length - 1) + '%%\n';
+        return '\nZZHDR' + (headerStore.length - 1) + 'ZZ\n';
       })
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|li|tr|section|article)>/gi, '\n')
@@ -123,31 +123,49 @@ function cleanTtsText(raw) {
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/^#{1,6}\s+(.+)$/gm, function (_m, title) {
       headerStore.push(String(title || '').trim());
-      return '\n%%TTSH' + (headerStore.length - 1) + '%%\n';
+      return '\nZZHDR' + (headerStore.length - 1) + 'ZZ\n';
     })
     .replace(/^\s*[-*+]\s+/gm, '')
     .replace(/^\s*\d+[.)]\s+/gm, '')
     .replace(/\*\*|__/g, '')
     .replace(/[*_`~]+/g, ' ')
     .replace(/\b(https?|ftp|file):\/\/\S+/gi, ' ')
-    .replace(/[|\[\]\\^=]+/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 
-  text = text.replace(/%%TTSH(\d+)%%/g, function (_m, idx) {
-    var title = stripTtsArtifactChars(headerStore[Number(idx)] || '');
+  // Sanitize while headers are still ZZHDR*n*ZZ placeholders, then restore markers.
+  text = stripTtsArtifactChars(text);
+  text = text.replace(/ZZHDR(\d+)ZZ/g, function (_m, idx) {
+    var title = sanitizeTtsHeaderTitle(headerStore[Number(idx)] || '');
     return title ? (TTS_HEADER_START + title + TTS_HEADER_END) : '';
   });
-  return stripTtsArtifactChars(text);
+  return text;
 }
 
-/** Strip leftover @ / URL artifacts that can leak from hidden CSS/DOM. */
+/** Plain header title only — no markers, code labels, or symbol noise. */
+function sanitizeTtsHeaderTitle(raw) {
+  return stripTtsArtifactChars(String(raw || ''))
+    .replace(/\{\{\/?TTSH\}\}/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Strip technical/CSS/DOM artifacts that can leak into spoken text.
+ * Safe on placeholder tokens like ZZHDR0ZZ (no %/@/braces).
+ */
 function stripTtsArtifactChars(raw) {
   return String(raw || '')
-    .replace(/@/g, '')
+    .replace(/\{\{\/?TTSH\}\}/gi, ' ')
+    .replace(/\b(TTSHI?|TTSI|TTSH|TTS|undefined|null)\b/gi, ' ')
+    .replace(/%/g, '')
+    .replace(/[@#{}<>_\\|/^=[\]]+/g, ' ')
     .replace(/\b(https?|ftp|file):\/\/\S+/gi, '')
+    .replace(/\bwww\.\S+/gi, '')
+    // Multi-segment kebab class-like tokens (e.g. hybrid-community-summary-body)
+    .replace(/\b[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b/gi, ' ')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -198,12 +216,9 @@ function applyStandardSsmlBreaks(escapedText) {
 }
 
 function wrapHeaderSsml(headerPlain) {
-  var title = applyPhoneticDictionary(cleanTtsText(headerPlain));
-  // Headers are already plain; strip any nested markers just in case.
-  title = title
-    .split(TTS_HEADER_START).join('')
-    .split(TTS_HEADER_END).join('')
-    .trim();
+  var title = sanitizeTtsHeaderTitle(headerPlain);
+  title = applyPhoneticDictionary(title);
+  title = sanitizeTtsHeaderTitle(title);
   if (!title) return '';
   return (
     '<prosody volume="loud" pitch="+1st">'
@@ -221,10 +236,8 @@ function buildSsml(plainText, options) {
   options = options || {};
   var text = applyPhoneticDictionary(cleanTtsText(plainText));
   if (options.header) {
-    var headerClean = applyPhoneticDictionary(cleanTtsText(options.header))
-      .split(TTS_HEADER_START).join('')
-      .split(TTS_HEADER_END).join('')
-      .trim();
+    var headerClean = sanitizeTtsHeaderTitle(options.header);
+    headerClean = sanitizeTtsHeaderTitle(applyPhoneticDictionary(headerClean));
     if (headerClean) {
       if (text.indexOf(TTS_HEADER_START) === 0) {
         text = text.replace(
@@ -683,6 +696,7 @@ module.exports.legacyHandler = legacyHandler;
 module.exports.executeTts = executeTts;
 module.exports.cleanTtsText = cleanTtsText;
 module.exports.stripTtsArtifactChars = stripTtsArtifactChars;
+module.exports.sanitizeTtsHeaderTitle = sanitizeTtsHeaderTitle;
 module.exports.applyPhoneticDictionary = applyPhoneticDictionary;
 module.exports.buildSsml = buildSsml;
 module.exports.escapeSsml = escapeSsml;

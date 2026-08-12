@@ -22690,7 +22690,7 @@
       var headerStore = [];
       text = text.replace(/\{\{TTSH\}\}([\s\S]*?)\{\{\/TTSH\}\}/g, function (_m, inner) {
         headerStore.push(String(inner || '').replace(/\s+/g, ' ').trim());
-        return '\n%%TTS_H_' + (headerStore.length - 1) + '%%\n';
+        return '\nZZHDR_' + (headerStore.length - 1) + 'ZZ\n';
       });
       if (/<[a-z][\s\S]*>/i.test(text)) {
         var div = document.createElement('div');
@@ -22707,15 +22707,23 @@
         .replace(/^#{1,6}\s+/gm, '')
         .replace(/^\s*[-*+]\s+/gm, '')
         .replace(/\*\*|__/g, '')
-        .replace(/[*_`~#]+/g, ' ')
-        .replace(/@/g, '')
+        .replace(/[*_`~]+/g, ' ')
+        .replace(/\b(TTSHI?|TTSI|TTSH|TTS|undefined|null)\b/gi, ' ')
+        .replace(/%/g, '')
+        .replace(/[@#{}<>_\\|/^=[\]]+/g, ' ')
         .replace(/\b(https?|ftp|file):\/\/\S+/gi, ' ')
+        .replace(/\b[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b/gi, ' ')
         .replace(/\u00a0/g, ' ')
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
         .replace(/[ \t]{2,}/g, ' ');
-      text = text.replace(/%%TTS_H_(\d+)%%/g, function (_m, idx) {
-        var title = String(headerStore[Number(idx)] || '').replace(/@/g, '').trim();
+      text = text.replace(/ZZHDR_(\d+)ZZ/g, function (_m, idx) {
+        var title = String(headerStore[Number(idx)] || '')
+          .replace(/\b(TTSHI?|TTSI|TTSH|TTS|undefined|null)\b/gi, ' ')
+          .replace(/%/g, '')
+          .replace(/[@#{}<>_\\|/^=[\]]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
         return title ? ('{{TTSH}}' + title + '{{/TTSH}}') : '';
       });
       if (options.preserveBreaks) {
@@ -22730,7 +22738,7 @@
         'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe',
         'object', 'embed', 'link', 'meta', 'head',
         'button', 'nav', 'form', 'input', 'select', 'textarea',
-        '[aria-hidden="true"]', '[hidden]', '.hidden',
+        'i', 'img', '[aria-hidden="true"]', '[hidden]', '.hidden',
         '[data-tts-speak]', '[data-tts-section]', '.tts-listen-btn', '.tts-section-btn',
         '#read-aloud-btn', '.js-read-aloud-btn', '.tts-selection-hint',
         '.hybrid-community-summary-head', '.hybrid-community-citations',
@@ -22749,6 +22757,53 @@
       var clone = element.cloneNode(true);
       removeNonSpeakableDomNodes(clone);
       return String(clone.innerText || clone.textContent || '');
+    }
+
+    function isSemanticSpeakElement(el) {
+      return !!(el && el.tagName && /^(H[1-4]|P|LI)$/i.test(el.tagName));
+    }
+
+    /**
+     * Extract ONLY visible semantic text (p/h1-h4/li), never outer wrappers or controls.
+     */
+    function extractSemanticSpeakableLines(container, options) {
+      options = options || {};
+      if (!container) return [];
+      var clone = container.cloneNode(true);
+      removeNonSpeakableDomNodes(clone);
+
+      var nodes = [];
+      if (isSemanticSpeakElement(clone)) {
+        nodes = [clone];
+      } else if (clone.querySelectorAll) {
+        nodes = Array.prototype.slice.call(clone.querySelectorAll('h1, h2, h3, h4, p, li'));
+      }
+
+      var lines = [];
+      nodes.forEach(function (el) {
+        if (!el) return;
+        // Prefer list-item text over nested paragraphs to avoid duplicates.
+        if (/^P$/i.test(el.tagName) && el.closest && el.closest('li') && clone.contains(el.closest('li'))) {
+          return;
+        }
+        var ancestor = el.parentElement;
+        while (ancestor && ancestor !== clone) {
+          if (/^(H[1-4]|P)$/i.test(ancestor.tagName)) return;
+          ancestor = ancestor.parentElement;
+        }
+
+        removeNonSpeakableDomNodes(el);
+        var text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text) return;
+
+        if (/^H[1-4]$/i.test(el.tagName)) {
+          if (options.bodyOnly && text.length <= 40) return;
+          lines.push('{{TTSH}}' + text + '{{/TTSH}}');
+        } else {
+          lines.push(text);
+        }
+      });
+      return lines;
     }
 
     function isVisibleSpeakSource(el) {
@@ -22819,7 +22874,7 @@
           chunks.push(next);
         });
       });
-      if (chunks.length) return chunks.join('\n\n').replace(/\s+/g, ' ').trim();
+      if (chunks.length) return chunks.join('\n\n').trim();
       return '';
     }
 
@@ -22979,26 +23034,12 @@
     function getSpeakableTextFromContainer(container, options) {
       options = options || {};
       if (!container) return '';
-      var clone = container.cloneNode(true);
-      removeNonSpeakableDomNodes(clone);
-      clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(function (heading) {
-        removeNonSpeakableDomNodes(heading);
-        var headingText = String(heading.innerText || heading.textContent || '').replace(/\s+/g, ' ').trim();
-        if (!headingText) {
-          heading.remove();
-          return;
-        }
-        // bodyOnly: drop short UI chrome titles; keep real section headers marked for SSML.
-        if (options.bodyOnly && headingText.length <= 40) {
-          heading.remove();
-          return;
-        }
-        var marker = document.createTextNode('\n{{TTSH}}' + headingText + '{{/TTSH}}\n');
-        if (heading.parentNode) heading.parentNode.replaceChild(marker, heading);
-      });
-      return cleanSpeakablePlainText(String(clone.innerText || clone.textContent || ''), {
-        preserveBreaks: true,
-      });
+      var lines = extractSemanticSpeakableLines(container, options);
+      if (lines.length) {
+        return cleanSpeakablePlainText(lines.join('\n\n'), { preserveBreaks: true });
+      }
+      // Fallback for plain text wrappers with no semantic children.
+      return cleanSpeakablePlainText(extractVisibleDomText(container), { preserveBreaks: true });
     }
 
     function stopSpeaking() {
@@ -23328,13 +23369,11 @@
       var headingClone = heading.cloneNode(true);
       removeNonSpeakableDomNodes(headingClone);
       var headerText = cleanSpeakablePlainText(
-        extractVisibleDomText(headingClone),
+        String(headingClone.innerText || headingClone.textContent || ''),
         { preserveBreaks: false }
       );
       var wrap = document.createElement('div');
-      if (headerText) {
-        wrap.appendChild(document.createTextNode('{{TTSH}}' + headerText + '{{/TTSH}}\n'));
-      }
+      // Body only in wrap — header is passed separately for SSML emphasis.
 
       var node = heading.nextSibling;
       while (node) {
@@ -23353,8 +23392,12 @@
         }
         node = node.nextSibling;
       }
+      var bodyText = getSpeakableTextFromContainer(wrap, { bodyOnly: false });
+      var text = headerText
+        ? ('{{TTSH}}' + headerText + '{{/TTSH}}\n\n' + bodyText).trim()
+        : bodyText;
       return {
-        text: getSpeakableTextFromContainer(wrap, { bodyOnly: false }),
+        text: text,
         header: headerText,
       };
     }
