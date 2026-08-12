@@ -18,8 +18,24 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 /** Plain-text budget before SSML wrapping (Cloud TTS input limit is ~5000 bytes). */
 const MAX_INPUT_BYTES = 3500;
-const SSML_BREAK = '<break time="300ms"/>';
+const SSML_BREAK = '<break time="400ms"/>';
+const SSML_HEADER_BREAK = '<break time="800ms"/>';
 const SSML_PROSODY_RATE = '0.95';
+const TTS_HEADER_START = '{{TTSH}}';
+const TTS_HEADER_END = '{{/TTSH}}';
+
+/** Longer phrases first so shorter stems do not eat them. */
+const HEBREW_PHONETIC_TERMS = [
+  ['אנתרופוסופיים', 'אַנְתְּרוֹפּוֹסוֹפִיִּים'],
+  ['אנתרופוסופית', 'אַנְתְּרוֹפּוֹסוֹפִית'],
+  ['אנתרופוסופיה', 'אַנְתְּרוֹפּוֹסוֹפְיָה'],
+  ['אנתרופוסופי', 'אַנְתְּרוֹפּוֹסוֹפִי'],
+  ['וולדורף', 'ווֹלְדּוֹרְף'],
+  ['ולדורף', 'ווֹלְדּוֹרְף'],
+  ['שטיינר', 'שְׁטַייְנֶר'],
+  ['רודולף', 'רוּדוֹלְף'],
+];
+const HEBREW_CLITIC_PREP = 'בהוכל';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,28 +83,83 @@ function cleanTtsText(raw) {
   var text = String(raw || '');
   if (!text.trim()) return '';
   text = text.replace(/\r\n|\r/g, '\n');
+
+  var headerStore = [];
+  text = text.replace(
+    new RegExp(
+      TTS_HEADER_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      + '([\\s\\S]*?)'
+      + TTS_HEADER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+      'g'
+    ),
+    function (_m, inner) {
+      headerStore.push(String(inner || '').replace(/\s+/g, ' ').trim());
+      return '\n@@@TTSH' + (headerStore.length - 1) + '@@@\n';
+    }
+  );
+
   if (/<[a-z][\s\S]*>/i.test(text)) {
     text = text
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, function (_m, inner) {
+        var title = String(inner || '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (!title) return '\n';
+        headerStore.push(title);
+        return '\n@@@TTSH' + (headerStore.length - 1) + '@@@\n';
+      })
       .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|section|article)>/gi, '\n')
       .replace(/<[^>]+>/g, ' ');
   }
-  return text
+  text = text
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^#{1,6}\s+(.+)$/gm, function (_m, title) {
+      headerStore.push(String(title || '').trim());
+      return '\n@@@TTSH' + (headerStore.length - 1) + '@@@\n';
+    })
     .replace(/^\s*[-*+]\s+/gm, '')
     .replace(/^\s*\d+[.)]\s+/gm, '')
     .replace(/\*\*|__/g, '')
-    .replace(/[*_`~#>]+/g, ' ')
+    .replace(/[*_`~]+/g, ' ')
     .replace(/https?:\/\/\S+/gi, ' ')
-    .replace(/[|{}[\]\\^=]+/g, ' ')
+    .replace(/[|\[\]\\^=]+/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
+
+  text = text.replace(/@@@TTSH(\d+)@@@/g, function (_m, idx) {
+    var title = headerStore[Number(idx)] || '';
+    return title ? (TTS_HEADER_START + title + TTS_HEADER_END) : '';
+  });
+  return text;
+}
+
+/**
+ * Apply Waldorf/anthroposophy phonetic Nikud and expand common abbreviations.
+ * Supports clitic prepositions ב/ה/ו/כ/ל attached to the term.
+ */
+function applyPhoneticDictionary(raw) {
+  var text = String(raw || '');
+  if (!text) return '';
+
+  text = text
+    .replace(/וכו['׳'"]?/g, 'וכדומה');
+
+  HEBREW_PHONETIC_TERMS.forEach(function (pair) {
+    var from = pair[0];
+    var to = pair[1];
+    var re = new RegExp('([' + HEBREW_CLITIC_PREP + '])?(' + from + ')', 'g');
+    text = text.replace(re, function (_m, prep) {
+      return (prep || '') + to;
+    });
+  });
+  return text;
 }
 
 function escapeSsml(text) {
@@ -100,26 +171,99 @@ function escapeSsml(text) {
     .replace(/'/g, '&apos;');
 }
 
-/**
- * Build SSML with subtle pauses for colons, dashes, and line breaks,
- * and a slightly relaxed prosody rate for natural reading.
- */
-function buildSsml(plainText) {
-  var text = cleanTtsText(plainText);
-  if (!text) return '';
-  var escaped = escapeSsml(text);
-  var withBreaks = escaped
+function applyStandardSsmlBreaks(escapedText) {
+  return String(escapedText || '')
     .replace(/\n+/g, SSML_BREAK)
     .replace(/:/g, SSML_BREAK)
     .replace(/—|–/g, SSML_BREAK)
     .replace(/\s-\s/g, ' ' + SSML_BREAK + ' ')
     .replace(/-{2,}/g, SSML_BREAK)
-    .replace(/(?:<break time="300ms"\/>\s*){2,}/g, SSML_BREAK)
+    .replace(/(?:<break time="400ms"\/>\s*){2,}/g, SSML_BREAK)
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+function wrapHeaderSsml(headerPlain) {
+  var title = applyPhoneticDictionary(cleanTtsText(headerPlain));
+  // Headers are already plain; strip any nested markers just in case.
+  title = title
+    .split(TTS_HEADER_START).join('')
+    .split(TTS_HEADER_END).join('')
+    .trim();
+  if (!title) return '';
+  return (
+    '<prosody volume="loud" pitch="+1st">'
+    + escapeSsml(title)
+    + '</prosody>'
+    + SSML_HEADER_BREAK
+  );
+}
+
+/**
+ * Build SSML with header emphasis, paragraph pauses, and relaxed prosody.
+ * Optional options.header is spoken first with emphasis + 800ms break.
+ */
+function buildSsml(plainText, options) {
+  options = options || {};
+  var text = applyPhoneticDictionary(cleanTtsText(plainText));
+  if (options.header) {
+    var headerClean = applyPhoneticDictionary(cleanTtsText(options.header))
+      .split(TTS_HEADER_START).join('')
+      .split(TTS_HEADER_END).join('')
+      .trim();
+    if (headerClean) {
+      if (text.indexOf(TTS_HEADER_START) === 0) {
+        text = text.replace(
+          new RegExp(
+            '^' + TTS_HEADER_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            + '[\\s\\S]*?'
+            + TTS_HEADER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          ),
+          TTS_HEADER_START + headerClean + TTS_HEADER_END
+        );
+      } else {
+        var dupRe = new RegExp(
+          '^' + headerClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*'
+        );
+        text = TTS_HEADER_START + headerClean + TTS_HEADER_END + '\n' + text.replace(dupRe, '');
+      }
+    }
+  }
+  if (!text.trim()) return '';
+
+  var parts = [];
+  var cursor = 0;
+  while (cursor < text.length) {
+    var start = text.indexOf(TTS_HEADER_START, cursor);
+    if (start === -1) {
+      parts.push({ type: 'body', value: text.slice(cursor) });
+      break;
+    }
+    if (start > cursor) {
+      parts.push({ type: 'body', value: text.slice(cursor, start) });
+    }
+    var end = text.indexOf(TTS_HEADER_END, start + TTS_HEADER_START.length);
+    if (end === -1) {
+      parts.push({ type: 'body', value: text.slice(start) });
+      break;
+    }
+    parts.push({
+      type: 'header',
+      value: text.slice(start + TTS_HEADER_START.length, end),
+    });
+    cursor = end + TTS_HEADER_END.length;
+  }
+
+  var body = parts.map(function (part) {
+    if (part.type === 'header') return wrapHeaderSsml(part.value);
+    return applyStandardSsmlBreaks(escapeSsml(applyPhoneticDictionary(part.value)))
+      .replace(/^(?:<break time="400ms"\/>\s*)+/, '');
+  }).join('').trim();
+
+  if (!body) return '';
   return (
     '<speak><prosody rate="' + SSML_PROSODY_RATE + '">'
-    + withBreaks
+    + body
     + '</prosody></speak>'
   );
 }
@@ -339,7 +483,7 @@ async function resolveTtsAuth() {
   throw err;
 }
 
-async function synthesizeChunk(text, voiceConfig, auth, voiceName) {
+async function synthesizeChunk(text, voiceConfig, auth, voiceName, options) {
   const headers = { 'Content-Type': 'application/json' };
   if (!auth || auth.type !== 'bearer' || !auth.accessToken) {
     const err = new Error('Cloud TTS requires a Bearer access token');
@@ -348,7 +492,7 @@ async function synthesizeChunk(text, voiceConfig, auth, voiceName) {
   }
   headers.Authorization = 'Bearer ' + auth.accessToken;
 
-  const ssml = buildSsml(text);
+  const ssml = buildSsml(text, options);
   if (!ssml) {
     const err = new Error('text is required');
     err.statusCode = 400;
@@ -391,7 +535,8 @@ async function synthesizeChunk(text, voiceConfig, auth, voiceName) {
   return audioContent;
 }
 
-async function synthesizeText(text, lang) {
+async function synthesizeText(text, lang, options) {
+  options = options || {};
   const chunks = splitTextForTts(text);
   if (!chunks.length) {
     const err = new Error('text is required');
@@ -403,14 +548,22 @@ async function synthesizeText(text, lang) {
   const auth = await resolveTtsAuth();
   const audioChunks = [];
   let usedVoice = voiceConfig.voices[0];
+  const header = options.header ? String(options.header).trim() : '';
 
   for (let c = 0; c < chunks.length; c++) {
     let synthesized = false;
     let lastErr = null;
+    const chunkOptions = (c === 0 && header) ? { header: header } : {};
     for (let v = 0; v < voiceConfig.voices.length; v++) {
       const voiceName = voiceConfig.voices[v];
       try {
-        const audioContent = await synthesizeChunk(chunks[c], voiceConfig, auth, voiceName);
+        const audioContent = await synthesizeChunk(
+          chunks[c],
+          voiceConfig,
+          auth,
+          voiceName,
+          chunkOptions
+        );
         audioChunks.push(audioContent);
         usedVoice = voiceName;
         synthesized = true;
@@ -448,7 +601,10 @@ async function executeTts(req) {
     err.statusCode = 400;
     throw err;
   }
-  return synthesizeText(text, body.lang || body.language || 'he');
+  const header = body.header || body.heading || body.title || '';
+  return synthesizeText(text, body.lang || body.language || 'he', {
+    header: header ? cleanTtsText(header) : '',
+  });
 }
 
 async function legacyHandler(req, res) {
@@ -512,6 +668,7 @@ module.exports.fetch = fetchHandler;
 module.exports.legacyHandler = legacyHandler;
 module.exports.executeTts = executeTts;
 module.exports.cleanTtsText = cleanTtsText;
+module.exports.applyPhoneticDictionary = applyPhoneticDictionary;
 module.exports.buildSsml = buildSsml;
 module.exports.escapeSsml = escapeSsml;
 module.exports.normalizeLang = normalizeLang;

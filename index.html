@@ -22687,6 +22687,11 @@
       options = options || {};
       var text = String(raw || '');
       if (!text.trim()) return '';
+      var headerStore = [];
+      text = text.replace(/\{\{TTSH\}\}([\s\S]*?)\{\{\/TTSH\}\}/g, function (_m, inner) {
+        headerStore.push(String(inner || '').replace(/\s+/g, ' ').trim());
+        return '\n@@@TTS_H_' + (headerStore.length - 1) + '@@@\n';
+      });
       if (/<[a-z][\s\S]*>/i.test(text)) {
         var div = document.createElement('div');
         div.innerHTML = text;
@@ -22699,11 +22704,15 @@
         .replace(/^#{1,6}\s+/gm, '')
         .replace(/^\s*[-*+]\s+/gm, '')
         .replace(/\*\*|__/g, '')
-        .replace(/[*_`~>#]+/g, ' ')
+        .replace(/[*_`~#]+/g, ' ')
         .replace(/\u00a0/g, ' ')
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
         .replace(/[ \t]{2,}/g, ' ');
+      text = text.replace(/@@@TTS_H_(\d+)@@@/g, function (_m, idx) {
+        var title = headerStore[Number(idx)] || '';
+        return title ? ('{{TTSH}}' + title + '{{/TTSH}}') : '';
+      });
       if (options.preserveBreaks) {
         return text.trim();
       }
@@ -22951,15 +22960,23 @@
       ].join(',')).forEach(function (el) {
         el.remove();
       });
-      if (options.bodyOnly) {
-        // Drop chrome headings that may still sit inside wrappers.
-        clone.querySelectorAll('h1, h2, h3').forEach(function (heading) {
-          var headingText = String(heading.textContent || '').replace(/\s+/g, ' ').trim();
-          // Keep long in-content headings; strip short UI titles.
-          if (headingText.length <= 80) heading.remove();
-        });
-      }
-      return cleanSpeakablePlainText(clone.innerText || clone.textContent || '');
+      clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(function (heading) {
+        var headingText = String(heading.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!headingText) {
+          heading.remove();
+          return;
+        }
+        // bodyOnly: drop short UI chrome titles; keep real section headers marked for SSML.
+        if (options.bodyOnly && headingText.length <= 40) {
+          heading.remove();
+          return;
+        }
+        var marker = document.createTextNode('\n{{TTSH}}' + headingText + '{{/TTSH}}\n');
+        if (heading.parentNode) heading.parentNode.replaceChild(marker, heading);
+      });
+      return cleanSpeakablePlainText(clone.innerText || clone.textContent || '', {
+        preserveBreaks: true,
+      });
     }
 
     function stopSpeaking() {
@@ -22988,14 +23005,17 @@
       ttsState.utterance = null;
     }
 
-    function fetchGoogleTtsChunkAudio(textChunk, langCode, requestId) {
+    function fetchGoogleTtsChunkAudio(textChunk, langCode, requestId, extra) {
+      extra = extra || {};
       var endpoint = (typeof location !== 'undefined' && location.origin)
         ? (location.origin + '/api/tts')
         : '/api/tts';
+      var payload = { text: textChunk, lang: langCode };
+      if (extra.header) payload.header = extra.header;
       return fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textChunk, lang: langCode }),
+        body: JSON.stringify(payload),
       }).then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (data) {
           return { res: res, data: data || {} };
@@ -23099,14 +23119,16 @@
     /**
      * Fetch+play the first text chunk immediately, prefetch the next while current plays.
      */
-    function speakTextWithGoogleChunkStream(chunks, langCode, requestId, button) {
+    function speakTextWithGoogleChunkStream(chunks, langCode, requestId, button, options) {
+      options = options || {};
       if (!chunks || !chunks.length) return Promise.resolve(false);
-      var index = 0;
       var firstPlay = true;
+      var sectionHeader = options.header ? String(options.header).trim() : '';
 
       function prefetch(i) {
         if (i >= chunks.length || ttsState.requestId !== requestId) return Promise.resolve(null);
-        return fetchGoogleTtsChunkAudio(chunks[i], langCode, requestId);
+        var extra = (i === 0 && sectionHeader) ? { header: sectionHeader } : {};
+        return fetchGoogleTtsChunkAudio(chunks[i], langCode, requestId, extra);
       }
 
       var pending = prefetch(0);
@@ -23188,7 +23210,7 @@
      * Uses small-chunk streaming so the first audio starts within ~1s.
      * @param {string} text
      * @param {string} [lang] BCP-47 tag; defaults from current UI language (en-US / he-IL).
-     * @param {{ button?: HTMLElement }} [options]
+     * @param {{ button?: HTMLElement, header?: string }} [options]
      * @returns {Promise<boolean>|boolean}
      */
     function speakText(text, lang, options) {
@@ -23201,6 +23223,9 @@
       var requestId = ttsState.requestId;
       var button = options.button || null;
       var langCode = lang || getUiSpeechLang();
+      var header = options.header
+        ? cleanSpeakablePlainText(options.header, { preserveBreaks: false })
+        : '';
       var chunks = splitTextIntoTtsChunks(textToRead, 260);
 
       ttsState.activeBtn = button;
@@ -23210,7 +23235,7 @@
 
       console.log('Speaking text:', textToRead, '| chunks:', chunks.length);
 
-      return speakTextWithGoogleChunkStream(chunks, langCode, requestId, button)
+      return speakTextWithGoogleChunkStream(chunks, langCode, requestId, button, { header: header })
         .then(function (ok) {
           return !!ok;
         })
@@ -23227,11 +23252,12 @@
           );
           if (canFallback) {
             ttsState.preparing = false;
-            return speakTextWithWebSpeech(
-              textToRead.replace(/\s+/g, ' ').trim(),
-              langCode,
-              { button: button }
-            );
+            var fallbackText = textToRead
+              .replace(/\{\{TTSH\}\}/g, '')
+              .replace(/\{\{\/TTSH\}\}/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            return speakTextWithWebSpeech(fallbackText, langCode, { button: button });
           }
           if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
           ttsState.speaking = false;
@@ -23275,14 +23301,17 @@
     }
 
     function getSectionSpeakableTextFromHeading(heading) {
-      if (!heading) return '';
+      if (!heading) return { text: '', header: '' };
       var level = getSectionHeadingLevel(heading) || 3;
-      var wrap = document.createElement('div');
       var headingClone = heading.cloneNode(true);
       headingClone.querySelectorAll('.tts-section-btn, [data-tts-section], button, .tts-listen-btn').forEach(function (el) {
         el.remove();
       });
-      wrap.appendChild(headingClone);
+      var headerText = cleanSpeakablePlainText(headingClone.textContent || '', { preserveBreaks: false });
+      var wrap = document.createElement('div');
+      if (headerText) {
+        wrap.appendChild(document.createTextNode('{{TTSH}}' + headerText + '{{/TTSH}}\n'));
+      }
 
       var node = heading.nextSibling;
       while (node) {
@@ -23301,7 +23330,10 @@
         }
         node = node.nextSibling;
       }
-      return getSpeakableTextFromContainer(wrap, { bodyOnly: false });
+      return {
+        text: getSpeakableTextFromContainer(wrap, { bodyOnly: false }),
+        header: headerText,
+      };
     }
 
     function buildSectionTtsButton() {
@@ -23325,9 +23357,9 @@
         return;
       }
       var heading = btn.closest('h1, h2, h3, h4, h5, h6');
-      var text = getSectionSpeakableTextFromHeading(heading);
-      if (!text) return;
-      speakText(text, getUiSpeechLang(), { button: btn });
+      var section = getSectionSpeakableTextFromHeading(heading);
+      if (!section || !section.text) return;
+      speakText(section.text, getUiSpeechLang(), { button: btn, header: section.header });
     }
 
     function injectSectionTtsButtons(root) {
