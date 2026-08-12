@@ -20281,9 +20281,68 @@
       return /^https?:\/\//i.test(String(value || '').trim());
     }
 
+    /** Exact Hebrew copy for generic Drive home / My Drive browser URLs. */
+    var CATALOG_ERR_DRIVE_GENERIC_HE =
+      "יש להשתמש באפשרות 'העתקת קישור' מתפריט הקובץ בגוגל דרייב, ולא להעתיק את הכתובת מראש הדפדפן.";
+
+    function catalogErrDriveGenericMessage() {
+      try {
+        if (typeof t === 'function') {
+          var msg = t('catalog_err_drive_generic');
+          if (msg && msg !== 'catalog_err_drive_generic') return msg;
+        }
+      } catch (e) { /* fall through */ }
+      return CATALOG_ERR_DRIVE_GENERIC_HE;
+    }
+
+    /**
+     * True when the URL is a personal Drive landing page (/home or /my-drive)
+     * without a specific file/document id in the path.
+     */
+    function isGenericGoogleDriveHomeUrl(rawUrl) {
+      var url = String(rawUrl || '').trim();
+      if (!url) return false;
+      var lower = url.toLowerCase();
+      if (lower.indexOf('drive.google.com') === -1) return false;
+      if (/\/(?:file|document)\/d\//i.test(url)) return false;
+      try {
+        var parsed = new URL(url);
+        var path = String(parsed.pathname || '').replace(/\/+$/, '').toLowerCase();
+        return /(?:^|\/)(?:home|my-drive)$/.test(path);
+      } catch (e) {
+        var bare = lower.replace(/[?#].*$/, '').replace(/\/+$/, '');
+        return /\/(?:home|my-drive)$/.test(bare) && !/\/(?:file|document)\/d\//.test(bare);
+      }
+    }
+
+    /**
+     * Extract a concrete Drive/Docs resource id from a share URL.
+     * Accepts file / document / sheet / slide / folder / ?id= forms.
+     */
+    function extractGoogleShareResourceId(rawUrl) {
+      var u = String(rawUrl || '').trim();
+      if (!u) return null;
+      var m = u.match(/\/(?:file|document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/i)
+        || u.match(/\/folders\/([a-zA-Z0-9_-]+)/i)
+        || u.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+      return m && m[1] ? m[1] : null;
+    }
+
+    function isGoogleDriveOrDocsShareHost(rawUrl) {
+      var lower = String(rawUrl || '').trim().toLowerCase();
+      return lower.indexOf('drive.google.com') !== -1 || lower.indexOf('docs.google.com') !== -1;
+    }
+
     function normalizeShareUrl(raw) {
       const url = String(raw || '').trim();
       if (!isHttpUrl(url)) throw new Error('יש להזין קישור תקין (חייב להתחיל ב-https:// או http://)');
+      if (isGenericGoogleDriveHomeUrl(url)) {
+        throw new Error(catalogErrDriveGenericMessage());
+      }
+      // Enforce direct file / resource links only for Google Drive & Docs hosts.
+      if (isGoogleDriveOrDocsShareHost(url) && !extractGoogleShareResourceId(url)) {
+        throw new Error(catalogErrDriveGenericMessage());
+      }
       return url;
     }
 
@@ -20353,6 +20412,10 @@
     }
 
     async function postCommunityMaterial(gradeId, topic, filePath, fileName, extras) {
+      // Never persist generic Drive home / My Drive URLs (or Drive/Docs without a resource id).
+      if (isHttpUrl(filePath) && isGoogleDriveOrDocsShareHost(filePath)) {
+        normalizeShareUrl(filePath);
+      }
       const record = await buildCommunityInsertPayloadWithAuth(gradeId, topic, filePath, fileName, extras);
       try {
         const viaClient = await postCommunityMaterialViaClient(record);
@@ -32871,6 +32934,8 @@
         if (!gradeId) throw new Error(t('catalog_err_grade'));
         if (!subject) throw new Error(t('catalog_err_topic'));
         if (mode === 'link' && !docsLink) throw new Error(t('catalog_err_link'));
+        // Block generic Drive home / My Drive URLs before any Supabase write.
+        if (mode === 'link') normalizeShareUrl(docsLink);
         if (mode === 'file' && (!files.length || !files.some(function (f) { return f && f.size; }))) {
           throw new Error(t('catalog_err_file'));
         }
