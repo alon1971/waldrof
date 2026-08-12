@@ -6410,7 +6410,7 @@
       <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
     </button>
     <div class="read-aloud-controls">
-      <button id="read-aloud-btn" class="btn" type="button" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
+      <button id="read-aloud-btn" class="btn" type="button" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;" data-i18n-aria="tts_read_page_aria" aria-label="השמע את העמוד בקול">🔊 הקראת העמוד</button>
       <p class="tts-selection-hint" data-i18n="tts_selection_hint">💡 ניתן לסמן קטע בטקסט להשמעה</p>
     </div>
   </div>
@@ -6573,7 +6573,7 @@
             <span data-i18n="community_summarizer_export_word">הורד למסמך Word</span>
           </button>
           <div class="read-aloud-controls">
-            <button type="button" class="btn js-read-aloud-btn" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
+            <button type="button" class="btn js-read-aloud-btn" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;" data-i18n-aria="tts_read_page_aria" aria-label="השמע את העמוד בקול">🔊 הקראת העמוד</button>
             <p class="tts-selection-hint" data-i18n="tts_selection_hint">💡 ניתן לסמן קטע בטקסט להשמעה</p>
           </div>
         </div>
@@ -22628,6 +22628,27 @@
       return !!(btn && (btn.classList.contains('tts-section-btn') || btn.hasAttribute('data-tts-section')));
     }
 
+    function hasSpeakableSelection() {
+      return !!getSelectedSpeakableText();
+    }
+
+    function getReadAloudIdleCopy() {
+      if (hasSpeakableSelection()) {
+        return {
+          key: 'tts_read_selection',
+          ariaKey: 'tts_read_selection_aria',
+          label: (typeof t === 'function' ? t('tts_read_selection') : '') || '🔊 הקראת טקסט מסומן',
+          aria: (typeof t === 'function' ? t('tts_read_selection_aria') : '') || 'השמע את הטקסט המסומן בקול',
+        };
+      }
+      return {
+        key: 'tts_read_page',
+        ariaKey: 'tts_read_page_aria',
+        label: (typeof t === 'function' ? t('tts_read_page') : '') || '🔊 הקראת העמוד',
+        aria: (typeof t === 'function' ? t('tts_read_page_aria') : '') || 'השמע את העמוד בקול',
+      };
+    }
+
     function setTtsButtonSpeaking(btn, speaking, mode) {
       if (!btn) return;
       var state = mode || (speaking ? 'speaking' : 'idle');
@@ -22635,17 +22656,25 @@
       if (!speaking) state = 'idle';
       var isSection = isSectionTtsControl(btn);
       var isReadAloud = !isSection && isReadAloudControl(btn);
-      var listenKey = isSection ? 'tts_section_listen' : (isReadAloud ? 'tts_read_aloud' : 'tts_listen');
+      var idleCopy = isReadAloud ? getReadAloudIdleCopy() : null;
+      var listenKey = isSection
+        ? 'tts_section_listen'
+        : (isReadAloud ? idleCopy.key : 'tts_listen');
       var stopKey = isSection ? 'tts_section_stop' : (isReadAloud ? 'tts_stop_reading' : 'tts_stop');
-      var listenAriaKey = isSection ? 'tts_section_listen_aria' : (isReadAloud ? 'tts_read_aloud_aria' : 'tts_listen_aria');
+      var listenAriaKey = isSection
+        ? 'tts_section_listen_aria'
+        : (isReadAloud ? idleCopy.ariaKey : 'tts_listen_aria');
       var stopAriaKey = isSection ? 'tts_section_stop_aria' : (isReadAloud ? 'tts_stop_reading_aria' : 'tts_stop_aria');
-      var listenLabel = (typeof t === 'function' ? t(listenKey) : '')
-        || (isSection ? '🔊' : (isReadAloud ? '🔊 האזנה לטקסט' : '🔊 Listen'));
+      var listenLabel = isReadAloud
+        ? idleCopy.label
+        : ((typeof t === 'function' ? t(listenKey) : '') || (isSection ? '🔊' : '🔊 Listen'));
       var stopLabel = (typeof t === 'function' ? t(stopKey) : '')
         || (isSection ? '⏹️' : (isReadAloud ? '⏹️ עצור הקראה' : '⏹️ Stop'));
       var preparingLabel = (typeof t === 'function' ? t('tts_preparing') : '') || 'מכין הקראה...';
       var preparingAria = (typeof t === 'function' ? t('tts_preparing_aria') : '') || preparingLabel;
-      var listenAria = (typeof t === 'function' ? t(listenAriaKey) : '') || listenLabel;
+      var listenAria = isReadAloud
+        ? idleCopy.aria
+        : ((typeof t === 'function' ? t(listenAriaKey) : '') || listenLabel);
       var stopAria = (typeof t === 'function' ? t(stopAriaKey) : '') || stopLabel;
       var active = state === 'speaking' || state === 'preparing';
       var labelText = state === 'preparing' ? preparingLabel : (state === 'speaking' ? stopLabel : listenLabel);
@@ -22923,16 +22952,43 @@
     }
 
     function resetReadAloudButtonLabel(btn) {
-      var label = (typeof t === 'function' ? t('tts_read_aloud') : '') || '🔊 האזנה לטקסט';
+      var copy = getReadAloudIdleCopy();
       var targets = btn && isReadAloudControl(btn) ? getReadAloudControls() : getReadAloudControls();
       if (btn && !isReadAloudControl(btn)) targets = [btn];
       targets.forEach(function (target) {
         if (!target) return;
-        target.textContent = label;
+        target.textContent = copy.label;
         target.classList.remove('is-speaking', 'is-preparing');
         target.setAttribute('aria-pressed', 'false');
         target.setAttribute('aria-busy', 'false');
+        target.setAttribute('aria-label', copy.aria);
+        target.setAttribute('data-i18n-aria', copy.ariaKey);
       });
+    }
+
+    function syncReadAloudIdleLabels() {
+      if (isReadAloudPlaying()) return;
+      getReadAloudControls().forEach(function (btn) {
+        if (!btn) return;
+        if (btn.classList.contains('is-speaking') || btn.classList.contains('is-preparing')) return;
+        resetReadAloudButtonLabel(btn);
+      });
+    }
+
+    function bindReadAloudSelectionLabelSync() {
+      if (document.documentElement._ttsSelectionLabelBound) return;
+      document.documentElement._ttsSelectionLabelBound = true;
+      var schedule = null;
+      function queueSync() {
+        if (schedule) window.clearTimeout(schedule);
+        schedule = window.setTimeout(function () {
+          schedule = null;
+          syncReadAloudIdleLabels();
+        }, 60);
+      }
+      document.addEventListener('selectionchange', queueSync);
+      document.addEventListener('mouseup', queueSync);
+      document.addEventListener('keyup', queueSync);
     }
 
     function isReadAloudPlaying() {
@@ -23047,6 +23103,7 @@
         resetReadAloudButtonLabel(btn);
         return;
       }
+      // Selection always wins for the main button.
       var text = getSelectedSpeakableText() || getActiveContentSpeakableText();
       if (!text) return;
       speakText(text, getUiSpeechLang(), { button: btn });
@@ -23062,6 +23119,7 @@
         });
       });
       ensureSectionTtsButtons();
+      bindReadAloudSelectionLabelSync();
     }
 
     function resolveTtsSourceEl(btn) {
@@ -23408,23 +23466,38 @@
       var level = getSectionHeadingLevel(heading) || 3;
       var headingClone = heading.cloneNode(true);
       removeNonSpeakableDomNodes(headingClone);
-      var headerText = cleanSpeakablePlainText(
+      var headerText = unwrapInternalTtsMarkers(cleanSpeakablePlainText(
         String(headingClone.innerText || headingClone.textContent || ''),
         { preserveBreaks: false }
-      );
+      ));
       var wrap = document.createElement('div');
-      // Body only in wrap — header is passed separately for SSML emphasis.
-
+      // Collect ONLY this section: from current header until the next header.
       var node = heading.nextSibling;
       while (node) {
         if (node.nodeType === 1) {
           var nextLevel = getSectionHeadingLevel(node);
-          if (nextLevel && nextLevel <= level) break;
+          // Stop at the next section header (any heading level).
+          if (nextLevel) break;
           if (node.classList && (
             node.classList.contains('hybrid-community-citations')
             || node.classList.contains('content-card-head')
+            || node.classList.contains('tts-selection-hint')
             || node.id === 'community-summarizer-export-actions'
+            || node.id === 'global-word-export-bar'
           )) break;
+          // If a nested heading appears deeper, still stop at first heading element found via query.
+          if (node.querySelector && node.querySelector('h1, h2, h3, h4, h5, h6')) {
+            // Include content before the nested heading only.
+            var child = node.cloneNode(false);
+            var sub = node.firstChild;
+            while (sub) {
+              if (sub.nodeType === 1 && getSectionHeadingLevel(sub)) break;
+              child.appendChild(sub.cloneNode(true));
+              sub = sub.nextSibling;
+            }
+            if (String(child.textContent || '').trim()) wrap.appendChild(child);
+            break;
+          }
           wrap.appendChild(node.cloneNode(true));
         } else if (node.nodeType === 3) {
           var textNode = String(node.textContent || '');
@@ -23459,11 +23532,19 @@
 
     function toggleSectionTtsButton(btn) {
       if (!btn) return;
-      if (ttsState.speaking && ttsState.activeBtn === btn) {
+      // Section icons never drive the full-page read-aloud control.
+      if ((ttsState.speaking || ttsState.preparing) && ttsState.activeBtn === btn) {
         stopSpeaking();
         return;
       }
+      // Selection precedence: highlighted text wins over section scope.
+      var selected = getSelectedSpeakableText();
+      if (selected) {
+        speakText(selected, getUiSpeechLang(), { button: btn });
+        return;
+      }
       var heading = btn.closest('h1, h2, h3, h4, h5, h6');
+      if (!heading) return;
       var section = getSectionSpeakableTextFromHeading(heading);
       if (!section || !section.text) return;
       speakText(section.text, getUiSpeechLang(), { button: btn, header: section.header });
@@ -23557,6 +23638,7 @@
         if (sectionBtn) {
           e.preventDefault();
           e.stopPropagation();
+          if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
           toggleSectionTtsButton(sectionBtn);
           return;
         }
@@ -23564,8 +23646,10 @@
         if (!btn) return;
         e.preventDefault();
         toggleTtsForButton(btn);
-      });
+      }, true);
       ensureSectionTtsButtons();
+      bindReadAloudSelectionLabelSync();
+      syncReadAloudIdleLabels();
     }
 
     window.speakText = speakText;
