@@ -154,7 +154,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260712n" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20260812a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -2024,7 +2024,11 @@
       background: #fff;
       border-color: rgba(92, 125, 88, 0.65);
     }
+    .tts-listen-btn.is-preparing {
+      opacity: 0.92;
+    }
     .tts-listen-btn.is-speaking,
+    .tts-listen-btn.is-preparing,
     .tts-listen-btn[aria-pressed="true"] {
       background: rgba(122, 155, 118, 0.18);
       border-color: rgba(92, 125, 88, 0.7);
@@ -2375,6 +2379,26 @@
     .community-summarizer-export-word.is-visible {
       display: inline-flex;
     }
+    .read-aloud-controls {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.3rem;
+      width: 100%;
+    }
+    .tts-selection-hint {
+      margin: 0;
+      padding: 0 0.15rem;
+      color: rgba(92, 74, 58, 0.72);
+      font-size: 0.72rem;
+      font-weight: 500;
+      line-height: 1.35;
+      text-align: center;
+    }
+    #global-word-export-bar .tts-selection-hint {
+      color: rgba(70, 58, 48, 0.78);
+      text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+    }
     #read-aloud-btn.btn,
     .js-read-aloud-btn.btn {
       display: inline-flex !important;
@@ -2399,6 +2423,45 @@
     .js-read-aloud-btn.btn[aria-pressed="true"] {
       background: linear-gradient(160deg, #8a6a4a, #6e553a);
       border-color: rgba(138, 106, 74, 0.65);
+    }
+    .tts-section-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 1.7rem;
+      height: 1.7rem;
+      margin-inline-start: 0.4rem;
+      padding: 0;
+      border: 1px solid rgba(92, 125, 88, 0.35);
+      border-radius: 999px;
+      background: rgba(255, 252, 246, 0.92);
+      color: #5C4A3A;
+      font-size: 0.92rem;
+      line-height: 1;
+      cursor: pointer;
+      vertical-align: middle;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .tts-section-btn:hover {
+      background: #fff;
+      border-color: rgba(92, 125, 88, 0.65);
+    }
+    .tts-section-btn.is-speaking,
+    .tts-section-btn.is-preparing,
+    .tts-section-btn[aria-pressed="true"] {
+      background: rgba(122, 155, 118, 0.22);
+      border-color: rgba(92, 125, 88, 0.75);
+      color: #3f5a3f;
+    }
+    h1.tts-section-heading,
+    h2.tts-section-heading,
+    h3.tts-section-heading,
+    h4.tts-section-heading {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.15rem 0.35rem;
     }
     #community-summarizer-export-word:hover,
     #download-word-btn:hover,
@@ -6346,7 +6409,10 @@
       <i class="fa-solid fa-file-word" aria-hidden="true"></i>
       <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
     </button>
-    <button id="read-aloud-btn" class="btn" type="button" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
+    <div class="read-aloud-controls">
+      <button id="read-aloud-btn" class="btn" type="button" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
+      <p class="tts-selection-hint" data-i18n="tts_selection_hint">💡 ניתן לסמן קטע בטקסט להשמעה</p>
+    </div>
   </div>
 
   <!-- Welcome splash — first visit until user opts out -->
@@ -6506,7 +6572,10 @@
             <i class="fa-solid fa-file-word" aria-hidden="true"></i>
             <span data-i18n="community_summarizer_export_word">הורד למסמך Word</span>
           </button>
-          <button type="button" class="btn js-read-aloud-btn" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
+          <div class="read-aloud-controls">
+            <button type="button" class="btn js-read-aloud-btn" style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">🔊 האזנה לטקסט</button>
+            <p class="tts-selection-hint" data-i18n="tts_selection_hint">💡 ניתן לסמן קטע בטקסט להשמעה</p>
+          </div>
         </div>
       </div>
     </div>
@@ -22517,12 +22586,14 @@
     // ---------- Text-to-Speech (Google Cloud TTS via /api/tts, Web Speech fallback) ----------
     var ttsState = {
       speaking: false,
+      preparing: false,
       activeBtn: null,
       utterance: null,
       audio: null,
       audioQueue: [],
       requestId: 0,
       usingGoogle: false,
+      prefetchPromise: null,
     };
 
     function getUiSpeechLang() {
@@ -22553,35 +22624,67 @@
       );
     }
 
-    function setTtsButtonSpeaking(btn, speaking) {
+    function isSectionTtsControl(btn) {
+      return !!(btn && (btn.classList.contains('tts-section-btn') || btn.hasAttribute('data-tts-section')));
+    }
+
+    function setTtsButtonSpeaking(btn, speaking, mode) {
       if (!btn) return;
-      var isReadAloud = isReadAloudControl(btn);
-      var listenKey = isReadAloud ? 'tts_read_aloud' : 'tts_listen';
-      var stopKey = isReadAloud ? 'tts_stop_reading' : 'tts_stop';
-      var listenAriaKey = isReadAloud ? 'tts_read_aloud_aria' : 'tts_listen_aria';
-      var stopAriaKey = isReadAloud ? 'tts_stop_reading_aria' : 'tts_stop_aria';
-      var listenLabel = (typeof t === 'function' ? t(listenKey) : '') || (isReadAloud ? '🔊 האזנה לטקסט' : '🔊 Listen');
-      var stopLabel = (typeof t === 'function' ? t(stopKey) : '') || (isReadAloud ? '⏹️ עצור הקראה' : '⏹️ Stop');
+      var state = mode || (speaking ? 'speaking' : 'idle');
+      if (speaking && state === 'idle') state = 'speaking';
+      if (!speaking) state = 'idle';
+      var isSection = isSectionTtsControl(btn);
+      var isReadAloud = !isSection && isReadAloudControl(btn);
+      var listenKey = isSection ? 'tts_section_listen' : (isReadAloud ? 'tts_read_aloud' : 'tts_listen');
+      var stopKey = isSection ? 'tts_section_stop' : (isReadAloud ? 'tts_stop_reading' : 'tts_stop');
+      var listenAriaKey = isSection ? 'tts_section_listen_aria' : (isReadAloud ? 'tts_read_aloud_aria' : 'tts_listen_aria');
+      var stopAriaKey = isSection ? 'tts_section_stop_aria' : (isReadAloud ? 'tts_stop_reading_aria' : 'tts_stop_aria');
+      var listenLabel = (typeof t === 'function' ? t(listenKey) : '')
+        || (isSection ? '🔊' : (isReadAloud ? '🔊 האזנה לטקסט' : '🔊 Listen'));
+      var stopLabel = (typeof t === 'function' ? t(stopKey) : '')
+        || (isSection ? '⏹️' : (isReadAloud ? '⏹️ עצור הקראה' : '⏹️ Stop'));
+      var preparingLabel = (typeof t === 'function' ? t('tts_preparing') : '') || 'מכין הקראה...';
+      var preparingAria = (typeof t === 'function' ? t('tts_preparing_aria') : '') || preparingLabel;
       var listenAria = (typeof t === 'function' ? t(listenAriaKey) : '') || listenLabel;
       var stopAria = (typeof t === 'function' ? t(stopAriaKey) : '') || stopLabel;
+      var active = state === 'speaking' || state === 'preparing';
+      var labelText = state === 'preparing' ? preparingLabel : (state === 'speaking' ? stopLabel : listenLabel);
+      var ariaText = state === 'preparing' ? preparingAria : (state === 'speaking' ? stopAria : listenAria);
+      var i18nKey = state === 'preparing' ? 'tts_preparing' : (state === 'speaking' ? stopKey : listenKey);
+      var i18nAriaKey = state === 'preparing' ? 'tts_preparing_aria' : (state === 'speaking' ? stopAriaKey : listenAriaKey);
       var targets = isReadAloud ? getReadAloudControls() : [btn];
       targets.forEach(function (target) {
         if (!target) return;
-        target.classList.toggle('is-speaking', !!speaking);
-        target.setAttribute('aria-pressed', speaking ? 'true' : 'false');
-        target.setAttribute('aria-label', speaking ? stopAria : listenAria);
-        target.setAttribute('data-i18n-aria', speaking ? stopAriaKey : listenAriaKey);
+        target.classList.toggle('is-speaking', state === 'speaking');
+        target.classList.toggle('is-preparing', state === 'preparing');
+        target.setAttribute('aria-pressed', active ? 'true' : 'false');
+        target.setAttribute('aria-busy', state === 'preparing' ? 'true' : 'false');
+        target.setAttribute('aria-label', ariaText);
+        target.setAttribute('data-i18n-aria', i18nAriaKey);
         var labelEl = target.querySelector('.tts-listen-label');
         if (labelEl) {
-          labelEl.setAttribute('data-i18n', speaking ? stopKey : listenKey);
-          labelEl.textContent = speaking ? stopLabel : listenLabel;
+          labelEl.setAttribute('data-i18n', i18nKey);
+          labelEl.textContent = labelText;
         } else {
-          target.textContent = speaking ? stopLabel : listenLabel;
+          target.textContent = labelText;
         }
+      });
+      document.querySelectorAll('.tts-section-btn.is-speaking, .tts-section-btn.is-preparing, .tts-section-btn[aria-pressed="true"]').forEach(function (sectionBtn) {
+        if (active && sectionBtn === btn) return;
+        if (!active && sectionBtn === btn) return;
+        sectionBtn.classList.remove('is-speaking', 'is-preparing');
+        sectionBtn.setAttribute('aria-pressed', 'false');
+        sectionBtn.setAttribute('aria-busy', 'false');
+        var idle = (typeof t === 'function' ? t('tts_section_listen') : '') || '🔊';
+        var idleAria = (typeof t === 'function' ? t('tts_section_listen_aria') : '') || idle;
+        sectionBtn.textContent = idle;
+        sectionBtn.setAttribute('aria-label', idleAria);
+        sectionBtn.setAttribute('data-i18n-aria', 'tts_section_listen_aria');
       });
     }
 
-    function cleanSpeakablePlainText(raw) {
+    function cleanSpeakablePlainText(raw, options) {
+      options = options || {};
       var text = String(raw || '');
       if (!text.trim()) return '';
       if (/<[a-z][\s\S]*>/i.test(text)) {
@@ -22590,17 +22693,21 @@
         div.querySelectorAll('script, style, button, noscript').forEach(function (el) { el.remove(); });
         text = String(div.innerText || div.textContent || '');
       }
-      return text
+      text = text
         .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
         .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
         .replace(/^#{1,6}\s+/gm, '')
-        .replace(/[*_`>~]/g, ' ')
+        .replace(/^\s*[-*+]\s+/gm, '')
+        .replace(/\*\*|__/g, '')
+        .replace(/[*_`~>#]+/g, ' ')
         .replace(/\u00a0/g, ' ')
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
-        .replace(/[ \t]{2,}/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+        .replace(/[ \t]{2,}/g, ' ');
+      if (options.preserveBreaks) {
+        return text.trim();
+      }
+      return text.replace(/\s+/g, ' ').trim();
     }
 
     function isVisibleSpeakSource(el) {
@@ -22682,16 +22789,114 @@
       targets.forEach(function (target) {
         if (!target) return;
         target.textContent = label;
-        target.classList.remove('is-speaking');
+        target.classList.remove('is-speaking', 'is-preparing');
         target.setAttribute('aria-pressed', 'false');
+        target.setAttribute('aria-busy', 'false');
       });
     }
 
     function isReadAloudPlaying() {
-      if (ttsState.speaking) return true;
+      if (ttsState.speaking || ttsState.preparing) return true;
       if (ttsState.audio && !ttsState.audio.paused && !ttsState.audio.ended) return true;
       if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) return true;
       return false;
+    }
+
+    /** Split text into ~200–300 char sentence/paragraph chunks for low-latency TTS. */
+    function splitTextIntoTtsChunks(text, targetLen) {
+      targetLen = targetLen || 260;
+      var minLen = Math.max(120, Math.floor(targetLen * 0.7));
+      var maxLen = Math.max(targetLen, 300);
+      var clean = String(text || '').trim();
+      if (!clean) return [];
+      if (clean.length <= maxLen) return [clean];
+
+      var units = [];
+      String(clean).split(/\n+/).forEach(function (para) {
+        var p = String(para || '').trim();
+        if (!p) return;
+        var sentences = p.match(/[^.!?…。؟]+[.!?…。؟]+(?:["'”’)»\]]*)?|[^.!?…。؟]+$/g) || [p];
+        sentences.forEach(function (sentence) {
+          var s = String(sentence || '').trim();
+          if (s) units.push(s);
+        });
+      });
+      if (!units.length) return [clean.slice(0, maxLen)];
+
+      var chunks = [];
+      var buf = '';
+      function flush() {
+        if (buf.trim()) chunks.push(buf.trim());
+        buf = '';
+      }
+      function pushHard(str) {
+        var rest = str;
+        while (rest.length > maxLen) {
+          var sliceAt = rest.lastIndexOf(' ', maxLen);
+          if (sliceAt < Math.floor(maxLen * 0.5)) sliceAt = maxLen;
+          chunks.push(rest.slice(0, sliceAt).trim());
+          rest = rest.slice(sliceAt).trim();
+        }
+        buf = rest;
+      }
+      units.forEach(function (unit) {
+        if (!buf) {
+          if (unit.length > maxLen) {
+            pushHard(unit);
+          } else {
+            buf = unit;
+          }
+          return;
+        }
+        var next = buf + ' ' + unit;
+        if (next.length <= maxLen) {
+          buf = next;
+          return;
+        }
+        if (buf.length >= minLen) {
+          flush();
+          if (unit.length > maxLen) pushHard(unit);
+          else buf = unit;
+          return;
+        }
+        flush();
+        if (unit.length > maxLen) pushHard(unit);
+        else buf = unit;
+      });
+      flush();
+      return chunks.length ? chunks : [clean.slice(0, maxLen)];
+    }
+
+    function getSelectedSpeakableText() {
+      try {
+        var sel = window.getSelection && window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
+        var raw = String(sel.toString() || '');
+        var text = cleanSpeakablePlainText(raw);
+        if (!text || text.length < 2) return '';
+        var anchor = sel.anchorNode;
+        var el = anchor
+          ? (anchor.nodeType === 1 ? anchor : anchor.parentElement)
+          : null;
+        if (!el || !el.closest) return text;
+        var inContent = el.closest([
+          '#summary-text-body',
+          '.hybrid-community-summary-body',
+          '.summary-content',
+          '#theoretical-content',
+          '#inspiration-content',
+          '#pedagogical-essence-content',
+          '#web-research-result',
+          '#grade-insights-body',
+          '#general-search-results',
+          '.prose-ai',
+          'article.pure-data-card',
+          '#community-summarizer-result',
+        ].join(', '));
+        return inContent ? text : '';
+      } catch (selErr) {
+        return '';
+      }
     }
 
     function toggleReadAloudButton(triggerBtn) {
@@ -22702,7 +22907,7 @@
         resetReadAloudButtonLabel(btn);
         return;
       }
-      var text = getActiveContentSpeakableText();
+      var text = getSelectedSpeakableText() || getActiveContentSpeakableText();
       if (!text) return;
       speakText(text, getUiSpeechLang(), { button: btn });
     }
@@ -22716,6 +22921,7 @@
           toggleReadAloudButton(btn);
         });
       });
+      ensureSectionTtsButtons();
     }
 
     function resolveTtsSourceEl(btn) {
@@ -22735,7 +22941,8 @@
       var clone = container.cloneNode(true);
       clone.querySelectorAll([
         'script', 'style', 'noscript', 'button', 'nav', 'svg', 'i[aria-hidden="true"]',
-        '[data-tts-speak]', '.tts-listen-btn', '#read-aloud-btn', '.js-read-aloud-btn',
+        '[data-tts-speak]', '[data-tts-section]', '.tts-listen-btn', '.tts-section-btn',
+        '#read-aloud-btn', '.js-read-aloud-btn', '.tts-selection-hint',
         '.hybrid-community-summary-head', '.hybrid-community-citations',
         '.content-card-head', '.curriculum-card-toggle', '.card-chevron',
         '.inline-expand-close', '.archive-admin-delete-btn',
@@ -22758,6 +22965,7 @@
     function stopSpeaking() {
       ttsState.requestId = (ttsState.requestId || 0) + 1;
       ttsState.audioQueue = [];
+      ttsState.prefetchPromise = null;
       if (ttsState.audio) {
         try {
           ttsState.audio.onended = null;
@@ -22774,26 +22982,49 @@
       if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
       else resetReadAloudButtonLabel(document.getElementById('read-aloud-btn'));
       ttsState.speaking = false;
+      ttsState.preparing = false;
       ttsState.usingGoogle = false;
       ttsState.activeBtn = null;
       ttsState.utterance = null;
     }
 
-    function playGoogleTtsChunkQueue(uris, requestId, button) {
-      if (!uris || !uris.length) {
-        if (ttsState.requestId === requestId) {
-          if (button) setTtsButtonSpeaking(button, false);
-          ttsState.speaking = false;
-          ttsState.activeBtn = null;
-          ttsState.audio = null;
+    function fetchGoogleTtsChunkAudio(textChunk, langCode, requestId) {
+      var endpoint = (typeof location !== 'undefined' && location.origin)
+        ? (location.origin + '/api/tts')
+        : '/api/tts';
+      return fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textChunk, lang: langCode }),
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          return { res: res, data: data || {} };
+        });
+      }).then(function (result) {
+        if (ttsState.requestId !== requestId) return null;
+        if (!result.res.ok || !result.data) {
+          var fail = new Error((result.data && result.data.error) || ('TTS HTTP ' + result.res.status));
+          fail.reason = result.data && result.data.reason;
+          fail.enableApiUrl = result.data && result.data.enableApiUrl;
+          throw fail;
         }
-        return Promise.resolve();
-      }
-      var uri = uris[0];
-      var rest = uris.slice(1);
-      return new Promise(function (resolve) {
+        if (Array.isArray(result.data.chunks) && result.data.chunks.length) {
+          return result.data.chunks.map(function (chunk) {
+            return 'data:audio/mpeg;base64,' + chunk;
+          });
+        }
+        if (result.data.audioDataUri) return [result.data.audioDataUri];
+        if (result.data.audioContent) {
+          return ['data:audio/mpeg;base64,' + result.data.audioContent];
+        }
+        throw new Error('TTS response had no audio');
+      });
+    }
+
+    function playGoogleTtsUri(uri, requestId, button, markSpeaking) {
+      return new Promise(function (resolve, reject) {
         if (ttsState.requestId !== requestId) {
-          resolve();
+          resolve(false);
           return;
         }
         var audio = new Audio(uri);
@@ -22801,37 +23032,122 @@
         ttsState.speaking = true;
         ttsState.usingGoogle = true;
         ttsState.activeBtn = button || ttsState.activeBtn;
-        if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, true);
+        if (markSpeaking && ttsState.activeBtn) {
+          ttsState.preparing = false;
+          setTtsButtonSpeaking(ttsState.activeBtn, true, 'speaking');
+        }
         audio.onended = function () {
-          if (ttsState.requestId !== requestId) {
-            resolve();
-            return;
-          }
-          playGoogleTtsChunkQueue(rest, requestId, button).then(resolve);
+          resolve(ttsState.requestId === requestId);
         };
         audio.onerror = function () {
           console.warn('[tts] audio playback error');
+          reject(new Error('audio playback error'));
+        };
+        var playPromise = audio.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.then(function () {
+            if (markSpeaking && ttsState.requestId === requestId && ttsState.activeBtn) {
+              ttsState.preparing = false;
+              setTtsButtonSpeaking(ttsState.activeBtn, true, 'speaking');
+            }
+          }).catch(function (err) {
+            console.warn('[tts] audio.play failed', err);
+            reject(err || new Error('audio.play failed'));
+          });
+        }
+      });
+    }
+
+    function playGoogleTtsChunkQueue(uris, requestId, button) {
+      if (!uris || !uris.length) {
+        if (ttsState.requestId === requestId) {
+          if (button) setTtsButtonSpeaking(button, false);
+          ttsState.speaking = false;
+          ttsState.preparing = false;
+          ttsState.activeBtn = null;
+          ttsState.audio = null;
+        }
+        return Promise.resolve();
+      }
+      var first = true;
+      return uris.reduce(function (chain, uri) {
+        return chain.then(function () {
+          if (ttsState.requestId !== requestId) return;
+          return playGoogleTtsUri(uri, requestId, button, first).then(function () {
+            first = false;
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        if (ttsState.requestId === requestId) {
+          if (button) setTtsButtonSpeaking(button, false);
+          ttsState.speaking = false;
+          ttsState.preparing = false;
+          ttsState.activeBtn = null;
+          ttsState.audio = null;
+        }
+      }).catch(function () {
+        if (ttsState.requestId === requestId) {
+          if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+          ttsState.speaking = false;
+          ttsState.preparing = false;
+          ttsState.activeBtn = null;
+          ttsState.audio = null;
+        }
+      });
+    }
+
+    /**
+     * Fetch+play the first text chunk immediately, prefetch the next while current plays.
+     */
+    function speakTextWithGoogleChunkStream(chunks, langCode, requestId, button) {
+      if (!chunks || !chunks.length) return Promise.resolve(false);
+      var index = 0;
+      var firstPlay = true;
+
+      function prefetch(i) {
+        if (i >= chunks.length || ttsState.requestId !== requestId) return Promise.resolve(null);
+        return fetchGoogleTtsChunkAudio(chunks[i], langCode, requestId);
+      }
+
+      var pending = prefetch(0);
+
+      function playFrom(i) {
+        if (ttsState.requestId !== requestId) return Promise.resolve(false);
+        if (i >= chunks.length) {
           if (ttsState.requestId === requestId) {
-            if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+            if (button) setTtsButtonSpeaking(button, false);
             ttsState.speaking = false;
+            ttsState.preparing = false;
             ttsState.activeBtn = null;
             ttsState.audio = null;
           }
-          resolve();
-        };
-        var playPromise = audio.play();
-        if (playPromise && typeof playPromise.catch === 'function') {
-          playPromise.catch(function (err) {
-            console.warn('[tts] audio.play failed', err);
-            if (ttsState.requestId === requestId) {
-              if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
-              ttsState.speaking = false;
-              ttsState.activeBtn = null;
-              ttsState.audio = null;
-            }
-            resolve();
-          });
+          return Promise.resolve(true);
         }
+        return pending.then(function (uris) {
+          if (ttsState.requestId !== requestId) return false;
+          if (!uris || !uris.length) throw new Error('TTS response had no audio');
+          // Start fetching the next chunk while this one plays.
+          pending = prefetch(i + 1);
+          ttsState.prefetchPromise = pending;
+          return uris.reduce(function (chain, uri) {
+            return chain.then(function () {
+              if (ttsState.requestId !== requestId) return;
+              var mark = firstPlay;
+              firstPlay = false;
+              return playGoogleTtsUri(uri, requestId, button, mark);
+            });
+          }, Promise.resolve()).then(function () {
+            return playFrom(i + 1);
+          });
+        });
+      }
+
+      return playFrom(0).catch(function (err) {
+        if (ttsState.requestId !== requestId) {
+          err = err || new Error('TTS cancelled');
+          err.cancelled = true;
+        }
+        throw err;
       });
     }
 
@@ -22844,9 +23160,10 @@
       utterance.lang = lang || getUiSpeechLang();
       ttsState.utterance = utterance;
       ttsState.speaking = true;
+      ttsState.preparing = false;
       ttsState.usingGoogle = false;
       ttsState.activeBtn = options.button || null;
-      if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, true);
+      if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, true, 'speaking');
 
       var clearIfCurrent = function () {
         if (ttsState.utterance !== utterance) return;
@@ -22868,6 +23185,7 @@
 
     /**
      * Speak plain text via Google Cloud TTS (/api/tts), falling back to Web Speech API.
+     * Uses small-chunk streaming so the first audio starts within ~1s.
      * @param {string} text
      * @param {string} [lang] BCP-47 tag; defaults from current UI language (en-US / he-IL).
      * @param {{ button?: HTMLElement }} [options]
@@ -22875,65 +23193,53 @@
      */
     function speakText(text, lang, options) {
       options = options || {};
-      var clean = cleanSpeakablePlainText(text);
+      var clean = cleanSpeakablePlainText(text, { preserveBreaks: true });
       if (!clean) return false;
 
       stopSpeaking();
       var textToRead = clean;
       var requestId = ttsState.requestId;
       var button = options.button || null;
-      ttsState.activeBtn = button;
-      if (button) setTtsButtonSpeaking(button, true);
-      ttsState.speaking = true;
-
-      console.log('Speaking text:', textToRead);
-
       var langCode = lang || getUiSpeechLang();
-      var endpoint = (typeof location !== 'undefined' && location.origin)
-        ? (location.origin + '/api/tts')
-        : '/api/tts';
+      var chunks = splitTextIntoTtsChunks(textToRead, 260);
 
-      return fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textToRead, lang: langCode }),
-      }).then(function (res) {
-        return res.json().catch(function () { return {}; }).then(function (data) {
-          return { res: res, data: data || {} };
+      ttsState.activeBtn = button;
+      ttsState.speaking = true;
+      ttsState.preparing = true;
+      if (button) setTtsButtonSpeaking(button, true, 'preparing');
+
+      console.log('Speaking text:', textToRead, '| chunks:', chunks.length);
+
+      return speakTextWithGoogleChunkStream(chunks, langCode, requestId, button)
+        .then(function (ok) {
+          return !!ok;
+        })
+        .catch(function (err) {
+          if (err && err.cancelled) return false;
+          if (ttsState.requestId !== requestId) return false;
+          var canFallback = ttsState.preparing || !ttsState.usingGoogle;
+          console.warn(
+            '[tts] Google TTS failed'
+              + (canFallback ? ', falling back to Web Speech:' : ':'),
+            (err && err.reason ? ('[' + err.reason + '] ') : '')
+              + (err && err.message ? err.message : err)
+              + (err && err.enableApiUrl ? (' | ' + err.enableApiUrl) : '')
+          );
+          if (canFallback) {
+            ttsState.preparing = false;
+            return speakTextWithWebSpeech(
+              textToRead.replace(/\s+/g, ' ').trim(),
+              langCode,
+              { button: button }
+            );
+          }
+          if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
+          ttsState.speaking = false;
+          ttsState.preparing = false;
+          ttsState.activeBtn = null;
+          ttsState.audio = null;
+          return false;
         });
-      }).then(function (result) {
-        if (ttsState.requestId !== requestId) return false;
-        if (!result.res.ok || !result.data) {
-          var fail = new Error((result.data && result.data.error) || ('TTS HTTP ' + result.res.status));
-          fail.reason = result.data && result.data.reason;
-          fail.enableApiUrl = result.data && result.data.enableApiUrl;
-          throw fail;
-        }
-        var uris = [];
-        if (Array.isArray(result.data.chunks) && result.data.chunks.length) {
-          uris = result.data.chunks.map(function (chunk) {
-            return 'data:audio/mpeg;base64,' + chunk;
-          });
-        } else if (result.data.audioDataUri) {
-          uris = [result.data.audioDataUri];
-        } else if (result.data.audioContent) {
-          uris = ['data:audio/mpeg;base64,' + result.data.audioContent];
-        }
-        if (!uris.length) throw new Error('TTS response had no audio');
-        ttsState.audioQueue = uris;
-        return playGoogleTtsChunkQueue(uris, requestId, button).then(function () {
-          return true;
-        });
-      }).catch(function (err) {
-        console.warn(
-          '[tts] Google TTS failed, falling back to Web Speech:',
-          (err && err.reason ? ('[' + err.reason + '] ') : '')
-            + (err && err.message ? err.message : err)
-            + (err && err.enableApiUrl ? (' | ' + err.enableApiUrl) : '')
-        );
-        if (ttsState.requestId !== requestId) return false;
-        return speakTextWithWebSpeech(textToRead, langCode, { button: button });
-      });
     }
 
     function toggleTtsForButton(btn) {
@@ -22962,15 +23268,165 @@
       });
     }
 
+    function getSectionHeadingLevel(el) {
+      if (!el || !el.tagName) return 0;
+      var m = String(el.tagName).match(/^H([1-6])$/i);
+      return m ? parseInt(m[1], 10) : 0;
+    }
+
+    function getSectionSpeakableTextFromHeading(heading) {
+      if (!heading) return '';
+      var level = getSectionHeadingLevel(heading) || 3;
+      var wrap = document.createElement('div');
+      var headingClone = heading.cloneNode(true);
+      headingClone.querySelectorAll('.tts-section-btn, [data-tts-section], button, .tts-listen-btn').forEach(function (el) {
+        el.remove();
+      });
+      wrap.appendChild(headingClone);
+
+      var node = heading.nextSibling;
+      while (node) {
+        if (node.nodeType === 1) {
+          var nextLevel = getSectionHeadingLevel(node);
+          if (nextLevel && nextLevel <= level) break;
+          if (node.classList && (
+            node.classList.contains('hybrid-community-citations')
+            || node.classList.contains('content-card-head')
+            || node.id === 'community-summarizer-export-actions'
+          )) break;
+          wrap.appendChild(node.cloneNode(true));
+        } else if (node.nodeType === 3) {
+          var textNode = String(node.textContent || '');
+          if (textNode.trim()) wrap.appendChild(document.createTextNode(textNode));
+        }
+        node = node.nextSibling;
+      }
+      return getSpeakableTextFromContainer(wrap, { bodyOnly: false });
+    }
+
+    function buildSectionTtsButton() {
+      var label = (typeof t === 'function' ? t('tts_section_listen') : '') || '🔊';
+      var aria = (typeof t === 'function' ? t('tts_section_listen_aria') : '') || label;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tts-section-btn';
+      btn.setAttribute('data-tts-section', '1');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('data-i18n-aria', 'tts_section_listen_aria');
+      btn.setAttribute('aria-label', aria);
+      btn.textContent = label;
+      return btn;
+    }
+
+    function toggleSectionTtsButton(btn) {
+      if (!btn) return;
+      if (ttsState.speaking && ttsState.activeBtn === btn) {
+        stopSpeaking();
+        return;
+      }
+      var heading = btn.closest('h1, h2, h3, h4, h5, h6');
+      var text = getSectionSpeakableTextFromHeading(heading);
+      if (!text) return;
+      speakText(text, getUiSpeechLang(), { button: btn });
+    }
+
+    function injectSectionTtsButtons(root) {
+      var scope = root && root.querySelectorAll ? root : document;
+      var roots = [];
+      if (root && root.matches && root.matches([
+        '#summary-text-body',
+        '.hybrid-community-summary-body',
+        '.summary-content',
+        '#theoretical-content',
+        '#inspiration-content',
+        '#pedagogical-essence-content',
+        '#web-research-result',
+        '#grade-insights-body',
+        '.prose-ai',
+        'article.pure-data-card .pure-card-body',
+        'article.pure-data-card',
+      ].join(', '))) {
+        roots = [root];
+      } else {
+        roots = Array.prototype.slice.call(scope.querySelectorAll([
+          '#summary-text-body',
+          '.hybrid-community-summary-body',
+          '#theoretical-content',
+          '#inspiration-content',
+          '#pedagogical-essence-content',
+          '#web-research-result .prose-ai',
+          '#web-research-result',
+          '#grade-insights-body .prose-ai',
+          '#grade-insights-body',
+          '#general-search-results .pure-card-body',
+          '#general-search-results article.pure-data-card',
+          '.prose-ai',
+        ].join(', ')));
+      }
+      roots.forEach(function (contentRoot) {
+        if (!contentRoot || !isVisibleSpeakSource(contentRoot)) return;
+        if (contentRoot.closest && contentRoot.closest('.hybrid-community-summary.is-empty, .hybrid-community-summary.is-summarizing')) {
+          return;
+        }
+        contentRoot.querySelectorAll('h1, h2, h3, h4').forEach(function (heading) {
+          if (!heading || heading.closest('.hybrid-community-summary-head, .content-card-head, .phase-c-unified-header, .app-page-title')) {
+            return;
+          }
+          if (heading.querySelector('.tts-section-btn, [data-tts-section]')) return;
+          var headingText = String(heading.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!headingText || headingText.length < 2) return;
+          heading.classList.add('tts-section-heading');
+          heading.appendChild(buildSectionTtsButton());
+        });
+      });
+    }
+
+    function ensureSectionTtsButtons() {
+      injectSectionTtsButtons(document);
+      if (document.documentElement._ttsSectionObserverBound) return;
+      document.documentElement._ttsSectionObserverBound = true;
+      var scheduled = false;
+      var observer = new MutationObserver(function () {
+        if (scheduled) return;
+        scheduled = true;
+        window.setTimeout(function () {
+          scheduled = false;
+          injectSectionTtsButtons(document);
+        }, 120);
+      });
+      var watchRoots = [
+        document.getElementById('community-summarizer-result'),
+        document.getElementById('workspace'),
+        document.getElementById('product-panels-shell'),
+        document.getElementById('general-search-results'),
+        document.getElementById('web-research-result'),
+        document.getElementById('grade-insights-body'),
+      ].filter(Boolean);
+      if (!watchRoots.length && document.body) watchRoots = [document.body];
+      watchRoots.forEach(function (node) {
+        try {
+          observer.observe(node, { childList: true, subtree: true });
+        } catch (obsErr) { /* ignore */ }
+      });
+    }
+
     function bindTtsListenControls() {
       if (document.documentElement._ttsListenBound) return;
       document.documentElement._ttsListenBound = true;
       document.addEventListener('click', function (e) {
+        var sectionBtn = e.target && e.target.closest ? e.target.closest('[data-tts-section], .tts-section-btn') : null;
+        if (sectionBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleSectionTtsButton(sectionBtn);
+          return;
+        }
         var btn = e.target && e.target.closest ? e.target.closest('[data-tts-speak]') : null;
         if (!btn) return;
         e.preventDefault();
         toggleTtsForButton(btn);
       });
+      ensureSectionTtsButtons();
     }
 
     window.speakText = speakText;
@@ -25699,6 +26155,7 @@
       }
       resultEl.innerHTML = renderHybridCommunitySummaryBlock(data);
       syncCommunitySummarizerExportButton(data);
+      try { injectSectionTtsButtons(resultEl); } catch (ttsInjectErr) { /* ignore */ }
       if (isCommunitySummarizerSummaryReady(data) && isCommunitySummarizerModalOpen()) {
         try {
           resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
