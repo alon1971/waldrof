@@ -22683,6 +22683,22 @@
       });
     }
 
+    /** Remove internal TTS markers / code tokens so they are never spoken. */
+    function unwrapInternalTtsMarkers(raw) {
+      return String(raw || '')
+        .replace(/\{\{TTSH\}\}([\s\S]*?)\{\{\/TTSH\}\}/g, function (_m, title) {
+          return '\n' + String(title || '').replace(/\s+/g, ' ').trim() + '\n';
+        })
+        .replace(/\{\{\/?TTSH\}\}/g, ' ')
+        .replace(/\bZZHDR_?\d*ZZ\b/gi, ' ')
+        .replace(/\b(TTSHI?|TTSI|TTSH|TTS|undefined|null)\b/gi, ' ')
+        .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '')
+        .replace(/%/g, '')
+        .replace(/[@#{}<>_`~\\|/^=[\]*+]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
     function cleanSpeakablePlainText(raw, options) {
       options = options || {};
       var text = String(raw || '');
@@ -22724,7 +22740,8 @@
           .replace(/[@#{}<>_\\|/^=[\]]+/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
-        return title ? ('{{TTSH}}' + title + '{{/TTSH}}') : '';
+        // Plain title only — never re-inject internal markers into speakable text.
+        return title ? ('\n' + title + '\n') : '';
       });
       if (options.preserveBreaks) {
         return text.trim();
@@ -22766,42 +22783,64 @@
     /**
      * Extract ONLY visible semantic text (p/h1-h4/li), never outer wrappers or controls.
      */
+    function isElementVisiblySpeakable(el) {
+      if (!el || el.nodeType !== 1) return false;
+      var cur = el;
+      while (cur && cur.nodeType === 1) {
+        if (cur.hasAttribute && (cur.hasAttribute('hidden') || cur.getAttribute('aria-hidden') === 'true')) {
+          return false;
+        }
+        if (cur.classList && cur.classList.contains('hidden')) return false;
+        if (typeof window !== 'undefined' && window.getComputedStyle) {
+          var st = window.getComputedStyle(cur);
+          if (st && (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0)) {
+            return false;
+          }
+        }
+        cur = cur.parentElement;
+      }
+      return true;
+    }
+
+    /**
+     * Extract ONLY visible semantic text (p/h1-h4/li) from the live DOM.
+     * Never embeds internal markers — titles are plain text lines.
+     */
     function extractSemanticSpeakableLines(container, options) {
       options = options || {};
       if (!container) return [];
-      var clone = container.cloneNode(true);
-      removeNonSpeakableDomNodes(clone);
 
       var nodes = [];
-      if (isSemanticSpeakElement(clone)) {
-        nodes = [clone];
-      } else if (clone.querySelectorAll) {
-        nodes = Array.prototype.slice.call(clone.querySelectorAll('h1, h2, h3, h4, p, li'));
+      if (isSemanticSpeakElement(container)) {
+        nodes = [container];
+      } else if (container.querySelectorAll) {
+        nodes = Array.prototype.slice.call(container.querySelectorAll('h1, h2, h3, h4, p, li'));
       }
 
       var lines = [];
       nodes.forEach(function (el) {
         if (!el) return;
+        if (!isElementVisiblySpeakable(el)) return;
         // Prefer list-item text over nested paragraphs to avoid duplicates.
-        if (/^P$/i.test(el.tagName) && el.closest && el.closest('li') && clone.contains(el.closest('li'))) {
+        if (/^P$/i.test(el.tagName) && el.closest && el.closest('li') && container.contains(el.closest('li'))) {
           return;
         }
         var ancestor = el.parentElement;
-        while (ancestor && ancestor !== clone) {
+        while (ancestor && ancestor !== container) {
           if (/^(H[1-4]|P)$/i.test(ancestor.tagName)) return;
           ancestor = ancestor.parentElement;
         }
 
-        removeNonSpeakableDomNodes(el);
-        var text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+        var clone = el.cloneNode(true);
+        removeNonSpeakableDomNodes(clone);
+        var text = String(clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+        text = unwrapInternalTtsMarkers(text);
         if (!text) return;
 
         if (/^H[1-4]$/i.test(el.tagName)) {
           if (options.bodyOnly && text.length <= 40) return;
-          lines.push('{{TTSH}}' + text + '{{/TTSH}}');
-        } else {
-          lines.push(text);
         }
+        lines.push(text);
       });
       return lines;
     }
@@ -22815,7 +22854,19 @@
     }
 
     function getCommunitySummarizerSpeakableText() {
-      // Prefer the generated summary payload (no headers / UI chrome).
+      // Prefer the visible rendered summary DOM (never raw HTML/CSS payloads).
+      var body = document.getElementById('summary-text-body')
+        || document.querySelector('#community-summarizer-result .hybrid-community-summary-body')
+        || document.querySelector('#community-summarizer-result .summary-content');
+      if (!body || !isVisibleSpeakSource(body.closest('#community-summarizer-view') || body)) {
+        body = document.querySelector('.hybrid-community-summary:not(.is-empty):not(.is-summarizing) .hybrid-community-summary-body');
+      }
+      if (body && isVisibleSpeakSource(body)) {
+        var fromDom = getSpeakableTextFromContainer(body, { bodyOnly: true });
+        if (fromDom) return fromDom;
+      }
+
+      // Fallback: plain-text sanitize of stored summary if DOM is empty.
       try {
         var data = appState && appState.communitySummarizerResult;
         if (data && typeof isCommunitySummarizerSummaryReady === 'function'
@@ -22826,18 +22877,11 @@
           if (typeof sanitizeCommunitySummaryForDisplay === 'function') {
             rawSummary = sanitizeCommunitySummaryForDisplay(rawSummary);
           }
-          var fromState = cleanSpeakablePlainText(rawSummary);
+          var fromState = unwrapInternalTtsMarkers(cleanSpeakablePlainText(rawSummary));
           if (fromState) return fromState;
         }
-      } catch (eState) { /* fall through to DOM */ }
-
-      var body = document.getElementById('summary-text-body')
-        || document.querySelector('#community-summarizer-result .hybrid-community-summary-body')
-        || document.querySelector('#community-summarizer-result .summary-content');
-      if (!body || !isVisibleSpeakSource(body.closest('#community-summarizer-view') || body)) {
-        body = document.querySelector('.hybrid-community-summary:not(.is-empty):not(.is-summarizing) .hybrid-community-summary-body');
-      }
-      return getSpeakableTextFromContainer(body, { bodyOnly: true });
+      } catch (eState) { /* ignore */ }
+      return '';
     }
 
     function getActiveContentSpeakableText() {
@@ -23278,7 +23322,7 @@
      */
     function speakText(text, lang, options) {
       options = options || {};
-      var clean = cleanSpeakablePlainText(text, { preserveBreaks: true });
+      var clean = unwrapInternalTtsMarkers(cleanSpeakablePlainText(text, { preserveBreaks: true }));
       if (!clean) return false;
 
       stopSpeaking();
@@ -23287,7 +23331,7 @@
       var button = options.button || null;
       var langCode = lang || getUiSpeechLang();
       var header = options.header
-        ? cleanSpeakablePlainText(options.header, { preserveBreaks: false })
+        ? unwrapInternalTtsMarkers(cleanSpeakablePlainText(options.header, { preserveBreaks: false }))
         : '';
       var chunks = splitTextIntoTtsChunks(textToRead, 260);
 
@@ -23315,11 +23359,7 @@
           );
           if (canFallback) {
             ttsState.preparing = false;
-            var fallbackText = textToRead
-              .replace(/\{\{TTSH\}\}/g, '')
-              .replace(/\{\{\/TTSH\}\}/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
+            var fallbackText = unwrapInternalTtsMarkers(textToRead).replace(/\s+/g, ' ').trim();
             return speakTextWithWebSpeech(fallbackText, langCode, { button: button });
           }
           if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
@@ -23394,8 +23434,9 @@
       }
       var bodyText = getSpeakableTextFromContainer(wrap, { bodyOnly: false });
       var text = headerText
-        ? ('{{TTSH}}' + headerText + '{{/TTSH}}\n\n' + bodyText).trim()
+        ? (headerText + '\n\n' + bodyText).trim()
         : bodyText;
+      text = unwrapInternalTtsMarkers(text);
       return {
         text: text,
         header: headerText,
