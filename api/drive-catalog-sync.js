@@ -1121,13 +1121,188 @@ async function fetchExistingDriveMaterialRows() {
   return Array.isArray(rows) ? rows : [];
 }
 
+/**
+ * Extract a Drive/Docs resource id from a share URL or raw id string.
+ */
+function extractDriveIdFromUrl(rawUrl) {
+  const u = String(rawUrl || '').trim();
+  if (!u) return '';
+  if (/^[a-zA-Z0-9_-]{10,}$/.test(u) && u.indexOf('/') === -1 && u.indexOf('http') !== 0) {
+    return u;
+  }
+  let m = u.match(/\/(?:file|document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/i);
+  if (m) return m[1];
+  m = u.match(/\/folders\/([a-zA-Z0-9_-]+)/i);
+  if (m) return m[1];
+  m = u.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+  if (m) return m[1];
+  m = u.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : '';
+}
+
 function driveFileIdFromRow(row) {
   const notes = String(row && row.notes || '');
-  const noteMatch = notes.match(/\[driveFileId:([^\]]+)\]/);
-  if (noteMatch) return noteMatch[1].trim();
-  const path = String(row && row.file_path || '');
-  const pathMatch = path.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  return pathMatch ? pathMatch[1] : '';
+  const noteMatch = notes.match(/\[driveFileId:([^\]]+)\]/i);
+  if (noteMatch) return String(noteMatch[1] || '').trim();
+  const path = String(row && (row.file_path || row.filePath || row.fileUrl || row.webViewLink) || '').trim();
+  if (!path) return '';
+  if (/drive\.google\.com|docs\.google\.com/i.test(path) || /\/d\/|\/folders\/|[?&]id=/i.test(path)) {
+    return extractDriveIdFromUrl(path);
+  }
+  return '';
+}
+
+/**
+ * Permanently delete a Drive file or shortcut (files.delete).
+ * Uses write-capable auth (OAuth owner preferred; Service Account when available).
+ * 404 / already-trashed is treated as success.
+ */
+async function deleteDriveFile(fileId, options) {
+  const opts = options || {};
+  const id = String(fileId || '').trim();
+  if (!id) {
+    return { deleted: false, reason: 'missing_id' };
+  }
+
+  const accessToken = opts.accessToken
+    || await resolveDriveAccessToken({
+      write: true,
+      preferOauth: opts.preferOauth !== false,
+      forceOauth: opts.forceOauth === true,
+    });
+
+  const params = new URLSearchParams();
+  params.set('supportsAllDrives', 'true');
+  const resourceKeys = {};
+  const rk = String(opts.resourceKey || '').trim();
+  if (rk) resourceKeys[id] = rk;
+
+  const res = await fetch(
+    DRIVE_API + '/files/' + encodeURIComponent(id) + '?' + params.toString(),
+    {
+      method: 'DELETE',
+      headers: buildDriveRequestHeaders(accessToken, resourceKeys),
+    }
+  );
+
+  if (res.status === 204 || res.status === 200) {
+    return { deleted: true, fileId: id, status: res.status };
+  }
+  if (res.status === 404) {
+    return { deleted: true, fileId: id, alreadyGone: true, status: 404 };
+  }
+
+  const text = await res.text();
+  const err = new Error('Drive files.delete failed (' + res.status + '): ' + text.slice(0, 300));
+  err.statusCode = res.status;
+  err.responseText = text;
+  throw err;
+}
+
+/**
+ * Cascade-delete the Drive file/shortcut linked to a community_materials row.
+ * Looks up [driveFileId:…] in notes or a Drive/Docs URL in file_path.
+ * Skips folders and rows with no Drive id (storage-only uploads).
+ */
+async function deleteDriveFileForCommunityMaterial(row, options) {
+  const opts = options || {};
+  const fileId = driveFileIdFromRow(row);
+  if (!fileId) {
+    return { deleted: false, reason: 'no_drive_id' };
+  }
+
+  if (!isDriveCatalogSyncConfigured() && !opts.accessToken) {
+    return { deleted: false, reason: 'drive_not_configured', fileId: fileId };
+  }
+
+  let accessToken = opts.accessToken || '';
+  try {
+    if (!accessToken) {
+      accessToken = await resolveDriveAccessToken({ write: true, preferOauth: true });
+    }
+  } catch (authErr) {
+    console.warn(
+      '[drive-catalog-sync] Drive delete auth failed:',
+      authErr && authErr.message ? authErr.message : authErr
+    );
+    return {
+      deleted: false,
+      reason: 'auth_failed',
+      fileId: fileId,
+      error: authErr && authErr.message ? authErr.message : String(authErr),
+    };
+  }
+
+  let meta = null;
+  try {
+    meta = await fetchDriveFileMeta(
+      fileId,
+      accessToken,
+      'id,name,mimeType,parents,trashed,resourceKey,shortcutDetails(targetId,targetMimeType)',
+      { resourceKey: opts.resourceKey }
+    );
+  } catch (metaErr) {
+    if (isDriveNotFoundError(metaErr)) {
+      return { deleted: true, alreadyGone: true, fileId: fileId };
+    }
+    console.warn(
+      '[drive-catalog-sync] Drive delete meta failed:',
+      fileId,
+      metaErr && metaErr.message ? metaErr.message : metaErr
+    );
+    // Still attempt delete — files.delete may succeed even when get is restricted.
+  }
+
+  if (meta && meta.mimeType === FOLDER_MIME) {
+    console.warn('[drive-catalog-sync] refusing to delete Drive folder:', fileId, meta.name || '');
+    return { deleted: false, reason: 'skip_folder', fileId: fileId, name: meta.name || '' };
+  }
+
+  if (meta && meta.trashed === true) {
+    return {
+      deleted: true,
+      alreadyGone: true,
+      fileId: fileId,
+      name: meta.name || '',
+      mimeType: meta.mimeType || '',
+    };
+  }
+
+  try {
+    const result = await deleteDriveFile(fileId, {
+      accessToken: accessToken,
+      resourceKey: (meta && meta.resourceKey) || opts.resourceKey || '',
+    });
+    // Drop folder-index cache so the next search/sync does not see a ghost file.
+    driveFolderIndexCache = { key: '', expiresAt: 0, index: null };
+    console.log(
+      '[drive-catalog-sync] Drive files.delete ok:',
+      fileId,
+      meta && meta.name ? meta.name : '',
+      meta && isShortcutMime(meta.mimeType) ? '(shortcut)' : ''
+    );
+    return Object.assign({
+      name: (meta && meta.name) || '',
+      mimeType: (meta && meta.mimeType) || '',
+      kind: meta && isShortcutMime(meta.mimeType) ? 'shortcut' : 'file',
+    }, result);
+  } catch (delErr) {
+    if (isDriveNotFoundError(delErr)) {
+      return { deleted: true, alreadyGone: true, fileId: fileId };
+    }
+    console.warn(
+      '[drive-catalog-sync] Drive files.delete failed:',
+      fileId,
+      delErr && delErr.message ? delErr.message : delErr
+    );
+    return {
+      deleted: false,
+      reason: 'delete_failed',
+      fileId: fileId,
+      error: delErr && delErr.message ? delErr.message : String(delErr),
+      statusCode: delErr && delErr.statusCode,
+    };
+  }
 }
 
 async function upsertDriveCatalogMaterial(payload) {
@@ -2849,4 +3024,8 @@ module.exports = {
   fetchDriveFileMeta,
   buildDriveRequestHeaders,
   extractTextFromPptxBuffer,
+  extractDriveIdFromUrl,
+  driveFileIdFromRow,
+  deleteDriveFile,
+  deleteDriveFileForCommunityMaterial,
 };
