@@ -16,7 +16,10 @@ const driveCatalogSync = require('./drive-catalog-sync');
 const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
-const MAX_INPUT_BYTES = 4500;
+/** Plain-text budget before SSML wrapping (Cloud TTS input limit is ~5000 bytes). */
+const MAX_INPUT_BYTES = 3500;
+const SSML_BREAK = '<break time="300ms"/>';
+const SSML_PROSODY_RATE = '0.95';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,11 +53,12 @@ function normalizeLang(lang) {
   if (code.indexOf('en') === 0) {
     return {
       languageCode: 'en-US',
-      voices: ['en-US-Neural2-F', 'en-US-Neural2-A', 'en-US-Wavenet-F', 'en-US-Standard-C'],
+      voices: ['en-US-Wavenet-F', 'en-US-Neural2-F', 'en-US-Wavenet-A', 'en-US-Standard-C'],
     };
   }
   return {
     languageCode: 'he-IL',
+    // Prefer human-like Wavenet voices for Hebrew.
     voices: ['he-IL-Wavenet-A', 'he-IL-Wavenet-B', 'he-IL-Standard-A', 'he-IL-Standard-B'],
   };
 }
@@ -62,20 +66,62 @@ function normalizeLang(lang) {
 function cleanTtsText(raw) {
   var text = String(raw || '');
   if (!text.trim()) return '';
+  text = text.replace(/\r\n|\r/g, '\n');
   if (/<[a-z][\s\S]*>/i.test(text)) {
     text = text
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, '\n')
       .replace(/<[^>]+>/g, ' ');
   }
   return text
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
-    .replace(/[*_`>~]/g, ' ')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/\*\*|__/g, '')
+    .replace(/[*_`~#>]+/g, ' ')
     .replace(/https?:\/\/\S+/gi, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/[|{}[\]\\^=]+/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
     .trim();
+}
+
+function escapeSsml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
+ * Build SSML with subtle pauses for colons, dashes, and line breaks,
+ * and a slightly relaxed prosody rate for natural reading.
+ */
+function buildSsml(plainText) {
+  var text = cleanTtsText(plainText);
+  if (!text) return '';
+  var escaped = escapeSsml(text);
+  var withBreaks = escaped
+    .replace(/\n+/g, SSML_BREAK)
+    .replace(/:/g, SSML_BREAK)
+    .replace(/—|–/g, SSML_BREAK)
+    .replace(/\s-\s/g, ' ' + SSML_BREAK + ' ')
+    .replace(/-{2,}/g, SSML_BREAK)
+    .replace(/(?:<break time="300ms"\/>\s*){2,}/g, SSML_BREAK)
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return (
+    '<speak><prosody rate="' + SSML_PROSODY_RATE + '">'
+    + withBreaks
+    + '</prosody></speak>'
+  );
 }
 
 function splitTextForTts(text) {
@@ -302,17 +348,25 @@ async function synthesizeChunk(text, voiceConfig, auth, voiceName) {
   }
   headers.Authorization = 'Bearer ' + auth.accessToken;
 
+  const ssml = buildSsml(text);
+  if (!ssml) {
+    const err = new Error('text is required');
+    err.statusCode = 400;
+    throw err;
+  }
+
   const res = await fetch(TTS_ENDPOINT, {
     method: 'POST',
     headers: headers,
     body: JSON.stringify({
-      input: { text: text },
+      input: { ssml: ssml },
       voice: {
         languageCode: voiceConfig.languageCode,
         name: voiceName,
       },
       audioConfig: {
         audioEncoding: 'MP3',
+        // Pace is controlled via SSML <prosody rate="0.95">.
         speakingRate: 1.0,
         pitch: 0,
       },
@@ -458,6 +512,8 @@ module.exports.fetch = fetchHandler;
 module.exports.legacyHandler = legacyHandler;
 module.exports.executeTts = executeTts;
 module.exports.cleanTtsText = cleanTtsText;
+module.exports.buildSsml = buildSsml;
+module.exports.escapeSsml = escapeSsml;
 module.exports.normalizeLang = normalizeLang;
 module.exports.splitTextForTts = splitTextForTts;
 module.exports.getTtsStatus = getTtsStatus;
