@@ -54,11 +54,13 @@ https://waldrof.onrender.com/api/auth/google-drive?secret=YOUR_CRON_SECRET
 https://waldrof.onrender.com/api/cron/drive-catalog-sync?secret=YOUR_CRON_SECRET
 ```
 
-8. Full-history backfill (Supabase → Drive: content docs + binaries + description metadata):
+8. Full-history backfill (Supabase → Drive: content Docs/`.txt` records, shortcuts with `description` metadata, binaries):
 
 ```
 https://waldrof.onrender.com/api/admin/sync-drive?secret=YOUR_CRON_SECRET
 ```
+
+Each material gets a readable content Doc (title + grade + description + source URL) and Drive `description` metadata on files/shortcuts so previews are never empty. Drive/Docs links also create a shortcut in the grade/topic folder. External URLs get a Doc + plain-text twin.
 
 Optional query flags: `dryRun=1`, `force=1`, `limit=50`, `background=1`.  
 Optional boot: `DRIVE_SUPABASE_SYNC_ON_BOOT=1`.  

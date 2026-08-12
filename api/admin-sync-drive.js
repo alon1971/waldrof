@@ -4,12 +4,14 @@
  * For every community_materials row:
  *   1) Resolve grade folder (כיתה א׳–ח׳ / כללי) under the catalog root
  *   2) Resolve topic subfolder
- *   3) Create a readable content document (title + description + source URL)
- *      and set Drive file description metadata
- *   4) For physical uploads (Supabase storage), also upload the binary file
+ *   3) Create a readable content document (title + grade + description + source URL)
+ *      and set Drive file/shortcut description metadata (avoids empty previews)
+ *   4) For Drive/Docs links: also create a shortcut into the grade/topic folder
+ *      with the same description metadata
+ *   5) For physical uploads (Supabase storage), also upload the binary file
  *
- * Dedup: notes tags [driveContentDocId] / [driveSyncedFileId] + Drive appProperties
- * (waldorfMaterialId + waldorfRole) + same-name checks in the topic folder.
+ * Dedup: notes tags [driveContentDocId] / [driveSyncedFileId] / [driveShortcutId]
+ * + Drive appProperties (waldorfMaterialId + waldorfRole) + same-name checks.
  *
  * Routes: GET|POST /api/admin/sync-drive (CRON_SECRET)
  * Optional boot: DRIVE_SUPABASE_SYNC_ON_BOOT=1
@@ -24,17 +26,22 @@ const env = require('./env');
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER_MIME = drive.FOLDER_MIME || 'application/vnd.google-apps.folder';
+const SHORTCUT_MIME = drive.SHORTCUT_MIME || 'application/vnd.google-apps.shortcut';
 const DOCS_MIME = 'application/vnd.google-apps.document';
 const MATERIALS_TABLE = 'community_materials';
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_DESCRIPTION_CHARS = 8000;
 const CONTENT_DOC_SUFFIX = ' — תוכן מאגר';
+const CONTENT_TXT_SUFFIX = ' — תוכן מאגר.txt';
 const APP_PROP_MATERIAL = 'waldorfMaterialId';
 const APP_PROP_ROLE = 'waldorfRole';
 const ROLE_CONTENT = 'content';
+const ROLE_CONTENT_TXT = 'content_txt';
 const ROLE_FILE = 'file';
+const ROLE_SHORTCUT = 'shortcut';
 const SYNC_TAG_CONTENT = 'driveContentDocId';
 const SYNC_TAG_FILE = 'driveSyncedFileId';
+const SYNC_TAG_SHORTCUT = 'driveShortcutId';
 
 let _running = null;
 
@@ -107,6 +114,7 @@ function parseMaterialMeta(row) {
   const notes = String(row && row.notes || '');
   const titleTag = catalogTopics.readNotesTag(notes, 'title');
   const descTag = catalogTopics.readNotesTag(notes, 'desc');
+  const authorTag = catalogTopics.readNotesTag(notes, 'author');
   const freeText = notes
     .replace(/\[[a-zA-Z_]+:[^\]]*\]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -118,10 +126,12 @@ function parseMaterialMeta(row) {
   return {
     title: title,
     description: description,
+    author: authorTag || '',
     topic: topic,
     fileName: fileName,
     contentDocId: catalogTopics.readNotesTag(notes, SYNC_TAG_CONTENT),
     syncedFileId: catalogTopics.readNotesTag(notes, SYNC_TAG_FILE),
+    shortcutId: catalogTopics.readNotesTag(notes, SYNC_TAG_SHORTCUT),
     driveFileId: catalogTopics.readNotesTag(notes, 'driveFileId'),
     notes: notes,
   };
@@ -136,26 +146,39 @@ function setNotesTag(notes, key, value) {
   return ('[' + k + ':' + v + ']' + (cleaned ? ' ' + cleaned : '')).trim();
 }
 
-function buildContentBody(meta, gradeLabel, sourceUrl) {
+function buildContentBody(meta, gradeLabel, sourceUrl, materialId) {
   const lines = [
     'כותרת: ' + meta.title,
     'כיתה: ' + gradeLabel,
     'נושא: ' + meta.topic,
+  ];
+  if (meta.author) lines.push('מחבר/מורה: ' + meta.author);
+  if (materialId) lines.push('מזהה מאגר: ' + materialId);
+  lines.push(
     '',
     'תיאור ותוכן מלא:',
     meta.description || '(אין תיאור שמור במאגר)',
     '',
     'קישור ישיר למקור:',
-    sourceUrl || '(אין קישור)',
-  ];
+    sourceUrl || '(אין קישור)'
+  );
   return lines.join('\n');
 }
 
-function buildDriveDescription(meta, sourceUrl) {
+/**
+ * Drive file/shortcut description — shown in Drive details pane and searchable.
+ * Includes summary, grade, topic, and source so previews are never empty.
+ */
+function buildDriveDescription(meta, gradeLabel, sourceUrl, materialId) {
   const parts = [];
   if (meta.title) parts.push(meta.title);
+  parts.push('כיתה: ' + gradeLabel);
+  if (meta.topic) parts.push('נושא: ' + meta.topic);
+  if (meta.author) parts.push('מחבר/מורה: ' + meta.author);
   if (meta.description) parts.push(meta.description);
+  else parts.push('(אין תיאור שמור במאגר — נוצר מרשומת המאגר הקהילתי)');
   if (sourceUrl) parts.push('מקור: ' + sourceUrl);
+  if (materialId) parts.push('materialId: ' + materialId);
   return parts.join('\n\n').slice(0, MAX_DESCRIPTION_CHARS);
 }
 
@@ -350,7 +373,7 @@ async function findByAppProperties(materialId, role, accessToken) {
 }
 
 async function patchFileDescription(fileId, description, accessToken) {
-  if (!fileId || String(fileId).indexOf('dry-run') === 0) return;
+  if (!fileId || String(fileId).indexOf('dry-run') === 0) return false;
   const res = await fetch(
     DRIVE_API + '/files/' + encodeURIComponent(fileId)
     + '?supportsAllDrives=true&fields=id,description',
@@ -365,7 +388,125 @@ async function patchFileDescription(fileId, description, accessToken) {
   if (!res.ok) {
     const text = await res.text().catch(function () { return ''; });
     console.warn('[admin-sync-drive] description patch failed:', fileId, res.status, text.slice(0, 160));
+    return false;
   }
+  return true;
+}
+
+/**
+ * Create (or reuse) a Drive shortcut into the grade/topic folder and stamp description.
+ */
+async function createShortcutWithMetadata(parentId, shortcutName, targetId, description, materialId, accessToken, dryRun) {
+  if (!targetId) return null;
+  if (String(parentId || '').indexOf('dry-run') === 0 || dryRun) {
+    return {
+      id: 'dry-run-shortcut:' + materialId,
+      name: shortcutName,
+      dryRun: true,
+      skipped: false,
+    };
+  }
+
+  const byProp = await findByAppProperties(materialId, ROLE_SHORTCUT, accessToken);
+  if (byProp) {
+    await patchFileDescription(byProp.id, description, accessToken);
+    return Object.assign({}, byProp, { skipped: true });
+  }
+
+  const existing = await findChildByName(parentId, shortcutName, SHORTCUT_MIME, accessToken, {});
+  if (existing) {
+    await patchFileDescription(existing.id, description, accessToken);
+    return Object.assign({}, existing, { skipped: true });
+  }
+
+  const res = await fetch(
+    DRIVE_API + '/files?supportsAllDrives=true&fields=id,name,mimeType,webViewLink,description,appProperties',
+    {
+      method: 'POST',
+      headers: Object.assign({
+        'Content-Type': 'application/json; charset=utf-8',
+      }, driveHeaders(accessToken)),
+      body: JSON.stringify({
+        name: shortcutName,
+        mimeType: SHORTCUT_MIME,
+        parents: [parentId],
+        description: String(description || '').slice(0, MAX_DESCRIPTION_CHARS),
+        shortcutDetails: { targetId: String(targetId) },
+        appProperties: {
+          [APP_PROP_MATERIAL]: String(materialId || ''),
+          [APP_PROP_ROLE]: ROLE_SHORTCUT,
+        },
+      }),
+    }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error('create shortcut failed (' + res.status + '): ' + text.slice(0, 300));
+  }
+  return Object.assign({}, JSON.parse(text), { skipped: false });
+}
+
+/**
+ * Lightweight plain-text record when Google Docs conversion is unavailable
+ * or as a readable companion for external links without Drive preview.
+ */
+async function createPlainTextRecord(parentId, fileName, bodyText, description, materialId, accessToken, dryRun) {
+  if (String(parentId || '').indexOf('dry-run') === 0 || dryRun) {
+    return { id: 'dry-run-txt:' + materialId, name: fileName, dryRun: true, skipped: false };
+  }
+
+  const byProp = await findByAppProperties(materialId, ROLE_CONTENT_TXT, accessToken);
+  if (byProp) {
+    await patchFileDescription(byProp.id, description, accessToken);
+    return Object.assign({}, byProp, { skipped: true });
+  }
+
+  const existing = await findChildByName(parentId, fileName, 'text/plain', accessToken, {});
+  if (existing) {
+    await patchFileDescription(existing.id, description, accessToken);
+    return Object.assign({}, existing, { skipped: true });
+  }
+
+  const boundary = 'waldorf_txt_' + Date.now().toString(36);
+  const meta = JSON.stringify({
+    name: fileName,
+    mimeType: 'text/plain',
+    parents: [parentId],
+    description: String(description || '').slice(0, MAX_DESCRIPTION_CHARS),
+    appProperties: {
+      [APP_PROP_MATERIAL]: String(materialId || ''),
+      [APP_PROP_ROLE]: ROLE_CONTENT_TXT,
+    },
+  });
+  const media = Buffer.from(String(bodyText || ''), 'utf8');
+  const preamble = Buffer.from(
+    '--' + boundary + '\r\n'
+    + 'Content-Type: application/json; charset=UTF-8\r\n\r\n'
+    + meta + '\r\n'
+    + '--' + boundary + '\r\n'
+    + 'Content-Type: text/plain; charset=UTF-8\r\n\r\n',
+    'utf8'
+  );
+  const closing = Buffer.from('\r\n--' + boundary + '--', 'utf8');
+  const body = Buffer.concat([preamble, media, closing]);
+
+  const res = await fetch(
+    DRIVE_UPLOAD_API + '/files?uploadType=multipart&supportsAllDrives=true'
+    + '&fields=id,name,mimeType,webViewLink,description,appProperties',
+    {
+      method: 'POST',
+      headers: Object.assign({
+        'Content-Type': 'multipart/related; boundary=' + boundary,
+        'Content-Length': String(body.length),
+      }, driveHeaders(accessToken)),
+      body: body,
+    }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error('create text record failed (' + res.status + '): ' + text.slice(0, 300));
+  }
+  return Object.assign({}, JSON.parse(text), { skipped: false });
 }
 
 async function createContentDocument(parentId, docName, bodyText, description, materialId, accessToken, dryRun) {
@@ -491,9 +632,10 @@ async function processMaterial(row, ctx) {
   const classified = classifyFilePath(row.file_path);
   const gradeLabel = gradeFolderLabel(gradeId);
   const sourceUrl = String(row.file_path || '').trim();
-  const description = buildDriveDescription(meta, sourceUrl);
-  const contentBody = buildContentBody(meta, gradeLabel, sourceUrl);
+  const description = buildDriveDescription(meta, gradeLabel, sourceUrl, row.id);
+  const contentBody = buildContentBody(meta, gradeLabel, sourceUrl, row.id);
   const contentDocName = safeDriveFileName(meta.title + CONTENT_DOC_SUFFIX, topic + CONTENT_DOC_SUFFIX);
+  const contentTxtName = safeDriveFileName(meta.title + CONTENT_TXT_SUFFIX, topic + CONTENT_TXT_SUFFIX);
 
   const gradeFolderId = await ensureGradeFolder(
     ctx.rootFolderId,
@@ -512,26 +654,85 @@ async function processMaterial(row, ctx) {
 
   let notes = meta.notes;
   let contentResult = null;
+  let textResult = null;
   let fileResult = null;
+  let shortcutResult = null;
 
+  // Always create/refresh a readable content Doc so Drive previews are never empty.
   const skipContent = ctx.skipExisting && meta.contentDocId && !ctx.force;
   if (skipContent) {
     ctx.stats.skippedExisting += 1;
     contentResult = { id: meta.contentDocId, skipped: true, reason: 'notes_tag' };
+    await patchFileDescription(meta.contentDocId, description, ctx.accessToken);
   } else {
-    contentResult = await createContentDocument(
-      topicFolderId,
-      contentDocName,
-      contentBody,
-      description,
-      row.id,
-      ctx.accessToken,
-      ctx.dryRun
-    );
-    if (contentResult.skipped) ctx.stats.skippedExisting += 1;
-    else ctx.stats.contentDocsCreated += 1;
-    if (contentResult.id && String(contentResult.id).indexOf('dry-run') !== 0) {
-      notes = setNotesTag(notes, SYNC_TAG_CONTENT, contentResult.id);
+    try {
+      contentResult = await createContentDocument(
+        topicFolderId,
+        contentDocName,
+        contentBody,
+        description,
+        row.id,
+        ctx.accessToken,
+        ctx.dryRun
+      );
+      if (contentResult.skipped) ctx.stats.skippedExisting += 1;
+      else ctx.stats.contentDocsCreated += 1;
+      if (contentResult.id && String(contentResult.id).indexOf('dry-run') !== 0) {
+        notes = setNotesTag(notes, SYNC_TAG_CONTENT, contentResult.id);
+      }
+    } catch (docErr) {
+      console.warn(
+        '[admin-sync-drive] content Doc failed, falling back to .txt:',
+        row.id,
+        docErr && docErr.message ? docErr.message : docErr
+      );
+      textResult = await createPlainTextRecord(
+        topicFolderId,
+        contentTxtName,
+        contentBody,
+        description,
+        row.id,
+        ctx.accessToken,
+        ctx.dryRun
+      );
+      if (textResult.skipped) ctx.stats.skippedExisting += 1;
+      else ctx.stats.textRecordsCreated += 1;
+      if (textResult.id && String(textResult.id).indexOf('dry-run') !== 0) {
+        notes = setNotesTag(notes, SYNC_TAG_CONTENT, textResult.id);
+      }
+      contentResult = textResult;
+    }
+  }
+
+  // External / Docs links: also keep a plain-text twin so AI + teachers can open
+  // title + full description + URL without relying on Drive preview of the target.
+  const needsLinkTextTwin = (
+    classified.kind === 'external_url'
+    || classified.kind === 'docs'
+    || classified.kind === 'drive_file'
+    || classified.kind === 'drive_folder'
+    || classified.kind === 'empty'
+    || classified.kind === 'unknown'
+  );
+  if (needsLinkTextTwin && !textResult) {
+    try {
+      textResult = await createPlainTextRecord(
+        topicFolderId,
+        contentTxtName,
+        contentBody,
+        description,
+        row.id,
+        ctx.accessToken,
+        ctx.dryRun
+      );
+      if (textResult.skipped) ctx.stats.skippedExisting += 1;
+      else ctx.stats.textRecordsCreated += 1;
+    } catch (txtErr) {
+      console.warn(
+        '[admin-sync-drive] text record failed:',
+        row.id,
+        txtErr && txtErr.message ? txtErr.message : txtErr
+      );
     }
   }
 
@@ -540,6 +741,7 @@ async function processMaterial(row, ctx) {
     if (skipFile) {
       ctx.stats.skippedExisting += 1;
       fileResult = { id: meta.syncedFileId, skipped: true, reason: 'notes_tag' };
+      await patchFileDescription(meta.syncedFileId, description, ctx.accessToken);
     } else {
       const downloaded = await downloadHttpBuffer(classified.value);
       const mime = downloaded.contentType || guessMimeFromName(meta.fileName || meta.title);
@@ -564,6 +766,49 @@ async function processMaterial(row, ctx) {
         }
       }
     }
+  } else if (
+    classified.kind === 'drive_file'
+    || classified.kind === 'docs'
+    || classified.kind === 'drive_folder'
+  ) {
+    ctx.stats.linkMaterials += 1;
+    const targetId = String(classified.driveId || meta.driveFileId || '').trim();
+    if (targetId) {
+      const shortcutName = safeDriveFileName(
+        meta.fileName || meta.title || topic,
+        topic + (classified.kind === 'drive_folder' ? ' (תיקייה)' : ' (קיצור)')
+      );
+      const skipShortcut = ctx.skipExisting && meta.shortcutId && !ctx.force;
+      if (skipShortcut) {
+        ctx.stats.skippedExisting += 1;
+        shortcutResult = { id: meta.shortcutId, skipped: true, reason: 'notes_tag' };
+        await patchFileDescription(meta.shortcutId, description, ctx.accessToken);
+      } else {
+        shortcutResult = await createShortcutWithMetadata(
+          topicFolderId,
+          shortcutName,
+          targetId,
+          description,
+          row.id,
+          ctx.accessToken,
+          ctx.dryRun
+        );
+        if (shortcutResult && shortcutResult.skipped) ctx.stats.skippedExisting += 1;
+        else if (shortcutResult) ctx.stats.shortcutsCreated += 1;
+        if (shortcutResult && shortcutResult.id && String(shortcutResult.id).indexOf('dry-run') !== 0) {
+          notes = setNotesTag(notes, SYNC_TAG_SHORTCUT, shortcutResult.id);
+          if (!meta.driveFileId) {
+            notes = setNotesTag(notes, 'driveFileId', shortcutResult.id);
+          }
+        }
+      }
+      // Best-effort: stamp description on the original Drive/Docs target too.
+      try {
+        await patchFileDescription(targetId, description, ctx.accessToken);
+      } catch (targetDescErr) {
+        /* ignore — may lack write access on external targets */
+      }
+    }
   } else {
     ctx.stats.linkMaterials += 1;
   }
@@ -581,8 +826,11 @@ async function processMaterial(row, ctx) {
     kind: classified.kind,
     contentDocId: contentResult && contentResult.id,
     contentSkipped: Boolean(contentResult && contentResult.skipped),
+    textRecordId: textResult && textResult.id,
     fileId: fileResult && fileResult.id,
     fileSkipped: Boolean(fileResult && fileResult.skipped),
+    shortcutId: shortcutResult && shortcutResult.id,
+    shortcutSkipped: Boolean(shortcutResult && shortcutResult.skipped),
   };
 }
 
@@ -628,7 +876,9 @@ async function syncSupabaseMaterialsToDrive(options) {
     scanned: 0,
     processed: 0,
     contentDocsCreated: 0,
+    textRecordsCreated: 0,
     filesUploaded: 0,
+    shortcutsCreated: 0,
     linkMaterials: 0,
     skippedExisting: 0,
     notesUpdated: 0,
@@ -772,6 +1022,11 @@ module.exports = {
   gradeFolderLabel,
   classifyFilePath,
   parseMaterialMeta,
+  buildDriveDescription,
+  buildContentBody,
+  createShortcutWithMetadata,
+  createPlainTextRecord,
   SYNC_TAG_CONTENT,
   SYNC_TAG_FILE,
+  SYNC_TAG_SHORTCUT,
 };
