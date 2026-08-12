@@ -94,7 +94,7 @@ function cleanTtsText(raw) {
     ),
     function (_m, inner) {
       headerStore.push(String(inner || '').replace(/\s+/g, ' ').trim());
-      return '\n@@@TTSH' + (headerStore.length - 1) + '@@@\n';
+      return '\n%%TTSH' + (headerStore.length - 1) + '%%\n';
     }
   );
 
@@ -102,6 +102,9 @@ function cleanTtsText(raw) {
     text = text
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<template[\s\S]*?<\/template>/gi, ' ')
       .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, function (_m, inner) {
         var title = String(inner || '')
           .replace(/<[^>]+>/g, ' ')
@@ -109,7 +112,7 @@ function cleanTtsText(raw) {
           .trim();
         if (!title) return '\n';
         headerStore.push(title);
-        return '\n@@@TTSH' + (headerStore.length - 1) + '@@@\n';
+        return '\n%%TTSH' + (headerStore.length - 1) + '%%\n';
       })
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|li|tr|section|article)>/gi, '\n')
@@ -120,24 +123,35 @@ function cleanTtsText(raw) {
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/^#{1,6}\s+(.+)$/gm, function (_m, title) {
       headerStore.push(String(title || '').trim());
-      return '\n@@@TTSH' + (headerStore.length - 1) + '@@@\n';
+      return '\n%%TTSH' + (headerStore.length - 1) + '%%\n';
     })
     .replace(/^\s*[-*+]\s+/gm, '')
     .replace(/^\s*\d+[.)]\s+/gm, '')
     .replace(/\*\*|__/g, '')
     .replace(/[*_`~]+/g, ' ')
-    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\b(https?|ftp|file):\/\/\S+/gi, ' ')
     .replace(/[|\[\]\\^=]+/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 
-  text = text.replace(/@@@TTSH(\d+)@@@/g, function (_m, idx) {
-    var title = headerStore[Number(idx)] || '';
+  text = text.replace(/%%TTSH(\d+)%%/g, function (_m, idx) {
+    var title = stripTtsArtifactChars(headerStore[Number(idx)] || '');
     return title ? (TTS_HEADER_START + title + TTS_HEADER_END) : '';
   });
-  return text;
+  return stripTtsArtifactChars(text);
+}
+
+/** Strip leftover @ / URL artifacts that can leak from hidden CSS/DOM. */
+function stripTtsArtifactChars(raw) {
+  return String(raw || '')
+    .replace(/@/g, '')
+    .replace(/\b(https?|ftp|file):\/\/\S+/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
@@ -668,6 +682,7 @@ module.exports.fetch = fetchHandler;
 module.exports.legacyHandler = legacyHandler;
 module.exports.executeTts = executeTts;
 module.exports.cleanTtsText = cleanTtsText;
+module.exports.stripTtsArtifactChars = stripTtsArtifactChars;
 module.exports.applyPhoneticDictionary = applyPhoneticDictionary;
 module.exports.buildSsml = buildSsml;
 module.exports.escapeSsml = escapeSsml;

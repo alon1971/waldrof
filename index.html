@@ -22690,12 +22690,15 @@
       var headerStore = [];
       text = text.replace(/\{\{TTSH\}\}([\s\S]*?)\{\{\/TTSH\}\}/g, function (_m, inner) {
         headerStore.push(String(inner || '').replace(/\s+/g, ' ').trim());
-        return '\n@@@TTS_H_' + (headerStore.length - 1) + '@@@\n';
+        return '\n%%TTS_H_' + (headerStore.length - 1) + '%%\n';
       });
       if (/<[a-z][\s\S]*>/i.test(text)) {
         var div = document.createElement('div');
         div.innerHTML = text;
-        div.querySelectorAll('script, style, button, noscript').forEach(function (el) { el.remove(); });
+        div.querySelectorAll([
+          'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe',
+          'object', 'embed', 'link', 'meta', 'button', '[aria-hidden="true"]', '[hidden]',
+        ].join(',')).forEach(function (el) { el.remove(); });
         text = String(div.innerText || div.textContent || '');
       }
       text = text
@@ -22705,18 +22708,47 @@
         .replace(/^\s*[-*+]\s+/gm, '')
         .replace(/\*\*|__/g, '')
         .replace(/[*_`~#]+/g, ' ')
+        .replace(/@/g, '')
+        .replace(/\b(https?|ftp|file):\/\/\S+/gi, ' ')
         .replace(/\u00a0/g, ' ')
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
         .replace(/[ \t]{2,}/g, ' ');
-      text = text.replace(/@@@TTS_H_(\d+)@@@/g, function (_m, idx) {
-        var title = headerStore[Number(idx)] || '';
+      text = text.replace(/%%TTS_H_(\d+)%%/g, function (_m, idx) {
+        var title = String(headerStore[Number(idx)] || '').replace(/@/g, '').trim();
         return title ? ('{{TTSH}}' + title + '{{/TTSH}}') : '';
       });
       if (options.preserveBreaks) {
         return text.trim();
       }
       return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function removeNonSpeakableDomNodes(root) {
+      if (!root || !root.querySelectorAll) return root;
+      root.querySelectorAll([
+        'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe',
+        'object', 'embed', 'link', 'meta', 'head',
+        'button', 'nav', 'form', 'input', 'select', 'textarea',
+        '[aria-hidden="true"]', '[hidden]', '.hidden',
+        '[data-tts-speak]', '[data-tts-section]', '.tts-listen-btn', '.tts-section-btn',
+        '#read-aloud-btn', '.js-read-aloud-btn', '.tts-selection-hint',
+        '.hybrid-community-summary-head', '.hybrid-community-citations',
+        '.content-card-head', '.curriculum-card-toggle', '.card-chevron',
+        '.inline-expand-close', '.archive-admin-delete-btn',
+        '.phase-c-unified-header', '.app-page-title', '.community-summarizer-empty-notice',
+        '.fa-spinner', '[aria-busy="true"] .fa-spin',
+      ].join(',')).forEach(function (el) {
+        el.remove();
+      });
+      return root;
+    }
+
+    function extractVisibleDomText(element) {
+      if (!element) return '';
+      var clone = element.cloneNode(true);
+      removeNonSpeakableDomNodes(clone);
+      return String(clone.innerText || clone.textContent || '');
     }
 
     function isVisibleSpeakSource(el) {
@@ -22948,20 +22980,10 @@
       options = options || {};
       if (!container) return '';
       var clone = container.cloneNode(true);
-      clone.querySelectorAll([
-        'script', 'style', 'noscript', 'button', 'nav', 'svg', 'i[aria-hidden="true"]',
-        '[data-tts-speak]', '[data-tts-section]', '.tts-listen-btn', '.tts-section-btn',
-        '#read-aloud-btn', '.js-read-aloud-btn', '.tts-selection-hint',
-        '.hybrid-community-summary-head', '.hybrid-community-citations',
-        '.content-card-head', '.curriculum-card-toggle', '.card-chevron',
-        '.inline-expand-close', '.archive-admin-delete-btn',
-        '.phase-c-unified-header', '.app-page-title', '.community-summarizer-empty-notice',
-        '.fa-spinner', '[aria-busy="true"] .fa-spin',
-      ].join(',')).forEach(function (el) {
-        el.remove();
-      });
+      removeNonSpeakableDomNodes(clone);
       clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(function (heading) {
-        var headingText = String(heading.textContent || '').replace(/\s+/g, ' ').trim();
+        removeNonSpeakableDomNodes(heading);
+        var headingText = String(heading.innerText || heading.textContent || '').replace(/\s+/g, ' ').trim();
         if (!headingText) {
           heading.remove();
           return;
@@ -22974,7 +22996,7 @@
         var marker = document.createTextNode('\n{{TTSH}}' + headingText + '{{/TTSH}}\n');
         if (heading.parentNode) heading.parentNode.replaceChild(marker, heading);
       });
-      return cleanSpeakablePlainText(clone.innerText || clone.textContent || '', {
+      return cleanSpeakablePlainText(String(clone.innerText || clone.textContent || ''), {
         preserveBreaks: true,
       });
     }
@@ -23304,10 +23326,11 @@
       if (!heading) return { text: '', header: '' };
       var level = getSectionHeadingLevel(heading) || 3;
       var headingClone = heading.cloneNode(true);
-      headingClone.querySelectorAll('.tts-section-btn, [data-tts-section], button, .tts-listen-btn').forEach(function (el) {
-        el.remove();
-      });
-      var headerText = cleanSpeakablePlainText(headingClone.textContent || '', { preserveBreaks: false });
+      removeNonSpeakableDomNodes(headingClone);
+      var headerText = cleanSpeakablePlainText(
+        extractVisibleDomText(headingClone),
+        { preserveBreaks: false }
+      );
       var wrap = document.createElement('div');
       if (headerText) {
         wrap.appendChild(document.createTextNode('{{TTSH}}' + headerText + '{{/TTSH}}\n'));
