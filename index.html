@@ -2418,11 +2418,23 @@
       box-sizing: border-box;
     }
     #read-aloud-btn.btn.is-speaking,
+    #read-aloud-btn.btn.is-preparing,
+    #read-aloud-btn.btn.is-tts-global-stop,
     #read-aloud-btn.btn[aria-pressed="true"],
     .js-read-aloud-btn.btn.is-speaking,
+    .js-read-aloud-btn.btn.is-preparing,
+    .js-read-aloud-btn.btn.is-tts-global-stop,
     .js-read-aloud-btn.btn[aria-pressed="true"] {
-      background: linear-gradient(160deg, #8a6a4a, #6e553a);
-      border-color: rgba(138, 106, 74, 0.65);
+      background: linear-gradient(160deg, #c45c3a, #a3482e);
+      border-color: rgba(164, 72, 46, 0.85);
+      color: #fff8f4;
+      box-shadow: 0 0 0 1px rgba(196, 92, 58, 0.25);
+    }
+    #read-aloud-btn.btn.is-tts-global-stop:hover,
+    .js-read-aloud-btn.btn.is-tts-global-stop:hover,
+    #read-aloud-btn.btn.is-speaking:hover,
+    .js-read-aloud-btn.btn.is-speaking:hover {
+      background: linear-gradient(160deg, #b35233, #8f3f28);
     }
     .tts-section-btn {
       display: inline-flex;
@@ -22587,6 +22599,7 @@
     var ttsState = {
       speaking: false,
       preparing: false,
+      uiMode: 'idle',
       activeBtn: null,
       utterance: null,
       audio: null,
@@ -22649,67 +22662,148 @@
       };
     }
 
-    function setTtsButtonSpeaking(btn, speaking, mode) {
-      if (!btn) return;
-      var state = mode || (speaking ? 'speaking' : 'idle');
-      if (speaking && state === 'idle') state = 'speaking';
-      if (!speaking) state = 'idle';
-      var isSection = isSectionTtsControl(btn);
-      var isReadAloud = !isSection && isReadAloudControl(btn);
-      var idleCopy = isReadAloud ? getReadAloudIdleCopy() : null;
-      var listenKey = isSection
-        ? 'tts_section_listen'
-        : (isReadAloud ? idleCopy.key : 'tts_listen');
-      var stopKey = isSection ? 'tts_section_stop' : (isReadAloud ? 'tts_stop_reading' : 'tts_stop');
-      var listenAriaKey = isSection
-        ? 'tts_section_listen_aria'
-        : (isReadAloud ? idleCopy.ariaKey : 'tts_listen_aria');
-      var stopAriaKey = isSection ? 'tts_section_stop_aria' : (isReadAloud ? 'tts_stop_reading_aria' : 'tts_stop_aria');
-      var listenLabel = isReadAloud
-        ? idleCopy.label
-        : ((typeof t === 'function' ? t(listenKey) : '') || (isSection ? '🔊' : '🔊 Listen'));
-      var stopLabel = (typeof t === 'function' ? t(stopKey) : '')
-        || (isSection ? '⏹️' : (isReadAloud ? '⏹️ עצור הקראה' : '⏹️ Stop'));
-      var preparingLabel = (typeof t === 'function' ? t('tts_preparing') : '') || 'מכין הקראה...';
-      var preparingAria = (typeof t === 'function' ? t('tts_preparing_aria') : '') || preparingLabel;
-      var listenAria = isReadAloud
-        ? idleCopy.aria
-        : ((typeof t === 'function' ? t(listenAriaKey) : '') || listenLabel);
-      var stopAria = (typeof t === 'function' ? t(stopAriaKey) : '') || stopLabel;
+    function getStopReadingCopy() {
+      return {
+        key: 'tts_stop_reading',
+        ariaKey: 'tts_stop_reading_aria',
+        label: (typeof t === 'function' ? t('tts_stop_reading') : '') || '⏹️ עצור הקראה',
+        aria: (typeof t === 'function' ? t('tts_stop_reading_aria') : '') || 'עצור את ההקראה',
+      };
+    }
+
+    function getPreparingCopy() {
+      return {
+        key: 'tts_preparing',
+        ariaKey: 'tts_preparing_aria',
+        label: (typeof t === 'function' ? t('tts_preparing') : '') || 'מכין הקראה...',
+        aria: (typeof t === 'function' ? t('tts_preparing_aria') : '') || 'מכין הקראה, לחץ לעצירה',
+      };
+    }
+
+    function resetAllLocalTtsButtons(exceptBtn) {
+      document.querySelectorAll(
+        '.tts-section-btn, .tts-listen-btn, [data-tts-section], [data-tts-speak]'
+      ).forEach(function (btn) {
+        if (exceptBtn && btn === exceptBtn) return;
+        if (isReadAloudControl(btn)) return;
+        btn.classList.remove('is-speaking', 'is-preparing');
+        btn.setAttribute('aria-pressed', 'false');
+        btn.setAttribute('aria-busy', 'false');
+        if (isSectionTtsControl(btn)) {
+          var idle = (typeof t === 'function' ? t('tts_section_listen') : '') || '🔊';
+          var idleAria = (typeof t === 'function' ? t('tts_section_listen_aria') : '') || idle;
+          btn.textContent = idle;
+          btn.setAttribute('aria-label', idleAria);
+          btn.setAttribute('data-i18n-aria', 'tts_section_listen_aria');
+          return;
+        }
+        var labelEl = btn.querySelector('.tts-listen-label');
+        var listenLabel = (typeof t === 'function' ? t('tts_listen') : '') || '🔊 Listen';
+        var listenAria = (typeof t === 'function' ? t('tts_listen_aria') : '') || listenLabel;
+        if (labelEl) {
+          labelEl.setAttribute('data-i18n', 'tts_listen');
+          labelEl.textContent = listenLabel;
+        } else {
+          btn.textContent = listenLabel;
+        }
+        btn.setAttribute('aria-label', listenAria);
+        btn.setAttribute('data-i18n-aria', 'tts_listen_aria');
+      });
+    }
+
+    /**
+     * Single global TTS chrome sync: sidebar always mirrors playback state,
+     * while the originating section/card button keeps a local speaking marker.
+     */
+    function syncGlobalTtsUi(mode) {
+      var state = mode || 'idle';
+      if (state !== 'idle' && state !== 'preparing' && state !== 'speaking') state = 'idle';
+      ttsState.uiMode = state;
+
+      var sidebarCopy = state === 'idle'
+        ? getReadAloudIdleCopy()
+        : (state === 'preparing' ? getPreparingCopy() : getStopReadingCopy());
       var active = state === 'speaking' || state === 'preparing';
-      var labelText = state === 'preparing' ? preparingLabel : (state === 'speaking' ? stopLabel : listenLabel);
-      var ariaText = state === 'preparing' ? preparingAria : (state === 'speaking' ? stopAria : listenAria);
-      var i18nKey = state === 'preparing' ? 'tts_preparing' : (state === 'speaking' ? stopKey : listenKey);
-      var i18nAriaKey = state === 'preparing' ? 'tts_preparing_aria' : (state === 'speaking' ? stopAriaKey : listenAriaKey);
-      var targets = isReadAloud ? getReadAloudControls() : [btn];
-      targets.forEach(function (target) {
+
+      getReadAloudControls().forEach(function (target) {
         if (!target) return;
         target.classList.toggle('is-speaking', state === 'speaking');
         target.classList.toggle('is-preparing', state === 'preparing');
+        target.classList.toggle('is-tts-global-stop', active);
         target.setAttribute('aria-pressed', active ? 'true' : 'false');
         target.setAttribute('aria-busy', state === 'preparing' ? 'true' : 'false');
-        target.setAttribute('aria-label', ariaText);
-        target.setAttribute('data-i18n-aria', i18nAriaKey);
+        target.setAttribute('aria-label', sidebarCopy.aria);
+        target.setAttribute('data-i18n-aria', sidebarCopy.ariaKey);
         var labelEl = target.querySelector('.tts-listen-label');
         if (labelEl) {
-          labelEl.setAttribute('data-i18n', i18nKey);
-          labelEl.textContent = labelText;
+          labelEl.setAttribute('data-i18n', sidebarCopy.key);
+          labelEl.textContent = sidebarCopy.label;
         } else {
-          target.textContent = labelText;
+          target.textContent = sidebarCopy.label;
         }
       });
-      document.querySelectorAll('.tts-section-btn.is-speaking, .tts-section-btn.is-preparing, .tts-section-btn[aria-pressed="true"]').forEach(function (sectionBtn) {
-        if (active && sectionBtn === btn) return;
-        if (!active && sectionBtn === btn) return;
-        sectionBtn.classList.remove('is-speaking', 'is-preparing');
-        sectionBtn.setAttribute('aria-pressed', 'false');
-        sectionBtn.setAttribute('aria-busy', 'false');
-        var idle = (typeof t === 'function' ? t('tts_section_listen') : '') || '🔊';
-        var idleAria = (typeof t === 'function' ? t('tts_section_listen_aria') : '') || idle;
-        sectionBtn.textContent = idle;
-        sectionBtn.setAttribute('aria-label', idleAria);
-        sectionBtn.setAttribute('data-i18n-aria', 'tts_section_listen_aria');
-      });
+
+      if (state === 'idle') {
+        resetAllLocalTtsButtons(null);
+        return;
+      }
+
+      resetAllLocalTtsButtons(ttsState.activeBtn);
+      if (ttsState.activeBtn && !isReadAloudControl(ttsState.activeBtn)) {
+        setLocalTtsSourceButtonState(ttsState.activeBtn, state);
+      }
+    }
+
+    function setLocalTtsSourceButtonState(btn, state) {
+      if (!btn || isReadAloudControl(btn)) return;
+      var isSection = isSectionTtsControl(btn);
+      var active = state === 'speaking' || state === 'preparing';
+      btn.classList.toggle('is-speaking', state === 'speaking');
+      btn.classList.toggle('is-preparing', state === 'preparing');
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      btn.setAttribute('aria-busy', state === 'preparing' ? 'true' : 'false');
+      if (isSection) {
+        var stopLabel = (typeof t === 'function' ? t('tts_section_stop') : '') || '⏹️';
+        var stopAria = (typeof t === 'function' ? t('tts_section_stop_aria') : '') || stopLabel;
+        var prepLabel = (typeof t === 'function' ? t('tts_preparing') : '') || '…';
+        btn.textContent = state === 'preparing' ? '…' : stopLabel;
+        btn.setAttribute('aria-label', state === 'preparing' ? prepLabel : stopAria);
+        btn.setAttribute('data-i18n-aria', state === 'preparing' ? 'tts_preparing_aria' : 'tts_section_stop_aria');
+        return;
+      }
+      var stopKey = 'tts_stop';
+      var stopText = (typeof t === 'function' ? t(stopKey) : '') || '⏹️ Stop';
+      var stopAriaFull = (typeof t === 'function' ? t('tts_stop_aria') : '') || stopText;
+      var labelEl = btn.querySelector('.tts-listen-label');
+      var shown = state === 'preparing'
+        ? ((typeof t === 'function' ? t('tts_preparing') : '') || 'מכין הקראה...')
+        : stopText;
+      if (labelEl) {
+        labelEl.setAttribute('data-i18n', state === 'preparing' ? 'tts_preparing' : stopKey);
+        labelEl.textContent = shown;
+      } else {
+        btn.textContent = shown;
+      }
+      btn.setAttribute('aria-label', state === 'preparing'
+        ? ((typeof t === 'function' ? t('tts_preparing_aria') : '') || shown)
+        : stopAriaFull);
+    }
+
+    function setTtsButtonSpeaking(btn, speaking, mode) {
+      // Back-compat wrapper: keep local source styling, always sync global sidebar.
+      if (!btn) {
+        syncGlobalTtsUi(speaking ? (mode || 'speaking') : 'idle');
+        return;
+      }
+      var state = mode || (speaking ? 'speaking' : 'idle');
+      if (speaking && state === 'idle') state = 'speaking';
+      if (!speaking) state = 'idle';
+      if (isReadAloudControl(btn)) {
+        syncGlobalTtsUi(state);
+        return;
+      }
+      ttsState.activeBtn = speaking ? btn : (ttsState.activeBtn === btn ? null : ttsState.activeBtn);
+      syncGlobalTtsUi(state === 'idle' ? (isReadAloudPlaying() ? (ttsState.preparing ? 'preparing' : 'speaking') : 'idle') : state);
     }
 
     /** Remove internal TTS markers / code tokens so they are never spoken. */
@@ -22952,27 +23046,20 @@
     }
 
     function resetReadAloudButtonLabel(btn) {
-      var copy = getReadAloudIdleCopy();
-      var targets = btn && isReadAloudControl(btn) ? getReadAloudControls() : getReadAloudControls();
-      if (btn && !isReadAloudControl(btn)) targets = [btn];
-      targets.forEach(function (target) {
-        if (!target) return;
-        target.textContent = copy.label;
-        target.classList.remove('is-speaking', 'is-preparing');
-        target.setAttribute('aria-pressed', 'false');
-        target.setAttribute('aria-busy', 'false');
-        target.setAttribute('aria-label', copy.aria);
-        target.setAttribute('data-i18n-aria', copy.ariaKey);
-      });
+      if (isReadAloudPlaying() || ttsState.uiMode === 'speaking' || ttsState.uiMode === 'preparing') {
+        return;
+      }
+      syncGlobalTtsUi('idle');
+      if (btn && !isReadAloudControl(btn)) {
+        // Local non-sidebar button already handled by syncGlobalTtsUi idle reset.
+        return;
+      }
     }
 
     function syncReadAloudIdleLabels() {
       if (isReadAloudPlaying()) return;
-      getReadAloudControls().forEach(function (btn) {
-        if (!btn) return;
-        if (btn.classList.contains('is-speaking') || btn.classList.contains('is-preparing')) return;
-        resetReadAloudButtonLabel(btn);
-      });
+      if (ttsState.uiMode === 'speaking' || ttsState.uiMode === 'preparing') return;
+      syncGlobalTtsUi('idle');
     }
 
     function bindReadAloudSelectionLabelSync() {
@@ -23098,9 +23185,9 @@
     function toggleReadAloudButton(triggerBtn) {
       var btn = triggerBtn || document.getElementById('read-aloud-btn') || document.querySelector('.js-read-aloud-btn');
       if (!btn) return;
+      // Global stop: sidebar always cancels ANY active TTS source.
       if (isReadAloudPlaying()) {
         stopSpeaking();
-        resetReadAloudButtonLabel(btn);
         return;
       }
       // Selection always wins for the main button.
@@ -23144,6 +23231,19 @@
       return cleanSpeakablePlainText(extractVisibleDomText(container), { preserveBreaks: true });
     }
 
+    function finishTtsPlayback(requestId) {
+      if (requestId != null && ttsState.requestId !== requestId) return;
+      ttsState.speaking = false;
+      ttsState.preparing = false;
+      ttsState.usingGoogle = false;
+      ttsState.activeBtn = null;
+      ttsState.audio = null;
+      ttsState.utterance = null;
+      ttsState.audioQueue = [];
+      ttsState.prefetchPromise = null;
+      syncGlobalTtsUi('idle');
+    }
+
     function stopSpeaking() {
       ttsState.requestId = (ttsState.requestId || 0) + 1;
       ttsState.audioQueue = [];
@@ -23161,13 +23261,12 @@
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         try { window.speechSynthesis.cancel(); } catch (eCancel) { /* ignore */ }
       }
-      if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
-      else resetReadAloudButtonLabel(document.getElementById('read-aloud-btn'));
       ttsState.speaking = false;
       ttsState.preparing = false;
       ttsState.usingGoogle = false;
       ttsState.activeBtn = null;
       ttsState.utterance = null;
+      syncGlobalTtsUi('idle');
     }
 
     function fetchGoogleTtsChunkAudio(textChunk, langCode, requestId, extra) {
@@ -23217,9 +23316,9 @@
         ttsState.speaking = true;
         ttsState.usingGoogle = true;
         ttsState.activeBtn = button || ttsState.activeBtn;
-        if (markSpeaking && ttsState.activeBtn) {
+        if (markSpeaking) {
           ttsState.preparing = false;
-          setTtsButtonSpeaking(ttsState.activeBtn, true, 'speaking');
+          syncGlobalTtsUi('speaking');
         }
         audio.onended = function () {
           resolve(ttsState.requestId === requestId);
@@ -23231,9 +23330,9 @@
         var playPromise = audio.play();
         if (playPromise && typeof playPromise.then === 'function') {
           playPromise.then(function () {
-            if (markSpeaking && ttsState.requestId === requestId && ttsState.activeBtn) {
+            if (markSpeaking && ttsState.requestId === requestId) {
               ttsState.preparing = false;
-              setTtsButtonSpeaking(ttsState.activeBtn, true, 'speaking');
+              syncGlobalTtsUi('speaking');
             }
           }).catch(function (err) {
             console.warn('[tts] audio.play failed', err);
@@ -23245,13 +23344,7 @@
 
     function playGoogleTtsChunkQueue(uris, requestId, button) {
       if (!uris || !uris.length) {
-        if (ttsState.requestId === requestId) {
-          if (button) setTtsButtonSpeaking(button, false);
-          ttsState.speaking = false;
-          ttsState.preparing = false;
-          ttsState.activeBtn = null;
-          ttsState.audio = null;
-        }
+        finishTtsPlayback(requestId);
         return Promise.resolve();
       }
       var first = true;
@@ -23263,21 +23356,9 @@
           });
         });
       }, Promise.resolve()).then(function () {
-        if (ttsState.requestId === requestId) {
-          if (button) setTtsButtonSpeaking(button, false);
-          ttsState.speaking = false;
-          ttsState.preparing = false;
-          ttsState.activeBtn = null;
-          ttsState.audio = null;
-        }
+        finishTtsPlayback(requestId);
       }).catch(function () {
-        if (ttsState.requestId === requestId) {
-          if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
-          ttsState.speaking = false;
-          ttsState.preparing = false;
-          ttsState.activeBtn = null;
-          ttsState.audio = null;
-        }
+        finishTtsPlayback(requestId);
       });
     }
 
@@ -23301,13 +23382,7 @@
       function playFrom(i) {
         if (ttsState.requestId !== requestId) return Promise.resolve(false);
         if (i >= chunks.length) {
-          if (ttsState.requestId === requestId) {
-            if (button) setTtsButtonSpeaking(button, false);
-            ttsState.speaking = false;
-            ttsState.preparing = false;
-            ttsState.activeBtn = null;
-            ttsState.audio = null;
-          }
+          finishTtsPlayback(requestId);
           return Promise.resolve(true);
         }
         return pending.then(function (uris) {
@@ -23350,14 +23425,11 @@
       ttsState.preparing = false;
       ttsState.usingGoogle = false;
       ttsState.activeBtn = options.button || null;
-      if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, true, 'speaking');
+      syncGlobalTtsUi('speaking');
 
       var clearIfCurrent = function () {
         if (ttsState.utterance !== utterance) return;
-        if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
-        ttsState.speaking = false;
-        ttsState.activeBtn = null;
-        ttsState.utterance = null;
+        finishTtsPlayback(ttsState.requestId);
       };
       utterance.onend = clearIfCurrent;
       utterance.onerror = clearIfCurrent;
@@ -23396,7 +23468,7 @@
       ttsState.activeBtn = button;
       ttsState.speaking = true;
       ttsState.preparing = true;
-      if (button) setTtsButtonSpeaking(button, true, 'preparing');
+      syncGlobalTtsUi('preparing');
 
       console.log('Speaking text:', textToRead, '| chunks:', chunks.length);
 
@@ -23420,11 +23492,7 @@
             var fallbackText = unwrapInternalTtsMarkers(textToRead).replace(/\s+/g, ' ').trim();
             return speakTextWithWebSpeech(fallbackText, langCode, { button: button });
           }
-          if (ttsState.activeBtn) setTtsButtonSpeaking(ttsState.activeBtn, false);
-          ttsState.speaking = false;
-          ttsState.preparing = false;
-          ttsState.activeBtn = null;
-          ttsState.audio = null;
+          finishTtsPlayback(requestId);
           return false;
         });
     }
@@ -23532,7 +23600,7 @@
 
     function toggleSectionTtsButton(btn) {
       if (!btn) return;
-      // Section icons never drive the full-page read-aloud control.
+      // Same global controller: stop if this section is the active source.
       if ((ttsState.speaking || ttsState.preparing) && ttsState.activeBtn === btn) {
         stopSpeaking();
         return;
