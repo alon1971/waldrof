@@ -989,6 +989,23 @@ server.listen(PORT, HOST, function () {
     process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON ? 'set' : 'MISSING'
   );
   console.log(
+    '[env] GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64:',
+    process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64 ? 'set' : 'MISSING'
+  );
+  try {
+    const ttsStatus = typeof ttsApi.getTtsStatus === 'function' ? ttsApi.getTtsStatus() : null;
+    if (ttsStatus) {
+      console.log(
+        '[env] Google TTS:',
+        ttsStatus.configured
+          ? ('configured (' + (ttsStatus.serviceAccountEmail || 'service-account') + ')')
+          : 'MISSING service account — Read Aloud falls back to Web Speech'
+      );
+    }
+  } catch (ttsStatusErr) {
+    console.warn('[env] Google TTS status check failed:', ttsStatusErr.message || ttsStatusErr);
+  }
+  console.log(
     '[env] GOOGLE_DRIVE_OAUTH_CLIENT:',
     (process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID) ? 'set' : 'MISSING'
   );
