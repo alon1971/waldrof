@@ -158,14 +158,20 @@ function sanitizeTtsHeaderTitle(raw) {
  */
 function stripTtsArtifactChars(raw) {
   return String(raw || '')
+    .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '')
     .replace(/\{\{\/?TTSH\}\}/gi, ' ')
     .replace(/\b(TTSHI?|TTSI|TTSH|TTS|undefined|null)\b/gi, ' ')
     .replace(/%/g, '')
-    .replace(/[@#{}<>_\\|/^=[\]]+/g, ' ')
+    .replace(/[@#{}<>_`~\\|/^=[\]*+]+/g, ' ')
     .replace(/\b(https?|ftp|file):\/\/\S+/gi, '')
     .replace(/\bwww\.\S+/gi, '')
-    // Multi-segment kebab class-like tokens (e.g. hybrid-community-summary-body)
+    // Multi-segment kebab / camelCase class-like tokens
     .replace(/\b[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b/gi, ' ')
+    .replace(/\b[a-z]+[A-Z][a-zA-Z0-9]+\b/g, ' ')
+    .replace(/\b(?:width|height|padding|margin|display|flex|grid|rgba?|var|px|rem|em|vh|vw|auto|none|solid|absolute|relative|hidden|block|inline|opacity|font-size|line-height|media|keyframes|import|charset|supports)\b/gi, ' ')
+    .replace(/\b\d+(?:px|rem|em|vh|vw)\b/gi, ' ')
+    // Keep Hebrew, nikud, Latin letters, digits, and basic punctuation only.
+    .replace(/[^\u0590-\u05FFa-zA-Z0-9\s.,;:!?…'"׳״()\-\u2013\u2014\n]/g, ' ')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
