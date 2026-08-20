@@ -176,7 +176,10 @@ function buildCacheKey(body) {
     const query = normalizeGeneralSearchQuery(body.query ?? body.topic ?? body.q ?? '');
     if (!query) return null;
     const variant = body.periodBlock ? 'period15' : 'standard';
-    return hashString([GENERAL_SEARCH_PHASE, query, variant].join('|'));
+    const gradeId = body.periodBlock
+      ? stableNormalize(body.currentGrade ?? body.gradeId ?? '')
+      : '';
+    return hashString([GENERAL_SEARCH_PHASE, query, variant, gradeId].join('|'));
   }
 
   const gradeId = stableNormalize(body.currentGrade ?? body.gradeId ?? '');
@@ -2814,6 +2817,11 @@ function buildGeneralSearchCacheBody(query, options) {
     archiveQuery: q,
     periodBlock: Boolean(opts.periodBlock),
   };
+  if (opts.gradeId) {
+    body.gradeId = String(opts.gradeId).trim();
+    body.currentGrade = body.gradeId;
+  }
+  if (opts.gradeLabel) body.gradeLabel = String(opts.gradeLabel).trim();
   if (opts.userEmail) body.userEmail = opts.userEmail;
   if (opts.userId) body.userId = opts.userId;
   if (opts.teacherUser) body.teacherUser = opts.teacherUser;
@@ -3324,14 +3332,30 @@ function generalSearchCacheVariantMatches(data, periodBlock) {
   return Boolean(data.periodBlock) === Boolean(periodBlock);
 }
 
+function generalSearchCacheGradeMatches(data, row, gradeId) {
+  const want = String(gradeId || '').trim();
+  if (!want) return true;
+  const fromMeta = data && data._generalSearchArchive && data._generalSearchArchive.gradeId;
+  const fromRow = row && (row.grade_id || row.gradeId);
+  const fromData = data && (data.gradeId || data.currentGrade);
+  const have = String(fromMeta || fromRow || fromData || '').trim();
+  if (!have) return false;
+  return have === want;
+}
+
 async function getGeneralSearchCache(query, options) {
   const q = normalizeGeneralSearchQuery(query);
   if (!q) return null;
   const opts = options && typeof options === 'object' ? options : {};
   if (opts.skipCache) return null;
   const periodBlock = Boolean(opts.periodBlock);
+  const gradeId = String(opts.gradeId || '').trim();
 
-  const body = buildGeneralSearchCacheBody(q, { periodBlock: periodBlock });
+  const body = buildGeneralSearchCacheBody(q, {
+    periodBlock: periodBlock,
+    gradeId: gradeId || undefined,
+    gradeLabel: opts.gradeLabel || undefined,
+  });
   const cached = await getCachedResult(body, { requireEnhanced: false });
   if (cached && cached.data && isGeneralSearchPayload(cached.data) &&
       generalSearchCacheVariantMatches(cached.data, periodBlock)) {
@@ -3345,7 +3369,7 @@ async function getGeneralSearchCache(query, options) {
     const exactQuery = encodeURIComponent(q);
     let res = await supabaseRequest(
       '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
-      '&query_text=eq.' + exactQuery + '&select=cache_key,query_text,topic,result_data,hit_count&limit=5',
+      '&query_text=eq.' + exactQuery + '&select=cache_key,query_text,topic,result_data,hit_count,grade_id&limit=5',
       { method: 'GET' }
     );
     if (res.ok) {
@@ -3357,6 +3381,7 @@ async function getGeneralSearchCache(query, options) {
           const data = coerceCachedResultData(row.result_data);
           if (!isGeneralSearchPayload(data)) continue;
           if (!generalSearchCacheVariantMatches(data, periodBlock)) continue;
+          if (!generalSearchCacheGradeMatches(data, row, gradeId)) continue;
           bumpHitCountAsync(row.cache_key, row.hit_count);
           return {
             data: cloneJsonSafe(data),
@@ -3382,7 +3407,7 @@ async function getGeneralSearchCache(query, options) {
       res = await supabaseRequest(
         '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
         '&or=(query_text.ilike.*' + ilikeTerm + '*,topic.ilike.*' + ilikeTerm + '*)' +
-        '&select=cache_key,query_text,topic,result_data,hit_count&order=hit_count.desc,created_at.desc&limit=20',
+        '&select=cache_key,query_text,topic,result_data,hit_count,grade_id&order=hit_count.desc,created_at.desc&limit=20',
         { method: 'GET' }
       );
       if (res.ok) {
@@ -3395,6 +3420,7 @@ async function getGeneralSearchCache(query, options) {
             const data = coerceCachedResultData(row.result_data);
             if (!isGeneralSearchPayload(data)) continue;
             if (!generalSearchCacheVariantMatches(data, periodBlock)) continue;
+            if (!generalSearchCacheGradeMatches(data, row, gradeId)) continue;
             const candidate = String(row.query_text || row.topic || data.query || '').trim();
             if (!candidate) continue;
             const exactNorm = stableNormalize(candidate) === stableNormalize(q);
@@ -3430,17 +3456,22 @@ async function setGeneralSearchCache(query, payload, options) {
   const safe = ensureJsonObjectForStorage(Object.assign({}, payload, {
     query: q,
     periodBlock: periodBlock,
+    gradeId: String(opts.gradeId || '').trim() || undefined,
     cachedAt: new Date().toISOString(),
     _generalSearchArchive: {
       version: 1,
       generatedAt: new Date().toISOString(),
       query: q,
       periodBlock: periodBlock,
+      gradeId: String(opts.gradeId || '').trim() || undefined,
+      gradeLabel: String(opts.gradeLabel || '').trim() || undefined,
     },
   }));
   if (!safe || !isGeneralSearchPayload(safe)) return null;
   const body = buildGeneralSearchCacheBody(q, {
     periodBlock: periodBlock,
+    gradeId: opts.gradeId || undefined,
+    gradeLabel: opts.gradeLabel || undefined,
     userEmail: opts.userEmail,
     userId: opts.userId,
     teacherUser: opts.teacherUser,
@@ -3534,7 +3565,7 @@ async function fetchGeneralSearchCandidates(periodBlock, options) {
     try {
       const res = await supabaseRequest(
         '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
-        '&select=cache_key,query_text,topic,result_data,hit_count,last_hit_at,created_at' +
+        '&select=cache_key,query_text,topic,result_data,hit_count,last_hit_at,created_at,grade_id' +
         '&order=last_hit_at.desc.nullslast,created_at.desc&limit=' + limit,
         { method: 'GET' }
       );
@@ -3565,11 +3596,19 @@ async function fetchGeneralSearchCandidates(periodBlock, options) {
     const queryText = String(row.query_text || row.topic || data.query || '').trim();
     if (!queryText) return;
     const rowPeriod = Boolean(data.periodBlock);
+    const rowGradeId = String(
+      (data._generalSearchArchive && data._generalSearchArchive.gradeId) ||
+      row.grade_id ||
+      data.gradeId ||
+      ''
+    ).trim();
+    if (opts.gradeId && rowGradeId && String(opts.gradeId) !== rowGradeId) return;
     candidates.push({
       key: row.cache_key,
       query: queryText,
       data: data,
       periodBlock: rowPeriod,
+      gradeId: rowGradeId,
       variantMatch: rowPeriod === wantPeriod,
     });
   });
@@ -3592,8 +3631,14 @@ async function findGeneralSearchArchiveSuggestion(query, options) {
   if (!q) return null;
   const opts = options && typeof options === 'object' ? options : {};
   const periodBlock = Boolean(opts.periodBlock);
+  const gradeId = String(opts.gradeId || '').trim();
 
-  const candidates = await fetchGeneralSearchCandidates(periodBlock, opts);
+  let candidates = await fetchGeneralSearchCandidates(periodBlock, opts);
+  if (gradeId) {
+    candidates = candidates.filter(function (c) {
+      return !c.gradeId || c.gradeId === gradeId;
+    });
+  }
   if (!candidates.length) return null;
 
   // Cheap deterministic pass: word-order / grade-word reorders / core-concept superset.
@@ -3620,7 +3665,8 @@ async function findGeneralSearchArchiveSuggestion(query, options) {
   try {
     verdict = await generalSearchClassifier.classifyGeneralSearchArchiveMatch(
       q,
-      candidates.map(function (c) { return { key: c.key, query: c.query }; })
+      candidates.map(function (c) { return { key: c.key, query: c.query }; }),
+      { gradeId: gradeId || undefined, periodBlock: periodBlock }
     );
   } catch (classifyErr) {
     console.warn('[cached_results] general_search classifier failed:', classifyErr.message || classifyErr);

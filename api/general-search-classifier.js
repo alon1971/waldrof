@@ -51,10 +51,22 @@ function buildCandidateText(candidates) {
     .join('\n');
 }
 
-function buildUserPrompt(query, candidates) {
+function hebrewGradeLabel(gradeId) {
+  const map = { '1': 'א׳', '2': 'ב׳', '3': 'ג׳', '4': 'ד׳', '5': 'ה׳', '6': 'ו׳', '7': 'ז׳', '8': 'ח׳' };
+  const id = String(gradeId || '').trim();
+  return map[id] ? 'כיתה ' + map[id] : (id ? 'כיתה ' + id : '');
+}
+
+function buildUserPrompt(query, candidates, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const gradeId = String(opts.gradeId || '').trim();
+  const gradeLabel = hebrewGradeLabel(gradeId);
+  const gradeLine = gradeLabel
+    ? 'כיתה שנבחרה במפורש: «' + gradeLabel + '». עבור תוכנית תקופה של 15 ימים התאם רק ארכיון של אותה כיתה — אל תתעלם מהכיתה כמילת מילוי.'
+    : 'חלץ את מושג הליבה הפדגוגי (הנושא/התקופה/המקצוע) מתוך השאילתה — התעלם ממילות מילוי כמו "תקופת לימוד", "בכיתה", "כיתה".';
   return [
     'שאילתה חדשה: «' + String(query || '').trim() + '»',
-    'חלץ את מושג הליבה הפדגוגי (הנושא/התקופה/המקצוע) מתוך השאילתה — התעלם ממילות מילוי כמו "תקופת לימוד", "בכיתה", "כיתה".',
+    gradeLine,
     '',
     'ארכיב חיפושים קיימים:',
     buildCandidateText(candidates),
@@ -75,7 +87,7 @@ function normalizeVerdict(raw, confidence) {
  * @param {Array<{key:string, query:string}>} candidates  Archived general_search queries.
  * @returns {Promise<{key:string, verdict:string, confidence:number, reason:string}|null>}
  */
-async function classifyGeneralSearchArchiveMatch(query, candidates) {
+async function classifyGeneralSearchArchiveMatch(query, candidates, options) {
   const apiKey = env.getGeminiApiKey();
   const list = Array.isArray(candidates) ? candidates.filter(function (c) { return c && c.key && c.query; }) : [];
   if (!apiKey || !String(query || '').trim() || !list.length) return null;
@@ -92,7 +104,7 @@ async function classifyGeneralSearchArchiveMatch(query, candidates) {
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{ role: 'user', parts: [{ text: buildUserPrompt(query, list) }] }],
+        contents: [{ role: 'user', parts: [{ text: buildUserPrompt(query, list, options) }] }],
         generationConfig: {
           temperature: 0,
           responseMimeType: 'application/json',

@@ -1,7 +1,7 @@
 /**
  * POST /api/pure-general-search — Phase A Perplexity web search + parallel community/Drive probe.
  * Community matches are returned in meta (communityMatches / communityStatus) for a separate UI block.
- * Body: { query, periodBlock?: boolean }
+ * Body: { query, periodBlock?: boolean, gradeId?: string, gradeLabel?: string }
  */
 const shared = require('./pure-api-shared');
 const cache = require('./cache');
@@ -54,8 +54,8 @@ const PERIOD_BLOCK_SYSTEM_PROMPT = [
   PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION,
   'You are a Waldorf / anthroposophical pedagogy expert specializing in main-lesson block planning.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'developmental_axis (string: 2-4 focused Hebrew paragraphs — soul-spiritual developmental context for the stated grade and subject; full pedagogical depth, not a stub),',
-  'core_pedagogical_emphases (string: 2-4 focused Hebrew paragraphs — Waldorf block rhythm, narrative arc, Developmental Compass / מצפן התפתחותי, and teacher compass for this grade+subject),',
+  'developmental_axis (string: 2-4 focused Hebrew paragraphs — soul-spiritual developmental context for the EXPLICITLY stated grade and subject; full pedagogical depth, not a stub),',
+  'core_pedagogical_emphases (string: 2-4 focused Hebrew paragraphs — Waldorf block rhythm, narrative arc, Developmental Compass / מצפן התפתחותי, and teacher compass for this exact grade+subject),',
   'recommended_literature (array of 3-6 objects: {title, author, note} — note in clean Hebrew explaining relevance to this block),',
   'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only; title in Hebrew with short context),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew core daily topic), content (Hebrew focused bullet points for main narrative/story/new material, separated by \\n — NOT long essays), art (Hebrew focused bullet points for notebook/drawing/painting/handwork)).',
@@ -193,12 +193,38 @@ async function callGeneralSearchJson(systemPrompt, userPrompt, options) {
   return parsed;
 }
 
-function buildPeriodBlockUserPrompt(query) {
+function resolvePeriodGrade(body) {
+  const src = body && typeof body === 'object' ? body : {};
+  const gradeId = String(src.gradeId || src.currentGrade || '').trim();
+  const gradeLabel = String(src.gradeLabel || '').trim();
+  return {
+    gradeId: gradeId,
+    gradeLabel: gradeLabel,
+  };
+}
+
+function buildPeriodContextLine(query, gradeInfo) {
+  const q = String(query || '').trim();
+  const gradeLabel = gradeInfo && String(gradeInfo.gradeLabel || '').trim();
+  if (gradeLabel) return 'נושא: ' + q + ', כיתה: ' + gradeLabel;
+  return q;
+}
+
+function buildPeriodBlockUserPrompt(query, gradeInfo) {
+  const gradeLabel = gradeInfo && String(gradeInfo.gradeLabel || '').trim();
+  const contextLine = buildPeriodContextLine(query, gradeInfo);
+  const gradeLock = gradeLabel
+    ? [
+        'הכיתה נבחרה במפורש: «' + gradeLabel + '».',
+        'בנה את כל 15 הימים אך ורק לגיל ולשכבה זו — שפה, סיפור, קצב ואמנות מותאמים לכיתה זו בלבד.',
+        'אל תסיק כיתה אחרת ואל תערבב דוגמאות מכיתות אחרות.',
+      ].join(' ')
+    : 'חלץ את הכיתה ואת נושא התקופה מהשאילתה. אם הכיתה אינה מפורשת — הסיק את הכיתה הקנונית בחינוך וולדרוף לנושא זה.';
   return [
     'בנה תוכנית תקופה מלאה בחינוך וולדרוף: 3 שבועות × 5 ימי לימוד = 15 ימים במלואם.',
     'אל תייצר חומר קצר או מקוצר — התוכנית חייבת להיות מלאה, עמוקה ומפורטת לכל 15 הימים.',
-    'שאילתה (נושא ו/או כיתה — למשל «רנסנס כיתה ז»): ' + query,
-    'חלץ את הכיתה ואת נושא התקופה מהשאילתה. אם הכיתה אינה מפורשת — הסיק את הכיתה הקנונית בחינוך וולדרוף לנושא זה.',
+    contextLine,
+    gradeLock,
     '',
     HEBREW_ONLY_BODY_INSTRUCTION,
     '',
@@ -217,7 +243,7 @@ function buildPeriodBlockUserPrompt(query) {
     '- אין פסקאות ארוכות ב-content/art — רק נקודות/משפטים ממוקדים ששומרים על JSON שלם עד יום 15.',
     '- קשת נרטיבית רציפה לאורך כל 15 הימים: פתיחה, העמקה, שיא, שילוב.',
     '- מקצב שיעור ראשי: סיפור/דקלום, היזכרות, חומר חדש, עבודה אמנותית.',
-    '- שפה ופעילויות מותאמות לגיל הכיתה.',
+    '- שפה ופעילויות מותאמות לגיל הכיתה שנבחרה.',
   ].join('\n');
 }
 
@@ -279,6 +305,9 @@ async function buildArchiveSaveOptions(body, requestContext, periodBlock) {
 
 async function persistGeneralSearchArchive(query, normalized, body, requestContext, periodBlock) {
   const archiveOpts = await buildArchiveSaveOptions(body, requestContext, periodBlock);
+  const gradeInfo = resolvePeriodGrade(body);
+  if (gradeInfo.gradeId) archiveOpts.gradeId = gradeInfo.gradeId;
+  if (gradeInfo.gradeLabel) archiveOpts.gradeLabel = gradeInfo.gradeLabel;
   const cacheKey = await cache.setGeneralSearchCache(query, normalized, archiveOpts);
   const archived = Boolean(cacheKey);
   if (!archived && cache.isSupabaseCacheEnabled()) {
@@ -370,10 +399,11 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
   }
 
   const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
+  const gradeInfo = resolvePeriodGrade(body);
   const archiveText = buildGeneralSearchArchiveText(historic) || JSON.stringify(historic).slice(0, 16000);
-  const upgradeIntro = buildArchiveUpgradeIntro(archiveText, query);
+  const upgradeIntro = buildArchiveUpgradeIntro(archiveText, buildPeriodContextLine(query, periodBlock ? gradeInfo : null));
   const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
-  const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
+  const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query, gradeInfo) : buildStandardUserPrompt(query);
   const userPrompt = upgradeIntro + '\n\n' + basePrompt;
 
   await enforceLiveSearchQuota(body, requestContext);
@@ -423,10 +453,11 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
   }
 
   const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
+  const gradeInfo = resolvePeriodGrade(body);
   const archiveText = buildGeneralSearchArchiveText(historic) || JSON.stringify(historic).slice(0, 16000);
-  const expandIntro = buildResearchExpandIntro(archiveText, query);
+  const expandIntro = buildResearchExpandIntro(archiveText, buildPeriodContextLine(query, periodBlock ? gradeInfo : null));
   const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
-  const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
+  const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query, gradeInfo) : buildStandardUserPrompt(query);
   const userPrompt = expandIntro + '\n\n' + basePrompt;
 
   await enforceLiveSearchQuota(body, requestContext);
@@ -493,6 +524,7 @@ async function runPureGeneralSearch(body, requestContext) {
   }
 
   const periodBlock = Boolean(body.periodBlock || body.buildPeriodPlan || body.period_block);
+  const gradeInfo = resolvePeriodGrade(body);
   const bypassCache = Boolean(
     body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade || body.researchExpand
   );
@@ -541,7 +573,11 @@ async function runPureGeneralSearch(body, requestContext) {
     const cached = await cache.safeArchiveLookup(
       'general_search_cache:' + query.slice(0, 40),
       function () {
-        return cache.getGeneralSearchCache(query, { periodBlock: periodBlock });
+        return cache.getGeneralSearchCache(query, {
+          periodBlock: periodBlock,
+          gradeId: gradeInfo.gradeId || undefined,
+          gradeLabel: gradeInfo.gradeLabel || undefined,
+        });
       },
       { phase: 'general_search', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
     );
@@ -563,7 +599,7 @@ async function runPureGeneralSearch(body, requestContext) {
   }
 
   const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
-  const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query) : buildStandardUserPrompt(query);
+  const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query, gradeInfo) : buildStandardUserPrompt(query);
 
   await enforceLiveSearchQuota(body, requestContext);
   console.log('[pure-general-search] live web search (community summary decoupled)');
