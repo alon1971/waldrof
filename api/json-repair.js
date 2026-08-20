@@ -200,6 +200,20 @@ function repairJsonText(raw) {
   return repairJsonStringLiterals(repairCommonJsonDefects(raw));
 }
 
+/**
+ * Single pre-parse cleanup: markdown fences, smart quotes, raw newlines inside
+ * strings, unescaped quotes, invalid escapes, and trailing commas.
+ */
+function preprocessModelJson(text) {
+  let raw = stripMarkdownJsonFences(text);
+  raw = cleanseJsonCharacters(raw);
+  raw = normalizeJsonSmartQuotes(raw);
+  const extracted = extractJsonPayload(raw) || extractJsonByRegex(raw) || raw;
+  const quoteFixed = repairUnescapedInnerQuotesInJsonStrings(extracted);
+  const escapeFixed = repairInvalidEscapeSequences(quoteFixed);
+  return repairJsonText(escapeFixed);
+}
+
 function repairTruncatedJson(raw) {
   let s = String(raw).trim();
   if (!s) return s;
@@ -433,10 +447,21 @@ function buildModelParseFallback(phase, rawText, context) {
     const rawLooksBad =
       /<!DOCTYPE|<html[\s>]|<head[\s>]|<body[\s>]|Gateway Time-?out|502 Bad Gateway|504 Gateway|Cloudflare|nginx/i.test(plain) ||
       (/[A-Za-z]{40,}/.test(plain) && ((plain.match(/[\u0590-\u05FF]/g) || []).length < 40));
+    const query = String(ctx.query || ctx.topic || '').trim();
+    const grade = String(ctx.gradeLabel || ctx.grade || '').trim();
+    const heading = query
+      ? (grade ? (query + ' — ' + grade) : query)
+      : 'תקופת לימוד';
     const safeHebrew = rawLooksBad ? '' : plain.slice(0, 8000);
+    const axis = safeHebrew || (
+      'ציר התפתחותי לתקופת «' + heading + '»: התוכנית נבנתה כשלד פדגוגי רציף ל-15 ימי שיעור ראשי, ' +
+      'בהתאם לגיל הילדים, לקצב הסיפורי ולעבודה האמנותית במחברת.'
+    );
     const fallback = {
-      developmental_axis: safeHebrew,
-      core_pedagogical_emphases: '',
+      developmental_axis: axis,
+      core_pedagogical_emphases: safeHebrew
+        ? ''
+        : 'דגשים למורה: שמירה על קשת נרטיבית (פתיחה, העמקה, שיא, שילוב), היזכרות יומית, חומר חדש, ועבודה אמנותית בכל יום.',
       recommended_literature: [],
       relevant_links: [],
       _parseFallback: true,
@@ -503,18 +528,21 @@ function buildJsonParseAttempts(text) {
   const normalized = normalizeJsonSmartQuotes(cleanseJsonCharacters(stripped));
   const regexExtracted = extractJsonByRegex(normalized);
   const extracted = extractJsonPayload(normalized) || regexExtracted || normalized;
+  const preprocessed = preprocessModelJson(text);
   const quoteFixed = repairUnescapedInnerQuotesInJsonStrings(extracted);
   const escapeFixed = repairInvalidEscapeSequences(quoteFixed);
   const literalFixed = repairJsonText(extracted);
   const quoteAndLiteral = repairJsonText(escapeFixed);
 
   const cores = [
+    preprocessed,
     extracted,
     regexExtracted,
     quoteFixed,
     escapeFixed,
     literalFixed,
     quoteAndLiteral,
+    repairTruncatedJson(preprocessed),
     repairTruncatedJson(extracted),
     repairTruncatedJson(regexExtracted),
     repairTruncatedJson(quoteFixed),
@@ -650,6 +678,7 @@ module.exports = {
   repairJsonStringLiterals,
   repairCommonJsonDefects,
   repairJsonText,
+  preprocessModelJson,
   repairTruncatedJson,
   buildJsonParseAttempts,
   parseJsonLenient,
