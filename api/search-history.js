@@ -150,6 +150,20 @@ async function executeSearchHistory(req) {
     const periodBlock = Boolean(body && (body.periodBlock || body.buildPeriodPlan || body.period_block));
     const gradeId = String((body && (body.gradeId || body.currentGrade)) || '').trim();
     const gradeLabel = String((body && body.gradeLabel) || '').trim();
+    // 15-day probes require query + period15 + gradeId. Never report a hit without a grade.
+    if (periodBlock && !gradeId) {
+      return {
+        ok: true,
+        action: 'probe_general_search',
+        hit: false,
+        fromCache: false,
+        isArchiveHit: false,
+        cacheKey: null,
+        periodBlock: true,
+        resultData: null,
+        meta: null,
+      };
+    }
     let cached = await cacheDb.getGeneralSearchCache(query, {
       periodBlock: periodBlock,
       gradeId: gradeId || undefined,
@@ -164,6 +178,7 @@ async function executeSearchHistory(req) {
         periodBlock: true,
         gradeId: gradeId || undefined,
         gradeLabel: gradeLabel || undefined,
+        allowMissingGrade: !gradeId,
       });
       if (alt && alt.data) {
         cached = alt;

@@ -927,9 +927,6 @@ async function runPureGeneralSearch(body, requestContext) {
   const bypassCache = Boolean(
     body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade || body.researchExpand
   );
-  // When the 15-day toggle is on, never return a cached overview/archive summary
-  // (Form Drawing, Sciences, etc.). Always call Gemini for a grade-locked table.
-  const forcePeriodGeneration = periodBlock;
 
   // Community Drive summarization is decoupled — see /api/community-summarizer.
   // Live general search is web/archive only.
@@ -951,13 +948,20 @@ async function runPureGeneralSearch(body, requestContext) {
   }
 
   // "כן, התכוונתי" — the teacher confirmed a suggested archive match: serve it directly.
-  // 15-day requests skip this: archive text is never a substitute for a generated table.
+  // 15-day confirm only accepts a period15 row for the same gradeId — never a standard overview.
   const confirmArchiveKey = String(body.confirmArchiveKey || body.archiveCacheKey || '').trim();
-  if (confirmArchiveKey && !forcePeriodGeneration) {
-    const confirmed = await cache.getGeneralSearchByCacheKey(confirmArchiveKey, { periodBlock: periodBlock });
+  if (confirmArchiveKey && !bypassCache) {
+    const confirmed = await cache.getGeneralSearchByCacheKey(confirmArchiveKey, {
+      periodBlock: periodBlock,
+      gradeId: periodBlock ? (gradeInfo.gradeId || undefined) : undefined,
+    });
     if (confirmed && confirmed.data) {
       return {
-        data: normalizeGeneralSearchResponse(confirmed.data, { periodBlock: periodBlock }),
+        data: normalizeGeneralSearchResponse(confirmed.data, {
+          periodBlock: periodBlock,
+          query: query,
+          gradeId: gradeInfo.gradeId || '',
+        }),
         meta: Object.assign({
           fromCache: true,
           source: 'general_search_confirmed',
@@ -970,9 +974,9 @@ async function runPureGeneralSearch(body, requestContext) {
     // Fall through to a fresh run if the confirmed key vanished from the archive.
   }
 
-  if (!bypassCache && !forcePeriodGeneration) {
+  if (!bypassCache) {
     // Hard 4s budget: partial/corrupt archive rows must never hang the gateway.
-    // On timeout or bad payload we purge and fall through to a fresh Perplexity search.
+    // 15-day lookups use key [general_search, query, period15, gradeId] and reject standard overviews.
     const cached = await cache.safeArchiveLookup(
       'general_search_cache:' + query.slice(0, 40),
       function () {
@@ -987,7 +991,11 @@ async function runPureGeneralSearch(body, requestContext) {
     if (cached && cached.data) {
       const cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
       return {
-        data: normalizeGeneralSearchResponse(cached.data, { periodBlock: periodBlock }),
+        data: normalizeGeneralSearchResponse(cached.data, {
+          periodBlock: periodBlock,
+          query: query,
+          gradeId: gradeInfo.gradeId || '',
+        }),
         meta: Object.assign({
           fromCache: true,
           source: 'general_search_cache',
@@ -998,7 +1006,7 @@ async function runPureGeneralSearch(body, requestContext) {
         }, cached.meta || {}),
       };
     }
-    // No semantic archive suggestion / reference scan — go straight to Phase A (Perplexity).
+    // No matching archive row — go straight to live generation (Gemini).
   }
 
   const systemPrompt = periodBlock ? buildPeriodBlockSystemPrompt(query, gradeInfo) : SYSTEM_PROMPT;
@@ -1007,7 +1015,7 @@ async function runPureGeneralSearch(body, requestContext) {
   await enforceLiveSearchQuota(body, requestContext);
   console.log(
     '[pure-general-search] live web search',
-    periodBlock ? '(force 15-day generation, archive skipped)' : '(community summary decoupled)'
+    periodBlock ? '(15-day cache miss — Gemini generation)' : '(community summary decoupled)'
   );
   try {
     const parsed = await callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, {

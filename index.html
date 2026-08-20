@@ -27745,7 +27745,7 @@
       setGeneralSearchPeriodToggleDisabled(true);
       try {
         // Exact Cache Hit with payload already from probe — render immediately (no round-trip delay).
-        if (opts.cachedData && fromArchiveHit && !periodBlock) {
+        if (opts.cachedData && fromArchiveHit) {
           var instantMeta = Object.assign({
             fromCache: true,
             periodBlock: periodBlock,
@@ -27758,12 +27758,16 @@
           appState.generalSearchResult = opts.cachedData;
           appState.generalSearchMeta = instantMeta;
           renderGeneralSearchResults(opts.cachedData, instantMeta);
-          // Still refresh via confirmArchiveKey so archive metadata stays in sync.
-          if (opts.confirmArchiveKey) {
+          // Standard overview: refresh via confirmArchiveKey so archive metadata stays in sync.
+          // 15-day hits already have the period payload — skip the round-trip so a vanished
+          // key cannot fall through to a live Gemini generation.
+          if (opts.confirmArchiveKey && !periodBlock) {
             try {
               var refresh = await fetchPureGeneralSearch(query, signal, {
                 periodBlock: periodBlock,
                 confirmArchiveKey: opts.confirmArchiveKey,
+                gradeId: opts.gradeId,
+                gradeLabel: opts.gradeLabel,
               });
               if (!signal.aborted && refresh && refresh.data) {
                 var refreshMeta = refresh.meta || instantMeta;
@@ -27786,10 +27790,11 @@
         if (periodBlock) {
           fetchOpts.gradeId = opts.gradeId || getGeneralSearchPeriodGradeId();
           fetchOpts.gradeLabel = opts.gradeLabel || getGeneralSearchPeriodGradeLabel(fetchOpts.gradeId);
+        }
+        if (opts.bypassCache || opts.forceRefresh || opts.forceFresh || opts.skipCache) {
           fetchOpts.bypassCache = true;
         }
-        if (opts.bypassCache) fetchOpts.bypassCache = true;
-        if (opts.confirmArchiveKey && !periodBlock) fetchOpts.confirmArchiveKey = opts.confirmArchiveKey;
+        if (opts.confirmArchiveKey) fetchOpts.confirmArchiveKey = opts.confirmArchiveKey;
         var response = await fetchPureGeneralSearch(query, signal, fetchOpts);
         if (signal.aborted) return;
         appState.generalSearchQuery = query;
@@ -27875,41 +27880,23 @@
           return;
         }
       }
-      // 15-day toggle: never serve a cached overview (e.g. Form Drawing archive
-      // summary) in place of a live Gemini day-by-day table for the selected grade.
-      if (periodBlock) {
-        var periodConfirmed = await confirmPaidSearchAction({
-          phase: 'general_search',
-          isArchiveHit: false,
-          fromCache: false,
-        });
-        if (!periodConfirmed) return;
-        ensureGeneralSearchArchiveSuggestionEvents();
-        hideGeneralSearchArchiveSuggestion();
-        try {
-          await performGeneralSearch(query, {
-            periodBlock: true,
-            bypassCache: true,
-            gradeId: getGeneralSearchPeriodGradeId(),
-            gradeLabel: getGeneralSearchPeriodGradeLabel(getGeneralSearchPeriodGradeId()),
-          });
-        } catch (err) {
-          if (isBenignStreamAbortError(err) || isGeneralSearchAbortError(err)) return;
-          var periodResultsEl = document.getElementById('general-search-results');
-          if (periodResultsEl) {
-            periodResultsEl.classList.remove('hidden');
-            periodResultsEl.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
-              escapeHtml(err && err.message ? err.message : String(err)) + '</p>';
-          }
-        }
-        return;
-      }
+      var periodGradeId = periodBlock ? getGeneralSearchPeriodGradeId() : '';
+      var periodGradeLabel = periodBlock ? getGeneralSearchPeriodGradeLabel(periodGradeId) : '';
       // 1) Archive/cache check FIRST — never open credit modal or ask questions before this.
+      // 15-day plans probe query + period15 + gradeId; standard overviews are never a hit.
       var archiveCheck = await checkArchiveHit('general_search', {
         query: query,
-        periodBlock: false,
-        gradeId: '',
+        periodBlock: periodBlock,
+        gradeId: periodGradeId,
       });
+      if (periodBlock && archiveCheck.isArchiveHit) {
+        var periodProbe = archiveCheck.probe || {};
+        var periodProbePayload = periodProbe.data || {};
+        var periodCachedData = periodProbePayload.resultData || null;
+        if (!isMatchingPeriodPlanCachePayload(periodCachedData, periodGradeId)) {
+          archiveCheck.isArchiveHit = false;
+        }
+      }
       // 2) Exact archive hit → load + display immediately (Cache Hit), no credit modal, no questions.
       if (archiveCheck.isArchiveHit) {
         var probe = archiveCheck.probe || {};
@@ -27921,11 +27908,13 @@
         hideGeneralSearchArchiveSuggestion();
         try {
           await performGeneralSearch(query, {
-            periodBlock: false,
+            periodBlock: periodBlock,
             confirmArchiveKey: cacheKey || undefined,
             fromArchiveHit: true,
             cachedData: cachedData || undefined,
             cachedMeta: cachedMeta || undefined,
+            gradeId: periodGradeId || undefined,
+            gradeLabel: periodGradeLabel || undefined,
           });
         } catch (err) {
           if (isBenignStreamAbortError(err) || isGeneralSearchAbortError(err)) return;
@@ -27950,7 +27939,11 @@
       }
       ensureGeneralSearchArchiveSuggestionEvents();
       try {
-        await performGeneralSearch(query, { periodBlock: false });
+        await performGeneralSearch(query, {
+          periodBlock: periodBlock,
+          gradeId: periodGradeId || undefined,
+          gradeLabel: periodGradeLabel || undefined,
+        });
       } catch (err) {
         // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
         if (isBenignStreamAbortError(err) || isGeneralSearchAbortError(err)) return;
@@ -28111,6 +28104,30 @@
         console.warn('[archive-probe]', action, 'failed:', err);
         return { hit: false, probeFailed: true };
       }
+    }
+
+    /**
+     * True when probe payload is a grade-locked 15-day plan — never a standard overview.
+     */
+    function isMatchingPeriodPlanCachePayload(resultData, gradeId) {
+      if (!resultData || typeof resultData !== 'object') return false;
+      if (!resultData.periodBlock) return false;
+      var want = String(gradeId || '').trim();
+      if (!want) return false;
+      var archiveMeta = resultData._generalSearchArchive && typeof resultData._generalSearchArchive === 'object'
+        ? resultData._generalSearchArchive
+        : {};
+      var have = String(archiveMeta.gradeId || resultData.gradeId || resultData.currentGrade || '').trim();
+      if (!have || have !== want) return false;
+      var days = Array.isArray(resultData.curriculum) ? resultData.curriculum : [];
+      if (days.length < 10) return false;
+      var filled = 0;
+      for (var i = 0; i < days.length; i++) {
+        var day = days[i];
+        if (!day || typeof day !== 'object') continue;
+        if (String(day.topic || day.content || day.art || '').trim()) filled++;
+      }
+      return filled >= 10;
     }
 
     async function probeGradeArchiveHit(gradeId) {
