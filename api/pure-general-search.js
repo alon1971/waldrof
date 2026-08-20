@@ -498,6 +498,8 @@ function ensureHttpsUrl(rawUrl) {
   return raw;
 }
 
+const RSARCHIVE_GENERIC_TITLE = 'ארכיון שטיינר - מקורות בנושא';
+
 function isVagueLinkTitle(title) {
   const text = String(title || '').trim();
   if (!text) return true;
@@ -567,23 +569,41 @@ function isGenericWaldorfOverviewTitle(title) {
   return /^(home|homepage|דף הבית|waldorf|waldorf education|what is waldorf|חינוך ולדורף|אנתרופוסופיה|sidebar|rsarchive|the rudolf steiner archive|rudolf steiner archive|steiner archive)$/i.test(text);
 }
 
-function descriptiveRsarchiveTitle(query) {
-  const q = String(query || '').trim();
-  if (q) return 'הרצאות שטיינר בנושא «' + q + '»';
-  return 'הרצאות שטיינר';
+function descriptiveRsarchiveTitle() {
+  return RSARCHIVE_GENERIC_TITLE;
 }
 
-function isRsarchiveContentOrSearchUrl(url) {
-  try {
-    const parsed = new URL(String(url || '').trim());
-    if (normalizeHost(parsed.hostname) !== 'rsarchive.org') return false;
-    const path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
-    if (path === '/') return false;
-    if (/^\/Search\.php$/i.test(path)) return true;
-    return /\/(Lectures|Books|Articles|GA\d+|eLib|Search)/i.test(path);
-  } catch (e) {
-    return false;
-  }
+function buildGuaranteedSearchFallbacks(topic) {
+  const encoded = encodeURIComponent(String(topic || '').trim());
+  if (!encoded) return [];
+  return [
+    {
+      title: 'חיפוש בארכיון שטיינר',
+      url: 'https://rsarchive.org/Search.php?q=' + encoded,
+    },
+    {
+      title: 'מאמרי ספריית ולדורף',
+      url: 'https://www.waldorflibrary.org/search?q=' + encoded,
+    },
+  ].filter(isDisplayableRelevantLink);
+}
+
+function mergeGuaranteedSearchFallbacks(links, query) {
+  const out = [];
+  const seen = Object.create(null);
+  (Array.isArray(links) ? links : []).forEach(function (item) {
+    if (!item || !item.url || seen[item.url]) return;
+    seen[item.url] = true;
+    out.push(item);
+  });
+  if (out.length >= 3) return out;
+  buildGuaranteedSearchFallbacks(query).forEach(function (item) {
+    if (out.length >= 3) return;
+    if (seen[item.url]) return;
+    seen[item.url] = true;
+    out.push(item);
+  });
+  return out;
 }
 
 function diversifyLiveLinks(items, limit) {
@@ -643,7 +663,6 @@ function sanitizePerplexityLiveLinks(list, query) {
     }
     if (!isApprovedRelevantLinkHost(host)) return;
     const hostNorm = normalizeHost(host);
-    if (hostNorm === 'rsarchive.org' && !isRsarchiveContentOrSearchUrl(url)) return;
     let title = '';
     if (item && typeof item === 'object') {
       title = sanitizePedagogicalText(item.title) || String(item.title || item.name || '').trim();
@@ -651,49 +670,47 @@ function sanitizePerplexityLiveLinks(list, query) {
     if (!isHebrewOrEnglishCitationTitle(title)) return;
     const needsDescriptiveTitle = isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title);
     if (needsDescriptiveTitle) {
-      title = hostNorm === 'rsarchive.org'
-        ? descriptiveRsarchiveTitle(query)
-        : curatedTitleForUrl(url);
+      if (hostNorm === 'rsarchive.org') {
+        title = descriptiveRsarchiveTitle();
+      } else {
+        title = curatedTitleForUrl(url);
+        if (isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title)) return;
+      }
     }
-    if (isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title)) return;
     if (seen[url]) return;
     seen[url] = true;
     out.push({ title: title, url: url });
   });
-  return diversifyLiveLinks(out, 6);
+  return mergeGuaranteedSearchFallbacks(diversifyLiveLinks(out, 6), query);
 }
 
 function resolveRelevantLinks(options) {
   const opts = options && typeof options === 'object' ? options : {};
   const liveProvided = Array.isArray(opts.liveLinks);
-  const live = sanitizePerplexityLiveLinks(opts.liveLinks, opts.query);
+  const live = liveProvided ? sanitizePerplexityLiveLinks(opts.liveLinks, opts.query) : [];
   if (live.length) return live;
-  // A live Perplexity pass ran: keep only specific citations — never pad with generic pages.
-  if (liveProvided) return live;
+  if (liveProvided) return mergeGuaranteedSearchFallbacks([], opts.query);
   if (opts.useArchivedLinks) {
     const archived = sanitizePerplexityLiveLinks(shared.coerceLinks(opts.archivedLinks), opts.query);
     if (archived.length) return archived;
   }
-  return buildCuratedRelevantLinks(opts.query || '');
+  return mergeGuaranteedSearchFallbacks(buildCuratedRelevantLinks(opts.query || ''), opts.query);
 }
 
 function buildPerplexityLiveLinksQuery(topic) {
   const q = String(topic || '').trim().replace(/"/g, '');
-  return (
-    '"' + q +
-    '" (חינוך ולדורף OR אנתרופוסופיה OR "Waldorf Education" OR "Rudolf Steiner Archive" OR "Online Waldorf Library")'
-  );
+  return '"' + q + '" Waldorf education arithmetic math articles';
 }
 
 function buildPerplexityLiveLinksInstructions(topic) {
   const q = String(topic || '').trim();
   return [
     "חובה מוחלטת: כל קישור חייב לעסוק באופן ישיר ומובהק בנושא המבוקש: '" + q + "' בלבד.",
-    "אין להחזיר מאמרים כלליים על חינוך ולדורף או דפי בית. אם אין מאמר שעוסק ספציפית ב-'" + q + "', החזר רק את המאמרים הספציפיים שנמצאו ואל תמלא בקישורים כלליים.",
-    'שפות מותרות: עברית או אנגלית בלבד.',
-    "DO NOT remove or exclude the Rudolf Steiner Archive (rsarchive.org). High-quality lectures and articles from RSArchive related to '" + q + "' are welcome and encouraged.",
-    'Bring 4-6 total relevant links: combine RSArchive articles with Hebrew articles (from adamolam.co.il, harduf.org.il, anadom.co.il) and broader Waldorf libraries (such as waldorflibrary.org).',
-    "Ensure RSArchive links point to the actual lecture/book content or search result page, and give them a clear, descriptive title (e.g., 'הרצאות שטיינר בנושא...', rather than just 'Sidebar' or 'The Rudolf Steiner Archive').",
+    "אין להחזיר מאמרים כלליים על חינוך ולדורף או דפי בית. אם אין מאמר שעוסק ספציפית ב-'" + q + "', החזר רק את המאמרים הספציפיים שנמצאו.",
+    'שפות מותרות: עברית או אנגלית. English RSArchive and Waldorf Library links are fully accepted — do not require Hebrew results.',
+    "DO NOT remove or exclude the Rudolf Steiner Archive (rsarchive.org). High-quality English lectures and articles from RSArchive related to '" + q + "' are welcome and encouraged.",
+    'Bring 4-6 total relevant links: combine RSArchive articles with Hebrew articles (from adamolam.co.il, harduf.org.il, anadom.co.il) when available and broader Waldorf libraries (such as waldorflibrary.org).',
+    "If an RSArchive citation title is generic (Sidebar, The Rudolf Steiner Archive), keep the URL and title it '" + RSARCHIVE_GENERIC_TITLE + "'.",
   ].join(' ');
 }
 
@@ -714,7 +731,7 @@ async function fetchPerplexityLiveRelevantLinks(topic) {
             buildPerplexityLiveLinksInstructions(q),
             'Use only real search citations. NEVER invent or guess URLs or article IDs.',
             'Return at most one short sentence. Titles come from citations, not from memory.',
-            'Do not cite homepages, index pages, or generic Waldorf overviews. Do not pad with filler links.',
+            'English RSArchive and Waldorf Library citations are welcome even when no Hebrew pages are found.',
           ].join(' '),
         },
         {
@@ -1713,6 +1730,8 @@ module.exports = {
   buildPerplexityLiveLinksQuery,
   buildPerplexityLiveLinksInstructions,
   overlayArchivedPayloadWithLiveLinks,
+  mergeGuaranteedSearchFallbacks,
+  RSARCHIVE_GENERIC_TITLE,
   isDisplayableRelevantLink,
   hasChainedOrDoubleDomain,
   APPROVED_RELEVANT_LINK_DOMAINS,
