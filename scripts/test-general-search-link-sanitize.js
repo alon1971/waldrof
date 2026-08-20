@@ -29,10 +29,11 @@ assert(
   'international query uses English topic on Waldorf library hosts'
 );
 assert(
-  queries.israeli === 'site:harduf.org.il OR site:anadom.co.il OR site:waldorfisrael.org "' + query + '"',
-  'Israeli query uses the original Hebrew topic without adamolam'
+  queries.israeli === '"' + query + '" (חינוך ולדורף OR "חינוך אנתרופוסופי" OR "תכנית הלימודים" OR "מערך שיעור") (site:anthro.org.il OR "בית ספר ולדורף" OR "בית חינוך ולדורף" OR "ולדורף שקד" OR "ולדורף זומר" OR "ולדורף עודד" OR "ולדורף אורים" OR "ולדורף תמר" OR "ולדורף גליל")',
+  'Israeli query targets anthro.org.il and active Waldorf school names'
 );
 assert(queries.israeli.indexOf('adamolam') < 0, 'Israeli query excludes adamolam.co.il');
+assert(queries.israeli.indexOf('site:anthro.org.il') >= 0, 'Israeli query includes anthro.org.il');
 
 const lock = pgs.buildPerplexityLiveLinksInstructions(query);
 assert(lock.indexOf('חובה מוחלטת') >= 0, 'topic lock is mandatory');
@@ -40,7 +41,9 @@ assert(lock.indexOf(query) >= 0, 'topic lock names the query');
 assert(lock.indexOf(queries.rsarchive) >= 0, 'instructions include RSArchive site query');
 assert(lock.indexOf(queries.international) >= 0, 'instructions include international site query');
 assert(lock.indexOf(queries.israeli) >= 0, 'instructions include Israeli site query');
-assert(lock.indexOf('exactly 2') >= 0, 'asks for exactly two links per bucket');
+assert(lock.indexOf('מצא 2 קישורים חיים, פעילים ומאומתים') >= 0, 'asks for two live Hebrew anthro/school links');
+assert(lock.indexOf('אל תחזיר דומיינים לא פעילים') >= 0, 'forbids inactive domains and homepages');
+assert(lock.indexOf("הקישורים חייבים להוביל ישירות לעמוד תוכן/מאמר שעוסק בנושא '" + query + "'") >= 0, 'Hebrew links must be on-topic content pages');
 assert(lock.indexOf('adamolam.co.il') >= 0, 'explicitly forbids adamolam');
 assert(lock.indexOf('Never send Hebrew to rsarchive.org') >= 0, 'forbids Hebrew RSArchive queries');
 
@@ -56,12 +59,12 @@ const live = pgs.sanitizePerplexityLiveLinks([
   { title: 'זר', url: 'https://example.com/not-approved' },
   { title: 'כפול', url: 'https://jobs.waldorftoday.com/https://adamolam.co.il/post' },
   'https://adamolam.co.il/waldorf-botany/',
-  { title: 'צמחיה בהרדוף', url: 'https://harduf.org.il/botany-lesson/' },
+  { title: 'צמחיה באתר האנתרופוסופיה', url: 'https://anthro.org.il/waldorf-botany/' },
 ], query);
 assert(live.some(function (item) { return item.url.indexOf('waldorflibrary.org') >= 0; }), 'keeps English library citation');
 assert(live.some(function (item) { return item.title === pgs.RSARCHIVE_GENERIC_TITLE; }), 'generic RSArchive title is renamed and kept');
 assert(live.some(function (item) { return item.url.indexOf('rsarchive.org/Lectures') >= 0; }), 'keeps RSArchive lecture URL');
-assert(live.some(function (item) { return item.url.indexOf('harduf.org.il') >= 0; }), 'keeps Harduf Hebrew citation');
+assert(live.some(function (item) { return item.url.indexOf('anthro.org.il') >= 0; }), 'keeps anthro.org.il Hebrew citation');
 assert(!live.some(function (item) { return /adamolam\.co\.il/.test(item.url); }), 'drops adamolam citations');
 assert(!live.some(function (item) { return /example\.com|jobs\.waldorftoday|google\.com/.test(item.url); }), 'drops foreign, chained, and Google URLs');
 
@@ -148,11 +151,11 @@ const archived = pgs.normalizeGeneralSearchResponse({
   developmental_axis: 'ציר',
   core_pedagogical_emphases: 'דגשים',
   relevant_links: [
-    { title: 'מאמר חי', url: 'https://harduf.org.il/live-botany/' },
+    { title: 'מאמר חי', url: 'https://anthro.org.il/live-botany/' },
   ],
 }, { query: query, useArchivedLinks: true });
 assert(archived.relevant_links.length === 1, 'archived direct articles are kept without padding');
-assert(archived.relevant_links[0].url.indexOf('harduf.org.il/live-botany') >= 0, 'archived Harduf URL kept');
+assert(archived.relevant_links[0].url.indexOf('anthro.org.il/live-botany') >= 0, 'archived anthro.org.il URL kept');
 
 const noPad = pgs.normalizeGeneralSearchResponse({
   developmental_axis: 'ציר',
@@ -191,26 +194,43 @@ const balanced = pgs.sanitizePerplexityLiveLinks([
   { title: 'Library A', url: 'https://www.waldorflibrary.org/articles/a' },
   { title: 'AWSNA B', url: 'https://www.waldorfeducation.org/resources/b' },
   { title: 'SWSF C', url: 'https://www.steinerwaldorf.org/articles/c' },
-  { title: 'הרדוף', url: 'https://harduf.org.il/d/' },
-  { title: 'אנדום', url: 'https://anadom.co.il/e/' },
-  { title: 'איגוד', url: 'https://waldorfisrael.org/f/' },
+  { title: 'בוטניקה באנתרופוסופיה בישראל', url: 'https://anthro.org.il/botany-period/' },
+  { title: 'תקופת צומח בשקד', url: 'https://www.waldorf.co.il/botany-shaked/' },
+  { title: 'גלריה', url: 'https://www.waldorf.co.il/gallery/' },
   { title: 'אדם עולם', url: 'https://adamolam.co.il/g/' },
   { title: 'גוגל', url: 'https://www.google.com/search?q=site:waldorflibrary.org+botany' },
 ], query);
 assert(balanced.length === 6, 'assembles exactly six direct citations');
 assert(countBucket(balanced, /rsarchive\.org/) === 2, 'keeps exactly two RSArchive lectures/books');
 assert(countBucket(balanced, /waldorflibrary\.org|waldorfeducation\.org|steinerwaldorf\.org/) === 2, 'keeps exactly two international library articles');
-assert(countBucket(balanced, /harduf\.org\.il|anadom\.co\.il|waldorfisrael\.org/) === 2, 'keeps exactly two Israeli Waldorf articles');
-assert(!balanced.some(function (item) { return /adamolam|google\.com/.test(item.url); }), 'balanced set excludes adamolam and Google');
+assert(countBucket(balanced, /anthro\.org\.il|waldorf\.co\.il/) === 2, 'keeps exactly two Israeli anthro/school articles');
+assert(!balanced.some(function (item) { return /adamolam|google\.com|\/gallery\//.test(item.url); }), 'balanced set excludes adamolam, Google, and gallery pages');
 assert(balanced[0].title === 'R1' && balanced[1].title === 'R2', 'preserves original RSArchive titles in order');
 assert(balanced[2].title === 'Library A' && balanced[3].title === 'AWSNA B', 'preserves original international titles');
-assert(balanced[4].title === 'הרדוף' && balanced[5].title === 'אנדום', 'preserves original Hebrew titles');
+assert(balanced[4].title === 'בוטניקה באנתרופוסופיה בישראל' && balanced[5].title === 'תקופת צומח בשקד', 'preserves original Hebrew content titles');
 
 const googleOnly = pgs.sanitizePerplexityLiveLinks([
   { title: 'search', url: 'https://www.google.com/search?q=חינוך+ולדורף+בוטניקה' },
   { title: 'Library search', url: 'https://www.waldorflibrary.org/search?q=botany' },
 ], query);
 assert(googleOnly.length === 0, 'drops Google and broken library search pages instead of rewriting them');
+
+const genericNav = pgs.sanitizePerplexityLiveLinks([
+  { title: 'בית', url: 'https://anthro.org.il/botany-overview/' },
+  { title: 'אודות', url: 'https://anthro.org.il/about-anthroposophy/' },
+  { title: 'צור קשר', url: 'https://www.waldorf.co.il/contact/' },
+  { title: 'תקופת בוטניקה בכיתה ה׳', url: 'https://anthro.org.il/waldorf-botany-grade-5/' },
+], query);
+assert(!genericNav.some(function (item) {
+  return /^(בית|אודות|צור קשר)$/.test(item.title);
+}), 'drops generic nav titles such as בית, אודות, and צור קשר');
+assert(genericNav.some(function (item) {
+  return item.title === 'תקופת בוטניקה בכיתה ה׳';
+}), 'keeps Hebrew links that have a clear content title');
+assert(pgs.isGenericNavTitle('בית') && pgs.isGenericNavTitle('אודות') && pgs.isGenericNavTitle('צור קשר'), 'marks בית/אודות/צור קשר as generic');
+assert(pgs.isIsraeliWaldorfContentHost('anthro.org.il'), 'anthro.org.il is an Israeli content host');
+assert(pgs.isIsraeliWaldorfContentHost('www.waldorf.co.il'), 'waldorf.co.il school host is allowed');
+assert(!pgs.isIsraeliWaldorfContentHost('adamolam.co.il'), 'adamolam is not an Israeli content host');
 
 const englishTopic = pgs.resolveEnglishSearchTopic('חשבון').toLowerCase();
 assert(

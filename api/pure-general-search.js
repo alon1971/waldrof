@@ -60,19 +60,33 @@ const APPROVED_RELEVANT_LINK_DOMAINS = [
   'waldorflibrary.org',
   'waldorfeducation.org',
   'steinerwaldorf.org',
-  'harduf.org.il',
-  'anadom.co.il',
-  'waldorfisrael.org',
+  'anthro.org.il',
+  'antro.co.il',
+  'waldorf.co.il',
 ];
 
 const LIVE_LINK_BUCKET_MAX = 2;
 const LIVE_LINKS_TARGET = 6;
 const RSARCHIVE_LINK_MAX = LIVE_LINK_BUCKET_MAX;
 
+const INTERNATIONAL_LINK_HOSTS = [
+  'waldorflibrary.org',
+  'waldorfeducation.org',
+  'steinerwaldorf.org',
+];
+
+const ISRAELI_ANTHRO_HOSTS = [
+  'anthro.org.il',
+  'antro.co.il',
+  'waldorf.co.il',
+];
+
+const ISRAELI_SCHOOL_HOST_RE = /waldorf|anthro|antro|shaked|zomer|somer|oded|urim|tamar|galil|galilee|harduf|anadom/i;
+
 const LIVE_LINK_BUCKETS = [
   { id: 'rsarchive', hosts: ['rsarchive.org'] },
-  { id: 'international', hosts: ['waldorflibrary.org', 'waldorfeducation.org', 'steinerwaldorf.org'] },
-  { id: 'israeli', hosts: ['harduf.org.il', 'anadom.co.il', 'waldorfisrael.org'] },
+  { id: 'international', hosts: INTERNATIONAL_LINK_HOSTS },
+  { id: 'israeli', hosts: ISRAELI_ANTHRO_HOSTS },
 ];
 
 const BLOCKED_RELEVANT_LINK_DOMAINS = [
@@ -449,10 +463,19 @@ function isBlockedRelevantLinkHost(host) {
   });
 }
 
+function isIsraeliWaldorfContentHost(host) {
+  const h = normalizeHost(host);
+  if (!h || isBlockedRelevantLinkHost(h)) return false;
+  if (ISRAELI_ANTHRO_HOSTS.indexOf(h) >= 0) return true;
+  if (ISRAELI_ANTHRO_HOSTS.some(function (domain) { return h.endsWith('.' + domain); })) return true;
+  if (!/\.il$/.test(h)) return false;
+  return ISRAELI_SCHOOL_HOST_RE.test(h);
+}
+
 function isKeepableCitationHost(host) {
   const h = normalizeHost(host);
   if (isBlockedRelevantLinkHost(h)) return false;
-  return isApprovedRelevantLinkHost(h);
+  return isApprovedRelevantLinkHost(h) || isIsraeliWaldorfContentHost(h);
 }
 
 function buildApprovedSiteSearchUrl() {
@@ -555,16 +578,17 @@ function isDisplayableRelevantLink(item) {
   const url = String(item.url || '').trim();
   if (!isValidHttpsUrl(url)) return false;
   if (hasChainedOrDoubleDomain(url)) return false;
-  if (isVagueLinkTitle(title)) return false;
+  if (isGenericNavTitle(title)) return false;
   return true;
 }
 
 function curatedTitleForUrl(url) {
   try {
     const host = normalizeHost(new URL(String(url || '').trim()).hostname);
+    if (host === 'anthro.org.il' || host === 'antro.co.il') return 'האנתרופוסופיה בישראל';
+    if (host === 'waldorf.co.il') return 'חינוך ולדורף בישראל';
     if (host === 'harduf.org.il') return 'יוזמות ולדורף בישראל';
     if (host === 'anadom.co.il') return 'אנדום';
-    if (host === 'waldorfisrael.org') return 'איגוד חינוך ולדורף בישראל';
     if (host === 'rsarchive.org') return 'ארכיון שטיינר (כתבים והרצאות)';
     if (host === 'waldorflibrary.org') return 'ספריית ולדורף הבינלאומית';
     if (host === 'waldorfeducation.org') return 'AWSNA - Waldorf Education';
@@ -597,6 +621,33 @@ function isGenericWaldorfOverviewTitle(title) {
   const text = String(title || '').trim();
   if (!text) return false;
   return /^(home|homepage|דף הבית|waldorf|waldorf education|what is waldorf|חינוך ולדורף|אנתרופוסופיה|sidebar|rsarchive|the rudolf steiner archive|rudolf steiner archive|steiner archive)$/i.test(text);
+}
+
+function isGenericNavTitle(title) {
+  const text = String(title || '').trim();
+  if (!text) return true;
+  if (isVagueLinkTitle(text) || isGenericWaldorfOverviewTitle(text)) return true;
+  return /^(בית|אודות|אודותינו|צור קשר|יצירת קשר|גלריה|הרשמה|דף הרשמה|about|about us|contact|contact us|gallery|register|registration|enroll|enrollment|welcome)$/i.test(text);
+}
+
+function isNonContentPageUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    let path = String(parsed.pathname || '/');
+    try {
+      path = decodeURIComponent(path);
+    } catch (e) { /* keep raw path */ }
+    const normalized = path.toLowerCase().replace(/\/+$/, '') || '/';
+    if (/\/(about|contact|gallery|register|registration|enroll|enrollment|admissions|login|home)(\/|$|\.)/i.test(normalized)) {
+      return true;
+    }
+    if (/\/(אודות|צור[-_]?קשר|גלריה|הרשמה|דף[-_]?הבית)(\/|$)/i.test(normalized)) {
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return true;
+  }
 }
 
 function descriptiveRsarchiveTitle() {
@@ -654,9 +705,9 @@ function isDirectArticlePath(url) {
 
 function liveLinkBucketId(url) {
   const host = hostOfLink(url);
-  for (let i = 0; i < LIVE_LINK_BUCKETS.length; i++) {
-    if (LIVE_LINK_BUCKETS[i].hosts.indexOf(host) >= 0) return LIVE_LINK_BUCKETS[i].id;
-  }
+  if (host === 'rsarchive.org') return 'rsarchive';
+  if (INTERNATIONAL_LINK_HOSTS.indexOf(host) >= 0) return 'international';
+  if (isIsraeliWaldorfContentHost(host)) return 'israeli';
   return '';
 }
 
@@ -702,7 +753,7 @@ function sanitizePerplexityLiveLinks(list) {
       ? item.trim()
       : String((item && (item.url || item.link || item.href)) || '').trim();
     if (!isValidHttpsUrl(url) || hasChainedOrDoubleDomain(url) || isHomepageOrIndexUrl(url)) return;
-    if (isSearchPageUrl(url) || isBrokenWaldorfLibrarySearchUrl(url) || !isDirectArticlePath(url)) return;
+    if (isSearchPageUrl(url) || isBrokenWaldorfLibrarySearchUrl(url) || isNonContentPageUrl(url) || !isDirectArticlePath(url)) return;
     let host = '';
     try {
       host = new URL(url).hostname;
@@ -716,13 +767,11 @@ function sanitizePerplexityLiveLinks(list) {
       title = sanitizePedagogicalText(item.title) || String(item.title || item.name || '').trim();
     }
     if (!isHebrewOrEnglishCitationTitle(title)) return;
-    const needsDescriptiveTitle = isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title);
-    if (needsDescriptiveTitle) {
+    if (isGenericNavTitle(title)) {
       if (hostNorm === 'rsarchive.org') {
         title = descriptiveRsarchiveTitle();
       } else {
-        title = curatedTitleForUrl(url);
-        if (isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title)) return;
+        return;
       }
     }
     if (seen[url]) return;
@@ -751,7 +800,7 @@ function buildPerplexityLiveLinkQueries(topic) {
     englishTopic: englishTopic,
     rsarchive: 'site:rsarchive.org "' + englishTopic + '"',
     international: 'site:waldorflibrary.org OR site:waldorfeducation.org OR site:steinerwaldorf.org "' + englishTopic + '"',
-    israeli: 'site:harduf.org.il OR site:anadom.co.il OR site:waldorfisrael.org "' + q + '"',
+    israeli: '"' + q + '" (חינוך ולדורף OR "חינוך אנתרופוסופי" OR "תכנית הלימודים" OR "מערך שיעור") (site:anthro.org.il OR "בית ספר ולדורף" OR "בית חינוך ולדורף" OR "ולדורף שקד" OR "ולדורף זומר" OR "ולדורף עודד" OR "ולדורף אורים" OR "ולדורף תמר" OR "ולדורף גליל")',
   };
 }
 
@@ -782,7 +831,10 @@ function buildBucketLiveLinksInstructions(topic, bucketId) {
   }
   return sharedRules.concat([
     'Search exactly: ' + queries.israeli,
-    'Extract 2 direct Hebrew articles or teaching materials from harduf.org.il, anadom.co.il, or waldorfisrael.org.',
+    'מצא 2 קישורים חיים, פעילים ומאומתים מתוך: אתר האנתרופוסופיה בישראל (anthro.org.il), או מתוך אתרי בתי ספר ולדורף בישראל שמפרסמים תוכניות לימודים, מאמרים פדגוגיים או תיאורי תקופות.',
+    'אל תחזיר דומיינים לא פעילים ואל תחזיר דפי בית, צור קשר, גלריות תמונות או דפי הרשמה.',
+    "הקישורים חייבים להוביל ישירות לעמוד תוכן/מאמר שעוסק בנושא '" + q + "'.",
+    'Keep original Hebrew citation titles. Drop titles such as בית, אודות, or צור קשר.',
   ]).join(' ');
 }
 
@@ -1800,6 +1852,8 @@ module.exports = {
   LIVE_LINK_BUCKET_MAX,
   LIVE_LINKS_TARGET,
   isDisplayableRelevantLink,
+  isGenericNavTitle,
+  isIsraeliWaldorfContentHost,
   hasChainedOrDoubleDomain,
   APPROVED_RELEVANT_LINK_DOMAINS,
   CURATED_RELEVANT_LINK_TEMPLATES,
