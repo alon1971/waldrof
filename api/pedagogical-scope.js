@@ -108,7 +108,14 @@ const CURRICULUM_BLOCKS = [
     aliases: [
       'מגלי עולם', 'מגלים', 'מסעות גילוי', 'גילוי העולם', 'age of exploration', 'explorers',
       'רנסנס', 'renaissance', 'גלילאו', 'galileo',
-      'פיזיקה', 'אסטרונומיה', 'physics', 'astronomy',
+    ],
+  },
+  {
+    gradeId: '7',
+    blockLabel: 'מדעים — מכניקה, כימיה של שריפה, פיזיולוגיה',
+    aliases: [
+      'פיזיקה', 'מכניקה', 'כימיה של שריפה', 'פיזיולוגיה', 'אסטרונומיה',
+      'physics', 'mechanics', 'physiology', 'astronomy',
     ],
   },
   {
@@ -116,8 +123,14 @@ const CURRICULUM_BLOCKS = [
     blockLabel: 'מהפכות והיסטוריה מודרנית',
     aliases: [
       'מהפכה', 'מהפכות', 'מהפכה צרפתית', 'מהפכה אמריקאית', 'revolution', 'revolutions',
-      'כימיה אורגנית', 'organic chemistry', 'כימיה', 'chemistry',
       'היסטוריה מודרנית', 'modern history',
+    ],
+  },
+  {
+    gradeId: '8',
+    blockLabel: 'כימיה',
+    aliases: [
+      'כימיה אורגנית', 'organic chemistry', 'כימיה', 'chemistry',
     ],
   },
 ];

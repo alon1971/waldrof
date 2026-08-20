@@ -65,6 +65,8 @@
       aliases: [
         'פיזיקה', 'physics', 'כימיה', 'chemistry',
         'כימיה אורגנית', 'organic chemistry',
+        'מכניקה', 'mechanics', 'פיזיולוגיה', 'physiology',
+        'אסטרונומיה', 'astronomy',
       ],
       gradeIds: ['6', '7', '8'],
     },
@@ -82,8 +84,10 @@
     { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'אודיסאוס', 'היסטוריה יוונית', 'אלכסנדר הגדול', 'אולימפיאדה', 'אולימפיה', 'greek mythology', 'ancient greece'] },
     { gradeId: '5', blockLabel: 'בוטניקה', aliases: ['בוטניקה', 'צמחים', 'צמח', 'botany', 'plants'] },
     { gradeId: '6', blockLabel: 'רומא וימי ביניים', aliases: ['רומא', 'רומאית', 'rome', 'roman', 'roman history', 'ימי ביניים', 'medieval', 'middle ages', 'גיאולוגיה', 'geology', 'mineralogy'] },
-    { gradeId: '7', blockLabel: 'מגלי עולם ורנסנס', aliases: ['מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers', 'רנסנס', 'renaissance', 'גלילאו', 'galileo', 'פיזיקה', 'physics', 'אסטרונומיה', 'astronomy'] },
-    { gradeId: '8', blockLabel: 'מהפכות והיסטוריה מודרנית', aliases: ['מהפכה', 'מהפכות', 'מהפכה צרפתית', 'revolution', 'revolutions', 'כימיה אורגנית', 'organic chemistry', 'כימיה', 'chemistry', 'היסטוריה מודרנית', 'modern history'] },
+    { gradeId: '7', blockLabel: 'מגלי עולם ורנסנס', aliases: ['מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers', 'רנסנס', 'renaissance', 'גלילאו', 'galileo'] },
+    { gradeId: '7', blockLabel: 'מדעים — מכניקה, כימיה של שריפה, פיזיולוגיה', aliases: ['פיזיקה', 'מכניקה', 'כימיה של שריפה', 'פיזיולוגיה', 'אסטרונומיה', 'physics', 'mechanics', 'physiology', 'astronomy'] },
+    { gradeId: '8', blockLabel: 'מהפכות והיסטוריה מודרנית', aliases: ['מהפכה', 'מהפכות', 'מהפכה צרפתית', 'revolution', 'revolutions', 'היסטוריה מודרנית', 'modern history'] },
+    { gradeId: '8', blockLabel: 'כימיה', aliases: ['כימיה אורגנית', 'organic chemistry', 'כימיה', 'chemistry'] },
   ];
 
   /**
