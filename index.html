@@ -3047,8 +3047,8 @@
     #general-search-period-grade-hint.hidden {
       display: none !important;
     }
-    /* Break the 15-day block table out of Tailwind max-w-* / nested rail padding.
-       Full left extension; stay clear of the floating Word / read-aloud rail. */
+    /* 15-day block: 2-column grid — 1fr for results, 220px reserved for the
+       Word / read-aloud rail so those buttons never float over the table. */
     #general-search-view.max-w-md,
     #general-search-view.max-w-lg,
     #general-search-view.max-w-xl,
@@ -3060,32 +3060,49 @@
     #general-search-view.max-w-7xl,
     #general-search-view,
     #general-search-view > .rounded-2xl {
-      width: 100% !important;
       max-width: 100% !important;
       box-sizing: border-box;
     }
     #general-search-view {
-      padding-left: 0;
-      padding-right: 0;
-      margin-left: 1.5rem;
-      margin-right: 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      gap: 2rem;
+      width: 100%;
+      max-width: 100vw;
+      padding: 0 1.5rem;
+      padding-top: var(--app-page-pad-y);
+      padding-bottom: calc(var(--app-page-pad-y) * 1.5);
+      box-sizing: border-box;
+      margin-left: 0;
+      margin-right: 0;
     }
-    /* Desktop/tablet: width leaves 240px for the rail; physical margins keep
-       the left column unclipped and the right edge clear of the FABs. */
-    @media (min-width: 768px) {
-      #general-search-view {
-        width: calc(100% - 240px) !important;
-        max-width: 100% !important;
-        margin-right: 230px !important;
-        margin-left: 1.5rem !important;
-      }
+    /* RTL places column 1 at the physical right, so swap tracks to keep the
+       220px rail column on the same side as the fixed action buttons. */
+    html[dir="rtl"] #general-search-view {
+      grid-template-columns: 220px 1fr;
+    }
+    #general-search-view > * {
+      grid-column: 1;
+      min-width: 0;
+      max-width: 100%;
+    }
+    html[dir="rtl"] #general-search-view > * {
+      grid-column: 2;
     }
     @media (max-width: 767px) {
-      #general-search-view {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin-left: max(1.25rem, env(safe-area-inset-left, 0px));
-        margin-right: max(1.25rem, env(safe-area-inset-right, 0px));
+      #general-search-view,
+      html[dir="rtl"] #general-search-view {
+        display: block;
+        grid-template-columns: none;
+        gap: 0;
+        width: 100%;
+        max-width: 100%;
+        padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+        padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+      }
+      #general-search-view > *,
+      html[dir="rtl"] #general-search-view > * {
+        grid-column: auto;
       }
     }
     #general-search-view > .rounded-2xl {
@@ -3098,7 +3115,14 @@
     }
     #general-search-results,
     #general-search-results .general-search-curriculum-wrap,
-    #general-search-results .general-search-curriculum-scroll,
+    #general-search-results .general-search-curriculum-scroll {
+      width: 100% !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      min-width: 0;
+      box-sizing: border-box;
+    }
     #general-search-results table.general-search-curriculum-table {
       width: 100% !important;
       max-width: 100% !important;
@@ -3119,8 +3143,11 @@
       margin-top: 1.25rem;
       padding-left: 0 !important;
       padding-right: 0 !important;
+      width: 100%;
+      overflow-x: auto;
     }
     #general-search-results .general-search-curriculum-scroll {
+      width: 100%;
       overflow-x: auto !important;
       -webkit-overflow-scrolling: touch;
       max-width: 100% !important;
@@ -3128,7 +3155,6 @@
     #general-search-results table.general-search-curriculum-table {
       display: table !important;
       width: 100% !important;
-      min-width: 750px;
       table-layout: auto !important;
       border-collapse: collapse;
       font-size: 0.9375rem;
@@ -3136,7 +3162,7 @@
     #general-search-results table.general-search-curriculum-table th,
     #general-search-results table.general-search-curriculum-table td {
       border: 1px solid rgba(201, 169, 98, 0.35);
-      padding: 0.75rem 1rem;
+      padding: 0.75rem;
       vertical-align: top;
       text-align: start;
       overflow-wrap: break-word;
