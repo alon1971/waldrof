@@ -24837,6 +24837,8 @@
       try {
         var host = new URL(String(url || '').trim()).hostname.replace(/^www\./i, '').toLowerCase();
         if (host === 'adamolam.co.il') return 'אדם עולם - מאמרים';
+        if (host === 'anthro.org.il' || host === 'antro.co.il') return 'האנתרופוסופיה בישראל';
+        if (host === 'waldorf.co.il') return 'חינוך ולדורף בישראל';
         if (host === 'harduf.org.il') return 'יוזמות ולדורף בישראל';
         if (host === 'anadom.co.il') return 'אנדום';
         if (host === 'waldorfisrael.org') return 'איגוד חינוך ולדורף בישראל';
@@ -24853,11 +24855,13 @@
         var parsed = new URL(String(url || '').trim());
         var host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
         if (host === 'google.com' || host === 'google.co.il' || host === 'adamolam.co.il') return false;
-        if (!/^(rsarchive\.org|waldorflibrary\.org|waldorfeducation\.org|steinerwaldorf\.org|harduf\.org\.il|anadom\.co\.il|waldorfisrael\.org)$/.test(host)) {
-          return false;
-        }
+        var intl = /^(rsarchive\.org|waldorflibrary\.org|waldorfeducation\.org|steinerwaldorf\.org)$/;
+        var israeli = /^(anthro\.org\.il|antro\.co\.il|waldorf\.co\.il)$/.test(host)
+          || (/\.il$/.test(host) && /waldorf|anthro|antro|shaked|zomer|somer|oded|urim|tamar|galil|galilee|harduf|anadom/i.test(host));
+        if (!intl.test(host) && !israeli) return false;
         var path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
         if (path === '/' || /search\.php$/i.test(path) || /\/search$/i.test(path)) return false;
+        if (/\/(about|contact|gallery|register|registration|אודות|צור-קשר|גלריה|הרשמה)(\/|$)/i.test(path)) return false;
         if (host === 'rsarchive.org' && /[\u0590-\u05FF]/.test(decodeURIComponent(String(url || '')))) return false;
         return true;
       } catch (e) {
