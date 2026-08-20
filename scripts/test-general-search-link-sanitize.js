@@ -2,6 +2,7 @@
 'use strict';
 
 const pgs = require('../api/pure-general-search');
+const perplexityClient = require('../api/perplexity-client');
 
 function assert(cond, msg) {
   if (!cond) {
@@ -13,83 +14,89 @@ function assert(cond, msg) {
 const query = 'בוטניקה';
 const encodedTopic = encodeURIComponent(query);
 
+const searchQuery = pgs.buildPerplexityLiveLinksQuery(query);
+assert(searchQuery.indexOf('site:adamolam.co.il') >= 0, 'live-link query includes adamolam');
+assert(searchQuery.indexOf('site:harduf.org.il') >= 0, 'live-link query includes harduf');
+assert(searchQuery.indexOf('site:anadom.co.il') >= 0, 'live-link query includes anadom');
+assert(searchQuery.indexOf('site:waldorflibrary.org') >= 0, 'live-link query includes library');
+assert(searchQuery.indexOf('site:rsarchive.org') >= 0, 'live-link query includes rsarchive');
+assert(searchQuery.indexOf('"' + query + '"') >= 0, 'live-link query quotes the topic');
+
+const live = pgs.sanitizePerplexityLiveLinks([
+  { title: 'Botany in Waldorf education', url: 'https://www.waldorflibrary.org/articles/botany-grade-5' },
+  { title: 'search', url: 'https://rsarchive.org/Lectures/GA293/English/AP1938/' },
+  { title: 'זר', url: 'https://example.com/not-approved' },
+  { title: 'כפול', url: 'https://jobs.waldorftoday.com/https://adamolam.co.il/post' },
+  'https://adamolam.co.il/waldorf-botany/',
+]);
+assert(live.length === 3, 'keeps three approved live citations');
+assert(live[0].url.indexOf('waldorflibrary.org') >= 0, 'keeps library citation');
+assert(live[1].title === 'ארכיון שטיינר (כתבים והרצאות)', 'opaque citation title is replaced');
+assert(live[2].url.indexOf('adamolam.co.il') >= 0, 'keeps adamolam citation');
+assert(!live.some(function (item) { return /example\.com|jobs\.waldorftoday/.test(item.url); }), 'drops foreign and chained URLs');
+
+const citationItems = perplexityClient.extractCitationItems({
+  citations: ['https://rsarchive.org/Lectures/GA1'],
+  search_results: [
+    { title: 'Library botany', url: 'https://www.waldorflibrary.org/articles/12' },
+  ],
+});
+assert(citationItems.length === 2, 'extracts search_results and citations');
+assert(citationItems[0].title === 'Library botany', 'keeps search_results title');
+
 const curated = pgs.buildCuratedRelevantLinks(query);
-assert(curated.length === 4, 'curated list has four on-site search links');
-assert(curated[0].title === 'אדם עולם - מאמרים', 'Adam Olam title');
-assert(curated[0].url === 'https://adamolam.co.il/?s=' + encodedTopic, 'Adam Olam search URL');
-assert(curated[1].title === 'יוזמות ולדורף בישראל', 'Harduf title');
-assert(curated[1].url === 'https://harduf.org.il/?s=' + encodedTopic, 'Harduf search URL');
-assert(curated[2].title === 'ארכיון שטיינר (כתבים והרצאות)', 'Steiner Archive title');
-assert(curated[2].url === 'https://rsarchive.org/Search.php?q=' + encodedTopic, 'Archive Search.php URL');
-assert(curated[3].title === 'ספריית ולדורף הבינלאומית', 'Waldorf Library title');
-assert(
-  curated[3].url === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
-  'Waldorf Library search URL'
-);
-assert(curated.every(function (item) { return pgs.isDisplayableRelevantLink(item); }), 'all curated links are displayable');
-
-assert(
-  !pgs.isDisplayableRelevantLink({ title: 'search', url: 'https://www.waldorflibrary.org/search?q=x' }),
-  'opaque title "search" is rejected'
-);
-assert(
-  !pgs.isDisplayableRelevantLink({ title: 'מאמר', url: 'http://adamolam.co.il/?s=x' }),
-  'non-https URL is rejected'
-);
-assert(
-  !pgs.isDisplayableRelevantLink({
-    title: 'מאמר',
-    url: 'https://jobs.waldorftoday.com/https://waldorflibrary.org/articles/1090',
-  }),
-  'chained double-domain URL is rejected'
-);
-
-const numericArticle = pgs.sanitizeRelevantLinkUrl(
-  'https://www.waldorflibrary.org/articles/1090',
-  query
-);
-assert(
-  numericArticle === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
-  'numeric /articles/1090 becomes Waldorf Library site search'
-);
-
-const chained = pgs.sanitizeRelevantLinkUrl(
-  'https://jobs.waldorftoday.com/https://www.waldorflibrary.org/articles/1090',
-  query
-);
-assert(
-  chained === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
-  'chained double-domain URL is rewritten to library search'
-);
-
-const deepHarduf = pgs.sanitizeRelevantLinkUrl('https://harduf.org.il/http_new/fake-article', query);
-assert(
-  deepHarduf === 'https://harduf.org.il/?s=' + encodedTopic,
-  'invented harduf path becomes Harduf ?s= search'
-);
-
-const normalized = pgs.normalizeGeneralSearchResponse({
+const fromGemini = pgs.normalizeGeneralSearchResponse({
   developmental_axis: 'ציר',
   core_pedagogical_emphases: 'דגשים',
   relevant_links: [
     { title: 'search', url: 'https://waldorflibrary.org/articles/1090' },
-    { title: 'אתר זר', url: 'https://jobs.waldorftoday.com/https://rsarchive.org/Lectures/1' },
   ],
 }, { query: query });
-
 assert(
-  JSON.stringify(normalized.relevant_links) === JSON.stringify(curated),
-  'normalize ignores model URLs and injects curated on-site searches'
+  JSON.stringify(fromGemini.relevant_links) === JSON.stringify(curated),
+  'normalize ignores Gemini URLs and falls back to curated searches'
 );
 
+const merged = pgs.normalizeGeneralSearchResponse({
+  developmental_axis: 'ציר',
+  core_pedagogical_emphases: 'דגשים',
+  curriculum: [{ day: 1, topic: 'יום', content: 'תוכן', art: 'אמנות' }],
+  relevant_links: [{ title: 'ניחוש', url: 'https://waldorflibrary.org/articles/1090' }],
+}, {
+  query: query,
+  periodBlock: true,
+  liveLinks: [
+    { title: 'Botany lecture', url: 'https://rsarchive.org/Lectures/GA293/botany' },
+    { title: 'ספרייה', url: 'https://www.waldorflibrary.org/articles/botany' },
+  ],
+});
+assert(merged.curriculum.length === 15, 'period table still comes from Gemini/normalize');
+assert(merged.relevant_links.length === 2, 'final JSON uses Perplexity live links');
+assert(merged.relevant_links[0].url.indexOf('rsarchive.org') >= 0, 'merged first live link');
+assert(
+  !merged.relevant_links.some(function (item) { return /articles\/1090/.test(item.url); }),
+  'Gemini guessed article ID is not in the merged payload'
+);
+
+const archived = pgs.normalizeGeneralSearchResponse({
+  developmental_axis: 'ציר',
+  core_pedagogical_emphases: 'דגשים',
+  relevant_links: [
+    { title: 'מאמר חי', url: 'https://adamolam.co.il/live-botany/' },
+  ],
+}, { query: query, useArchivedLinks: true });
+assert(archived.relevant_links.length === 1, 'cache keeps archived live links');
+assert(archived.relevant_links[0].url.indexOf('adamolam.co.il') >= 0, 'archived adamolam URL kept');
+
 const sys = pgs.buildPeriodBlockSystemPrompt('בוטניקה', { gradeId: '5', gradeLabel: 'כיתה ה׳' });
-assert(sys.indexOf('השרת מזין אותם') >= 0, 'period system prompt says the server injects links');
+assert(sys.indexOf('Gemini אינו מייצר קישורים') >= 0, 'period system prompt forbids Gemini links');
 assert(sys.indexOf('NEVER invent') >= 0, 'period system prompt forbids inventing URLs');
 
 const user = pgs.buildPeriodBlockUserPrompt('בוטניקה', { gradeId: '5', gradeLabel: 'כיתה ה׳' });
-assert(user.indexOf('תמיד מערך ריק') >= 0, 'period user prompt asks for empty relevant_links');
+assert(user.indexOf('אל תכלול relevant_links') >= 0, 'period user prompt omits relevant_links');
 
 const standard = pgs.buildStandardUserPrompt('בוטניקה');
-assert(standard.indexOf('always return []') >= 0, 'standard search prompt asks for empty relevant_links');
+assert(standard.indexOf('omit or return []') >= 0, 'standard search prompt omits links');
+assert(standard.indexOf('Do NOT produce web URLs') >= 0, 'standard prompt does not ask for web URLs');
 
 console.log('test-general-search-link-sanitize: ok');
