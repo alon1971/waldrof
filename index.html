@@ -3049,19 +3049,32 @@
     }
     #general-search-view.max-w-6xl,
     #general-search-view,
-    .workspace-layout.max-w-6xl {
-      width: 100%;
-      max-width: min(1200px, 90vw);
-      margin-left: auto;
-      margin-right: auto;
-    }
+    #general-search-results,
     #general-search-results .general-search-curriculum-wrap {
-      margin-top: 1.25rem;
       width: 100%;
-      max-width: min(1200px, 90vw);
+      max-width: 1280px;
       margin-left: auto;
       margin-right: auto;
       box-sizing: border-box;
+    }
+    #general-search-view {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+    #general-search-view > .rounded-2xl {
+      width: 100%;
+      max-width: none;
+      padding-left: 0;
+      padding-right: 0;
+      box-sizing: border-box;
+    }
+    #general-search-results {
+      padding: 0;
+    }
+    #general-search-results .general-search-curriculum-wrap {
+      margin-top: 1.25rem;
+      padding-left: 0;
+      padding-right: 0;
     }
     #general-search-results .general-search-curriculum-scroll {
       width: 100%;
@@ -3070,7 +3083,7 @@
     }
     #general-search-results table.general-search-curriculum-table {
       width: 100%;
-      min-width: 880px;
+      min-width: 760px;
       table-layout: auto;
       border-collapse: collapse;
       font-size: 0.9375rem;
@@ -3078,48 +3091,46 @@
     #general-search-results table.general-search-curriculum-table th,
     #general-search-results table.general-search-curriculum-table td {
       border: 1px solid rgba(201, 169, 98, 0.35);
-      padding: 0.9rem 1.15rem;
+      padding: 0.75rem 1rem;
       vertical-align: top;
       text-align: start;
       overflow-wrap: break-word;
       word-break: normal;
       white-space: normal;
+      hyphens: none;
     }
+    #general-search-results table.general-search-curriculum-table col.gs-col-day,
     #general-search-results table.general-search-curriculum-table th:nth-child(1),
-    #general-search-results table.general-search-curriculum-table td:nth-child(1) {
+    #general-search-results table.general-search-curriculum-table td:nth-child(1),
+    #general-search-results table.general-search-curriculum-table .gs-col-day {
+      width: 10%;
       min-width: 80px;
-      width: 80px;
       white-space: nowrap;
       overflow-wrap: normal;
       word-break: normal;
       font-weight: 600;
       color: #5C7D58;
     }
-    #general-search-results table.general-search-curriculum-table th:nth-child(2),
-    #general-search-results table.general-search-curriculum-table td:nth-child(2) {
-      min-width: 180px;
-    }
-    #general-search-results table.general-search-curriculum-table th:nth-child(3),
-    #general-search-results table.general-search-curriculum-table td:nth-child(3) {
-      min-width: 320px;
-    }
-    #general-search-results table.general-search-curriculum-table th:nth-child(4),
-    #general-search-results table.general-search-curriculum-table td:nth-child(4),
-    #general-search-results table.general-search-curriculum-table col.gs-col-art,
-    #general-search-results table.general-search-curriculum-table .gs-col-art {
-      min-width: 300px;
-    }
-    #general-search-results table.general-search-curriculum-table col.gs-col-day,
-    #general-search-results table.general-search-curriculum-table .gs-col-day {
-      min-width: 80px;
-    }
     #general-search-results table.general-search-curriculum-table col.gs-col-topic,
+    #general-search-results table.general-search-curriculum-table th:nth-child(2),
+    #general-search-results table.general-search-curriculum-table td:nth-child(2),
     #general-search-results table.general-search-curriculum-table .gs-col-topic {
-      min-width: 180px;
+      width: 20%;
+      min-width: 160px;
     }
     #general-search-results table.general-search-curriculum-table col.gs-col-content,
+    #general-search-results table.general-search-curriculum-table th:nth-child(3),
+    #general-search-results table.general-search-curriculum-table td:nth-child(3),
     #general-search-results table.general-search-curriculum-table .gs-col-content {
-      min-width: 320px;
+      width: 40%;
+      min-width: 280px;
+    }
+    #general-search-results table.general-search-curriculum-table col.gs-col-art,
+    #general-search-results table.general-search-curriculum-table th:nth-child(4),
+    #general-search-results table.general-search-curriculum-table td:nth-child(4),
+    #general-search-results table.general-search-curriculum-table .gs-col-art {
+      width: 30%;
+      min-width: 240px;
     }
     #general-search-results table.general-search-curriculum-table th {
       background: rgba(122, 155, 118, 0.12);
@@ -7447,14 +7458,14 @@
   </div>
 
   <!-- ========== GENERAL SEARCH (חיפוש כללי) ========== -->
-  <div id="general-search-view" class="hidden w-full mx-auto px-4 sm:px-6 pb-16 box-border">
+  <div id="general-search-view" class="hidden w-full mx-auto pb-16 box-border">
     <div class="back-to-home-bar">
       <button type="button" class="back-to-home-btn" data-back-to-home>
         <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
         <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
       </button>
     </div>
-    <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
+    <div class="bg-white/90 rounded-2xl border border-burgundy/20 py-4 sm:py-6 md:py-8 shadow-sm w-full box-border">
       <h2 class="app-page-title font-display font-bold text-burgundy mb-1 flex items-center gap-2">
         <i class="fa-solid fa-magnifying-glass-chart text-gold"></i>
         <span data-i18n="general_search_title">חיפוש כללי ובניית תקופת לימוד</span>
