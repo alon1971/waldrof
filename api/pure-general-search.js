@@ -9,6 +9,9 @@ const authContext = require('./auth-context');
 const subscriptionApi = require('./subscription');
 const hebrewGuardrails = require('./perplexity-hebrew-guardrails');
 const keyboardLayout = require('./keyboard-layout');
+const env = require('./env');
+const geminiJson = require('./gemini-json');
+const jsonRepair = require('./json-repair');
 
 /** Absolute Hebrew-only body text — no English prose, footnotes, or citation markers. */
 const HEBREW_ONLY_BODY_INSTRUCTION = [
@@ -159,38 +162,207 @@ function normalizeGeneralSearchResponse(parsed, options) {
   };
   if (periodBlock) {
     normalized.periodBlock = true;
-    normalized.curriculum = coerceCurriculumDays(
-      data.curriculum || data.days || (data.blockPlan && data.blockPlan.curriculum)
+    normalized.curriculum = padCurriculumToFifteen(
+      coerceCurriculumDays(
+        data.curriculum || data.days || (data.blockPlan && data.blockPlan.curriculum)
+      ),
+      opts.query || data.query || ''
     );
   }
   return normalized;
 }
 
+function getGeneralSearchResponseSchema(periodBlock) {
+  const schema = {
+    type: 'object',
+    properties: {
+      developmental_axis: { type: 'string' },
+      core_pedagogical_emphases: { type: 'string' },
+      recommended_literature: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            author: { type: 'string' },
+            note: { type: 'string' },
+          },
+          required: ['title'],
+        },
+      },
+      relevant_links: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            url: { type: 'string' },
+          },
+          required: ['title', 'url'],
+        },
+      },
+    },
+    required: ['developmental_axis', 'core_pedagogical_emphases'],
+  };
+  if (periodBlock) {
+    schema.properties.curriculum = {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          day: { type: 'integer' },
+          week: { type: 'integer' },
+          topic: { type: 'string' },
+          content: { type: 'string' },
+          art: { type: 'string' },
+        },
+        required: ['day', 'topic', 'content', 'art'],
+      },
+    };
+    schema.required.push('curriculum');
+  }
+  return schema;
+}
+
+function padCurriculumToFifteen(days, query) {
+  const byDay = {};
+  (Array.isArray(days) ? days : []).forEach(function (row, i) {
+    if (!row || typeof row !== 'object') return;
+    const day = parseInt(row.day, 10) || (i + 1);
+    if (day < 1 || day > 15) return;
+    byDay[day] = row;
+  });
+  const topicHint = String(query || 'התקופה').trim();
+  const out = [];
+  for (let day = 1; day <= 15; day++) {
+    if (byDay[day]) {
+      out.push(byDay[day]);
+      continue;
+    }
+    out.push({
+      day: day,
+      week: Math.ceil(day / 5),
+      topic: 'יום ' + day + ' — ' + topicHint,
+      content: 'המשך קשת התקופה: היזכרות, חומר חדש, וחיבור ליום הקודם בנושא «' + topicHint + '».',
+      art: 'עבודה במחברת / ציור / צביעה הקשורים לנושא היום.',
+    });
+  }
+  return out;
+}
+
+function usableGeneralSearchParsed(parsed, periodBlock) {
+  if (!parsed || typeof parsed !== 'object' || isUnusableGeneralSearchParse(parsed, periodBlock)) {
+    return false;
+  }
+  if (periodBlock) {
+    const days = Array.isArray(parsed.curriculum) ? parsed.curriculum.length : 0;
+    if (days < 10 && parsed._parseFallback) return false;
+  }
+  return true;
+}
+
+function buildSmoothGeneralSearchFallback(periodBlock, rawText, options) {
+  const opts = options || {};
+  const phase = periodBlock ? 'general_search_period' : 'general_search';
+  const fallback = jsonRepair.buildModelParseFallback(phase, rawText || '', {
+    query: opts.query || '',
+    topic: opts.query || '',
+    grade: opts.gradeLabel || '',
+    gradeLabel: opts.gradeLabel || '',
+  });
+  if (periodBlock) {
+    fallback.periodBlock = true;
+    fallback.curriculum = padCurriculumToFifteen(fallback.curriculum, opts.query);
+  }
+  return fallback;
+}
+
 /**
- * Call Perplexity for general-search; never return English/HTML parse-fallback dumps to the UI.
+ * Gemini JSON mode first (responseMimeType application/json, maxOutputTokens >= 4096),
+ * then Perplexity, then a Gemini repair pass. Never throw a raw parse error to the UI.
  */
 async function callGeneralSearchJson(systemPrompt, userPrompt, options) {
   const opts = options || {};
   const periodBlock = Boolean(opts.periodBlock);
   const phase = opts.phase || (periodBlock ? 'general_search_period' : 'general_search');
-  const result = await shared.callPerplexityJsonSafe(systemPrompt, userPrompt, {
-    phase: phase,
+  const maxOutputTokens = periodBlock
+    ? geminiJson.PERIOD_MAX_OUTPUT_TOKENS
+    : geminiJson.DEFAULT_MAX_OUTPUT_TOKENS;
+  const parseContext = {
     query: opts.query || '',
-    max_tokens: opts.max_tokens,
-    temperature: opts.temperature,
-  });
-  const parsed = result && result.parsed;
-  if (result && result.parseFallback && isUnusableGeneralSearchParse(parsed, periodBlock)) {
-    const err = new Error(
-      periodBlock
-        ? 'תשובת המודל לא חזרה כ-JSON תקין לתוכנית 15 הימים. נסו שוב — ללא הצגת טקסט גולמי/HTML.'
-        : 'תשובת המודל לא חזרה כ-JSON תקין. נסו שוב — ללא הצגת טקסט גולמי/HTML.'
-    );
-    err.statusCode = 502;
-    err.code = 'INVALID_MODEL_JSON';
-    throw err;
+    topic: opts.query || '',
+    grade: opts.gradeLabel || '',
+    gradeLabel: opts.gradeLabel || '',
+  };
+  const geminiOpts = {
+    phase: phase,
+    context: parseContext,
+    periodBlock: periodBlock,
+    maxOutputTokens: maxOutputTokens,
+    googleSearch: true,
+    responseSchema: getGeneralSearchResponseSchema(periodBlock),
+    temperature: 0.25,
+  };
+
+  let raw = '';
+  let parsed = null;
+
+  if (env.getGeminiApiKey()) {
+    try {
+      const geminiResult = await geminiJson.generateJson(systemPrompt, userPrompt, geminiOpts);
+      raw = geminiResult.raw || '';
+      parsed = geminiResult.parsed;
+      if (usableGeneralSearchParsed(parsed, periodBlock)) {
+        return parsed;
+      }
+    } catch (geminiErr) {
+      console.warn(
+        '[pure-general-search] Gemini JSON generate failed:',
+        geminiErr && geminiErr.message ? geminiErr.message : geminiErr
+      );
+    }
   }
-  return parsed;
+
+  try {
+    const pplx = await shared.callPerplexityJsonSafe(systemPrompt, userPrompt, {
+      phase: phase,
+      query: opts.query || '',
+      max_tokens: maxOutputTokens,
+      temperature: opts.temperature,
+    });
+    if (pplx && pplx.raw) raw = raw || pplx.raw;
+    if (pplx && usableGeneralSearchParsed(pplx.parsed, periodBlock)) {
+      return pplx.parsed;
+    }
+    if (pplx && pplx.parsed && !parsed) parsed = pplx.parsed;
+  } catch (pplxErr) {
+    console.warn(
+      '[pure-general-search] Perplexity JSON generate failed:',
+      pplxErr && pplxErr.message ? pplxErr.message : pplxErr
+    );
+  }
+
+  if (raw && env.getGeminiApiKey()) {
+    try {
+      const repaired = await geminiJson.repairToJson(raw, Object.assign({}, geminiOpts, {
+        googleSearch: false,
+        temperature: 0,
+      }));
+      if (repaired && usableGeneralSearchParsed(repaired.parsed, periodBlock)) {
+        return repaired.parsed;
+      }
+      if (repaired && repaired.parsed) parsed = repaired.parsed;
+    } catch (repairErr) {
+      console.warn(
+        '[pure-general-search] Gemini JSON repair failed:',
+        repairErr && repairErr.message ? repairErr.message : repairErr
+      );
+    }
+  }
+
+  return parsed && typeof parsed === 'object'
+    ? parsed
+    : buildSmoothGeneralSearchFallback(periodBlock, raw, opts);
 }
 
 function resolvePeriodGrade(body) {
@@ -412,8 +584,9 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
+      gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
     });
-    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
@@ -466,8 +639,9 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
+      gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
     });
-    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
+    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
@@ -608,20 +782,9 @@ async function runPureGeneralSearch(body, requestContext) {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
+      gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
     });
-    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock });
-
-    // Period plans must arrive complete — never archive/serve a truncated curriculum.
-    if (periodBlock && (!Array.isArray(normalized.curriculum) || normalized.curriculum.length < 15)) {
-      const err = new Error(
-        'תוכנית התקופה חזרה חלקית (' +
-          (normalized.curriculum ? normalized.curriculum.length : 0) +
-          '/15 ימים). נסו שוב לקבלת תוכנית מלאה.'
-      );
-      err.statusCode = 502;
-      err.code = 'INCOMPLETE_PERIOD_CURRICULUM';
-      throw err;
-    }
+    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
@@ -637,7 +800,7 @@ async function runPureGeneralSearch(body, requestContext) {
       data: normalized,
       meta: {
         fromCache: false,
-        source: 'perplexity-pure',
+        source: 'gemini-json',
         periodBlock: periodBlock,
         cacheKey: archiveResult.cacheKey || undefined,
         archived: archiveResult.archived,

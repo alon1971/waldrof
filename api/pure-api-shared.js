@@ -155,7 +155,7 @@ async function callPerplexityJson(systemPrompt, userPrompt, options) {
       model: perplexityClient.PERPLEXITY_MODEL,
       temperature: isRetry ? 0.2 : (opts.temperature != null ? opts.temperature : 0.35),
       max_tokens: opts.max_tokens != null
-        ? opts.max_tokens
+        ? Math.max(4096, opts.max_tokens)
         : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
       messages: [
         { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, isRetry) },
@@ -184,23 +184,47 @@ async function callPerplexityJson(systemPrompt, userPrompt, options) {
  */
 async function callPerplexityJsonSafe(systemPrompt, userPrompt, options) {
   const opts = options || {};
-  const raw = await perplexityClient.callPerplexityChat({
-    model: perplexityClient.PERPLEXITY_MODEL,
-    temperature: opts.temperature != null ? opts.temperature : 0.35,
-    max_tokens: opts.max_tokens != null
-      ? opts.max_tokens
-      : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-    messages: [
-      { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, false) },
-      { role: 'user', content: userPrompt },
-    ],
-  });
   const phase = opts.phase || 'topic_master';
-  return jsonRepair.parsePureModelJson(raw, {
-    phase: phase,
-    context: buildParseContext(opts),
-    unwrap: true,
-  });
+  const parseContext = buildParseContext(opts);
+  const maxAttempts = opts.maxAttempts != null ? Math.max(1, opts.maxAttempts) : 2;
+  let lastRaw = '';
+  let lastResult = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const isRetry = attempt > 1;
+    lastRaw = await perplexityClient.callPerplexityChat({
+      model: perplexityClient.PERPLEXITY_MODEL,
+      temperature: isRetry ? 0.2 : (opts.temperature != null ? opts.temperature : 0.35),
+      max_tokens: opts.max_tokens != null
+        ? Math.max(4096, opts.max_tokens)
+        : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+      messages: [
+        { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, isRetry) },
+        { role: 'user', content: userPrompt },
+      ],
+    });
+    lastResult = jsonRepair.parsePureModelJson(lastRaw, {
+      phase: phase,
+      context: parseContext,
+      unwrap: true,
+    });
+    if (!lastResult.parseFallback) {
+      lastResult.raw = lastRaw;
+      return lastResult;
+    }
+    if (attempt < maxAttempts) {
+      console.warn(
+        '[pure-api] JSON parse fallback for phase', phase,
+        '— retrying with rigid JSON mandate (attempt', attempt + '/' + maxAttempts + ')'
+      );
+    }
+  }
+  if (lastResult) lastResult.raw = lastRaw;
+  return lastResult || {
+    parsed: jsonRepair.buildModelParseFallback(phase, lastRaw, parseContext),
+    parseFallback: true,
+    raw: lastRaw,
+  };
 }
 
 function createLegacyPostHandler(runFn) {
