@@ -39,8 +39,10 @@
     { gradeId: '5', blockLabel: 'יוון העתיקה', aliases: ['יוון', 'יוון העתיקה', 'מיתולוגיה יוונית', 'יוונית', 'הומרוס', 'הומר', 'מסעות אודיסאוס', 'אודיסאוס', 'אודיסיאה', 'odysseus', 'odyssey', 'עתיקה', 'היסטוריה יוונית', 'greek mythology', 'ancient greece'] },
     { gradeId: '5', blockLabel: 'בוטניקה', aliases: ['בוטניקה', 'צמחים', 'botany', 'plants'] },
     { gradeId: '6', blockLabel: 'רומא וימי ביניים', aliases: ['רומא', 'רומאית', 'rome', 'roman', 'roman history', 'ימי ביניים', 'medieval', 'middle ages', 'גיאולוגיה', 'geology', 'mineralogy'] },
-    { gradeId: '7', blockLabel: 'מגלי עולם ורנסנס', aliases: ['מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers', 'רנסנס', 'renaissance', 'גלילאו', 'galileo', 'פיזיקה', 'physics', 'astronomy'] },
-    { gradeId: '8', blockLabel: 'מהפכות והיסטוריה מודרנית', aliases: ['מהפכה', 'מהפכות', 'מהפכה צרפתית', 'המהפכה הצרפתית', 'revolution', 'revolutions', 'french revolution', 'כימיה אורגנית', 'organic chemistry', 'היסטוריה מודרנית', 'modern history'] },
+    { gradeId: '7', blockLabel: 'מגלי עולם ורנסנס', aliases: ['מגלי עולם', 'מגלים', 'גילוי העולם', 'age of exploration', 'explorers', 'רנסנס', 'renaissance', 'גלילאו', 'galileo'] },
+    { gradeId: '7', blockLabel: 'מדעים — מכניקה, כימיה של שריפה, פיזיולוגיה', aliases: ['פיזיקה', 'מכניקה', 'כימיה של שריפה', 'פיזיולוגיה', 'אסטרונומיה', 'physics', 'mechanics', 'physiology', 'astronomy'] },
+    { gradeId: '8', blockLabel: 'מהפכות והיסטוריה מודרנית', aliases: ['מהפכה', 'מהפכות', 'מהפכה צרפתית', 'המהפכה הצרפתית', 'revolution', 'revolutions', 'french revolution', 'היסטוריה מודרנית', 'modern history'] },
+    { gradeId: '8', blockLabel: 'כימיה', aliases: ['כימיה אורגנית', 'organic chemistry', 'כימיה', 'chemistry'] },
   ];
 
   /** Topic → Pinterest English (topic-first) + article Hebrew cores. */

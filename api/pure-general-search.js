@@ -67,7 +67,7 @@ const SYSTEM_PROMPT = [
   'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON.',
 ].join(' ');
 
-const PERIOD_BLOCK_SYSTEM_PROMPT = [
+const PERIOD_BLOCK_SYSTEM_PROMPT_BASE = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   HEBREW_ONLY_BODY_INSTRUCTION,
   WALDORF_ELEMENTARY_SCOPE_INSTRUCTION,
@@ -80,10 +80,190 @@ const PERIOD_BLOCK_SYSTEM_PROMPT = [
   'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only; title in Hebrew with short context),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew core daily topic), content (Hebrew focused bullet points for main narrative/story/new material, separated by \\n — NOT long essays), art (Hebrew focused bullet points for notebook/drawing/painting/handwork)).',
   'The 15-day curriculum table MUST be tailored STRICTLY to the selected grade only (e.g. Physics Grade 6, Form Drawing Grade 3). Never mix other grades into the daily rows.',
+  'The Grades 1–8 developmental arc applies ONLY to developmental_axis and core_pedagogical_emphases. The curriculum table must never borrow a different subject family (history into science, science into form drawing, etc.).',
   'NEVER shorten the 15-day plan. NEVER omit days. Prefer structured bullets over long paragraphs so the FULL JSON closes cleanly.',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
   'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON. First char { last char }.',
 ].join(' ');
+
+const SUBJECT_LOCK_HEBREW = 'טבלת 15 הימים חייבת להישאר ב-100% בתוך תחום הדעת שנחקר. שאילתות בנושאי מדעים יפיקו שיעורי מדעים בלבד, ללא גלישה לנושאי היסטוריה.';
+
+const SUBJECT_DAILY_MATCH_HEBREW = 'נושא השיעור והמיקוד הסיפורי בכל יום חייבים לשקף במדויק את המערכים הנלמדים באותה תקופה בכיתה שנבחרה.';
+
+const SCIENCE_QUERY_MARKERS = [
+  'התפתחות המדעים', 'התפתחות המדע', 'התפתחות מדע', 'התפתחות מדעים',
+  'מדעים', 'מדע', 'פיזיקה', 'כימיה', 'מכניקה', 'ביולוגיה', 'פיזיולוגיה',
+  'תזונה', 'אקוסטיקה', 'אופטיקה', 'שריפה', 'הידרוליקה', 'מגנטיות', 'חשמל',
+  'science', 'sciences', 'physics', 'chemistry', 'mechanics', 'biology',
+  'physiology', 'nutrition', 'acoustics', 'optics',
+  'development of the sciences', 'development of science', 'development of sciences',
+];
+
+const BROAD_SCIENCE_QUERY_MARKERS = [
+  'התפתחות המדעים', 'התפתחות המדע', 'התפתחות מדע', 'התפתחות מדעים',
+  'מדעים', 'מדע', 'science', 'sciences',
+  'development of the sciences', 'development of science', 'development of sciences',
+];
+
+const HISTORY_QUERY_MARKERS = [
+  'היסטוריה', 'רנסנס', 'מגלי עולם', 'עידן התגליות', 'גילוי העולם', 'גילוי ארצות',
+  'מסעות גילוי', 'רומא', 'יוון', 'ימי ביניים', 'מהפכה', 'מהפכות',
+  'history', 'renaissance', 'age of discovery', 'age of exploration', 'explorers',
+];
+
+const FORM_DRAWING_QUERY_MARKERS = [
+  'רישום צורה', 'form drawing',
+];
+
+/** Grade 1–8 science main-lesson content from the in-file Waldorf scope + grade-7 teacher lock. */
+const SCIENCE_BLOCK_BY_GRADE = {
+  '1': 'סיפורי טבע וחוויה חושית — מפגש עם תופעות הטבע דרך סיפור ודימוי, לא מדעים פורמליים ולא היסטוריה.',
+  '2': 'סיפורי טבע ומשלי חיות כחוויה חיה של העולם — לא מעבדה פורמלית ולא היסטוריה כללית.',
+  '3': 'חקלאות, עונות ומלאכת כפיים כמפגש עם הטבע — לא היסטוריה כללית.',
+  '4': 'זואולוגיה / האדם וממלכת החי — תצפית חיה בבעלי חיים. אסור להחליף בהיסטוריה.',
+  '5': 'בוטניקה — עולם הצומח. אסור להחליף בהיסטוריה (יוון וכו׳).',
+  '6': 'פנומנולוגיה מדעית: אקוסטיקה, אופטיקה, חום, מגנטיות וחשמל סטטי; וגיאולוגיה/מינרלוגיה לפי תכנית וולדורף לכיתה ו׳. אסור רנסנס/מגלי עולם.',
+  '7': 'אך ורק נושאי המדעים של כיתה ז׳ בחינוך ולדורף: מכניקה, כימיה של שריפה, פיזיולוגיה/תזונה.',
+  '8': 'מדעים של כיתה ח׳: הידרוליקה, חשמל דינמי, כימיה (אורגנית לפי התכנית). אסור מהפכות/היסטוריה מודרנית.',
+};
+
+const HISTORY_BLOCK_BY_GRADE = {
+  '1': 'אגדות וסיפורי טבע',
+  '2': 'משלי חיות וסיפורי צדיקים',
+  '3': 'תנ״ך וסיפורי מקרא',
+  '4': 'מיתולוגיה נורדית',
+  '5': 'יוון העתיקה',
+  '6': 'רומא וימי הביניים',
+  '7': 'תקופת מגלי עולם ורנסנס',
+  '8': 'מהפכות והיסטוריה מודרנית',
+};
+
+const SCIENCE_HISTORY_LEAK_RE =
+  /רנסנס|renaissance|עידן התגליות|מגלי עולם|גילוי העולם|גילוי ארצות|מסעות גילוי|קולומבוס|מגלן|תקופת המגלים|age of (?:exploration|discovery)|columbus|magellan/i;
+
+const FORM_DRAWING_LEAK_RE =
+  /רנסנס|מגלי עולם|עידן התגליות|מכניקה|כימיה של שריפה|יוון העתיקה|היסטוריה כללית/i;
+
+function normalizeSubjectQuery(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u05F3\u05F4׳״`'"]/g, '')
+    .replace(/[-–—_/]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function queryHasMarker(query, markers) {
+  const q = normalizeSubjectQuery(query);
+  if (!q) return false;
+  const list = Array.isArray(markers) ? markers : [];
+  for (let i = 0; i < list.length; i++) {
+    const marker = normalizeSubjectQuery(list[i]);
+    if (marker && q.indexOf(marker) >= 0) return true;
+  }
+  return false;
+}
+
+function classifyPeriodSubjectFamily(query) {
+  if (queryHasMarker(query, FORM_DRAWING_QUERY_MARKERS)) return 'form_drawing';
+  if (queryHasMarker(query, SCIENCE_QUERY_MARKERS)) return 'sciences';
+  if (queryHasMarker(query, HISTORY_QUERY_MARKERS)) return 'history';
+  return 'query';
+}
+
+function resolveSubjectLockGradeId(gradeInfo) {
+  const src = gradeInfo && typeof gradeInfo === 'object' ? gradeInfo : {};
+  const id = String(src.gradeId || '').trim();
+  if (id && /^[1-8]$/.test(id)) return id;
+  const label = String(src.gradeLabel || '').trim();
+  const letterMap = { א: '1', ב: '2', ג: '3', ד: '4', ה: '5', ו: '6', ז: '7', ח: '8' };
+  const match = label.match(/[א-ח]/);
+  return match && letterMap[match[0]] ? letterMap[match[0]] : '';
+}
+
+function buildSubjectFamilyLines(query, gradeInfo) {
+  const family = classifyPeriodSubjectFamily(query);
+  const gradeId = resolveSubjectLockGradeId(gradeInfo);
+  const q = String(query || '').trim();
+  const lines = [];
+  if (family === 'sciences') {
+    lines.push('תחום דעת נעול: מדעים.');
+    if (queryHasMarker(q, BROAD_SCIENCE_QUERY_MARKERS) && gradeId && SCIENCE_BLOCK_BY_GRADE[gradeId]) {
+      lines.push('מערכי התקופה בכיתה זו: ' + SCIENCE_BLOCK_BY_GRADE[gradeId]);
+    } else {
+      lines.push('נעל את כל 15 הימים למונח המדעים שנחקר («' + q + '») במערכי המדעים של הכיתה שנבחרה בלבד.');
+      if (gradeId && SCIENCE_BLOCK_BY_GRADE[gradeId]) {
+        lines.push('מסגרת המדעים של הכיתה (אין לצאת ממנה): ' + SCIENCE_BLOCK_BY_GRADE[gradeId]);
+      }
+    }
+    if (gradeId === '7') {
+      lines.push('אם הכיתה היא ז׳: הטבלה חייבת לכלול אך ורק את נושאי המדעים של כיתה ז׳ בחינוך ולדורף (מכניקה, כימיה של שריפה, פיזיולוגיה/תזונה).');
+      lines.push('אסור בשום אופן לסטות להיסטוריה כללית (כמו תקופת הרנסנס או עידן התגליות / מגלי עולם).');
+    } else {
+      lines.push('אסור בשום אופן לסטות להיסטוריה כללית (רנסנס, עידן התגליות, מגלי עולם, יוון, רומא, מהפכות).');
+    }
+    lines.push('כל יום: topic ו-content הם מערך מדעים (תופעה, ניסוי, עיכול סיפורי מדעי) — לא סיפור היסטורי על מגלים, רנסנס או גילוי העולם.');
+  } else if (family === 'history') {
+    lines.push('תחום דעת נעול: היסטוריה.');
+    if (gradeId && HISTORY_BLOCK_BY_GRADE[gradeId]) {
+      lines.push('מערכי ההיסטוריה של הכיתה שנבחרה: ' + HISTORY_BLOCK_BY_GRADE[gradeId] + '.');
+    }
+    lines.push('נעל את כל 15 הימים לתקופה ההיסטורית שנחקרה בכיתה זו — אל תחליף במערכי מדעים (מכניקה, כימיה של שריפה, פיזיולוגיה) אלא אם המונח עצמו הוא אותו מערך היסטורי.');
+  } else if (family === 'form_drawing') {
+    lines.push('תחום דעת נעול: רישום צורה.');
+    lines.push('כל 15 הימים הם מערכי רישום צורה של הכיתה שנבחרה בלבד — קו, ריתמוס, סימטריה ותרגול מחברת. אסור לגלוש להיסטוריה או למדעים.');
+  } else {
+    lines.push('תחום דעת נעול: המונח שנחקר «' + q + '».');
+    lines.push('כל שורת יום חייבת להישאר באותו תחום דעת — אל תחליף בנושא קטלוגי אחר רק כי הוא נלמד באותה כיתה.');
+  }
+  return lines;
+}
+
+function buildSubjectLockInstruction(query, gradeInfo) {
+  const q = String(query || '').trim();
+  const gradeLabel = gradeInfo && String(gradeInfo.gradeLabel || '').trim();
+  const gradeId = resolveSubjectLockGradeId(gradeInfo);
+  const gradeBit = gradeLabel
+    ? gradeLabel
+    : (gradeId ? ('כיתה ' + gradeId) : 'הכיתה שנבחרה');
+  return [
+    '=== נעילת תחום דעת קשיחה — טבלת 15 הימים (חובה מוחלטת) ===',
+    SUBJECT_LOCK_HEBREW,
+    SUBJECT_DAILY_MATCH_HEBREW,
+    'הנושא שנחקר: «' + q + '». הכיתה: «' + gradeBit + '».',
+    buildSubjectFamilyLines(query, gradeInfo).join(' '),
+    '=== סוף נעילת תחום דעת ===',
+  ].join(' ');
+}
+
+function buildSubjectDriftRetryInstruction(query, gradeInfo) {
+  return [
+    'תיקון חובה: הטבלה הקודמת סטתה מתחום הדעת הנעול.',
+    buildSubjectLockInstruction(query, gradeInfo),
+    'כתוב מחדש את curriculum כולו (15 ימים) בתוך תחום הדעת הנעול בלבד.',
+  ].join(' ');
+}
+
+function collectCurriculumText(parsed) {
+  const days = parsed && Array.isArray(parsed.curriculum) ? parsed.curriculum : [];
+  return days.map(function (row) {
+    if (!row || typeof row !== 'object') return '';
+    return [row.topic, row.content, row.art, row.title, row.narrative].join(' ');
+  }).join('\n');
+}
+
+function curriculumDriftsFromLockedSubject(parsed, query, gradeInfo) {
+  const family = classifyPeriodSubjectFamily(query);
+  const text = collectCurriculumText(parsed);
+  if (!text) return false;
+  if (family === 'sciences') return SCIENCE_HISTORY_LEAK_RE.test(text);
+  if (family === 'form_drawing') return FORM_DRAWING_LEAK_RE.test(text);
+  return false;
+}
+
+function buildPeriodBlockSystemPrompt(query, gradeInfo) {
+  return PERIOD_BLOCK_SYSTEM_PROMPT_BASE + ' ' + buildSubjectLockInstruction(query, gradeInfo);
+}
 
 /** Strip citation markers / footnotes that leak into Hebrew pedagogical body text. */
 function stripCitationMarkers(text) {
@@ -384,6 +564,19 @@ async function callGeneralSearchJson(systemPrompt, userPrompt, options) {
     : buildSmoothGeneralSearchFallback(periodBlock, raw, opts);
 }
 
+async function callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, opts);
+  if (!opts.periodBlock) return parsed;
+  if (!curriculumDriftsFromLockedSubject(parsed, opts.query, opts.gradeInfo)) return parsed;
+  console.warn(
+    '[pure-general-search] 15-day curriculum drifted from locked subject; retrying',
+    String(opts.query || '').slice(0, 80)
+  );
+  const retryPrompt = String(userPrompt || '') + '\n\n' + buildSubjectDriftRetryInstruction(opts.query, opts.gradeInfo);
+  return callGeneralSearchJson(systemPrompt, retryPrompt, opts);
+}
+
 function resolvePeriodGrade(body) {
   const src = body && typeof body === 'object' ? body : {};
   const gradeId = String(src.gradeId || src.currentGrade || '').trim();
@@ -416,6 +609,7 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     'אל תייצר חומר קצר או מקוצר — התוכנית חייבת להיות מלאה, עמוקה ומפורטת לכל 15 הימים.',
     contextLine,
     gradeLock,
+    buildSubjectLockInstruction(query, gradeInfo),
     '',
     HEBREW_ONLY_BODY_INSTRUCTION,
     '',
@@ -425,7 +619,7 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     '',
     'שני תפקידים פדגוגיים נפרדים (חובה מוחלטת):',
     '1) הסקירה העליונה (developmental_axis + core_pedagogical_emphases) חייבת תמיד לתאר את קשת ההתפתחות של הנושא לאורך כל תכנית הלימודים הוולדורפית מכיתה א׳ עד כיתה ח׳ לפי חגורות א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — עומק אנתרופוסופי רב-פסקאות, לא סיכום גנרי. אין לנעול את הסקירה לכיתה שנבחרה.',
-    '2) טבלת 15 הימים (curriculum) חייבת תמיד להיות מותאמת אך ורק לכיתה שנבחרה ברשימה — למשל פיזיקה כיתה ו׳ או רישום צורה כיתה ג׳.',
+    '2) טבלת 15 הימים (curriculum) חייבת תמיד להיות מותאמת אך ורק לכיתה שנבחרה ברשימה ולתחום הדעת שנחקר — למשל מדעי כיתה ז׳ (מכניקה / כימיה של שריפה / פיזיולוגיה) או רישום צורה כיתה ג׳. הקשת ההתפתחותית של א׳–ח׳ אינה מתירה לגלוש לנושא אחר בטבלה.',
     '',
     'דרישות מבנה JSON (מפתחות מדויקים בלבד):',
     '- developmental_axis: קשת התפתחותית עשירה של הנושא מכיתה א׳ עד כיתה ח׳ — מספר פסקאות לכל חגורת גיל (א׳–ג׳ חוויה חושית וסיפור; ד׳–ה׳ תצפית חיה; ו׳ רוביקון שני ופנומנולוגיה; ז׳–ח׳ מדעים סיבתיים).',
@@ -441,6 +635,8 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     '- קשת נרטיבית רציפה לאורך כל 15 הימים: פתיחה, העמקה, שיא, שילוב.',
     '- מקצב שיעור ראשי: סיפור/דקלום, היזכרות, חומר חדש, עבודה אמנותית.',
     '- שפה ופעילויות בטבלה מותאמות לגיל הכיתה שנבחרה בלבד.',
+    '- ' + SUBJECT_LOCK_HEBREW,
+    '- ' + SUBJECT_DAILY_MATCH_HEBREW,
   ].join('\n');
 }
 
@@ -601,17 +797,18 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
   const gradeInfo = resolvePeriodGrade(body);
   const archiveText = buildGeneralSearchArchiveText(historic) || JSON.stringify(historic).slice(0, 16000);
   const upgradeIntro = buildArchiveUpgradeIntro(archiveText, buildPeriodContextLine(query, periodBlock ? gradeInfo : null));
-  const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const systemPrompt = periodBlock ? buildPeriodBlockSystemPrompt(query, gradeInfo) : SYSTEM_PROMPT;
   const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query, gradeInfo) : buildStandardUserPrompt(query);
   const userPrompt = upgradeIntro + '\n\n' + basePrompt;
 
   await enforceLiveSearchQuota(body, requestContext);
   try {
-    const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
+    const parsed = await callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
       gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
+      gradeInfo: gradeInfo,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
 
@@ -656,17 +853,18 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
   const gradeInfo = resolvePeriodGrade(body);
   const archiveText = buildGeneralSearchArchiveText(historic) || JSON.stringify(historic).slice(0, 16000);
   const expandIntro = buildResearchExpandIntro(archiveText, buildPeriodContextLine(query, periodBlock ? gradeInfo : null));
-  const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const systemPrompt = periodBlock ? buildPeriodBlockSystemPrompt(query, gradeInfo) : SYSTEM_PROMPT;
   const basePrompt = periodBlock ? buildPeriodBlockUserPrompt(query, gradeInfo) : buildStandardUserPrompt(query);
   const userPrompt = expandIntro + '\n\n' + basePrompt;
 
   await enforceLiveSearchQuota(body, requestContext);
   try {
-    const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
+    const parsed = await callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
       gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
+      gradeInfo: gradeInfo,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
 
@@ -803,7 +1001,7 @@ async function runPureGeneralSearch(body, requestContext) {
     // No semantic archive suggestion / reference scan — go straight to Phase A (Perplexity).
   }
 
-  const systemPrompt = periodBlock ? PERIOD_BLOCK_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const systemPrompt = periodBlock ? buildPeriodBlockSystemPrompt(query, gradeInfo) : SYSTEM_PROMPT;
   const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query, gradeInfo) : buildStandardUserPrompt(query);
 
   await enforceLiveSearchQuota(body, requestContext);
@@ -812,11 +1010,12 @@ async function runPureGeneralSearch(body, requestContext) {
     periodBlock ? '(force 15-day generation, archive skipped)' : '(community summary decoupled)'
   );
   try {
-    const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
+    const parsed = await callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
       gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
+      gradeInfo: gradeInfo,
     });
     const normalized = normalizeGeneralSearchResponse(parsed, {
       periodBlock: periodBlock,
@@ -922,4 +1121,9 @@ module.exports = {
   runPureGeneralSearch,
   normalizeGeneralSearchResponse,
   coerceCurriculumDays,
+  classifyPeriodSubjectFamily,
+  buildSubjectLockInstruction,
+  buildPeriodBlockSystemPrompt,
+  buildPeriodBlockUserPrompt,
+  curriculumDriftsFromLockedSubject,
 };
