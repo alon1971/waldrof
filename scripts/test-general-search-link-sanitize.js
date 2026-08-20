@@ -11,6 +11,7 @@ function assert(cond, msg) {
 }
 
 const query = 'בוטניקה';
+const encodedTopic = encodeURIComponent(query);
 
 assert(
   pgs.sanitizeRelevantLinkUrl('https://www.waldorflibrary.org/', query) === 'https://waldorflibrary.org/',
@@ -33,26 +34,65 @@ assert(
   'adamolam homepage is kept'
 );
 
+const numericArticle = pgs.sanitizeRelevantLinkUrl(
+  'https://www.waldorflibrary.org/articles/1090',
+  query
+);
+assert(
+  numericArticle === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
+  'numeric /articles/1090 becomes Waldorf Library site search'
+);
+
 const deepLibrary = pgs.sanitizeRelevantLinkUrl(
   'https://www.waldorflibrary.org/articles/made-up-botany-404',
   query
 );
 assert(
-  deepLibrary.indexOf('https://www.google.com/search?q=site:waldorflibrary.org+') === 0,
-  'invented waldorflibrary path becomes site: search'
+  deepLibrary === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
+  'invented waldorflibrary path becomes native library search'
 );
-assert(decodeURIComponent(deepLibrary).indexOf('בוטניקה') >= 0, 'site: search includes the topic');
+
+const deepArchive = pgs.sanitizeRelevantLinkUrl(
+  'https://rsarchive.org/Lectures/GA293/English/made-up',
+  query
+);
+assert(
+  deepArchive === 'https://rsarchive.org/Search.php?q=' + encodedTopic,
+  'invented rsarchive path becomes Archive Search.php'
+);
+
+const deepAdam = pgs.sanitizeRelevantLinkUrl(
+  'https://adamolam.co.il/2024/01/made-up-article/',
+  query
+);
+assert(
+  deepAdam === 'https://adamolam.co.il/?s=' + encodedTopic,
+  'invented adamolam path becomes ?s= search'
+);
+
+const chained = pgs.sanitizeRelevantLinkUrl(
+  'https://jobs.waldorftoday.com/https://www.waldorflibrary.org/articles/1090',
+  query
+);
+assert(
+  chained === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
+  'chained double-domain URL is rewritten to library search'
+);
+assert(
+  pgs.hasChainedOrDoubleDomain('https://jobs.waldorftoday.com/https://www.waldorflibrary.org/articles/1090'),
+  'double-domain detector flags jobs.waldorftoday.com/https://...'
+);
 
 const deepHarduf = pgs.sanitizeRelevantLinkUrl('https://harduf.org.il/http_new/fake-article', query);
 assert(
   deepHarduf.indexOf('https://www.google.com/search?q=site:harduf.org.il+') === 0,
-  'invented harduf path becomes site:harduf search'
+  'invented harduf path becomes Google site:harduf search'
 );
 
 const foreign = pgs.sanitizeRelevantLinkUrl('https://example.com/waldorf/botany-lesson', query);
 assert(
-  foreign.indexOf('https://www.google.com/search?q=site:waldorflibrary.org+') === 0,
-  'unapproved domain becomes site:waldorflibrary.org search'
+  foreign === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
+  'unapproved domain becomes Waldorf Library site search'
 );
 
 const goodSiteSearch = pgs.sanitizeRelevantLinkUrl(
@@ -60,8 +100,8 @@ const goodSiteSearch = pgs.sanitizeRelevantLinkUrl(
   query
 );
 assert(
-  goodSiteSearch.indexOf('https://www.google.com/search?q=site:rsarchive.org+') === 0,
-  'existing site: search on an approved domain is kept on that domain'
+  goodSiteSearch === 'https://rsarchive.org/Search.php?q=' + encodedTopic,
+  'Google site:rsarchive.org is upgraded to native Archive search'
 );
 
 const badSiteSearch = pgs.sanitizeRelevantLinkUrl(
@@ -69,8 +109,24 @@ const badSiteSearch = pgs.sanitizeRelevantLinkUrl(
   query
 );
 assert(
-  badSiteSearch.indexOf('https://www.google.com/search?q=site:waldorflibrary.org+') === 0,
-  'site: search on an unapproved domain is rewritten to waldorflibrary.org'
+  badSiteSearch === 'https://www.waldorflibrary.org/search?q=' + encodedTopic,
+  'site: search on an unapproved domain is rewritten to library search'
+);
+
+assert(
+  pgs.buildFocusedSearchUrl('waldorflibrary.org', query) ===
+    'https://www.waldorflibrary.org/search?q=' + encodedTopic,
+  'focused search builder matches Waldorf Library template'
+);
+assert(
+  pgs.buildFocusedSearchUrl('rsarchive.org', query) ===
+    'https://rsarchive.org/Search.php?q=' + encodedTopic,
+  'focused search builder matches Steiner Archive template'
+);
+assert(
+  pgs.buildFocusedSearchUrl('adamolam.co.il', query) ===
+    'https://adamolam.co.il/?s=' + encodedTopic,
+  'focused search builder matches Adam Olam template'
 );
 
 const normalized = pgs.normalizeGeneralSearchResponse({
@@ -78,8 +134,8 @@ const normalized = pgs.normalizeGeneralSearchResponse({
   core_pedagogical_emphases: 'דגשים',
   relevant_links: [
     { title: 'ספריית וולדורף — דף הבית', url: 'https://waldorflibrary.org/' },
-    { title: 'מאמר מומצא', url: 'https://waldorflibrary.org/articles/does-not-exist' },
-    { title: 'אתר זר', url: 'https://not-approved.org/deep/path' },
+    { title: 'מאמר 1090', url: 'https://waldorflibrary.org/articles/1090' },
+    { title: 'אתר זר כפול', url: 'https://jobs.waldorftoday.com/https://rsarchive.org/Lectures/1' },
     { title: 'ארכיון שטיינר', url: 'https://rsarchive.org/' },
   ],
 }, { query: query });
@@ -88,23 +144,31 @@ const urls = normalized.relevant_links.map(function (item) { return item.url; })
 assert(urls.indexOf('https://waldorflibrary.org/') >= 0, 'normalize keeps library homepage');
 assert(urls.indexOf('https://rsarchive.org/') >= 0, 'normalize keeps rsarchive homepage');
 assert(
-  urls.some(function (u) { return u.indexOf('site:waldorflibrary.org+') >= 0; }),
-  'normalize rewrites invented deep path to site: search'
+  urls.some(function (u) { return u.indexOf('https://www.waldorflibrary.org/search?q=') === 0; }),
+  'normalize rewrites /articles/1090 to library search'
 );
 assert(
-  !urls.some(function (u) { return /not-approved\.org/.test(u); }),
-  'normalize drops unapproved hosts'
+  urls.some(function (u) { return u.indexOf('https://rsarchive.org/Search.php?q=') === 0; }),
+  'normalize rewrites chained rsarchive URL to Archive search'
+);
+assert(
+  !urls.some(function (u) { return /jobs\.waldorftoday|\/articles\/1090/.test(u); }),
+  'normalize drops chained hosts and numeric article paths'
 );
 
 const sys = pgs.buildPeriodBlockSystemPrompt('בוטניקה', { gradeId: '5', gradeLabel: 'כיתה ה׳' });
 assert(sys.indexOf('איסור מוחלט על ניחוש URL') >= 0, 'period system prompt forbids URL guessing');
-assert(sys.indexOf('site:waldorflibrary.org') >= 0, 'period system prompt shows site-search pattern');
+assert(sys.indexOf('/articles/1090') >= 0, 'period system prompt forbids numeric article IDs');
+assert(sys.indexOf('waldorflibrary.org/search') >= 0, 'period system prompt shows library search template');
+assert(sys.indexOf('Search.php') >= 0, 'period system prompt shows Archive search template');
 
 const user = pgs.buildPeriodBlockUserPrompt('בוטניקה', { gradeId: '5', gradeLabel: 'כיתה ה׳' });
-assert(user.indexOf('אסור לנחש נתיבים פנימיים') >= 0, 'period user prompt forbids guessed paths');
+assert(user.indexOf('אסור לנחש /articles/{id}') >= 0, 'period user prompt forbids guessed article IDs');
+assert(user.indexOf('דומיינים כפולים') >= 0, 'period user prompt forbids chained domains');
 
 const standard = pgs.buildStandardUserPrompt('בוטניקה');
 assert(standard.indexOf('איסור מוחלט על ניחוש URL') >= 0, 'standard search prompt forbids URL guessing');
+assert(standard.indexOf('adamolam.co.il/?s=') >= 0, 'standard search prompt includes Adam Olam search');
 assert(
   pgs.APPROVED_RELEVANT_LINK_DOMAINS.indexOf('anadom.co.il') >= 0 &&
   pgs.APPROVED_RELEVANT_LINK_DOMAINS.indexOf('harduf.org.il') >= 0 &&

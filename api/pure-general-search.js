@@ -61,24 +61,19 @@ const APPROVED_RELEVANT_LINK_DOMAINS = [
   'rsarchive.org',
 ];
 
-/** Known-safe path prefixes per host. Anything deeper is treated as a guessed slug and rewritten. */
-const KNOWN_SAFE_PATHS_BY_HOST = {
-  'anadom.co.il': ['/'],
-  'harduf.org.il': ['/'],
-  'adamolam.co.il': ['/'],
-  'waldorflibrary.org': ['/'],
-  'rsarchive.org': ['/'],
-};
-
 const DEFAULT_SITE_SEARCH_DOMAIN = 'waldorflibrary.org';
 
 const RELEVANT_LINKS_NO_HALLUCINATION_INSTRUCTION = [
   '=== קישורים רלוונטיים — איסור מוחלט על ניחוש URL ===',
-  'NEVER invent, guess, or fabricate deep URLs (internal paths, encoded Hebrew slugs, /articles/..., CMS permalinks) — those 404.',
+  'NEVER invent or guess article paths, numeric CMS IDs (e.g. /articles/1090, /articles/1090123), encoded slugs, or chained/double domains (e.g. jobs.waldorftoday.com/https://waldorflibrary.org/...). Those 404 or open the wrong article.',
   'relevant_links.url may ONLY be one of:',
   '(1) the official homepage of an approved domain: ' + APPROVED_RELEVANT_LINK_DOMAINS.join(', ') + '.',
-  '(2) a dedicated Google site-search for a specific article or topic, for example: https://www.google.com/search?q=site:waldorflibrary.org+TOPIC',
-  'If you want to point to a specific article, emit the site-search URL or the source homepage — NEVER a guessed deep path.',
+  '(2) a native on-site search for the topic, using these exact templates:',
+  '    Waldorf Library: https://www.waldorflibrary.org/search?q={encoded_topic}',
+  '    Rudolf Steiner Archive: https://rsarchive.org/Search.php?q={encoded_topic}',
+  '    אדם עולם: https://adamolam.co.il/?s={encoded_topic}',
+  '(3) a Google site-search: https://www.google.com/search?q=site:waldorflibrary.org+{encoded_topic} (or site: of another approved domain).',
+  'If you want a specific article, emit a site-search URL — NEVER a guessed /articles/{id} path and NEVER a chained double-domain URL.',
   '=== סוף איסור ניחוש URL ===',
 ].join(' ');
 
@@ -93,7 +88,7 @@ const SYSTEM_PROMPT = [
   'developmental_axis (string: rich multi-paragraph Hebrew covering the FULL elementary arc Grades 1–8 by age bands א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — sensory-imaginative years, living observation, second Rubicon / phenomenology, then causal scientific thinking; never brief generic summaries),',
   'core_pedagogical_emphases (string: rich multi-paragraph Hebrew with Developmental Compass — רציונל התפתחותי ומצפן למורה — for each age band above, plus lesson dynamics; professional Anthroposophical depth, never superficial),',
   'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
-  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; url MUST be an approved homepage or a Google site: search — NEVER a guessed deep path).',
+  'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; url MUST be an approved homepage, a native site-search, or a Google site: search — NEVER /articles/{id} or a chained double-domain URL).',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
   'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON.',
 ].join(' ');
@@ -109,7 +104,7 @@ const PERIOD_BLOCK_SYSTEM_PROMPT_BASE = [
   'developmental_axis (string: rich multi-paragraph Hebrew tracing how THIS SUBJECT evolves across the entire Waldorf elementary curriculum Grades 1–8 by age bands א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — never lock this overview to the selected grade, never brief generic summaries),',
   'core_pedagogical_emphases (string: rich multi-paragraph Hebrew — Waldorf emphases, Developmental Compass / מצפן התפתחותי, and teacher compass for this SUBJECT across the same Grades 1–8 age bands),',
   'recommended_literature (array of 3-6 objects: {title, author, note} — note in clean Hebrew explaining relevance to this block),',
-  'relevant_links (array of 4-6 objects: {title, url} — approved homepage or Google site: search only; title in Hebrew with short context; NEVER a guessed deep path),',
+  'relevant_links (array of 4-6 objects: {title, url} — approved homepage, native site-search, or Google site: search; title in Hebrew with short context; NEVER /articles/{id} or a chained double-domain URL),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew core daily topic), content (Hebrew focused bullet points for main narrative/story/new material, separated by \\n — NOT long essays), art (Hebrew focused bullet points for notebook/drawing/painting/handwork)).',
   'The 15-day curriculum table MUST be tailored STRICTLY to the selected grade only (e.g. Physics Grade 6, Form Drawing Grade 3). Never mix other grades into the daily rows.',
   'The Grades 1–8 developmental arc applies ONLY to developmental_axis and core_pedagogical_emphases. The curriculum table must never borrow a different subject family (history into science, science into form drawing, etc.).',
@@ -390,22 +385,69 @@ function sanitizeSearchTopic(value) {
     .slice(0, 80);
 }
 
+function encodedSearchTopic(topic) {
+  return encodeURIComponent(sanitizeSearchTopic(topic));
+}
+
 function buildApprovedSiteSearchUrl(domain, topic) {
   const host = isApprovedRelevantLinkHost(domain) ? normalizeHost(domain) : DEFAULT_SITE_SEARCH_DOMAIN;
-  const q = sanitizeSearchTopic(topic);
-  const encodedTopic = q ? encodeURIComponent(q).replace(/%20/g, '+') : '';
+  const encodedTopic = encodedSearchTopic(topic).replace(/%20/g, '+');
   return 'https://www.google.com/search?q=site:' + host + (encodedTopic ? '+' + encodedTopic : '');
 }
 
-function isKnownSafePathForHost(host, pathname, search) {
-  const h = normalizeHost(host);
+/** Native on-site search when the host has a known search page; otherwise Google site:. */
+function buildFocusedSearchUrl(domain, topic) {
+  const host = isApprovedRelevantLinkHost(domain) ? normalizeHost(domain) : DEFAULT_SITE_SEARCH_DOMAIN;
+  const encoded = encodedSearchTopic(topic);
+  if (host === 'waldorflibrary.org') {
+    return 'https://www.waldorflibrary.org/search?q=' + encoded;
+  }
+  if (host === 'rsarchive.org') {
+    return 'https://rsarchive.org/Search.php?q=' + encoded;
+  }
+  if (host === 'adamolam.co.il') {
+    return 'https://adamolam.co.il/?s=' + encoded;
+  }
+  return buildApprovedSiteSearchUrl(host, topic);
+}
+
+function isApprovedHomepage(host, pathname, search) {
   const path = String(pathname || '/').replace(/\/+$/, '') || '/';
   if (String(search || '').replace(/^\?/, '').trim()) return false;
-  const known = KNOWN_SAFE_PATHS_BY_HOST[h] || ['/'];
-  return known.some(function (allowed) {
-    const a = String(allowed || '/').replace(/\/+$/, '') || '/';
-    return path === a || path === a + '/index.html' || path === a + '/index.php';
-  });
+  return path === '/' || path === '/index.html' || path === '/index.php';
+}
+
+function looksLikeNumericArticlePath(pathname) {
+  return /\/articles?\/\d+/i.test(String(pathname || '')) || /\/\d{3,}(?:\/|$)/.test(String(pathname || ''));
+}
+
+function hasChainedOrDoubleDomain(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return false;
+  const withoutScheme = raw.replace(/^https?:\/\//i, '');
+  if (/https?:\/\//i.test(withoutScheme)) return true;
+  if (/\/https?:/i.test(raw)) return true;
+  try {
+    const parsed = new URL(ensureHttpsUrl(raw));
+    const path = decodeURIComponent(String(parsed.pathname || ''));
+    if (/(?:^|\/)(?:www\.)?[a-z0-9-]+\.[a-z]{2,}(?:\/|$|:)/i.test(path)) return true;
+  } catch (e) {
+    return /https?:\/\//i.test(withoutScheme);
+  }
+  return false;
+}
+
+function extractEmbeddedApprovedHost(url) {
+  const raw = String(url || '');
+  const re = /https?:\/\/(?:www\.)?([a-z0-9.-]+\.[a-z]{2,})/gi;
+  const approved = [];
+  let match;
+  while ((match = re.exec(raw))) {
+    const host = normalizeHost(match[1]);
+    if (isApprovedRelevantLinkHost(host)) approved.push(host);
+  }
+  if (approved.length) return approved[approved.length - 1];
+  return '';
 }
 
 function extractGoogleSiteSearchHost(url) {
@@ -443,35 +485,48 @@ function linkSearchTopic(item, query) {
 }
 
 /**
- * Fallback validation: keep approved homepages / known-safe paths;
- * rewrite invented deep paths and foreign hosts to a focused site: search.
+ * Fallback validation: keep approved homepages; rewrite guessed article IDs,
+ * chained/double-domain URLs, and unverified deep paths to a native or Google site search.
  */
 function sanitizeRelevantLinkUrl(rawUrl, topic, preferredHost) {
-  const fallbackHost = isApprovedRelevantLinkHost(preferredHost) ? normalizeHost(preferredHost) : DEFAULT_SITE_SEARCH_DOMAIN;
-  const fallback = buildApprovedSiteSearchUrl(fallbackHost, topic);
+  const q = sanitizeSearchTopic(topic);
+  const defaultHost = isApprovedRelevantLinkHost(preferredHost)
+    ? normalizeHost(preferredHost)
+    : DEFAULT_SITE_SEARCH_DOMAIN;
   const raw = ensureHttpsUrl(rawUrl);
-  if (!raw) return fallback;
+  if (!raw) return buildFocusedSearchUrl(defaultHost, q);
+
+  if (hasChainedOrDoubleDomain(raw)) {
+    const inner = extractEmbeddedApprovedHost(raw) || defaultHost;
+    return buildFocusedSearchUrl(inner, q);
+  }
 
   const siteHost = extractGoogleSiteSearchHost(raw);
   if (siteHost) {
-    return isApprovedRelevantLinkHost(siteHost)
-      ? buildApprovedSiteSearchUrl(siteHost, topic)
-      : fallback;
+    return buildFocusedSearchUrl(
+      isApprovedRelevantLinkHost(siteHost) ? siteHost : defaultHost,
+      q
+    );
   }
 
   try {
     const parsed = new URL(raw);
-    if (!/^https?:$/i.test(parsed.protocol)) return fallback;
+    if (!/^https?:$/i.test(parsed.protocol)) return buildFocusedSearchUrl(defaultHost, q);
     const host = parsed.hostname;
-    if (isApprovedRelevantLinkHost(host) && isKnownSafePathForHost(host, parsed.pathname, parsed.search)) {
+    if (looksLikeNumericArticlePath(parsed.pathname)) {
+      const rewriteHost = isApprovedRelevantLinkHost(host) ? host : defaultHost;
+      return buildFocusedSearchUrl(rewriteHost, q);
+    }
+    if (isApprovedRelevantLinkHost(host) && isApprovedHomepage(host, parsed.pathname, parsed.search)) {
       return 'https://' + normalizeHost(host) + '/';
     }
     if (isApprovedRelevantLinkHost(host)) {
-      return buildApprovedSiteSearchUrl(host, topic);
+      return buildFocusedSearchUrl(host, q);
     }
-    return fallback;
+    return buildFocusedSearchUrl(defaultHost, q);
   } catch (e) {
-    return fallback;
+    const inner = extractEmbeddedApprovedHost(raw) || defaultHost;
+    return buildFocusedSearchUrl(inner, q);
   }
 }
 
@@ -776,7 +831,7 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     '- developmental_axis: קשת התפתחותית עשירה של הנושא מכיתה א׳ עד כיתה ח׳ — מספר פסקאות לכל חגורת גיל (א׳–ג׳ חוויה חושית וסיפור; ד׳–ה׳ תצפית חיה; ו׳ רוביקון שני ופנומנולוגיה; ז׳–ח׳ מדעים סיבתיים).',
     '- core_pedagogical_emphases: דגשים פדגוגיים, מצפן התפתחותי ומצפן למורה לפי אותן חגורות גיל — פירוט מקצועי רב-פסקאות.',
     '- recommended_literature: מקורות מקצועיים לתקופה (הערות בעברית נקייה).',
-    '- relevant_links: דפי בית מאושרים או חיפוש Google מסוג site:DOMAIN+TOPIC בלבד — אסור לנחש נתיבים פנימיים.',
+    '- relevant_links: דפי בית מאושרים, חיפוש פנימי באתר (waldorflibrary.org/search, rsarchive.org/Search.php, adamolam.co.il/?s=) או Google site: — אסור לנחש /articles/{id} או לשרשר דומיינים כפולים.',
     RELEVANT_LINKS_NO_HALLUCINATION_INSTRUCTION,
     '',
     'curriculum (תוכנית 15 ימים) — חובה מוחלטת:',
@@ -813,7 +868,7 @@ function buildStandardUserPrompt(query) {
     '- developmental_axis (ציר התפתחותי): rich multi-paragraph Hebrew covering Grades 1–8 age bands — א׳–ג׳ sensory/story/handwork; ד׳–ה׳ living observation (zoology/botany); ו׳ second Rubicon and scientific phenomenology; ז׳–ח׳ causal sciences and adolescent thinking. Never brief generic summaries.',
     '- core_pedagogical_emphases (דגשים פדגוגיים מרכזיים): rich professional Anthroposophical depth with Developmental Compass for each of those age bands.',
     '- recommended_literature: each entry with contextual note explaining coverage and relevance.',
-    '- relevant_links (קישורים): 6-8 items whose url is an approved homepage (' + APPROVED_RELEVANT_LINK_DOMAINS.join(', ') + ') or a Google site: search such as https://www.google.com/search?q=site:waldorflibrary.org+TOPIC — never a guessed deep path.',
+    '- relevant_links (קישורים): 6-8 items whose url is an approved homepage, a native site search (https://www.waldorflibrary.org/search?q=TOPIC, https://rsarchive.org/Search.php?q=TOPIC, https://adamolam.co.il/?s=TOPIC), or https://www.google.com/search?q=site:waldorflibrary.org+TOPIC — never /articles/{id} or chained double-domain URLs.',
     'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown.',
   ].join('\n');
 }
@@ -1292,6 +1347,8 @@ module.exports = {
   sanitizeRelevantLinks,
   sanitizeRelevantLinkUrl,
   buildApprovedSiteSearchUrl,
+  buildFocusedSearchUrl,
+  hasChainedOrDoubleDomain,
   APPROVED_RELEVANT_LINK_DOMAINS,
   RELEVANT_LINKS_NO_HALLUCINATION_INSTRUCTION,
 };
