@@ -27611,6 +27611,14 @@
       }
     }
 
+    function stripStaleGeneralSearchLinks(data) {
+      if (!data || typeof data !== 'object') return data;
+      var copy = Object.assign({}, data);
+      copy.relevant_links = [];
+      if (Object.prototype.hasOwnProperty.call(copy, 'links')) copy.links = [];
+      return copy;
+    }
+
     async function fetchPureGeneralSearch(query, signal, options) {
       var opts = options || {};
       var payload = { query: query };
@@ -27623,6 +27631,7 @@
       }
       if (gradeLabel) payload.gradeLabel = gradeLabel;
       if (opts.confirmArchiveKey) payload.confirmArchiveKey = opts.confirmArchiveKey;
+      if (opts.refreshArchiveLinks) payload.refreshArchiveLinks = true;
       if (opts.bypassCache || opts.forceRefresh || opts.forceFresh || opts.skipCache) {
         payload.bypassCache = true;
         payload.forceRefresh = true;
@@ -27841,35 +27850,32 @@
             archived: true,
           }, opts.cachedMeta || {});
           if (opts.confirmArchiveKey) instantMeta.cacheKey = opts.confirmArchiveKey;
+          var instantData = stripStaleGeneralSearchLinks(opts.cachedData);
           appState.generalSearchQuery = query;
           appState.generalSearchFromArchive = true;
           if (instantMeta.cacheKey) appState.generalSearchCacheKey = instantMeta.cacheKey;
-          appState.generalSearchResult = opts.cachedData;
+          appState.generalSearchResult = instantData;
           appState.generalSearchMeta = instantMeta;
-          renderGeneralSearchResults(opts.cachedData, instantMeta);
-          // Standard overview: refresh via confirmArchiveKey so archive metadata stays in sync.
-          // 15-day hits already have the period payload — skip the round-trip so a vanished
-          // key cannot fall through to a live Gemini generation.
-          if (opts.confirmArchiveKey && !periodBlock) {
-            try {
-              var refresh = await fetchPureGeneralSearch(query, signal, {
-                periodBlock: periodBlock,
-                confirmArchiveKey: opts.confirmArchiveKey,
-                gradeId: opts.gradeId,
-                gradeLabel: opts.gradeLabel,
-              });
-              if (!signal.aborted && refresh && refresh.data) {
-                var refreshMeta = refresh.meta || instantMeta;
-                appState.generalSearchFromArchive = Boolean(refreshMeta.fromCache);
-                if (refreshMeta.cacheKey) appState.generalSearchCacheKey = refreshMeta.cacheKey;
-                appState.generalSearchResult = refresh.data;
-                appState.generalSearchMeta = refreshMeta;
-                renderGeneralSearchResults(refresh.data, refreshMeta);
-              }
-            } catch (refreshErr) {
-              if (!isGeneralSearchAbortError(refreshErr) && !isBenignStreamAbortError(refreshErr)) {
-                console.warn('[general-search] archive community refresh failed:', refreshErr);
-              }
+          renderGeneralSearchResults(instantData, instantMeta);
+          try {
+            var refresh = await fetchPureGeneralSearch(query, signal, {
+              periodBlock: periodBlock,
+              confirmArchiveKey: opts.confirmArchiveKey,
+              refreshArchiveLinks: true,
+              gradeId: opts.gradeId || (periodBlock ? getGeneralSearchPeriodGradeId() : ''),
+              gradeLabel: opts.gradeLabel || (periodBlock ? getGeneralSearchPeriodGradeLabel(opts.gradeId || getGeneralSearchPeriodGradeId()) : ''),
+            });
+            if (!signal.aborted && refresh && refresh.data) {
+              var refreshMeta = refresh.meta || instantMeta;
+              appState.generalSearchFromArchive = Boolean(refreshMeta.fromCache);
+              if (refreshMeta.cacheKey) appState.generalSearchCacheKey = refreshMeta.cacheKey;
+              appState.generalSearchResult = refresh.data;
+              appState.generalSearchMeta = refreshMeta;
+              renderGeneralSearchResults(refresh.data, refreshMeta);
+            }
+          } catch (refreshErr) {
+            if (!isGeneralSearchAbortError(refreshErr) && !isBenignStreamAbortError(refreshErr)) {
+              console.warn('[general-search] archive link refresh failed:', refreshErr);
             }
           }
           return;
