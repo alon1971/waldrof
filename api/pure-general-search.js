@@ -501,7 +501,7 @@ function ensureHttpsUrl(rawUrl) {
 function isVagueLinkTitle(title) {
   const text = String(title || '').trim();
   if (!text) return true;
-  if (/^(search|search\.php|index|index\.html|index\.php|home|http|https|www|link|url|q)$/i.test(text)) {
+  if (/^(search|search\.php|index|index\.html|index\.php|home|http|https|www|link|url|q|sidebar)$/i.test(text)) {
     return true;
   }
   if (/^https?:\/\//i.test(text)) return true;
@@ -564,10 +564,70 @@ function isHebrewOrEnglishCitationTitle(title) {
 function isGenericWaldorfOverviewTitle(title) {
   const text = String(title || '').trim();
   if (!text) return false;
-  return /^(home|homepage|דף הבית|waldorf|waldorf education|what is waldorf|חינוך ולדורף|אנתרופוסופיה)$/i.test(text);
+  return /^(home|homepage|דף הבית|waldorf|waldorf education|what is waldorf|חינוך ולדורף|אנתרופוסופיה|sidebar|rsarchive|the rudolf steiner archive|rudolf steiner archive|steiner archive)$/i.test(text);
 }
 
-function sanitizePerplexityLiveLinks(list) {
+function descriptiveRsarchiveTitle(query) {
+  const q = String(query || '').trim();
+  if (q) return 'הרצאות שטיינר בנושא «' + q + '»';
+  return 'הרצאות שטיינר';
+}
+
+function isRsarchiveContentOrSearchUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    if (normalizeHost(parsed.hostname) !== 'rsarchive.org') return false;
+    const path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+    if (path === '/') return false;
+    if (/^\/Search\.php$/i.test(path)) return true;
+    return /\/(Lectures|Books|Articles|GA\d+|eLib|Search)/i.test(path);
+  } catch (e) {
+    return false;
+  }
+}
+
+function diversifyLiveLinks(items, limit) {
+  const cap = limit || 6;
+  const list = Array.isArray(items) ? items : [];
+  if (list.length <= cap) return list.slice();
+  const byHost = Object.create(null);
+  const hostOrder = [];
+  list.forEach(function (item) {
+    let host = '';
+    try {
+      host = normalizeHost(new URL(item.url).hostname);
+    } catch (e) {
+      return;
+    }
+    if (!byHost[host]) {
+      byHost[host] = [];
+      hostOrder.push(host);
+    }
+    byHost[host].push(item);
+  });
+  hostOrder.sort(function (a, b) {
+    if (a === 'rsarchive.org') return -1;
+    if (b === 'rsarchive.org') return 1;
+    return 0;
+  });
+  const out = [];
+  let round = 0;
+  while (out.length < cap) {
+    let added = false;
+    hostOrder.forEach(function (host) {
+      if (out.length >= cap) return;
+      if (byHost[host][round]) {
+        out.push(byHost[host][round]);
+        added = true;
+      }
+    });
+    if (!added) break;
+    round += 1;
+  }
+  return out;
+}
+
+function sanitizePerplexityLiveLinks(list, query) {
   const seen = Object.create(null);
   const out = [];
   (Array.isArray(list) ? list : []).forEach(function (item) {
@@ -582,29 +642,36 @@ function sanitizePerplexityLiveLinks(list) {
       return;
     }
     if (!isApprovedRelevantLinkHost(host)) return;
+    const hostNorm = normalizeHost(host);
+    if (hostNorm === 'rsarchive.org' && !isRsarchiveContentOrSearchUrl(url)) return;
     let title = '';
     if (item && typeof item === 'object') {
       title = sanitizePedagogicalText(item.title) || String(item.title || item.name || '').trim();
     }
-    if (!isHebrewOrEnglishCitationTitle(title) || isGenericWaldorfOverviewTitle(title)) return;
-    if (isVagueLinkTitle(title)) title = curatedTitleForUrl(url);
+    if (!isHebrewOrEnglishCitationTitle(title)) return;
+    const needsDescriptiveTitle = isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title);
+    if (needsDescriptiveTitle) {
+      title = hostNorm === 'rsarchive.org'
+        ? descriptiveRsarchiveTitle(query)
+        : curatedTitleForUrl(url);
+    }
     if (isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title)) return;
     if (seen[url]) return;
     seen[url] = true;
     out.push({ title: title, url: url });
   });
-  return out.slice(0, 4);
+  return diversifyLiveLinks(out, 6);
 }
 
 function resolveRelevantLinks(options) {
   const opts = options && typeof options === 'object' ? options : {};
   const liveProvided = Array.isArray(opts.liveLinks);
-  const live = sanitizePerplexityLiveLinks(opts.liveLinks);
+  const live = sanitizePerplexityLiveLinks(opts.liveLinks, opts.query);
   if (live.length) return live;
   // A live Perplexity pass ran: keep only specific citations — never pad with generic pages.
   if (liveProvided) return live;
   if (opts.useArchivedLinks) {
-    const archived = sanitizePerplexityLiveLinks(shared.coerceLinks(opts.archivedLinks));
+    const archived = sanitizePerplexityLiveLinks(shared.coerceLinks(opts.archivedLinks), opts.query);
     if (archived.length) return archived;
   }
   return buildCuratedRelevantLinks(opts.query || '');
@@ -612,7 +679,10 @@ function resolveRelevantLinks(options) {
 
 function buildPerplexityLiveLinksQuery(topic) {
   const q = String(topic || '').trim().replace(/"/g, '');
-  return '"' + q + '" Waldorf education anthroposophy Steiner curriculum lessons articles';
+  return (
+    '"' + q +
+    '" (חינוך ולדורף OR אנתרופוסופיה OR "Waldorf Education" OR "Rudolf Steiner Archive" OR "Online Waldorf Library")'
+  );
 }
 
 function buildPerplexityLiveLinksInstructions(topic) {
@@ -621,6 +691,9 @@ function buildPerplexityLiveLinksInstructions(topic) {
     "חובה מוחלטת: כל קישור חייב לעסוק באופן ישיר ומובהק בנושא המבוקש: '" + q + "' בלבד.",
     "אין להחזיר מאמרים כלליים על חינוך ולדורף או דפי בית. אם אין מאמר שעוסק ספציפית ב-'" + q + "', החזר רק את המאמרים הספציפיים שנמצאו ואל תמלא בקישורים כלליים.",
     'שפות מותרות: עברית או אנגלית בלבד.',
+    "DO NOT remove or exclude the Rudolf Steiner Archive (rsarchive.org). High-quality lectures and articles from RSArchive related to '" + q + "' are welcome and encouraged.",
+    'Bring 4-6 total relevant links: combine RSArchive articles with Hebrew articles (from adamolam.co.il, harduf.org.il, anadom.co.il) and broader Waldorf libraries (such as waldorflibrary.org).',
+    "Ensure RSArchive links point to the actual lecture/book content or search result page, and give them a clear, descriptive title (e.g., 'הרצאות שטיינר בנושא...', rather than just 'Sidebar' or 'The Rudolf Steiner Archive').",
   ].join(' ');
 }
 
@@ -648,9 +721,10 @@ async function fetchPerplexityLiveRelevantLinks(topic) {
           role: 'user',
           content: [
             buildPerplexityLiveLinksInstructions(q),
-            'Find 3-4 live pedagogical articles that are specifically about «' + q + '».',
+            'Find 4-6 live pedagogical articles that are specifically about «' + q + '».',
             'Exact search: ' + searchQuery,
             'Return only the specific on-topic articles found. Do not invent URLs.',
+            'Keep Rudolf Steiner Archive (rsarchive.org) in the mix together with Hebrew and international Waldorf sources.',
           ].join('\n'),
         },
       ],
@@ -659,7 +733,7 @@ async function fetchPerplexityLiveRelevantLinks(topic) {
     const items = []
       .concat(perplexityClient.extractCitationItems(payload))
       .concat((result && result.citations) || []);
-    const live = sanitizePerplexityLiveLinks(items);
+    const live = sanitizePerplexityLiveLinks(items, q);
     if (live.length) {
       console.log('[pure-general-search] Perplexity live links', live.length);
     }

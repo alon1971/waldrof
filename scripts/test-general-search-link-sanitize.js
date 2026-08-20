@@ -15,8 +15,8 @@ const query = 'בוטניקה';
 
 const searchQuery = pgs.buildPerplexityLiveLinksQuery(query);
 assert(
-  searchQuery === '"' + query + '" Waldorf education anthroposophy Steiner curriculum lessons articles',
-  'live-link query centers the quoted topic'
+  searchQuery === '"' + query + '" (חינוך ולדורף OR אנתרופוסופיה OR "Waldorf Education" OR "Rudolf Steiner Archive" OR "Online Waldorf Library")',
+  'live-link query balances Hebrew, Waldorf, and RSArchive terms'
 );
 
 const lock = pgs.buildPerplexityLiveLinksInstructions(query);
@@ -24,6 +24,10 @@ assert(lock.indexOf('חובה מוחלטת') >= 0, 'topic lock is mandatory');
 assert(lock.indexOf(query) >= 0, 'topic lock names the query');
 assert(lock.indexOf('אין להחזיר מאמרים כלליים על חינוך ולדורף או דפי בית') >= 0, 'forbids generic Waldorf pages');
 assert(lock.indexOf('שפות מותרות: עברית או אנגלית בלבד') >= 0, 'restricts languages to Hebrew and English');
+assert(lock.indexOf('DO NOT remove or exclude the Rudolf Steiner Archive') >= 0, 'keeps RSArchive as a core source');
+assert(lock.indexOf('Bring 4-6 total relevant links') >= 0, 'asks for 4-6 mixed links');
+assert(lock.indexOf('waldorflibrary.org') >= 0, 'includes international Waldorf library');
+assert(lock.indexOf('הרצאות שטיינר בנושא') >= 0, 'requires descriptive RSArchive titles');
 
 const live = pgs.sanitizePerplexityLiveLinks([
   { title: 'Botany in Waldorf education', url: 'https://www.waldorflibrary.org/articles/botany-grade-5' },
@@ -31,12 +35,22 @@ const live = pgs.sanitizePerplexityLiveLinks([
   { title: 'זר', url: 'https://example.com/not-approved' },
   { title: 'כפול', url: 'https://jobs.waldorftoday.com/https://adamolam.co.il/post' },
   'https://adamolam.co.il/waldorf-botany/',
-]);
+], query);
 assert(live.length === 3, 'keeps three approved live citations');
 assert(live[0].url.indexOf('waldorflibrary.org') >= 0, 'keeps library citation');
-assert(live[1].title === 'ארכיון שטיינר (כתבים והרצאות)', 'opaque citation title is replaced');
+assert(live[1].title.indexOf('הרצאות שטיינר בנושא') >= 0, 'opaque RSArchive title becomes descriptive');
+assert(live[1].url.indexOf('rsarchive.org/Lectures') >= 0, 'keeps RSArchive lecture URL');
 assert(live[2].url.indexOf('adamolam.co.il') >= 0, 'keeps adamolam citation');
 assert(!live.some(function (item) { return /example\.com|jobs\.waldorftoday/.test(item.url); }), 'drops foreign and chained URLs');
+
+const rsarchiveNamed = pgs.sanitizePerplexityLiveLinks([
+  { title: 'Sidebar', url: 'https://rsarchive.org/Lectures/GA293/English/AP1938/botany' },
+  { title: 'The Rudolf Steiner Archive', url: 'https://rsarchive.org/Search.php?q=' + encodeURIComponent(query) },
+], query);
+assert(rsarchiveNamed.length === 2, 'keeps RSArchive lecture and search pages');
+assert(rsarchiveNamed.every(function (item) {
+  return item.title.indexOf('הרצאות שטיינר בנושא') >= 0 && item.title.indexOf(query) >= 0;
+}), 'generic RSArchive labels become descriptive topic titles');
 
 const droppedGeneric = pgs.sanitizePerplexityLiveLinks([
   { title: 'חינוך ולדורף', url: 'https://adamolam.co.il/' },
@@ -131,8 +145,11 @@ const capped = pgs.sanitizePerplexityLiveLinks([
   { title: 'C', url: 'https://adamolam.co.il/c/' },
   { title: 'D', url: 'https://harduf.org.il/d/' },
   { title: 'E', url: 'https://anadom.co.il/e/' },
-]);
-assert(capped.length === 4, 'keeps at most four live citations');
+  { title: 'F', url: 'https://www.waldorflibrary.org/articles/f' },
+  { title: 'G', url: 'https://adamolam.co.il/g/' },
+], query);
+assert(capped.length === 6, 'keeps at most six live citations');
+assert(capped.some(function (item) { return /rsarchive\.org/.test(item.url); }), 'diversified list still includes RSArchive');
 
 const sys = pgs.buildPeriodBlockSystemPrompt('בוטניקה', { gradeId: '5', gradeLabel: 'כיתה ה׳' });
 assert(sys.indexOf('Gemini אינו מייצר קישורים') >= 0, 'period system prompt forbids Gemini links');
