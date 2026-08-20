@@ -3343,6 +3343,41 @@ function generalSearchCacheGradeMatches(data, row, gradeId) {
   return have === want;
 }
 
+/** True when a cached payload is a usable grade-locked 15-day block (never a standard overview). */
+function isUsableGeneralSearchPeriodPayload(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (!Boolean(data.periodBlock)) return false;
+  const days = Array.isArray(data.curriculum) ? data.curriculum : [];
+  if (days.length < 10) return false;
+  let filled = 0;
+  for (let i = 0; i < days.length; i++) {
+    const day = days[i];
+    if (!day || typeof day !== 'object') continue;
+    if (String(day.topic || day.content || day.art || '').trim()) filled++;
+  }
+  return filled >= 10;
+}
+
+function generalSearchPeriodCacheEligible(data, row, gradeId, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  if (!isUsableGeneralSearchPeriodPayload(data)) return false;
+  const want = String(gradeId || '').trim();
+  if (!want) return Boolean(opts.allowMissingGrade);
+  return generalSearchCacheGradeMatches(data, row, want);
+}
+
+function generalSearchCacheHitAllowed(data, row, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const periodBlock = Boolean(opts.periodBlock);
+  if (!data || !isGeneralSearchPayload(data)) return false;
+  if (periodBlock) {
+    // Never serve a standard overview to a 15-day request.
+    return generalSearchPeriodCacheEligible(data, row, opts.gradeId, opts);
+  }
+  if (opts.allowAnyVariant) return true;
+  return generalSearchCacheVariantMatches(data, false);
+}
+
 async function getGeneralSearchCache(query, options) {
   const q = normalizeGeneralSearchQuery(query);
   if (!q) return null;
@@ -3350,6 +3385,9 @@ async function getGeneralSearchCache(query, options) {
   if (opts.skipCache) return null;
   const periodBlock = Boolean(opts.periodBlock);
   const gradeId = String(opts.gradeId || '').trim();
+  // 15-day plans are keyed by query + period15 + gradeId — never serve without a grade
+  // unless a standard-search credit probe explicitly allows a period-row fallback.
+  if (periodBlock && !gradeId && !opts.allowMissingGrade) return null;
 
   const body = buildGeneralSearchCacheBody(q, {
     periodBlock: periodBlock,
@@ -3357,8 +3395,11 @@ async function getGeneralSearchCache(query, options) {
     gradeLabel: opts.gradeLabel || undefined,
   });
   const cached = await getCachedResult(body, { requireEnhanced: false });
-  if (cached && cached.data && isGeneralSearchPayload(cached.data) &&
-      generalSearchCacheVariantMatches(cached.data, periodBlock)) {
+  if (cached && cached.data && generalSearchCacheHitAllowed(cached.data, null, {
+    periodBlock: periodBlock,
+    gradeId: gradeId,
+    allowMissingGrade: Boolean(opts.allowMissingGrade),
+  })) {
     return cached;
   }
 
@@ -3369,7 +3410,8 @@ async function getGeneralSearchCache(query, options) {
     const exactQuery = encodeURIComponent(q);
     let res = await supabaseRequest(
       '/rest/v1/' + TABLE_NAME + '?phase=eq.' + GENERAL_SEARCH_PHASE +
-      '&query_text=eq.' + exactQuery + '&select=cache_key,query_text,topic,result_data,hit_count,grade_id&limit=5',
+      '&query_text=eq.' + exactQuery +
+      '&select=cache_key,query_text,topic,result_data,hit_count,grade_id&limit=20',
       { method: 'GET' }
     );
     if (res.ok) {
@@ -3379,9 +3421,11 @@ async function getGeneralSearchCache(query, options) {
           const row = rows[i];
           if (!row || !row.result_data) continue;
           const data = coerceCachedResultData(row.result_data);
-          if (!isGeneralSearchPayload(data)) continue;
-          if (!generalSearchCacheVariantMatches(data, periodBlock)) continue;
-          if (!generalSearchCacheGradeMatches(data, row, gradeId)) continue;
+          if (!generalSearchCacheHitAllowed(data, row, {
+            periodBlock: periodBlock,
+            gradeId: gradeId,
+            allowMissingGrade: Boolean(opts.allowMissingGrade),
+          })) continue;
           bumpHitCountAsync(row.cache_key, row.hit_count);
           return {
             data: cloneJsonSafe(data),
@@ -3396,7 +3440,10 @@ async function getGeneralSearchCache(query, options) {
       }
     }
 
-    // 2) Global ilike / topic column match for the same prompt (still no user filter).
+    // 2) Fuzzy ilike / concept match — standard overview only.
+    // 15-day requests must hit the exact query + period15 + gradeId key, never a similar overview.
+    if (periodBlock) return null;
+
     const safeIlike = String(q)
       .replace(/[%*,()]/g, ' ')
       .replace(/\s+/g, ' ')
@@ -3700,6 +3747,13 @@ async function getGeneralSearchByCacheKey(cacheKey, options) {
   if (row.phase && row.phase !== GENERAL_SEARCH_PHASE) return null;
   const data = coerceCachedResultData(row.result_data);
   if (!data || !isGeneralSearchPayload(data)) return null;
+  if (!generalSearchCacheHitAllowed(data, row, {
+    periodBlock: Boolean(opts.periodBlock),
+    gradeId: opts.gradeId,
+    allowAnyVariant: !opts.periodBlock,
+  })) {
+    return null;
+  }
   bumpHitCountAsync(key, row.hit_count);
   return {
     data: cloneJsonSafe(data),
@@ -5797,6 +5851,9 @@ module.exports = {
   setTopicMasterCache,
   getGeneralSearchCache,
   setGeneralSearchCache,
+  isUsableGeneralSearchPeriodPayload,
+  generalSearchCacheGradeMatches,
+  generalSearchCacheHitAllowed,
   buildGeneralSearchCacheBody,
   normalizeGeneralSearchQuery,
   normalizeGeneralSearchConceptKey,
