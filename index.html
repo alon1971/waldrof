@@ -16190,6 +16190,9 @@
         if (!item) return;
         var title = String(item.title || item.name || '').trim();
         var url = String(item.url || item.link || item.href || '').trim();
+        if (!/^https:\/\//i.test(url)) return;
+        if (isOpaqueLinkTitle(title)) title = curatedSearchLinkTitleForUrl(url) || title;
+        if (isOpaqueLinkTitle(title)) return;
         var linkLine = buildWordExportLinkLine(title, url);
         if (linkLine) parts.push(linkLine);
       });
@@ -16915,6 +16918,9 @@
               if (!item) return;
               var title = String(item.title || item.name || '').trim();
               var url = String(item.url || item.link || item.href || '').trim();
+              if (!/^https:\/\//i.test(url)) return;
+              if (isOpaqueLinkTitle(title)) title = curatedSearchLinkTitleForUrl(url) || title;
+              if (isOpaqueLinkTitle(title)) return;
               var linkLine = buildWordExportLinkLine(title, url);
               if (linkLine) parts.push(linkLine);
             });
@@ -24494,7 +24500,7 @@
           .trim();
         if (readable.length > 80) readable = readable.slice(0, 77).trim() + '…';
         if (readable.length >= 2 && (/[\u0590-\u05FF]/.test(readable) || /[a-zA-Z]{3,}/.test(readable))) {
-          return readable;
+          if (!/^(search|search\.php|index|home)$/i.test(readable)) return readable;
         }
         return parsed.hostname.replace(/^www\./i, '') || '';
       } catch (e) {
@@ -24816,6 +24822,39 @@
       return String(html || '');
     }
 
+    function isOpaqueLinkTitle(text) {
+      var cleaned = String(text || '').trim();
+      if (!cleaned) return true;
+      if (/^(search|search\.php|index|index\.html|index\.php|home|http|https|www|link|url|q)$/i.test(cleaned)) {
+        return true;
+      }
+      if (/^https?:\/\//i.test(cleaned)) return true;
+      if (/^www\./i.test(cleaned)) return true;
+      return false;
+    }
+
+    function curatedSearchLinkTitleForUrl(url) {
+      try {
+        var host = new URL(String(url || '').trim()).hostname.replace(/^www\./i, '').toLowerCase();
+        if (host === 'adamolam.co.il') return 'אדם עולם - מאמרים';
+        if (host === 'harduf.org.il') return 'יוזמות ולדורף בישראל';
+        if (host === 'rsarchive.org') return 'ארכיון שטיינר (כתבים והרצאות)';
+        if (host === 'waldorflibrary.org') return 'ספריית ולדורף הבינלאומית';
+      } catch (e) { /* ignore */ }
+      return '';
+    }
+
+    function isValidHttpsHref(url) {
+      var raw = String(url || '').trim();
+      if (!/^https:\/\//i.test(raw)) return false;
+      try {
+        var parsed = new URL(raw);
+        return parsed.protocol === 'https:' && Boolean(parsed.hostname);
+      } catch (e) {
+        return false;
+      }
+    }
+
     function isDeadSourceLinkLabel(text) {
       var cleaned = String(text || '').trim();
       if (!cleaned) return true;
@@ -24841,6 +24880,7 @@
         .trim();
       if (clean &&
           !isDeadSourceLinkLabel(clean) &&
+          !isOpaqueLinkTitle(clean) &&
           !/^https?:\/\//i.test(clean) &&
           !/^www\./i.test(clean) &&
           !/%[0-9A-Fa-f]{2}/i.test(clean) &&
@@ -26120,15 +26160,23 @@
     function renderPureLinksBlock(items, options) {
       var opts = options || {};
       var showDelete = opts.showAdminDelete !== false && isArchiveAdminUser();
+      var skipPhaseC = opts.skipPhaseCFilter === true;
       var list = (Array.isArray(items) ? items : []).filter(function (item) {
+        if (!item || typeof item !== 'object') return false;
         var url = String(item.url || item.link || item.href || '').trim();
-        if (!url || !/^https?:\/\//i.test(url)) return false;
+        if (!isValidHttpsHref(url)) return false;
         if (opts.blockPinterest && isPinterestUrl(url)) return false;
         var href = sanitizeExternalLinkUrl(url);
-        if (!href) return false;
+        if (!href || !isValidHttpsHref(href)) return false;
         if (isArchiveUrlSuppressedClient(href)) return false;
-        if (isVerifiedLiveCitationUrlClient(href)) return true;
-        if (!passesPhaseCBoxASourceFilter(item)) return false;
+        var title = String(item.title || item.name || '').trim();
+        var display = formatSourceLinkDisplayLabel(title, href);
+        if (isOpaqueLinkTitle(display)) display = curatedSearchLinkTitleForUrl(href) || title;
+        if (isOpaqueLinkTitle(display)) return false;
+        if (!skipPhaseC) {
+          if (isVerifiedLiveCitationUrlClient(href)) return true;
+          if (!passesPhaseCBoxASourceFilter(item)) return false;
+        }
         return true;
       });
       if (!list.length) return '';
@@ -26137,8 +26185,10 @@
         var url = String(item.url || item.link || item.href || '').trim();
         var title = String(item.title || item.name || '').trim();
         var href = sanitizeExternalLinkUrl(url);
-        if (!href) return '';
+        if (!href || !isValidHttpsHref(href)) return '';
         var display = formatSourceLinkDisplayLabel(title, href);
+        if (isOpaqueLinkTitle(display)) display = curatedSearchLinkTitleForUrl(href) || title;
+        if (isOpaqueLinkTitle(display)) return '';
         var deleteBtn = showDelete ? buildArchiveAdminDeleteBtn({ url: href }) : '';
         return '<li class="archive-link-row">' +
           '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" class="' + linkClass + '" title="' + escapeHtml(href) + '">' +
@@ -27341,7 +27391,7 @@
         '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.developmental_axis, { blockPath: 'developmental_axis', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
         '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.core_pedagogical_emphases, { blockPath: 'core_pedagogical_emphases', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
         '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-book text-gold"></i> ' + escapeHtml(t('general_search_section_literature')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureReadingBlock(data.recommended_literature) + '</article>' +
-        '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureLinksBlock(data.relevant_links, { showAdminDelete: true }) + '</article>' +
+        '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-link text-burgundy"></i> ' + escapeHtml(t('general_search_section_links')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureLinksBlock(data.relevant_links, { showAdminDelete: true, skipPhaseCFilter: true }) + '</article>' +
         '</div>' +
         curriculumHtml +
         '<div class="mt-4" dir="rtl">' +
