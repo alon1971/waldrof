@@ -32,7 +32,7 @@ const PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION = [
   'התשובה כולה חייבת להיות אובייקט JSON תקין אחד בלבד, במבנה המדויק שה-Frontend מצפה לקבל — ללא טקסט חופשי, ללא הקדמה, ללא Markdown, ללא ```.',
   'כדי שה-JSON לא יישבר בגלל אורך: בנה את מהלך 15 הימים באמצעות נקודות (bullet points) ממוקדות, נושאי ליבה יומיים ומערכי שיעור מובנים — לא פסקאות טקסט ארוכות ומסורבלות.',
   'כל יום ב-curriculum חייב להיות מלא פדגוגית (נושא + תוכן + אמנות) אך מנוסח כנקודות/משפטים ממוקדים עם \\n בין שורות — לא חיבורי פרוזה ארוכים.',
-  'developmental_axis ו-core_pedagogical_emphases: עומק פדגוגי מלא ב-2–4 פסקאות עבריות ממוקדות (לא חיבורים אקדמיים ארוכים שגוזלים את תקציב הטוקנים מימי 10–15).',
+  'developmental_axis ו-core_pedagogical_emphases: סקירת תכנית הלימודים המלאה של הנושא מכיתה א׳ עד כיתה ח׳ — 2–4 פסקאות עבריות ממוקדות (לא חיבורים אקדמיים ארוכים שגוזלים את תקציב הטוקנים מימי 10–15).',
   'חובה להשלים את כל 15 הימים עד סוף האובייקט — אל תחתוך באמצע מערך, אל תשמיט ימים, אל תסיים ביום 8–12.',
   '=== סוף תוכנית תקופה ===',
 ].join(' ');
@@ -57,11 +57,12 @@ const PERIOD_BLOCK_SYSTEM_PROMPT = [
   PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION,
   'You are a Waldorf / anthroposophical pedagogy expert specializing in main-lesson block planning.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'developmental_axis (string: 2-4 focused Hebrew paragraphs — soul-spiritual developmental context for the EXPLICITLY stated grade and subject; full pedagogical depth, not a stub),',
-  'core_pedagogical_emphases (string: 2-4 focused Hebrew paragraphs — Waldorf block rhythm, narrative arc, Developmental Compass / מצפן התפתחותי, and teacher compass for this exact grade+subject),',
+  'developmental_axis (string: 2-4 focused Hebrew paragraphs tracing how THIS SUBJECT evolves across the entire Waldorf elementary curriculum from Grade 1 through Grade 8 — never lock this overview to the selected grade),',
+  'core_pedagogical_emphases (string: 2-4 focused Hebrew paragraphs — Waldorf emphases, Developmental Compass / מצפן התפתחותי, and teacher compass for this SUBJECT across grades 1-8 age bands),',
   'recommended_literature (array of 3-6 objects: {title, author, note} — note in clean Hebrew explaining relevance to this block),',
   'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only; title in Hebrew with short context),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew core daily topic), content (Hebrew focused bullet points for main narrative/story/new material, separated by \\n — NOT long essays), art (Hebrew focused bullet points for notebook/drawing/painting/handwork)).',
+  'The 15-day curriculum table MUST be tailored STRICTLY to the selected grade only (e.g. Physics Grade 6, Form Drawing Grade 3). Never mix other grades into the daily rows.',
   'NEVER shorten the 15-day plan. NEVER omit days. Prefer structured bullets over long paragraphs so the FULL JSON closes cleanly.',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
   'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON. First char { last char }.',
@@ -162,6 +163,7 @@ function normalizeGeneralSearchResponse(parsed, options) {
   };
   if (periodBlock) {
     normalized.periodBlock = true;
+    if (opts.gradeId) normalized.gradeId = String(opts.gradeId).trim();
     normalized.curriculum = padCurriculumToFifteen(
       coerceCurriculumDays(
         data.curriculum || data.days || (data.blockPlan && data.blockPlan.curriculum)
@@ -387,9 +389,9 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
   const contextLine = buildPeriodContextLine(query, gradeInfo);
   const gradeLock = gradeLabel
     ? [
-        'הכיתה נבחרה במפורש: «' + gradeLabel + '».',
+        'הכיתה שנבחרה במפורש לטבלת 15 הימים: «' + gradeLabel + '».',
         'בנה את כל 15 הימים אך ורק לגיל ולשכבה זו — שפה, סיפור, קצב ואמנות מותאמים לכיתה זו בלבד.',
-        'אל תסיק כיתה אחרת ואל תערבב דוגמאות מכיתות אחרות.',
+        'אל תסיק כיתה אחרת ואל תערבב דוגמאות מכיתות אחרות בתוך שורות הימים.',
       ].join(' ')
     : 'חלץ את הכיתה ואת נושא התקופה מהשאילתה. אם הכיתה אינה מפורשת — הסיק את הכיתה הקנונית בחינוך וולדרוף לנושא זה.';
   return [
@@ -402,9 +404,13 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     '',
     PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION,
     '',
+    'שני תפקידים פדגוגיים נפרדים (חובה מוחלטת):',
+    '1) הסקירה העליונה (developmental_axis + core_pedagogical_emphases) חייבת תמיד לתאר את קשת ההתפתחות של הנושא לאורך כל תכנית הלימודים הוולדורפית מכיתה א׳ עד כיתה ח׳ — למשל איך מדעים או רישום צורה מתפתחים מכיתה א׳ עד כיתה ח׳. אין לנעול את הסקירה לכיתה שנבחרה.',
+    '2) טבלת 15 הימים (curriculum) חייבת תמיד להיות מותאמת אך ורק לכיתה שנבחרה ברשימה — למשל פיזיקה כיתה ו׳ או רישום צורה כיתה ג׳.',
+    '',
     'דרישות מבנה JSON (מפתחות מדויקים בלבד):',
-    '- developmental_axis: הקשר נפשי-רוחני התפתחותי לכיתה ולנושא זה — 2–4 פסקאות עבריות ממוקדות ומעמיקות.',
-    '- core_pedagogical_emphases: קשת התקופה, מקצב, שילוב אמנותי, מצפן התפתחותי ומצפן למורה — 2–4 פסקאות עבריות ממוקדות.',
+    '- developmental_axis: קשת התפתחותית של הנושא מכיתה א׳ עד כיתה ח׳ — 2–4 פסקאות עבריות ממוקדות ומעמיקות.',
+    '- core_pedagogical_emphases: דגשים פדגוגיים, מצפן התפתחותי ומצפן למורה לפי חגורות גיל א׳–ח׳ — 2–4 פסקאות עבריות ממוקדות.',
     '- recommended_literature: מקורות מקצועיים לתקופה (הערות בעברית נקייה).',
     '- relevant_links: כתובות מקצועיות מאומתות (כותרות בעברית עם הקשר קצר).',
     '',
@@ -415,7 +421,7 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     '- אין פסקאות ארוכות ב-content/art — רק נקודות/משפטים ממוקדים ששומרים על JSON שלם עד יום 15.',
     '- קשת נרטיבית רציפה לאורך כל 15 הימים: פתיחה, העמקה, שיא, שילוב.',
     '- מקצב שיעור ראשי: סיפור/דקלום, היזכרות, חומר חדש, עבודה אמנותית.',
-    '- שפה ופעילויות מותאמות לגיל הכיתה שנבחרה.',
+    '- שפה ופעילויות בטבלה מותאמות לגיל הכיתה שנבחרה בלבד.',
   ].join('\n');
 }
 
@@ -702,6 +708,9 @@ async function runPureGeneralSearch(body, requestContext) {
   const bypassCache = Boolean(
     body.bypassCache || body.forceRefresh || body.forceFresh || body.skipCache || body.archiveUpgrade || body.researchExpand
   );
+  // When the 15-day toggle is on, never return a cached overview/archive summary
+  // (Form Drawing, Sciences, etc.). Always call Gemini for a grade-locked table.
+  const forcePeriodGeneration = periodBlock;
 
   // Community Drive summarization is decoupled — see /api/community-summarizer.
   // Live general search is web/archive only.
@@ -723,8 +732,9 @@ async function runPureGeneralSearch(body, requestContext) {
   }
 
   // "כן, התכוונתי" — the teacher confirmed a suggested archive match: serve it directly.
+  // 15-day requests skip this: archive text is never a substitute for a generated table.
   const confirmArchiveKey = String(body.confirmArchiveKey || body.archiveCacheKey || '').trim();
-  if (confirmArchiveKey) {
+  if (confirmArchiveKey && !forcePeriodGeneration) {
     const confirmed = await cache.getGeneralSearchByCacheKey(confirmArchiveKey, { periodBlock: periodBlock });
     if (confirmed && confirmed.data) {
       return {
@@ -741,7 +751,7 @@ async function runPureGeneralSearch(body, requestContext) {
     // Fall through to a fresh run if the confirmed key vanished from the archive.
   }
 
-  if (!bypassCache) {
+  if (!bypassCache && !forcePeriodGeneration) {
     // Hard 4s budget: partial/corrupt archive rows must never hang the gateway.
     // On timeout or bad payload we purge and fall through to a fresh Perplexity search.
     const cached = await cache.safeArchiveLookup(
@@ -776,7 +786,10 @@ async function runPureGeneralSearch(body, requestContext) {
   const userPrompt = periodBlock ? buildPeriodBlockUserPrompt(query, gradeInfo) : buildStandardUserPrompt(query);
 
   await enforceLiveSearchQuota(body, requestContext);
-  console.log('[pure-general-search] live web search (community summary decoupled)');
+  console.log(
+    '[pure-general-search] live web search',
+    periodBlock ? '(force 15-day generation, archive skipped)' : '(community summary decoupled)'
+  );
   try {
     const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
@@ -784,7 +797,11 @@ async function runPureGeneralSearch(body, requestContext) {
       periodBlock: periodBlock,
       gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
     });
-    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
+    const normalized = normalizeGeneralSearchResponse(parsed, {
+      periodBlock: periodBlock,
+      query: query,
+      gradeId: gradeInfo.gradeId || '',
+    });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,

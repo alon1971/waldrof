@@ -157,10 +157,11 @@ async function executeSearchHistory(req) {
     });
     let resolvedPeriodBlock = periodBlock;
     // Same query archived under the other period-block variant still counts as a Cache Hit
-    // for credit bypass — serve that payload rather than prompting for a paid live search.
-    if (!cached || !cached.data) {
+    // for credit bypass on STANDARD search only. A 15-day request must never treat a
+    // general overview (e.g. Form Drawing summary) as a completed block plan.
+    if (!periodBlock && (!cached || !cached.data)) {
       const alt = await cacheDb.getGeneralSearchCache(query, {
-        periodBlock: !periodBlock,
+        periodBlock: true,
         gradeId: gradeId || undefined,
         gradeLabel: gradeLabel || undefined,
       });
@@ -170,7 +171,8 @@ async function executeSearchHistory(req) {
       }
     }
     // Global concept match (word-order / filler variants) — still no user_id constraint.
-    if (!cached || !cached.data) {
+    // Skip for 15-day requests so a stored overview cannot masquerade as a block plan.
+    if (!periodBlock && (!cached || !cached.data)) {
       try {
         const suggestion = await cacheDb.findGeneralSearchArchiveSuggestion(query, {
           periodBlock: periodBlock,

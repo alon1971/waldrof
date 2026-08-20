@@ -1518,8 +1518,10 @@
     .lesson-chat-bubble-body--pre { white-space: pre-line; }
     .day-row:hover { background: rgba(122,155,118,.08); }
     #daily-planning-content {
-      width: 100%;
-      max-width: 100%;
+      width: 95%;
+      max-width: 1200px;
+      margin-left: auto;
+      margin-right: auto;
     }
     .curriculum-table-wrap {
       overflow-x: auto;
@@ -1535,10 +1537,14 @@
       min-width: 0;
       border-collapse: collapse;
     }
+    #daily-planning-content table.curriculum-period-table th,
+    #daily-planning-content table.curriculum-period-table td {
+      padding: 0.9rem 1.15rem;
+    }
     @media (min-width: 768px) {
       #daily-planning-content table.curriculum-period-table {
-        table-layout: fixed;
-        min-width: 48rem;
+        table-layout: auto;
+        min-width: 56rem;
       }
     }
     #daily-planning-content table.curriculum-period-table thead {
@@ -3039,18 +3045,30 @@
     #general-search-period-grade-hint.hidden {
       display: none !important;
     }
+    #general-search-view.max-w-6xl,
+    #general-search-view,
+    .workspace-layout.max-w-6xl {
+      width: 95%;
+      max-width: 1200px;
+    }
     #general-search-results .general-search-curriculum-wrap {
       margin-top: 1.25rem;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
     #general-search-results table.general-search-curriculum-table {
       width: 100%;
+      min-width: 56rem;
+      table-layout: auto;
       border-collapse: collapse;
       font-size: 0.9375rem;
     }
     #general-search-results table.general-search-curriculum-table th,
     #general-search-results table.general-search-curriculum-table td {
       border: 1px solid rgba(201, 169, 98, 0.35);
-      padding: 0.65rem 0.75rem;
+      padding: 0.9rem 1.15rem;
       vertical-align: top;
       text-align: start;
     }
@@ -27576,7 +27594,7 @@
       setGeneralSearchPeriodToggleDisabled(true);
       try {
         // Exact Cache Hit with payload already from probe — render immediately (no round-trip delay).
-        if (opts.cachedData && fromArchiveHit) {
+        if (opts.cachedData && fromArchiveHit && !periodBlock) {
           var instantMeta = Object.assign({
             fromCache: true,
             periodBlock: periodBlock,
@@ -27617,16 +27635,17 @@
         if (periodBlock) {
           fetchOpts.gradeId = opts.gradeId || getGeneralSearchPeriodGradeId();
           fetchOpts.gradeLabel = opts.gradeLabel || getGeneralSearchPeriodGradeLabel(fetchOpts.gradeId);
+          fetchOpts.bypassCache = true;
         }
         if (opts.bypassCache) fetchOpts.bypassCache = true;
-        if (opts.confirmArchiveKey) fetchOpts.confirmArchiveKey = opts.confirmArchiveKey;
+        if (opts.confirmArchiveKey && !periodBlock) fetchOpts.confirmArchiveKey = opts.confirmArchiveKey;
         var response = await fetchPureGeneralSearch(query, signal, fetchOpts);
         if (signal.aborted) return;
         appState.generalSearchQuery = query;
 
         var meta = response.meta || {};
         // Exact archive loads never present suggestion questions — only Cache Miss live path may.
-        if (!fromArchiveHit && meta.needsArchiveConfirmation && meta.archiveSuggestion) {
+        if (!periodBlock && !fromArchiveHit && meta.needsArchiveConfirmation && meta.archiveSuggestion) {
           if (showGeneralSearchArchiveSuggestion(meta.archiveSuggestion, {
             onConfirm: function () {
               // Confirmed archive suggestion — free load, no credit modal.
@@ -27705,11 +27724,40 @@
           return;
         }
       }
+      // 15-day toggle: never serve a cached overview (e.g. Form Drawing archive
+      // summary) in place of a live Gemini day-by-day table for the selected grade.
+      if (periodBlock) {
+        var periodConfirmed = await confirmPaidSearchAction({
+          phase: 'general_search',
+          isArchiveHit: false,
+          fromCache: false,
+        });
+        if (!periodConfirmed) return;
+        ensureGeneralSearchArchiveSuggestionEvents();
+        hideGeneralSearchArchiveSuggestion();
+        try {
+          await performGeneralSearch(query, {
+            periodBlock: true,
+            bypassCache: true,
+            gradeId: getGeneralSearchPeriodGradeId(),
+            gradeLabel: getGeneralSearchPeriodGradeLabel(getGeneralSearchPeriodGradeId()),
+          });
+        } catch (err) {
+          if (isBenignStreamAbortError(err) || isGeneralSearchAbortError(err)) return;
+          var periodResultsEl = document.getElementById('general-search-results');
+          if (periodResultsEl) {
+            periodResultsEl.classList.remove('hidden');
+            periodResultsEl.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+              escapeHtml(err && err.message ? err.message : String(err)) + '</p>';
+          }
+        }
+        return;
+      }
       // 1) Archive/cache check FIRST — never open credit modal or ask questions before this.
       var archiveCheck = await checkArchiveHit('general_search', {
         query: query,
-        periodBlock: periodBlock,
-        gradeId: periodBlock ? getGeneralSearchPeriodGradeId() : '',
+        periodBlock: false,
+        gradeId: '',
       });
       // 2) Exact archive hit → load + display immediately (Cache Hit), no credit modal, no questions.
       if (archiveCheck.isArchiveHit) {
@@ -27718,17 +27766,11 @@
         var cacheKey = probe.cacheKey || probePayload.cacheKey || null;
         var cachedData = probePayload.resultData || null;
         var cachedMeta = probePayload.meta || null;
-        // Prefer the periodBlock variant that actually matched in the archive.
-        var hitPeriodBlock = (probePayload.periodBlock != null)
-          ? Boolean(probePayload.periodBlock)
-          : (cachedMeta && cachedMeta.periodBlock != null)
-            ? Boolean(cachedMeta.periodBlock)
-            : periodBlock;
         ensureGeneralSearchArchiveSuggestionEvents();
         hideGeneralSearchArchiveSuggestion();
         try {
           await performGeneralSearch(query, {
-            periodBlock: hitPeriodBlock,
+            periodBlock: false,
             confirmArchiveKey: cacheKey || undefined,
             fromArchiveHit: true,
             cachedData: cachedData || undefined,
@@ -27757,7 +27799,7 @@
       }
       ensureGeneralSearchArchiveSuggestionEvents();
       try {
-        await performGeneralSearch(query, {});
+        await performGeneralSearch(query, { periodBlock: false });
       } catch (err) {
         // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
         if (isBenignStreamAbortError(err) || isGeneralSearchAbortError(err)) return;
