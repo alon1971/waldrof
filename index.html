@@ -24838,8 +24838,10 @@
         var host = new URL(String(url || '').trim()).hostname.replace(/^www\./i, '').toLowerCase();
         if (host === 'adamolam.co.il') return 'אדם עולם - מאמרים';
         if (host === 'harduf.org.il') return 'יוזמות ולדורף בישראל';
+        if (host === 'anadom.co.il') return 'אנדום';
         if (host === 'rsarchive.org') return 'ארכיון שטיינר (כתבים והרצאות)';
         if (host === 'waldorflibrary.org') return 'ספריית ולדורף הבינלאומית';
+        if (host === 'waldorfeducation.org') return 'AWSNA - Waldorf Education';
       } catch (e) { /* ignore */ }
       return '';
     }
