@@ -23,8 +23,23 @@ const HEBREW_ONLY_BODY_INSTRUCTION = [
 ].join(' ');
 
 /**
- * Period-block depth without long essay paragraphs that blow the token budget mid-JSON.
- * Full 15-day plans stay complete by using focused bullets + structured lesson rows.
+ * In-depth Grade 1–8 anthroposophical developmental breakdown for General Search overviews.
+ * Used in both Gemini system prompts and user prompts.
+ */
+const WALDORF_ELEMENTARY_SCOPE_INSTRUCTION = [
+  '=== קשת התפתחותית מלאה — כיתות א׳–ח׳ (חובה: עומק אנתרופוסופי מקצועי) ===',
+  'developmental_axis ו-core_pedagogical_emphases חייבים להיות פירוט מעמיק, רב-פסקאות, מקצועי — בסגנון מדריך מורה אנתרופוסופי — ולא סיכומים גנריים קצרים.',
+  'כסה את כל תכנית היסוד הוולדורפית של הנושא לפי חגורות הגיל הבאות, עם רציונל נפשי-רוחני, מצפן התפתחותי, ודינמיקה פדגוגית לכל שלב:',
+  'כיתות א׳–ג׳: החוויה החושית, הטבע דרך סיפורים ודימויים, עבודת כפיים והתשתית הגופנית.',
+  'כיתות ד׳–ה׳: המעבר אל תצפית חיה (זואולוגיה, בוטניקה), קשר בין האדם לעולם החי והצומח.',
+  'כיתה ו׳: חציית הרוביקון השנייה (גיל 12), התגשמות מלאה במערכת השלד והשרירים, כניסת הפנומנולוגיה המדעית (אקוסטיקה, אופטיקה, חום, מגנטיות וחשמל סטטי).',
+  'כיתות ז׳–ח׳: המעבר למדעים מורכבים יותר (מכניקה פשוטה, כימיה של שריפה, הידרוליקה, חשמל דינמי) והנחת היסודות לחשיבה סיבתית ומדעית עצמאית בגיל ההתבגרות.',
+  'כתוב מספר פסקאות עבריות עשירות לכל חגורת גיל (לא משפט או שניים). חבר את הנושא המבוקש לקשת זו במפורש.',
+  '=== סוף קשת התפתחותית ===',
+].join(' ');
+
+/**
+ * Period-block depth: rich Grade 1–8 overview + focused 15-day bullets so JSON closes fully.
  */
 const PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION = [
   '=== תוכנית תקופה מלאה + JSON קשיח (חובה) ===',
@@ -32,7 +47,7 @@ const PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION = [
   'התשובה כולה חייבת להיות אובייקט JSON תקין אחד בלבד, במבנה המדויק שה-Frontend מצפה לקבל — ללא טקסט חופשי, ללא הקדמה, ללא Markdown, ללא ```.',
   'כדי שה-JSON לא יישבר בגלל אורך: בנה את מהלך 15 הימים באמצעות נקודות (bullet points) ממוקדות, נושאי ליבה יומיים ומערכי שיעור מובנים — לא פסקאות טקסט ארוכות ומסורבלות.',
   'כל יום ב-curriculum חייב להיות מלא פדגוגית (נושא + תוכן + אמנות) אך מנוסח כנקודות/משפטים ממוקדים עם \\n בין שורות — לא חיבורי פרוזה ארוכים.',
-  'developmental_axis ו-core_pedagogical_emphases: סקירת תכנית הלימודים המלאה של הנושא מכיתה א׳ עד כיתה ח׳ — 2–4 פסקאות עבריות ממוקדות (לא חיבורים אקדמיים ארוכים שגוזלים את תקציב הטוקנים מימי 10–15).',
+  WALDORF_ELEMENTARY_SCOPE_INSTRUCTION,
   'חובה להשלים את כל 15 הימים עד סוף האובייקט — אל תחתוך באמצע מערך, אל תשמיט ימים, אל תסיים ביום 8–12.',
   '=== סוף תוכנית תקופה ===',
 ].join(' ');
@@ -41,10 +56,11 @@ const PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION = [
 const SYSTEM_PROMPT = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   HEBREW_ONLY_BODY_INSTRUCTION,
+  WALDORF_ELEMENTARY_SCOPE_INSTRUCTION,
   'You are a Waldorf / anthroposophical pedagogy expert.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'developmental_axis (string: AT LEAST 2-3 comprehensive Hebrew paragraphs tracing the developmental thread across grades 1-8 — soul-spiritual milestones per age band, never brief),',
-  'core_pedagogical_emphases (string: AT LEAST 2-3 comprehensive Hebrew paragraphs with Developmental Compass — רציונל התפתחותי ומצפן למורה — plus grade-band lesson dynamics; never superficial),',
+  'developmental_axis (string: rich multi-paragraph Hebrew covering the FULL elementary arc Grades 1–8 by age bands א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — sensory-imaginative years, living observation, second Rubicon / phenomenology, then causal scientific thinking; never brief generic summaries),',
+  'core_pedagogical_emphases (string: rich multi-paragraph Hebrew with Developmental Compass — רציונל התפתחותי ומצפן למורה — for each age band above, plus lesson dynamics; professional Anthroposophical depth, never superficial),',
   'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
   'relevant_links (array of 6-8 objects: {title, url} — title MUST include short context after em dash/colon; live Steiner archives, Waldorf Library, professional essays).',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
@@ -54,11 +70,12 @@ const SYSTEM_PROMPT = [
 const PERIOD_BLOCK_SYSTEM_PROMPT = [
   hebrewGuardrails.PERPLEXITY_HEBREW_GUARDRAILS,
   HEBREW_ONLY_BODY_INSTRUCTION,
+  WALDORF_ELEMENTARY_SCOPE_INSTRUCTION,
   PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION,
   'You are a Waldorf / anthroposophical pedagogy expert specializing in main-lesson block planning.',
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
-  'developmental_axis (string: 2-4 focused Hebrew paragraphs tracing how THIS SUBJECT evolves across the entire Waldorf elementary curriculum from Grade 1 through Grade 8 — never lock this overview to the selected grade),',
-  'core_pedagogical_emphases (string: 2-4 focused Hebrew paragraphs — Waldorf emphases, Developmental Compass / מצפן התפתחותי, and teacher compass for this SUBJECT across grades 1-8 age bands),',
+  'developmental_axis (string: rich multi-paragraph Hebrew tracing how THIS SUBJECT evolves across the entire Waldorf elementary curriculum Grades 1–8 by age bands א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — never lock this overview to the selected grade, never brief generic summaries),',
+  'core_pedagogical_emphases (string: rich multi-paragraph Hebrew — Waldorf emphases, Developmental Compass / מצפן התפתחותי, and teacher compass for this SUBJECT across the same Grades 1–8 age bands),',
   'recommended_literature (array of 3-6 objects: {title, author, note} — note in clean Hebrew explaining relevance to this block),',
   'relevant_links (array of 4-6 objects: {title, url} — professional Waldorf sources only; title in Hebrew with short context),',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew core daily topic), content (Hebrew focused bullet points for main narrative/story/new material, separated by \\n — NOT long essays), art (Hebrew focused bullet points for notebook/drawing/painting/handwork)).',
@@ -404,13 +421,15 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     '',
     PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION,
     '',
+    WALDORF_ELEMENTARY_SCOPE_INSTRUCTION,
+    '',
     'שני תפקידים פדגוגיים נפרדים (חובה מוחלטת):',
-    '1) הסקירה העליונה (developmental_axis + core_pedagogical_emphases) חייבת תמיד לתאר את קשת ההתפתחות של הנושא לאורך כל תכנית הלימודים הוולדורפית מכיתה א׳ עד כיתה ח׳ — למשל איך מדעים או רישום צורה מתפתחים מכיתה א׳ עד כיתה ח׳. אין לנעול את הסקירה לכיתה שנבחרה.',
+    '1) הסקירה העליונה (developmental_axis + core_pedagogical_emphases) חייבת תמיד לתאר את קשת ההתפתחות של הנושא לאורך כל תכנית הלימודים הוולדורפית מכיתה א׳ עד כיתה ח׳ לפי חגורות א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — עומק אנתרופוסופי רב-פסקאות, לא סיכום גנרי. אין לנעול את הסקירה לכיתה שנבחרה.',
     '2) טבלת 15 הימים (curriculum) חייבת תמיד להיות מותאמת אך ורק לכיתה שנבחרה ברשימה — למשל פיזיקה כיתה ו׳ או רישום צורה כיתה ג׳.',
     '',
     'דרישות מבנה JSON (מפתחות מדויקים בלבד):',
-    '- developmental_axis: קשת התפתחותית של הנושא מכיתה א׳ עד כיתה ח׳ — 2–4 פסקאות עבריות ממוקדות ומעמיקות.',
-    '- core_pedagogical_emphases: דגשים פדגוגיים, מצפן התפתחותי ומצפן למורה לפי חגורות גיל א׳–ח׳ — 2–4 פסקאות עבריות ממוקדות.',
+    '- developmental_axis: קשת התפתחותית עשירה של הנושא מכיתה א׳ עד כיתה ח׳ — מספר פסקאות לכל חגורת גיל (א׳–ג׳ חוויה חושית וסיפור; ד׳–ה׳ תצפית חיה; ו׳ רוביקון שני ופנומנולוגיה; ז׳–ח׳ מדעים סיבתיים).',
+    '- core_pedagogical_emphases: דגשים פדגוגיים, מצפן התפתחותי ומצפן למורה לפי אותן חגורות גיל — פירוט מקצועי רב-פסקאות.',
     '- recommended_literature: מקורות מקצועיים לתקופה (הערות בעברית נקייה).',
     '- relevant_links: כתובות מקצועיות מאומתות (כותרות בעברית עם הקשר קצר).',
     '',
@@ -434,13 +453,15 @@ function buildStandardUserPrompt(query) {
     '',
     HEBREW_ONLY_BODY_INSTRUCTION,
     '',
+    WALDORF_ELEMENTARY_SCOPE_INSTRUCTION,
+    '',
     shared.PROFESSIONAL_LINKS_INSTRUCTION,
     '',
     shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
     '',
     'Section requirements:',
-    '- developmental_axis (ציר התפתחותי): deep multi-paragraph developmental progression across grades 1-8.',
-    '- core_pedagogical_emphases (דגשים פדגוגיים מרכזיים): deep breakdown with Developmental Compass and grade-band lesson dynamics.',
+    '- developmental_axis (ציר התפתחותי): rich multi-paragraph Hebrew covering Grades 1–8 age bands — א׳–ג׳ sensory/story/handwork; ד׳–ה׳ living observation (zoology/botany); ו׳ second Rubicon and scientific phenomenology; ז׳–ח׳ causal sciences and adolescent thinking. Never brief generic summaries.',
+    '- core_pedagogical_emphases (דגשים פדגוגיים מרכזיים): rich professional Anthroposophical depth with Developmental Compass for each of those age bands.',
     '- recommended_literature: each entry with contextual note explaining coverage and relevance.',
     '- relevant_links (קישורים): 6-8 live professional sources with descriptive titles — not parent-facing school homepages.',
     'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown.',
