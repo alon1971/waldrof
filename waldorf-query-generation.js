@@ -70,7 +70,7 @@
     { pattern: /חשבון|מתמטיקה|math|arithmetic/i, pinterest: ['math lesson'], articleHe: ['חשבון'], displayHe: 'חשבון' },
     { pattern: /אסטרונומיה|astronomy/i, pinterest: ['astronomy'], articleHe: ['אסטרונומיה'], displayHe: 'אסטרונומיה' },
     { pattern: /פיזיקה|physics/i, pinterest: ['physics'], articleHe: ['פיזיקה'], displayHe: 'פיזיקה' },
-    { pattern: /אדם וחיות|ממלכת החי|human and animal|kingdom of nature/i, pinterest: ['human and animal'], articleHe: ['אדם וממלכת החי'], displayHe: 'אדם וממלכת החי' },
+    { pattern: /אדם וחיות|ממלכת החי|זואולוגיה|human and animal|kingdom of nature|zoology/i, pinterest: ['Human and Animal', 'Zoology'], articleHe: ['אדם וממלכת החי'], displayHe: 'אדם וממלכת החי' },
     { pattern: /ימי ביניים|medieval|middle ages/i, pinterest: ['medieval history'], articleHe: ['ימי ביניים'], displayHe: 'ימי ביניים' },
     { pattern: /גלילאו|galileo/i, pinterest: ['Galileo astronomy'], articleHe: ['גלילאו'], displayHe: 'גלילאו' },
   ];
@@ -104,6 +104,10 @@
     'בניית בית': 'house building',
     'תנ״ך': 'Old Testament stories',
     'תנך': 'Old Testament stories',
+    'אדם וממלכת החי': 'Human and Animal',
+    'האדם וממלכת החי': 'Human and Animal',
+    'אדם וחיות': 'Human and Animal',
+    'זואולוגיה': 'Zoology',
   };
 
   var GENERIC_PINTEREST_CLUTTER = [

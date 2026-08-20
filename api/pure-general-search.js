@@ -54,40 +54,36 @@ const PERIOD_BLOCK_DEPTH_AND_JSON_INSTRUCTION = [
   '=== סוף תוכנית תקופה ===',
 ].join(' ');
 
-/** Approved homepage hosts for relevant_links — never invent deep CMS/article slugs on these. */
+/** Direct-article hosts for general-search live links. No Google, no אדם עולם. */
 const APPROVED_RELEVANT_LINK_DOMAINS = [
-  'anadom.co.il',
-  'harduf.org.il',
-  'adamolam.co.il',
+  'rsarchive.org',
   'waldorflibrary.org',
   'waldorfeducation.org',
-  'rsarchive.org',
+  'steinerwaldorf.org',
+  'harduf.org.il',
+  'anadom.co.il',
+  'waldorfisrael.org',
 ];
 
-const RSARCHIVE_LINK_MAX = 2;
-const LIVE_LINKS_TARGET_MIN = 4;
-const LIVE_LINKS_MAX = 6;
+const LIVE_LINK_BUCKET_MAX = 2;
+const LIVE_LINKS_TARGET = 6;
+const RSARCHIVE_LINK_MAX = LIVE_LINK_BUCKET_MAX;
+
+const LIVE_LINK_BUCKETS = [
+  { id: 'rsarchive', hosts: ['rsarchive.org'] },
+  { id: 'international', hosts: ['waldorflibrary.org', 'waldorfeducation.org', 'steinerwaldorf.org'] },
+  { id: 'israeli', hosts: ['harduf.org.il', 'anadom.co.il', 'waldorfisrael.org'] },
+];
+
+const BLOCKED_RELEVANT_LINK_DOMAINS = [
+  'adamolam.co.il',
+  'google.com',
+  'google.co.il',
+];
 
 const DEFAULT_SITE_SEARCH_DOMAIN = 'waldorflibrary.org';
 
-const CURATED_RELEVANT_LINK_TEMPLATES = [
-  {
-    title: 'מאמרי ספריית ולדורף',
-    kind: 'waldorf_library_google',
-  },
-  {
-    title: 'חיפוש בארכיון שטיינר',
-    kind: 'rsarchive_search',
-  },
-  {
-    title: 'אדם עולם - מאמרים',
-    kind: 'adamolam_search',
-  },
-  {
-    title: 'חיפוש ולדורף כללי',
-    kind: 'waldorf_google',
-  },
-];
+const CURATED_RELEVANT_LINK_TEMPLATES = [];
 
 const RELEVANT_LINKS_NO_HALLUCINATION_INSTRUCTION = [
   '=== קישורים רלוונטיים — Gemini אינו מייצר קישורים ===',
@@ -418,22 +414,20 @@ function resolveEnglishSearchTopic(topic) {
   return raw;
 }
 
-function buildWaldorfLibraryGoogleSearchUrl(topic) {
-  const q = resolveEnglishSearchTopic(topic) || String(topic || '').trim();
-  return 'https://www.google.com/search?q=site:waldorflibrary.org+' + encodeURIComponent(q);
+function buildWaldorfLibraryGoogleSearchUrl() {
+  return '';
 }
 
-function buildRsarchiveSearchUrl(topic) {
-  const q = resolveEnglishSearchTopic(topic) || String(topic || '').trim();
-  return 'https://rsarchive.org/Search.php?q=' + encodeURIComponent(q);
+function buildRsarchiveSearchUrl() {
+  return '';
 }
 
-function buildAdamOlamSearchUrl(topic) {
-  return 'https://adamolam.co.il/?s=' + encodeURIComponent(String(topic || '').trim());
+function buildAdamOlamSearchUrl() {
+  return '';
 }
 
-function buildGeneralWaldorfGoogleSearchUrl(topic) {
-  return 'https://www.google.com/search?q=חינוך+ולדורף+' + encodeURIComponent(String(topic || '').trim());
+function buildGeneralWaldorfGoogleSearchUrl() {
+  return '';
 }
 
 function isBrokenWaldorfLibrarySearchUrl(url) {
@@ -447,33 +441,26 @@ function isBrokenWaldorfLibrarySearchUrl(url) {
   }
 }
 
+function isBlockedRelevantLinkHost(host) {
+  const h = normalizeHost(host);
+  if (!h) return false;
+  return BLOCKED_RELEVANT_LINK_DOMAINS.some(function (domain) {
+    return h === domain || h.endsWith('.' + domain);
+  });
+}
+
 function isKeepableCitationHost(host) {
   const h = normalizeHost(host);
-  return isApprovedRelevantLinkHost(h) || h === 'google.com';
+  if (isBlockedRelevantLinkHost(h)) return false;
+  return isApprovedRelevantLinkHost(h);
 }
 
-function buildApprovedSiteSearchUrl(domain, topic) {
-  const host = isApprovedRelevantLinkHost(domain) ? normalizeHost(domain) : DEFAULT_SITE_SEARCH_DOMAIN;
-  const encodedTopic = encodedSearchTopic(topic).replace(/%20/g, '+');
-  return 'https://www.google.com/search?q=site:' + host + (encodedTopic ? '+' + encodedTopic : '');
+function buildApprovedSiteSearchUrl() {
+  return '';
 }
 
-/** Native on-site search when the host has a known search page; otherwise Google site:. */
-function buildFocusedSearchUrl(domain, topic) {
-  const host = isApprovedRelevantLinkHost(domain) ? normalizeHost(domain) : DEFAULT_SITE_SEARCH_DOMAIN;
-  if (host === 'waldorflibrary.org') {
-    return buildWaldorfLibraryGoogleSearchUrl(topic);
-  }
-  if (host === 'rsarchive.org') {
-    return buildRsarchiveSearchUrl(topic);
-  }
-  if (host === 'adamolam.co.il') {
-    return buildAdamOlamSearchUrl(topic);
-  }
-  if (host === 'harduf.org.il') {
-    return 'https://harduf.org.il/?s=' + encodeURIComponent(String(topic || '').trim());
-  }
-  return buildApprovedSiteSearchUrl(host, topic);
+function buildFocusedSearchUrl() {
+  return '';
 }
 
 function isApprovedHomepage(host, pathname, search) {
@@ -575,13 +562,13 @@ function isDisplayableRelevantLink(item) {
 function curatedTitleForUrl(url) {
   try {
     const host = normalizeHost(new URL(String(url || '').trim()).hostname);
-    if (host === 'adamolam.co.il') return 'אדם עולם - מאמרים';
     if (host === 'harduf.org.il') return 'יוזמות ולדורף בישראל';
     if (host === 'anadom.co.il') return 'אנדום';
+    if (host === 'waldorfisrael.org') return 'איגוד חינוך ולדורף בישראל';
     if (host === 'rsarchive.org') return 'ארכיון שטיינר (כתבים והרצאות)';
     if (host === 'waldorflibrary.org') return 'ספריית ולדורף הבינלאומית';
     if (host === 'waldorfeducation.org') return 'AWSNA - Waldorf Education';
-    if (host === 'google.com') return 'חיפוש ולדורף כללי';
+    if (host === 'steinerwaldorf.org') return 'Steiner Waldorf Schools Fellowship';
   } catch (e) { /* ignore */ }
   return '';
 }
@@ -616,29 +603,6 @@ function descriptiveRsarchiveTitle() {
   return RSARCHIVE_GENERIC_TITLE;
 }
 
-function buildGuaranteedSearchFallbacks(topic) {
-  const q = String(topic || '').trim();
-  if (!q) return [];
-  return [
-    {
-      title: 'מאמרי ספריית ולדורף',
-      url: buildWaldorfLibraryGoogleSearchUrl(q),
-    },
-    {
-      title: 'חיפוש בארכיון שטיינר',
-      url: buildRsarchiveSearchUrl(q),
-    },
-    {
-      title: 'אדם עולם - מאמרים',
-      url: buildAdamOlamSearchUrl(q),
-    },
-    {
-      title: 'חיפוש ולדורף כללי',
-      url: buildGeneralWaldorfGoogleSearchUrl(q),
-    },
-  ].filter(isDisplayableRelevantLink);
-}
-
 function hostOfLink(url) {
   try {
     return normalizeHost(new URL(String(url || '').trim()).hostname);
@@ -647,58 +611,90 @@ function hostOfLink(url) {
   }
 }
 
+function urlContainsHebrew(url) {
+  const raw = String(url || '');
+  try {
+    return /[\u0590-\u05FF]/.test(decodeURIComponent(raw));
+  } catch (e) {
+    return /[\u0590-\u05FF]/.test(raw);
+  }
+}
+
+function isSearchPageUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const host = normalizeHost(parsed.hostname);
+    const path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+    if (host === 'google.com' || host === 'google.co.il') return true;
+    if (/search\.php$/i.test(path)) return true;
+    if (/\/search$/i.test(path) || /^\/search\//i.test(path + '/')) return true;
+    if (parsed.searchParams.has('s') && path === '/') return true;
+    if (parsed.searchParams.has('q') && /search/i.test(path)) return true;
+    return false;
+  } catch (e) {
+    return true;
+  }
+}
+
+function isDirectArticlePath(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const host = normalizeHost(parsed.hostname);
+    const segs = String(parsed.pathname || '/').split('/').filter(Boolean);
+    if (host === 'rsarchive.org') {
+      if (urlContainsHebrew(url)) return false;
+      if (segs.length < 2) return false;
+      return /^(Lectures|Books|Articles|GA)/i.test(segs[0]);
+    }
+    return segs.length >= 1;
+  } catch (e) {
+    return false;
+  }
+}
+
+function liveLinkBucketId(url) {
+  const host = hostOfLink(url);
+  for (let i = 0; i < LIVE_LINK_BUCKETS.length; i++) {
+    if (LIVE_LINK_BUCKETS[i].hosts.indexOf(host) >= 0) return LIVE_LINK_BUCKETS[i].id;
+  }
+  return '';
+}
+
 function isRsarchiveLink(item) {
   const url = item && typeof item === 'object' ? item.url : item;
   return hostOfLink(url) === 'rsarchive.org';
 }
 
-function otherHostRank(host) {
-  const h = normalizeHost(host);
-  if (h === 'adamolam.co.il') return 0;
-  if (h === 'harduf.org.il') return 1;
-  if (h === 'anadom.co.il') return 2;
-  if (h === 'waldorflibrary.org') return 3;
-  if (h === 'waldorfeducation.org') return 4;
-  if (h === 'google.com') return 5;
-  return 9;
-}
-
-function diversifyLiveLinks(items, limit) {
-  const cap = limit || LIVE_LINKS_MAX;
-  const list = Array.isArray(items) ? items : [];
-  const rsa = [];
-  const others = [];
-  list.forEach(function (item) {
-    if (isRsarchiveLink(item)) rsa.push(item);
-    else others.push(item);
-  });
-  others.sort(function (a, b) {
-    return otherHostRank(hostOfLink(a.url)) - otherHostRank(hostOfLink(b.url));
-  });
-  return others.concat(rsa.slice(0, RSARCHIVE_LINK_MAX)).slice(0, cap);
-}
-
-function mergeGuaranteedSearchFallbacks(links, query) {
-  const out = [];
+function assembleExactSixLiveLinks(items) {
+  const buckets = {
+    rsarchive: [],
+    international: [],
+    israeli: [],
+  };
   const seen = Object.create(null);
-  (Array.isArray(links) ? links : []).forEach(function (item) {
+  (Array.isArray(items) ? items : []).forEach(function (item) {
     if (!item || !item.url || seen[item.url]) return;
+    const id = liveLinkBucketId(item.url);
+    if (!id || buckets[id].length >= LIVE_LINK_BUCKET_MAX) return;
     seen[item.url] = true;
-    out.push(item);
+    buckets[id].push(item);
   });
-  const rsaCount = out.filter(isRsarchiveLink).length;
-  const otherCount = out.length - rsaCount;
-  if (out.length >= LIVE_LINKS_TARGET_MIN && otherCount >= 3) return out;
-  buildGuaranteedSearchFallbacks(query).forEach(function (item) {
-    if (seen[item.url]) return;
-    if (isRsarchiveLink(item) && out.filter(isRsarchiveLink).length >= RSARCHIVE_LINK_MAX) return;
-    seen[item.url] = true;
-    out.push(item);
-  });
-  return diversifyLiveLinks(out, LIVE_LINKS_MAX);
+  return buckets.rsarchive.concat(buckets.international, buckets.israeli).slice(0, LIVE_LINKS_TARGET);
 }
 
-function sanitizePerplexityLiveLinks(list, query) {
+function buildGuaranteedSearchFallbacks() {
+  return [];
+}
+
+function mergeGuaranteedSearchFallbacks(links) {
+  return assembleExactSixLiveLinks(links);
+}
+
+function diversifyLiveLinks(items) {
+  return assembleExactSixLiveLinks(items);
+}
+
+function sanitizePerplexityLiveLinks(list) {
   const seen = Object.create(null);
   const out = [];
   (Array.isArray(list) ? list : []).forEach(function (item) {
@@ -706,6 +702,7 @@ function sanitizePerplexityLiveLinks(list, query) {
       ? item.trim()
       : String((item && (item.url || item.link || item.href)) || '').trim();
     if (!isValidHttpsUrl(url) || hasChainedOrDoubleDomain(url) || isHomepageOrIndexUrl(url)) return;
+    if (isSearchPageUrl(url) || isBrokenWaldorfLibrarySearchUrl(url) || !isDirectArticlePath(url)) return;
     let host = '';
     try {
       host = new URL(url).hostname;
@@ -714,9 +711,6 @@ function sanitizePerplexityLiveLinks(list, query) {
     }
     if (!isKeepableCitationHost(host)) return;
     const hostNorm = normalizeHost(host);
-    if (isBrokenWaldorfLibrarySearchUrl(url)) {
-      url = buildWaldorfLibraryGoogleSearchUrl(query);
-    }
     let title = '';
     if (item && typeof item === 'object') {
       title = sanitizePedagogicalText(item.title) || String(item.title || item.name || '').trim();
@@ -735,92 +729,144 @@ function sanitizePerplexityLiveLinks(list, query) {
     seen[url] = true;
     out.push({ title: title, url: url });
   });
-  return mergeGuaranteedSearchFallbacks(diversifyLiveLinks(out, LIVE_LINKS_MAX), query);
+  return assembleExactSixLiveLinks(out);
 }
 
 function resolveRelevantLinks(options) {
   const opts = options && typeof options === 'object' ? options : {};
-  const liveProvided = Array.isArray(opts.liveLinks);
-  const live = liveProvided ? sanitizePerplexityLiveLinks(opts.liveLinks, opts.query) : [];
-  if (live.length) return live;
-  if (liveProvided) return mergeGuaranteedSearchFallbacks([], opts.query);
-  if (opts.useArchivedLinks) {
-    const archived = sanitizePerplexityLiveLinks(shared.coerceLinks(opts.archivedLinks), opts.query);
-    if (archived.length) return archived;
+  if (Array.isArray(opts.liveLinks)) {
+    return sanitizePerplexityLiveLinks(opts.liveLinks, opts.query);
   }
-  return mergeGuaranteedSearchFallbacks(buildCuratedRelevantLinks(opts.query || ''), opts.query);
+  if (opts.useArchivedLinks) {
+    return sanitizePerplexityLiveLinks(shared.coerceLinks(opts.archivedLinks), opts.query);
+  }
+  return [];
+}
+
+function buildPerplexityLiveLinkQueries(topic) {
+  const q = String(topic || '').trim().replace(/"/g, '');
+  const englishTopic = String(resolveEnglishSearchTopic(q) || q).replace(/"/g, '');
+  return {
+    topic: q,
+    englishTopic: englishTopic,
+    rsarchive: 'site:rsarchive.org "' + englishTopic + '"',
+    international: 'site:waldorflibrary.org OR site:waldorfeducation.org OR site:steinerwaldorf.org "' + englishTopic + '"',
+    israeli: 'site:harduf.org.il OR site:anadom.co.il OR site:waldorfisrael.org "' + q + '"',
+  };
 }
 
 function buildPerplexityLiveLinksQuery(topic) {
-  const q = String(topic || '').trim().replace(/"/g, '');
-  return '"' + q + '" (חינוך ולדורף OR "ספריית ולדורף" OR "Waldorf Education" OR "Online Waldorf Library")';
+  return buildPerplexityLiveLinkQueries(topic).rsarchive;
+}
+
+function buildBucketLiveLinksInstructions(topic, bucketId) {
+  const q = String(topic || '').trim();
+  const queries = buildPerplexityLiveLinkQueries(q);
+  const sharedRules = [
+    "חובה מוחלטת: כל קישור חייב לעסוק באופן ישיר ומובהק בנושא המבוקש: '" + q + "' בלבד.",
+    'Return exactly 2 live, active, direct article URLs from real search citations.',
+    'Keep original citation titles (Hebrew or English). Never invent or guess URLs.',
+    'Never return Google links, site-search pages, homepages, or adamolam.co.il.',
+  ];
+  if (bucketId === 'rsarchive') {
+    return sharedRules.concat([
+      'Search exactly: ' + queries.rsarchive,
+      'Extract 2 direct lecture or book pages on rsarchive.org (Lectures/Books). Never Search.php. Never send Hebrew to rsarchive.org.',
+    ]).join(' ');
+  }
+  if (bucketId === 'international') {
+    return sharedRules.concat([
+      'Search exactly: ' + queries.international,
+      'Extract 2 full pedagogical articles from waldorflibrary.org, waldorfeducation.org, or steinerwaldorf.org — not search pages.',
+    ]).join(' ');
+  }
+  return sharedRules.concat([
+    'Search exactly: ' + queries.israeli,
+    'Extract 2 direct Hebrew articles or teaching materials from harduf.org.il, anadom.co.il, or waldorfisrael.org.',
+  ]).join(' ');
 }
 
 function buildPerplexityLiveLinksInstructions(topic) {
-  const q = String(topic || '').trim();
+  const queries = buildPerplexityLiveLinkQueries(topic);
   return [
-    "חובה מוחלטת: כל קישור חייב לעסוק באופן ישיר ומובהק בנושא המבוקש: '" + q + "' בלבד.",
-    "אין להחזיר מאמרים כלליים על חינוך ולדורף או דפי בית. אם אין מאמר שעוסק ספציפית ב-'" + q + "', החזר רק את המאמרים הספציפיים שנמצאו.",
-    'Provide 4 to 6 live, active links. Prioritize relevant Hebrew articles/resources if available, and complement with international Waldorf libraries. RSArchive must not exceed 2 entries.',
-    'Preferred sources: adamolam.co.il, harduf.org.il, waldorflibrary.org, waldorfeducation.org (AWSNA), then at most 2 rsarchive.org pages.',
-    'שפות מותרות: עברית או אנגלית. Hebrew first when available; English Waldorf Library / AWSNA links are welcome.',
-    "If an RSArchive citation title is generic (Sidebar, The Rudolf Steiner Archive), keep the URL and title it '" + RSARCHIVE_GENERIC_TITLE + "'.",
+    buildBucketLiveLinksInstructions(topic, 'rsarchive'),
+    buildBucketLiveLinksInstructions(topic, 'international'),
+    buildBucketLiveLinksInstructions(topic, 'israeli'),
+    'Assemble exactly 6 links: 2 RSArchive + 2 international Waldorf libraries + 2 Israeli Waldorf sites.',
+    'Exact queries: ' + queries.rsarchive + ' | ' + queries.international + ' | ' + queries.israeli,
   ].join(' ');
+}
+
+function extractLiveLinkItemsFromSearchResult(result) {
+  const payload = jsonRepair.safeParseJson(result && result.rawResponseText);
+  return []
+    .concat(perplexityClient.extractCitationItems(payload))
+    .concat((result && result.citations) || [])
+    .concat(perplexityClient.extractHttpsUrlsFromText(result && result.content));
+}
+
+async function fetchPerplexityBucketCitations(searchQuery, instructions) {
+  const result = await perplexityClient.callPerplexitySearch({
+    stream: false,
+    temperature: 0.1,
+    max_tokens: 400,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          instructions,
+          'Use only real search citations. NEVER invent or guess URLs or article IDs.',
+          'Return at most one short sentence. Titles come from citations, not from memory.',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: [
+          instructions,
+          'Exact search: ' + searchQuery,
+          'Return only the specific on-topic article URLs found.',
+        ].join('\n'),
+      },
+    ],
+  });
+  return extractLiveLinkItemsFromSearchResult(result);
 }
 
 async function fetchPerplexityLiveRelevantLinks(topic) {
   const q = String(topic || '').trim();
   if (!q) return [];
   if (!perplexityClient.resolveApiKey()) return [];
-  const searchQuery = buildPerplexityLiveLinksQuery(q);
-  try {
-    const result = await perplexityClient.callPerplexitySearch({
-      stream: false,
-      temperature: 0.1,
-      max_tokens: 400,
-      messages: [
-        {
-          role: 'system',
-          content: [
-            buildPerplexityLiveLinksInstructions(q),
-            'Use only real search citations. NEVER invent or guess URLs or article IDs.',
-            'Return at most one short sentence. Titles come from citations, not from memory.',
-            'Hebrew articles first when available, then Online Waldorf Library / AWSNA. RSArchive must not exceed 2 entries.',
-          ].join(' '),
-        },
-        {
-          role: 'user',
-          content: [
-            buildPerplexityLiveLinksInstructions(q),
-            'Find 4-6 live pedagogical articles that are specifically about «' + q + '».',
-            'Exact search: ' + searchQuery,
-            'Return only the specific on-topic articles found. Do not invent URLs.',
-            'Prioritize Hebrew sources, then waldorflibrary.org and waldorfeducation.org. RSArchive must not exceed 2 entries.',
-          ].join('\n'),
-        },
-      ],
+  const queries = buildPerplexityLiveLinkQueries(q);
+  const settled = await Promise.all([
+    fetchPerplexityBucketCitations(queries.rsarchive, buildBucketLiveLinksInstructions(q, 'rsarchive'))
+      .catch(function (err) {
+        console.warn('[pure-general-search] RSArchive live-link search failed:', err && err.message ? err.message : err);
+        return [];
+      }),
+    fetchPerplexityBucketCitations(queries.international, buildBucketLiveLinksInstructions(q, 'international'))
+      .catch(function (err) {
+        console.warn('[pure-general-search] international live-link search failed:', err && err.message ? err.message : err);
+        return [];
+      }),
+    fetchPerplexityBucketCitations(queries.israeli, buildBucketLiveLinksInstructions(q, 'israeli'))
+      .catch(function (err) {
+        console.warn('[pure-general-search] Israeli live-link search failed:', err && err.message ? err.message : err);
+        return [];
+      }),
+  ]);
+  const live = sanitizePerplexityLiveLinks([].concat(settled[0], settled[1], settled[2]), q);
+  if (live.length) {
+    console.log('[pure-general-search] Perplexity live links', live.length, {
+      rsarchive: live.filter(isRsarchiveLink).length,
+      international: live.filter(function (item) { return liveLinkBucketId(item.url) === 'international'; }).length,
+      israeli: live.filter(function (item) { return liveLinkBucketId(item.url) === 'israeli'; }).length,
     });
-    const payload = jsonRepair.safeParseJson(result && result.rawResponseText);
-    const items = []
-      .concat(perplexityClient.extractCitationItems(payload))
-      .concat((result && result.citations) || [])
-      .concat(perplexityClient.extractHttpsUrlsFromText(result && result.content));
-    const live = sanitizePerplexityLiveLinks(items, q);
-    if (live.length) {
-      console.log('[pure-general-search] Perplexity live links', live.length);
-    }
-    return live;
-  } catch (err) {
-    console.warn(
-      '[pure-general-search] Perplexity live-link search failed:',
-      err && err.message ? err.message : err
-    );
-    return [];
   }
+  return live;
 }
 
-function buildCuratedRelevantLinks(topic) {
-  return buildGuaranteedSearchFallbacks(topic);
+function buildCuratedRelevantLinks() {
+  return [];
 }
 
 function linkSearchTopic(item, query) {
@@ -836,49 +882,11 @@ function linkSearchTopic(item, query) {
 }
 
 /**
- * Fallback validation: keep approved homepages; rewrite guessed article IDs,
- * chained/double-domain URLs, and unverified deep paths to a native or Google site search.
+ * Keep only a direct approved article URL. Never invent Google or on-site search fallbacks.
  */
-function sanitizeRelevantLinkUrl(rawUrl, topic, preferredHost) {
-  const q = sanitizeSearchTopic(topic);
-  const defaultHost = isApprovedRelevantLinkHost(preferredHost)
-    ? normalizeHost(preferredHost)
-    : DEFAULT_SITE_SEARCH_DOMAIN;
-  const raw = ensureHttpsUrl(rawUrl);
-  if (!raw) return buildFocusedSearchUrl(defaultHost, q);
-
-  if (hasChainedOrDoubleDomain(raw)) {
-    const inner = extractEmbeddedApprovedHost(raw) || defaultHost;
-    return buildFocusedSearchUrl(inner, q);
-  }
-
-  const siteHost = extractGoogleSiteSearchHost(raw);
-  if (siteHost) {
-    return buildFocusedSearchUrl(
-      isApprovedRelevantLinkHost(siteHost) ? siteHost : defaultHost,
-      q
-    );
-  }
-
-  try {
-    const parsed = new URL(raw);
-    if (!/^https?:$/i.test(parsed.protocol)) return buildFocusedSearchUrl(defaultHost, q);
-    const host = parsed.hostname;
-    if (looksLikeNumericArticlePath(parsed.pathname)) {
-      const rewriteHost = isApprovedRelevantLinkHost(host) ? host : defaultHost;
-      return buildFocusedSearchUrl(rewriteHost, q);
-    }
-    if (isApprovedRelevantLinkHost(host) && isApprovedHomepage(host, parsed.pathname, parsed.search)) {
-      return 'https://' + normalizeHost(host) + '/';
-    }
-    if (isApprovedRelevantLinkHost(host)) {
-      return buildFocusedSearchUrl(host, q);
-    }
-    return buildFocusedSearchUrl(defaultHost, q);
-  } catch (e) {
-    const inner = extractEmbeddedApprovedHost(raw) || defaultHost;
-    return buildFocusedSearchUrl(inner, q);
-  }
+function sanitizeRelevantLinkUrl(rawUrl) {
+  const kept = sanitizePerplexityLiveLinks([{ title: 'Source', url: ensureHttpsUrl(rawUrl) }]);
+  return kept[0] ? kept[0].url : '';
 }
 
 function sanitizeRelevantLinks(list, query) {
@@ -1782,11 +1790,15 @@ module.exports = {
   mergeGuaranteedSearchFallbacks,
   buildGuaranteedSearchFallbacks,
   resolveEnglishSearchTopic,
+  buildPerplexityLiveLinkQueries,
+  assembleExactSixLiveLinks,
   buildWaldorfLibraryGoogleSearchUrl,
   buildRsarchiveSearchUrl,
   isBrokenWaldorfLibrarySearchUrl,
   RSARCHIVE_GENERIC_TITLE,
   RSARCHIVE_LINK_MAX,
+  LIVE_LINK_BUCKET_MAX,
+  LIVE_LINKS_TARGET,
   isDisplayableRelevantLink,
   hasChainedOrDoubleDomain,
   APPROVED_RELEVANT_LINK_DOMAINS,
