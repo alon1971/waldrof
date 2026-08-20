@@ -24839,11 +24839,30 @@
         if (host === 'adamolam.co.il') return 'אדם עולם - מאמרים';
         if (host === 'harduf.org.il') return 'יוזמות ולדורף בישראל';
         if (host === 'anadom.co.il') return 'אנדום';
+        if (host === 'waldorfisrael.org') return 'איגוד חינוך ולדורף בישראל';
         if (host === 'rsarchive.org') return 'ארכיון שטיינר (כתבים והרצאות)';
         if (host === 'waldorflibrary.org') return 'ספריית ולדורף הבינלאומית';
         if (host === 'waldorfeducation.org') return 'AWSNA - Waldorf Education';
+        if (host === 'steinerwaldorf.org') return 'Steiner Waldorf Schools Fellowship';
       } catch (e) { /* ignore */ }
       return '';
+    }
+
+    function isDirectGeneralSearchLinkHref(url) {
+      try {
+        var parsed = new URL(String(url || '').trim());
+        var host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+        if (host === 'google.com' || host === 'google.co.il' || host === 'adamolam.co.il') return false;
+        if (!/^(rsarchive\.org|waldorflibrary\.org|waldorfeducation\.org|steinerwaldorf\.org|harduf\.org\.il|anadom\.co\.il|waldorfisrael\.org)$/.test(host)) {
+          return false;
+        }
+        var path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+        if (path === '/' || /search\.php$/i.test(path) || /\/search$/i.test(path)) return false;
+        if (host === 'rsarchive.org' && /[\u0590-\u05FF]/.test(decodeURIComponent(String(url || '')))) return false;
+        return true;
+      } catch (e) {
+        return false;
+      }
     }
 
     function isValidHttpsHref(url) {
@@ -26171,6 +26190,7 @@
         var href = sanitizeExternalLinkUrl(url);
         if (!href || !isValidHttpsHref(href)) return false;
         if (isArchiveUrlSuppressedClient(href)) return false;
+        if (skipPhaseC && !isDirectGeneralSearchLinkHref(href)) return false;
         var title = String(item.title || item.name || '').trim();
         var display = formatSourceLinkDisplayLabel(title, href);
         if (isOpaqueLinkTitle(display)) display = curatedSearchLinkTitleForUrl(href) || title;

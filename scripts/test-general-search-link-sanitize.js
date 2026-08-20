@@ -11,55 +11,75 @@ function assert(cond, msg) {
   }
 }
 
-const query = 'בוטניקה';
+function countBucket(items, re) {
+  return items.filter(function (item) { return re.test(item.url); }).length;
+}
 
-const searchQuery = pgs.buildPerplexityLiveLinksQuery(query);
+const query = 'בוטניקה';
+const queries = pgs.buildPerplexityLiveLinkQueries(query);
+
+assert(queries.englishTopic.toLowerCase().indexOf('botany') >= 0, 'translates בוטניקה to botany');
 assert(
-  searchQuery === '"' + query + '" (חינוך ולדורף OR "ספריית ולדורף" OR "Waldorf Education" OR "Online Waldorf Library")',
-  'live-link query is Hebrew-first dual language'
+  queries.rsarchive === 'site:rsarchive.org "' + queries.englishTopic + '"',
+  'RSArchive query is site:rsarchive.org with English topic'
 );
+assert(queries.rsarchive.indexOf('בוטניקה') < 0, 'never sends Hebrew to rsarchive.org');
+assert(
+  queries.international === 'site:waldorflibrary.org OR site:waldorfeducation.org OR site:steinerwaldorf.org "' + queries.englishTopic + '"',
+  'international query uses English topic on Waldorf library hosts'
+);
+assert(
+  queries.israeli === 'site:harduf.org.il OR site:anadom.co.il OR site:waldorfisrael.org "' + query + '"',
+  'Israeli query uses the original Hebrew topic without adamolam'
+);
+assert(queries.israeli.indexOf('adamolam') < 0, 'Israeli query excludes adamolam.co.il');
 
 const lock = pgs.buildPerplexityLiveLinksInstructions(query);
 assert(lock.indexOf('חובה מוחלטת') >= 0, 'topic lock is mandatory');
 assert(lock.indexOf(query) >= 0, 'topic lock names the query');
-assert(lock.indexOf('Provide 4 to 6 live, active links') >= 0, 'asks for 4-6 live links');
-assert(lock.indexOf('Prioritize relevant Hebrew articles') >= 0, 'prioritizes Hebrew resources');
-assert(lock.indexOf('RSArchive must not exceed 2 entries') >= 0, 'caps RSArchive at two');
-assert(lock.indexOf(pgs.RSARCHIVE_GENERIC_TITLE) >= 0, 'renames generic RSArchive titles instead of dropping them');
+assert(lock.indexOf(queries.rsarchive) >= 0, 'instructions include RSArchive site query');
+assert(lock.indexOf(queries.international) >= 0, 'instructions include international site query');
+assert(lock.indexOf(queries.israeli) >= 0, 'instructions include Israeli site query');
+assert(lock.indexOf('exactly 2') >= 0, 'asks for exactly two links per bucket');
+assert(lock.indexOf('adamolam.co.il') >= 0, 'explicitly forbids adamolam');
+assert(lock.indexOf('Never send Hebrew to rsarchive.org') >= 0, 'forbids Hebrew RSArchive queries');
+
+assert(pgs.buildGuaranteedSearchFallbacks(query).length === 0, 'does not generate Google or search fallbacks');
+assert(pgs.buildWaldorfLibraryGoogleSearchUrl(query) === '', 'does not emit Waldorf Library Google search URLs');
+assert(pgs.buildRsarchiveSearchUrl(query) === '', 'does not emit RSArchive Search.php fallbacks');
+assert(pgs.buildApprovedSiteSearchUrl('waldorflibrary.org', query) === '', 'does not emit Google site-search URLs');
+assert(pgs.buildCuratedRelevantLinks(query).length === 0, 'curated fallbacks are empty');
 
 const live = pgs.sanitizePerplexityLiveLinks([
   { title: 'Botany in Waldorf education', url: 'https://www.waldorflibrary.org/articles/botany-grade-5' },
-  { title: 'search', url: 'https://rsarchive.org/Lectures/GA293/English/AP1938/' },
+  { title: 'search', url: 'https://rsarchive.org/Lectures/GA293/English/AP1938/botany' },
   { title: 'זר', url: 'https://example.com/not-approved' },
   { title: 'כפול', url: 'https://jobs.waldorftoday.com/https://adamolam.co.il/post' },
   'https://adamolam.co.il/waldorf-botany/',
+  { title: 'צמחיה בהרדוף', url: 'https://harduf.org.il/botany-lesson/' },
 ], query);
-assert(live.length >= 3, 'keeps approved live citations');
 assert(live.some(function (item) { return item.url.indexOf('waldorflibrary.org') >= 0; }), 'keeps English library citation');
 assert(live.some(function (item) { return item.title === pgs.RSARCHIVE_GENERIC_TITLE; }), 'generic RSArchive title is renamed and kept');
 assert(live.some(function (item) { return item.url.indexOf('rsarchive.org/Lectures') >= 0; }), 'keeps RSArchive lecture URL');
-assert(live.some(function (item) { return item.url.indexOf('adamolam.co.il') >= 0; }), 'keeps adamolam citation');
-assert(!live.some(function (item) { return /example\.com|jobs\.waldorftoday/.test(item.url); }), 'drops foreign and chained URLs');
+assert(live.some(function (item) { return item.url.indexOf('harduf.org.il') >= 0; }), 'keeps Harduf Hebrew citation');
+assert(!live.some(function (item) { return /adamolam\.co\.il/.test(item.url); }), 'drops adamolam citations');
+assert(!live.some(function (item) { return /example\.com|jobs\.waldorftoday|google\.com/.test(item.url); }), 'drops foreign, chained, and Google URLs');
+
+const hebrewRsarchive = pgs.sanitizePerplexityLiveLinks([
+  { title: 'Lecture', url: 'https://rsarchive.org/Search.php?q=' + encodeURIComponent(query) },
+  { title: 'Lecture HE', url: 'https://rsarchive.org/Lectures/GA293/' + encodeURIComponent('בוטניקה') },
+], query);
+assert(hebrewRsarchive.length === 0, 'drops RSArchive search pages and Hebrew RSArchive URLs');
 
 const rsarchiveNamed = pgs.sanitizePerplexityLiveLinks([
   { title: 'Sidebar', url: 'https://rsarchive.org/Lectures/GA293/English/AP1938/botany' },
-  { title: 'The Rudolf Steiner Archive', url: 'https://rsarchive.org/Search.php?q=' + encodeURIComponent(query) },
+  { title: 'The Rudolf Steiner Archive', url: 'https://rsarchive.org/Search.php?q=' + encodeURIComponent('botany') },
 ], query);
-const renamedRsa = rsarchiveNamed.filter(function (item) { return /rsarchive\.org/.test(item.url); });
-assert(renamedRsa.length === 2, 'keeps two RSArchive lecture and search pages');
-assert(renamedRsa.every(function (item) {
-  return item.title === pgs.RSARCHIVE_GENERIC_TITLE;
-}), 'generic RSArchive titles are renamed, not discarded');
-assert(rsarchiveNamed.some(function (item) {
-  return item.url === 'https://rsarchive.org/Search.php?q=' + encodeURIComponent(query);
-}), 'keeps RSArchive search URL');
-assert(rsarchiveNamed.length >= 3, 'pads below three links with guaranteed search fallbacks');
-assert(rsarchiveNamed.some(function (item) {
-  return item.url.indexOf('https://www.google.com/search?q=site:waldorflibrary.org+') === 0;
-}), 'adds Waldorf Library Google site-search fallback');
+assert(rsarchiveNamed.length === 1, 'keeps the lecture and drops Search.php');
+assert(rsarchiveNamed[0].title === pgs.RSARCHIVE_GENERIC_TITLE, 'Sidebar title is renamed, not discarded');
 assert(!rsarchiveNamed.some(function (item) {
-  return /waldorflibrary\.org\/search/i.test(item.url);
-}), 'never generates waldorflibrary.org/search');
+  return /waldorflibrary\.org\/search|google\.com\/search|Search\.php/i.test(item.url);
+}), 'never generates search-page fallbacks');
 
 const droppedGeneric = pgs.sanitizePerplexityLiveLinks([
   { title: 'חינוך ולדורף', url: 'https://adamolam.co.il/' },
@@ -73,12 +93,8 @@ const englishOnly = pgs.sanitizePerplexityLiveLinks([
 ], query);
 assert(englishOnly.some(function (item) {
   return item.title === 'Arithmetic in Waldorf education';
-}), 'keeps English Waldorf Library titles');
-assert(englishOnly.length >= 3, 'English-only results are kept and padded without requiring Hebrew pages');
-assert(
-  englishOnly.filter(function (item) { return /rsarchive\.org/.test(item.url); }).length <= pgs.RSARCHIVE_LINK_MAX,
-  'padding never exceeds two RSArchive links'
-);
+}), 'keeps original English Waldorf Library titles');
+assert(englishOnly.length === 1, 'does not pad missing buckets with Google or search pages');
 
 const citationItems = perplexityClient.extractCitationItems({
   citations: ['https://rsarchive.org/Lectures/GA1'],
@@ -89,7 +105,6 @@ const citationItems = perplexityClient.extractCitationItems({
 assert(citationItems.length === 2, 'extracts search_results and citations');
 assert(citationItems[0].title === 'Library botany', 'keeps search_results title');
 
-const curated = pgs.buildCuratedRelevantLinks(query);
 const fromGemini = pgs.normalizeGeneralSearchResponse({
   developmental_axis: 'ציר',
   core_pedagogical_emphases: 'דגשים',
@@ -97,10 +112,7 @@ const fromGemini = pgs.normalizeGeneralSearchResponse({
     { title: 'search', url: 'https://waldorflibrary.org/articles/1090' },
   ],
 }, { query: query });
-assert(
-  JSON.stringify(fromGemini.relevant_links) === JSON.stringify(curated),
-  'normalize ignores Gemini URLs and falls back to curated searches'
-);
+assert(fromGemini.relevant_links.length === 0, 'normalize ignores Gemini URLs and does not invent search fallbacks');
 
 const merged = pgs.normalizeGeneralSearchResponse({
   developmental_axis: 'ציר',
@@ -116,27 +128,16 @@ const merged = pgs.normalizeGeneralSearchResponse({
   ],
 });
 assert(merged.curriculum.length === 15, 'period table still comes from Gemini/normalize');
-assert(merged.relevant_links.length >= 3, 'fewer than three live links are padded with search fallbacks');
+assert(merged.relevant_links.length === 2, 'keeps only the live direct citations');
 assert(merged.relevant_links.some(function (item) {
   return item.url.indexOf('rsarchive.org') >= 0;
 }), 'merged payload keeps the RSArchive citation');
 assert(merged.relevant_links.some(function (item) {
-  return item.url.indexOf('waldorflibrary.org') >= 0 || item.url.indexOf('site:waldorflibrary.org') >= 0;
-}), 'merged payload keeps Waldorf Library or its Google site search');
+  return item.url.indexOf('waldorflibrary.org/articles/botany') >= 0;
+}), 'merged payload keeps the library article');
 assert(
-  merged.relevant_links.filter(function (item) { return /rsarchive\.org/.test(item.url); }).length <= pgs.RSARCHIVE_LINK_MAX,
-  'merged payload caps RSArchive at two'
-);
-assert(
-  merged.relevant_links.some(function (item) {
-    return item.url === pgs.buildRsarchiveSearchUrl(query)
-      || item.url === pgs.buildWaldorfLibraryGoogleSearchUrl(query);
-  }),
-  'guaranteed Steiner Archive or Waldorf Library search is merged in'
-);
-assert(
-  !merged.relevant_links.some(function (item) { return /waldorflibrary\.org\/search/i.test(item.url); }),
-  'merged payload never uses the 404 Waldorf Library search path'
+  !merged.relevant_links.some(function (item) { return /waldorflibrary\.org\/search|google\.com\/search/i.test(item.url); }),
+  'merged payload never uses Google or the 404 Waldorf Library search path'
 );
 assert(
   !merged.relevant_links.some(function (item) { return /articles\/1090/.test(item.url); }),
@@ -147,13 +148,11 @@ const archived = pgs.normalizeGeneralSearchResponse({
   developmental_axis: 'ציר',
   core_pedagogical_emphases: 'דגשים',
   relevant_links: [
-    { title: 'מאמר חי', url: 'https://adamolam.co.il/live-botany/' },
+    { title: 'מאמר חי', url: 'https://harduf.org.il/live-botany/' },
   ],
 }, { query: query, useArchivedLinks: true });
-assert(archived.relevant_links.length >= 3, 'short archived lists get search fallbacks');
-assert(archived.relevant_links.some(function (item) {
-  return item.url.indexOf('adamolam.co.il/live-botany') >= 0;
-}), 'archived adamolam URL kept');
+assert(archived.relevant_links.length === 1, 'archived direct articles are kept without padding');
+assert(archived.relevant_links[0].url.indexOf('harduf.org.il/live-botany') >= 0, 'archived Harduf URL kept');
 
 const noPad = pgs.normalizeGeneralSearchResponse({
   developmental_axis: 'ציר',
@@ -162,25 +161,7 @@ const noPad = pgs.normalizeGeneralSearchResponse({
     { title: 'כללי', url: 'https://adamolam.co.il/' },
   ],
 }, { query: query, liveLinks: [] });
-assert(noPad.relevant_links.length >= 3, 'empty live results still get guaranteed search fallbacks');
-assert(noPad.relevant_links.some(function (item) {
-  return item.title === 'מאמרי ספריית ולדורף'
-    && item.url === pgs.buildWaldorfLibraryGoogleSearchUrl(query);
-}), 'includes Waldorf Library Google site search');
-assert(noPad.relevant_links.some(function (item) {
-  return item.title === 'חיפוש בארכיון שטיינר'
-    && item.url === pgs.buildRsarchiveSearchUrl(query);
-}), 'includes RSArchive English-topic search');
-assert(
-  noPad.relevant_links.filter(function (item) { return /rsarchive\.org/.test(item.url); }).length <= pgs.RSARCHIVE_LINK_MAX,
-  'fallback mix caps RSArchive at two'
-);
-assert(noPad.relevant_links.some(function (item) {
-  return item.url.indexOf('https://adamolam.co.il/?s=') === 0;
-}), 'includes Adam Olam Hebrew search');
-assert(noPad.relevant_links.some(function (item) {
-  return item.url.indexOf('google.com/search') >= 0 && item.url.indexOf('חינוך') >= 0;
-}), 'includes general Waldorf Google search');
+assert(noPad.relevant_links.length === 0, 'empty live results stay empty instead of Google fallbacks');
 
 const overlayFresh = pgs.overlayArchivedPayloadWithLiveLinks({
   developmental_axis: 'ציר',
@@ -189,13 +170,11 @@ const overlayFresh = pgs.overlayArchivedPayloadWithLiveLinks({
 }, { query: query }, [
   { title: 'Botany now', url: 'https://www.waldorflibrary.org/articles/botany-now' },
 ]);
-assert(overlayFresh.relevant_links.length >= 3, 'single live link is padded to at least three');
-assert(overlayFresh.relevant_links.some(function (item) {
-  return item.url.indexOf('botany-now') >= 0;
-}), 'old archive URL is replaced');
+assert(overlayFresh.relevant_links.length === 1, 'single live article is kept without padding');
+assert(overlayFresh.relevant_links[0].url.indexOf('botany-now') >= 0, 'old archive URL is replaced');
 assert(!overlayFresh.relevant_links.some(function (item) {
-  return /old-broken/.test(item.url);
-}), 'stale archive URL is not kept');
+  return /old-broken|adamolam/.test(item.url);
+}), 'stale adamolam archive URL is not kept');
 assert(overlayFresh.developmental_axis === 'ציר', 'archive overlay keeps pedagogical text');
 
 const overlayEmpty = pgs.overlayArchivedPayloadWithLiveLinks({
@@ -203,61 +182,35 @@ const overlayEmpty = pgs.overlayArchivedPayloadWithLiveLinks({
   core_pedagogical_emphases: 'דגשים',
   relevant_links: [{ title: 'ישן', url: 'https://adamolam.co.il/old-broken/' }],
 }, { query: query }, []);
-assert(overlayEmpty.relevant_links.length >= 3, 'empty overlay uses guaranteed search fallbacks');
-assert(
-  overlayEmpty.relevant_links.some(function (item) {
-    return item.url === pgs.buildWaldorfLibraryGoogleSearchUrl(query);
-  }),
-  'empty overlay includes Waldorf Library Google site search'
-);
-assert(!overlayEmpty.relevant_links.some(function (item) {
-  return /waldorflibrary\.org\/search/i.test(item.url);
-}), 'overlay fallbacks never use waldorflibrary.org/search');
+assert(overlayEmpty.relevant_links.length === 0, 'empty overlay does not invent search fallbacks');
 
-const capped = pgs.sanitizePerplexityLiveLinks([
-  { title: 'A', url: 'https://www.waldorflibrary.org/articles/a' },
-  { title: 'B', url: 'https://rsarchive.org/Lectures/b' },
-  { title: 'C', url: 'https://adamolam.co.il/c/' },
-  { title: 'D', url: 'https://harduf.org.il/d/' },
-  { title: 'E', url: 'https://anadom.co.il/e/' },
-  { title: 'F', url: 'https://www.waldorflibrary.org/articles/f' },
-  { title: 'G', url: 'https://adamolam.co.il/g/' },
-], query);
-assert(capped.length <= 6, 'keeps at most six live citations');
-assert(
-  capped.filter(function (item) { return /rsarchive\.org/.test(item.url); }).length <= pgs.RSARCHIVE_LINK_MAX,
-  'capped mix never exceeds two RSArchive links'
-);
-assert(
-  capped.filter(function (item) { return !/rsarchive\.org/.test(item.url); }).length >= 3,
-  'remaining links come from other repositories'
-);
-
-const rsaHeavy = pgs.sanitizePerplexityLiveLinks([
+const balanced = pgs.sanitizePerplexityLiveLinks([
   { title: 'R1', url: 'https://rsarchive.org/Lectures/1' },
-  { title: 'R2', url: 'https://rsarchive.org/Lectures/2' },
+  { title: 'R2', url: 'https://rsarchive.org/Books/2' },
   { title: 'R3', url: 'https://rsarchive.org/Lectures/3' },
-  { title: 'R4', url: 'https://rsarchive.org/Lectures/4' },
-  { title: 'R5', url: 'https://rsarchive.org/Lectures/5' },
-  { title: 'L1', url: 'https://www.waldorflibrary.org/articles/l1' },
-  { title: 'H1', url: 'https://harduf.org.il/h1/' },
-  { title: 'A1', url: 'https://adamolam.co.il/a1/' },
-  { title: 'W1', url: 'https://www.waldorfeducation.org/resources/w1' },
+  { title: 'Library A', url: 'https://www.waldorflibrary.org/articles/a' },
+  { title: 'AWSNA B', url: 'https://www.waldorfeducation.org/resources/b' },
+  { title: 'SWSF C', url: 'https://www.steinerwaldorf.org/articles/c' },
+  { title: 'הרדוף', url: 'https://harduf.org.il/d/' },
+  { title: 'אנדום', url: 'https://anadom.co.il/e/' },
+  { title: 'איגוד', url: 'https://waldorfisrael.org/f/' },
+  { title: 'אדם עולם', url: 'https://adamolam.co.il/g/' },
+  { title: 'גוגל', url: 'https://www.google.com/search?q=site:waldorflibrary.org+botany' },
 ], query);
-assert(
-  rsaHeavy.filter(function (item) { return /rsarchive\.org/.test(item.url); }).length === 2,
-  'RSArchive is limited to two entries'
-);
-assert(
-  rsaHeavy.filter(function (item) {
-    return /waldorflibrary\.org|waldorfeducation\.org|adamolam\.co\.il|harduf\.org\.il/.test(item.url);
-  }).length >= 3,
-  'remaining 3-4 links come from Hebrew and international Waldorf libraries'
-);
-assert(
-  rsaHeavy.some(function (item) { return /waldorfeducation\.org/.test(item.url); }),
-  'keeps AWSNA waldorfeducation.org'
-);
+assert(balanced.length === 6, 'assembles exactly six direct citations');
+assert(countBucket(balanced, /rsarchive\.org/) === 2, 'keeps exactly two RSArchive lectures/books');
+assert(countBucket(balanced, /waldorflibrary\.org|waldorfeducation\.org|steinerwaldorf\.org/) === 2, 'keeps exactly two international library articles');
+assert(countBucket(balanced, /harduf\.org\.il|anadom\.co\.il|waldorfisrael\.org/) === 2, 'keeps exactly two Israeli Waldorf articles');
+assert(!balanced.some(function (item) { return /adamolam|google\.com/.test(item.url); }), 'balanced set excludes adamolam and Google');
+assert(balanced[0].title === 'R1' && balanced[1].title === 'R2', 'preserves original RSArchive titles in order');
+assert(balanced[2].title === 'Library A' && balanced[3].title === 'AWSNA B', 'preserves original international titles');
+assert(balanced[4].title === 'הרדוף' && balanced[5].title === 'אנדום', 'preserves original Hebrew titles');
+
+const googleOnly = pgs.sanitizePerplexityLiveLinks([
+  { title: 'search', url: 'https://www.google.com/search?q=חינוך+ולדורף+בוטניקה' },
+  { title: 'Library search', url: 'https://www.waldorflibrary.org/search?q=botany' },
+], query);
+assert(googleOnly.length === 0, 'drops Google and broken library search pages instead of rewriting them');
 
 const englishTopic = pgs.resolveEnglishSearchTopic('חשבון').toLowerCase();
 assert(
@@ -265,35 +218,19 @@ assert(
   'translates חשבון to math or arithmetic for international search'
 );
 assert(
-  pgs.buildRsarchiveSearchUrl('חשבון').indexOf(encodeURIComponent(pgs.resolveEnglishSearchTopic('חשבון'))) >= 0,
-  'RSArchive search uses the English topic'
+  pgs.buildPerplexityLiveLinkQueries('חשבון').rsarchive.indexOf(encodeURIComponent(pgs.resolveEnglishSearchTopic('חשבון'))) < 0
+    && pgs.buildPerplexityLiveLinkQueries('חשבון').rsarchive.indexOf(pgs.resolveEnglishSearchTopic('חשבון')) >= 0,
+  'RSArchive query uses the English topic'
 );
+
+const humanAnimal = pgs.resolveEnglishSearchTopic('אדם וממלכת החי');
 assert(
-  pgs.buildWaldorfLibraryGoogleSearchUrl('בוטניקה').indexOf('site:waldorflibrary.org+') === 0
-    || pgs.buildWaldorfLibraryGoogleSearchUrl('בוטניקה').indexOf('site:waldorflibrary.org+botany') >= 0,
-  'Waldorf Library fallback is Google site search'
-);
-assert(
-  pgs.buildWaldorfLibraryGoogleSearchUrl('בוטניקה').indexOf('botany') >= 0,
-  'Waldorf Library Google search uses English botany'
+  /human and animal/i.test(humanAnimal) || /zoology/i.test(humanAnimal),
+  'translates אדם וממלכת החי to Human and Animal / Zoology'
 );
 assert(
   pgs.isBrokenWaldorfLibrarySearchUrl('https://www.waldorflibrary.org/search?q=botany'),
   'detects the 404 Waldorf Library /search path'
-);
-
-const rewrittenLibrarySearch = pgs.sanitizePerplexityLiveLinks([
-  { title: 'Library search', url: 'https://www.waldorflibrary.org/search?q=botany' },
-], query);
-assert(
-  !rewrittenLibrarySearch.some(function (item) { return /waldorflibrary\.org\/search/i.test(item.url); }),
-  'rewrites 404 library search citations to Google site search'
-);
-assert(
-  rewrittenLibrarySearch.some(function (item) {
-    return item.url.indexOf('https://www.google.com/search?q=site:waldorflibrary.org+') === 0;
-  }),
-  'broken library search becomes Google site search'
 );
 
 const citationPathKept = pgs.sanitizePerplexityLiveLinks([
@@ -305,6 +242,7 @@ assert(
   }),
   'keeps Perplexity citation path unchanged'
 );
+assert(citationPathKept[0].title === 'Lecture GA293', 'keeps original lecture title');
 
 const markdownUrls = perplexityClient.extractHttpsUrlsFromText(
   'See [src](https://rsarchive.org/Books/GA011/foo) and https://www.waldorflibrary.org/articles/12.'
