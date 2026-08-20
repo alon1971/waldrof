@@ -593,7 +593,7 @@ function sanitizePerplexityLiveLinks(list) {
     seen[url] = true;
     out.push({ title: title, url: url });
   });
-  return out.slice(0, 5);
+  return out.slice(0, 4);
 }
 
 function resolveRelevantLinks(options) {
@@ -648,7 +648,7 @@ async function fetchPerplexityLiveRelevantLinks(topic) {
           role: 'user',
           content: [
             buildPerplexityLiveLinksInstructions(q),
-            'Find live pedagogical articles that are specifically about «' + q + '».',
+            'Find 3-4 live pedagogical articles that are specifically about «' + q + '».',
             'Exact search: ' + searchQuery,
             'Return only the specific on-topic articles found. Do not invent URLs.',
           ].join('\n'),
@@ -1138,6 +1138,54 @@ async function persistGeneralSearchArchive(query, normalized, body, requestConte
   return { cacheKey: cacheKey, archived: archived };
 }
 
+function overlayArchivedPayloadWithLiveLinks(cachedData, options, liveLinks) {
+  const opts = options && typeof options === 'object' ? options : {};
+  return normalizeGeneralSearchResponse(cachedData, {
+    periodBlock: Boolean(opts.periodBlock),
+    query: opts.query || '',
+    gradeId: opts.gradeId || '',
+    liveLinks: Array.isArray(liveLinks) ? liveLinks : [],
+  });
+}
+
+async function serveArchivedGeneralSearchWithFreshLinks(cached, body, requestContext, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const query = String(opts.query || '').trim();
+  const periodBlock = Boolean(opts.periodBlock);
+  const gradeInfo = opts.gradeInfo || resolvePeriodGrade(body);
+  console.log('[pure-general-search] refreshing archive links for', query.slice(0, 80));
+  const liveLinks = await fetchPerplexityLiveRelevantLinks(query);
+  const normalized = overlayArchivedPayloadWithLiveLinks(cached && cached.data, {
+    periodBlock: periodBlock,
+    query: query,
+    gradeId: gradeInfo.gradeId || '',
+  }, liveLinks);
+  let persistResult = {
+    cacheKey: cached && cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null,
+    archived: false,
+  };
+  try {
+    persistResult = await persistGeneralSearchArchive(query, normalized, body, requestContext, periodBlock);
+  } catch (persistErr) {
+    console.warn(
+      '[pure-general-search] archive link persist failed:',
+      persistErr && persistErr.message ? persistErr.message : persistErr
+    );
+  }
+  return {
+    data: normalized,
+    meta: Object.assign({}, (cached && cached.meta) || {}, {
+      fromCache: true,
+      source: opts.source || 'general_search_cache',
+      periodBlock: periodBlock,
+      archived: true,
+      linksRefreshed: true,
+      cacheKey: persistResult.cacheKey || (cached && cached.meta && cached.meta.cacheKey) || undefined,
+      archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
+    }),
+  };
+}
+
 function buildGeneralSearchArchiveText(historic) {
   if (!historic || typeof historic !== 'object') return '';
   const parts = [];
@@ -1374,27 +1422,63 @@ async function runPureGeneralSearch(body, requestContext) {
   // "כן, התכוונתי" — the teacher confirmed a suggested archive match: serve it directly.
   // 15-day confirm only accepts a period15 row for the same gradeId — never a standard overview.
   const confirmArchiveKey = String(body.confirmArchiveKey || body.archiveCacheKey || '').trim();
+  const refreshArchiveLinks = Boolean(body.refreshArchiveLinks || body.refreshLinks);
+
+  async function lookupArchivedGeneralSearch() {
+    if (confirmArchiveKey) {
+      const confirmed = await cache.getGeneralSearchByCacheKey(confirmArchiveKey, {
+        periodBlock: periodBlock,
+        gradeId: periodBlock ? (gradeInfo.gradeId || undefined) : undefined,
+      });
+      if (confirmed && confirmed.data) return confirmed;
+    }
+    if (bypassCache) return null;
+    return cache.safeArchiveLookup(
+      'general_search_cache:' + query.slice(0, 40),
+      function () {
+        return cache.getGeneralSearchCache(query, {
+          periodBlock: periodBlock,
+          gradeId: gradeInfo.gradeId || undefined,
+          gradeLabel: gradeInfo.gradeLabel || undefined,
+        });
+      },
+      { phase: 'general_search', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
+    );
+  }
+
+  if (refreshArchiveLinks) {
+    const archived = await lookupArchivedGeneralSearch();
+    if (archived && archived.data) {
+      return serveArchivedGeneralSearchWithFreshLinks(archived, body, requestContext, {
+        query: query,
+        periodBlock: periodBlock,
+        gradeInfo: gradeInfo,
+        source: confirmArchiveKey ? 'general_search_confirmed' : 'general_search_cache',
+      });
+    }
+    return {
+      data: null,
+      meta: {
+        fromCache: true,
+        source: 'archive_links_miss',
+        periodBlock: periodBlock,
+        linksRefreshed: false,
+      },
+    };
+  }
+
   if (confirmArchiveKey && !bypassCache) {
     const confirmed = await cache.getGeneralSearchByCacheKey(confirmArchiveKey, {
       periodBlock: periodBlock,
       gradeId: periodBlock ? (gradeInfo.gradeId || undefined) : undefined,
     });
     if (confirmed && confirmed.data) {
-      return {
-        data: normalizeGeneralSearchResponse(confirmed.data, {
-          periodBlock: periodBlock,
-          query: query,
-          gradeId: gradeInfo.gradeId || '',
-          useArchivedLinks: true,
-        }),
-        meta: Object.assign({
-          fromCache: true,
-          source: 'general_search_confirmed',
-          periodBlock: periodBlock,
-          archived: true,
-          archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
-        }, confirmed.meta || {}),
-      };
+      return serveArchivedGeneralSearchWithFreshLinks(confirmed, body, requestContext, {
+        query: query,
+        periodBlock: periodBlock,
+        gradeInfo: gradeInfo,
+        source: 'general_search_confirmed',
+      });
     }
     // Fall through to a fresh run if the confirmed key vanished from the archive.
   }
@@ -1414,23 +1498,12 @@ async function runPureGeneralSearch(body, requestContext) {
       { phase: 'general_search', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
     );
     if (cached && cached.data) {
-      const cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
-      return {
-        data: normalizeGeneralSearchResponse(cached.data, {
-          periodBlock: periodBlock,
-          query: query,
-          gradeId: gradeInfo.gradeId || '',
-          useArchivedLinks: true,
-        }),
-        meta: Object.assign({
-          fromCache: true,
-          source: 'general_search_cache',
-          periodBlock: periodBlock,
-          cacheKey: cacheKey || undefined,
-          archived: true,
-          archiveBackend: cache.isSupabaseCacheEnabled() ? 'supabase' : 'local-fallback',
-        }, cached.meta || {}),
-      };
+      return serveArchivedGeneralSearchWithFreshLinks(cached, body, requestContext, {
+        query: query,
+        periodBlock: periodBlock,
+        gradeInfo: gradeInfo,
+        source: 'general_search_cache',
+      });
     }
     // No matching archive row — go straight to live generation (Gemini).
   }
@@ -1565,6 +1638,7 @@ module.exports = {
   resolveRelevantLinks,
   buildPerplexityLiveLinksQuery,
   buildPerplexityLiveLinksInstructions,
+  overlayArchivedPayloadWithLiveLinks,
   isDisplayableRelevantLink,
   hasChainedOrDoubleDomain,
   APPROVED_RELEVANT_LINK_DOMAINS,

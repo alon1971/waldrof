@@ -107,6 +107,33 @@ const noPad = pgs.normalizeGeneralSearchResponse({
 }, { query: query, liveLinks: [] });
 assert(noPad.relevant_links.length === 0, 'does not pad empty Perplexity results with generic links');
 
+const overlayFresh = pgs.overlayArchivedPayloadWithLiveLinks({
+  developmental_axis: 'ציר',
+  core_pedagogical_emphases: 'דגשים',
+  relevant_links: [{ title: 'ישן', url: 'https://adamolam.co.il/old-broken/' }],
+}, { query: query }, [
+  { title: 'Botany now', url: 'https://www.waldorflibrary.org/articles/botany-now' },
+]);
+assert(overlayFresh.relevant_links.length === 1, 'archive overlay uses fresh Perplexity links');
+assert(overlayFresh.relevant_links[0].url.indexOf('botany-now') >= 0, 'old archive URL is replaced');
+assert(overlayFresh.developmental_axis === 'ציר', 'archive overlay keeps pedagogical text');
+
+const overlayEmpty = pgs.overlayArchivedPayloadWithLiveLinks({
+  developmental_axis: 'ציר',
+  core_pedagogical_emphases: 'דגשים',
+  relevant_links: [{ title: 'ישן', url: 'https://adamolam.co.il/old-broken/' }],
+}, { query: query }, []);
+assert(overlayEmpty.relevant_links.length === 0, 'archive overlay does not keep stale links');
+
+const capped = pgs.sanitizePerplexityLiveLinks([
+  { title: 'A', url: 'https://www.waldorflibrary.org/articles/a' },
+  { title: 'B', url: 'https://rsarchive.org/Lectures/b' },
+  { title: 'C', url: 'https://adamolam.co.il/c/' },
+  { title: 'D', url: 'https://harduf.org.il/d/' },
+  { title: 'E', url: 'https://anadom.co.il/e/' },
+]);
+assert(capped.length === 4, 'keeps at most four live citations');
+
 const sys = pgs.buildPeriodBlockSystemPrompt('בוטניקה', { gradeId: '5', gradeLabel: 'כיתה ה׳' });
 assert(sys.indexOf('Gemini אינו מייצר קישורים') >= 0, 'period system prompt forbids Gemini links');
 assert(sys.indexOf('NEVER invent') >= 0, 'period system prompt forbids inventing URLs');
