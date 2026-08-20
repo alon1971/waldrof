@@ -3069,6 +3069,19 @@
       padding-left: 1.5rem;
       padding-right: 1.5rem;
     }
+    /* Desktop/tablet: shift the General Search canvas left so the fixed
+       Word + read-aloud rail never covers the form, cards, or 15-day table. */
+    @media (min-width: 768px) {
+      #general-search-view {
+        padding-right: 210px !important;
+      }
+    }
+    @media (max-width: 767px) {
+      #general-search-view {
+        padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+        padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+      }
+    }
     #general-search-view > .rounded-2xl {
       padding-left: 0.75rem;
       padding-right: 0.75rem;
@@ -4044,9 +4057,9 @@
         padding-right: var(--app-action-rail-reserve) !important;
         box-sizing: border-box;
       }
-      /* Do not double-reserve the rail inside General Search — the 15-day table needs 1300px. */
+      /* General Search owns its 210px rail reserve so app-main does not double-pad. */
       body:not(.is-home-view):not(.auth-locked):not(.auth-required):not(.welcome-open) #app-main:has(#general-search-view:not(.hidden)) {
-        padding-right: 1.5rem !important;
+        padding-right: 0 !important;
       }
     }
     @media (max-width: 767px) {
