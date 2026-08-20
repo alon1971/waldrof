@@ -268,6 +268,17 @@ function extractCitations(data) {
   }).filter(Boolean);
 }
 
+function extractHttpsUrlsFromText(text) {
+  const s = String(text || '');
+  const out = [];
+  const re = /https:\/\/[^\s)\]>'"]+/gi;
+  let match;
+  while ((match = re.exec(s))) {
+    out.push(match[0].replace(/[.,;:]+$/, ''));
+  }
+  return out;
+}
+
 function extractCitationItems(data) {
   const items = [];
   const seen = Object.create(null);
@@ -298,6 +309,9 @@ function extractCitationItems(data) {
     push(row.url || row.link || row.href, row.title || row.name || '');
   });
   extractCitations(data).forEach(function (url) {
+    push(url, '');
+  });
+  extractHttpsUrlsFromText(extractMessageContent(data)).forEach(function (url) {
     push(url, '');
   });
   return items;
@@ -537,4 +551,5 @@ module.exports = {
   extractMessageContent,
   extractCitations,
   extractCitationItems,
+  extractHttpsUrlsFromText,
 };

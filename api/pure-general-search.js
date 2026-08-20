@@ -13,6 +13,7 @@ const env = require('./env');
 const geminiJson = require('./gemini-json');
 const jsonRepair = require('./json-repair');
 const perplexityClient = require('./perplexity-client');
+const waldorfQueryGen = require('../waldorf-query-generation');
 
 /** Absolute Hebrew-only body text — no English prose, footnotes, or citation markers. */
 const HEBREW_ONLY_BODY_INSTRUCTION = [
@@ -66,28 +67,20 @@ const DEFAULT_SITE_SEARCH_DOMAIN = 'waldorflibrary.org';
 
 const CURATED_RELEVANT_LINK_TEMPLATES = [
   {
+    title: 'מאמרי ספריית ולדורף',
+    kind: 'waldorf_library_google',
+  },
+  {
+    title: 'חיפוש בארכיון שטיינר',
+    kind: 'rsarchive_search',
+  },
+  {
     title: 'אדם עולם - מאמרים',
-    buildUrl: function (encodedTopic) {
-      return 'https://adamolam.co.il/?s=' + encodedTopic;
-    },
+    kind: 'adamolam_search',
   },
   {
-    title: 'יוזמות ולדורף בישראל',
-    buildUrl: function (encodedTopic) {
-      return 'https://harduf.org.il/?s=' + encodedTopic;
-    },
-  },
-  {
-    title: 'ארכיון שטיינר (כתבים והרצאות)',
-    buildUrl: function (encodedTopic) {
-      return 'https://rsarchive.org/Search.php?q=' + encodedTopic;
-    },
-  },
-  {
-    title: 'ספריית ולדורף הבינלאומית',
-    buildUrl: function (encodedTopic) {
-      return 'https://www.waldorflibrary.org/search?q=' + encodedTopic;
-    },
+    title: 'חיפוש ולדורף כללי',
+    kind: 'waldorf_google',
   },
 ];
 
@@ -410,6 +403,50 @@ function encodedSearchTopic(topic) {
   return encodeURIComponent(sanitizeSearchTopic(topic));
 }
 
+function resolveEnglishSearchTopic(topic) {
+  const raw = String(topic || '').trim();
+  if (!raw) return '';
+  try {
+    const en = waldorfQueryGen.resolveEnglishTopic(raw);
+    if (en && String(en).trim()) return String(en).trim();
+  } catch (e) { /* keep original */ }
+  return raw;
+}
+
+function buildWaldorfLibraryGoogleSearchUrl(topic) {
+  const q = resolveEnglishSearchTopic(topic) || String(topic || '').trim();
+  return 'https://www.google.com/search?q=site:waldorflibrary.org+' + encodeURIComponent(q);
+}
+
+function buildRsarchiveSearchUrl(topic) {
+  const q = resolveEnglishSearchTopic(topic) || String(topic || '').trim();
+  return 'https://rsarchive.org/Search.php?q=' + encodeURIComponent(q);
+}
+
+function buildAdamOlamSearchUrl(topic) {
+  return 'https://adamolam.co.il/?s=' + encodeURIComponent(String(topic || '').trim());
+}
+
+function buildGeneralWaldorfGoogleSearchUrl(topic) {
+  return 'https://www.google.com/search?q=חינוך+ולדורף+' + encodeURIComponent(String(topic || '').trim());
+}
+
+function isBrokenWaldorfLibrarySearchUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    if (normalizeHost(parsed.hostname) !== 'waldorflibrary.org') return false;
+    const path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+    return /^\/search$/i.test(path);
+  } catch (e) {
+    return false;
+  }
+}
+
+function isKeepableCitationHost(host) {
+  const h = normalizeHost(host);
+  return isApprovedRelevantLinkHost(h) || h === 'google.com';
+}
+
 function buildApprovedSiteSearchUrl(domain, topic) {
   const host = isApprovedRelevantLinkHost(domain) ? normalizeHost(domain) : DEFAULT_SITE_SEARCH_DOMAIN;
   const encodedTopic = encodedSearchTopic(topic).replace(/%20/g, '+');
@@ -419,18 +456,17 @@ function buildApprovedSiteSearchUrl(domain, topic) {
 /** Native on-site search when the host has a known search page; otherwise Google site:. */
 function buildFocusedSearchUrl(domain, topic) {
   const host = isApprovedRelevantLinkHost(domain) ? normalizeHost(domain) : DEFAULT_SITE_SEARCH_DOMAIN;
-  const encoded = encodedSearchTopic(topic);
   if (host === 'waldorflibrary.org') {
-    return 'https://www.waldorflibrary.org/search?q=' + encoded;
+    return buildWaldorfLibraryGoogleSearchUrl(topic);
   }
   if (host === 'rsarchive.org') {
-    return 'https://rsarchive.org/Search.php?q=' + encoded;
+    return buildRsarchiveSearchUrl(topic);
   }
   if (host === 'adamolam.co.il') {
-    return 'https://adamolam.co.il/?s=' + encoded;
+    return buildAdamOlamSearchUrl(topic);
   }
   if (host === 'harduf.org.il') {
-    return 'https://harduf.org.il/?s=' + encoded;
+    return 'https://harduf.org.il/?s=' + encodeURIComponent(String(topic || '').trim());
   }
   return buildApprovedSiteSearchUrl(host, topic);
 }
@@ -539,6 +575,7 @@ function curatedTitleForUrl(url) {
     if (host === 'anadom.co.il') return 'אנדום';
     if (host === 'rsarchive.org') return 'ארכיון שטיינר (כתבים והרצאות)';
     if (host === 'waldorflibrary.org') return 'ספריית ולדורף הבינלאומית';
+    if (host === 'google.com') return 'חיפוש ולדורף כללי';
   } catch (e) { /* ignore */ }
   return '';
 }
@@ -574,16 +611,24 @@ function descriptiveRsarchiveTitle() {
 }
 
 function buildGuaranteedSearchFallbacks(topic) {
-  const encoded = encodeURIComponent(String(topic || '').trim());
-  if (!encoded) return [];
+  const q = String(topic || '').trim();
+  if (!q) return [];
   return [
     {
-      title: 'חיפוש בארכיון שטיינר',
-      url: 'https://rsarchive.org/Search.php?q=' + encoded,
+      title: 'מאמרי ספריית ולדורף',
+      url: buildWaldorfLibraryGoogleSearchUrl(q),
     },
     {
-      title: 'מאמרי ספריית ולדורף',
-      url: 'https://www.waldorflibrary.org/search?q=' + encoded,
+      title: 'חיפוש בארכיון שטיינר',
+      url: buildRsarchiveSearchUrl(q),
+    },
+    {
+      title: 'אדם עולם - מאמרים',
+      url: buildAdamOlamSearchUrl(q),
+    },
+    {
+      title: 'חיפוש ולדורף כללי',
+      url: buildGeneralWaldorfGoogleSearchUrl(q),
     },
   ].filter(isDisplayableRelevantLink);
 }
@@ -598,7 +643,6 @@ function mergeGuaranteedSearchFallbacks(links, query) {
   });
   if (out.length >= 3) return out;
   buildGuaranteedSearchFallbacks(query).forEach(function (item) {
-    if (out.length >= 3) return;
     if (seen[item.url]) return;
     seen[item.url] = true;
     out.push(item);
@@ -651,7 +695,7 @@ function sanitizePerplexityLiveLinks(list, query) {
   const seen = Object.create(null);
   const out = [];
   (Array.isArray(list) ? list : []).forEach(function (item) {
-    const url = typeof item === 'string'
+    let url = typeof item === 'string'
       ? item.trim()
       : String((item && (item.url || item.link || item.href)) || '').trim();
     if (!isValidHttpsUrl(url) || hasChainedOrDoubleDomain(url) || isHomepageOrIndexUrl(url)) return;
@@ -661,8 +705,11 @@ function sanitizePerplexityLiveLinks(list, query) {
     } catch (e) {
       return;
     }
-    if (!isApprovedRelevantLinkHost(host)) return;
+    if (!isKeepableCitationHost(host)) return;
     const hostNorm = normalizeHost(host);
+    if (isBrokenWaldorfLibrarySearchUrl(url)) {
+      url = buildWaldorfLibraryGoogleSearchUrl(query);
+    }
     let title = '';
     if (item && typeof item === 'object') {
       title = sanitizePedagogicalText(item.title) || String(item.title || item.name || '').trim();
@@ -749,7 +796,8 @@ async function fetchPerplexityLiveRelevantLinks(topic) {
     const payload = jsonRepair.safeParseJson(result && result.rawResponseText);
     const items = []
       .concat(perplexityClient.extractCitationItems(payload))
-      .concat((result && result.citations) || []);
+      .concat((result && result.citations) || [])
+      .concat(perplexityClient.extractHttpsUrlsFromText(result && result.content));
     const live = sanitizePerplexityLiveLinks(items, q);
     if (live.length) {
       console.log('[pure-general-search] Perplexity live links', live.length);
@@ -765,13 +813,7 @@ async function fetchPerplexityLiveRelevantLinks(topic) {
 }
 
 function buildCuratedRelevantLinks(topic) {
-  const encoded = encodedSearchTopic(topic);
-  return CURATED_RELEVANT_LINK_TEMPLATES.map(function (tpl) {
-    return {
-      title: tpl.title,
-      url: tpl.buildUrl(encoded),
-    };
-  }).filter(isDisplayableRelevantLink);
+  return buildGuaranteedSearchFallbacks(topic);
 }
 
 function linkSearchTopic(item, query) {
@@ -1731,6 +1773,11 @@ module.exports = {
   buildPerplexityLiveLinksInstructions,
   overlayArchivedPayloadWithLiveLinks,
   mergeGuaranteedSearchFallbacks,
+  buildGuaranteedSearchFallbacks,
+  resolveEnglishSearchTopic,
+  buildWaldorfLibraryGoogleSearchUrl,
+  buildRsarchiveSearchUrl,
+  isBrokenWaldorfLibrarySearchUrl,
   RSARCHIVE_GENERIC_TITLE,
   isDisplayableRelevantLink,
   hasChainedOrDoubleDomain,
