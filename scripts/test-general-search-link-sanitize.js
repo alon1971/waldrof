@@ -12,15 +12,18 @@ function assert(cond, msg) {
 }
 
 const query = 'בוטניקה';
-const encodedTopic = encodeURIComponent(query);
 
 const searchQuery = pgs.buildPerplexityLiveLinksQuery(query);
-assert(searchQuery.indexOf('site:adamolam.co.il') >= 0, 'live-link query includes adamolam');
-assert(searchQuery.indexOf('site:harduf.org.il') >= 0, 'live-link query includes harduf');
-assert(searchQuery.indexOf('site:anadom.co.il') >= 0, 'live-link query includes anadom');
-assert(searchQuery.indexOf('site:waldorflibrary.org') >= 0, 'live-link query includes library');
-assert(searchQuery.indexOf('site:rsarchive.org') >= 0, 'live-link query includes rsarchive');
-assert(searchQuery.indexOf('"' + query + '"') >= 0, 'live-link query quotes the topic');
+assert(
+  searchQuery === '"' + query + '" Waldorf education anthroposophy Steiner curriculum lessons articles',
+  'live-link query centers the quoted topic'
+);
+
+const lock = pgs.buildPerplexityLiveLinksInstructions(query);
+assert(lock.indexOf('חובה מוחלטת') >= 0, 'topic lock is mandatory');
+assert(lock.indexOf(query) >= 0, 'topic lock names the query');
+assert(lock.indexOf('אין להחזיר מאמרים כלליים על חינוך ולדורף או דפי בית') >= 0, 'forbids generic Waldorf pages');
+assert(lock.indexOf('שפות מותרות: עברית או אנגלית בלבד') >= 0, 'restricts languages to Hebrew and English');
 
 const live = pgs.sanitizePerplexityLiveLinks([
   { title: 'Botany in Waldorf education', url: 'https://www.waldorflibrary.org/articles/botany-grade-5' },
@@ -34,6 +37,13 @@ assert(live[0].url.indexOf('waldorflibrary.org') >= 0, 'keeps library citation')
 assert(live[1].title === 'ארכיון שטיינר (כתבים והרצאות)', 'opaque citation title is replaced');
 assert(live[2].url.indexOf('adamolam.co.il') >= 0, 'keeps adamolam citation');
 assert(!live.some(function (item) { return /example\.com|jobs\.waldorftoday/.test(item.url); }), 'drops foreign and chained URLs');
+
+const droppedGeneric = pgs.sanitizePerplexityLiveLinks([
+  { title: 'חינוך ולדורף', url: 'https://adamolam.co.il/' },
+  { title: 'Waldorf education', url: 'https://www.waldorflibrary.org/' },
+  { title: 'Ботаника', url: 'https://www.waldorflibrary.org/articles/botany-ru' },
+]);
+assert(droppedGeneric.length === 0, 'drops homepages, generic overviews, and non Hebrew/English titles');
 
 const citationItems = perplexityClient.extractCitationItems({
   citations: ['https://rsarchive.org/Lectures/GA1'],
@@ -87,6 +97,15 @@ const archived = pgs.normalizeGeneralSearchResponse({
 }, { query: query, useArchivedLinks: true });
 assert(archived.relevant_links.length === 1, 'cache keeps archived live links');
 assert(archived.relevant_links[0].url.indexOf('adamolam.co.il') >= 0, 'archived adamolam URL kept');
+
+const noPad = pgs.normalizeGeneralSearchResponse({
+  developmental_axis: 'ציר',
+  core_pedagogical_emphases: 'דגשים',
+  relevant_links: [
+    { title: 'כללי', url: 'https://adamolam.co.il/' },
+  ],
+}, { query: query, liveLinks: [] });
+assert(noPad.relevant_links.length === 0, 'does not pad empty Perplexity results with generic links');
 
 const sys = pgs.buildPeriodBlockSystemPrompt('בוטניקה', { gradeId: '5', gradeLabel: 'כיתה ה׳' });
 assert(sys.indexOf('Gemini אינו מייצר קישורים') >= 0, 'period system prompt forbids Gemini links');

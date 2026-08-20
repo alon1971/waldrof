@@ -541,6 +541,32 @@ function curatedTitleForUrl(url) {
   return '';
 }
 
+function isHomepageOrIndexUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+    if (path === '/') return true;
+    return /^\/(index|home|default|en|he|he-il)(\.(html?|php|aspx))?$/i.test(path);
+  } catch (e) {
+    return true;
+  }
+}
+
+function isHebrewOrEnglishCitationTitle(title) {
+  const text = String(title || '').trim();
+  if (!text) return true;
+  if (/[\u0400-\u04FF\u0500-\u052F]/.test(text)) return false;
+  if (/[\u0600-\u06FF]/.test(text) && !/[\u0590-\u05FF]/.test(text)) return false;
+  if (/[\u3040-\u30FF\u4E00-\u9FFF]/.test(text)) return false;
+  return true;
+}
+
+function isGenericWaldorfOverviewTitle(title) {
+  const text = String(title || '').trim();
+  if (!text) return false;
+  return /^(home|homepage|דף הבית|waldorf|waldorf education|what is waldorf|חינוך ולדורף|אנתרופוסופיה)$/i.test(text);
+}
+
 function sanitizePerplexityLiveLinks(list) {
   const seen = Object.create(null);
   const out = [];
@@ -548,7 +574,7 @@ function sanitizePerplexityLiveLinks(list) {
     const url = typeof item === 'string'
       ? item.trim()
       : String((item && (item.url || item.link || item.href)) || '').trim();
-    if (!isValidHttpsUrl(url) || hasChainedOrDoubleDomain(url)) return;
+    if (!isValidHttpsUrl(url) || hasChainedOrDoubleDomain(url) || isHomepageOrIndexUrl(url)) return;
     let host = '';
     try {
       host = new URL(url).hostname;
@@ -560,8 +586,9 @@ function sanitizePerplexityLiveLinks(list) {
     if (item && typeof item === 'object') {
       title = sanitizePedagogicalText(item.title) || String(item.title || item.name || '').trim();
     }
+    if (!isHebrewOrEnglishCitationTitle(title) || isGenericWaldorfOverviewTitle(title)) return;
     if (isVagueLinkTitle(title)) title = curatedTitleForUrl(url);
-    if (isVagueLinkTitle(title)) return;
+    if (isVagueLinkTitle(title) || isGenericWaldorfOverviewTitle(title)) return;
     if (seen[url]) return;
     seen[url] = true;
     out.push({ title: title, url: url });
@@ -571,8 +598,11 @@ function sanitizePerplexityLiveLinks(list) {
 
 function resolveRelevantLinks(options) {
   const opts = options && typeof options === 'object' ? options : {};
+  const liveProvided = Array.isArray(opts.liveLinks);
   const live = sanitizePerplexityLiveLinks(opts.liveLinks);
   if (live.length) return live;
+  // A live Perplexity pass ran: keep only specific citations — never pad with generic pages.
+  if (liveProvided) return live;
   if (opts.useArchivedLinks) {
     const archived = sanitizePerplexityLiveLinks(shared.coerceLinks(opts.archivedLinks));
     if (archived.length) return archived;
@@ -582,11 +612,16 @@ function resolveRelevantLinks(options) {
 
 function buildPerplexityLiveLinksQuery(topic) {
   const q = String(topic || '').trim().replace(/"/g, '');
-  return (
-    'site:adamolam.co.il OR site:harduf.org.il OR site:anadom.co.il OR site:waldorflibrary.org OR site:rsarchive.org "' +
-    q +
-    '"'
-  );
+  return '"' + q + '" Waldorf education anthroposophy Steiner curriculum lessons articles';
+}
+
+function buildPerplexityLiveLinksInstructions(topic) {
+  const q = String(topic || '').trim();
+  return [
+    "חובה מוחלטת: כל קישור חייב לעסוק באופן ישיר ומובהק בנושא המבוקש: '" + q + "' בלבד.",
+    "אין להחזיר מאמרים כלליים על חינוך ולדורף או דפי בית. אם אין מאמר שעוסק ספציפית ב-'" + q + "', החזר רק את המאמרים הספציפיים שנמצאו ואל תמלא בקישורים כלליים.",
+    'שפות מותרות: עברית או אנגלית בלבד.',
+  ].join(' ');
 }
 
 async function fetchPerplexityLiveRelevantLinks(topic) {
@@ -603,17 +638,19 @@ async function fetchPerplexityLiveRelevantLinks(topic) {
         {
           role: 'system',
           content: [
-            'You find live Waldorf / anthroposophy HTTPS pages.',
+            buildPerplexityLiveLinksInstructions(q),
             'Use only real search citations. NEVER invent or guess URLs or article IDs.',
             'Return at most one short sentence. Titles come from citations, not from memory.',
+            'Do not cite homepages, index pages, or generic Waldorf overviews. Do not pad with filler links.',
           ].join(' '),
         },
         {
           role: 'user',
           content: [
-            'Find 3-5 live pedagogical pages for topic «' + q + '».',
+            buildPerplexityLiveLinksInstructions(q),
+            'Find live pedagogical articles that are specifically about «' + q + '».',
             'Exact search: ' + searchQuery,
-            'Do not invent URLs.',
+            'Return only the specific on-topic articles found. Do not invent URLs.',
           ].join('\n'),
         },
       ],
@@ -1527,6 +1564,7 @@ module.exports = {
   sanitizePerplexityLiveLinks,
   resolveRelevantLinks,
   buildPerplexityLiveLinksQuery,
+  buildPerplexityLiveLinksInstructions,
   isDisplayableRelevantLink,
   hasChainedOrDoubleDomain,
   APPROVED_RELEVANT_LINK_DOMAINS,
