@@ -3047,9 +3047,9 @@
     #general-search-period-grade-hint.hidden {
       display: none !important;
     }
-    /* 15-day block: 2-column grid — minmax(0,1fr) for results, 220px for the
-       Word / read-aloud rail. direction:ltr keeps that rail on the physical
-       right even though the page is Hebrew RTL. */
+    /* 15-day block: 2-column grid — minmax(0,1fr) for results, reserved
+       track for the Word / read-aloud rail. direction:ltr keeps that rail
+       on the physical right even though the page is Hebrew RTL. */
     #general-search-view.max-w-md,
     #general-search-view.max-w-lg,
     #general-search-view.max-w-xl,
@@ -3066,8 +3066,8 @@
     }
     #general-search-view {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 220px;
-      gap: 2rem;
+      grid-template-columns: minmax(0, 1fr) 188px;
+      gap: 0.85rem;
       width: 100%;
       max-width: 100%;
       padding: 0 1.5rem;
@@ -3141,22 +3141,20 @@
       width: 100%;
       overflow: visible;
     }
-    /* LTR scrollport: RTL table overflow would otherwise paint past the
-       viewport's left edge and get cut by html { overflow-x: clip }. */
     #general-search-results .general-search-curriculum-scroll {
       width: 100%;
       max-width: 100% !important;
       overflow-x: auto !important;
       overflow-y: visible;
       -webkit-overflow-scrolling: touch;
-      direction: ltr;
+      direction: rtl;
     }
     #general-search-results table.general-search-curriculum-table {
       display: table !important;
       width: 100% !important;
-      max-width: none !important;
-      min-width: 100%;
-      table-layout: auto !important;
+      max-width: 100% !important;
+      min-width: 0;
+      table-layout: fixed !important;
       border-collapse: collapse;
       font-size: 0.9375rem;
       direction: rtl;
@@ -3177,8 +3175,8 @@
     #general-search-results table.general-search-curriculum-table th:nth-child(1),
     #general-search-results table.general-search-curriculum-table td:nth-child(1),
     #general-search-results table.general-search-curriculum-table .gs-col-day {
-      width: 10%;
-      min-width: 80px;
+      width: 5.25rem;
+      min-width: 5.25rem;
       text-align: center;
       white-space: nowrap;
       overflow-wrap: normal;
@@ -3191,21 +3189,21 @@
     #general-search-results table.general-search-curriculum-table td:nth-child(2),
     #general-search-results table.general-search-curriculum-table .gs-col-topic {
       width: 22%;
-      min-width: 160px;
+      min-width: 0;
     }
     #general-search-results table.general-search-curriculum-table col.gs-col-content,
     #general-search-results table.general-search-curriculum-table th:nth-child(3),
     #general-search-results table.general-search-curriculum-table td:nth-child(3),
     #general-search-results table.general-search-curriculum-table .gs-col-content {
       width: 38%;
-      min-width: 260px;
+      min-width: 0;
     }
     #general-search-results table.general-search-curriculum-table col.gs-col-art,
     #general-search-results table.general-search-curriculum-table th:nth-child(4),
     #general-search-results table.general-search-curriculum-table td:nth-child(4),
     #general-search-results table.general-search-curriculum-table .gs-col-art {
       width: 30%;
-      min-width: 250px;
+      min-width: 0;
     }
     #general-search-results table.general-search-curriculum-table th {
       background: rgba(122, 155, 118, 0.12);
