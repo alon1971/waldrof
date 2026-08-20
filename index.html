@@ -3047,7 +3047,8 @@
     #general-search-period-grade-hint.hidden {
       display: none !important;
     }
-    /* Break the 15-day block table out of Tailwind max-w-* / nested rail padding. */
+    /* Break the 15-day block table out of Tailwind max-w-* / nested rail padding.
+       Full left extension; stay clear of the floating Word / read-aloud rail. */
     #general-search-view.max-w-md,
     #general-search-view.max-w-lg,
     #general-search-view.max-w-xl,
@@ -3060,29 +3061,38 @@
     #general-search-view,
     #general-search-view > .rounded-2xl {
       width: 100% !important;
-      max-width: none !important;
-      margin-left: auto !important;
-      margin-right: auto !important;
+      max-width: 100% !important;
       box-sizing: border-box;
     }
     #general-search-view {
-      padding-left: 1.5rem;
-      padding-right: 1.5rem;
+      padding-left: 0;
+      padding-right: 0;
+      margin-left: 1.5rem;
+      margin-right: 1.5rem;
     }
-    /* Desktop/tablet: shift the General Search canvas left so the fixed
-       Word + read-aloud rail never covers the form, cards, or 15-day table. */
+    /* Desktop/tablet: width leaves 240px for the rail; physical margins keep
+       the left column unclipped and the right edge clear of the FABs. */
     @media (min-width: 768px) {
       #general-search-view {
-        padding-right: 210px !important;
+        width: calc(100% - 240px) !important;
+        max-width: 100% !important;
+        margin-right: 230px !important;
+        margin-left: 1.5rem !important;
       }
     }
     @media (max-width: 767px) {
       #general-search-view {
-        padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
-        padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: max(1.25rem, env(safe-area-inset-left, 0px));
+        margin-right: max(1.25rem, env(safe-area-inset-right, 0px));
       }
     }
     #general-search-view > .rounded-2xl {
+      width: 100% !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
       padding-left: 0.75rem;
       padding-right: 0.75rem;
     }
@@ -3091,9 +3101,9 @@
     #general-search-results .general-search-curriculum-scroll,
     #general-search-results table.general-search-curriculum-table {
       width: 100% !important;
-      max-width: 1300px !important;
-      margin-left: auto !important;
-      margin-right: auto !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
       box-sizing: border-box;
     }
     #general-search-results {
@@ -3102,7 +3112,7 @@
     #general-search-results .pure-phase-c-grid,
     #general-search-results .pure-data-card.general-search-card:not(.general-search-curriculum-wrap) {
       width: 100% !important;
-      max-width: none !important;
+      max-width: 100% !important;
       box-sizing: border-box;
     }
     #general-search-results .general-search-curriculum-wrap {
@@ -3113,10 +3123,12 @@
     #general-search-results .general-search-curriculum-scroll {
       overflow-x: auto !important;
       -webkit-overflow-scrolling: touch;
+      max-width: 100% !important;
     }
     #general-search-results table.general-search-curriculum-table {
       display: table !important;
-      min-width: 720px;
+      width: 100% !important;
+      min-width: 750px;
       table-layout: auto !important;
       border-collapse: collapse;
       font-size: 0.9375rem;
@@ -3164,7 +3176,7 @@
     #general-search-results table.general-search-curriculum-table td:nth-child(4),
     #general-search-results table.general-search-curriculum-table .gs-col-art {
       width: 30%;
-      min-width: 220px;
+      min-width: 250px;
     }
     #general-search-results table.general-search-curriculum-table th {
       background: rgba(122, 155, 118, 0.12);
