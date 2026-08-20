@@ -12,13 +12,14 @@ const keyboardLayout = require('./keyboard-layout');
 const env = require('./env');
 const geminiJson = require('./gemini-json');
 const jsonRepair = require('./json-repair');
+const perplexityClient = require('./perplexity-client');
 
 /** Absolute Hebrew-only body text — no English prose, footnotes, or citation markers. */
 const HEBREW_ONLY_BODY_INSTRUCTION = [
   '=== עברית נקייה בלבד (איסור מוחלט) ===',
   'חל איסור מוחלט לכלול מילים באנגלית, הערות שוליים, סימוני מקורות (כמו [1], [2] או [cite]) או ביטויים זרים בגוף הטקסט.',
   'כל התוכן חייב להיות בעברית נקייה, פדגוגית ומקצועית בלבד.',
-  'שמות ספרים/מחברים באנגלית מותרים רק בתוך recommended_literature.title / author וכתובות URL בתוך relevant_links.url — לא בגוף developmental_axis, core_pedagogical_emphases או curriculum.',
+  'שמות ספרים/מחברים באנגלית מותרים רק בתוך recommended_literature.title / author — לא בגוף developmental_axis, core_pedagogical_emphases או curriculum, ולא ככתובות URL.',
   '=== סוף עברית נקייה ===',
 ].join(' ');
 
@@ -91,9 +92,9 @@ const CURATED_RELEVANT_LINK_TEMPLATES = [
 ];
 
 const RELEVANT_LINKS_NO_HALLUCINATION_INSTRUCTION = [
-  '=== קישורים רלוונטיים — השרת מזין אותם, אסור לנחש URL ===',
-  'NEVER invent, guess, or emit article paths, numeric CMS IDs (/articles/1090), or chained/double-domain URLs.',
-  'Set relevant_links to an empty array []. The server injects four verified on-site search URLs from the query topic.',
+  '=== קישורים רלוונטיים — Gemini אינו מייצר קישורים ===',
+  'NEVER invent, guess, or emit URLs, relevant_links, links, or href fields.',
+  'Omit relevant_links entirely, or set relevant_links to []. Live links are fetched separately from Perplexity citations.',
   '=== סוף איסור ניחוש URL ===',
 ].join(' ');
 
@@ -107,8 +108,8 @@ const SYSTEM_PROMPT = [
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'developmental_axis (string: rich multi-paragraph Hebrew covering the FULL elementary arc Grades 1–8 by age bands א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — sensory-imaginative years, living observation, second Rubicon / phenomenology, then causal scientific thinking; never brief generic summaries),',
   'core_pedagogical_emphases (string: rich multi-paragraph Hebrew with Developmental Compass — רציונל התפתחותי ומצפן למורה — for each age band above, plus lesson dynamics; professional Anthroposophical depth, never superficial),',
-  'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters),',
-  'relevant_links (array: always [] — the server injects verified on-site search URLs; NEVER invent URLs).',
+  'recommended_literature (array of 5-8 objects: {title, author, note} — note MUST be 1-2 sentences on what the source covers and why it matters).',
+  'Do NOT include relevant_links, links, or any URL fields — omit them or set relevant_links to [].',
   'Strictly exclude any sources, domains, or web links from Russian websites, Russian academic databases (e.g., CyberLeninka, KPFU), or Russian social networks (e.g., VK). All returned sources and citations MUST be exclusively from reputable English or Hebrew websites and domains (.com, .org, .edu, .gov, .co.il, etc.).',
   'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown outside the JSON.',
 ].join(' ');
@@ -123,8 +124,8 @@ const PERIOD_BLOCK_SYSTEM_PROMPT_BASE = [
   'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
   'developmental_axis (string: rich multi-paragraph Hebrew tracing how THIS SUBJECT evolves across the entire Waldorf elementary curriculum Grades 1–8 by age bands א׳–ג׳, ד׳–ה׳, ו׳, ז׳–ח׳ — never lock this overview to the selected grade, never brief generic summaries),',
   'core_pedagogical_emphases (string: rich multi-paragraph Hebrew — Waldorf emphases, Developmental Compass / מצפן התפתחותי, and teacher compass for this SUBJECT across the same Grades 1–8 age bands),',
-  'recommended_literature (array of 3-6 objects: {title, author, note} — note in clean Hebrew explaining relevance to this block),',
-  'relevant_links (array: always [] — the server injects verified on-site search URLs; NEVER invent URLs),',
+  'recommended_literature (array of 3-6 objects: {title, author, note} — note in clean Hebrew explaining relevance to this block).',
+  'Do NOT include relevant_links, links, or any URL fields — omit them or set relevant_links to [].',
   'curriculum (array of EXACTLY 15 objects — one per school day — each with: day (integer 1-15), week (integer 1-3), topic (Hebrew core daily topic), content (Hebrew focused bullet points for main narrative/story/new material, separated by \\n — NOT long essays), art (Hebrew focused bullet points for notebook/drawing/painting/handwork)).',
   'The 15-day curriculum table MUST be tailored STRICTLY to the selected grade only (e.g. Physics Grade 6, Form Drawing Grade 3). Never mix other grades into the daily rows.',
   'The Grades 1–8 developmental arc applies ONLY to developmental_axis and core_pedagogical_emphases. The curriculum table must never borrow a different subject family (history into science, science into form drawing, etc.).',
@@ -528,6 +529,113 @@ function isDisplayableRelevantLink(item) {
   return true;
 }
 
+function curatedTitleForUrl(url) {
+  try {
+    const host = normalizeHost(new URL(String(url || '').trim()).hostname);
+    if (host === 'adamolam.co.il') return 'אדם עולם - מאמרים';
+    if (host === 'harduf.org.il') return 'יוזמות ולדורף בישראל';
+    if (host === 'anadom.co.il') return 'אנדום';
+    if (host === 'rsarchive.org') return 'ארכיון שטיינר (כתבים והרצאות)';
+    if (host === 'waldorflibrary.org') return 'ספריית ולדורף הבינלאומית';
+  } catch (e) { /* ignore */ }
+  return '';
+}
+
+function sanitizePerplexityLiveLinks(list) {
+  const seen = Object.create(null);
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(function (item) {
+    const url = typeof item === 'string'
+      ? item.trim()
+      : String((item && (item.url || item.link || item.href)) || '').trim();
+    if (!isValidHttpsUrl(url) || hasChainedOrDoubleDomain(url)) return;
+    let host = '';
+    try {
+      host = new URL(url).hostname;
+    } catch (e) {
+      return;
+    }
+    if (!isApprovedRelevantLinkHost(host)) return;
+    let title = '';
+    if (item && typeof item === 'object') {
+      title = sanitizePedagogicalText(item.title) || String(item.title || item.name || '').trim();
+    }
+    if (isVagueLinkTitle(title)) title = curatedTitleForUrl(url);
+    if (isVagueLinkTitle(title)) return;
+    if (seen[url]) return;
+    seen[url] = true;
+    out.push({ title: title, url: url });
+  });
+  return out.slice(0, 5);
+}
+
+function resolveRelevantLinks(options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const live = sanitizePerplexityLiveLinks(opts.liveLinks);
+  if (live.length) return live;
+  if (opts.useArchivedLinks) {
+    const archived = sanitizePerplexityLiveLinks(shared.coerceLinks(opts.archivedLinks));
+    if (archived.length) return archived;
+  }
+  return buildCuratedRelevantLinks(opts.query || '');
+}
+
+function buildPerplexityLiveLinksQuery(topic) {
+  const q = String(topic || '').trim().replace(/"/g, '');
+  return (
+    'site:adamolam.co.il OR site:harduf.org.il OR site:anadom.co.il OR site:waldorflibrary.org OR site:rsarchive.org "' +
+    q +
+    '"'
+  );
+}
+
+async function fetchPerplexityLiveRelevantLinks(topic) {
+  const q = String(topic || '').trim();
+  if (!q) return [];
+  if (!perplexityClient.resolveApiKey()) return [];
+  const searchQuery = buildPerplexityLiveLinksQuery(q);
+  try {
+    const result = await perplexityClient.callPerplexitySearch({
+      stream: false,
+      temperature: 0.1,
+      max_tokens: 400,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You find live Waldorf / anthroposophy HTTPS pages.',
+            'Use only real search citations. NEVER invent or guess URLs or article IDs.',
+            'Return at most one short sentence. Titles come from citations, not from memory.',
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: [
+            'Find 3-5 live pedagogical pages for topic «' + q + '».',
+            'Exact search: ' + searchQuery,
+            'Do not invent URLs.',
+          ].join('\n'),
+        },
+      ],
+    });
+    const payload = jsonRepair.safeParseJson(result && result.rawResponseText);
+    const items = []
+      .concat(perplexityClient.extractCitationItems(payload))
+      .concat((result && result.citations) || []);
+    const live = sanitizePerplexityLiveLinks(items);
+    if (live.length) {
+      console.log('[pure-general-search] Perplexity live links', live.length);
+    }
+    return live;
+  } catch (err) {
+    console.warn(
+      '[pure-general-search] Perplexity live-link search failed:',
+      err && err.message ? err.message : err
+    );
+    return [];
+  }
+}
+
 function buildCuratedRelevantLinks(topic) {
   const encoded = encodedSearchTopic(topic);
   return CURATED_RELEVANT_LINK_TEMPLATES.map(function (tpl) {
@@ -628,7 +736,12 @@ function normalizeGeneralSearchResponse(parsed, options) {
         note: sanitizePedagogicalText(item.note),
       };
     }),
-    relevant_links: buildCuratedRelevantLinks(opts.query || data.query || ''),
+    relevant_links: resolveRelevantLinks({
+      liveLinks: opts.liveLinks,
+      archivedLinks: data.relevant_links,
+      useArchivedLinks: opts.useArchivedLinks === true,
+      query: opts.query || data.query || '',
+    }),
   };
   if (periodBlock) {
     normalized.periodBlock = true;
@@ -659,17 +772,6 @@ function getGeneralSearchResponseSchema(periodBlock) {
             note: { type: 'string' },
           },
           required: ['title'],
-        },
-      },
-      relevant_links: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            url: { type: 'string' },
-          },
-          required: ['title', 'url'],
         },
       },
     },
@@ -836,6 +938,21 @@ async function callGeneralSearchJson(systemPrompt, userPrompt, options) {
     : buildSmoothGeneralSearchFallback(periodBlock, raw, opts);
 }
 
+async function generateNormalizedGeneralSearch(systemPrompt, userPrompt, options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const query = opts.query || '';
+  const [parsed, liveLinks] = await Promise.all([
+    callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, opts),
+    fetchPerplexityLiveRelevantLinks(query),
+  ]);
+  return normalizeGeneralSearchResponse(parsed, {
+    periodBlock: Boolean(opts.periodBlock),
+    query: query,
+    gradeId: opts.gradeInfo && opts.gradeInfo.gradeId ? opts.gradeInfo.gradeId : '',
+    liveLinks: liveLinks,
+  });
+}
+
 async function callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, options) {
   const opts = options && typeof options === 'object' ? options : {};
   const parsed = await callGeneralSearchJson(systemPrompt, userPrompt, opts);
@@ -897,7 +1014,7 @@ function buildPeriodBlockUserPrompt(query, gradeInfo) {
     '- developmental_axis: קשת התפתחותית עשירה של הנושא מכיתה א׳ עד כיתה ח׳ — מספר פסקאות לכל חגורת גיל (א׳–ג׳ חוויה חושית וסיפור; ד׳–ה׳ תצפית חיה; ו׳ רוביקון שני ופנומנולוגיה; ז׳–ח׳ מדעים סיבתיים).',
     '- core_pedagogical_emphases: דגשים פדגוגיים, מצפן התפתחותי ומצפן למורה לפי אותן חגורות גיל — פירוט מקצועי רב-פסקאות.',
     '- recommended_literature: מקורות מקצועיים לתקופה (הערות בעברית נקייה).',
-    '- relevant_links: תמיד מערך ריק — השרת מזין קישורי חיפוש מאומתים. אסור לנחש URL.',
+    '- אל תכלול relevant_links / links / URL — מערך קישורים ריק או השמטה. Perplexity שולף קישורים חיים בנפרד.',
     RELEVANT_LINKS_NO_HALLUCINATION_INSTRUCTION,
     '',
     'curriculum (תוכנית 15 ימים) — חובה מוחלטת:',
@@ -918,13 +1035,11 @@ function buildStandardUserPrompt(query) {
     'General Waldorf pedagogy search across elementary grades (1-8).',
     'Query: ' + query,
     'Provide a structured multi-grade analysis: developmental progression, core emphases by age band,',
-    'recommended professional literature, and relevant web resources.',
+    'and recommended professional literature. Do NOT produce web URLs or a links array.',
     '',
     HEBREW_ONLY_BODY_INSTRUCTION,
     '',
     WALDORF_ELEMENTARY_SCOPE_INSTRUCTION,
-    '',
-    shared.PROFESSIONAL_LINKS_INSTRUCTION,
     '',
     RELEVANT_LINKS_NO_HALLUCINATION_INSTRUCTION,
     '',
@@ -934,7 +1049,7 @@ function buildStandardUserPrompt(query) {
     '- developmental_axis (ציר התפתחותי): rich multi-paragraph Hebrew covering Grades 1–8 age bands — א׳–ג׳ sensory/story/handwork; ד׳–ה׳ living observation (zoology/botany); ו׳ second Rubicon and scientific phenomenology; ז׳–ח׳ causal sciences and adolescent thinking. Never brief generic summaries.',
     '- core_pedagogical_emphases (דגשים פדגוגיים מרכזיים): rich professional Anthroposophical depth with Developmental Compass for each of those age bands.',
     '- recommended_literature: each entry with contextual note explaining coverage and relevance.',
-    '- relevant_links (קישורים): always return [] — the server injects verified on-site search URLs from the query topic. NEVER invent URLs.',
+    '- relevant_links / links: omit or return []. NEVER invent URLs.',
     'CRITICAL: return exactly one valid JSON object — no free text, no preamble, no Markdown.',
   ].join('\n');
 }
@@ -1077,14 +1192,13 @@ async function runArchiveUpgradeGeneralSearch(body, requestContext, teacher) {
 
   await enforceLiveSearchQuota(body, requestContext);
   try {
-    const parsed = await callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, {
+    const normalized = await generateNormalizedGeneralSearch(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
       gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
       gradeInfo: gradeInfo,
     });
-    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
@@ -1133,14 +1247,13 @@ async function runResearchExpandGeneralSearch(body, requestContext, teacher) {
 
   await enforceLiveSearchQuota(body, requestContext);
   try {
-    const parsed = await callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, {
+    const normalized = await generateNormalizedGeneralSearch(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
       gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
       gradeInfo: gradeInfo,
     });
-    const normalized = normalizeGeneralSearchResponse(parsed, { periodBlock: periodBlock, query: query });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
@@ -1235,6 +1348,7 @@ async function runPureGeneralSearch(body, requestContext) {
           periodBlock: periodBlock,
           query: query,
           gradeId: gradeInfo.gradeId || '',
+          useArchivedLinks: true,
         }),
         meta: Object.assign({
           fromCache: true,
@@ -1269,6 +1383,7 @@ async function runPureGeneralSearch(body, requestContext) {
           periodBlock: periodBlock,
           query: query,
           gradeId: gradeInfo.gradeId || '',
+          useArchivedLinks: true,
         }),
         meta: Object.assign({
           fromCache: true,
@@ -1289,20 +1404,15 @@ async function runPureGeneralSearch(body, requestContext) {
   await enforceLiveSearchQuota(body, requestContext);
   console.log(
     '[pure-general-search] live web search',
-    periodBlock ? '(15-day cache miss — Gemini generation)' : '(community summary decoupled)'
+    periodBlock ? '(15-day cache miss — Gemini + Perplexity links)' : '(Gemini + Perplexity links)'
   );
   try {
-    const parsed = await callGeneralSearchJsonWithSubjectLock(systemPrompt, userPrompt, {
+    const normalized = await generateNormalizedGeneralSearch(systemPrompt, userPrompt, {
       phase: periodBlock ? 'general_search_period' : 'general_search',
       query: query,
       periodBlock: periodBlock,
       gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
       gradeInfo: gradeInfo,
-    });
-    const normalized = normalizeGeneralSearchResponse(parsed, {
-      periodBlock: periodBlock,
-      query: query,
-      gradeId: gradeInfo.gradeId || '',
     });
 
     const archiveResult = await persistGeneralSearchArchive(
@@ -1319,7 +1429,7 @@ async function runPureGeneralSearch(body, requestContext) {
       data: normalized,
       meta: {
         fromCache: false,
-        source: 'gemini-json',
+        source: 'gemini-json+perplexity-links',
         periodBlock: periodBlock,
         cacheKey: archiveResult.cacheKey || undefined,
         archived: archiveResult.archived,
@@ -1414,6 +1524,9 @@ module.exports = {
   buildApprovedSiteSearchUrl,
   buildFocusedSearchUrl,
   buildCuratedRelevantLinks,
+  sanitizePerplexityLiveLinks,
+  resolveRelevantLinks,
+  buildPerplexityLiveLinksQuery,
   isDisplayableRelevantLink,
   hasChainedOrDoubleDomain,
   APPROVED_RELEVANT_LINK_DOMAINS,

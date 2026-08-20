@@ -268,6 +268,41 @@ function extractCitations(data) {
   }).filter(Boolean);
 }
 
+function extractCitationItems(data) {
+  const items = [];
+  const seen = Object.create(null);
+  function push(url, title) {
+    const href = String(url || '').trim();
+    if (!href || seen[href]) return;
+    seen[href] = true;
+    items.push({
+      title: String(title || '').trim(),
+      url: href,
+    });
+  }
+  if (!data || typeof data !== 'object') return items;
+  const buckets = []
+    .concat(Array.isArray(data.search_results) ? data.search_results : [])
+    .concat(Array.isArray(data.searchResults) ? data.searchResults : []);
+  const choice = data.choices && data.choices[0];
+  if (choice && Array.isArray(choice.search_results)) {
+    buckets.push.apply(buckets, choice.search_results);
+  }
+  buckets.forEach(function (row) {
+    if (!row) return;
+    if (typeof row === 'string') {
+      push(row, '');
+      return;
+    }
+    if (typeof row !== 'object') return;
+    push(row.url || row.link || row.href, row.title || row.name || '');
+  });
+  extractCitations(data).forEach(function (url) {
+    push(url, '');
+  });
+  return items;
+}
+
 /**
  * Abort / idle-timeout: the request was already in flight (and likely billed) but the
  * upstream went silent. Retrying just doubles cost and can chain into multi-minute hangs,
@@ -501,4 +536,5 @@ module.exports = {
   callPerplexitySearch,
   extractMessageContent,
   extractCitations,
+  extractCitationItems,
 };
