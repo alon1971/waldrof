@@ -9048,6 +9048,7 @@
       gradeFromArchive: false,
       generalSearchFromArchive: false,
       generalSearchQuery: '',
+      generalSearchPeriodBlock: false,
       generalSearchPeriodGradeId: '',
       generalSearchMeta: null,
       archiveRejectedSuggestions: [],
@@ -9173,7 +9174,9 @@
         if (topicInput) topicInput.value = '';
         var gsInput = document.getElementById('general-search-input');
         if (gsInput) gsInput.value = '';
-        if (typeof setGeneralSearchPeriodBlockEnabled === 'function') {
+        if (typeof resetGeneralSearchPeriodControls === 'function') {
+          resetGeneralSearchPeriodControls();
+        } else if (typeof setGeneralSearchPeriodBlockEnabled === 'function') {
           setGeneralSearchPeriodBlockEnabled(false);
         }
       } catch (eDom) { /* ignore */ }
@@ -9199,6 +9202,13 @@
         topicCommunityMatches: [],
         communityCache: [],
         communityForGrade: [],
+        generalSearchFromArchive: false,
+        generalSearchQuery: '',
+        generalSearchPeriodBlock: false,
+        generalSearchPeriodGradeId: '',
+        generalSearchCacheKey: '',
+        generalSearchMeta: null,
+        generalSearchResult: null,
       });
       catalogState.view = 'grades';
       catalogState.gradeId = null;
@@ -9344,9 +9354,14 @@
           generalSearchCacheKey: appState.generalSearchCacheKey || '',
           topicResearchCompleted: Boolean(appState.topicResearchCompleted),
           activeProductTab: appState.activeProductTab || null,
-          generalSearchQuery: generalSearchInput ? String(generalSearchInput.value || '').trim() : '',
+          generalSearchQuery: generalSearchInput ? String(generalSearchInput.value || '').trim() : String(appState.generalSearchQuery || ''),
           generalSearchPeriodBlock: isGeneralSearchPeriodBlockEnabled(),
-          generalSearchPeriodGradeId: getGeneralSearchPeriodGradeId(),
+          generalSearchPeriodGradeId: (function () {
+            var periodGradeSel = document.getElementById('general-search-period-grade');
+            var fromSelect = periodGradeSel ? String(periodGradeSel.value || '').trim() : '';
+            if (fromSelect) return fromSelect;
+            return String(appState.generalSearchPeriodGradeId || '').trim();
+          }()),
           catalogView: catalogState.view || 'grades',
           catalogGradeId: catalogState.gradeId || null,
           catalogTopic: catalogState.topic || null,
@@ -16174,10 +16189,13 @@
         html += '<option value="' + escapeHtml(String(g.id)) + '">' + escapeHtml(label) + '</option>';
       });
       sel.innerHTML = html;
-      var preferred = current || String(appState.generalSearchPeriodGradeId || appState.grade || '').trim();
+      var preferred = current || String(appState.generalSearchPeriodGradeId || '').trim();
+      if (!preferred && isGeneralSearchPeriodBlockEnabled()) {
+        preferred = String(appState.grade || '').trim();
+      }
       if (preferred && Array.prototype.some.call(sel.options, function (opt) { return opt.value === preferred; })) {
         sel.value = preferred;
-        appState.generalSearchPeriodGradeId = preferred;
+        if (isGeneralSearchPeriodBlockEnabled()) appState.generalSearchPeriodGradeId = preferred;
       } else {
         sel.value = '';
       }
@@ -16245,7 +16263,34 @@
     function setGeneralSearchPeriodBlockEnabled(enabled) {
       var toggle = document.getElementById('general-search-period-toggle');
       if (toggle) toggle.checked = Boolean(enabled);
+      appState.generalSearchPeriodBlock = Boolean(enabled);
       syncGeneralSearchPeriodGradeUi({ focus: Boolean(enabled) && !getGeneralSearchPeriodGradeId() });
+    }
+
+    function resetGeneralSearchPeriodControls() {
+      appState.generalSearchPeriodBlock = false;
+      appState.generalSearchPeriodGradeId = '';
+      var toggle = document.getElementById('general-search-period-toggle');
+      if (toggle) {
+        toggle.checked = false;
+        toggle.disabled = false;
+      }
+      var sel = document.getElementById('general-search-period-grade');
+      if (sel) {
+        sel.disabled = false;
+        sel.value = '';
+      }
+      populateGeneralSearchPeriodGradeSelect();
+      if (sel) {
+        sel.value = '';
+        try { sel.selectedIndex = 0; } catch (eSel) { /* ignore */ }
+      }
+      var wrap = document.getElementById('general-search-period-grade-wrap');
+      if (wrap) {
+        wrap.classList.add('hidden');
+        wrap.setAttribute('hidden', '');
+      }
+      setGeneralSearchPeriodGradeRequired(false);
     }
 
     function setGeneralSearchPeriodToggleDisabled(disabled) {
@@ -27882,6 +27927,14 @@
     }
 
     function clearGeneralSearchWorkspace() {
+      if (persistStepTimer) {
+        clearTimeout(persistStepTimer);
+        persistStepTimer = null;
+      }
+      if (typeof stopSpeaking === 'function') stopSpeaking();
+      if (appState.archiveUpgradeActive) {
+        cancelArchiveUpgrade();
+      }
       if (generalSearchAbort) {
         generalSearchAbort.abort();
         generalSearchAbort = null;
@@ -27893,6 +27946,8 @@
       appState.generalSearchMeta = null;
       appState.generalSearchFromArchive = false;
       appState.generalSearchCacheKey = '';
+      appState.generalSearchPeriodBlock = false;
+      appState.generalSearchPeriodGradeId = '';
       var input = document.getElementById('general-search-input');
       if (input) {
         input.value = '';
@@ -27900,13 +27955,23 @@
       }
       var btn = document.getElementById('btn-general-search-submit');
       if (btn) btn.disabled = false;
-      setGeneralSearchPeriodToggleDisabled(false);
+      resetGeneralSearchPeriodControls();
       var resultsEl = document.getElementById('general-search-results');
       if (resultsEl) {
         resultsEl.classList.add('hidden');
         resultsEl.innerHTML = '';
       }
+      var loadingCommunity = document.getElementById('general-search-loading-community');
+      if (loadingCommunity) {
+        loadingCommunity.innerHTML = '';
+        loadingCommunity.classList.add('hidden');
+      }
       removeArchiveUpgradeQueries('general-search');
+      if (typeof updateAdminResearchToolsVisibility === 'function') {
+        updateAdminResearchToolsVisibility();
+      }
+      persistActiveStep();
+      if (typeof resetMainViewScroll === 'function') resetMainViewScroll();
       requestAnimationFrame(function () {
         if (input) {
           try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
@@ -30328,6 +30393,10 @@
     }
 
     function startNewResearch() {
+      if (isGeneralSearchView()) {
+        clearGeneralSearchWorkspace();
+        return;
+      }
       if (appState.grade || appState.topic || appState.webResearch || appState.generalSearchResult) {
         if (!confirm(t('confirm_site_refresh'))) return;
       }
@@ -33972,6 +34041,11 @@
       appState.purePhaseC = null;
       appState.generalSearchResult = null;
       appState.generalSearchMeta = null;
+      appState.generalSearchQuery = '';
+      appState.generalSearchFromArchive = false;
+      appState.generalSearchCacheKey = '';
+      appState.generalSearchPeriodBlock = false;
+      appState.generalSearchPeriodGradeId = '';
       appState.topicCommunityMeta = null;
       appState.activeProductTab = null;
       appState.productTabsRendered = freshProductTabsRendered();
@@ -34005,12 +34079,12 @@
         generalSearchAbort = null;
       }
       setGeneralSearchLoadingUi(false);
+      hideGeneralSearchArchiveSuggestion();
       var gsResults = document.getElementById('general-search-results');
       if (gsResults) { gsResults.classList.add('hidden'); gsResults.innerHTML = ''; }
       var gsInput = document.getElementById('general-search-input');
       if (gsInput) { gsInput.disabled = false; gsInput.value = ''; }
-      setGeneralSearchPeriodBlockEnabled(false);
-      setGeneralSearchPeriodToggleDisabled(false);
+      resetGeneralSearchPeriodControls();
       setTopicResearchLoadingUi(false);
       document.getElementById('btn-topic-research').disabled = false;
       updateTopicResearchButton();
@@ -34300,6 +34374,10 @@
       var generalSearchPeriodToggle = document.getElementById('general-search-period-toggle');
       if (generalSearchPeriodToggle) {
         generalSearchPeriodToggle.addEventListener('change', function () {
+          appState.generalSearchPeriodBlock = Boolean(generalSearchPeriodToggle.checked);
+          if (!generalSearchPeriodToggle.checked) {
+            setGeneralSearchPeriodGradeRequired(false);
+          }
           syncGeneralSearchPeriodGradeUi({ focus: generalSearchPeriodToggle.checked && !getGeneralSearchPeriodGradeId() });
           schedulePersistActiveStep();
         });
