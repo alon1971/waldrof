@@ -148,12 +148,22 @@ async function executeSearchHistory(req) {
       throw err;
     }
     const periodBlock = Boolean(body && (body.periodBlock || body.buildPeriodPlan || body.period_block));
-    let cached = await cacheDb.getGeneralSearchCache(query, { periodBlock: periodBlock });
+    const gradeId = String((body && (body.gradeId || body.currentGrade)) || '').trim();
+    const gradeLabel = String((body && body.gradeLabel) || '').trim();
+    let cached = await cacheDb.getGeneralSearchCache(query, {
+      periodBlock: periodBlock,
+      gradeId: gradeId || undefined,
+      gradeLabel: gradeLabel || undefined,
+    });
     let resolvedPeriodBlock = periodBlock;
     // Same query archived under the other period-block variant still counts as a Cache Hit
     // for credit bypass — serve that payload rather than prompting for a paid live search.
     if (!cached || !cached.data) {
-      const alt = await cacheDb.getGeneralSearchCache(query, { periodBlock: !periodBlock });
+      const alt = await cacheDb.getGeneralSearchCache(query, {
+        periodBlock: !periodBlock,
+        gradeId: gradeId || undefined,
+        gradeLabel: gradeLabel || undefined,
+      });
       if (alt && alt.data) {
         cached = alt;
         resolvedPeriodBlock = !periodBlock;
@@ -164,6 +174,7 @@ async function executeSearchHistory(req) {
       try {
         const suggestion = await cacheDb.findGeneralSearchArchiveSuggestion(query, {
           periodBlock: periodBlock,
+          gradeId: gradeId || undefined,
         });
         if (suggestion && suggestion.matchType === 'exact' && suggestion.data) {
           cached = {

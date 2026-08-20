@@ -154,7 +154,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260812a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20260820a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -1824,7 +1824,8 @@
         width: 100%;
         justify-content: center;
       }
-      #general-search-period-toggle-wrap {
+      #general-search-period-toggle-wrap,
+      #general-search-period-grade-wrap {
         flex-direction: column;
         align-items: stretch;
         gap: 0.5rem;
@@ -2965,11 +2966,17 @@
       margin-top: 1rem;
     }
     #general-search-view .general-search-results { margin-top: 1.25rem; }
+    #general-search-period-tools {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      margin-bottom: 0.75rem;
+    }
     #general-search-period-toggle-wrap {
       display: flex;
       align-items: flex-start;
       gap: 0.65rem;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0;
       padding: 0.75rem 1rem;
       border-radius: 0.875rem;
       border: 1px solid rgba(201, 169, 98, 0.35);
@@ -2987,6 +2994,50 @@
       font-size: 0.9375rem;
       line-height: 1.45;
       color: #5C4A3A;
+    }
+    #general-search-period-grade-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      padding: 0.75rem 1rem 0.9rem;
+      border-radius: 0.875rem;
+      border: 1px solid rgba(122, 155, 118, 0.45);
+      background: rgba(122, 155, 118, 0.08);
+    }
+    #general-search-period-grade-wrap.hidden,
+    #general-search-period-grade-wrap[hidden] {
+      display: none !important;
+    }
+    #general-search-period-grade-wrap.is-required {
+      border-color: rgba(139, 58, 58, 0.55);
+      background: rgba(139, 58, 58, 0.06);
+      box-shadow: 0 0 0 3px rgba(139, 58, 58, 0.12);
+    }
+    #general-search-period-grade-label {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      line-height: 1.45;
+      color: #5C4A3A;
+    }
+    #general-search-period-grade {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      border-radius: 0.75rem;
+      border: 1px solid rgba(201, 169, 98, 0.45);
+      background: #FDF8EF;
+      padding: 0.7rem 0.85rem;
+      font-size: 1rem;
+      color: #5C4A3A;
+    }
+    #general-search-period-grade-hint {
+      margin: 0;
+      font-size: 0.8125rem;
+      line-height: 1.4;
+      color: #8B3A3A;
+    }
+    #general-search-period-grade-hint.hidden {
+      display: none !important;
     }
     #general-search-results .general-search-curriculum-wrap {
       margin-top: 1.25rem;
@@ -3814,18 +3865,25 @@
       margin: 0 0 1rem 0;
       pointer-events: auto !important;
     }
-    /* Global Word export — physical top-right, below sticky chrome so it never covers nav. */
-    #global-word-export-bar {
+    /* Global Word export — dedicated right action rail. Content reserves
+       padding-right so paragraphs never sit under these controls at 100% zoom. */
+    :root {
+      --app-action-rail-width: 180px;
+      --app-action-rail-gap: 1.25rem;
+      --app-action-rail-reserve: calc(var(--app-action-rail-width) + var(--app-action-rail-gap));
+    }
+    #global-word-export-bar,
+    .app-action-rail {
       position: fixed !important;
       top: calc(var(--app-site-chrome-height, 6.75rem) + 0.55rem) !important;
-      right: 20px !important;
+      right: 12px !important;
       left: auto !important;
       inset-inline-start: auto !important;
       inset-inline-end: auto !important;
       z-index: 1450 !important;
       pointer-events: auto !important;
-      width: auto;
-      max-width: min(42vw, 12.5rem);
+      width: var(--app-action-rail-width);
+      max-width: var(--app-action-rail-width);
       display: flex;
       flex-direction: column;
       align-items: stretch;
@@ -3881,14 +3939,48 @@
     /* Hide it while the auth overlay is up so it never floats over the login screen. */
     body.auth-locked #global-word-export-bar,
     body.auth-required #global-word-export-bar { display: none !important; }
-    @media (max-width: 640px) {
-      #global-word-export-bar {
-        top: calc(var(--app-site-chrome-height, 6.75rem) + 0.45rem) !important;
-        bottom: auto !important;
-        right: 12px !important;
-        left: auto !important;
-        max-width: min(46vw, 11rem);
+    /* Keep text clear of the right action rail at desktop 100% zoom. */
+    @media (min-width: 768px) {
+      body:not(.is-home-view):not(.auth-locked):not(.auth-required):not(.welcome-open) #app-main,
+      body:not(.is-home-view):not(.auth-locked):not(.auth-required):not(.welcome-open) #wizard,
+      body:not(.is-home-view):not(.auth-locked):not(.auth-required):not(.welcome-open) #workspace,
+      body:not(.is-home-view):not(.auth-locked):not(.auth-required):not(.welcome-open) #general-search-view,
+      body:not(.is-home-view):not(.auth-locked):not(.auth-required):not(.welcome-open) #waldorf-sites-view {
+        padding-right: var(--app-action-rail-reserve) !important;
+        box-sizing: border-box;
       }
+    }
+    @media (max-width: 767px) {
+      #global-word-export-bar,
+      .app-action-rail {
+        top: var(--app-site-chrome-height, 6.75rem) !important;
+        bottom: auto !important;
+        right: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.75rem;
+        background: rgba(247, 243, 235, 0.96);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid rgba(201, 169, 98, 0.28);
+        box-shadow: 0 6px 16px rgba(92, 74, 58, 0.08);
+      }
+      #global-word-export-bar .read-aloud-controls {
+        width: auto;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      body:not(.is-home-view):not(.auth-locked):not(.auth-required) #app-main {
+        padding-top: 3.35rem;
+      }
+    }
+    @media (max-width: 640px) {
       #global-word-export-bar .phase-c-unified-export-btn,
       #btn-phase-c-export-word {
         width: auto !important;
@@ -5354,10 +5446,10 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      top: 50%;
-      bottom: auto;
+      top: auto;
+      bottom: calc(var(--lesson-chat-fab-offset) + env(safe-area-inset-bottom, 0px));
       left: var(--lesson-chat-fab-offset);
-      transform: translateY(-50%);
+      transform: none;
       z-index: 60;
       pointer-events: none;
     }
@@ -5437,15 +5529,17 @@
     @media (max-width: 767px) {
       .lesson-chat-fab-wrap {
         top: auto;
-        bottom: calc(20% + env(safe-area-inset-bottom, 0px));
+        bottom: calc(var(--lesson-chat-fab-offset) + env(safe-area-inset-bottom, 0px));
         left: 1.5rem;
         right: auto;
         transform: none;
         z-index: 50;
       }
+      body.lesson-chat-mode-bubble:not(.is-home-view) #app-main,
       body.lesson-chat-mode-bubble #wizard,
-      body.lesson-chat-mode-bubble #workspace {
-        padding-bottom: calc(3.25rem + var(--lesson-chat-fab-size));
+      body.lesson-chat-mode-bubble #workspace,
+      body.lesson-chat-mode-bubble #general-search-view {
+        padding-bottom: calc(3.25rem + var(--lesson-chat-fab-size) + var(--lesson-chat-fab-offset));
       }
       .lesson-chat-fab {
         width: var(--lesson-chat-fab-size);
@@ -5493,15 +5587,19 @@
     }
     @media (min-width: 768px) {
       #lesson-chat-fab-wrap.lesson-chat-fab-wrap {
-        top: 50%;
-        bottom: auto;
+        top: auto;
+        bottom: calc(var(--lesson-chat-fab-offset) + env(safe-area-inset-bottom, 0px));
         left: var(--lesson-chat-fab-offset);
         right: auto;
-        transform: translateY(-50%);
+        transform: none;
         z-index: 50;
       }
+      body.lesson-chat-mode-bubble:not(.is-home-view) #app-main,
       body.lesson-chat-mode-bubble #wizard,
-      body.lesson-chat-mode-bubble #workspace .max-w-6xl {
+      body.lesson-chat-mode-bubble #workspace,
+      body.lesson-chat-mode-bubble #general-search-view,
+      body.lesson-chat-mode-bubble #waldorf-sites-view {
+        padding-bottom: calc(3.25rem + var(--lesson-chat-fab-size) + var(--lesson-chat-fab-offset));
         padding-left: var(--lesson-chat-fab-reserve);
       }
       .lesson-chat-mobile-close { display: none !important; }
@@ -6416,7 +6514,7 @@
        so it is present in the DOM from page load and stays visible across all tabs
        (Overview / Topic Edit / מידע והשראה) and while scrolling. Keeps the original
        id (#btn-phase-c-export-word) so all existing JS wiring keeps working. -->
-  <div id="global-word-export-bar" dir="rtl">
+  <div id="global-word-export-bar" class="app-action-rail" dir="rtl">
     <button type="button" id="btn-phase-c-export-word" class="phase-c-unified-export-btn" dir="rtl" data-unified-topic-export onclick="window.downloadUnifiedTopicDocx && window.downloadUnifiedTopicDocx()" aria-label="הורד למסמך וורד" disabled>
       <i class="fa-solid fa-file-word" aria-hidden="true"></i>
       <span class="phase-c-unified-export-label" data-i18n="general_search_export_word">הורד למסמך וורד</span>
@@ -7311,9 +7409,18 @@
         </button>
         </div>
       </div>
-      <div id="general-search-period-toggle-wrap">
-        <input type="checkbox" id="general-search-period-toggle" />
-        <label for="general-search-period-toggle" data-i18n="general_search_period_toggle">בניית תוכנית תקופה מלאה (15 ימים)</label>
+      <div id="general-search-period-tools">
+        <div id="general-search-period-toggle-wrap">
+          <input type="checkbox" id="general-search-period-toggle" />
+          <label for="general-search-period-toggle" data-i18n="general_search_period_toggle">בניית תוכנית תקופה מלאה (15 ימים)</label>
+        </div>
+        <div id="general-search-period-grade-wrap" class="hidden" hidden>
+          <label id="general-search-period-grade-label" for="general-search-period-grade" data-i18n="general_search_period_grade_prompt">לאיזו כיתה תרצה לבנות את התקופה? (כיתות א'-ח')</label>
+          <select id="general-search-period-grade" autocomplete="off" aria-labelledby="general-search-period-grade-label">
+            <option value="" data-i18n="grade_placeholder">— בחרו כיתה —</option>
+          </select>
+          <p id="general-search-period-grade-hint" class="hidden" data-i18n="general_search_period_grade_required">יש לבחור כיתה לפני בניית תוכנית התקופה.</p>
+        </div>
       </div>
       <div id="general-search-loading" class="hidden mt-4 p-4 sm:p-5 rounded-xl bg-parchment/90 border-2 text-sm" role="status" aria-live="polite" aria-busy="true">
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
@@ -8860,6 +8967,7 @@
       gradeFromArchive: false,
       generalSearchFromArchive: false,
       generalSearchQuery: '',
+      generalSearchPeriodGradeId: '',
       generalSearchMeta: null,
       archiveRejectedSuggestions: [],
       topicCommunityMatches: [],
@@ -9157,6 +9265,7 @@
           activeProductTab: appState.activeProductTab || null,
           generalSearchQuery: generalSearchInput ? String(generalSearchInput.value || '').trim() : '',
           generalSearchPeriodBlock: isGeneralSearchPeriodBlockEnabled(),
+          generalSearchPeriodGradeId: getGeneralSearchPeriodGradeId(),
           catalogView: catalogState.view || 'grades',
           catalogGradeId: catalogState.gradeId || null,
           catalogTopic: catalogState.topic || null,
@@ -15971,14 +16080,97 @@
       return Boolean(toggle && toggle.checked);
     }
 
+    function populateGeneralSearchPeriodGradeSelect() {
+      var sel = document.getElementById('general-search-period-grade');
+      if (!sel) return;
+      var current = String(sel.value || appState.generalSearchPeriodGradeId || '').trim();
+      var placeholder = (typeof t === 'function' ? t('grade_placeholder') : '') || '— בחרו כיתה —';
+      var html = '<option value="">' + escapeHtml(placeholder) + '</option>';
+      GRADES.forEach(function (g) {
+        if (!g || !g.id) return;
+        var label = (typeof getGradeLabelById === 'function' ? getGradeLabelById(g.id) : '') || g.label || g.id;
+        html += '<option value="' + escapeHtml(String(g.id)) + '">' + escapeHtml(label) + '</option>';
+      });
+      sel.innerHTML = html;
+      var preferred = current || String(appState.generalSearchPeriodGradeId || appState.grade || '').trim();
+      if (preferred && Array.prototype.some.call(sel.options, function (opt) { return opt.value === preferred; })) {
+        sel.value = preferred;
+        appState.generalSearchPeriodGradeId = preferred;
+      } else {
+        sel.value = '';
+      }
+    }
+
+    function getGeneralSearchPeriodGradeId() {
+      var sel = document.getElementById('general-search-period-grade');
+      var fromSelect = sel ? String(sel.value || '').trim() : '';
+      if (fromSelect) return fromSelect;
+      var stored = String(appState.generalSearchPeriodGradeId || '').trim();
+      if (stored) return stored;
+      return String(appState.grade || '').trim();
+    }
+
+    function getGeneralSearchPeriodGradeLabel(gradeId) {
+      var id = String(gradeId != null ? gradeId : getGeneralSearchPeriodGradeId()).trim();
+      if (!id) return '';
+      var label = (typeof getGradeLabelById === 'function' ? getGradeLabelById(id) : '') || '';
+      if (label) return label;
+      var row = GRADES.find(function (g) { return String(g.id) === id; });
+      return row ? (row.label || id) : id;
+    }
+
+    function setGeneralSearchPeriodGradeRequired(on) {
+      var wrap = document.getElementById('general-search-period-grade-wrap');
+      var hint = document.getElementById('general-search-period-grade-hint');
+      var sel = document.getElementById('general-search-period-grade');
+      if (wrap) wrap.classList.toggle('is-required', Boolean(on));
+      if (hint) hint.classList.toggle('hidden', !on);
+      if (sel) sel.setAttribute('aria-invalid', on ? 'true' : 'false');
+    }
+
+    function syncGeneralSearchPeriodGradeUi(options) {
+      var opts = options || {};
+      var wrap = document.getElementById('general-search-period-grade-wrap');
+      var sel = document.getElementById('general-search-period-grade');
+      var enabled = isGeneralSearchPeriodBlockEnabled();
+      populateGeneralSearchPeriodGradeSelect();
+      if (wrap) {
+        wrap.classList.toggle('hidden', !enabled);
+        if (enabled) wrap.removeAttribute('hidden');
+        else wrap.setAttribute('hidden', '');
+      }
+      if (!enabled) {
+        setGeneralSearchPeriodGradeRequired(false);
+        return;
+      }
+      if (!sel) return;
+      var current = String(sel.value || '').trim();
+      if (!current) {
+        var fallback = String(appState.generalSearchPeriodGradeId || appState.grade || '').trim();
+        if (fallback) {
+          sel.value = fallback;
+          current = fallback;
+          appState.generalSearchPeriodGradeId = fallback;
+        }
+      }
+      var missing = !current;
+      setGeneralSearchPeriodGradeRequired(missing);
+      if (missing && opts.focus) {
+        try { sel.focus({ preventScroll: true }); } catch (e) { sel.focus(); }
+      }
+    }
+
     function setGeneralSearchPeriodBlockEnabled(enabled) {
       var toggle = document.getElementById('general-search-period-toggle');
       if (toggle) toggle.checked = Boolean(enabled);
+      syncGeneralSearchPeriodGradeUi({ focus: Boolean(enabled) && !getGeneralSearchPeriodGradeId() });
     }
 
     function setGeneralSearchPeriodToggleDisabled(disabled) {
       var toggle = document.getElementById('general-search-period-toggle');
+      var sel = document.getElementById('general-search-period-grade');
       if (toggle) toggle.disabled = Boolean(disabled);
+      if (sel) sel.disabled = Boolean(disabled);
     }
 
     function renderGeneralSearchCurriculumSection(curriculum) {
@@ -27164,6 +27356,13 @@
       var opts = options || {};
       var payload = { query: query };
       if (opts.periodBlock) payload.periodBlock = true;
+      var gradeId = String(opts.gradeId || (opts.periodBlock ? getGeneralSearchPeriodGradeId() : '') || '').trim();
+      var gradeLabel = String(opts.gradeLabel || (gradeId ? getGeneralSearchPeriodGradeLabel(gradeId) : '') || '').trim();
+      if (gradeId) {
+        payload.gradeId = gradeId;
+        payload.currentGrade = gradeId;
+      }
+      if (gradeLabel) payload.gradeLabel = gradeLabel;
       if (opts.confirmArchiveKey) payload.confirmArchiveKey = opts.confirmArchiveKey;
       if (opts.bypassCache || opts.forceRefresh || opts.forceFresh || opts.skipCache) {
         payload.bypassCache = true;
@@ -27261,6 +27460,7 @@
       updateTopNavButtons();
       updateWorkspaceChrome();
       persistActiveStep();
+      syncGeneralSearchPeriodGradeUi();
       if (opts.resetScroll || fromHome) {
         resetMainViewScroll();
         runAfterLayout(resetMainViewScroll);
@@ -27413,6 +27613,10 @@
         }
 
         var fetchOpts = { periodBlock: periodBlock };
+        if (periodBlock) {
+          fetchOpts.gradeId = opts.gradeId || getGeneralSearchPeriodGradeId();
+          fetchOpts.gradeLabel = opts.gradeLabel || getGeneralSearchPeriodGradeLabel(fetchOpts.gradeId);
+        }
         if (opts.bypassCache) fetchOpts.bypassCache = true;
         if (opts.confirmArchiveKey) fetchOpts.confirmArchiveKey = opts.confirmArchiveKey;
         var response = await fetchPureGeneralSearch(query, signal, fetchOpts);
@@ -27493,10 +27697,18 @@
         return;
       }
       var periodBlock = isGeneralSearchPeriodBlockEnabled();
+      if (periodBlock) {
+        syncGeneralSearchPeriodGradeUi({ focus: true });
+        if (!getGeneralSearchPeriodGradeId()) {
+          setGeneralSearchPeriodGradeRequired(true);
+          return;
+        }
+      }
       // 1) Archive/cache check FIRST — never open credit modal or ask questions before this.
       var archiveCheck = await checkArchiveHit('general_search', {
         query: query,
         periodBlock: periodBlock,
+        gradeId: periodBlock ? getGeneralSearchPeriodGradeId() : '',
       });
       // 2) Exact archive hit → load + display immediately (Cache Hit), no credit modal, no questions.
       if (archiveCheck.isArchiveHit) {
@@ -27695,10 +27907,12 @@
       });
     }
 
-    async function probeGeneralSearchArchiveHit(query, periodBlock) {
+    async function probeGeneralSearchArchiveHit(query, periodBlock, gradeId) {
       return probeArchiveCacheHit('probe_general_search', {
         query: query,
         periodBlock: Boolean(periodBlock),
+        gradeId: String(gradeId || '').trim() || undefined,
+        gradeLabel: String(gradeId ? getGeneralSearchPeriodGradeLabel(gradeId) : '').trim() || undefined,
       });
     }
 
@@ -27720,7 +27934,7 @@
         };
       }
       if (kind === 'general_search') {
-        var generalProbe = await probeGeneralSearchArchiveHit(params.query, params.periodBlock);
+        var generalProbe = await probeGeneralSearchArchiveHit(params.query, params.periodBlock, params.gradeId);
         var generalHit = Boolean(
           generalProbe &&
           (generalProbe.hit ||
@@ -29286,6 +29500,10 @@
         var gsInput = document.getElementById('general-search-input');
         if (gsInput && options.generalSearchQuery) gsInput.value = options.generalSearchQuery;
         setGeneralSearchPeriodBlockEnabled(Boolean(options.generalSearchPeriodBlock));
+        if (options.generalSearchPeriodGradeId) {
+          appState.generalSearchPeriodGradeId = String(options.generalSearchPeriodGradeId || '').trim();
+        }
+        syncGeneralSearchPeriodGradeUi();
         if (appState.generalSearchResult) renderGeneralSearchResults(appState.generalSearchResult);
         if (options.restoreScroll) restoreScrollForCurrentView({ saved: options.saved });
         return;
@@ -29412,6 +29630,12 @@
         if (typeof saved.generalSearchPeriodBlock === 'boolean') {
           setGeneralSearchPeriodBlockEnabled(Boolean(saved.generalSearchPeriodBlock));
         }
+        if (saved.generalSearchPeriodGradeId) {
+          appState.generalSearchPeriodGradeId = String(saved.generalSearchPeriodGradeId || '').trim();
+          var gsGradeHydrate = document.getElementById('general-search-period-grade');
+          if (gsGradeHydrate) gsGradeHydrate.value = appState.generalSearchPeriodGradeId;
+        }
+        syncGeneralSearchPeriodGradeUi();
       }
 
       if (landOnHome) {
@@ -29451,6 +29675,7 @@
         activeProductTab: appState.activeProductTab || saved.activeProductTab,
         generalSearchQuery: saved.generalSearchQuery || '',
         generalSearchPeriodBlock: Boolean(saved.generalSearchPeriodBlock),
+        generalSearchPeriodGradeId: saved.generalSearchPeriodGradeId || '',
         saved: saved,
       }));
 
@@ -30087,6 +30312,7 @@
         sel.appendChild(o);
       });
       if (current) sel.value = current;
+      populateGeneralSearchPeriodGradeSelect();
     }
 
     function renderGradeCommunityList() {
@@ -33962,6 +34188,15 @@
       var generalSearchPeriodToggle = document.getElementById('general-search-period-toggle');
       if (generalSearchPeriodToggle) {
         generalSearchPeriodToggle.addEventListener('change', function () {
+          syncGeneralSearchPeriodGradeUi({ focus: generalSearchPeriodToggle.checked && !getGeneralSearchPeriodGradeId() });
+          schedulePersistActiveStep();
+        });
+      }
+      var generalSearchPeriodGrade = document.getElementById('general-search-period-grade');
+      if (generalSearchPeriodGrade) {
+        generalSearchPeriodGrade.addEventListener('change', function () {
+          appState.generalSearchPeriodGradeId = String(generalSearchPeriodGrade.value || '').trim();
+          setGeneralSearchPeriodGradeRequired(!appState.generalSearchPeriodGradeId && isGeneralSearchPeriodBlockEnabled());
           schedulePersistActiveStep();
         });
       }
@@ -34086,6 +34321,7 @@
       populateGradeSelect();
       populateCommunitySummarizerGradeSelect();
       populateCommunitySummarizerTopicSelect();
+      syncGeneralSearchPeriodGradeUi();
       applyStaticI18n();
       renderStepProgress();
       updateCloudBanner();
