@@ -3297,9 +3297,36 @@
     #panel-catalog .catalog-grade-card {
       cursor: pointer;
       transition: box-shadow 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+      min-height: 6.75rem;
+      width: 100%;
+      box-sizing: border-box;
     }
     #panel-catalog .catalog-grade-card:hover {
       box-shadow: 0 6px 18px rgba(92, 125, 88, 0.18);
+    }
+    #panel-catalog .catalog-grade-card .catalog-grade-card-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      width: 100%;
+      min-width: 0;
+    }
+    #panel-catalog .catalog-grade-card .catalog-grade-card-label {
+      display: block;
+      width: 100%;
+      margin: 0 !important;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     /* Stable community archive surface — reduce layout jump on load/nav */
     html {
@@ -33678,10 +33705,10 @@
             const isGeneral = Boolean(g.isGeneral);
             const icon = isGeneral ? 'fa-globe' : 'fa-folder';
             // Grade cards: name only (no file/topic counts, no age subtitle).
-            return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50' + (isGeneral ? ' catalog-grade-card--general' : '') + '" data-grade="' + g.id + '">' +
-              '<div class="flex items-start gap-3">' +
+            return '<button type="button" class="catalog-grade-card bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50' + (isGeneral ? ' catalog-grade-card--general' : '') + '" data-grade="' + g.id + '">' +
+              '<span class="catalog-grade-card-inner">' +
               '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
-              '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div></div></div></button>';
+              '<span class="catalog-grade-card-label app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</span></span></button>';
           }).join('');
         el.querySelectorAll('[data-grade]').forEach(function (btn) {
           btn.addEventListener('click', function () {
