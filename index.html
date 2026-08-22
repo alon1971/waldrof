@@ -3302,10 +3302,12 @@
       align-items: center;
       justify-content: center;
       text-align: center;
-      overflow: hidden;
+      overflow: visible;
       min-height: 6.75rem;
+      min-width: 10.25rem;
       width: 100%;
       box-sizing: border-box;
+      padding: 0.9rem 0.55rem !important;
     }
     #panel-catalog .catalog-grade-card:hover {
       box-shadow: 0 6px 18px rgba(92, 125, 88, 0.18);
@@ -3325,8 +3327,17 @@
       margin: 0 !important;
       text-align: center;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow: visible;
+      text-overflow: unset;
+      line-height: 1.35;
+    }
+    #catalog-grades {
+      grid-template-columns: repeat(2, minmax(10.25rem, 1fr));
+    }
+    @media (min-width: 1024px) {
+      #catalog-grades {
+        grid-template-columns: repeat(4, minmax(10.25rem, 1fr));
+      }
     }
     /* Stable community archive surface — reduce layout jump on load/nav */
     html {
@@ -5778,7 +5789,8 @@
       body.lesson-chat-mode-bubble #general-search-view,
       body.lesson-chat-mode-bubble #waldorf-sites-view {
         padding-bottom: calc(3.25rem + var(--lesson-chat-fab-size) + var(--lesson-chat-fab-offset));
-        padding-left: var(--lesson-chat-fab-reserve);
+        /* FAB is bottom-left overlay; keep a small edge inset so the page can use the left side. */
+        padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
       }
       .lesson-chat-mobile-close { display: none !important; }
     }
@@ -6638,10 +6650,13 @@
         box-sizing: border-box;
       }
       #app-main .max-w-6xl,
+      #app-main .max-w-7xl,
       #wizard.max-w-6xl,
       #workspace .max-w-6xl,
+      #workspace .max-w-7xl,
       #general-search-view.max-w-6xl,
-      .workspace-layout.max-w-6xl {
+      .workspace-layout.max-w-6xl,
+      .workspace-layout.max-w-7xl {
         width: 100%;
         max-width: 100%;
         margin-left: auto;
@@ -7452,7 +7467,7 @@
       <div id="phase-c-loading-community" class="mt-4" aria-hidden="false"></div>
     </div>
 
-    <div class="workspace-layout w-full max-w-6xl mx-auto px-4 sm:px-6 box-border">
+    <div class="workspace-layout w-full max-w-7xl mx-auto px-4 sm:px-6 box-border">
     <main class="workspace-main py-6 sm:py-8 pb-16 w-full box-border">
       <section id="panel-catalog" class="tab-panel hidden">
         <div class="bg-white/90 rounded-2xl border border-burgundy/20 p-4 sm:p-6 md:p-8 shadow-sm w-full box-border">
