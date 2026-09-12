@@ -61,6 +61,42 @@ function endPhaseCFlow() {
   activePhaseCFlow = null;
 }
 
+/** Verbose Render logging when POST /api/pure-phase-c throws (message + full stack). */
+function logPhaseCPostCatch(phase, err, context) {
+  const message = err && err.message ? String(err.message) : String(err);
+  const stack = err && err.stack ? String(err.stack) : '(no stack trace)';
+  const statusCode = err && err.statusCode != null ? err.statusCode : undefined;
+  const code = err && err.code != null ? err.code : undefined;
+  const name = err && err.name ? err.name : undefined;
+  let contextJson = '';
+  try {
+    contextJson = context && typeof context === 'object' ? JSON.stringify(context) : String(context || '');
+  } catch (jsonErr) {
+    contextJson = '[context not serializable]';
+  }
+  console.error('[pure-phase-c] POST catch | phase=' + String(phase || 'unknown'));
+  console.error('[pure-phase-c] POST catch | name=' + name + ' | statusCode=' + statusCode + ' | code=' + code);
+  console.error('[pure-phase-c] POST catch | message=' + message);
+  if (contextJson) console.error('[pure-phase-c] POST catch | context=' + contextJson);
+  console.error('[pure-phase-c] POST catch | stack=\n' + stack);
+  if (err && err.cause) {
+    const causeMsg = err.cause instanceof Error ? err.cause.message : String(err.cause);
+    const causeStack = err.cause instanceof Error && err.cause.stack ? err.cause.stack : '';
+    console.error('[pure-phase-c] POST catch | cause.message=' + causeMsg);
+    if (causeStack) console.error('[pure-phase-c] POST catch | cause.stack=\n' + causeStack);
+  }
+}
+
+function summarizePostBodyForLog(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  return {
+    topic: String(b.topic || '').slice(0, 80),
+    gradeId: String(b.gradeId || b.currentGrade || '').slice(0, 24),
+    grade: String(b.grade || b.gradeLabel || '').slice(0, 40),
+    bypassCache: Boolean(b.bypassCache || b.forceRefresh || b.forceFresh || b.skipCache),
+  };
+}
+
 /** Structural JSON keys that must never appear in pedagogical fallback text. */
 const PHASE_C_JSON_KEY_PATTERN = /["']?(?:theory|inspiration|sections|heading|headings|content|title|text|body|summary|bibliography|books|articles|websites|global|items|podcast|episodes|theme|insight|narrative|pinterest_links|pedagogical_resources|core_emphases|key_points|recommended_reading|relevant_links|icon|url|board|label|source|snippet|author|note|pin|quotes|fa-compass|theory_background|pedagogical_inspiration|developmental_compass|pedagogical_emphases)["']?\s*:/gi;
 
@@ -4689,8 +4725,15 @@ async function runPurePhaseC(body, requestContext) {
 }
 
 const legacyHandler = shared.createLegacyPostHandler(async function (body, req) {
-  const result = await runPurePhaseC(body || {}, { headers: req && req.headers });
-  return result;
+  const postContext = summarizePostBodyForLog(body);
+  console.log('[pure-phase-c] legacyHandler POST | topic="' + postContext.topic + '" | gradeId=' + postContext.gradeId);
+  try {
+    const result = await runPurePhaseC(body || {}, { headers: req && req.headers });
+    return result;
+  } catch (runErr) {
+    logPhaseCPostCatch('legacyHandler.runPurePhaseC', runErr, postContext);
+    throw runErr;
+  }
 });
 
 async function fetchHandler(request) {
@@ -4705,6 +4748,7 @@ async function fetchHandler(request) {
   try {
     body = await request.json();
   } catch (parseErr) {
+    logPhaseCPostCatch('fetchHandler.parseJsonBody', parseErr, { route: 'fetch' });
     return Response.json({ error: 'Invalid JSON body' }, { status: 400, headers: headers });
   }
   const reqTopic = String((body && body.topic) || '').trim().slice(0, 80);
@@ -4715,23 +4759,26 @@ async function fetchHandler(request) {
     const result = await runPurePhaseC(body || {}, {
       headers: Object.fromEntries(request.headers.entries()),
     });
-    var responseData = stripPhaseCWireOnlyFields(result.data);
-    if (responseData != null && typeof responseData === 'object') {
-      responseData = hebrewGuardrails.applyHebrewAutoReplacementsDeep(
-        JSON.parse(JSON.stringify(responseData))
-      );
-    } else if (typeof responseData === 'string') {
-      responseData = hebrewGuardrails.applyHebrewAutoReplacements(responseData);
+    try {
+      var responseData = stripPhaseCWireOnlyFields(result.data);
+      if (responseData != null && typeof responseData === 'object') {
+        responseData = hebrewGuardrails.applyHebrewAutoReplacementsDeep(
+          JSON.parse(JSON.stringify(responseData))
+        );
+      } else if (typeof responseData === 'string') {
+        responseData = hebrewGuardrails.applyHebrewAutoReplacements(responseData);
+      }
+      return Response.json({
+        ok: true,
+        data: responseData,
+        meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
+      }, { status: 200, headers: headers });
+    } catch (serializeErr) {
+      logPhaseCPostCatch('fetchHandler.serializeResponse', serializeErr, summarizePostBodyForLog(body));
+      throw serializeErr;
     }
-    return Response.json({
-      ok: true,
-      data: responseData,
-      meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
-    }, { status: 200, headers: headers });
   } catch (err) {
-    console.error('[pure-phase-c] handler error | topic="' + reqTopic + '" | status=' +
-      (err && err.statusCode ? err.statusCode : 500) + ' | ' +
-      (err && err.message ? err.message : String(err)));
+    logPhaseCPostCatch('fetchHandler.runPurePhaseC', err, summarizePostBodyForLog(body));
     if (err && (err.statusCode === 429 || err.statusCode === 401 || err.statusCode === 400)) {
       return Response.json({
         error: err.message || String(err),
@@ -4779,7 +4826,7 @@ async function fetchHandler(request) {
         }
       }
     } catch (archiveErr) {
-      console.warn('[pure-phase-c] archive fallback after handler error failed:', archiveErr.message || archiveErr);
+      logPhaseCPostCatch('fetchHandler.archiveFallback', archiveErr, summarizePostBodyForLog(body));
     }
     const statusCode = err && err.statusCode ? err.statusCode : 500;
     return Response.json({
