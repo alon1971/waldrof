@@ -10290,6 +10290,7 @@
 
         appState.gradeFromArchive = false;
         appState.gradeResearch = data;
+        pendingRevealScrollEl = document.getElementById('grade-insights-panel');
         renderGradeInsightsPanel(appState.grade, data);
         scrollToGradeResults();
       } catch (err) {
@@ -30087,6 +30088,29 @@
       }
     }
 
+    /** Step A: scroll down ~half a viewport so loaded grade content is visible (all grades). */
+    function scrollHalfPageAfterGradeContentLoaded(anchorEl) {
+      var anchor = anchorEl ||
+        document.getElementById('grade-insights-panel') ||
+        document.getElementById('grade-insights-body');
+      pendingRevealScrollEl = anchor;
+      var px = Math.round(Math.max(320, (window.innerHeight || 768) * 0.5));
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          try {
+            window.scrollBy({ top: px, left: 0, behavior: 'smooth' });
+          } catch (err) {
+            try { window.scrollBy(0, px); } catch (err2) { /* ignore */ }
+          }
+          runAfterSmoothScroll(function () {
+            setTimeout(function () {
+              pendingRevealScrollEl = null;
+            }, 400);
+          });
+        });
+      });
+    }
+
     /** Align loaded grade/topic card under sticky chrome (same landing for every class). */
     function scrollPlannerContentIntoView(anchorEl) {
       requestAnimationFrame(function () {
@@ -30143,12 +30167,16 @@
           (options.openStepB === false
             ? (document.getElementById('grade-insights-panel') || el)
             : (document.getElementById('web-research-result') || el));
-        pendingRevealScrollEl = scrollAnchor || el;
-        scrollPlannerContentIntoView(scrollAnchor);
-        runAfterSmoothScroll(function () {
-          if (gen !== gradeRevealGeneration) return;
-          pendingRevealScrollEl = null;
-        });
+        if (options.openStepB === false) {
+          scrollHalfPageAfterGradeContentLoaded(scrollAnchor || el);
+        } else {
+          pendingRevealScrollEl = scrollAnchor || el;
+          scrollPlannerContentIntoView(scrollAnchor);
+          runAfterSmoothScroll(function () {
+            if (gen !== gradeRevealGeneration) return;
+            pendingRevealScrollEl = null;
+          });
+        }
       }
       if (!el || plannerContentLooksReady(el)) {
         finish();
@@ -31330,6 +31358,7 @@
             ? 'Incomplete AI response — grade insights missing. Please try again.'
             : 'תשובת AI לא שלמה — חסרה תמונת גיל. נסו שוב.');
         }
+        pendingRevealScrollEl = document.getElementById('grade-insights-panel');
         renderGradeInsightsPanel(grade, data);
         setGradeInsightsLoadingUi(false);
         scrollToGradeResults();
@@ -31342,10 +31371,6 @@
       } finally {
         if (runId !== gradeResearchRunId) return;
         gradeResearchAbort = null;
-        var insightsPanelHold = document.getElementById('grade-insights-panel');
-        if (insightsPanelHold && !insightsPanelHold.classList.contains('hidden')) {
-          pendingRevealScrollEl = insightsPanelHold;
-        }
         setGradeInsightsLoadingUi(false);
         // Unlock Step B nav only — keep Step A visible/active so the teacher
         // can read the loaded grade content and move on when ready.
