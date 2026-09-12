@@ -1974,6 +1974,12 @@
     #btn-clear-topic-prose-server.server-cache-admin-visible:not(.hidden) {
       display: inline-flex !important;
     }
+    #btn-topic-override-archive {
+      display: none !important;
+    }
+    #btn-topic-override-archive.topic-override-admin-visible:not(.hidden) {
+      display: flex !important;
+    }
     #btn-admin-research-tools {
       display: none !important;
     }
@@ -32201,8 +32207,9 @@
       // Explicit live-only paths (reject archive / force refresh / scope override).
       // Do NOT treat topicResearchCompleted as force-live — archive hits must stay free.
       const loadArchiveOnly = Boolean(genOpts.loadArchiveOnly);
+      const adminForceLive = Boolean(genOpts.forceLive && isResearchAdminUser());
       const forceCacheBypass = Boolean(
-        genOpts.forceRefresh || genOpts.bypassCache || genOpts.forceLive ||
+        genOpts.forceRefresh || genOpts.bypassCache || adminForceLive ||
         appState.archiveFreshSearchPending ||
         shouldForceLiveArchiveBypass(topic, currentGrade)
       );
@@ -35315,6 +35322,7 @@
         generateLesson();
       });
       bindWizardNavClick(document.getElementById('btn-topic-override-archive'), function () {
+        if (!isResearchAdminUser()) return;
         generateLesson({
           forceLive: true,
           forceRefresh: true,
@@ -35369,7 +35377,10 @@
       }
       if (overrideBtn) {
         overrideBtn.innerHTML = '<i class="fa-solid fa-rotate-right icon-inline"></i> <span>' + escapeHtml(t('btn_topic_override_archive')) + '</span>';
+        var isOverrideAdmin = isResearchAdminUser();
+        overrideBtn.classList.toggle('topic-override-admin-visible', isOverrideAdmin);
         var showOverride = Boolean(
+          isOverrideAdmin &&
           appState.topicResearchCompleted &&
           (appState.lessonFromArchive || appState.lessonCacheKey) &&
           !appState.isSearching
