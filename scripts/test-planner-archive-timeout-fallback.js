@@ -11,14 +11,14 @@ function assert(condition, message) {
   }
 }
 
-assert(shared.LIVE_SEARCH_BUDGET_MS >= 30000 && shared.LIVE_SEARCH_BUDGET_MS <= 45000,
-  'LIVE_SEARCH_BUDGET_MS must be 30-45 seconds');
+assert(shared.LIVE_SEARCH_BUDGET_MS >= 90000, 'LIVE_SEARCH_BUDGET_MS must be at least 90 seconds');
+assert(typeof shared.withLiveSearchRetry === 'function', 'withLiveSearchRetry is exported');
+assert(shared.isCommunicationError(new Error('fetch failed')), 'detect fetch failed as communication error');
+assert(!shared.isCommunicationError(new Error('missing key')), 'do not treat other errors as communication');
 
 const timeoutErr = shared.liveSearchTimeoutError();
 assert(timeoutErr.code === 'LIVE_SEARCH_TIMEOUT', 'liveSearchTimeoutError code');
 assert(shared.isLiveSearchTimeoutError(timeoutErr), 'detect timeout error object');
-assert(shared.isLiveSearchTimeoutError(new Error('Gateway timeout')), 'detect gateway timeout text');
-assert(!shared.isLiveSearchTimeoutError(new Error('missing key')), 'do not treat other errors as timeout');
 
 const started = Date.now();
 shared.withHardTimeout(new Promise(function () { /* never settles */ }), 40, 'test')
@@ -29,6 +29,17 @@ shared.withHardTimeout(new Promise(function () { /* never settles */ }), 40, 'te
   .catch(function (err) {
     assert(shared.isLiveSearchTimeoutError(err), 'withHardTimeout rejects as timeout');
     assert(Date.now() - started < 400, 'withHardTimeout fires quickly');
+
+    return shared.withLiveSearchRetry(function () {
+      return Promise.reject(new Error('fetch failed'));
+    }, { retries: 1, budgetMs: 50 });
+  })
+  .then(function () {
+    console.error('FAIL: withLiveSearchRetry should reject after retries');
+    process.exit(1);
+  })
+  .catch(function (err) {
+    assert(/fetch failed/i.test(err && err.message ? err.message : ''), 'retry exhausts communication errors');
 
     const fromMaster = phaseC.extractPhaseCFromArchiveMatch({
       resultData: {
@@ -69,13 +80,14 @@ shared.withHardTimeout(new Promise(function () { /* never settles */ }), 40, 'te
     }, 'כיתה ז׳', 'רנסנס');
     assert(fromBlockPlan && fromBlockPlan.theory, 'extract Phase C from legacy blockPlan archive');
 
-    const skeleton = phaseC.buildPhaseCTimeoutSkeleton('כיתה ז׳', 'רנסנס');
-    assert(skeleton && skeleton.theory, 'timeout skeleton has theory');
-    const skeletonText = JSON.stringify(skeleton);
-    assert(/שלד|timeout|לא השיב בזמן/i.test(skeletonText), 'skeleton explains the timeout fallback');
+    const template = phaseC.buildPhaseCPedagogicalTemplate('כיתה ז׳', 'רנסנס');
+    assert(template && template.theory, 'pedagogical template has theory');
+    const templateText = JSON.stringify(template);
+    assert(!/לא השיב בזמן|שלד ראשוני|timeout_skeleton/i.test(templateText), 'template has no timeout/empty-skeleton copy');
+    assert(/מצפן|כיתה ז|רנסנס/i.test(templateText), 'template uses existing grade compass prose for the topic');
 
     const unwrapped = phaseC.unwrapArchivePhaseCData({ purePhaseC: { theory: { title: 'x' } } });
     assert(unwrapped && unwrapped.theory && unwrapped.theory.title === 'x', 'unwrap purePhaseC wrapper');
 
-    console.log('OK planner archive-first + 40s live-search timeout fallback');
+    console.log('OK planner archive-first + 90s live search + pedagogical template');
   });

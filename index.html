@@ -8410,7 +8410,7 @@
     // (including server heartbeats), so a long-but-healthy generation is never cut off.
     const STREAM_IDLE_TIMEOUT_MS = 45000;
     const CURRICULUM_REQUEST_TIMEOUT_MS = 60000;
-    const PURE_API_TIMEOUT_MS = 50000;
+    const PURE_API_TIMEOUT_MS = 100000;
     const ARCHIVE_PROBE_TIMEOUT_MS = 8000;
     var archiveCurriculumHealInFlight = null;
 
@@ -27527,16 +27527,10 @@
         return;
       }
       resultsEl.classList.remove('hidden');
-      var fallbackBanner = '';
-      if (meta && meta.fallback) {
-        fallbackBanner = '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-info ml-1"></i> ' +
-          escapeHtml(meta.userNotice || t('topic_research_fallback_timeout')) + '</p>';
-      }
       var curriculumHtml = (data.periodBlock || (data.curriculum && data.curriculum.length))
         ? renderGeneralSearchCurriculumSection(data.curriculum)
         : '';
       resultsEl.innerHTML =
-        fallbackBanner +
         '<div class="pure-phase-c-grid">' +
         '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.developmental_axis, { blockPath: 'developmental_axis', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
         '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.core_pedagogical_emphases, { blockPath: 'core_pedagogical_emphases', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
@@ -27630,8 +27624,8 @@
         if (netErr && netErr.name === 'AbortError') {
           if (signal && signal.aborted) throw netErr;
           var timeoutErr = new Error(isEnglish()
-            ? 'Live search did not respond in time. Showing available archive materials or a starter outline.'
-            : 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים במאגר או שלד ראשוני.');
+            ? 'Network error while contacting the research server. Please try again.'
+            : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.');
           timeoutErr.code = 'LIVE_SEARCH_TIMEOUT';
           throw timeoutErr;
         }
@@ -31630,21 +31624,13 @@
 
         const data = response.data;
         const meta = response.meta || {};
-        var statusMsg;
-        if (meta.fallback) {
-          statusMsg = meta.userNotice || t('topic_research_fallback_timeout') ||
-            (isEnglish()
-              ? 'Live search did not respond in time. Showing available materials.'
-              : 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים.');
-        } else if (meta.fromCache) {
-          statusMsg = isEnglish()
+        var statusMsg = meta.fromCache
+          ? (isEnglish()
             ? 'Loaded from archive — review the topic summary, then open Step C when ready.'
-            : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.';
-        } else {
-          statusMsg = isEnglish()
+            : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.')
+          : (isEnglish()
             ? 'Research complete — review the topic summary, then open Step C when ready.'
-            : 'המחקר הושלם — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.';
-        }
+            : 'המחקר הושלם — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.');
         commitPurePhaseCToStepB(topic, data, Object.assign({}, meta, {
           statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
             escapeHtml(statusMsg) + '</p>',

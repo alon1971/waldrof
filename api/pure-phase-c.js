@@ -3130,17 +3130,16 @@ async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
   const userPrompt = buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic);
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
-    const modelResult = await shared.withHardTimeout(
-      callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+    const modelResult = await shared.withLiveSearchRetry(function () {
+      return callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
         phase: 'topic_master',
         grade: grade,
         gradeLabel: grade,
         topic: topic,
         max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
         totalTimeoutMs: shared.LIVE_SEARCH_BUDGET_MS,
-      }),
-      shared.LIVE_SEARCH_BUDGET_MS
-    );
+      });
+    });
     const parsed = modelResult.parsed;
     let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
     stampTopicMasterArchiveLinks(normalized, parsed);
@@ -3171,10 +3170,7 @@ async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
       data: safeNormalizePhaseCResponse(historic, grade, topic),
       meta: {
         fromCache: true,
-        fallback: true,
-        fallbackReason: shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error',
-        source: 'archive_upgrade_timeout_fallback',
-        userNotice: liveSearchUserNotice('archive'),
+        source: 'archive_upgrade_historic',
       },
     };
   }
@@ -3201,17 +3197,16 @@ async function runResearchExpandPhaseC(body, requestContext, teacher) {
   const userPrompt = buildResearchExpandPhaseCUserPrompt(historic, grade, topic);
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
-    const modelResult = await shared.withHardTimeout(
-      callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+    const modelResult = await shared.withLiveSearchRetry(function () {
+      return callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
         phase: 'topic_master',
         grade: grade,
         gradeLabel: grade,
         topic: topic,
         max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
         totalTimeoutMs: shared.LIVE_SEARCH_BUDGET_MS,
-      }),
-      shared.LIVE_SEARCH_BUDGET_MS
-    );
+      });
+    });
     const parsed = modelResult.parsed;
     let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
     stampTopicMasterArchiveLinks(normalized, parsed);
@@ -3249,10 +3244,7 @@ async function runResearchExpandPhaseC(body, requestContext, teacher) {
       data: safeNormalizePhaseCResponse(historic, grade, topic),
       meta: {
         fromCache: true,
-        fallback: true,
-        fallbackReason: shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error',
-        source: 'research_expand_timeout_fallback',
-        userNotice: liveSearchUserNotice('archive'),
+        source: 'research_expand_historic',
       },
     };
   }
@@ -3368,36 +3360,25 @@ function extractPhaseCFromArchiveMatch(match, grade, topic) {
   return null;
 }
 
-function buildPhaseCTimeoutSkeleton(grade, topic) {
+function buildPhaseCPedagogicalTemplate(grade, topic) {
   const topicStr = String(topic || 'נושא').trim();
-  const gradeStr = String(grade || '').trim();
-  const notice = 'החיפוש החי לא השיב בזמן. זהו שלד ראשוני לבניית התקופה — ניתן להרחיב את המחקר מאוחר יותר.';
+  const paragraphs = buildGradeDefaultCoreEmphasesParagraphs(grade, topicStr);
+  const essay = paragraphs.join('\n\n');
+  const theory = buildTheoryFallbackSections(essay, paragraphs, topicStr);
+  const coreHtml = buildCoreEmphasesFallbackHtml(paragraphs, essay, grade, topicStr);
+  const keyPoints = buildDistinctKeyPointsFromEssay(essay, paragraphs, grade, topicStr);
   return safeNormalizePhaseCResponse({
     theory: {
-      title: 'שלד ראשוני — ' + topicStr,
-      sections: [{
-        heading: 'מתווה ראשוני לתקופה',
-        content: notice + '\n\nתקופת «' + topicStr + '»' +
-          (gradeStr ? ' ל' + gradeStr : '') +
-          ': התחילו ממהות הנושא, התאמה לגיל, וציר התפתחותי. השלימו רקע תיאורטי, השראה פדגוגית ומערך ימים לאחר מכן.',
-      }],
+      title: topicStr,
+      sections: theory.sections && theory.sections.length
+        ? theory.sections
+        : [{ heading: 'מצפן התפתחותי', content: essay, icon: 'fa-compass' }],
     },
-    core_emphases: notice,
-    key_points: [
-      'הגדירו את מהות הנושא ואת התאמתו' + (gradeStr ? ' ל' + gradeStr : '') + '.',
-      'בנו ציר התפתחותי רציף לימי השיעור הראשי.',
-      'הוסיפו השראה אמנותית וסיפורית לאחר שהשלד יציב.',
-    ],
-    _timeoutFallback: true,
+    core_emphases: coreHtml,
+    key_points: keyPoints,
     _normalizeFallback: true,
+    _pedagogicalTemplate: true,
   }, grade, topicStr);
-}
-
-function liveSearchUserNotice(kind) {
-  if (kind === 'skeleton') {
-    return 'החיפוש החי לא השיב בזמן. מוצג שלד ראשוני לבניית התקופה — ניתן להרחיב מאוחר יותר.';
-  }
-  return 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים במאגר.';
 }
 
 async function lookupLocalTopicArchive(gradeId, topic, grade, options) {
@@ -3474,42 +3455,35 @@ async function lookupLocalTopicArchive(gradeId, topic, grade, options) {
     : null;
 }
 
-function serveArchiveFallback(hit, reason) {
+function serveArchiveFallback(hit) {
   return {
     data: hit.data,
     meta: {
       fromCache: true,
-      fallback: true,
-      fallbackReason: reason || 'live_search_timeout',
       cacheKey: hit.cacheKey || undefined,
-      source: hit.source || 'archive_fallback',
-      userNotice: liveSearchUserNotice('archive'),
+      source: hit.source || 'consolidated_archive',
     },
   };
 }
 
-function serveTimeoutSkeleton(grade, topic, reason) {
+function servePedagogicalTemplate(grade, topic) {
   return {
-    data: buildPhaseCTimeoutSkeleton(grade, topic),
+    data: buildPhaseCPedagogicalTemplate(grade, topic),
     meta: {
       fromCache: false,
-      fallback: true,
-      fallbackReason: reason || 'live_search_timeout',
-      source: 'timeout_skeleton',
-      userNotice: liveSearchUserNotice('skeleton'),
+      source: 'pedagogical_template',
     },
   };
 }
 
 async function fallbackAfterLiveSearchFailure(err, gradeId, topic, grade) {
   if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
-  const reason = shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error';
-  console.warn('[pure-phase-c] live search failed —', reason + ':', err && err.message ? err.message : err);
+  console.warn('[pure-phase-c] live search communication failed:', err && err.message ? err.message : err);
   const fallback = await lookupLocalTopicArchive(gradeId, topic, grade, { allowPartial: true });
   if (fallback && fallback.data) {
-    return serveArchiveFallback(fallback, reason);
+    return serveArchiveFallback(fallback);
   }
-  return serveTimeoutSkeleton(grade, topic, reason);
+  return servePedagogicalTemplate(grade, topic);
 }
 
 async function runPurePhaseC(body, requestContext) {
@@ -3618,17 +3592,16 @@ async function runPurePhaseC(body, requestContext) {
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
     console.log('[pure-phase-c] live web research (community summary decoupled)');
-    const modelResult = await shared.withHardTimeout(
-      callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+    const modelResult = await shared.withLiveSearchRetry(function () {
+      return callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
         phase: 'topic_master',
         grade: grade,
         gradeLabel: grade,
         topic: topic,
         max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
         totalTimeoutMs: shared.LIVE_SEARCH_BUDGET_MS,
-      }),
-      shared.LIVE_SEARCH_BUDGET_MS
-    );
+      });
+    });
     const parsed = modelResult.parsed;
     let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
     stampTopicMasterArchiveLinks(normalized, parsed);
@@ -3774,7 +3747,7 @@ module.exports = {
   tab3FieldPlainLen,
   stampTopicMasterArchiveLinks,
   extractPhaseCFromArchiveMatch,
-  buildPhaseCTimeoutSkeleton,
+  buildPhaseCPedagogicalTemplate,
   lookupLocalTopicArchive,
   unwrapArchivePhaseCData,
   collectPhaseCLinkUrlList,
