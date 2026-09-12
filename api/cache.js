@@ -2,9 +2,9 @@
  * cached_results — Supabase-backed Perplexity / live-web pedagogical API cache.
  * Local JSON fallback when Supabase is unavailable.
  *
- * CACHE SOURCE ISOLATION: this table is Perplexity/web only.
- * Community Drive Gemini summaries use community_drive_archive
- * (see api/community-drive-archive.js). Do not cross-read or cross-write.
+ * CACHE SOURCE ISOLATION: Perplexity/web reads and writes stay in cached_results.
+ * community_drive_archive is served first on topic+grade probes; successful topic_master
+ * live research is mirrored there (one-way) after setTopicMasterCache saves.
  * Env: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (preferred) or SUPABASE_ANON_KEY.
  */
 const crypto = require('crypto');
@@ -3324,7 +3324,39 @@ async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData, owner
     if (ownerBody.userId) body.userId = ownerBody.userId;
     if (ownerBody.userEmail) body.userEmail = String(ownerBody.userEmail).trim().toLowerCase();
   }
-  return setCachedResult(body, safe);
+  const savedKey = await setCachedResult(body, safe);
+  if (savedKey) {
+    try {
+      const phaseC = require('./pure-phase-c');
+      const communityArchive = require('./community-drive-archive');
+      if (
+        phaseC
+        && typeof phaseC.isThinGenericPhaseCPayload === 'function'
+        && typeof phaseC.phaseCHasFilledTheory === 'function'
+        && typeof phaseC.buildArchiveSummaryMdFromPhaseC === 'function'
+        && communityArchive
+        && typeof communityArchive.persistLiveResearchToCommunityArchive === 'function'
+        && !phaseC.isThinGenericPhaseCPayload(safe)
+        && phaseC.phaseCHasFilledTheory(safe)
+      ) {
+        const summaryMd = phaseC.buildArchiveSummaryMdFromPhaseC(safe, gradeLabel || gid, topicStr);
+        await communityArchive.persistLiveResearchToCommunityArchive({
+          topic: topicStr,
+          searchQuery: topicStr,
+          gradeId: gid,
+          summaryMd: summaryMd,
+          phase: TOPIC_MASTER_PHASE,
+          model: 'perplexity',
+        });
+      }
+    } catch (mirrorErr) {
+      console.warn(
+        '[community-drive-archive] topic_master live mirror failed:',
+        mirrorErr && mirrorErr.message ? mirrorErr.message : mirrorErr
+      );
+    }
+  }
+  return savedKey;
 }
 
 function generalSearchCacheVariantMatches(data, periodBlock) {

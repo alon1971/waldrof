@@ -12,7 +12,9 @@ function assert(condition, message) {
 }
 
 assert(shared.LIVE_SEARCH_BUDGET_MS >= 90000, 'LIVE_SEARCH_BUDGET_MS must be at least 90 seconds');
+assert(shared.LIVE_SEARCH_COMM_RETRY_COUNT === 2, 'LIVE_SEARCH_COMM_RETRY_COUNT must allow 2 background retries');
 assert(typeof shared.withLiveSearchRetry === 'function', 'withLiveSearchRetry is exported');
+assert(typeof shared.sleepMs === 'function', 'sleepMs is exported');
 assert(shared.isCommunicationError(new Error('fetch failed')), 'detect fetch failed as communication error');
 assert(!shared.isCommunicationError(new Error('missing key')), 'do not treat other errors as communication');
 
