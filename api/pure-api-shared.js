@@ -277,14 +277,27 @@ function badRequest(message) {
   return err;
 }
 
-/** Hard cap for live Perplexity / Gemini calls on planner topic + general search. */
-const LIVE_SEARCH_BUDGET_MS = 40000;
+/** Hard cap for one live Perplexity / Gemini attempt on planner topic + general search. */
+const LIVE_SEARCH_BUDGET_MS = 90000;
+const LIVE_SEARCH_COMM_RETRY_COUNT = 1;
 
 function isLiveSearchTimeoutError(err) {
   if (!err) return false;
   if (err.code === 'LIVE_SEARCH_TIMEOUT' || err.name === 'AbortError') return true;
   const msg = err instanceof Error ? err.message : String(err);
   return /timeout|חוסר תגובה|aborted|Gateway timeout/i.test(msg);
+}
+
+function isCommunicationError(err) {
+  if (isLiveSearchTimeoutError(err)) return true;
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR|שגיאת רשת|network/i.test(msg);
+}
+
+/** Retry only fast network failures — not a full-budget timeout (would double the wait). */
+function isRetriableCommunicationError(err) {
+  if (isLiveSearchTimeoutError(err)) return false;
+  return isCommunicationError(err);
 }
 
 function liveSearchTimeoutError(message) {
@@ -305,6 +318,25 @@ function withHardTimeout(promise, ms, message) {
   return Promise.race([promise, timeoutPromise]).finally(function () {
     if (timer) clearTimeout(timer);
   });
+}
+
+/** One extra attempt on genuine network / timeout failures only — never on 401/429. */
+async function withLiveSearchRetry(factory, options) {
+  const opts = options || {};
+  const attempts = (opts.retries != null ? Number(opts.retries) : LIVE_SEARCH_COMM_RETRY_COUNT) + 1;
+  const budget = opts.budgetMs || LIVE_SEARCH_BUDGET_MS;
+  let lastErr = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await withHardTimeout(factory(), budget);
+    } catch (err) {
+      lastErr = err;
+      if (err && (err.statusCode === 429 || err.statusCode === 401 || err.statusCode === 403)) throw err;
+      if (!isRetriableCommunicationError(err) || i === attempts - 1) throw err;
+      console.warn('[pure-api] communication error — retry', i + 1, err.message || err);
+    }
+  }
+  throw lastErr;
 }
 
 const PROFESSIONAL_LINKS_INSTRUCTION = [
@@ -388,9 +420,13 @@ module.exports = {
   createLegacyPostHandler,
   badRequest,
   LIVE_SEARCH_BUDGET_MS,
+  LIVE_SEARCH_COMM_RETRY_COUNT,
   isLiveSearchTimeoutError,
+  isCommunicationError,
+  isRetriableCommunicationError,
   liveSearchTimeoutError,
   withHardTimeout,
+  withLiveSearchRetry,
   PROFESSIONAL_LINKS_INSTRUCTION,
   STRUCTURAL_COMPLETENESS_INSTRUCTION,
   PEDAGOGICAL_DEPTH_INSTRUCTION,
