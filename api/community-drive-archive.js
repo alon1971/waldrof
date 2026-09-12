@@ -155,11 +155,121 @@ function parseGeminiSummaryJson(rawText) {
   }
 }
 
+const GRADE_ESSENCE_SEARCH_QUERY = 'grade_essence';
+let warnedMissingServiceRole = false;
+
 function getSupabaseConfig() {
+  const serviceKey = env.getSupabaseServiceRoleKey();
+  const hasServiceRole = typeof env.hasRealServiceRoleKey === 'function'
+    ? env.hasRealServiceRoleKey()
+    : Boolean(serviceKey);
+  if (!hasServiceRole && !warnedMissingServiceRole) {
+    warnedMissingServiceRole = true;
+    console.warn(
+      '[community-drive-archive] SUPABASE_SERVICE_ROLE_KEY is missing or is not service_role — '
+      + 'topic rows in community_drive_archive may be hidden by RLS. Grade essence can still appear if those rows are publicly readable.'
+    );
+  }
   return {
     url: env.getSupabaseUrl(),
-    key: env.getSupabaseServiceRoleKey() || env.getSupabaseServerKey(),
+    key: serviceKey || env.getSupabaseServerKey(),
   };
+}
+
+function escapePostgrestIlikeValue(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/[*%,()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** PostgREST ILIKE: `.ilike('search_query', %topic%)` → `ilike.*topic*`. */
+function buildSearchQueryIlikeFilter(topic) {
+  const topicNorm = escapePostgrestIlikeValue(String(topic || '').trim());
+  if (!topicNorm) return '';
+  return 'ilike.*' + topicNorm + '*';
+}
+
+function archiveRowSearchQuery(row) {
+  return String((row && (row.search_query || row.query_text || '')) || '').trim();
+}
+
+function archiveRowHasUsableContent(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (String(row.summary_md || row.summary_text || '').trim()) return true;
+  if (Array.isArray(row.file_refs) && row.file_refs.length) return true;
+  if (Array.isArray(row.source_file_ids) && row.source_file_ids.length) return true;
+  return false;
+}
+
+function isGradeEssenceArchiveRow(row) {
+  return stableNormalize(archiveRowSearchQuery(row)) === GRADE_ESSENCE_SEARCH_QUERY;
+}
+
+function archiveRowGradeId(row) {
+  return normalizeArchiveGradeId(
+    (row && (row.grade_id || row.grade_level || row.gradeId || '')) || ''
+  );
+}
+
+/**
+ * Rank topic archive rows. Topic materials live under search_query = explicit
+ * name (e.g. 'רנסנס'); grade materials use search_query = 'grade_essence'.
+ */
+function pickBestArchiveRowsBySearchQuery(rows, topic, gradeId) {
+  const topicNorm = String(topic || '').trim();
+  const topicKey = stableNormalize(topicNorm);
+  const gid = normalizeArchiveGradeId(gradeId);
+  const list = (Array.isArray(rows) ? rows : []).filter(function (row) {
+    if (!row || isGradeEssenceArchiveRow(row)) return false;
+    if (!archiveRowHasUsableContent(row)) return false;
+    if (!topicKey) return true;
+    const stored = stableNormalize(archiveRowSearchQuery(row));
+    if (!stored) return false;
+    return stored === topicKey || stored.indexOf(topicKey) >= 0 || topicKey.indexOf(stored) >= 0;
+  });
+  list.sort(function (a, b) {
+    const aQuery = stableNormalize(archiveRowSearchQuery(a));
+    const bQuery = stableNormalize(archiveRowSearchQuery(b));
+    const aExact = aQuery === topicKey ? 1 : 0;
+    const bExact = bQuery === topicKey ? 1 : 0;
+    if (aExact !== bExact) return bExact - aExact;
+    const aGrade = gid && archiveRowGradeId(a) === gid ? 1 : 0;
+    const bGrade = gid && archiveRowGradeId(b) === gid ? 1 : 0;
+    if (aGrade !== bGrade) return bGrade - aGrade;
+    const aSummary = String(a.summary_md || a.summary_text || '').trim().length;
+    const bSummary = String(b.summary_md || b.summary_text || '').trim().length;
+    if (aSummary !== bSummary) return bSummary - aSummary;
+    return archiveTimestampMs(b) - archiveTimestampMs(a);
+  });
+  return list;
+}
+
+function collectFileRefsFromArchiveRows(rows) {
+  const seen = {};
+  const refs = [];
+  (rows || []).forEach(function (row) {
+    const list = Array.isArray(row && row.file_refs) ? row.file_refs : [];
+    list.forEach(function (ref) {
+      if (!ref) return;
+      const id = String(ref.driveFileId || ref.id || ref.fileId || '').trim();
+      const name = String(ref.name || ref.fileName || '').trim();
+      const key = id || name;
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      refs.push(ref);
+    });
+  });
+  return refs;
+}
+
+function collectSummariesFromArchiveRows(rows) {
+  return (rows || []).map(function (row) {
+    return String((row && (row.summary_md || row.summary_text)) || '').trim();
+  }).filter(function (text) {
+    return text.length >= 40;
+  });
 }
 
 function stableNormalize(value) {
@@ -625,14 +735,104 @@ async function fetchArchiveRow(archiveKey) {
 }
 
 /**
- * Fallback archive lookup by normalized grade + topic (when archive_key changed).
- * Tries exact topic, search_query, and ilike contains.
+ * Topic materials are stored as search_query = explicit topic name (e.g. 'רנסנס').
+ * Grade materials use search_query = 'grade_essence'. Never filter topic lookups
+ * by the topic/subject column first — that misses the stored rows.
+ *
+ * Equivalent to:
+ *   .from('community_drive_archive').select('*').ilike('search_query', `%${topic.trim()}%`)
  */
-async function fetchArchiveRowByTopicGrade(topic, gradeId) {
+async function fetchArchiveRowsBySearchQuery(topic, gradeId) {
   const cfg = getSupabaseConfig();
   const topicNorm = String(topic || '').trim();
+  if (!cfg.url || !cfg.key || !topicNorm) return [];
+  if (stableNormalize(topicNorm) === GRADE_ESSENCE_SEARCH_QUERY) return [];
+
+  async function query(extra) {
+    const params = new URLSearchParams();
+    params.set('select', '*');
+    params.set('order', 'updated_at.desc');
+    params.set('limit', extra && extra.limit ? String(extra.limit) : '20');
+    Object.keys(extra || {}).forEach(function (k) {
+      if (k === 'limit') return;
+      params.set(k, extra[k]);
+    });
+    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
+      headers: {
+        apikey: cfg.key,
+        Authorization: 'Bearer ' + cfg.key,
+        Accept: 'application/json',
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn(
+        '[community-drive-archive] search_query lookup failed:',
+        res.status,
+        String(text || '').slice(0, 200)
+      );
+      return [];
+    }
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  const ilikeFilter = buildSearchQueryIlikeFilter(topicNorm);
+  const attempts = [
+    { search_query: 'eq.' + topicNorm },
+    { search_query: ilikeFilter },
+    { query_text: 'eq.' + topicNorm },
+    { query_text: ilikeFilter },
+  ];
+
+  let collected = [];
+  const seen = {};
+  for (let i = 0; i < attempts.length; i++) {
+    if (!attempts[i].search_query && !attempts[i].query_text) continue;
+    const rows = await query(attempts[i]);
+    rows.forEach(function (row) {
+      const key = String((row && (row.id || row.archive_key)) || '') || JSON.stringify(row);
+      if (seen[key]) return;
+      seen[key] = true;
+      collected.push(row);
+    });
+    if (collected.length) break;
+  }
+
+  const ranked = pickBestArchiveRowsBySearchQuery(collected, topicNorm, gradeId);
+  if (ranked.length) {
+    console.log(
+      '[community-drive-archive] search_query HIT | query='
+      + topicNorm.slice(0, 40)
+      + ' | rows=' + ranked.length
+      + ' | grade=' + (normalizeArchiveGradeId(gradeId) || 'any')
+    );
+  } else {
+    console.log(
+      '[community-drive-archive] search_query MISS | query=' + topicNorm.slice(0, 40)
+    );
+  }
+  return ranked;
+}
+
+async function fetchArchiveRowBySearchQuery(topic, gradeId) {
+  const rows = await fetchArchiveRowsBySearchQuery(topic, gradeId);
+  return rows[0] || null;
+}
+
+/**
+ * Fallback archive lookup by search_query first, then legacy topic column.
+ */
+async function fetchArchiveRowByTopicGrade(topic, gradeId) {
+  const topicNorm = String(topic || '').trim();
   const gid = normalizeArchiveGradeId(gradeId);
-  if (!cfg.url || !cfg.key || !topicNorm || !gid) return null;
+  if (!topicNorm) return null;
+
+  const fromSearchQuery = await fetchArchiveRowBySearchQuery(topicNorm, gid);
+  if (fromSearchQuery) return fromSearchQuery;
+
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.key || !gid) return null;
 
   async function query(extra) {
     const params = new URLSearchParams();
@@ -649,12 +849,14 @@ async function fetchArchiveRowByTopicGrade(topic, gradeId) {
         Authorization: 'Bearer ' + cfg.key,
       },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const rows = await res.json();
     return Array.isArray(rows) && rows.length ? rows : [];
   }
 
   function pickBest(rows) {
+    const ranked = pickBestArchiveRowsBySearchQuery(rows, topicNorm, gid);
+    if (ranked.length) return ranked[0];
     if (!rows || !rows.length) return null;
     const withSummary = rows.filter(function (r) {
       return r && String(r.summary_md || r.summary_text || '').trim();
@@ -662,6 +864,7 @@ async function fetchArchiveRowByTopicGrade(topic, gradeId) {
     return withSummary[0] || rows[0] || null;
   }
 
+  const ilikeFilter = buildSearchQueryIlikeFilter(topicNorm);
   let rows = await query({
     topic: 'eq.' + topicNorm,
     grade_id: 'eq.' + gid,
@@ -677,28 +880,14 @@ async function fetchArchiveRowByTopicGrade(topic, gradeId) {
   if (row) return row;
 
   rows = await query({
-    search_query: 'eq.' + topicNorm,
+    topic: ilikeFilter,
     grade_id: 'eq.' + gid,
   });
   row = pickBest(rows);
   if (row) return row;
 
   rows = await query({
-    search_query: 'eq.' + topicNorm,
-    grade_level: 'eq.' + gid,
-  });
-  row = pickBest(rows);
-  if (row) return row;
-
-  rows = await query({
-    topic: 'ilike.' + encodeURIComponent('*' + topicNorm + '*'),
-    grade_id: 'eq.' + gid,
-  });
-  row = pickBest(rows);
-  if (row) return row;
-
-  rows = await query({
-    topic: 'ilike.' + encodeURIComponent('*' + topicNorm + '*'),
+    topic: ilikeFilter,
     grade_level: 'eq.' + gid,
   });
   return pickBest(rows);
@@ -834,8 +1023,7 @@ async function tryInstantArchiveRetrieval(query, options) {
   const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || '');
   const topic = String(opts.topic || opts.catalogTopic || q).trim();
   if (!gradeId) {
-    logArchiveMiss('missing grade_level after normalization');
-    return null;
+    console.log('[community-drive-archive] no grade_level — still looking up search_query=' + topic.slice(0, 40));
   }
   const normalizedOpts = Object.assign({}, opts, {
     gradeId: gradeId,
@@ -873,6 +1061,18 @@ async function tryInstantArchiveRetrieval(query, options) {
       break;
     }
     existing = null;
+  }
+
+  if (!existing) {
+    try {
+      existing = await fetchArchiveRowBySearchQuery(topic, gradeId);
+      if (existing) lookupPath = 'search_query';
+    } catch (searchQueryErr) {
+      console.warn(
+        '[community-drive-archive] search_query lookup failed:',
+        searchQueryErr.message || searchQueryErr
+      );
+    }
   }
 
   if (!existing) {
@@ -2150,7 +2350,15 @@ module.exports = {
   PROMPT_VERSION,
   MAX_GEMINI_INLINE_BYTES,
   MAX_GEMINI_MULTIMODAL_BYTES,
+  GRADE_ESSENCE_SEARCH_QUERY,
   buildArchiveKey,
+  buildSearchQueryIlikeFilter,
+  pickBestArchiveRowsBySearchQuery,
+  collectFileRefsFromArchiveRows,
+  collectSummariesFromArchiveRows,
+  fetchArchiveRowsBySearchQuery,
+  fetchArchiveRowBySearchQuery,
+  fetchArchiveRowByTopicGrade,
   buildSourceFingerprint,
   buildMaterialsFingerprint,
   buildCitationsPayload,

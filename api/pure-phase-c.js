@@ -115,10 +115,17 @@ function formatArchiveSourceEssay(files, extraTexts) {
  * (docx / PDF / text / JSON) instead of a generic compass stub.
  */
 async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
-  const result = { essay: '', files: [], matches: [], ragContext: '' };
+  const result = {
+    essay: '',
+    files: [],
+    matches: [],
+    ragContext: '',
+    searchQueryHit: false,
+    archiveRows: [],
+  };
   const gid = String(gradeId || '').trim();
   const topicStr = String(topic || '').trim();
-  if (!gid || !topicStr) return result;
+  if (!topicStr) return result;
 
   try {
     const communitySearch = require('./community-search');
@@ -148,6 +155,12 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
         console.warn('[pure-phase-c] RAG retrieve failed:', err.message || err);
         return null;
       }),
+      communityDriveArchive.fetchArchiveRowsBySearchQuery
+        ? communityDriveArchive.fetchArchiveRowsBySearchQuery(topicStr, gid).catch(function (err) {
+          console.warn('[pure-phase-c] search_query archive lookup failed:', err.message || err);
+          return [];
+        })
+        : Promise.resolve([]),
       communityDriveArchive.tryInstantArchiveRetrieval(topicStr, {
         gradeId: gid,
         currentGrade: gid,
@@ -160,13 +173,29 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
 
     const probe = lookups[0];
     const ragResult = lookups[1];
-    const instant = lookups[2];
+    const archiveRows = Array.isArray(lookups[2]) ? lookups[2] : [];
+    const instant = lookups[3];
     const matches = (probe && Array.isArray(probe.matches)) ? probe.matches : [];
     result.matches = matches;
+    result.archiveRows = archiveRows;
+    result.searchQueryHit = archiveRows.length > 0;
 
-    const fileRefs = typeof communityDriveArchive.normalizeFileRefsFromMatches === 'function'
+    const matchRefs = typeof communityDriveArchive.normalizeFileRefsFromMatches === 'function'
       ? communityDriveArchive.normalizeFileRefsFromMatches(matches)
       : [];
+    const archiveRefs = typeof communityDriveArchive.collectFileRefsFromArchiveRows === 'function'
+      ? communityDriveArchive.collectFileRefsFromArchiveRows(archiveRows)
+      : [];
+    const instantRefs = instant && Array.isArray(instant.fileRefs) ? instant.fileRefs : [];
+    const fileRefs = [];
+    const seenRef = {};
+    matchRefs.concat(archiveRefs, instantRefs).forEach(function (ref) {
+      if (!ref) return;
+      const key = String(ref.driveFileId || ref.id || ref.name || ref.fileName || '').trim();
+      if (!key || seenRef[key]) return;
+      seenRef[key] = true;
+      fileRefs.push(ref);
+    });
 
     if (fileRefs.length && typeof driveCatalogSync.isDriveCatalogSyncConfigured === 'function'
         && driveCatalogSync.isDriveCatalogSyncConfigured()) {
@@ -190,14 +219,30 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
     }
 
     const extra = [];
+    const rowSummaries = typeof communityDriveArchive.collectSummariesFromArchiveRows === 'function'
+      ? communityDriveArchive.collectSummariesFromArchiveRows(archiveRows)
+      : [];
+    rowSummaries.forEach(function (summary) {
+      extra.push(summary);
+    });
     if (ragResult && ragResult.context) {
       result.ragContext = String(ragResult.context || '').trim();
       if (result.ragContext) extra.push(result.ragContext);
     }
     const instantSummary = instant && String(instant.summary || instant.summary_md || '').trim();
-    if (instantSummary && instantSummary.length >= 80) extra.push(instantSummary);
+    if (instantSummary && instantSummary.length >= 80 && extra.indexOf(instantSummary) < 0) {
+      extra.push(instantSummary);
+    }
 
     result.essay = formatArchiveSourceEssay(result.files, extra);
+    if (result.searchQueryHit) {
+      console.log(
+        '[pure-phase-c] search_query archive ready for Stage B/C | topic='
+        + topicStr.slice(0, 40)
+        + ' | rows=' + archiveRows.length
+        + ' | essayChars=' + result.essay.length
+      );
+    }
   } catch (err) {
     console.warn('[pure-phase-c] retrieveCommunityArchiveSources failed:', err.message || err);
   }
@@ -3872,6 +3917,32 @@ async function runPurePhaseC(body, requestContext) {
           cacheKey: cacheKey || undefined,
           source: archiveHit.source,
           communityMatches: archiveSources.matches || [],
+        },
+      };
+    }
+  }
+
+  if (!shouldBypassTopicMasterCache(body) && archiveSources.searchQueryHit && archiveSources.essay) {
+    const fromSearchQuery = buildPhaseCFromSourceEssay(
+      archiveSources.essay,
+      grade,
+      topic,
+      archiveSources
+    );
+    if (fromSearchQuery && !isThinGenericPhaseCPayload(fromSearchQuery)) {
+      console.log(
+        '[pure-phase-c] search_query row — filling Stage B/C immediately | topic=' + topic
+      );
+      return {
+        data: stripPhaseCWireOnlyFields(fromSearchQuery),
+        meta: {
+          fromCache: true,
+          fallback: false,
+          source: 'community_drive_archive_search_query',
+          communityMatches: archiveSources.matches || [],
+          archiveFiles: (archiveSources.files || []).map(function (file) {
+            return file && (file.name || file.fileName);
+          }).filter(Boolean),
         },
       };
     }
