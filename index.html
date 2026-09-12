@@ -1269,6 +1269,10 @@
       background: rgba(186, 214, 168, 0.28);
       color: #4d6b48;
     }
+    #home-view .home-panel-card:nth-child(6) .home-panel-icon {
+      background: rgba(158, 71, 42, 0.14);
+      color: #7e341c;
+    }
     /* Duplicate home banner removed — summary is available via its dedicated cube + top nav */
     #home-community-summarizer-sticky {
       display: none !important;
@@ -7340,6 +7344,12 @@
         <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-globe"></i></span>
         <h2 class="home-panel-title" data-i18n="home_panel_sites_title">רשימת אתרים אנתרופוסופיים</h2>
         <p class="home-panel-desc" data-i18n="home_panel_sites_desc">פורטלים יציבים, פודקאסטים ומשאבים בינלאומיים — ללא קישורים שבורים לבתי ספר בודדים.</p>
+        <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
+      </button>
+      <button type="button" class="home-panel-card" id="home-panel-site-home" data-home-nav="site-home">
+        <span class="home-panel-icon" aria-hidden="true"><i class="fa-solid fa-house"></i></span>
+        <h2 class="home-panel-title" data-i18n="home_panel_landing_title">לעמוד הראשי</h2>
+        <p class="home-panel-desc" data-i18n="home_panel_landing_desc">חזרה לדף השער: מאמרי הגות, הפדגוגיה המשחקית וארבעת העוגנים הפדגוגיים.</p>
         <span class="home-panel-cta"><span data-i18n="home_panel_cta">כניסה</span> <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></span>
       </button>
     </div>
@@ -25647,6 +25657,10 @@
           }
           if (dest === 'waldorf-sites') {
             openWaldorfSitesView({ resetScroll: true });
+            return;
+          }
+          if (dest === 'site-home') {
+            window.location.assign('/');
           }
         });
       }
