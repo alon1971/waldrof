@@ -1974,6 +1974,9 @@
     #btn-clear-topic-prose-server.server-cache-admin-visible:not(.hidden) {
       display: inline-flex !important;
     }
+    #btn-topic-load-archive {
+      display: none !important;
+    }
     #btn-topic-override-archive {
       display: none !important;
     }
@@ -7515,13 +7518,10 @@
             </div>
           </div>
           <div class="topic-research-actions flex flex-col sm:flex-row gap-2 mt-4">
-            <button type="button" id="btn-topic-load-archive"
-              class="touch-btn flex-1 bg-cream hover:bg-parchment active:bg-parchment text-walnut font-medium rounded-xl border border-sage/40">
-              <i class="fa-solid fa-box-archive icon-inline"></i> <span data-i18n="btn_topic_load_archive">טען נושא מהארכיון</span>
-            </button>
+            <button type="button" id="btn-topic-load-archive" class="hidden" hidden aria-hidden="true" tabindex="-1"></button>
             <button type="button" id="btn-topic-research"
-              class="touch-btn flex-1 bg-sage hover:bg-sage-dark active:bg-sage-dark text-white font-medium rounded-xl">
-              <i class="fa-solid fa-satellite-dish icon-inline"></i> <span data-i18n="btn_topic_research">חפש ברשת ונתח התאמה לגיל</span>
+              class="touch-btn w-full bg-sage hover:bg-sage-dark active:bg-sage-dark text-white font-medium rounded-xl">
+              <i class="fa-solid fa-magnifying-glass icon-inline"></i> <span data-i18n="btn_topic_research">חפש</span>
             </button>
           </div>
           <button type="button" id="btn-topic-override-archive"
@@ -30644,9 +30644,11 @@
       if (runId !== archiveResumeLookupRunId || document.hidden) return;
       if (!archiveMatch || archiveMatch.matchType !== 'exact') return;
       try {
-        presentArchivePartialMatch(topic, archiveMatch);
+        loadTopicFromArchiveProbeMatch(topic, archiveMatch).then(function (loaded) {
+          if (loaded && typeof updateTopicResearchButton === 'function') updateTopicResearchButton();
+        });
       } catch (archiveErr) {
-        console.warn('[archive-probe] resume prompt failed:', archiveErr);
+        console.warn('[archive-probe] resume load failed:', archiveErr);
       }
     }
 
@@ -32173,6 +32175,41 @@
       focusStepBTopicInput();
     }
 
+    async function loadTopicFromArchiveProbeMatch(topic, preArchiveMatch) {
+      setTopicResearchLoadingUi(true, { fromArchive: true });
+      var loaded = false;
+      try {
+        if (await applyTopicMasterArchivePayload(topic, preArchiveMatch)) {
+          loaded = true;
+        } else if (await applyArchiveTopicMatch(preArchiveMatch, {
+          closeChat: false,
+          userQuery: topic,
+          allowLiveFallback: false,
+        })) {
+          loaded = true;
+        } else if (preArchiveMatch && preArchiveMatch.cacheKey) {
+          var histOnly = await reloadArchiveLessonItem(preArchiveMatch.cacheKey);
+          if (histOnly) {
+            await applyLessonPlanFromHistory(histOnly, { userQuery: topic });
+            loaded = true;
+          }
+        }
+      } catch (loadErr) {
+        if (isBenignStreamAbortError(loadErr)) return false;
+        console.warn('[archive-probe] archive load failed:', loadErr);
+      }
+      if (!loaded) {
+        setTopicResearchLoadingUi(false);
+        var outArch = document.getElementById('web-research-result');
+        if (outArch) {
+          outArch.classList.remove('hidden');
+          outArch.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+            escapeHtml(t('archive_not_found')) + '</p>';
+        }
+      }
+      return loaded;
+    }
+
     async function generateLesson(options) {
       const genOpts = options || {};
       clearArchiveClarificationState();
@@ -32231,50 +32268,13 @@
           return;
         }
 
-        // 2) Archive hit — explicit «טען מהארכיון» loads immediately; live search shows choose banner.
+        // 2) Exact archive hit — load immediately (single «חפש» button; no extra choice for the teacher).
         if (archiveCheck.isArchiveHit && preArchiveMatch) {
           appState.topic = topic;
           document.getElementById('api-hint-step2').classList.add('hidden');
-          if (loadArchiveOnly) {
-            setTopicResearchLoadingUi(true, { fromArchive: true });
-            var archiveOnlyLoaded = false;
-            try {
-              if (await applyTopicMasterArchivePayload(topic, preArchiveMatch)) {
-                archiveOnlyLoaded = true;
-              } else if (await applyArchiveTopicMatch(preArchiveMatch, {
-                closeChat: false,
-                userQuery: topic,
-                allowLiveFallback: false,
-              })) {
-                archiveOnlyLoaded = true;
-              } else if (preArchiveMatch.cacheKey) {
-                var histOnly = await reloadArchiveLessonItem(preArchiveMatch.cacheKey);
-                if (histOnly) {
-                  await applyLessonPlanFromHistory(histOnly, { userQuery: topic });
-                  archiveOnlyLoaded = true;
-                }
-              }
-            } catch (loadErr) {
-              if (isBenignStreamAbortError(loadErr)) return;
-              console.warn('[archive-probe] loadArchiveOnly failed:', loadErr);
-            }
-            if (!archiveOnlyLoaded) {
-              setTopicResearchLoadingUi(false);
-              var outArch = document.getElementById('web-research-result');
-              if (outArch) {
-                outArch.classList.remove('hidden');
-                outArch.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
-                  escapeHtml(t('archive_not_found')) + '</p>';
-              }
-            }
-            updateTopicResearchButton();
-            return;
-          }
-          setTopicResearchLoadingUi(false);
-          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
-            return;
-          }
-          archiveHandled = true;
+          await loadTopicFromArchiveProbeMatch(topic, preArchiveMatch);
+          updateTopicResearchButton();
+          return;
         }
 
         // Partial suggestion UI is free — credit only if teacher later chooses live search.
@@ -35316,7 +35316,7 @@
         });
       }
       bindWizardNavClick(document.getElementById('btn-topic-load-archive'), function () {
-        generateLesson({ loadArchiveOnly: true, skipCreditConfirm: true });
+        generateLesson({ skipCreditConfirm: true });
       });
       bindWizardNavClick(document.getElementById('btn-topic-research'), function () {
         generateLesson();
@@ -35363,17 +35363,13 @@
 
     function updateTopicResearchButton() {
       const btn = document.getElementById('btn-topic-research');
-      const loadBtn = document.getElementById('btn-topic-load-archive');
       const overrideBtn = document.getElementById('btn-topic-override-archive');
       if (btn) {
         if (appState.topicResearchCompleted && !appState.isSearching) {
           btn.innerHTML = '<i class="fa-solid fa-rotate icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research_again')) + '</span>';
         } else {
-          btn.innerHTML = '<i class="fa-solid fa-satellite-dish icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research')) + '</span>';
+          btn.innerHTML = '<i class="fa-solid fa-magnifying-glass icon-inline"></i> <span>' + escapeHtml(t('btn_topic_research')) + '</span>';
         }
-      }
-      if (loadBtn) {
-        loadBtn.innerHTML = '<i class="fa-solid fa-box-archive icon-inline"></i> <span>' + escapeHtml(t('btn_topic_load_archive')) + '</span>';
       }
       if (overrideBtn) {
         overrideBtn.innerHTML = '<i class="fa-solid fa-rotate-right icon-inline"></i> <span>' + escapeHtml(t('btn_topic_override_archive')) + '</span>';
