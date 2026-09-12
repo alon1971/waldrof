@@ -28478,9 +28478,30 @@
     }
 
     async function confirmPaidSearchAction(options) {
-      // No client-side credit modal or pre-confirm gate — live search goes straight to the API.
-      // Quota, auth, and billing are enforced server-side on /api/pure-phase-c and related routes.
-      return true;
+      var opts = options || {};
+      // Archive/cache hits and free system actions never show the credit modal.
+      // Callers MUST run checkArchiveHit first; this is a hard safety net only.
+      if (opts.skipConfirm || opts.isArchiveHit || opts.fromCache || opts.free === true) {
+        return true;
+      }
+      if (opts.phase === 'chat_followup') return true;
+      if (typeof WaldorfAuth === 'undefined' || typeof WaldorfAuth.confirmCreditUsage !== 'function') {
+        return true;
+      }
+      try {
+        return await WaldorfAuth.confirmCreditUsage(opts);
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function resetTopicResearchUiAfterCreditDenied() {
+      setTopicResearchLoadingUi(false);
+      var btn = document.getElementById('btn-topic-research');
+      if (btn) {
+        btn.disabled = false;
+        updateTopicResearchButton();
+      }
     }
 
     async function probeArchiveCacheHit(action, payload) {
@@ -32264,7 +32285,10 @@
             isArchiveHit: false,
             fromCache: false,
           });
-          if (!creditOk) return;
+          if (!creditOk) {
+            resetTopicResearchUiAfterCreditDenied();
+            return;
+          }
         }
         archiveHandled = Boolean(archiveCheck.isPartial && preArchiveMatch);
       } else if (!genOpts.skipCreditConfirm) {
@@ -32274,7 +32298,10 @@
           isArchiveHit: false,
           fromCache: false,
         });
-        if (!creditOkLive) return;
+        if (!creditOkLive) {
+          resetTopicResearchUiAfterCreditDenied();
+          return;
+        }
       }
 
       document.getElementById('api-hint-step2').classList.add('hidden');
