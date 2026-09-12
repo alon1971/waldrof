@@ -3,6 +3,7 @@
  */
 const cacheDb = require('./cache');
 const communityDriveArchive = require('./community-drive-archive');
+const purePhaseC = require('./pure-phase-c');
 const knowledgeIngest = require('./knowledge-ingest');
 const authContext = require('./auth-context');
 const env = require('./env');
@@ -258,24 +259,34 @@ async function executeSearchHistory(req) {
         ? String((communityDriveArchive.extractArchiveRowContent(leanRow).text) || '').trim()
         : String((leanRow && (leanRow.summary_md || leanRow.summary_text)) || '').trim();
       if (leanText.length >= 40) {
+        const gradeLabel = String((body && body.gradeLabel) || gradeId || '').trim();
+        let payload = null;
+        try {
+          payload = typeof purePhaseC.buildPhaseCFromArchiveRows === 'function'
+            ? purePhaseC.buildPhaseCFromArchiveRows([leanRow], gradeLabel, topic)
+            : null;
+        } catch (buildErr) {
+          console.warn('[search-history] probe_topic lean build failed:', buildErr.message || buildErr);
+        }
         console.log('[search-history][debug] probe_topic lean HIT | topic=' + topic.slice(0, 40));
-        return {
-          ok: true,
-          action: 'probe_topic',
-          match: {
-            matchType: 'exact',
-            similarity: 1,
-            cacheKey: leanRow && leanRow.archive_key ? leanRow.archive_key : null,
-            suggestedTopic: topic,
-            archiveTitle: topic,
-            topic: topic,
-            requestedTopic: topic,
-            gradeId: gradeId,
-            gradeLabel: (body && body.gradeLabel) || null,
-            archiveSource: 'community_drive_archive_search_query',
-            communityDriveFast: true,
-          },
+        const match = {
+          matchType: 'exact',
+          similarity: 1,
+          cacheKey: leanRow && leanRow.archive_key ? leanRow.archive_key : null,
+          suggestedTopic: topic,
+          archiveTitle: topic,
+          topic: topic,
+          requestedTopic: topic,
+          gradeId: gradeId,
+          gradeLabel: gradeLabel || null,
+          archiveSource: 'community_drive_archive_search_query',
+          communityDriveFast: true,
         };
+        if (payload) {
+          match.historicPayload = payload;
+          match.resultData = { purePhaseC: payload };
+        }
+        return { ok: true, action: 'probe_topic', match: match };
       }
     } catch (leanErr) {
       console.warn('[search-history] probe_topic lean lookup failed:', leanErr.message || leanErr);

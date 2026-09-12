@@ -30087,15 +30087,32 @@
       }
     }
 
-    var PLANNER_CONTENT_LOADED_SCROLL_PX = 300;
-
-    function scrollQuarterPageAfterContentShown() {
+    /** Align loaded grade/topic card under sticky chrome (same landing for every class). */
+    function scrollPlannerContentIntoView(anchorEl) {
       requestAnimationFrame(function () {
-        try {
-          window.scrollBy({ top: PLANNER_CONTENT_LOADED_SCROLL_PX, left: 0, behavior: 'smooth' });
-        } catch (err) {
-          try { window.scrollBy(0, PLANNER_CONTENT_LOADED_SCROLL_PX); } catch (err2) { /* ignore */ }
-        }
+        requestAnimationFrame(function () {
+          var anchor = anchorEl ||
+            document.getElementById('grade-insights-panel') ||
+            document.getElementById('web-research-result');
+          if (!anchor || !anchor.isConnected) {
+            try {
+              window.scrollBy({ top: 420, left: 0, behavior: 'smooth' });
+            } catch (err) {
+              try { window.scrollBy(0, 420); } catch (err2) { /* ignore */ }
+            }
+            return;
+          }
+          var chrome = getStickyChromeHeight();
+          var rect = anchor.getBoundingClientRect();
+          var y = Math.max(0, Math.round(
+            rect.top + (window.scrollY || window.pageYOffset || 0) - chrome - 8
+          ));
+          try {
+            window.scrollTo({ top: y, left: 0, behavior: 'smooth' });
+          } catch (err3) {
+            try { window.scrollTo(0, y); } catch (err4) { /* ignore */ }
+          }
+        });
       });
     }
 
@@ -30122,8 +30139,16 @@
         if (options.openStepB !== false) {
           revealStepBAfterGradeResults();
         }
-        scrollQuarterPageAfterContentShown();
-        pendingRevealScrollEl = null;
+        var scrollAnchor = options.scrollAnchor ||
+          (options.openStepB === false
+            ? (document.getElementById('grade-insights-panel') || el)
+            : (document.getElementById('web-research-result') || el));
+        pendingRevealScrollEl = scrollAnchor || el;
+        scrollPlannerContentIntoView(scrollAnchor);
+        runAfterSmoothScroll(function () {
+          if (gen !== gradeRevealGeneration) return;
+          pendingRevealScrollEl = null;
+        });
       }
       if (!el || plannerContentLooksReady(el)) {
         finish();
@@ -30159,7 +30184,10 @@
       gradeResultsContainerRef.current = panel;
       notifyPlannerContentDisplayed(
         document.getElementById('grade-insights-body') || panel,
-        { openStepB: false }
+        {
+          openStepB: false,
+          scrollAnchor: panel || document.getElementById('grade-insights-panel'),
+        }
       );
     }
 
@@ -32117,10 +32145,27 @@
           setTopicResearchLoadingUi(true, { fromArchive: true });
           if (preArchiveMatch.communityDriveFast) {
             archiveHandled = true;
-          } else if (presentArchivePartialMatch(topic, preArchiveMatch)) {
+            try {
+              var instantLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
+              if (instantLoaded) {
+                setTopicResearchLoadingUi(false);
+                topicResearchAbort = null;
+                var instantBtn = document.getElementById('btn-topic-research');
+                if (instantBtn) {
+                  instantBtn.disabled = false;
+                  updateTopicResearchButton();
+                }
+                return;
+              }
+            } catch (instantErr) {
+              if (isBenignStreamAbortError(instantErr)) return;
+              console.warn('[archive-probe] communityDriveFast apply failed:', instantErr);
+            }
+          }
+          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
             return;
-          } else {
-          // presentArchivePartialMatch could not auto-load — try direct payload apply.
+          }
+          // Exact hit — try direct payload apply (also when lean probe had no embedded payload).
           try {
             var directLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
             if (directLoaded) return;
@@ -32152,7 +32197,6 @@
             updateTopicResearchButton();
           }
           return;
-          }
         }
 
         // Partial suggestion UI is free — credit only if teacher later chooses live search.
