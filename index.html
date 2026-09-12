@@ -30164,10 +30164,10 @@
           revealStepBAfterGradeResults();
         }
         var scrollAnchor = options.scrollAnchor ||
-          (options.openStepB === false
+          (options.gradeHalfPageScroll || options.openStepB === false
             ? (document.getElementById('grade-insights-panel') || el)
             : (document.getElementById('web-research-result') || el));
-        if (options.openStepB === false) {
+        if (options.gradeHalfPageScroll || options.openStepB === false) {
           scrollHalfPageAfterGradeContentLoaded(scrollAnchor || el);
         } else {
           pendingRevealScrollEl = scrollAnchor || el;
@@ -30213,7 +30213,7 @@
       notifyPlannerContentDisplayed(
         document.getElementById('grade-insights-body') || panel,
         {
-          openStepB: false,
+          gradeHalfPageScroll: true,
           scrollAnchor: panel || document.getElementById('grade-insights-panel'),
         }
       );
@@ -31372,17 +31372,11 @@
         if (runId !== gradeResearchRunId) return;
         gradeResearchAbort = null;
         setGradeInsightsLoadingUi(false);
-        // Unlock Step B nav only — keep Step A visible/active so the teacher
-        // can read the loaded grade content and move on when ready.
         appState.step = 1;
         appState.navSection = 'wizard';
         var step1Stay = document.getElementById('step-1');
-        var step2Stay = document.getElementById('step-2');
         if (step1Stay) step1Stay.classList.remove('hidden');
-        if (step2Stay) {
-          step2Stay.classList.add('hidden');
-          step2Stay.classList.remove('step-reveal-quiet');
-        }
+        revealStepBAfterGradeResults();
         enableWizardTopicStepNavigation();
         renderStepProgress();
         updateWorkspaceChrome();
