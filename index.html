@@ -30088,7 +30088,18 @@
       }
     }
 
-    var UNIFIED_REVEAL_SCROLL_GAP_PX = 16;
+    var CONTENT_LOADED_SCROLL_PX = 400;
+
+    /** After content is on screen: one gentle half-page scroll — no anchors, no class/topic branches. */
+    function scrollHalfPageAfterContentShown() {
+      requestAnimationFrame(function () {
+        try {
+          window.scrollBy({ top: CONTENT_LOADED_SCROLL_PX, left: 0, behavior: 'smooth' });
+        } catch (err) {
+          try { window.scrollBy(0, CONTENT_LOADED_SCROLL_PX); } catch (err2) { /* ignore */ }
+        }
+      });
+    }
 
     function contentElementIsReady(el) {
       if (!el || !el.isConnected) return false;
@@ -30146,63 +30157,30 @@
       };
     }
 
-    function scrollLoadedAnchorIntoView(anchor) {
-      if (!anchor || !anchor.isConnected) return;
-      var chrome = getStickyChromeHeight();
-      var rect = anchor.getBoundingClientRect();
-      var y = Math.max(0, Math.round(
-        rect.top + (window.scrollY || window.pageYOffset || 0) - chrome - UNIFIED_REVEAL_SCROLL_GAP_PX
-      ));
-      try {
-        window.scrollTo({ top: y, left: 0, behavior: 'smooth' });
-      } catch (err) {
-        try { window.scrollTo(0, y); } catch (err2) { /* ignore */ }
-      }
-    }
-
-    /**
-     * One reveal scroll for every class/topic: wait until content DOM is real, open Step B,
-     * then scroll by a fixed chrome offset — no grade/topic branches.
-     */
     function unifiedRevealStepBAfterContentLoad(contentWatchEl) {
       var watch = contentWatchEl ||
         document.getElementById('web-research-result') ||
         document.getElementById('grade-insights-body') ||
         document.getElementById('grade-insights-panel');
-      if (!watch) return;
+      if (!watch) {
+        revealStepBAfterGradeResults();
+        scrollHalfPageAfterContentShown();
+        return;
+      }
       var panel = document.getElementById('grade-insights-panel');
       if (panel && (watch === panel || watch.id === 'grade-insights-body')) {
         gradeResultsContainerRef.current = panel;
       }
       var gen = ++gradeRevealGeneration;
-      pendingRevealScrollEl = watch;
-      if (revealScrollTimer) {
-        clearTimeout(revealScrollTimer);
-        revealScrollTimer = null;
-      }
       if (typeof gradeRevealCancelWatch === 'function') {
         gradeRevealCancelWatch();
         gradeRevealCancelWatch = null;
       }
-
       gradeRevealCancelWatch = whenDomContentReady(watch, function () {
         if (gen !== gradeRevealGeneration) return;
         revealStepBAfterGradeResults();
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            if (gen !== gradeRevealGeneration) return;
-            var stepB = document.getElementById('step-2') ||
-              document.getElementById('step-b-container');
-            if (stepB) stepB.classList.remove('hidden');
-            var anchor = stepB || watch;
-            pendingRevealScrollEl = anchor;
-            scrollLoadedAnchorIntoView(anchor);
-            runAfterSmoothScroll(function () {
-              if (gen !== gradeRevealGeneration) return;
-              if (pendingRevealScrollEl === anchor) pendingRevealScrollEl = null;
-            });
-          });
-        });
+        scrollHalfPageAfterContentShown();
+        pendingRevealScrollEl = null;
       });
     }
 
@@ -31810,18 +31788,63 @@
       return true;
     }
 
+    function coerceStepBSectionContent(value) {
+      if (value == null) return '';
+      if (typeof value === 'object') {
+        if (Array.isArray(value.sections)) {
+          return value.sections.map(function (sec) {
+            return coerceStepBSectionContent(sec && (sec.content || sec.text || sec.body || sec));
+          }).filter(Boolean).join('\n\n');
+        }
+        return String(value.content || value.text || value.body || value.summary || '').trim();
+      }
+      var raw = String(value || '').trim();
+      if (!raw) return '';
+      if (raw.charAt(0) === '{' && /\b(sections|theory|core_emphases|title)\s*:/.test(raw)) {
+        var unpacked = tryUnpackPhaseCJsonTextForDisplay(raw);
+        if (unpacked) return unpacked;
+      }
+      return raw;
+    }
+
+    function tryUnpackPhaseCJsonTextForDisplay(raw) {
+      var text = String(raw || '').trim();
+      if (!text || text.charAt(0) !== '{') return '';
+      var parsed = null;
+      try { parsed = JSON.parse(text); } catch (e1) {
+        try {
+          var slice = text;
+          var fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+          if (fence) slice = fence[1].trim();
+          parsed = JSON.parse(slice);
+        } catch (e2) { parsed = null; }
+      }
+      if (!parsed || typeof parsed !== 'object') return '';
+      if (parsed.purePhaseC && typeof parsed.purePhaseC === 'object') parsed = parsed.purePhaseC;
+      if (parsed.blockPlan && parsed.blockPlan.theory) parsed = Object.assign({}, parsed, { theory: parsed.blockPlan.theory });
+      var fromShape = buildStepBSummaryFromPurePhaseC(parsed);
+      if (fromShape) return fromShape;
+      return coerceStepBSectionContent(parsed.core_emphases || parsed.rawText || '');
+    }
+
     function buildStepBSummaryFromPurePhaseC(data) {
       if (!data) return '';
       var parts = [];
       if (data.theory && Array.isArray(data.theory.sections)) {
         data.theory.sections.forEach(function (sec) {
-          var t = stripHtmlText(sec.content || sec.text || sec.body || '');
+          var t = stripHtmlText(coerceStepBSectionContent(sec && (sec.content || sec.text || sec.body || sec)));
           if (t) parts.push(t);
         });
       }
       if (!parts.length && data.theory && typeof data.theory === 'object') {
-        var theoryRaw = stripHtmlText(data.theory.rawContent || data.theory.content || data.theory.text || '');
+        var theoryRaw = stripHtmlText(coerceStepBSectionContent(
+          data.theory.rawContent || data.theory.content || data.theory.text || data.theory
+        ));
         if (theoryRaw) parts.push(theoryRaw);
+      }
+      if (!parts.length) {
+        var core = stripHtmlText(coerceStepBSectionContent(data.core_emphases || data.rawText || ''));
+        if (core) parts.push(core);
       }
       return parts.join('\n\n').trim();
     }
@@ -31920,7 +31943,7 @@
           if (!sec) return;
           var heading = sanitizePedagogicalText(String(sec.heading || sec.title || '').trim());
           if (/מראי מקום|ביבליוגרפיה|מקורות להעמקה|bibliography|references/i.test(heading)) return;
-          var content = String(sec.content || sec.text || sec.body || '').trim();
+          var content = coerceStepBSectionContent(sec.content || sec.text || sec.body || sec).trim();
           if (!content) return;
           var headingHtml = heading
             ? '<h3 class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(heading) + '</h3>'

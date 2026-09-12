@@ -80,19 +80,76 @@ function isThinGenericPhaseCPayload(data) {
 function tryParsePhaseCJsonFromEssay(essay) {
   const raw = String(essay || '').trim();
   if (!raw || raw.charAt(0) !== '{') return null;
-  try {
-    const parsed = jsonRepair.parsePureModelJson
-      ? jsonRepair.parsePureModelJson(raw, { phase: 'topic_master', unwrap: true, fallbackOnError: false })
-      : null;
-    const data = parsed && parsed.parsed && typeof parsed.parsed === 'object'
-      ? parsed.parsed
-      : JSON.parse(raw);
+  function accept(data) {
     if (!data || typeof data !== 'object') return null;
-    if (data.theory || data.core_emphases || data.inspiration || data.blockPlan) return data;
-  } catch (err) {
+    if (data.blockPlan && typeof data.blockPlan === 'object') {
+      if (data.blockPlan.theory) data.theory = data.blockPlan.theory;
+      if (data.blockPlan.purePhaseC) return data.blockPlan.purePhaseC;
+    }
+    if (data.purePhaseC && typeof data.purePhaseC === 'object') return data.purePhaseC;
+    if (data.theory || data.core_emphases || data.inspiration || data.sections) return data;
     return null;
   }
-  return null;
+  try {
+    const parsed = jsonRepair.parsePureModelJson
+      ? jsonRepair.parsePureModelJson(raw, { phase: 'topic_master', unwrap: true, fallbackOnError: true })
+      : null;
+    const fromRepair = parsed && parsed.parsed && typeof parsed.parsed === 'object' ? parsed.parsed : null;
+    const accepted = accept(fromRepair);
+    if (accepted) return accepted;
+    const data = JSON.parse(jsonRepair.stripMarkdownJsonFences ? jsonRepair.stripMarkdownJsonFences(raw) : raw);
+    return accept(data);
+  } catch (err) {
+    try {
+      const loose = jsonRepair.safeParseJson
+        ? jsonRepair.safeParseJson(jsonRepair.stripMarkdownJsonFences ? jsonRepair.stripMarkdownJsonFences(raw) : raw)
+        : null;
+      return accept(loose);
+    } catch (err2) {
+      return null;
+    }
+  }
+}
+
+function ensureTheorySectionsFromProse(result, grade, topic) {
+  if (!result || typeof result !== 'object') return result;
+  if (!result.theory || typeof result.theory !== 'object') {
+    result.theory = { title: '', sections: [], bibliography: emptyTopicMasterBibliography() };
+  }
+  if (Array.isArray(result.theory.sections) && result.theory.sections.length) return result;
+  const candidates = [
+    result.core_emphases,
+    result.rawText,
+    result._archiveSourceEssay,
+  ];
+  let prose = '';
+  for (let i = 0; i < candidates.length; i++) {
+    const text = String(candidates[i] || '').trim();
+    if (text.length > prose.length) prose = text;
+  }
+  if (!prose) return result;
+  const embedded = tryParsePhaseCJsonFromEssay(prose);
+  if (embedded) {
+    try {
+      adaptTopicMasterPayload(embedded, { grade: grade, gradeLabel: grade, topic: topic });
+      const merged = normalizePhaseCResponse(embedded, grade, topic);
+      if (merged && Array.isArray(merged.theory && merged.theory.sections) && merged.theory.sections.length) {
+        result.theory = merged.theory;
+        if (!String(result.core_emphases || '').trim() && merged.core_emphases) {
+          result.core_emphases = merged.core_emphases;
+        }
+        return result;
+      }
+    } catch (mergeErr) {
+      console.warn('[pure-phase-c] embedded JSON merge failed:', mergeErr.message || mergeErr);
+    }
+  }
+  result.theory.sections = [{
+    heading: String(result.theory.title || ('רקע תיאורטי — ' + topic)).trim(),
+    content: prose,
+    icon: 'fa-compass',
+  }];
+  return result;
 }
 
 function formatArchiveSourceEssay(files, extraTexts) {
@@ -163,6 +220,11 @@ function buildPhaseCFromSourceEssay(essay, grade, topic, sources) {
   if (!cleaned || cleaned.length < 80) return null;
   const maybeJson = tryParsePhaseCJsonFromEssay(cleaned);
   const parsed = maybeJson || {
+    theory: {
+      title: topicStr,
+      sections: [{ heading: 'סיכום נושא', content: cleaned, icon: 'fa-compass' }],
+      bibliography: emptyTopicMasterBibliography(),
+    },
     core_emphases: cleaned,
     rawText: cleaned,
     _archiveSourceEssay: cleaned,
@@ -3135,7 +3197,13 @@ function normalizeTheoryBlock(parsed, grade, topic) {
       bibliography: normalizeBibliography(theory.bibliography),
     };
   }
-  const fallback = shared.coerceText(data.theory_background || data.theoretical_background || data.theory);
+  let fallback = shared.coerceText(data.theory_background || data.theoretical_background || '');
+  if (!fallback && theory && typeof theory === 'object') {
+    fallback = shared.coerceText(theory.content || theory.summary || theory.text || theory.rawContent || '');
+  }
+  if (!fallback && typeof data.theory === 'string') {
+    fallback = shared.coerceText(data.theory);
+  }
   return {
     title: 'רקע תיאורטי — ' + topic,
     sections: fallback ? [{ heading: 'מהות ורקע פדגוגי', content: fallback, icon: 'fa-compass' }] : [],
@@ -3413,6 +3481,7 @@ function safeNormalizePhaseCResponse(parsed, grade, topic, options) {
   stampTopicMasterArchiveLinks(result, parsed || result);
   result = applyLiveCitationGate(result, parsed || result, topicStr, grade);
   result = applyPhaseCTextSanitizationChain(result);
+  result = ensureTheorySectionsFromProse(result, grade, topicStr);
   return centralizePhaseCLinksToResourcesTab(result, topicStr);
 }
 
