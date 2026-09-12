@@ -278,10 +278,10 @@ function badRequest(message) {
 }
 
 /** Minimum idle silence budget for sonar-reasoning-pro streaming (ms without upstream bytes). */
-const LIVE_SEARCH_MIN_TIMEOUT_MS = 180000;
+const LIVE_SEARCH_MIN_TIMEOUT_MS = 300000;
 /** Hard wall-clock cap for one live Perplexity attempt (streaming resets idle, not total). */
 const LIVE_SEARCH_BUDGET_MS = Math.max(
-  180000,
+  300000,
   Number(process.env.LIVE_SEARCH_BUDGET_MS) || 300000
 );
 /** Browser fetch to /api/pure-phase-c should outlive at least one server attempt. */

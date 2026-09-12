@@ -11,7 +11,7 @@ function assert(condition, message) {
   }
 }
 
-assert(shared.LIVE_SEARCH_MIN_TIMEOUT_MS >= 180000, 'LIVE_SEARCH_MIN_TIMEOUT_MS must be at least 180 seconds');
+assert(shared.LIVE_SEARCH_MIN_TIMEOUT_MS >= 300000, 'LIVE_SEARCH_MIN_TIMEOUT_MS must be at least 300 seconds');
 assert(shared.LIVE_SEARCH_BUDGET_MS >= shared.LIVE_SEARCH_MIN_TIMEOUT_MS, 'LIVE_SEARCH_BUDGET_MS respects minimum');
 assert(shared.LIVE_SEARCH_CLIENT_WAIT_MS >= shared.LIVE_SEARCH_BUDGET_MS, 'client wait covers at least one attempt');
 assert(shared.LIVE_SEARCH_COMM_RETRY_COUNT >= 1, 'LIVE_SEARCH_COMM_RETRY_COUNT must allow at least one retry');
