@@ -1717,13 +1717,90 @@
     #grade-insights-body,
     #web-research-result,
     #phase-c-narrative-root,
-    #daily-planning-content,
+    #phase-c-unified-root,
+    .phase-c-section-body,
+    #theoretical-content,
+    #inspiration-content,
     #pedagogical-essence-content,
+    #daily-planning-content,
     #workspace .tab-panel.product-tab-panel {
       overflow: visible !important;
       overflow-y: visible !important;
       max-height: none !important;
       height: auto !important;
+    }
+    #step-b-wrapper.step-b-layout {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: 100%;
+      max-width: 100%;
+      gap: 1.5rem;
+      overflow: visible;
+    }
+    #step-b-container.step-b-entry-card {
+      width: 100%;
+      max-width: 42rem;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #step-b-wrapper.has-archive-reading #step-b-container.step-b-entry-card {
+      max-width: min(48rem, 100%);
+    }
+    #web-research-result.step-b-archive-reading:not(.hidden) {
+      display: flex !important;
+      flex-direction: column;
+      gap: 1.35rem;
+      width: 100%;
+      max-width: 100% !important;
+      margin: 0;
+      padding: 0 !important;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      overflow: visible !important;
+      max-height: none !important;
+      height: auto !important;
+    }
+    .archive-reading-card {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(122, 155, 118, 0.28);
+      border-radius: 1.15rem;
+      padding: 1.45rem 1.6rem 1.6rem;
+      box-shadow: 0 2px 14px rgba(92, 74, 58, 0.06);
+      overflow: visible;
+    }
+    @media (min-width: 768px) {
+      .archive-reading-card {
+        padding: 1.75rem 2rem 1.9rem;
+      }
+    }
+    .archive-reading-card > .app-subhead {
+      margin-top: 0;
+      margin-bottom: 0.85rem;
+    }
+    .archive-reading-card .prose-ai,
+    .archive-reading-card .prose-ai p,
+    #web-research-result .prose-ai,
+    #web-research-result .prose-ai p,
+    .phase-c-section-body .prose-ai,
+    .phase-c-section-body .prose-ai p {
+      max-width: none;
+      width: 100%;
+      overflow: visible;
+    }
+    .phase-c-section-body {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      width: 100%;
+    }
+    .phase-c-section-body .archive-reading-card,
+    .phase-c-section-body .theory-fallback-window {
+      width: 100%;
     }
     .app-top-nav-inner {
       display: flex;
@@ -7356,7 +7433,7 @@
   </div>
 
   <!-- ========== WIZARD ========== -->
-  <div id="wizard" class="hidden w-full max-w-6xl mx-auto px-4 sm:px-6 pb-12 box-border">
+  <div id="wizard" class="hidden w-full max-w-7xl mx-auto px-4 sm:px-6 pb-12 box-border">
     <div class="back-to-home-bar">
       <button type="button" class="back-to-home-btn" data-back-to-home>
         <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
@@ -7420,8 +7497,8 @@
 
     <!-- STEP 2 -->
     <section id="step-2" class="wizard-step hidden">
-      <div id="step-b-wrapper">
-      <div id="step-b-container" class="bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full max-w-2xl mx-auto box-border">
+      <div id="step-b-wrapper" class="step-b-layout">
+      <div id="step-b-container" class="step-b-entry-card bg-white/85 rounded-2xl border border-gold/30 p-4 sm:p-6 md:p-8 shadow-sm w-full mx-auto box-border">
         <span class="inline-block bg-terracotta/15 text-terracotta text-xs font-bold px-3 py-1 rounded-full mb-4" data-i18n="step_b_badge">שלב ב׳</span>
         <h2 class="app-page-title font-display font-bold text-burgundy mb-2" data-i18n="step2_title">מה הנושא המבוקש לתקופת הלימוד?</h2>
         <p class="text-sm text-walnut/70 mb-4">
@@ -7463,17 +7540,17 @@
           </div>
           <div id="topic-research-loading-community" class="mt-4" aria-hidden="false"></div>
         </div>
-        <div id="web-research-result" class="hidden mt-6 p-4 rounded-xl bg-parchment/80 border border-sage/25 text-sm"></div>
-        <div id="topic-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
-        <div id="topic-community-slot" class="hidden mt-4 p-4 sm:p-5 rounded-2xl border border-sage/30 bg-gradient-to-l from-sage/5 via-cream to-parchment/80"></div>
       </div>
+      <div id="web-research-result" class="hidden step-b-archive-reading"></div>
+      <div id="topic-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
+      <div id="topic-community-slot" class="hidden mt-0 p-4 sm:p-5 rounded-2xl border border-sage/30 bg-gradient-to-l from-sage/5 via-cream to-parchment/80"></div>
       </div>
     </section>
   </div>
 
   <!-- ========== WORKSPACE (שלב ג׳ + רובריקות עצמאיות) ========== -->
   <div id="workspace" class="hidden">
-    <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 mb-4 box-border">
+    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6 mb-4 box-border">
       <div class="back-to-home-bar">
         <button type="button" class="back-to-home-btn" data-back-to-home>
           <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
@@ -15648,6 +15725,11 @@
       return formatPerplexityRawText(raw, { prepared: options.prepared === true });
     }
 
+    function setStepBArchiveReadingState(isOpen) {
+      var wrap = document.getElementById('step-b-wrapper');
+      if (wrap) wrap.classList.toggle('has-archive-reading', Boolean(isOpen));
+    }
+
     function injectStepBWebResearchHtml(html) {
       var out = document.getElementById('web-research-result');
       if (!out) return;
@@ -15655,6 +15737,8 @@
       if (!content) content = '<p class="text-walnut/70">—</p>';
       out.innerHTML = content;
       out.classList.remove('hidden');
+      out.classList.add('step-b-archive-reading');
+      setStepBArchiveReadingState(true);
       ensureArchiveUpgradeQueryEvents();
       mountArchiveUpgradeQuery(out, 'step-b');
       ensurePedagogySuggestionEvents();
@@ -30950,7 +31034,11 @@
       const topicInputReset = document.getElementById('topic-input');
       if (topicInputReset) topicInputReset.value = '';
       const webResultReset = document.getElementById('web-research-result');
-      if (webResultReset) { webResultReset.classList.add('hidden'); webResultReset.innerHTML = ''; }
+      if (webResultReset) {
+        webResultReset.classList.add('hidden');
+        webResultReset.innerHTML = '';
+        setStepBArchiveReadingState(false);
+      }
       const topicSlotReset = document.getElementById('topic-community-slot');
       if (topicSlotReset) { topicSlotReset.classList.add('hidden'); topicSlotReset.innerHTML = ''; }
       setTopicResearchLoadingUi(false);
@@ -31528,6 +31616,13 @@
         '</ul></div>';
     }
 
+    function wrapArchiveReadingCard(headingHtml, bodyHtml) {
+      var inner = '';
+      if (headingHtml) inner += headingHtml;
+      inner += bodyHtml || '';
+      return '<article class="archive-reading-card">' + inner + '</article>';
+    }
+
     function buildStepBSummaryHtmlFromPurePhaseC(data) {
       if (!data) return '';
       var parts = [];
@@ -31537,22 +31632,22 @@
           var content = String(sec.content || sec.text || sec.body || '').trim();
           if (!content) return;
           var heading = sanitizePedagogicalText(String(sec.heading || sec.title || '').trim());
-          if (heading) {
-            parts.push('<h3 class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(heading) + '</h3>');
-          }
-          parts.push(renderNarrativeProseBlock(content, {
+          var headingHtml = heading
+            ? '<h3 class="app-subhead font-semibold text-sage-dark mb-2">' + escapeHtml(heading) + '</h3>'
+            : '';
+          parts.push(wrapArchiveReadingCard(headingHtml, renderNarrativeProseBlock(content, {
             blockPath: 'theory.sections[' + i + '].content',
             cacheKey: appState.lessonCacheKey,
-          }));
+          })));
         });
       }
       if (!parts.length) {
         var theoryOnly = buildStepBSummaryFromPurePhaseC(data);
         if (theoryOnly) {
-          parts.push(renderNarrativeProseBlock(theoryOnly, {
+          parts.push(wrapArchiveReadingCard('', renderNarrativeProseBlock(theoryOnly, {
             blockPath: 'theory.rawContent',
             cacheKey: appState.lessonCacheKey,
-          }));
+          })));
         }
       }
       return parts.join('\n');
@@ -32412,8 +32507,8 @@
         if (!sec || typeof sec !== 'object') {
           var secText = String(sec || '').trim();
           if (!secText) return;
-          html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6">' +
-            '<div class="text-lg leading-relaxed prose-ai">' + formatPerplexityRawText(secText) + '</div></article>';
+          html += '<article class="archive-reading-card">' +
+            '<div class="leading-relaxed prose-ai">' + formatPerplexityRawText(secText) + '</div></article>';
           return;
         }
         if (/מראי מקום|ביבליוגרפיה|מקורות להעמקה|bibliography|references/i.test(String(sec.heading || ''))) return;
@@ -32425,9 +32520,9 @@
           blockPath: 'theory.sections[' + i + '].content',
           cacheKey: appState.lessonCacheKey,
         });
-        html += '<article class="mb-6 bg-white/75 rounded-2xl border border-gold/25 p-6 ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
+        html += '<article class="archive-reading-card ' + (i === 0 ? 'border-r-4 border-r-sage' : '') + '">' +
           '<h3 class="app-subhead font-display font-bold mb-3"><span class="inline-flex w-10 h-10 rounded-full bg-sage/20 items-center justify-center ml-2"><i class="fa-solid ' + secIcon + ' text-sage-dark"></i></span>' + escapeHtml(secHeading) + '</h3>' +
-          '<div class="text-lg leading-relaxed">' + secBodyHtml + '</div>';
+          '<div class="leading-relaxed">' + secBodyHtml + '</div>';
         if (sec.quotes && Array.isArray(sec.quotes)) {
           sec.quotes.forEach(function (q) {
             if (!q) return;
@@ -34439,6 +34534,7 @@
       document.getElementById('topic-input').value = '';
       document.getElementById('web-research-result').classList.add('hidden');
       document.getElementById('web-research-result').innerHTML = '';
+      setStepBArchiveReadingState(false);
       renderPurePhaseCCards(null);
       if (generalSearchAbort) {
         generalSearchAbort.abort();
