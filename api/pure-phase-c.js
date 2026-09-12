@@ -1678,11 +1678,14 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
   const opts = options || {};
   const apiResult = await perplexityClient.callPerplexityChatWithCitations({
     model: perplexityClient.PERPLEXITY_MODEL,
+    stream: opts.stream !== false,
     temperature: opts.temperature != null ? opts.temperature : 0.35,
     max_tokens: opts.max_tokens != null
       ? opts.max_tokens
       : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    idleTimeoutMs: opts.idleTimeoutMs || perplexityClient.REQUEST_TIMEOUT_MS,
     totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
+    onDelta: typeof opts.onDelta === 'function' ? opts.onDelta : undefined,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
