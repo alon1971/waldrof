@@ -829,9 +829,8 @@ async function fetchArchiveRow(archiveKey) {
  * Equivalent to:
  *   .from('community_drive_archive').select('*').ilike('search_query', `%${topic.trim()}%`)
  */
-async function fetchArchiveRowsBySearchQuery(topic, gradeId) {
+async function fetchArchiveRowsForSingleSearchQuery(topicNorm, gradeId) {
   const cfg = getSupabaseConfig();
-  const topicNorm = String(topic || '').trim();
   if (!cfg.url || !cfg.key || !topicNorm) return [];
   if (stableNormalize(topicNorm) === GRADE_ESSENCE_SEARCH_QUERY) return [];
 
@@ -892,12 +891,24 @@ async function fetchArchiveRowsBySearchQuery(topic, gradeId) {
       + ' | rows=' + ranked.length
       + ' | grade=' + (normalizeArchiveGradeId(gradeId) || 'any')
     );
-  } else {
-    console.log(
-      '[community-drive-archive] search_query MISS | query=' + topicNorm.slice(0, 40)
-    );
   }
   return ranked;
+}
+
+async function fetchArchiveRowsBySearchQuery(topic, gradeId) {
+  const requested = String(topic || '').trim();
+  if (!requested) return [];
+  const variants = topicArchiveProbeVariants(requested);
+  for (let i = 0; i < variants.length; i++) {
+    const rows = await fetchArchiveRowsForSingleSearchQuery(variants[i], gradeId);
+    if (rows.length) {
+      return pickBestArchiveRowsBySearchQuery(rows, requested, gradeId);
+    }
+  }
+  console.log(
+    '[community-drive-archive] search_query MISS | query=' + requested.slice(0, 40)
+  );
+  return [];
 }
 
 async function fetchArchiveRowBySearchQuery(topic, gradeId) {

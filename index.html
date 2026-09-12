@@ -32058,6 +32058,29 @@
       updateAdminResearchToolsVisibility();
     }
 
+    function isResearchCommunicationError(err) {
+      if (!err) return false;
+      if (err.code === 'LIVE_SEARCH_TIMEOUT' || err.code === 'ARCHIVE_RENDER_DEFERRED') return true;
+      var msg = String(err.message || err);
+      return /שגיאת תקשורת|שגיאת רשת|Network error|research server|Failed to fetch|BodyStreamBuffer|network/i.test(msg);
+    }
+
+    async function tryLoadTopicFromArchiveProbe(topic) {
+      try {
+        var match = await probeArchiveTopicMatch(topic, appState.grade);
+        if (!match || match.matchType === 'grade_mismatch') return false;
+        if (await applyTopicMasterArchivePayload(topic, match)) return true;
+        return await applyArchiveTopicMatch(match, {
+          closeChat: false,
+          userQuery: topic,
+          allowLiveFallback: false,
+        });
+      } catch (archiveFbErr) {
+        console.warn('[waldrof] archive probe fallback failed:', archiveFbErr);
+        return false;
+      }
+    }
+
     async function runPurePhaseCFromStepB(topic, runId, signal, options) {
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
@@ -32084,22 +32107,9 @@
       } catch (e) {
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
         if (isRateLimitError(e)) return;
-        if (e && e.code === 'LIVE_SEARCH_TIMEOUT') {
-          try {
-            var timeoutMatch = await probeArchiveTopicMatch(topic, appState.grade);
-            if (timeoutMatch && timeoutMatch.matchType !== 'grade_mismatch') {
-              var timeoutLoaded = await applyTopicMasterArchivePayload(topic, timeoutMatch);
-              if (timeoutLoaded) return;
-              var timeoutApplied = await applyArchiveTopicMatch(timeoutMatch, {
-                closeChat: false,
-                userQuery: topic,
-                allowLiveFallback: false,
-              });
-              if (timeoutApplied) return;
-            }
-          } catch (timeoutFbErr) {
-            console.warn('[waldrof] timeout archive fallback failed:', timeoutFbErr);
-          }
+        if (isResearchCommunicationError(e)) {
+          var archiveLoaded = await tryLoadTopicFromArchiveProbe(topic);
+          if (archiveLoaded) return;
         }
         if (out) {
           out.classList.remove('hidden');
