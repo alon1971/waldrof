@@ -316,6 +316,8 @@ async function executeSearchHistory(req) {
       matchType: match ? match.matchType : null,
       cacheKey: match && match.cacheKey ? String(match.cacheKey).slice(0, 12) : null,
       hasResultData: Boolean(match && match.resultData),
+      hasHistoricPayload: Boolean(match && match.historicPayload),
+      archiveSource: match && match.archiveSource ? match.archiveSource : null,
     });
     if (match && match.matchType === 'grade_mismatch') {
       return {
@@ -327,6 +329,9 @@ async function executeSearchHistory(req) {
       };
     }
     if (!match) {
+      console.log('[search-history][debug] probe_topic MISS | topic=' + topic.slice(0, 80) +
+        ' | gradeId=' + gradeId +
+        ' | nextStep=client_credit_confirm_then_POST_/api/pure-phase-c');
       return { ok: true, action: 'probe_topic', match: null };
     }
     let item = null;
