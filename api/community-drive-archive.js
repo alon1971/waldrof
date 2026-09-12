@@ -302,7 +302,35 @@ function pickBestArchiveRowsBySearchQuery(rows, topic, gradeId) {
     if (aSummary !== bSummary) return bSummary - aSummary;
     return archiveTimestampMs(b) - archiveTimestampMs(a);
   });
+  if (gid) {
+    const forGrade = list.filter(function (row) {
+      const rg = archiveRowGradeId(row);
+      if (!rg) return true;
+      return rg === gid;
+    });
+    if (forGrade.length) return forGrade;
+  }
   return list;
+}
+
+/** Alternate search_query strings for archive probe (e.g. «בעלי מלאכה» → «מלאכה»). */
+function topicArchiveProbeVariants(topic) {
+  const t = String(topic || '').trim();
+  if (!t) return [];
+  const out = [t];
+  const seen = {};
+  seen[stableNormalize(t)] = true;
+  function push(v) {
+    const k = stableNormalize(v);
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    out.push(String(v).trim());
+  }
+  const norm = stableNormalize(t);
+  if (norm.indexOf('מלאכה') >= 0 && norm !== 'מלאכה') push('מלאכה');
+  if (norm === 'מתמטיקה') push('חשבון');
+  if (norm === 'חשבון') push('מתמטיקה');
+  return out;
 }
 
 function collectFileRefsFromArchiveRows(rows) {
@@ -873,8 +901,12 @@ async function fetchArchiveRowsBySearchQuery(topic, gradeId) {
 }
 
 async function fetchArchiveRowBySearchQuery(topic, gradeId) {
-  const rows = await fetchArchiveRowsBySearchQuery(topic, gradeId);
-  return rows[0] || null;
+  const variants = topicArchiveProbeVariants(topic);
+  for (let i = 0; i < variants.length; i++) {
+    const rows = await fetchArchiveRowsBySearchQuery(variants[i], gradeId);
+    if (rows[0]) return rows[0];
+  }
+  return null;
 }
 
 /**
@@ -2457,6 +2489,7 @@ module.exports = {
   looksLikePhaseCPayload,
   fetchArchiveRowsBySearchQuery,
   fetchArchiveRowBySearchQuery,
+  topicArchiveProbeVariants,
   fetchArchiveRowByTopicGrade,
   buildSourceFingerprint,
   buildMaterialsFingerprint,

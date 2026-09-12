@@ -28619,7 +28619,8 @@
         var isExact = Boolean(
           topicMatch &&
           topicMatch.matchType === 'exact' &&
-          (topicMatch.communityDriveFast ||
+          ((topicMatch.communityDriveFast &&
+            (topicMatch.historicPayload || (topicMatch.resultData && topicMatch.resultData.purePhaseC))) ||
             topicMatch.resultData ||
             topicMatch.historicPayload ||
             topicMatch.cacheKey)
@@ -32173,60 +32174,56 @@
           appState.purePhaseC = null;
           document.getElementById('api-hint-step2').classList.add('hidden');
           setTopicResearchLoadingUi(true, { fromArchive: true });
+          var archiveRenderedOk = false;
           if (preArchiveMatch.communityDriveFast) {
             archiveHandled = true;
             try {
               var instantLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
-              if (instantLoaded) {
-                setTopicResearchLoadingUi(false);
-                topicResearchAbort = null;
-                var instantBtn = document.getElementById('btn-topic-research');
-                if (instantBtn) {
-                  instantBtn.disabled = false;
-                  updateTopicResearchButton();
-                }
-                return;
-              }
+              if (instantLoaded) archiveRenderedOk = true;
             } catch (instantErr) {
               if (isBenignStreamAbortError(instantErr)) return;
               console.warn('[archive-probe] communityDriveFast apply failed:', instantErr);
             }
           }
-          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
+          if (!archiveRenderedOk && presentArchivePartialMatch(topic, preArchiveMatch)) {
             return;
           }
-          // Exact hit — try direct payload apply (also when lean probe had no embedded payload).
-          try {
-            var directLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
-            if (directLoaded) return;
-            if (preArchiveMatch.resultData || preArchiveMatch.item) {
-              var applied = await applyArchiveTopicMatch(preArchiveMatch, {
-                closeChat: false,
-                userQuery: topic,
-                allowLiveFallback: false,
-              });
-              if (applied) return;
-            }
-            if (preArchiveMatch.cacheKey) {
-              var histItem = await reloadArchiveLessonItem(preArchiveMatch.cacheKey);
-              if (histItem) {
-                await applyLessonPlanFromHistory(histItem, { userQuery: topic });
-                return;
+          if (!archiveRenderedOk) {
+            try {
+              var directLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
+              if (directLoaded) archiveRenderedOk = true;
+              if (!archiveRenderedOk && (preArchiveMatch.resultData || preArchiveMatch.item)) {
+                var applied = await applyArchiveTopicMatch(preArchiveMatch, {
+                  closeChat: false,
+                  userQuery: topic,
+                  allowLiveFallback: false,
+                });
+                if (applied) archiveRenderedOk = true;
               }
+              if (!archiveRenderedOk && preArchiveMatch.cacheKey) {
+                var histItem = await reloadArchiveLessonItem(preArchiveMatch.cacheKey);
+                if (histItem) {
+                  await applyLessonPlanFromHistory(histItem, { userQuery: topic });
+                  archiveRenderedOk = true;
+                }
+              }
+            } catch (archiveLoadErr) {
+              if (isBenignStreamAbortError(archiveLoadErr)) return;
+              console.warn('[archive-probe] exact hit direct load failed:', archiveLoadErr);
             }
-          } catch (archiveLoadErr) {
-            if (isBenignStreamAbortError(archiveLoadErr)) return;
-            console.warn('[archive-probe] exact hit direct load failed:', archiveLoadErr);
           }
-          // Matching archived record exists — never open the credit modal.
-          // Stop here rather than reclassifying as a miss (which would bill the teacher).
-          setTopicResearchLoadingUi(false);
-          var archiveBtn = document.getElementById('btn-topic-research');
-          if (archiveBtn) {
-            archiveBtn.disabled = false;
-            updateTopicResearchButton();
+          if (archiveRenderedOk) {
+            setTopicResearchLoadingUi(false);
+            topicResearchAbort = null;
+            var archiveDoneBtn = document.getElementById('btn-topic-research');
+            if (archiveDoneBtn) {
+              archiveDoneBtn.disabled = false;
+              updateTopicResearchButton();
+            }
+            return;
           }
-          return;
+          console.warn('[archive-probe] archive match did not render — retrying via pure-phase-c');
+          archiveHandled = true;
         }
 
         // Partial suggestion UI is free — credit only if teacher later chooses live search.
