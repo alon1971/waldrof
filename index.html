@@ -9581,7 +9581,7 @@
           };
         }
         if (appState.webResearch && String(appState.webResearch.rawContent || '').trim()) {
-          injectStepBWebResearchHtml(appState.webResearch.rawContent);
+          injectStepBWebResearchHtml(appState.webResearch.rawContent, { scrollIntoView: false });
         }
         return true;
       }
@@ -10291,6 +10291,7 @@
         appState.gradeFromArchive = false;
         appState.gradeResearch = data;
         renderGradeInsightsPanel(appState.grade, data);
+        scrollToGradeResults();
       } catch (err) {
         if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isGradeResearchAbortError(err)) return;
         if (isRateLimitError(err)) return;
@@ -15730,9 +15731,10 @@
       if (wrap) wrap.classList.toggle('has-archive-reading', Boolean(isOpen));
     }
 
-    function injectStepBWebResearchHtml(html) {
+    function injectStepBWebResearchHtml(html, options) {
       var out = document.getElementById('web-research-result');
       if (!out) return;
+      options = options || {};
       var content = applyHebrewAutoReplacements(String(html || '').trim());
       if (!content) content = '<p class="text-walnut/70">—</p>';
       out.innerHTML = content;
@@ -15746,6 +15748,9 @@
       updatePedagogyExportButtonsVisibility();
       checkAndShowCommunityTopicAlert();
       nudgeGoogleTranslate();
+      if (options.scrollIntoView !== false) {
+        scrollRevealedContentIntoView(out);
+      }
     }
 
     function buildPhaseBEssenceHtml(dive, meta) {
@@ -26912,9 +26917,12 @@
       updatePedagogyExportButtonsVisibility();
       renderStepProgress();
       persistActiveStep();
-      requestAnimationFrame(function () {
-        window.scrollTo(0, scrollY);
-      });
+      if (options.preserveScroll !== false && options.scrollToContent !== true && !pendingRevealScrollEl) {
+        requestAnimationFrame(function () {
+          if (pendingRevealScrollEl) return;
+          window.scrollTo(0, scrollY);
+        });
+      }
     }
 
     function renderHybridCommunitySummaryBlock(meta) {
@@ -27953,7 +27961,9 @@
       document.getElementById('panel-catalog').classList.add('hidden');
       var initialTab = normalizeLegacyProductTabId(options.initialTab) || options.initialTab || readProductTabFromLocationHash() || normalizeLegacyProductTabId(appState.activeProductTab) || appState.activeProductTab || 'narrative';
       if (appState.grade && appState.topic) {
-        switchProductTab(initialTab, options);
+        switchProductTab(initialTab, Object.assign({}, options, {
+          preserveScroll: options.scrollToContent === false,
+        }));
       } else {
         revealProductTabPanel('narrative');
         syncPhaseCEmptyVisibility();
@@ -27962,6 +27972,11 @@
       renderStepProgress();
       updateWorkspaceChrome();
       persistActiveStep();
+      if (options.scrollToContent !== false) {
+        runAfterLayout(function () {
+          scrollToPhaseCResults();
+        });
+      }
     }
 
     function openGeneralSearchView(opts) {
@@ -28605,6 +28620,8 @@
     }
 
     var programmaticScrollGuard = 0;
+    /** When set, holdPageScroll must not yank the viewport back — a reveal scroll is in progress. */
+    var pendingRevealScrollEl = null;
 
     function isProgrammaticScrollActive() {
       return programmaticScrollGuard > 0;
@@ -29747,6 +29764,7 @@
     function holdPageScroll(fn) {
       var y = window.scrollY || window.pageYOffset || 0;
       function restore() {
+        if (pendingRevealScrollEl) return;
         try {
           window.scrollTo(0, y);
           if (document.documentElement) document.documentElement.scrollTop = y;
@@ -29807,15 +29825,35 @@
     }
 
     /** Scroll the wizard to Step B results — fresh research, archive row, or history reload. */
+    function scrollRevealedContentIntoView(el) {
+      if (!el || typeof el.scrollIntoView !== 'function') return;
+      pendingRevealScrollEl = el;
+      runAfterLayout(function () {
+        if (pendingRevealScrollEl !== el) return;
+        try {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (err) {
+          scrollElementIntoViewWithChrome(el, 'smooth', 'start');
+        }
+        runAfterSmoothScroll(function () {
+          if (pendingRevealScrollEl === el) pendingRevealScrollEl = null;
+        });
+      });
+    }
+
     function scrollToWizardTopicViewport(options) {
       options = options || {};
       ensureStepBWizardView();
       var behavior = options.behavior == null ? 'smooth' : options.behavior;
       var shouldFocus = options.focusField === true;
       var topicInput = document.getElementById('topic-input');
+      pendingRevealScrollEl = document.getElementById('web-research-result') || true;
       beginProgrammaticScroll();
       var finish = function () {
         endProgrammaticScroll();
+        if (pendingRevealScrollEl === true || pendingRevealScrollEl === document.getElementById('web-research-result')) {
+          pendingRevealScrollEl = null;
+        }
         if (shouldFocus && topicInput) {
           try {
             topicInput.focus({ preventScroll: true });
@@ -29960,10 +29998,19 @@
     }
 
     function scrollToGradeResults() {
-      if (!gradeResultsContainerRef.current) {
-        gradeResultsContainerRef.current = document.getElementById('grade-insights-panel');
-      }
-      gradeResultsContainerRef.current?.scrollIntoView({ behavior: 'smooth' });
+      var panel = document.getElementById('grade-insights-panel');
+      gradeResultsContainerRef.current = panel;
+      if (!panel || panel.classList.contains('hidden')) return;
+      scrollRevealedContentIntoView(panel);
+    }
+
+    function scrollToPhaseCResults() {
+      var anchor = document.getElementById('phase-c-unified-root') ||
+        document.getElementById('panel-narrative') ||
+        document.getElementById('product-panels-shell') ||
+        document.getElementById('workspace');
+      if (!anchor || anchor.classList.contains('hidden')) return;
+      scrollRevealedContentIntoView(anchor);
     }
 
     function shouldPreserveWizardViewport() {
@@ -30117,6 +30164,7 @@
           openPhaseCWorkspace({
             initialTab: restoreTab,
             forceRemount: restoreTab === 'resources' || options.forceRemount === true,
+            scrollToContent: false,
           });
           if (appState.activeProductTab) {
             switchProductTab(appState.activeProductTab, {
@@ -31054,7 +31102,7 @@
       setGradeInsightsLoadingUi(true);
       prepareGradeResearchView();
       renderTopicCommunitySlot();
-      // Stay on Step A after grade selection — no auto-scroll / no Step B jump.
+      // Stay on Step A after grade selection — no Step B jump; scroll to results when they appear.
 
       const communityPromise = isCloudConfigured()
         ? loadCommunity().then(function () {
@@ -31119,6 +31167,10 @@
         renderStepProgress();
         updateWorkspaceChrome();
         persistActiveStep();
+        var insightsPanelDone = document.getElementById('grade-insights-panel');
+        if (insightsPanelDone && !insightsPanelDone.classList.contains('hidden')) {
+          scrollToGradeResults();
+        }
       }
     }
 
