@@ -210,10 +210,12 @@ const LANGUAGES = {
     btn_to_step3:                'המשך לשלב ג׳ — תוצרים ומהות פדגוגית',
 
     step2_title:                 'מה הנושא המבוקש לתקופת הלימוד?',
-    step2_desc:                  'הזינו נושא — המערכת תטען את תוכן השיעור השמור בארכיון עבור כיתה',
+    step2_desc:                  'הזינו נושא — המערכת תבדוק את הארכיון; אפשר לטעון חומר שמור או להריץ מחקר חי חדש שידרוס תוצאה קודמת עבור כיתה',
     topic_placeholder:           '',
     api_hint_step2:              'חיבור Supabase נדרש — בדקו הגדרות הפרויקט.',
-    btn_topic_research:          'טען נושא מהארכיון',
+    btn_topic_research:          'חפש ברשת ונתח התאמה לגיל',
+    btn_topic_load_archive:      'טען נושא מהארכיון',
+    btn_topic_override_archive:  'מחקר חדש (הדריסה)',
 
     btn_restart:                 'איפוס חיפוש',
 
@@ -765,7 +767,7 @@ const LANGUAGES = {
     chat_amendment_item:         'תשובה {{n}}',
     archive_suggest_prompt:      'האם התכוונת ל{topic}?',
     archive_suggest_yes:         'כן, התכוונתי לזה',
-    archive_suggest_no:          'לא, בצע חיפוש חדש',
+    archive_suggest_no:          'לא — מחקר חדש (הדריסה)',
     archive_merge_prompt:        'נמצא חומר קיים. האם תרצה להריץ חיפוש משלים ולמזג את התכונים?',
     archive_merge_yes:           'כן, מזג עם החיפוש החדש',
     archive_merge_no:            'לא, חיפוש חדש בלבד',
@@ -1021,10 +1023,12 @@ const LANGUAGES = {
     btn_to_step3:                'Continue to Step C — products and pedagogical essence',
 
     step2_title:                 'What is the main lesson topic?',
-    step2_desc:                  'Enter a topic — the system loads the saved lesson from the archive for grade',
+    step2_desc:                  'Enter a topic — the system checks the archive; load saved material or run new live research that replaces a previous result for grade',
     topic_placeholder:           '',
     api_hint_step2:              'Supabase connection required — check project settings.',
-    btn_topic_research:          'Load topic from archive',
+    btn_topic_research:          'Search the web & analyze age fit',
+    btn_topic_load_archive:      'Load topic from archive',
+    btn_topic_override_archive:  'New research (override archive)',
 
     btn_restart:                 'Reset search',
 
@@ -1568,7 +1572,7 @@ const LANGUAGES = {
     chat_amendment_item:         'Response {{n}}',
     archive_suggest_prompt:      'Did you mean {topic}?',
     archive_suggest_yes:         'Yes, that\'s what I meant',
-    archive_suggest_no:          'No, run a new search',
+    archive_suggest_no:          'No — new research (override)',
     archive_merge_prompt:        'Existing material was found. Run a supplementary search and merge the content?',
     archive_merge_yes:           'Yes, merge with new search',
     archive_merge_no:            'No, fresh search only',
