@@ -195,6 +195,7 @@ function archiveRowSearchQuery(row) {
   return String((row && (row.search_query || row.query_text || '')) || '').trim();
 }
 
+/** Key columns only — never content / body / json_data / summary_text / result_data. */
 const ARCHIVE_TOPIC_SELECT =
   'id,archive_key,search_query,grade_id,file_refs,updated_at,summary_md';
 
@@ -227,20 +228,28 @@ function parseArchiveJsonValue(value) {
   return null;
 }
 
+function archiveRowSummaryMd(row) {
+  return String((row && row.summary_md) == null ? '' : row.summary_md).trim();
+}
+
 /**
- * Read topic/grade archive text from the primary columns only.
- * Do not scan summary_text / content / body / json_data — that delayed topic hits.
+ * Read topic/grade archive text from summary_md only.
+ * Lookup/ranking must not parse JSON or scan content / body / json_data / summary_text.
+ * Pass { parsePayload: true } only after a hit, when Phase C needs structured JSON.
  */
-function extractArchiveRowContent(row) {
+function extractArchiveRowContent(row, options) {
+  const opts = options || {};
   const result = { text: '', payload: null, fileRefs: [], fileUrls: [], columnsUsed: [] };
   if (!row || typeof row !== 'object') return result;
 
-  const summary = String(row.summary_md == null ? '' : row.summary_md).trim();
+  const summary = archiveRowSummaryMd(row);
   if (summary) {
     result.text = summary;
     result.columnsUsed.push('summary_md');
-    const parsed = parseArchiveJsonValue(summary);
-    if (parsed) result.payload = parsed;
+    if (opts.parsePayload === true) {
+      const parsed = parseArchiveJsonValue(summary);
+      if (parsed) result.payload = parsed;
+    }
   }
 
   const refs = Array.isArray(row.file_refs) ? row.file_refs : [];
@@ -255,8 +264,7 @@ function extractArchiveRowContent(row) {
 
 function archiveRowHasUsableContent(row) {
   if (!row || typeof row !== 'object') return false;
-  const extracted = extractArchiveRowContent(row);
-  if (extracted.text || extracted.payload) return true;
+  if (archiveRowSummaryMd(row)) return true;
   if (Array.isArray(row.file_refs) && row.file_refs.length) return true;
   if (Array.isArray(row.source_file_ids) && row.source_file_ids.length) return true;
   return false;
@@ -272,37 +280,50 @@ function archiveRowGradeId(row) {
   );
 }
 
+function archiveRowMatchesTopicQuery(row, topicKey) {
+  if (!topicKey) return true;
+  const stored = stableNormalize(archiveRowSearchQuery(row));
+  if (!stored) return false;
+  return stored === topicKey || stored.indexOf(topicKey) >= 0 || topicKey.indexOf(stored) >= 0;
+}
+
 /**
  * Rank topic archive rows. Topic materials live under search_query = explicit
  * name (e.g. 'רנסנס'); grade materials use search_query = 'grade_essence'.
+ * Stop at the first exact search_query + summary_md hit (grade-scoped when given).
  */
 function pickBestArchiveRowsBySearchQuery(rows, topic, gradeId) {
   const topicNorm = String(topic || '').trim();
   const topicKey = stableNormalize(topicNorm);
   const gid = normalizeArchiveGradeId(gradeId);
-  const list = (Array.isArray(rows) ? rows : []).filter(function (row) {
-    if (!row || isGradeEssenceArchiveRow(row)) return false;
-    if (!archiveRowHasUsableContent(row)) return false;
-    if (!topicKey) return true;
+  const exactGrade = [];
+  const exactAny = [];
+  const partial = [];
+  (Array.isArray(rows) ? rows : []).forEach(function (row) {
+    if (!row || isGradeEssenceArchiveRow(row)) return;
+    if (!archiveRowHasUsableContent(row)) return;
+    if (!archiveRowMatchesTopicQuery(row, topicKey)) return;
     const stored = stableNormalize(archiveRowSearchQuery(row));
-    if (!stored) return false;
-    return stored === topicKey || stored.indexOf(topicKey) >= 0 || topicKey.indexOf(stored) >= 0;
+    const exact = Boolean(topicKey && stored === topicKey);
+    if (exact && gid && archiveRowGradeId(row) === gid) {
+      exactGrade.push(row);
+      return;
+    }
+    if (exact) {
+      exactAny.push(row);
+      return;
+    }
+    partial.push(row);
   });
-  list.sort(function (a, b) {
-    const aQuery = stableNormalize(archiveRowSearchQuery(a));
-    const bQuery = stableNormalize(archiveRowSearchQuery(b));
-    const aExact = aQuery === topicKey ? 1 : 0;
-    const bExact = bQuery === topicKey ? 1 : 0;
-    if (aExact !== bExact) return bExact - aExact;
-    const aGrade = gid && archiveRowGradeId(a) === gid ? 1 : 0;
-    const bGrade = gid && archiveRowGradeId(b) === gid ? 1 : 0;
-    if (aGrade !== bGrade) return bGrade - aGrade;
-    const aSummary = extractArchiveRowContent(a).text.length;
-    const bSummary = extractArchiveRowContent(b).text.length;
+  if (exactGrade.length) return [exactGrade[0]];
+  if (exactAny.length) return [exactAny[0]];
+  partial.sort(function (a, b) {
+    const aSummary = archiveRowSummaryMd(a).length;
+    const bSummary = archiveRowSummaryMd(b).length;
     if (aSummary !== bSummary) return bSummary - aSummary;
     return archiveTimestampMs(b) - archiveTimestampMs(a);
   });
-  return list;
+  return partial;
 }
 
 function collectFileRefsFromArchiveRows(rows) {
@@ -767,30 +788,57 @@ function normalizeFileRefsFromMatches(matches) {
   return refs.slice(0, MAX_FILES_FOR_SUMMARY);
 }
 
-async function fetchArchiveRow(archiveKey) {
+/**
+ * ONE lean Supabase key query — the same function grade_essence and topic use.
+ * Equivalent to: .select(cols).eq(column, value).limit(n)
+ * No ilike loops, no phase-key walks, no topic-column fallbacks.
+ */
+async function fetchArchiveRowsByExactKey(column, value, options) {
   const cfg = getSupabaseConfig();
-  if (!cfg.url || !cfg.key || !archiveKey) return null;
+  const keyCol = String(column || '').trim();
+  const keyVal = String(value || '').trim();
+  const opts = options || {};
+  if (!cfg.url || !cfg.key || !keyCol || !keyVal) return [];
+
   const params = new URLSearchParams();
-  params.set('select', '*');
-  params.set('archive_key', 'eq.' + archiveKey);
-  params.set('limit', '1');
+  params.set('select', opts.select || ARCHIVE_TOPIC_SELECT);
+  params.set(keyCol, 'eq.' + keyVal);
+  if (opts.gradeId) params.set('grade_id', 'eq.' + String(opts.gradeId).trim());
+  if (opts.order) params.set('order', opts.order);
+  params.set('limit', String(opts.limit || 1));
+
   const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
     headers: {
       apikey: cfg.key,
       Authorization: 'Bearer ' + cfg.key,
+      Accept: 'application/json',
+      Prefer: 'count=none',
     },
   });
   if (!res.ok) {
     const text = await res.text();
     if (res.status === 404 || /relation|does not exist/i.test(text)) {
       console.warn('[community-drive-archive] table missing — run supabase/community_drive_archive.sql');
-      return null;
+      return [];
     }
-    console.warn('[community-drive-archive] fetch failed:', res.status, text.slice(0, 200));
-    return null;
+    console.warn(
+      '[community-drive-archive] exact-key lookup failed:',
+      res.status,
+      String(text || '').slice(0, 200)
+    );
+    return [];
   }
   const rows = await res.json();
-  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function fetchArchiveRowByExactKey(column, value, options) {
+  const rows = await fetchArchiveRowsByExactKey(column, value, options);
+  return rows[0] || null;
+}
+
+async function fetchArchiveRow(archiveKey) {
+  return fetchArchiveRowByExactKey('archive_key', archiveKey, { select: ARCHIVE_TOPIC_SELECT, limit: 1 });
 }
 
 /**
@@ -799,77 +847,36 @@ async function fetchArchiveRow(archiveKey) {
  * by the topic/subject column first — that misses the stored rows.
  *
  * Equivalent to:
- *   .from('community_drive_archive').select('*').ilike('search_query', `%${topic.trim()}%`)
+ *   .from('community_drive_archive')
+ *   .select('search_query,summary_md,...key columns')
+ *   .eq('search_query', topic.trim())
+ * Stop at the first usable hit — do not scan content / body / json_data.
  */
 async function fetchArchiveRowsBySearchQuery(topic, gradeId) {
-  const cfg = getSupabaseConfig();
   const topicNorm = String(topic || '').trim();
-  if (!cfg.url || !cfg.key || !topicNorm) return [];
+  const gid = normalizeArchiveGradeId(gradeId);
+  if (!topicNorm) return [];
   if (stableNormalize(topicNorm) === GRADE_ESSENCE_SEARCH_QUERY) return [];
 
-  async function query(extra) {
-    const params = new URLSearchParams();
-    params.set('select', ARCHIVE_TOPIC_SELECT);
-    params.set('order', 'updated_at.desc');
-    params.set('limit', extra && extra.limit ? String(extra.limit) : '12');
-    Object.keys(extra || {}).forEach(function (k) {
-      if (k === 'limit') return;
-      params.set(k, extra[k]);
-    });
-    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
-      headers: {
-        apikey: cfg.key,
-        Authorization: 'Bearer ' + cfg.key,
-        Accept: 'application/json',
-      },
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      console.warn(
-        '[community-drive-archive] search_query lookup failed:',
-        res.status,
-        String(text || '').slice(0, 200)
-      );
-      return [];
-    }
-    const rows = await res.json();
-    return Array.isArray(rows) ? rows : [];
-  }
-
-  const ilikeFilter = buildSearchQueryIlikeFilter(topicNorm);
-  const attempts = [
-    { search_query: 'eq.' + topicNorm },
-    { search_query: ilikeFilter },
-  ];
-
-  let collected = [];
-  const seen = {};
-  for (let i = 0; i < attempts.length; i++) {
-    if (!attempts[i].search_query) continue;
-    const rows = await query(attempts[i]);
-    rows.forEach(function (row) {
-      const key = String((row && (row.id || row.archive_key)) || '') || JSON.stringify(row);
-      if (seen[key]) return;
-      seen[key] = true;
-      collected.push(row);
-    });
-    if (collected.length) break;
-  }
-
-  const ranked = pickBestArchiveRowsBySearchQuery(collected, topicNorm, gradeId);
+  const rows = await fetchArchiveRowsByExactKey('search_query', topicNorm, {
+    select: ARCHIVE_TOPIC_SELECT,
+    order: 'updated_at.desc',
+    limit: 3,
+  });
+  const ranked = pickBestArchiveRowsBySearchQuery(rows, topicNorm, gid);
   if (ranked.length) {
     console.log(
       '[community-drive-archive] search_query HIT | query='
       + topicNorm.slice(0, 40)
       + ' | rows=' + ranked.length
-      + ' | grade=' + (normalizeArchiveGradeId(gradeId) || 'any')
+      + ' | grade=' + (gid || 'any')
     );
-  } else {
-    console.log(
-      '[community-drive-archive] search_query MISS | query=' + topicNorm.slice(0, 40)
-    );
+    return ranked;
   }
-  return ranked;
+  console.log(
+    '[community-drive-archive] search_query MISS | query=' + topicNorm.slice(0, 40)
+  );
+  return [];
 }
 
 async function fetchArchiveRowBySearchQuery(topic, gradeId) {
@@ -878,76 +885,11 @@ async function fetchArchiveRowBySearchQuery(topic, gradeId) {
 }
 
 /**
- * Fallback archive lookup by search_query first, then legacy topic column.
+ * Single lean Supabase lookup for wizard topic archive — same primitive as grade_essence
+ * (fetchArchiveRowsByExactKey). No topic-column scans, ilike loops, or fallbacks.
  */
-async function fetchArchiveRowByTopicGrade(topic, gradeId) {
-  const topicNorm = String(topic || '').trim();
-  const gid = normalizeArchiveGradeId(gradeId);
-  if (!topicNorm) return null;
-
-  const fromSearchQuery = await fetchArchiveRowBySearchQuery(topicNorm, gid);
-  if (fromSearchQuery) return fromSearchQuery;
-
-  const cfg = getSupabaseConfig();
-  if (!cfg.url || !cfg.key || !gid) return null;
-
-  async function query(extra) {
-    const params = new URLSearchParams();
-    params.set('select', '*');
-    params.set('community_status', 'eq.ok');
-    params.set('order', 'updated_at.desc');
-    params.set('limit', '3');
-    Object.keys(extra).forEach(function (k) {
-      params.set(k, extra[k]);
-    });
-    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
-      headers: {
-        apikey: cfg.key,
-        Authorization: 'Bearer ' + cfg.key,
-      },
-    });
-    if (!res.ok) return [];
-    const rows = await res.json();
-    return Array.isArray(rows) && rows.length ? rows : [];
-  }
-
-  function pickBest(rows) {
-    const ranked = pickBestArchiveRowsBySearchQuery(rows, topicNorm, gid);
-    if (ranked.length) return ranked[0];
-    if (!rows || !rows.length) return null;
-    const withSummary = rows.filter(function (r) {
-      return r && String(r.summary_md || r.summary_text || '').trim();
-    });
-    return withSummary[0] || rows[0] || null;
-  }
-
-  const ilikeFilter = buildSearchQueryIlikeFilter(topicNorm);
-  let rows = await query({
-    topic: 'eq.' + topicNorm,
-    grade_id: 'eq.' + gid,
-  });
-  let row = pickBest(rows);
-  if (row) return row;
-
-  rows = await query({
-    topic: 'eq.' + topicNorm,
-    grade_level: 'eq.' + gid,
-  });
-  row = pickBest(rows);
-  if (row) return row;
-
-  rows = await query({
-    topic: ilikeFilter,
-    grade_id: 'eq.' + gid,
-  });
-  row = pickBest(rows);
-  if (row) return row;
-
-  rows = await query({
-    topic: ilikeFilter,
-    grade_level: 'eq.' + gid,
-  });
-  return pickBest(rows);
+async function leanTopicArchiveLookup(topic, gradeId) {
+  return fetchArchiveRowBySearchQuery(topic, gradeId);
 }
 
 /**
@@ -1091,10 +1033,10 @@ async function tryInstantArchiveRetrieval(query, options) {
   let existing = null;
   let lookupPath = '';
 
-  // 1) Direct search_query + summary_md — same fast path as grade_essence.
+  // Same lean key query as grade_essence: one eq on search_query, then stop.
   try {
-    existing = await fetchArchiveRowBySearchQuery(topic, gradeId);
-    if (existing && extractArchiveRowContent(existing).text) {
+    existing = await leanTopicArchiveLookup(topic, gradeId);
+    if (existing && archiveRowSummaryMd(existing)) {
       lookupPath = 'search_query';
     } else {
       existing = null;
@@ -1105,50 +1047,6 @@ async function tryInstantArchiveRetrieval(query, options) {
       searchQueryFirstErr.message || searchQueryFirstErr
     );
     existing = null;
-  }
-
-  // 2) Key lookup only when search_query missed.
-  if (!existing) {
-    const phaseVariants = [
-      opts.phase,
-      'community_summarizer',
-      'hybrid',
-      'topic_master',
-      'topic',
-      '',
-    ];
-    const seenKeys = {};
-    for (let i = 0; i < phaseVariants.length; i++) {
-      const phase = phaseVariants[i];
-      if (phase == null) continue;
-      const keyOpts = Object.assign({}, normalizedOpts, { phase: phase });
-      const archiveKey = buildArchiveKey(q, keyOpts);
-      if (seenKeys[archiveKey]) continue;
-      seenKeys[archiveKey] = true;
-      try {
-        existing = await fetchArchiveRow(archiveKey);
-      } catch (lookupErr) {
-        console.warn('[community-drive-archive] key lookup failed:', lookupErr.message || lookupErr);
-        existing = null;
-      }
-      if (existing && extractArchiveRowContent(existing).text) {
-        lookupPath = 'archive_key:' + archiveKey.slice(0, 12) + ':phase=' + String(phase || 'empty');
-        break;
-      }
-      existing = null;
-    }
-  }
-
-  if (!existing) {
-    try {
-      existing = await fetchArchiveRowByTopicGrade(topic, gradeId);
-      if (existing) lookupPath = 'topic+grade_level';
-    } catch (topicLookupErr) {
-      console.warn(
-        '[community-drive-archive] topic/grade lookup failed:',
-        topicLookupErr.message || topicLookupErr
-      );
-    }
   }
 
   if (!existing) {
@@ -1168,7 +1066,7 @@ async function tryInstantArchiveRetrieval(query, options) {
     return null;
   }
 
-  const archivedBody = extractArchiveRowContent(existing).text;
+  const archivedBody = archiveRowSummaryMd(existing);
   if (!archivedBody) {
     logArchiveMiss('entry found but archive content columns empty', {
       grade: gradeId,
@@ -2209,36 +2107,9 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   }
 
   const archiveKey = buildArchiveKey(q, normalizedOpts);
-  let materialsFingerprint = String(
-    opts.materialsFingerprint || opts.sourceFingerprint || opts.driveFingerprint || ''
-  ).trim();
-  if (!materialsFingerprint) {
-    try {
-      const materialsMeta = await computeCommunityMaterialsFingerprint(gradeId, topic);
-      materialsFingerprint = String(materialsMeta.fingerprint || '').trim();
-      if (materialsMeta.count) {
-        console.log(
-          '[community-drive-archive] materials fingerprint ready',
-          '| grade:',
-          gradeId,
-          '| topic:',
-          topic.slice(0, 40),
-          '| rows:',
-          materialsMeta.count
-        );
-      }
-    } catch (fpErr) {
-      console.warn(
-        '[community-drive-archive] materials fingerprint failed:',
-        fpErr && fpErr.message ? fpErr.message : fpErr
-      );
-    }
-  }
   const driveFingerprint = buildSourceFingerprint(fileRefs);
-  // Prefer materials signature so catalog updates invalidate the archive cache.
-  const fingerprint = materialsFingerprint || driveFingerprint;
 
-  // Cache HIT must return archived summary and never call Gemini / topic_master.
+  // search_query + summary_md first — do not wait for community_materials fingerprint.
   if (opts.forceRefresh !== true && opts.refresh !== true) {
     try {
       const instant = await tryInstantArchiveRetrieval(q, {
@@ -2246,8 +2117,7 @@ async function resolveCommunityDriveSummary(query, matches, options) {
         currentGrade: gradeId,
         topic: topic,
         catalogTopic: topic,
-        materialsFingerprint: materialsFingerprint,
-        sourceFingerprint: fingerprint,
+        sourceFingerprint: driveFingerprint,
         driveFingerprint: driveFingerprint,
         fileRefs: fileRefs,
         matches: matches,
@@ -2270,7 +2140,7 @@ async function resolveCommunityDriveSummary(query, matches, options) {
               ? instant.citations
               : buildCitationsPayload(fileRefs, opts.citations)
           ),
-          sourceFingerprint: fingerprint,
+          sourceFingerprint: instant.sourceFingerprint || driveFingerprint,
           model: instant.model || null,
         };
       }
@@ -2285,6 +2155,22 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       });
     }
   }
+
+  let materialsFingerprint = String(
+    opts.materialsFingerprint || opts.sourceFingerprint || opts.driveFingerprint || ''
+  ).trim();
+  if (!materialsFingerprint) {
+    try {
+      const materialsMeta = await computeCommunityMaterialsFingerprint(gradeId, topic);
+      materialsFingerprint = String(materialsMeta.fingerprint || '').trim();
+    } catch (fpErr) {
+      console.warn(
+        '[community-drive-archive] materials fingerprint failed:',
+        fpErr && fpErr.message ? fpErr.message : fpErr
+      );
+    }
+  }
+  const fingerprint = materialsFingerprint || driveFingerprint;
 
   if (!env.getGeminiApiKey()) {
     const fileList = fileRefs.map(function (ref) {
@@ -2448,6 +2334,7 @@ module.exports = {
   MAX_GEMINI_INLINE_BYTES,
   MAX_GEMINI_MULTIMODAL_BYTES,
   GRADE_ESSENCE_SEARCH_QUERY,
+  ARCHIVE_TOPIC_SELECT,
   buildArchiveKey,
   buildSearchQueryIlikeFilter,
   pickBestArchiveRowsBySearchQuery,
@@ -2455,9 +2342,11 @@ module.exports = {
   collectSummariesFromArchiveRows,
   extractArchiveRowContent,
   looksLikePhaseCPayload,
+  fetchArchiveRowsByExactKey,
+  fetchArchiveRowByExactKey,
   fetchArchiveRowsBySearchQuery,
   fetchArchiveRowBySearchQuery,
-  fetchArchiveRowByTopicGrade,
+  leanTopicArchiveLookup,
   buildSourceFingerprint,
   buildMaterialsFingerprint,
   buildCitationsPayload,

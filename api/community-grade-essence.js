@@ -205,24 +205,14 @@ async function fetchCommunityMaterialsForGrade(gradeId) {
 }
 
 async function fetchGradeEssenceArchiveRow(archiveKey, gradeId) {
-  const cfg = getSupabaseConfig();
-  if (!cfg.url || !cfg.key || !archiveKey) return null;
-
-  // Only serve rows matching the current archive_key (includes prompt version).
-  // Do not fall back to topic+grade — that would resurrect stale prompt outputs.
-  const params = new URLSearchParams();
-  params.set('select', '*');
-  params.set('archive_key', 'eq.' + archiveKey);
-  params.set('limit', '1');
-  const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?' + params.toString(), {
-    headers: {
-      apikey: cfg.key,
-      Authorization: 'Bearer ' + cfg.key,
-    },
-  });
-  if (!res.ok) return null;
-  const rows = await res.json();
-  const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  if (!archiveKey) return null;
+  // Same lean key query topic search now uses — one eq(archive_key) + limit 1.
+  const row = typeof communityDriveArchive.fetchArchiveRowByExactKey === 'function'
+    ? await communityDriveArchive.fetchArchiveRowByExactKey('archive_key', archiveKey, {
+      select: '*',
+      limit: 1,
+    })
+    : null;
   if (row && String(row.summary_md || row.summary_text || '').trim()) return row;
   return null;
 }
