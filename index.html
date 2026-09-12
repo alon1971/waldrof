@@ -1475,6 +1475,7 @@
     /* ביטול מוחלט של דהיית טקסט ואנימציות fade בכל השלבים */
     .wizard-step,
     #grade-insights-panel,
+    #grade-community-section,
     #web-research-result,
     #workspace .tab-panel:not(.product-tab-panel) {
       animation: none !important;
@@ -7476,22 +7477,6 @@
           <p id="api-hint-step1" class="hidden text-xs text-terracotta mb-3"><i class="fa-solid fa-cloud icon-inline"></i> <span data-i18n="api_hint_step2">חיבור Supabase נדרש — בדקו הגדרות הפרויקט.</span></p>
           <div id="grade-insights-body" class="space-y-4 leading-relaxed"></div>
         </div>
-
-        <div class="mt-6 bg-white/80 rounded-2xl border border-gold/30 p-4 sm:p-6 shadow-sm w-full box-border">
-          <h3 class="app-subhead font-display font-bold text-walnut mb-3">
-            <i class="fa-solid fa-seedling text-sage icon-inline"></i>
-            <span data-i18n="community_materials_title">העשרה פדגוגית וחומרים מהקהילה</span>
-          </h3>
-          <div id="grade-community-list"></div>
-        </div>
-
-        <div class="mt-6 text-center">
-          <button type="button" id="btn-to-step-2"
-            class="touch-btn w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-burgundy hover:bg-burgundy/90 active:bg-burgundy/80 text-white px-6 sm:px-8 rounded-xl font-medium shadow-md">
-            <span data-i18n="btn_to_step2">המשך לשלב ב׳ — הגדרת נושא התקופה</span>
-            <i class="fa-solid fa-arrow-left icon-inline"></i>
-          </button>
-        </div>
       </div>
     </section>
 
@@ -7546,6 +7531,24 @@
       <div id="topic-community-slot" class="hidden mt-0 p-4 sm:p-5 rounded-2xl border border-sage/30 bg-gradient-to-l from-sage/5 via-cream to-parchment/80"></div>
       </div>
     </section>
+
+    <div id="grade-community-section" class="hidden mt-8 w-full max-w-7xl mx-auto box-border">
+      <div class="bg-white/80 rounded-2xl border border-gold/30 p-4 sm:p-6 shadow-sm w-full box-border">
+        <h3 class="app-subhead font-display font-bold text-walnut mb-3">
+          <i class="fa-solid fa-seedling text-sage icon-inline"></i>
+          <span data-i18n="community_materials_title">העשרה פדגוגית וחומרים מהקהילה</span>
+        </h3>
+        <div id="grade-community-list"></div>
+      </div>
+
+      <div class="mt-6 text-center">
+        <button type="button" id="btn-to-step-2"
+          class="touch-btn w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-burgundy hover:bg-burgundy/90 active:bg-burgundy/80 text-white px-6 sm:px-8 rounded-xl font-medium shadow-md">
+          <span data-i18n="btn_to_step2">המשך לשלב ב׳ — הגדרת נושא התקופה</span>
+          <i class="fa-solid fa-arrow-left icon-inline"></i>
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- ========== WORKSPACE (שלב ג׳ + רובריקות עצמאיות) ========== -->
@@ -9201,8 +9204,7 @@
       appState.navSection = 'home';
       syncHomeChrome();
 
-      const insightsPanel = document.getElementById('grade-insights-panel');
-      if (insightsPanel) insightsPanel.classList.add('hidden');
+      setGradeInsightsPanelVisible(false);
       const insightsBody = document.getElementById('grade-insights-body');
       if (insightsBody) insightsBody.innerHTML = '';
       const hintStep1 = document.getElementById('api-hint-step1');
@@ -9701,8 +9703,7 @@
       }
       gradeResearchRunId += 1;
       setGradeInsightsLoadingUi(false);
-      var insightsPanel = document.getElementById('grade-insights-panel');
-      if (insightsPanel) insightsPanel.classList.add('hidden');
+      setGradeInsightsPanelVisible(false);
       var insightsBody = document.getElementById('grade-insights-body');
       if (insightsBody) insightsBody.innerHTML = '';
       var gradeCommunity = document.getElementById('grade-community-list');
@@ -9781,8 +9782,7 @@
       }
       gradeResearchRunId += 1;
       setGradeInsightsLoadingUi(false);
-      var insightsPanel = document.getElementById('grade-insights-panel');
-      if (insightsPanel) insightsPanel.classList.add('hidden');
+      setGradeInsightsPanelVisible(false);
       var insightsBody = document.getElementById('grade-insights-body');
       if (insightsBody) insightsBody.innerHTML = '';
       var gradeCommunity = document.getElementById('grade-community-list');
@@ -14294,6 +14294,13 @@
           grade: (g ? getGradeLabelById(g.id) : '') + ' (' + t('grade_age_prefix') + ' ' + (g ? g.age : '') + ')',
         });
       }
+    }
+
+    function setGradeInsightsPanelVisible(visible) {
+      var panel = document.getElementById('grade-insights-panel');
+      var communitySection = document.getElementById('grade-community-section');
+      if (panel) panel.classList.toggle('hidden', !visible);
+      if (communitySection) communitySection.classList.toggle('hidden', !visible);
     }
 
     function renderGradeInsightsExpandableItem(item, prefix, index) {
@@ -30088,25 +30095,31 @@
       }
     }
 
-    /** Step A: scroll down ~half a viewport so loaded grade content is visible (all grades). */
-    function scrollHalfPageAfterGradeContentLoaded(anchorEl) {
-      var anchor = anchorEl ||
-        document.getElementById('grade-insights-panel') ||
-        document.getElementById('grade-insights-body');
-      pendingRevealScrollEl = anchor;
-      var px = Math.round(Math.max(320, (window.innerHeight || 768) * 0.5));
+    /** Step A: align «תמונת גיל» heading just under sticky nav (all grades). */
+    function scrollGradeInsightsHeaderToPageTop() {
+      var title = document.getElementById('grade-insights-title');
+      var anchor = (title && title.closest('h3')) || title ||
+        document.getElementById('grade-insights-panel');
+      if (!anchor || !anchor.isConnected) return;
+      pendingRevealScrollEl = document.getElementById('grade-insights-panel') || anchor;
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
-          try {
-            window.scrollBy({ top: px, left: 0, behavior: 'smooth' });
-          } catch (err) {
-            try { window.scrollBy(0, px); } catch (err2) { /* ignore */ }
-          }
-          runAfterSmoothScroll(function () {
-            setTimeout(function () {
-              pendingRevealScrollEl = null;
-            }, 400);
-          });
+          setTimeout(function () {
+            var chromeHeight = getStickyChromeHeight();
+            var rect = anchor.getBoundingClientRect();
+            var scrollY = window.scrollY || window.pageYOffset || 0;
+            var targetY = Math.max(0, Math.round(rect.top + scrollY - chromeHeight - 12));
+            try {
+              window.scrollTo({ top: targetY, left: 0, behavior: 'smooth' });
+            } catch (err) {
+              try { window.scrollTo(0, targetY); } catch (err2) { /* ignore */ }
+            }
+            runAfterSmoothScroll(function () {
+              setTimeout(function () {
+                pendingRevealScrollEl = null;
+              }, 400);
+            });
+          }, 100);
         });
       });
     }
@@ -30164,11 +30177,11 @@
           revealStepBAfterGradeResults();
         }
         var scrollAnchor = options.scrollAnchor ||
-          (options.gradeHalfPageScroll || options.openStepB === false
+          (options.scrollGradeInsightsTitle || options.openStepB === false
             ? (document.getElementById('grade-insights-panel') || el)
             : (document.getElementById('web-research-result') || el));
-        if (options.gradeHalfPageScroll || options.openStepB === false) {
-          scrollHalfPageAfterGradeContentLoaded(scrollAnchor || el);
+        if (options.scrollGradeInsightsTitle || options.openStepB === false) {
+          scrollGradeInsightsHeaderToPageTop();
         } else {
           pendingRevealScrollEl = scrollAnchor || el;
           scrollPlannerContentIntoView(scrollAnchor);
@@ -30213,7 +30226,7 @@
       notifyPlannerContentDisplayed(
         document.getElementById('grade-insights-body') || panel,
         {
-          gradeHalfPageScroll: true,
+          scrollGradeInsightsTitle: true,
           scrollAnchor: panel || document.getElementById('grade-insights-panel'),
         }
       );
@@ -30298,8 +30311,7 @@
       }
       var btnGrade = document.getElementById('btn-grade-submit');
       if (btnGrade) btnGrade.disabled = true;
-      var insightsPanel = document.getElementById('grade-insights-panel');
-      if (insightsPanel) insightsPanel.classList.add('hidden');
+      setGradeInsightsPanelVisible(false);
       var insightsBody = document.getElementById('grade-insights-body');
       if (insightsBody) insightsBody.innerHTML = '';
       var gradeCommunity = document.getElementById('grade-community-list');
@@ -30397,9 +30409,10 @@
         if (appState.grade) {
           var gradeSel = document.getElementById('grade-select');
           if (gradeSel) gradeSel.value = appState.grade;
-          var insightsPanel = document.getElementById('grade-insights-panel');
-          if (insightsPanel && appState.gradeResearch) insightsPanel.classList.remove('hidden');
-          if (appState.gradeResearch) renderGradeInsightsPanel(appState.grade, appState.gradeResearch);
+          if (appState.gradeResearch) {
+            setGradeInsightsPanelVisible(true);
+            renderGradeInsightsPanel(appState.grade, appState.gradeResearch);
+          }
         }
         if (appState.webResearch) {
           holdPageScroll(function () { renderWebResearchResult(); });
@@ -30419,8 +30432,7 @@
           var btnGradeRestore = document.getElementById('btn-grade-submit');
           if (btnGradeRestore) btnGradeRestore.disabled = false;
           if (appState.gradeResearch) {
-            var insightsPanelRestore = document.getElementById('grade-insights-panel');
-            if (insightsPanelRestore) insightsPanelRestore.classList.remove('hidden');
+            setGradeInsightsPanelVisible(true);
             renderGradeInsightsPanel(appState.grade, appState.gradeResearch);
           }
         }
@@ -30868,8 +30880,7 @@
       if (appState.grade) {
         var gradeSel = document.getElementById('grade-select');
         if (gradeSel) gradeSel.value = appState.grade;
-        var insightsPanel = document.getElementById('grade-insights-panel');
-        if (insightsPanel) insightsPanel.classList.remove('hidden');
+        if (appState.gradeResearch) setGradeInsightsPanelVisible(true);
       }
       var step2GradeLabel = document.getElementById('step2-grade-label');
       if (step2GradeLabel) {
@@ -31251,7 +31262,7 @@
       appState.grade = null;
       appState.gradeLabel = null;
       appState.gradeResearch = null;
-      document.getElementById('grade-insights-panel').classList.add('hidden');
+      setGradeInsightsPanelVisible(false);
       document.getElementById('grade-insights-body').innerHTML = '';
       document.getElementById('grade-community-list').innerHTML = '';
       syncLessonChatFabLayout();
@@ -31312,7 +31323,7 @@
 
       const insightsBody = document.getElementById('grade-insights-body');
       if (insightsBody) insightsBody.innerHTML = '';
-      document.getElementById('grade-insights-panel').classList.remove('hidden');
+      setGradeInsightsPanelVisible(true);
       syncLessonChatFabLayout();
       syncGradeInsightsTitle(grade);
       updateNewResearchBarVisibility();
@@ -34831,7 +34842,7 @@
       hideGeneralSearchView();
       hideWaldorfSitesView();
       document.getElementById('wizard').classList.remove('hidden');
-      document.getElementById('grade-insights-panel').classList.add('hidden');
+      setGradeInsightsPanelVisible(false);
       document.getElementById('grade-insights-body').innerHTML = '';
       document.getElementById('grade-community-list').innerHTML = '';
       syncLessonChatFabLayout();
