@@ -27749,6 +27749,32 @@
       if (!loading) ensurePageScrollUnlocked();
     }
 
+    const PURE_API_CLIENT_RETRY_COUNT = 2;
+
+    function delayMs(ms) {
+      return new Promise(function (resolve) {
+        setTimeout(resolve, typeof ms === 'number' && ms > 0 ? ms : 0);
+      });
+    }
+
+    async function invokePureApiWithRetries(endpoint, payload, signal) {
+      var lastErr = null;
+      for (var attempt = 0; attempt <= PURE_API_CLIENT_RETRY_COUNT; attempt++) {
+        try {
+          return await invokePureApi(endpoint, payload, signal);
+        } catch (e) {
+          lastErr = e;
+          if (e && (e.code === 'RATE_LIMIT' || e.code === 'RATE_LIMIT_MONTHLY')) throw e;
+          if (/AUTH_REQUIRED|rate_limit|401|429/i.test(String(e && e.message ? e.message : ''))) throw e;
+          if (!isResearchCommunicationError(e) || attempt >= PURE_API_CLIENT_RETRY_COUNT) throw e;
+          var waitMs = 1200 * Math.pow(2, attempt);
+          console.warn('[waldrof] research API retry', attempt + 1, 'of', PURE_API_CLIENT_RETRY_COUNT, 'in', waitMs, 'ms');
+          await delayMs(waitMs);
+        }
+      }
+      throw lastErr;
+    }
+
     async function invokePureApi(endpoint, payload, signal) {
       var headers = { 'Content-Type': 'application/json' };
       if (typeof WaldorfAuth !== 'undefined') {
@@ -27889,7 +27915,11 @@
         payload.forceFresh = true;
         payload.skipCache = true;
       }
-      var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, payload, signal);
+      if (opts.calmFallback === true) {
+        payload.calmFallback = true;
+        payload.templateFallback = true;
+      }
+      var response = await invokePureApiWithRetries(PURE_PHASE_C_ENDPOINT, payload, signal);
       return response;
     }
 
@@ -32081,6 +32111,42 @@
       }
     }
 
+    function buildCalmLiveResearchStatusBanner(meta) {
+      meta = meta || {};
+      var fromArchive = Boolean(meta.fromCache || meta.fallback);
+      var calmCopy = fromArchive
+        ? (isEnglish()
+          ? 'Live research was unavailable — showing archived or general material for this topic.'
+          : 'המחקר החי לא היה זמין — מוצג חומר מהארכיון או מסגרת כללית לנושא.')
+        : (isEnglish()
+          ? 'Live research was temporarily unavailable — showing a calm grade-oriented framework you can deepen in Step C.'
+          : 'המחקר החי לא היה זמין כרגע — מוצגת מסגרת כללית לשכבת הגיל. ניתן להעמיק בשלב ג׳.');
+      return '<p class="text-walnut/80 m-0 mb-3"><i class="fa-solid fa-circle-info ml-1"></i> ' +
+        escapeHtml(calmCopy) + '</p>';
+    }
+
+    async function applyCalmTopicResearchFallback(topic, runId, signal) {
+      if (await tryLoadTopicFromArchiveProbe(topic)) return true;
+      try {
+        var response = await fetchPurePhaseC(
+          appState.gradeLabel || appState.grade,
+          topic,
+          signal,
+          { calmFallback: true }
+        );
+        if (runId != null && runId !== topicResearchRunId) return false;
+        if (signal && signal.aborted) return false;
+        commitPurePhaseCToStepB(topic, response.data, Object.assign({}, response.meta || {}, {
+          statusBanner: buildCalmLiveResearchStatusBanner(response.meta),
+          fromCache: Boolean(response.meta && response.meta.fromCache),
+        }));
+        return true;
+      } catch (calmErr) {
+        console.warn('[waldrof] calm template fallback failed:', calmErr);
+        return false;
+      }
+    }
+
     async function runPurePhaseCFromStepB(topic, runId, signal, options) {
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
@@ -32108,12 +32174,17 @@
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
         if (isRateLimitError(e)) return;
         if (isResearchCommunicationError(e)) {
-          var archiveLoaded = await tryLoadTopicFromArchiveProbe(topic);
-          if (archiveLoaded) return;
+          var calmLoaded = await applyCalmTopicResearchFallback(topic, runId, signal);
+          if (calmLoaded) return;
         }
+        var calmLoadedGeneric = await applyCalmTopicResearchFallback(topic, runId, signal);
+        if (calmLoadedGeneric) return;
         if (out) {
           out.classList.remove('hidden');
-          out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message) + '</p>';
+          out.innerHTML = buildCalmLiveResearchStatusBanner({ fallback: true }) +
+            '<p class="text-walnut/70 m-0">' + escapeHtml(isEnglish()
+              ? 'Please try again in a moment or pick a topic from your search history.'
+              : 'נסו שוב בעוד רגע או בחרו נושא מהיסטוריית החיפושים.') + '</p>';
         }
         updateTopicResearchButton();
       } finally {
@@ -32365,10 +32436,18 @@
         // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
         if (isBenignStreamAbortError(err) || runId !== topicResearchRunId || signal.aborted) return;
         if (isRateLimitError(err)) return;
+        if (isResearchCommunicationError(err)) {
+          var calmOk = await applyCalmTopicResearchFallback(topic, runId, signal);
+          if (calmOk) return;
+        }
+        var calmOk2 = await applyCalmTopicResearchFallback(topic, runId, signal);
+        if (calmOk2) return;
         if (out) {
           out.classList.remove('hidden');
-          out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
-            escapeHtml(err && err.message ? err.message : String(err)) + '</p>';
+          out.innerHTML = buildCalmLiveResearchStatusBanner({ fallback: true }) +
+            '<p class="text-walnut/70 m-0">' + escapeHtml(isEnglish()
+              ? 'Please try again in a moment or pick a topic from your search history.'
+              : 'נסו שוב בעוד רגע או בחרו נושא מהיסטוריית החיפושים.') + '</p>';
         }
         updateTopicResearchButton();
       }

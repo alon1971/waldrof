@@ -281,7 +281,9 @@ function badRequest(message) {
 
 /** Hard cap for one live Perplexity / Gemini attempt on planner topic + general search. */
 const LIVE_SEARCH_BUDGET_MS = 90000;
-const LIVE_SEARCH_COMM_RETRY_COUNT = 1;
+/** Two extra attempts after the first failure (3 tries total). */
+const LIVE_SEARCH_COMM_RETRY_COUNT = 2;
+const LIVE_SEARCH_RETRY_BACKOFF_MS = 1200;
 
 function isLiveSearchTimeoutError(err) {
   if (!err) return false;
@@ -296,10 +298,17 @@ function isCommunicationError(err) {
   return /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR|שגיאת רשת|network/i.test(msg);
 }
 
-/** Retry only fast network failures — not a full-budget timeout (would double the wait). */
+/** Network + timeout failures eligible for background retries. */
 function isRetriableCommunicationError(err) {
-  if (isLiveSearchTimeoutError(err)) return false;
   return isCommunicationError(err);
+}
+
+function sleepMs(ms) {
+  const delay = typeof ms === 'number' && ms > 0 ? ms : 0;
+  if (!delay) return Promise.resolve();
+  return new Promise(function (resolve) {
+    setTimeout(resolve, delay);
+  });
 }
 
 function liveSearchTimeoutError(message) {
@@ -322,11 +331,13 @@ function withHardTimeout(promise, ms, message) {
   });
 }
 
-/** One extra attempt on genuine network / timeout failures only — never on 401/429. */
+/** Up to two background retries with exponential backoff — never on 401/429/403. */
 async function withLiveSearchRetry(factory, options) {
   const opts = options || {};
-  const attempts = (opts.retries != null ? Number(opts.retries) : LIVE_SEARCH_COMM_RETRY_COUNT) + 1;
+  const extraRetries = opts.retries != null ? Number(opts.retries) : LIVE_SEARCH_COMM_RETRY_COUNT;
+  const attempts = Math.max(1, extraRetries + 1);
   const budget = opts.budgetMs || LIVE_SEARCH_BUDGET_MS;
+  const backoffBase = opts.backoffMs != null ? Number(opts.backoffMs) : LIVE_SEARCH_RETRY_BACKOFF_MS;
   let lastErr = null;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -335,7 +346,16 @@ async function withLiveSearchRetry(factory, options) {
       lastErr = err;
       if (err && (err.statusCode === 429 || err.statusCode === 401 || err.statusCode === 403)) throw err;
       if (!isRetriableCommunicationError(err) || i === attempts - 1) throw err;
-      console.warn('[pure-api] communication error — retry', i + 1, err.message || err);
+      const delay = backoffBase * Math.pow(2, i);
+      console.warn(
+        '[pure-api] live search communication failure — retry',
+        (i + 1) + '/' + (attempts - 1),
+        'in',
+        delay,
+        'ms:',
+        err && err.message ? err.message : err
+      );
+      await sleepMs(delay);
     }
   }
   throw lastErr;
@@ -423,10 +443,12 @@ module.exports = {
   badRequest,
   LIVE_SEARCH_BUDGET_MS,
   LIVE_SEARCH_COMM_RETRY_COUNT,
+  LIVE_SEARCH_RETRY_BACKOFF_MS,
   isLiveSearchTimeoutError,
   isCommunicationError,
   isRetriableCommunicationError,
   liveSearchTimeoutError,
+  sleepMs,
   withHardTimeout,
   withLiveSearchRetry,
   PROFESSIONAL_LINKS_INSTRUCTION,
