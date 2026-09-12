@@ -3076,6 +3076,13 @@ async function getTopicMasterCache(gradeId, topic, options) {
     hydrateTopicMasterArchiveLinks(cached.data);
     return cached;
   }
+
+  const semantic = await findSemanticTopicMasterMatch(gid, topicStr);
+  if (semantic && semantic.data && isTopicMasterPayload(semantic.data)) {
+    hydrateTopicMasterArchiveLinks(semantic.data);
+    return semantic;
+  }
+
   return null;
 }
 

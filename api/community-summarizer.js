@@ -2,9 +2,10 @@
  * POST /api/community-summarizer — standalone community Drive topic summary.
  *
  * Decoupled from live web search (phases A–C). Workflow:
- *  1) Instant community_drive_archive lookup by search_query + summary_md
- *     — HIT → return immediately (no fingerprint, Drive, or Gemini)
- *  2) On miss only: fingerprint community_materials, then Drive + Gemini
+ *  1) Fingerprint community_materials for grade + topic
+ *  2) Lookup community_drive_archive; compare drive/source fingerprint
+ *     — match → return cached summary immediately (no Drive scan, no Gemini)
+ *     — mismatch / miss → scan Drive, Gemini summarize, upsert with new fingerprint
  *  3) Clear empty message when nothing exists in Drive or archive
  *
  * CACHE SOURCE ISOLATION: never consults cached_results / Perplexity / web search.
@@ -176,11 +177,36 @@ async function runCommunityTopicSummary(options) {
     : String(gradePolicy.lockedGradeId || rawGradeId).trim();
   const configured = driveIsConfigured();
 
+  // --- Dynamic cache validation (community_materials fingerprint) ---
   let materialsFingerprint = '';
   let materialsCount = 0;
+  if (!forceRefresh && typeof communityDriveArchive.computeCommunityMaterialsFingerprint === 'function') {
+    try {
+      const materialsMeta = await communityDriveArchive.computeCommunityMaterialsFingerprint(
+        lockedGradeId,
+        topic
+      );
+      materialsFingerprint = String(materialsMeta && materialsMeta.fingerprint || '').trim();
+      materialsCount = materialsMeta && materialsMeta.count ? materialsMeta.count : 0;
+      console.log(
+        '[community-summarizer] materials fingerprint',
+        '| grade:',
+        lockedGradeId,
+        '| topic:',
+        topic.slice(0, 40),
+        '| rows:',
+        materialsCount,
+        '| fp:',
+        materialsFingerprint ? materialsFingerprint.slice(0, 12) : '(none)'
+      );
+    } catch (fpErr) {
+      console.warn(
+        '[community-summarizer] materials fingerprint failed:',
+        fpErr && fpErr.message ? fpErr.message : fpErr
+      );
+    }
+  }
 
-  // Instant search_query + summary_md HIT — same stop as grade_essence.
-  // Do not wait for community_materials fingerprint or Drive listing.
   if (!forceRefresh && typeof communityDriveArchive.tryInstantArchiveRetrieval === 'function') {
     try {
       const instant = await communityDriveArchive.tryInstantArchiveRetrieval(topic, {
@@ -388,6 +414,89 @@ async function runCommunityTopicSummary(options) {
       deltaUpdated: false,
       driveDebug: driveDebug,
     });
+  }
+
+  // After Drive listing: re-check community_drive_archive with live file fingerprints.
+  // On HIT — return archived summary immediately (no Gemini / no topic_master).
+  if (!forceRefresh && typeof communityDriveArchive.tryInstantArchiveRetrieval === 'function') {
+    try {
+      const driveFp = typeof communityDriveArchive.buildSourceFingerprint === 'function'
+        ? communityDriveArchive.buildSourceFingerprint(
+          typeof communityDriveArchive.normalizeFileRefsFromMatches === 'function'
+            ? communityDriveArchive.normalizeFileRefsFromMatches(matches)
+            : matches
+        )
+        : '';
+      const postListHit = await communityDriveArchive.tryInstantArchiveRetrieval(topic, {
+        gradeId: lockedGradeId,
+        currentGrade: lockedGradeId,
+        topic: topic,
+        catalogTopic: topic,
+        phase: SUMMARIZER_PHASE,
+        materialsFingerprint: materialsFingerprint,
+        sourceFingerprint: materialsFingerprint || driveFp,
+        driveFingerprint: driveFp,
+        matches: matches,
+        forceRefresh: false,
+      });
+      if (postListHit && postListHit.communityStatus === 'ok' && postListHit.summary) {
+        let summaryText = String(postListHit.summary);
+        let responseCitations = filterCitationsToLockedGrade(
+          Array.isArray(postListHit.citations) && postListHit.citations.length
+            ? postListHit.citations
+            : citations,
+          lockedGradeId
+        );
+        if (typeof communityDriveArchive.dedupeCommunityCitations === 'function') {
+          responseCitations = communityDriveArchive.dedupeCommunityCitations(responseCitations);
+        }
+        if (
+          responseCitations.length
+          && typeof communitySearch.appendCitationsMarkdown === 'function'
+        ) {
+          summaryText = communitySearch.appendCitationsMarkdown(summaryText, responseCitations);
+        }
+        if (typeof communityDriveArchive.sanitizeCommunitySummaryMarkdown === 'function') {
+          summaryText = communityDriveArchive.sanitizeCommunitySummaryMarkdown(summaryText);
+        }
+        console.log(
+          '[community-summarizer] archive HIT after Drive list — skipping Gemini',
+          '| files:',
+          matches.length,
+          '| grade:',
+          lockedGradeId,
+          '| topic:',
+          topic.slice(0, 40)
+        );
+        return withNonBillableMeta({
+          success: true,
+          topic: topic,
+          gradeId: lockedGradeId,
+          communityStatus: 'ok',
+          communitySummaryHeading: postListHit.heading || COMMUNITY_SUMMARY_HEADING,
+          communitySummary: summaryText,
+          communityMatchCount: matches.length,
+          communityMatches: matches,
+          communityCitations: responseCitations,
+          communitySummaryFromArchive: true,
+          communitySummaryDeltaUpdated: false,
+          communityArchiveKey: postListHit.archiveKey || null,
+          communitySummaryModel: postListHit.model || null,
+          communityDriveConfigured: configured,
+          communityError: null,
+          fromArchive: true,
+          deltaUpdated: false,
+          instantArchiveHit: true,
+          sourceFingerprint: postListHit.sourceFingerprint || materialsFingerprint || driveFp,
+          persisted: true,
+        });
+      }
+    } catch (postListErr) {
+      console.warn(
+        '[community-summarizer] post-list archive check failed:',
+        postListErr && postListErr.message ? postListErr.message : postListErr
+      );
+    }
   }
 
   const summary = await communityDriveArchive.resolveCommunityDriveSummary(

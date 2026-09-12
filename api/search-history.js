@@ -2,7 +2,6 @@
  * GET/POST /api/search-history — list a teacher's cached lesson plans (phase=topic).
  */
 const cacheDb = require('./cache');
-const communityDriveArchive = require('./community-drive-archive');
 const knowledgeIngest = require('./knowledge-ingest');
 const authContext = require('./auth-context');
 const env = require('./env');
@@ -249,49 +248,61 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
-    // Same lean Supabase key query as grade essence / community summarizer — one eq(search_query).
-    let hasHit = false;
-    let cacheKey = null;
-    let source = null;
-    const leanRow = typeof communityDriveArchive.leanTopicArchiveLookup === 'function'
-      ? await communityDriveArchive.leanTopicArchiveLookup(topic, gradeId)
-      : null;
-    if (leanRow && communityDriveArchive.extractArchiveRowContent) {
-      const extracted = communityDriveArchive.extractArchiveRowContent(leanRow);
-      if (extracted && String(extracted.summary || '').trim()) {
-        hasHit = true;
-        source = 'community_drive_archive_search_query';
-        cacheKey = leanRow.archive_key || null;
-      }
-    }
-    if (!hasHit) {
-      const cached = await cacheDb.getCachedResult({
-        phase: 'topic_master',
-        topic: topic,
-        currentGrade: gradeId,
-        gradeId: gradeId,
-        gradeLabel: (body && body.gradeLabel) || null,
-      }, { requireEnhanced: false });
-      hasHit = Boolean(cached && cached.data);
-      if (hasHit) {
-        source = (cached.meta && cached.meta.source) || 'topic_master';
-        cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
-      }
-    }
+    // Global archive probe — never scoped to the requesting teacher (credit-gate pre-check).
+    const match = await cacheDb.findArchiveTopicSuggestion({
+      topic: topic,
+      gradeId: gradeId,
+      gradeLabel: (body && body.gradeLabel) || null,
+      requireEnhanced: false,
+    });
     console.log('[search-history][debug] probe_topic', {
       topic: topic.slice(0, 80),
       gradeId: gradeId,
-      hit: hasHit,
-      cacheKey: cacheKey ? String(cacheKey).slice(0, 12) : null,
-      source: source,
+      matchType: match ? match.matchType : null,
+      cacheKey: match && match.cacheKey ? String(match.cacheKey).slice(0, 12) : null,
+      hasResultData: Boolean(match && match.resultData),
     });
+    if (match && match.matchType === 'grade_mismatch') {
+      return {
+        ok: true,
+        action: 'probe_topic',
+        match: null,
+        gradeMismatch: match.gradeMismatch,
+        message: match.message || null,
+      };
+    }
+    if (!match) {
+      return { ok: true, action: 'probe_topic', match: null };
+    }
+    let item = null;
+    if (match.matchType === 'exact' && match.resultData) {
+      item = {
+        cacheKey: match.cacheKey,
+        phase: 'topic',
+        gradeId: match.gradeId,
+        gradeLabel: match.gradeLabel || null,
+        topic: match.topic,
+        resultData: match.resultData,
+        hasLessonPlan: true,
+      };
+    }
     return {
       ok: true,
       action: 'probe_topic',
-      hit: hasHit,
-      fromCache: hasHit,
-      isArchiveHit: hasHit,
-      cacheKey: cacheKey,
+      match: {
+        matchType: match.matchType,
+        similarity: match.similarity,
+        cacheKey: match.cacheKey,
+        suggestedTopic: match.topic,
+        archiveTitle: match.topic,
+        requestedTopic: match.requestedTopic || topic,
+        gradeId: match.gradeId,
+        gradeLabel: match.gradeLabel || null,
+        item: item,
+        archiveSource: match.archiveSource || null,
+        historicPayload: match.historicPayload || null,
+        resultData: match.resultData || null,
+      },
     };
   }
 

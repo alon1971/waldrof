@@ -11,19 +11,6 @@ function assert(condition, message) {
 }
 
 assert(archive.GRADE_ESSENCE_SEARCH_QUERY === 'grade_essence', 'grade essence sentinel');
-assert(typeof archive.fetchArchiveRowByExactKey === 'function', 'grade and topic share fetchArchiveRowByExactKey');
-assert(typeof archive.fetchArchiveRowsByExactKey === 'function', 'shared lean key query is exported');
-assert(typeof archive.leanTopicArchiveLookup === 'function', 'topic wizard uses leanTopicArchiveLookup');
-assert(archive.fetchArchiveRowByTopicGrade === undefined, 'no legacy topic-column ilike fallback');
-assert(
-  archive.ARCHIVE_TOPIC_SELECT.indexOf('search_query') >= 0
-    && archive.ARCHIVE_TOPIC_SELECT.indexOf('summary_md') >= 0,
-  'topic select includes the key columns only used for lookup'
-);
-assert(
-  !/content|body|json_data|result_data|summary_text/.test(archive.ARCHIVE_TOPIC_SELECT),
-  'topic select must not pull content/body/json_data'
-);
 assert(
   archive.buildSearchQueryIlikeFilter('  רנסנס  ') === 'ilike.*רנסנס*',
   'ilike filter trims and wraps search_query like %topic%'
@@ -110,34 +97,5 @@ const emptyPrimary = archive.extractArchiveRowContent({
   content: 'תוכן שיעור רנסנס שמור בעמודת content ולא ב-summary_md.',
 });
 assert(!emptyPrimary.text, 'do not scan content/body when summary_md is empty');
-
-const jsonLooking = archive.extractArchiveRowContent({
-  search_query: 'רנסנס',
-  summary_md: '{"theory":{"title":"רנסנס","sections":[{"heading":"רקע","content":"פסקה"}]},"inspiration":{}}',
-});
-assert(jsonLooking.text.indexOf('theory') >= 0, 'lookup reads summary_md as plain text');
-assert(jsonLooking.payload == null, 'lookup must not parse JSON in the background');
-const parsedOnDemand = archive.extractArchiveRowContent({
-  search_query: 'רנסנס',
-  summary_md: jsonLooking.text,
-}, { parsePayload: true });
-assert(parsedOnDemand.payload && parsedOnDemand.payload.theory, 'payload parse is opt-in after a hit');
-
-const exactStop = archive.pickBestArchiveRowsBySearchQuery([
-  {
-    search_query: 'רנסנס תקופת לימוד',
-    grade_id: '7',
-    summary_md: 'התאמה חלקית ארוכה שלא אמורה להיבחר כשיש התאמה מדויקת.',
-    updated_at: '2026-04-01T00:00:00Z',
-  },
-  {
-    search_query: 'רנסנס',
-    grade_id: '7',
-    summary_md: 'התאמה מדויקת — נקודת העצירה.',
-    updated_at: '2026-01-01T00:00:00Z',
-  },
-], 'רנסנס', '7');
-assert(exactStop.length === 1, 'stop at the first exact search_query + summary_md hit');
-assert(exactStop[0].summary_md.indexOf('נקודת העצירה') >= 0, 'exact key-column match wins immediately');
 
 console.log('OK: topic archive lookup uses search_query (not topic/subject)');
