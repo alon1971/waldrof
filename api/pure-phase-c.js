@@ -221,7 +221,14 @@ function buildPhaseCFromSourceEssay(essay, grade, topic, sources) {
   }
   const normalized = safeNormalizePhaseCResponse(parsed, grade, topicStr, { archiveEssay: cleaned });
   if (isThinGenericPhaseCPayload(normalized)) return null;
-  return normalized;
+  return stripPhaseCWireOnlyFields(normalized);
+}
+
+function stripPhaseCWireOnlyFields(data) {
+  if (!data || typeof data !== 'object') return data;
+  delete data._apiResponseRaw;
+  delete data._archiveSourceEssay;
+  return data;
 }
 
 function stripHtmlToPlainText(html) {
@@ -1113,6 +1120,7 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
       ? opts.max_tokens
       : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
     totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
+    jsonObject: true,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -1131,7 +1139,8 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
     unwrap: true,
   });
   if (result.parsed && typeof result.parsed === 'object') {
-    result.parsed._apiResponseRaw = String(apiResult.rawResponseText || raw || '');
+    // Keep a short preview for citation harvest only — never ship the raw envelope to the client.
+    result.parsed._apiResponseRaw = String(raw || '').slice(0, 4000);
     result.parsed._liveCitations = Array.isArray(apiResult.citations) ? apiResult.citations.filter(Boolean) : [];
   }
   return result;
@@ -2834,7 +2843,7 @@ const SYSTEM_PROMPT = [
   PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
-  'Respond ONLY with valid JSON (no markdown fences, no commentary) using exactly these keys:',
+  'Respond ONLY with valid JSON (no markdown fences, no commentary). The API uses response_format=json_object — your entire reply MUST be one parseable JSON object using exactly these keys:',
   'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?, author?, note?}]}} — exhaustive book-length theoretical background; 4-6 sections; EACH section content = 6-10 deep paragraphs using ONLY <p>, <strong>, <ul>/<li>; cover anthroposophical background, developmental axis, concrete lesson plans, storytelling, blackboard drawings, and seminar-paper findings; NO links or citations in section HTML; bibliography holds all sources),',
   'inspiration (object: {title, global: [{title, items: [rich multi-sentence pedagogical mini-essays — storytelling, recitation, painting, movement, blackboard art — plain prose/HTML without links]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit unless every episode has verified HTTPS url, narrative: [essay strings]} — vivid concrete classroom inspiration; 3-4 blocks × 8-12 items; NO bare URLs in item prose),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
@@ -3714,7 +3723,7 @@ async function lookupLocalTopicArchive(gradeId, topic, grade, options) {
 
 function serveArchiveFallback(hit) {
   return {
-    data: hit.data,
+    data: stripPhaseCWireOnlyFields(hit.data),
     meta: {
       fromCache: true,
       cacheKey: hit.cacheKey || undefined,
@@ -3889,9 +3898,53 @@ async function runPurePhaseC(body, requestContext) {
       });
     });
     const parsed = modelResult.parsed;
-    let normalized = safeNormalizePhaseCResponse(parsed, grade, topic, {
-      archiveEssay: archiveSources.essay,
-    });
+    if (modelResult.parseFallback && archiveSources.essay) {
+      const fromFiles = buildPhaseCFromSourceEssay(archiveSources.essay, grade, topic, archiveSources);
+      if (fromFiles) {
+        console.warn('[pure-phase-c] AI JSON parse failed — serving extracted archive/community files');
+        return {
+          data: stripPhaseCWireOnlyFields(fromFiles),
+          meta: {
+            fromCache: false,
+            fallback: true,
+            fallbackReason: 'ai_json_parse',
+            source: 'community_archive_files',
+            parseFallback: true,
+            communityMatches: archiveSources.matches || [],
+            archiveFiles: (archiveSources.files || []).map(function (file) {
+              return file && (file.name || file.fileName);
+            }).filter(Boolean),
+          },
+        };
+      }
+    }
+    let normalized;
+    try {
+      normalized = safeNormalizePhaseCResponse(parsed, grade, topic, {
+        archiveEssay: archiveSources.essay,
+      });
+    } catch (normErr) {
+      console.warn('[pure-phase-c] normalize failed after model reply:', normErr.message || normErr);
+      const fromFiles = archiveSources.essay
+        ? buildPhaseCFromSourceEssay(archiveSources.essay, grade, topic, archiveSources)
+        : null;
+      if (fromFiles) {
+        return {
+          data: stripPhaseCWireOnlyFields(fromFiles),
+          meta: {
+            fromCache: false,
+            fallback: true,
+            fallbackReason: 'normalize_error',
+            source: 'community_archive_files',
+            communityMatches: archiveSources.matches || [],
+            archiveFiles: (archiveSources.files || []).map(function (file) {
+              return file && (file.name || file.fileName);
+            }).filter(Boolean),
+          },
+        };
+      }
+      throw normErr;
+    }
     stampTopicMasterArchiveLinks(normalized, parsed);
     if (isThinGenericPhaseCPayload(normalized) && archiveSources.essay) {
       const fromFiles = buildPhaseCFromSourceEssay(archiveSources.essay, grade, topic, archiveSources);
@@ -3931,7 +3984,7 @@ async function runPurePhaseC(body, requestContext) {
     const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
 
     return {
-      data: normalized,
+      data: stripPhaseCWireOnlyFields(normalized),
       meta: {
         fromCache: false,
         cacheKey: savedKey || undefined,
@@ -3974,7 +4027,7 @@ async function fetchHandler(request) {
     const result = await runPurePhaseC(body || {}, {
       headers: Object.fromEntries(request.headers.entries()),
     });
-    var responseData = result.data;
+    var responseData = stripPhaseCWireOnlyFields(result.data);
     if (responseData != null && typeof responseData === 'object') {
       responseData = hebrewGuardrails.applyHebrewAutoReplacementsDeep(
         JSON.parse(JSON.stringify(responseData))
@@ -3988,6 +4041,43 @@ async function fetchHandler(request) {
       meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
     }, { status: 200, headers: headers });
   } catch (err) {
+    if (err && (err.statusCode === 429 || err.statusCode === 401 || err.statusCode === 400)) {
+      return Response.json({
+        error: err.message || String(err),
+        code: err && err.code ? err.code : undefined,
+        usage: err && err.usage ? err.usage : undefined,
+      }, { status: err.statusCode, headers: headers });
+    }
+    try {
+      const grade = String((body && (body.grade || body.gradeLabel || body.gradeId)) || '').trim();
+      const topic = String((body && body.topic) || '').trim();
+      const gradeId = resolveGradeId(body || {});
+      if (grade && topic) {
+        const sources = await retrieveCommunityArchiveSources(gradeId, topic, grade);
+        const fromFiles = sources.essay
+          ? buildPhaseCFromSourceEssay(sources.essay, grade, topic, sources)
+          : null;
+        if (fromFiles) {
+          console.warn('[pure-phase-c] handler error — serving archive files instead of JSON error');
+          return Response.json({
+            ok: true,
+            data: stripPhaseCWireOnlyFields(fromFiles),
+            meta: {
+              fromCache: false,
+              fallback: true,
+              fallbackReason: 'handler_error',
+              source: 'community_archive_files',
+              communityMatches: sources.matches || [],
+              archiveFiles: (sources.files || []).map(function (file) {
+                return file && (file.name || file.fileName);
+              }).filter(Boolean),
+            },
+          }, { status: 200, headers: headers });
+        }
+      }
+    } catch (archiveErr) {
+      console.warn('[pure-phase-c] archive fallback after handler error failed:', archiveErr.message || archiveErr);
+    }
     const statusCode = err && err.statusCode ? err.statusCode : 500;
     return Response.json({
       error: err.message || String(err),
@@ -4066,6 +4156,7 @@ module.exports = {
   violatesPedagogicalTopicContext,
   isPinterestPhaseCUrl,
   shouldBypassTopicMasterCache,
+  stripPhaseCWireOnlyFields,
   isThinGenericPhaseCPayload,
   stripGenericCompassFallbackSentences,
   retrieveCommunityArchiveSources,

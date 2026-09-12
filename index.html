@@ -11199,10 +11199,10 @@
     function friendlyJsonParseError(err) {
       if (isJsonSyntaxErrorMessage(err && err.message ? err.message : err)) {
         return isEnglish()
-          ? 'The AI returned malformed JSON. Please try again in a moment.'
-          : 'המודל החזיר תשובה שאינה JSON תקין. נסו שוב בעוד רגע.';
+          ? 'Network error while contacting the research server. Please try again.'
+          : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.';
       }
-      return err && err.message ? String(err.message) : (isEnglish() ? 'Invalid server response.' : 'תשובת JSON לא תקינה מהשרת');
+      return err && err.message ? String(err.message) : (isEnglish() ? 'Invalid server response.' : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.');
     }
     function repairJsonText(raw) {
       if (!raw) return '';
@@ -27652,7 +27652,9 @@
       try {
         json = parseApiJsonResponse(bodyText);
       } catch (parseErr) {
-        throw new Error(friendlyJsonParseError(parseErr));
+        throw new Error(isEnglish()
+          ? 'Network error while contacting the research server. Please try again.'
+          : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.');
       }
       if (!res.ok || json.error) {
         if (res.status === 429 && json && (json.code === 'RATE_LIMIT' || json.code === 'RATE_LIMIT_MONTHLY')) {
