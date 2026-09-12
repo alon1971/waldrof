@@ -277,8 +277,12 @@ function badRequest(message) {
   return err;
 }
 
+/** Minimum wall-clock budget for sonar-reasoning-pro (thinking + first tokens). */
+const LIVE_SEARCH_MIN_TIMEOUT_MS = 120000;
 /** Hard cap for one live Perplexity / Gemini attempt on planner topic + general search. */
-const LIVE_SEARCH_BUDGET_MS = 90000;
+const LIVE_SEARCH_BUDGET_MS = 120000;
+/** Browser fetch to /api/pure-phase-c should outlive at least one server attempt. */
+const LIVE_SEARCH_CLIENT_WAIT_MS = 150000;
 const LIVE_SEARCH_COMM_RETRY_COUNT = 1;
 
 function isLiveSearchTimeoutError(err) {
@@ -420,6 +424,8 @@ module.exports = {
   createLegacyPostHandler,
   badRequest,
   LIVE_SEARCH_BUDGET_MS,
+  LIVE_SEARCH_MIN_TIMEOUT_MS,
+  LIVE_SEARCH_CLIENT_WAIT_MS,
   LIVE_SEARCH_COMM_RETRY_COUNT,
   isLiveSearchTimeoutError,
   isCommunicationError,
