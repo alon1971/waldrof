@@ -30152,78 +30152,48 @@
       }
     }
 
-    /** Step A: align «תמונת גיל» heading just under sticky nav (all grades). */
-    function scrollGradeInsightsHeaderToPageTop() {
-      var title = document.getElementById('grade-insights-title');
-      var anchor = (title && title.closest('h3')) || title ||
-        document.getElementById('grade-insights-panel');
-      if (!anchor || !anchor.isConnected) return;
-      pendingRevealScrollEl = document.getElementById('grade-insights-panel') || anchor;
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          setTimeout(function () {
-            var chromeHeight = getStickyChromeHeight();
-            var rect = anchor.getBoundingClientRect();
-            var scrollY = window.scrollY || window.pageYOffset || 0;
-            var targetY = Math.max(0, Math.round(rect.top + scrollY - chromeHeight - 12));
-            try {
-              window.scrollTo({ top: targetY, left: 0, behavior: 'smooth' });
-            } catch (err) {
-              try { window.scrollTo(0, targetY); } catch (err2) { /* ignore */ }
-            }
-            runAfterSmoothScroll(function () {
-              setTimeout(function () {
-                pendingRevealScrollEl = null;
-              }, 400);
-            });
-          }, 100);
-        });
-      });
+    function findFirstRevealedResearchBlock(root) {
+      if (!root || !root.isConnected) return null;
+      var preferred = root.querySelector(
+        '.grade-insights-part, .archive-reading-card, .pedagogy-suggestion-card, .prose-ai, article'
+      );
+      if (preferred && preferred.offsetHeight >= 16) return preferred;
+      var child = root.firstElementChild;
+      while (child) {
+        if (child.offsetHeight >= 24 && !(child.classList && child.classList.contains('hidden'))) {
+          return child;
+        }
+        child = child.nextElementSibling;
+      }
+      return root.offsetHeight >= 24 ? root : null;
     }
 
-    /** Gentle downward nudge after grade/topic research renders — signals load complete. */
-    function nudgeViewportAfterResearchReveal() {
-      var half = Math.round((window.innerHeight || 600) * 0.5);
-      var delta = Math.min(400, Math.max(300, half));
-      var scrollY = window.scrollY || window.pageYOffset || 0;
-      var docH = Math.max(
-        document.documentElement ? document.documentElement.scrollHeight : 0,
-        document.body ? document.body.scrollHeight : 0
-      );
-      var maxY = Math.max(0, docH - (window.innerHeight || 0));
-      var targetY = Math.min(maxY, scrollY + delta);
+    function scrollByResearchRevealFallback() {
       try {
-        window.scrollTo({ top: targetY, left: 0, behavior: 'smooth' });
+        window.scrollBy({ top: 380, left: 0, behavior: 'smooth' });
       } catch (err) {
-        try { window.scrollTo(0, targetY); } catch (err2) { /* ignore */ }
+        try { window.scrollBy(0, 380); } catch (err2) { /* ignore */ }
       }
     }
 
-    /** Align loaded grade/topic card under sticky chrome (same landing for every class). */
-    function scrollPlannerContentIntoView(anchorEl) {
+    /** Scroll to the first newly rendered research block as soon as content is on screen. */
+    function scrollToRevealedResearchContent(containerEl) {
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
-          var anchor = anchorEl ||
-            document.getElementById('grade-insights-panel') ||
-            document.getElementById('web-research-result');
-          if (!anchor || !anchor.isConnected) {
-            try {
-              window.scrollBy({ top: 420, left: 0, behavior: 'smooth' });
-            } catch (err) {
-              try { window.scrollBy(0, 420); } catch (err2) { /* ignore */ }
-            }
+          var target = findFirstRevealedResearchBlock(containerEl);
+          if (!target || typeof target.scrollIntoView !== 'function') {
+            scrollByResearchRevealFallback();
             return;
           }
-          var chrome = getStickyChromeHeight();
-          var rect = anchor.getBoundingClientRect();
-          var y = Math.max(0, Math.round(
-            rect.top + (window.scrollY || window.pageYOffset || 0) - chrome - 8
-          ));
+          pendingRevealScrollEl = target;
           try {
-            window.scrollTo({ top: y, left: 0, behavior: 'smooth' });
-          } catch (err3) {
-            try { window.scrollTo(0, y); } catch (err4) { /* ignore */ }
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } catch (err) {
+            scrollElementIntoViewWithChrome(target, 'smooth', 'start');
           }
+          runAfterSmoothScroll(function () {
+            if (pendingRevealScrollEl === target) pendingRevealScrollEl = null;
+          });
         });
       });
     }
@@ -30251,23 +30221,10 @@
         if (options.openStepB !== false) {
           revealStepBAfterGradeResults();
         }
-        var scrollAnchor = options.scrollAnchor ||
-          (options.scrollGradeInsightsTitle || options.openStepB === false
-            ? (document.getElementById('grade-insights-panel') || el)
-            : (document.getElementById('web-research-result') || el));
-        function afterPrimaryResearchScrollSettled() {
-          if (gen !== gradeRevealGeneration) return;
-          pendingRevealScrollEl = null;
-          nudgeViewportAfterResearchReveal();
-        }
-        if (options.scrollGradeInsightsTitle || options.openStepB === false) {
-          scrollGradeInsightsHeaderToPageTop();
-          runAfterSmoothScroll(afterPrimaryResearchScrollSettled);
-        } else {
-          pendingRevealScrollEl = scrollAnchor || el;
-          scrollPlannerContentIntoView(scrollAnchor);
-          runAfterSmoothScroll(afterPrimaryResearchScrollSettled);
-        }
+        var contentRoot = el ||
+          document.getElementById('grade-insights-body') ||
+          document.getElementById('web-research-result');
+        scrollToRevealedResearchContent(contentRoot);
       }
       if (!el || plannerContentLooksReady(el)) {
         finish();
@@ -30302,11 +30259,7 @@
       var panel = document.getElementById('grade-insights-panel');
       gradeResultsContainerRef.current = panel;
       notifyPlannerContentDisplayed(
-        document.getElementById('grade-insights-body') || panel,
-        {
-          scrollGradeInsightsTitle: true,
-          scrollAnchor: panel || document.getElementById('grade-insights-panel'),
-        }
+        document.getElementById('grade-insights-body') || panel
       );
     }
 
