@@ -251,6 +251,76 @@ function repairTruncatedJson(raw) {
   return s;
 }
 
+/** Drop a trailing incomplete property (open key, open string, dangling colon). */
+function stripDanglingPartialProperty(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return s;
+  s = s.replace(/,\s*"([^"\\]|\\.)*"\s*:\s*$/u, '');
+  s = s.replace(/,\s*"([^"\\]|\\.)*"\s*:\s*"([^"\\]|\\.)*$/u, function (m, _k, partial) {
+    return m + (partial.endsWith('\\') ? '' : '"');
+  });
+  s = s.replace(/,\s*$/u, '');
+  return s;
+}
+
+/** From first { or [ through end of text — for truncated streaming segment payloads. */
+function extractJsonTailFromFirstBrace(raw) {
+  const s = stripMarkdownJsonFences(String(raw || '')).trim();
+  const objStart = s.indexOf('{');
+  const arrStart = s.indexOf('[');
+  if (objStart >= 0 && (arrStart < 0 || objStart <= arrStart)) return s.slice(objStart);
+  if (arrStart >= 0) return s.slice(arrStart);
+  return s;
+}
+
+function repairTrailingJsonCommas(text) {
+  let s = String(text || '');
+  let prev;
+  do {
+    prev = s;
+    s = repairCommonJsonDefects(s);
+  } while (s !== prev);
+  return s;
+}
+
+/**
+ * Aggressive repair for chunked Perplexity segments: trailing commas, missing closers, truncated tails.
+ */
+function repairSegmentJson(raw) {
+  let text = extractJsonTailFromFirstBrace(raw);
+  if (!text.trim()) return '';
+  text = preprocessModelJson(text) || text;
+  text = extractJsonTailFromFirstBrace(text);
+  text = repairTrailingJsonCommas(text);
+  text = repairJsonText(text);
+  text = stripDanglingPartialProperty(text);
+  text = repairTruncatedJson(text);
+  text = repairTrailingJsonCommas(text);
+  text = repairTruncatedJson(text);
+  return text.trim();
+}
+
+/**
+ * Last-resort parse for a single chunk after repair — returns object or null (never throws).
+ */
+function salvageParseModelJson(raw, options) {
+  const opts = options || {};
+  const sources = [repairSegmentJson(raw), preprocessModelJson(raw), String(raw || '').trim()];
+  const seen = new Set();
+  for (let i = 0; i < sources.length; i++) {
+    const candidate = sources[i];
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    try {
+      const parsed = parseJsonLenient(candidate);
+      if (parsed && typeof parsed === 'object') {
+        return opts.unwrap === false ? parsed : unwrapParsedModelPayload(parsed);
+      }
+    } catch (e) { /* try next source */ }
+  }
+  return null;
+}
+
 /**
  * Extract JSON between the first opening bracket and the last closing bracket.
  * Ignores markdown fences, preamble, and trailing prose outside those bounds.
@@ -531,6 +601,11 @@ function parsePureModelJson(raw, options) {
       parseFallback: false,
     };
   } catch (err) {
+    const salvaged = salvageParseModelJson(text, { unwrap: opts.unwrap !== false });
+    if (salvaged && typeof salvaged === 'object') {
+      console.log('[json-repair] parsePureModelJson recovered via segment repair for', phase);
+      return { parsed: salvaged, parseFallback: false };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(
       '[json-repair] parsePureModelJson fallback for',
@@ -547,6 +622,7 @@ function parsePureModelJson(raw, options) {
 }
 
 function buildJsonParseAttempts(text) {
+  const segmentRepaired = repairSegmentJson(text);
   const robust = extractRobustJsonObject(text);
   const stripped = stripMarkdownJsonFences(text);
   const normalized = normalizeJsonSmartQuotes(cleanseJsonCharacters(stripped));
@@ -559,6 +635,9 @@ function buildJsonParseAttempts(text) {
   const quoteAndLiteral = repairJsonText(escapeFixed);
 
   const cores = [
+    segmentRepaired,
+    repairTruncatedJson(segmentRepaired),
+    repairTrailingJsonCommas(segmentRepaired),
     robust,
     repairJsonText(robust),
     repairUnescapedInnerQuotesInJsonStrings(robust),
@@ -673,6 +752,11 @@ function cleanAndParseJSON(text, options) {
     const parsed = parseJsonLenient(raw);
     return unwrap ? unwrapParsedModelPayload(parsed) : parsed;
   } catch (err) {
+    const salvaged = salvageParseModelJson(raw, { unwrap: unwrap });
+    if (salvaged && typeof salvaged === 'object') {
+      console.log('[json-repair] cleanAndParseJSON recovered via segment repair for', phase || 'unknown');
+      return salvaged;
+    }
     if (fallbackOnError && phase) {
       console.warn(
         '[json-repair] cleanAndParseJSON fallback for phase',
@@ -708,6 +792,9 @@ module.exports = {
   repairJsonText,
   preprocessModelJson,
   repairTruncatedJson,
+  repairSegmentJson,
+  salvageParseModelJson,
+  stripDanglingPartialProperty,
   buildJsonParseAttempts,
   parseJsonLenient,
   safeParseJson,
