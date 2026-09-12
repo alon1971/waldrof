@@ -9,17 +9,17 @@ const shared = require('./pure-api-shared');
 const CHUNK_PER_REQUEST_WALL_MS = 0;
 const CHUNK_NETWORK_RETRY_ATTEMPTS = 3;
 const CHUNK_NETWORK_RETRY_BASE_DELAY_MS = 1200;
-/** Default segment budget — match sonar-reasoning-pro pro ceiling so outputs are not truncated. */
-const CHUNK_DEFAULT_MAX_TOKENS = perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO;
+/** Balanced segment budgets (~4k–6k) so four Phase C chunks finish within browser/server limits. */
+const CHUNK_DEFAULT_MAX_TOKENS = 5500;
 /** Rich narrative segments (theory, inspiration, structure). */
-const CHUNK_MAX_TOKENS_DEEP = CHUNK_DEFAULT_MAX_TOKENS;
-/** Resource / link segments (still full prose in snippets and notes). */
-const CHUNK_MAX_TOKENS_RESOURCES = Math.min(14000, CHUNK_DEFAULT_MAX_TOKENS);
+const CHUNK_MAX_TOKENS_DEEP = 6000;
+/** Resource / link segments (substantive snippets and reading notes). */
+const CHUNK_MAX_TOKENS_RESOURCES = 5000;
 /** Compact JSON slices (summaries, webResearch overview). */
-const CHUNK_MAX_TOKENS_COMPACT = Math.min(10000, CHUNK_DEFAULT_MAX_TOKENS);
+const CHUNK_MAX_TOKENS_COMPACT = 4000;
 
 const SEGMENT_DEPTH_NUDGE =
-  'Use the FULL max_tokens output budget for this segment. Write deep, book-length Hebrew prose — never summarize, never truncate mid-field.';
+  'Use the full token budget for THIS segment only. Write dense, anthroposophically rich Hebrew prose — every paragraph pedagogically deep and classroom-ready; never shallow stubs or bullet-only summaries; complete each JSON field without truncating mid-sentence.';
 
 function sleep(ms) {
   return new Promise(function (resolve) { setTimeout(resolve, ms); });
