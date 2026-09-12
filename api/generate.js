@@ -28,6 +28,7 @@ const authContext = require('./auth-context');
 const jsonRepair = require('./json-repair');
 const env = require('./env');
 const perplexityClient = require('./perplexity-client');
+const perplexityChunked = require('./perplexity-chunked-research');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
 const waldorfWebSeed = require('../waldorf-web-seed');
@@ -2165,6 +2166,44 @@ async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
   });
 }
 
+/**
+ * Decoupled grade/topic synthesis — sequential JSON chunks merged server-side before cache.
+ */
+async function callPerplexityChunkedSynthesis(apiKey, synthesisPrompt, extraSystem, body, streamHooks, temperature) {
+  const hooks = normalizeStreamHooks(streamHooks);
+  const systemContent = buildPerplexitySynthesisSystemPrompt(body)(extraSystem || '');
+  const segments = body.phase === 'grade'
+    ? perplexityChunked.buildGradeSynthesisChunkSegments(systemContent, synthesisPrompt)
+    : perplexityChunked.buildTopicSynthesisChunkSegments(systemContent, synthesisPrompt);
+
+  const chunked = await perplexityChunked.runSequentialResearchChunks(segments, {
+    parseChunk: function (raw) {
+      try {
+        return cleanAndParseJSON(raw, {
+          phase: body.phase,
+          context: body,
+          fallbackOnError: true,
+        });
+      } catch (parseErr) {
+        console.warn('[perplexity] chunk JSON parse failed:', parseErr.message || parseErr);
+        return null;
+      }
+    },
+    mergePart: perplexityChunked.deepMergeJsonParts,
+    callOptions: {
+      apiKey: apiKey,
+      stream: true,
+      temperature: temperature != null ? temperature : 0.35,
+      onDelta: hooks.onDelta,
+    },
+  });
+
+  return {
+    data: chunked.merged,
+    raw: chunked.rawCombined,
+  };
+}
+
 /** Normalize an optional streamHooks bag so onStatus/onDelta are always safe to call. */
 function normalizeStreamHooks(streamHooks) {
   const hooks = streamHooks && typeof streamHooks === 'object' ? streamHooks : null;
@@ -2414,18 +2453,24 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
     const useParseFallback = attempt >= MODEL_PARSE_MAX_ATTEMPTS;
 
     let raw;
+    let chunkedSynth = null;
     try {
       if (isRetry) {
         console.warn('[perplexity] Silent retry for phase', phase, '(attempt', attempt + '/' + MODEL_PARSE_MAX_ATTEMPTS + ')');
       }
-      console.log('[perplexity] Structured synthesis for phase', phase, '(attempt', attempt + ')');
+      console.log('[perplexity] Chunked structured synthesis for phase', phase, '(attempt', attempt + ')');
       logPerplexityCall(ip, action, 'Initiated');
-      hooks.onStatus('synthesis', { attempt: attempt });
-      raw = await callPerplexity(apiKey, synthesisPrompt, extraSystem + retrySuffix, {
-        temperature: isRetry ? 0.2 : 0.35,
-        systemPrompt: buildPerplexitySynthesisSystemPrompt(body),
-        onDelta: hooks.onDelta,
-      });
+      hooks.onStatus('synthesis', { attempt: attempt, chunked: true });
+      const synthTemp = isRetry ? 0.2 : 0.35;
+      chunkedSynth = await callPerplexityChunkedSynthesis(
+        apiKey,
+        synthesisPrompt,
+        extraSystem + retrySuffix,
+        body,
+        streamHooks,
+        synthTemp
+      );
+      raw = chunkedSynth.raw;
       lastRaw = raw;
       logPerplexityCall(ip, action, 'Success');
     } catch (aiErr) {
@@ -2440,11 +2485,15 @@ async function fetchPerplexityStructuredWithRetry(body, apiKey, userPrompt, extr
 
     let data;
     try {
-      data = cleanAndParseJSON(raw, {
-        phase: phase,
-        context: body,
-        fallbackOnError: useParseFallback,
-      });
+      if (chunkedSynth && chunkedSynth.data && Object.keys(chunkedSynth.data).length) {
+        data = chunkedSynth.data;
+      } else {
+        data = cleanAndParseJSON(raw, {
+          phase: phase,
+          context: body,
+          fallbackOnError: useParseFallback,
+        });
+      }
     } catch (parseErr) {
       const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
       console.error(
