@@ -2694,26 +2694,18 @@ async function persistLiveResearchToCommunityArchive(options) {
     archiveKeyPrefix: archiveKey.slice(0, 16),
   };
 
-  try {
-    await upsertArchiveRow(record, logContext);
-    console.log(
-      '[community-drive-archive] live research upsert OK | topic='
-      + topic.slice(0, 40)
-      + ' | grade='
-      + gradeId
-      + ' | key='
-      + archiveKey.slice(0, 12)
-      + ' | chars='
-      + summaryMd.length
-    );
-    return { archiveKey: archiveKey, topic: topic, gradeId: gradeId };
-  } catch (upsertErr) {
-    console.warn(
-      '[community-drive-archive] live research upsert failed (non-fatal):',
-      upsertErr && upsertErr.message ? upsertErr.message : upsertErr
-    );
-    return null;
-  }
+  await upsertArchiveRow(record, logContext);
+  console.log(
+    '[community-drive-archive] live research upsert OK | topic='
+    + topic.slice(0, 40)
+    + ' | grade='
+    + gradeId
+    + ' | key='
+    + archiveKey.slice(0, 12)
+    + ' | chars='
+    + summaryMd.length
+  );
+  return { archiveKey: archiveKey, topic: topic, gradeId: gradeId };
 }
 
 module.exports = {

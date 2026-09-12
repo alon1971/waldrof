@@ -28,7 +28,6 @@ const authContext = require('./auth-context');
 const jsonRepair = require('./json-repair');
 const env = require('./env');
 const perplexityClient = require('./perplexity-client');
-const pureApiShared = require('./pure-api-shared');
 const chatApi = require('./chat');
 const pedagogicalScope = require('./pedagogical-scope');
 const waldorfWebSeed = require('../waldorf-web-seed');
@@ -2105,16 +2104,14 @@ async function fetchOrRunPerplexityResearch(body, logContext, streamHooks, strea
 
   let searchResult;
   try {
-    searchResult = await pureApiShared.withLiveSearchRetry(function () {
-      return perplexityClient.callPerplexitySearch({
-        messages: [
-          { role: 'system', content: buildPerplexitySearchSystemPrompt() },
-          { role: 'user', content: finalizePerplexitySearchUserPrompt(body, buildPerplexitySearchUserPrompt(body)) },
-        ],
-        stream: usePerplexityStream,
-        onDelta: streamResearchDeltas ? hooks.onDelta : undefined,
-      });
-    }, { budgetMs: pureApiShared.LIVE_SEARCH_BUDGET_MS });
+    searchResult = await perplexityClient.callPerplexitySearch({
+      messages: [
+        { role: 'system', content: buildPerplexitySearchSystemPrompt() },
+        { role: 'user', content: finalizePerplexitySearchUserPrompt(body, buildPerplexitySearchUserPrompt(body)) },
+      ],
+      stream: usePerplexityStream,
+      onDelta: streamResearchDeltas ? hooks.onDelta : undefined,
+    });
     logPerplexityCall(ip, action, 'Success');
   } catch (searchErr) {
     logPerplexityCall(ip, action, 'Failed');

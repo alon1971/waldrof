@@ -11,20 +11,6 @@ const PERPLEXITY_SEARCH_MODEL = 'sonar';
 /** Single premium synthesis model for ALL users — quality-first, no dynamic downgrade. */
 const PERPLEXITY_MODEL = 'sonar-reasoning-pro';
 
-/** OpenAI-style json_object is not supported on Sonar / online models — prompt + parse only. */
-function modelSupportsJsonResponseFormat(model) {
-  const m = String(model || '').trim().toLowerCase();
-  if (!m) return false;
-  if (m.indexOf('sonar') >= 0) return false;
-  return true;
-}
-
-function isResponseFormatRejectedError(err) {
-  if (!err || err.statusCode !== 400) return false;
-  const msg = String(err.message || err.supabaseBody || '').toLowerCase();
-  return /response_format|json_object|invalid.*format|unsupported.*format/.test(msg);
-}
-
 /**
  * Perplexity accepts max_tokens up to 128000 (API schema). sonar-reasoning-pro's effective
  * completion output is model-bound (~8k), but we no longer impose a lower ceiling
@@ -39,12 +25,6 @@ const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 6000;
 // is no heartbeat upstream to reset it before sonar-reasoning-pro emits its first token.
 // For the NON-streaming https fallback it acts as a total request timeout.
 const REQUEST_TIMEOUT_MS = 180000;
-const LIVE_RESEARCH_MIN_TIMEOUT_MS = 60000;
-
-function clampLiveResearchTimeoutMs(ms, fallbackMs) {
-  const base = typeof ms === 'number' && ms > 0 ? ms : (fallbackMs || REQUEST_TIMEOUT_MS);
-  return Math.max(LIVE_RESEARCH_MIN_TIMEOUT_MS, base);
-}
 /** Up to 3 retries after a 429 (1s, 2s, 4s backoff) before surfacing an error. */
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_BASE_DELAY_MS = 1000;
@@ -216,33 +196,16 @@ function extractMessageContent(data) {
   if (!message || typeof message !== 'object') return '';
 
   const content = message.content != null ? message.content : message.text;
-  if (typeof content === 'string') {
-    const trimmed = content.trim();
-    if (!trimmed) return '';
-    const stripped = jsonRepair.stripReasoningTokens(trimmed);
-    return stripped || trimmed;
-  }
+  if (typeof content === 'string') return content.trim();
 
   if (Array.isArray(content)) {
-    const parts = [];
-    content.forEach(function (part) {
-      if (!part) return;
-      if (typeof part === 'string') {
-        parts.push(part);
-        return;
-      }
-      const type = String(part.type || '').toLowerCase();
-      if (type === 'reasoning' || type === 'thinking' || type === 'redacted_thinking') return;
-      if (typeof part.text === 'string' && part.text.trim()) {
-        parts.push(part.text);
-        return;
-      }
-      if (typeof part.content === 'string' && part.content.trim()) {
-        parts.push(part.content);
-      }
-    });
-    const joined = parts.join('').trim();
-    if (joined) return joined;
+    return content.map(function (part) {
+      if (!part) return '';
+      if (typeof part === 'string') return part;
+      if (typeof part.text === 'string') return part.text;
+      if (typeof part.content === 'string') return part.content;
+      return '';
+    }).join('').trim();
   }
 
   return '';
@@ -379,9 +342,11 @@ function abortedPerplexityError() {
 
 async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, requestOpts) {
   const opts = requestOpts && typeof requestOpts === 'object' ? requestOpts : {};
-  const idleTimeoutMs = clampLiveResearchTimeoutMs(opts.idleTimeoutMs, REQUEST_TIMEOUT_MS);
+  const idleTimeoutMs = typeof opts.idleTimeoutMs === 'number' && opts.idleTimeoutMs > 0
+    ? opts.idleTimeoutMs
+    : REQUEST_TIMEOUT_MS;
   const totalTimeoutMs = typeof opts.totalTimeoutMs === 'number' && opts.totalTimeoutMs > 0
-    ? clampLiveResearchTimeoutMs(opts.totalTimeoutMs, REQUEST_TIMEOUT_MS)
+    ? opts.totalTimeoutMs
     : 0;
   const streaming = useStream !== false;
   const requestBody = Object.assign({}, body, { stream: streaming });
@@ -458,10 +423,9 @@ async function fetchPerplexity(apiKey, body, useStream) {
 async function httpsPerplexityOnce(apiKey, body, requestOpts) {
   const requestBody = Object.assign({}, body, { stream: false });
   const headers = buildHeaders(apiKey, false);
-  const timeoutMs = clampLiveResearchTimeoutMs(
-    requestOpts && requestOpts.totalTimeoutMs ? requestOpts.totalTimeoutMs : 0,
-    REQUEST_TIMEOUT_MS
-  );
+  const timeoutMs = requestOpts && requestOpts.totalTimeoutMs
+    ? requestOpts.totalTimeoutMs
+    : REQUEST_TIMEOUT_MS;
   const result = await httpsPostJson(PERPLEXITY_URL, headers, requestBody, timeoutMs);
   if (result.status < 200 || result.status >= 300) {
     throw mapHttpError(result.status, result.text);
@@ -524,7 +488,7 @@ async function callPerplexityChatWithCitations(options) {
     max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
     messages: opts.messages || [],
   };
-  if (opts.jsonObject === true && modelSupportsJsonResponseFormat(model)) {
+  if (opts.jsonObject !== false) {
     body.response_format = { type: 'json_object' };
   }
 
@@ -538,16 +502,15 @@ async function callPerplexityChatWithCitations(options) {
       return executePerplexityRequest(apiKey, body, false, null, requestOpts);
     }, 'chat-citations');
   } catch (formatErr) {
-    if (!body.response_format || !isResponseFormatRejectedError(formatErr)) throw formatErr;
+    if (!body.response_format || !formatErr || formatErr.statusCode !== 400) throw formatErr;
     console.warn('[perplexity] response_format json_object rejected — retrying without it');
     delete body.response_format;
     result = await withRateLimitRetry(function () {
       return executePerplexityRequest(apiKey, body, false, null, requestOpts);
     }, 'chat-citations-no-format');
   }
-  const cleanedContent = jsonRepair.stripReasoningTokens(result.content || '');
   return {
-    content: cleanedContent || result.content,
+    content: result.content,
     citations: result.citations || [],
     rawResponseText: result.rawResponseText || '',
   };
@@ -574,7 +537,7 @@ async function callPerplexityChat(options) {
     max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
     messages: opts.messages || [],
   };
-  if (opts.jsonObject === true && modelSupportsJsonResponseFormat(model)) {
+  if (opts.jsonObject) {
     body.response_format = { type: 'json_object' };
   }
 
@@ -587,15 +550,14 @@ async function callPerplexityChat(options) {
       return executePerplexityRequest(apiKey, body, useStream, onDelta);
     }, 'chat');
   } catch (formatErr) {
-    if (!body.response_format || !isResponseFormatRejectedError(formatErr)) throw formatErr;
+    if (!body.response_format || !formatErr || formatErr.statusCode !== 400) throw formatErr;
     console.warn('[perplexity] response_format json_object rejected — retrying without it');
     delete body.response_format;
     result = await withRateLimitRetry(function () {
       return executePerplexityRequest(apiKey, body, useStream, onDelta);
     }, 'chat-no-format');
   }
-  const cleaned = jsonRepair.stripReasoningTokens(result.content || '');
-  return cleaned || result.content;
+  return result.content;
 }
 
 /**
@@ -639,6 +601,4 @@ module.exports = {
   extractCitations,
   extractCitationItems,
   extractHttpsUrlsFromText,
-  modelSupportsJsonResponseFormat,
-  isResponseFormatRejectedError,
 };

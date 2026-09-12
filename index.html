@@ -8499,8 +8499,7 @@
     // (including server heartbeats), so a long-but-healthy generation is never cut off.
     const STREAM_IDLE_TIMEOUT_MS = 45000;
     const CURRICULUM_REQUEST_TIMEOUT_MS = 60000;
-    /** Must cover server live-search retries (see api/pure-api-shared LIVE_SEARCH_CLIENT_WAIT_MS). */
-    const PURE_API_TIMEOUT_MS = 300000;
+    const PURE_API_TIMEOUT_MS = 100000;
     const ARCHIVE_PROBE_TIMEOUT_MS = 8000;
     var archiveCurriculumHealInFlight = null;
 
@@ -10244,16 +10243,7 @@
       } catch (err) {
         if (runId !== appState.archiveUpgradeRunId || controller.signal.aborted || isTopicResearchAbortError(err)) return;
         if (isRateLimitError(err)) return;
-        if (isResearchCommunicationError(err)) {
-          var calmUpgrade = await applyCalmTopicResearchFallback(topic, runId, controller.signal);
-          if (calmUpgrade) return;
-        }
-        var outUpgrade = document.getElementById('web-research-result');
-        if (outUpgrade) {
-          outUpgrade.classList.remove('hidden');
-          outUpgrade.innerHTML = buildCalmLiveResearchStatusBanner({ fallback: true }) +
-            '<p class="text-walnut/70 m-0">' + escapeHtml(calmLiveResearchSlowMessage()) + '</p>';
-        }
+        alert(err.message || String(err));
       } finally {
         if (runId !== appState.archiveUpgradeRunId) return;
         appState.archiveUpgradeAbort = null;
@@ -11280,24 +11270,13 @@
       return /JSON|Unexpected token|position \d+|property name/i.test(String(msg || ''));
     }
 
-    function calmLiveResearchSlowMessage() {
-      return isEnglish()
-        ? 'Research is taking longer than usual. Try again in a moment, or choose another topic from the community archive.'
-        : 'המחקר לוקח זמן רב מהרגיל, מומלץ לנסות שוב או לבחור נושא נוסף מארכיון הקהילה.';
-    }
-
     function friendlyJsonParseError(err) {
       if (isJsonSyntaxErrorMessage(err && err.message ? err.message : err)) {
-        return calmLiveResearchSlowMessage();
+        return isEnglish()
+          ? 'Network error while contacting the research server. Please try again.'
+          : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.';
       }
-      return err && err.message ? String(err.message) : calmLiveResearchSlowMessage();
-    }
-
-    function makeResearchCommunicationError(cause) {
-      var err = new Error(calmLiveResearchSlowMessage());
-      err.code = 'LIVE_SEARCH_TIMEOUT';
-      if (cause) err.cause = cause;
-      return err;
+      return err && err.message ? String(err.message) : (isEnglish() ? 'Invalid server response.' : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.');
     }
     function repairJsonText(raw) {
       if (!raw) return '';
@@ -27770,32 +27749,6 @@
       if (!loading) ensurePageScrollUnlocked();
     }
 
-    const PURE_API_CLIENT_RETRY_COUNT = 2;
-
-    function delayMs(ms) {
-      return new Promise(function (resolve) {
-        setTimeout(resolve, typeof ms === 'number' && ms > 0 ? ms : 0);
-      });
-    }
-
-    async function invokePureApiWithRetries(endpoint, payload, signal) {
-      var lastErr = null;
-      for (var attempt = 0; attempt <= PURE_API_CLIENT_RETRY_COUNT; attempt++) {
-        try {
-          return await invokePureApi(endpoint, payload, signal);
-        } catch (e) {
-          lastErr = e;
-          if (e && (e.code === 'RATE_LIMIT' || e.code === 'RATE_LIMIT_MONTHLY')) throw e;
-          if (/AUTH_REQUIRED|rate_limit|401|429/i.test(String(e && e.message ? e.message : ''))) throw e;
-          if (!isResearchCommunicationError(e) || attempt >= PURE_API_CLIENT_RETRY_COUNT) throw e;
-          var waitMs = 1200 * Math.pow(2, attempt);
-          console.warn('[waldrof] research API retry', attempt + 1, 'of', PURE_API_CLIENT_RETRY_COUNT, 'in', waitMs, 'ms');
-          await delayMs(waitMs);
-        }
-      }
-      throw lastErr;
-    }
-
     async function invokePureApi(endpoint, payload, signal) {
       var headers = { 'Content-Type': 'application/json' };
       if (typeof WaldorfAuth !== 'undefined') {
@@ -27827,9 +27780,13 @@
       } catch (netErr) {
         if (netErr && netErr.name === 'AbortError') {
           if (signal && signal.aborted) throw netErr;
-          throw makeResearchCommunicationError(netErr);
+          var timeoutErr = new Error(isEnglish()
+            ? 'Network error while contacting the research server. Please try again.'
+            : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.');
+          timeoutErr.code = 'LIVE_SEARCH_TIMEOUT';
+          throw timeoutErr;
         }
-        throw makeResearchCommunicationError(netErr);
+        throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
       }
@@ -27838,7 +27795,9 @@
       try {
         json = parseApiJsonResponse(bodyText);
       } catch (parseErr) {
-        throw makeResearchCommunicationError(parseErr);
+        throw new Error(isEnglish()
+          ? 'Network error while contacting the research server. Please try again.'
+          : 'שגיאת תקשורת מול שרת המחקר. נסו שוב בעוד רגע.');
       }
       if (!res.ok || json.error) {
         if (res.status === 429 && json && (json.code === 'RATE_LIMIT' || json.code === 'RATE_LIMIT_MONTHLY')) {
@@ -27857,14 +27816,6 @@
         if (res.status === 401 && json && json.code === 'AUTH_REQUIRED') {
           if (typeof WaldorfAuth !== 'undefined') WaldorfAuth.showAuthOverlay();
           throw new Error(json.error || 'יש להתחבר כדי לבצע מחקר חי');
-        }
-        if (res.status === 502 || res.status === 503 || res.status === 504 || res.status === 524) {
-          var gatewayErr = makeResearchCommunicationError(json && json.error ? json.error : null);
-          gatewayErr.httpStatus = res.status;
-          throw gatewayErr;
-        }
-        if (/Gateway timeout|502 Bad Gateway|504 Gateway|took too long/i.test(String(json.error || ''))) {
-          throw makeResearchCommunicationError(json.error);
         }
         throw new Error(json.error || ('שגיאת שרת (' + res.status + ')'));
       }
@@ -27938,11 +27889,7 @@
         payload.forceFresh = true;
         payload.skipCache = true;
       }
-      if (opts.calmFallback === true) {
-        payload.calmFallback = true;
-        payload.templateFallback = true;
-      }
-      var response = await invokePureApiWithRetries(PURE_PHASE_C_ENDPOINT, payload, signal);
+      var response = await invokePureApi(PURE_PHASE_C_ENDPOINT, payload, signal);
       return response;
     }
 
@@ -32111,66 +32058,6 @@
       updateAdminResearchToolsVisibility();
     }
 
-    function isResearchCommunicationError(err) {
-      if (!err) return false;
-      if (err.code === 'LIVE_SEARCH_TIMEOUT' || err.code === 'ARCHIVE_RENDER_DEFERRED') return true;
-      if (err.httpStatus === 502 || err.httpStatus === 503 || err.httpStatus === 504 || err.httpStatus === 524) {
-        return true;
-      }
-      var msg = String(err.message || err);
-      return /שגיאת תקשורת|שגיאת רשת|Network error|research server|Failed to fetch|BodyStreamBuffer|network|Gateway timeout|502 Bad Gateway|504 Gateway|לוקח זמן רב מהרגיל/i.test(msg);
-    }
-
-    async function tryLoadTopicFromArchiveProbe(topic) {
-      try {
-        var match = await probeArchiveTopicMatch(topic, appState.grade);
-        if (!match || match.matchType === 'grade_mismatch') return false;
-        if (await applyTopicMasterArchivePayload(topic, match)) return true;
-        return await applyArchiveTopicMatch(match, {
-          closeChat: false,
-          userQuery: topic,
-          allowLiveFallback: false,
-        });
-      } catch (archiveFbErr) {
-        console.warn('[waldrof] archive probe fallback failed:', archiveFbErr);
-        return false;
-      }
-    }
-
-    function buildCalmLiveResearchStatusBanner(meta) {
-      meta = meta || {};
-      var fromArchive = Boolean(meta.fromCache || meta.fallback);
-      var calmCopy = fromArchive
-        ? (isEnglish()
-          ? 'Live research was unavailable — showing archived or cached material for this topic.'
-          : 'המחקר החי לא היה זמין — מוצג חומר מהארכיון או מהמטמון לנושא זה.')
-        : calmLiveResearchSlowMessage();
-      return '<p class="text-walnut/80 m-0 mb-3"><i class="fa-solid fa-circle-info ml-1"></i> ' +
-        escapeHtml(calmCopy) + '</p>';
-    }
-
-    async function applyCalmTopicResearchFallback(topic, runId, signal) {
-      if (await tryLoadTopicFromArchiveProbe(topic)) return true;
-      try {
-        var response = await fetchPurePhaseC(
-          appState.gradeLabel || appState.grade,
-          topic,
-          signal,
-          { calmFallback: true }
-        );
-        if (runId != null && runId !== topicResearchRunId) return false;
-        if (signal && signal.aborted) return false;
-        commitPurePhaseCToStepB(topic, response.data, Object.assign({}, response.meta || {}, {
-          statusBanner: buildCalmLiveResearchStatusBanner(response.meta),
-          fromCache: Boolean(response.meta && response.meta.fromCache),
-        }));
-        return true;
-      } catch (calmErr) {
-        console.warn('[waldrof] calm template fallback failed:', calmErr);
-        return false;
-      }
-    }
-
     async function runPurePhaseCFromStepB(topic, runId, signal, options) {
       const btn = document.getElementById('btn-topic-research');
       const out = document.getElementById('web-research-result');
@@ -32197,16 +32084,26 @@
       } catch (e) {
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
         if (isRateLimitError(e)) return;
-        if (isResearchCommunicationError(e)) {
-          var calmLoaded = await applyCalmTopicResearchFallback(topic, runId, signal);
-          if (calmLoaded) return;
+        if (e && e.code === 'LIVE_SEARCH_TIMEOUT') {
+          try {
+            var timeoutMatch = await probeArchiveTopicMatch(topic, appState.grade);
+            if (timeoutMatch && timeoutMatch.matchType !== 'grade_mismatch') {
+              var timeoutLoaded = await applyTopicMasterArchivePayload(topic, timeoutMatch);
+              if (timeoutLoaded) return;
+              var timeoutApplied = await applyArchiveTopicMatch(timeoutMatch, {
+                closeChat: false,
+                userQuery: topic,
+                allowLiveFallback: false,
+              });
+              if (timeoutApplied) return;
+            }
+          } catch (timeoutFbErr) {
+            console.warn('[waldrof] timeout archive fallback failed:', timeoutFbErr);
+          }
         }
-        var calmLoadedGeneric = await applyCalmTopicResearchFallback(topic, runId, signal);
-        if (calmLoadedGeneric) return;
         if (out) {
           out.classList.remove('hidden');
-          out.innerHTML = buildCalmLiveResearchStatusBanner({ fallback: true }) +
-            '<p class="text-walnut/70 m-0">' + escapeHtml(calmLiveResearchSlowMessage()) + '</p>';
+          out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message) + '</p>';
         }
         updateTopicResearchButton();
       } finally {
@@ -32458,16 +32355,10 @@
         // Abort / BodyStreamBuffer during re-render or scroll restore — silent.
         if (isBenignStreamAbortError(err) || runId !== topicResearchRunId || signal.aborted) return;
         if (isRateLimitError(err)) return;
-        if (isResearchCommunicationError(err)) {
-          var calmOk = await applyCalmTopicResearchFallback(topic, runId, signal);
-          if (calmOk) return;
-        }
-        var calmOk2 = await applyCalmTopicResearchFallback(topic, runId, signal);
-        if (calmOk2) return;
         if (out) {
           out.classList.remove('hidden');
-          out.innerHTML = buildCalmLiveResearchStatusBanner({ fallback: true }) +
-            '<p class="text-walnut/70 m-0">' + escapeHtml(calmLiveResearchSlowMessage()) + '</p>';
+          out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' +
+            escapeHtml(err && err.message ? err.message : String(err)) + '</p>';
         }
         updateTopicResearchButton();
       }

@@ -1573,18 +1573,13 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
       ? opts.max_tokens
       : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
     totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
-    jsonObject: false,
+    jsonObject: true,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
   });
-  const raw = jsonRepair.stripReasoningTokens(String(apiResult.content || ''));
-  if (!raw || raw.length < 40) {
-    const err = new Error('Perplexity returned empty or unusable synthesis content');
-    err.code = 'PERPLEXITY_EMPTY_CONTENT';
-    throw err;
-  }
+  const raw = apiResult.content;
   const phase = opts.phase || 'topic_master';
   const result = jsonRepair.parsePureModelJson(raw, {
     phase: phase,
@@ -3301,7 +3296,7 @@ const SYSTEM_PROMPT = [
   PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
-  'Respond ONLY with valid JSON (no markdown fences, no commentary). Do NOT wrap in ```json. Your entire reply MUST be one parseable JSON object using exactly these keys:',
+  'Respond ONLY with valid JSON (no markdown fences, no commentary). The API uses response_format=json_object — your entire reply MUST be one parseable JSON object using exactly these keys:',
   'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?, author?, note?}]}} — exhaustive book-length theoretical background; 4-6 sections; EACH section content = 6-10 deep paragraphs using ONLY <p>, <strong>, <ul>/<li>; cover anthroposophical background, developmental axis, concrete lesson plans, storytelling, blackboard drawings, and seminar-paper findings; NO links or citations in section HTML; bibliography holds all sources),',
   'inspiration (object: {title, global: [{title, items: [rich multi-sentence pedagogical mini-essays — storytelling, recitation, painting, movement, blackboard art — plain prose/HTML without links]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit unless every episode has verified HTTPS url, narrative: [essay strings]} — vivid concrete classroom inspiration; 3-4 blocks × 8-12 items; NO bare URLs in item prose),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
@@ -4200,73 +4195,6 @@ function servePedagogicalTemplate(grade, topic) {
   };
 }
 
-function normalizeTopicMasterFromLiveModel(modelResult, grade, topic, archiveSources, body) {
-  const parsed = modelResult && modelResult.parsed;
-  let normalized = safeNormalizePhaseCResponse(parsed, grade, topic, {
-    archiveEssay: archiveSources && archiveSources.essay,
-  });
-  stampTopicMasterArchiveLinks(normalized, parsed);
-  if (isThinGenericPhaseCPayload(normalized) && archiveSources && archiveSources.essay) {
-    const fromFiles = buildPhaseCFromSourceEssay(archiveSources.essay, grade, topic, archiveSources);
-    if (fromFiles) normalized = fromFiles;
-  }
-  if (body && body.mergeWithHistoric && body.historicPayload && typeof body.historicPayload === 'object') {
-    adaptTopicMasterPayload(body.historicPayload, {
-      gradeId: resolveGradeId(body),
-      grade: grade,
-      gradeLabel: grade,
-      topic: topic,
-    });
-  }
-  return normalized;
-}
-
-async function persistTopicMasterLivePayloadQuiet(gradeId, grade, topic, normalized, ownerBody, registerTeacherHistory) {
-  if (!gradeId || !normalized || isThinGenericPhaseCPayload(normalized)) return null;
-  try {
-    const savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBody);
-    if (savedKey && typeof registerTeacherHistory === 'function') {
-      try {
-        await registerTeacherHistory(savedKey, normalized);
-      } catch (linkErr) {
-        console.warn('[pure-phase-c] late history link failed:', linkErr.message || linkErr);
-      }
-    }
-    return savedKey;
-  } catch (saveErr) {
-    console.warn('[pure-phase-c] topic_master cache save failed:', saveErr.message || saveErr);
-    return null;
-  }
-}
-
-function scheduleLateTopicMasterPersist(modelResult, ctx) {
-  if (!modelResult || !ctx || !ctx.gradeId) return;
-  void (async function () {
-    try {
-      const normalized = normalizeTopicMasterFromLiveModel(
-        modelResult,
-        ctx.grade,
-        ctx.topic,
-        ctx.archiveSources,
-        ctx.body
-      );
-      const savedKey = await persistTopicMasterLivePayloadQuiet(
-        ctx.gradeId,
-        ctx.grade,
-        ctx.topic,
-        normalized,
-        ctx.ownerBody,
-        ctx.registerTeacherHistory
-      );
-      if (savedKey) {
-        console.log('[pure-phase-c] late live research persisted to cache/archive | topic=' + ctx.topic.slice(0, 40));
-      }
-    } catch (lateErr) {
-      console.warn('[pure-phase-c] late live research persist skipped:', lateErr.message || lateErr);
-    }
-  })();
-}
-
 async function fallbackAfterLiveSearchFailure(err, gradeId, topic, grade, archiveSources) {
   if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
   const reason = shared.isLiveSearchTimeoutError && shared.isLiveSearchTimeoutError(err)
@@ -4316,19 +4244,13 @@ async function fallbackAfterLiveSearchFailure(err, gradeId, topic, grade, archiv
       (Array.isArray(archiveSources.archiveRows) && archiveSources.archiveRows.length))
   );
   if (hasArchiveHint) {
-    console.warn(
-      '[pure-phase-c] archive hint present but payload thin — serving pedagogical template for',
-      topic
-    );
+    console.warn('[pure-phase-c] archive hint present but payload thin — refusing generic template for', topic);
+    const errArchive = new Error('נמצא חומר בארכיון אך לא ניתן להציגו כעת. נסו שוב בעוד רגע.');
+    errArchive.statusCode = 503;
+    errArchive.code = 'ARCHIVE_RENDER_DEFERRED';
+    throw errArchive;
   }
-  const templateServed = servePedagogicalTemplate(grade, topic);
-  return Object.assign({}, templateServed, {
-    meta: Object.assign({}, templateServed.meta || {}, {
-      fallback: true,
-      fallbackReason: reason,
-      source: 'pedagogical_template',
-    }),
-  });
+  return servePedagogicalTemplate(grade, topic);
 }
 
 async function runPurePhaseC(body, requestContext) {
@@ -4339,18 +4261,6 @@ async function runPurePhaseC(body, requestContext) {
   const gradeId = resolveGradeId(body);
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
-
-  if (body.calmFallback === true || body.templateFallback === true) {
-    console.log('[pure-phase-c] calm template fallback requested | topic=' + topic.slice(0, 40));
-    const templateServed = servePedagogicalTemplate(grade, topic);
-    return Object.assign({}, templateServed, {
-      meta: Object.assign({}, templateServed.meta || {}, {
-        fallback: true,
-        fallbackReason: 'calm_template_request',
-        source: 'pedagogical_template',
-      }),
-    });
-  }
 
   const skipArchiveStop = Boolean(body.researchExpand || body.archiveUpgrade);
   if (!skipArchiveStop && !shouldBypassTopicMasterCache(body)) {
@@ -4509,15 +4419,6 @@ async function runPurePhaseC(body, requestContext) {
         ? ('+ ' + archiveSources.files.length + ' archive file(s)')
         : '(no archive file text yet)'
     );
-    const latePersistCtx = {
-      gradeId: gradeId,
-      grade: grade,
-      topic: topic,
-      archiveSources: archiveSources,
-      ownerBody: ownerBody,
-      body: body,
-      registerTeacherHistory: registerTeacherHistory,
-    };
     const modelResult = await shared.withLiveSearchRetry(function () {
       return callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
         phase: 'topic_master',
@@ -4527,10 +4428,6 @@ async function runPurePhaseC(body, requestContext) {
         max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
         totalTimeoutMs: shared.LIVE_SEARCH_BUDGET_MS,
       });
-    }, {
-      onLateResolve: function (lateModelResult) {
-        scheduleLateTopicMasterPersist(lateModelResult, latePersistCtx);
-      },
     });
     const parsed = modelResult.parsed;
     if (modelResult.parseFallback && archiveSources.essay) {
@@ -4604,14 +4501,14 @@ async function runPurePhaseC(body, requestContext) {
 
     let savedKey = null;
     if (gradeId && !isThinGenericPhaseCPayload(normalized)) {
-      savedKey = await persistTopicMasterLivePayloadQuiet(
-        gradeId,
-        grade,
-        topic,
-        normalized,
-        ownerBody,
-        registerTeacherHistory
-      );
+      try {
+        savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBody);
+        if (savedKey) {
+          await registerTeacherHistory(savedKey, normalized);
+        }
+      } catch (saveErr) {
+        console.warn('[pure-phase-c] topic_master cache save failed:', saveErr.message || saveErr);
+      }
     } else if (isThinGenericPhaseCPayload(normalized)) {
       console.warn('[pure-phase-c] refusing to cache thin generic topic_master payload for', topic);
     }
@@ -4724,25 +4621,6 @@ async function fetchHandler(request) {
       }
     } catch (archiveErr) {
       console.warn('[pure-phase-c] archive fallback after handler error failed:', archiveErr.message || archiveErr);
-    }
-    try {
-      const grade = String((body && (body.grade || body.gradeLabel || body.gradeId)) || '').trim();
-      const topic = String((body && body.topic) || '').trim();
-      if (grade && topic) {
-        const templateServed = servePedagogicalTemplate(grade, topic);
-        console.warn('[pure-phase-c] handler error — serving pedagogical template instead of HTTP error');
-        return Response.json({
-          ok: true,
-          data: stripPhaseCWireOnlyFields(templateServed.data),
-          meta: Object.assign({}, templateServed.meta || {}, {
-            fallback: true,
-            fallbackReason: 'handler_error',
-            source: 'pedagogical_template',
-          }),
-        }, { status: 200, headers: headers });
-      }
-    } catch (templateErr) {
-      console.warn('[pure-phase-c] pedagogical template fallback failed:', templateErr.message || templateErr);
     }
     const statusCode = err && err.statusCode ? err.statusCode : 500;
     return Response.json({
