@@ -2058,8 +2058,10 @@
   }
 
   /**
-   * Show confirmation before a credit-consuming search/AI action.
-   * Resolves true on confirm, false on cancel. Does not bill — server bills on success.
+   * Gate a credit-consuming search/AI action. Still runs the quota check
+   * (assertSearchAllowed) but does not show a confirmation dialog — proceeds
+   * as if the user confirmed. Resolves false only when the quota check fails.
+   * Does not bill — server bills on success.
    */
   function confirmCreditUsage(options) {
     var opts = options || {};
@@ -2071,56 +2073,14 @@
         opts.isArchiveHit || opts.fromCache || opts.hit === true) {
       return Promise.resolve(true);
     }
-    var check;
     try {
-      check = assertSearchAllowed();
+      assertSearchAllowed();
     } catch (err) {
       return Promise.resolve(false);
     }
-    var remaining = getSearchesRemainingDisplay();
-    var modal = document.getElementById('credit-confirm-modal');
-    var msgEl = document.getElementById('credit-confirm-message');
-    var okBtn = document.getElementById('credit-confirm-ok');
-    var cancelBtn = document.getElementById('credit-confirm-cancel');
-    var backdrop = document.getElementById('credit-confirm-backdrop');
-    if (!modal || !msgEl || !okBtn || !cancelBtn) {
-      // Fallback when modal markup is missing — proceed after quota gate.
-      return Promise.resolve(true);
-    }
-    var bodyKey = remaining == null ? 'credit_confirm_unlimited' : 'credit_confirm_body';
-    var creditsLabel = remaining == null
-      ? (isEnglishUi() ? 'unlimited' : 'ללא הגבלה')
-      : String(remaining);
-    msgEl.textContent = t(bodyKey, { credits: creditsLabel });
-    modal.classList.remove('hidden');
-    modal.setAttribute('aria-hidden', 'false');
-    return new Promise(function (resolve) {
-      function cleanup(result) {
-        modal.classList.add('hidden');
-        modal.setAttribute('aria-hidden', 'true');
-        okBtn.removeEventListener('click', onOk);
-        cancelBtn.removeEventListener('click', onCancel);
-        if (backdrop) backdrop.removeEventListener('click', onCancel);
-        document.removeEventListener('keydown', onKey);
-        resolve(result);
-      }
-      function onOk(e) {
-        if (e) e.preventDefault();
-        cleanup(true);
-      }
-      function onCancel(e) {
-        if (e) e.preventDefault();
-        cleanup(false);
-      }
-      function onKey(e) {
-        if (e.key === 'Escape') onCancel(e);
-      }
-      okBtn.addEventListener('click', onOk);
-      cancelBtn.addEventListener('click', onCancel);
-      if (backdrop) backdrop.addEventListener('click', onCancel);
-      document.addEventListener('keydown', onKey);
-      try { okBtn.focus(); } catch (focusErr) { /* ignore */ }
-    });
+    // Quota already gated by assertSearchAllowed. Skip the confirmation
+    // dialog and continue as if the user clicked "Continue".
+    return Promise.resolve(true);
   }
 
   function isEnglishUi() {
