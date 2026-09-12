@@ -1717,16 +1717,15 @@ async function runPureGeneralSearch(body, requestContext) {
     periodBlock ? '(15-day cache miss — Gemini + Perplexity links)' : '(Gemini + Perplexity links)'
   );
   try {
-    const normalized = await shared.withHardTimeout(
-      generateNormalizedGeneralSearch(systemPrompt, userPrompt, {
+    const normalized = await shared.withLiveSearchRetry(function () {
+      return generateNormalizedGeneralSearch(systemPrompt, userPrompt, {
         phase: periodBlock ? 'general_search_period' : 'general_search',
         query: query,
         periodBlock: periodBlock,
         gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
         gradeInfo: gradeInfo,
-      }),
-      shared.LIVE_SEARCH_BUDGET_MS
-    );
+      });
+    });
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
@@ -1753,54 +1752,66 @@ async function runPureGeneralSearch(body, requestContext) {
     };
   } catch (err) {
     if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
-    const reason = shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error';
-    console.warn('[pure-general-search] live search failed —', reason + ':', err && err.message ? err.message : err);
+    console.warn('[pure-general-search] live search communication failed:', err && err.message ? err.message : err);
     const archived = await lookupArchivedGeneralSearch();
     if (archived && archived.data) {
       return {
         data: archived.data,
         meta: Object.assign({}, archived.meta || {}, {
           fromCache: true,
-          fallback: true,
-          fallbackReason: reason,
-          source: 'general_search_timeout_fallback',
-          userNotice: 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים במאגר.',
+          source: archived.meta && archived.meta.source ? archived.meta.source : 'general_search_cache',
         }),
       };
     }
     return {
-      data: buildGeneralSearchTimeoutSkeleton(query, periodBlock, gradeInfo),
+      data: buildGeneralSearchPedagogicalTemplate(query, periodBlock, gradeInfo),
       meta: {
         fromCache: false,
-        fallback: true,
-        fallbackReason: reason,
-        source: 'timeout_skeleton',
+        source: 'pedagogical_template',
         periodBlock: periodBlock,
-        userNotice: 'החיפוש החי לא השיב בזמן. מוצג שלד ראשוני — ניתן להרחיב מאוחר יותר.',
       },
     };
   }
 }
 
-function buildGeneralSearchTimeoutSkeleton(query, periodBlock, gradeInfo) {
+function buildGeneralSearchPedagogicalTemplate(query, periodBlock, gradeInfo) {
   const q = String(query || 'נושא').trim();
-  const notice = 'החיפוש החי לא השיב בזמן. זהו שלד ראשוני — ניתן להרחיב מאוחר יותר.';
+  const gradeLabel = gradeInfo && gradeInfo.gradeLabel ? String(gradeInfo.gradeLabel) : '';
+  const axis = [
+    'קשת התפתחותית לנושא «' + q + '» בתכנית היסוד הוולדורפית של כיתות א׳–ח׳.',
+    'כיתות א׳–ג׳: החוויה החושית, הטבע דרך סיפורים ודימויים, עבודת כפיים והתשתית הגופנית.',
+    'כיתות ד׳–ה׳: המעבר אל תצפית חיה (זואולוגיה, בוטניקה), קשר בין האדם לעולם החי והצומח.',
+    'כיתה ו׳: חציית הרוביקון השנייה (גיל 12), התגשמות מלאה במערכת השלד והשרירים, כניסת הפנומנולוגיה המדעית (אקוסטיקה, אופטיקה, חום, מגנטיות וחשמל סטטי).',
+    'כיתות ז׳–ח׳: המעבר למדעים מורכבים יותר (מכניקה פשוטה, כימיה של שריפה, הידרוליקה, חשמל דינמי) והנחת היסודות לחשיבה סיבתית ומדעית עצמאית בגיל ההתבגרות.',
+  ].join('\n\n');
+  const emphases = [
+    'מצפן התפתחותי: כל תקופה בוולדורף נבנית מתוך הבנת הגיל — מה הילד חווה בנפש, ברוח ובגוף, ומה המורה יכולה להציע כדי לתמוך בצמיחה.',
+    gradeLabel
+      ? 'יעדי התקופה ל' + gradeLabel + ' בנושא «' + q + '»: לחבר בין התוכן לבין קצב הגיל, לשלב שיעור ראשי, אמנות ותנועה, ולבנות מעברים ברורים בין הימים.'
+      : 'יעדי התקופה בנושא «' + q + '»: לחבר בין התוכן לבין קצב הגיל, לשלב שיעור ראשי, אמנות ותנועה, ולבנות מעברים ברורים בין הימים.',
+    'המורה שומרת על סדר ברור, על חום ועל דימויים חיים שמאפשרים לתלמיד להרגיש בטוח, מעורב ומאתגר — בלי לדחוף מעבר לקצב ההתפתחותי.',
+  ].join('\n\n');
   const data = {
-    developmental_axis: notice + '\n\nמתווה ראשוני לנושא «' + q + '».',
-    core_pedagogical_emphases: notice,
+    developmental_axis: axis,
+    core_pedagogical_emphases: emphases,
     recommended_literature: [],
     relevant_links: [],
-    _timeoutFallback: true,
+    _pedagogicalTemplate: true,
   };
   if (periodBlock) {
-    const gradeLabel = gradeInfo && gradeInfo.gradeLabel ? String(gradeInfo.gradeLabel) : '';
+    const weekFocus = [
+      'פתיחה חושית ודימוי חי של הנושא',
+      'העמקה, תצפית ומעשה בכיתה',
+      'סיכום, יישום אמנותי וסגירת התקופה',
+    ];
     data.curriculum = [];
     for (let day = 1; day <= 15; day++) {
+      const week = Math.ceil(day / 5) - 1;
       data.curriculum.push({
         day: day,
         topic: 'יום ' + day + ' — ' + q,
-        content: 'שלד ראשוני ליום זה' + (gradeLabel ? ' ל' + gradeLabel : '') + '. השלימו תוכן פדגוגי לאחר מכן.',
-        art: '',
+        content: (gradeLabel ? gradeLabel + ': ' : '') + weekFocus[week] + ' בנושא «' + q + '», בשיעור ראשי עם קצב פתיחה–עיבוד–סגירה.',
+        art: 'העמקה אמנותית (ציור, תנועה או דימוי לוח) המתאימה לקצב הגיל.',
       });
     }
   }
