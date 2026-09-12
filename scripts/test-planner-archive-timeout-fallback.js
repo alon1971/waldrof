@@ -11,7 +11,9 @@ function assert(condition, message) {
   }
 }
 
-assert(shared.LIVE_SEARCH_BUDGET_MS >= 90000, 'LIVE_SEARCH_BUDGET_MS must be at least 90 seconds');
+assert(shared.LIVE_SEARCH_MIN_TIMEOUT_MS >= 60000, 'LIVE_SEARCH_MIN_TIMEOUT_MS must be at least 60 seconds');
+assert(shared.LIVE_SEARCH_BUDGET_MS >= shared.LIVE_SEARCH_MIN_TIMEOUT_MS, 'LIVE_SEARCH_BUDGET_MS respects minimum');
+assert(shared.LIVE_SEARCH_CLIENT_WAIT_MS >= shared.LIVE_SEARCH_BUDGET_MS, 'client wait covers at least one attempt');
 assert(shared.LIVE_SEARCH_COMM_RETRY_COUNT === 2, 'LIVE_SEARCH_COMM_RETRY_COUNT must allow 2 background retries');
 assert(typeof shared.withLiveSearchRetry === 'function', 'withLiveSearchRetry is exported');
 assert(typeof shared.sleepMs === 'function', 'sleepMs is exported');
@@ -23,7 +25,7 @@ assert(timeoutErr.code === 'LIVE_SEARCH_TIMEOUT', 'liveSearchTimeoutError code')
 assert(shared.isLiveSearchTimeoutError(timeoutErr), 'detect timeout error object');
 
 const started = Date.now();
-shared.withHardTimeout(new Promise(function () { /* never settles */ }), 40, 'test')
+shared.withHardTimeout(new Promise(function () { /* never settles */ }), 40, 'test', { allowSubMinBudget: true })
   .then(function () {
     console.error('FAIL: withHardTimeout should reject');
     process.exit(1);
@@ -34,7 +36,7 @@ shared.withHardTimeout(new Promise(function () { /* never settles */ }), 40, 'te
 
     return shared.withLiveSearchRetry(function () {
       return Promise.reject(new Error('fetch failed'));
-    }, { retries: 1, budgetMs: 50 });
+    }, { retries: 1, budgetMs: 50, allowSubMinBudget: true });
   })
   .then(function () {
     console.error('FAIL: withLiveSearchRetry should reject after retries');

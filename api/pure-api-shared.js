@@ -28,6 +28,15 @@ function sendJson(res, statusCode, payload) {
   return res.status(statusCode).json(payload);
 }
 
+function safeSendJson(res, statusCode, payload) {
+  try {
+    return sendJson(res, statusCode, payload);
+  } catch (sendErr) {
+    console.warn('[pure-api] response not sent (client likely disconnected):', sendErr.message || sendErr);
+    return null;
+  }
+}
+
 function coerceText(value) {
   if (value == null) return '';
   if (Array.isArray(value)) {
@@ -253,18 +262,18 @@ function createLegacyPostHandler(runFn) {
         } else if (typeof responseData === 'string') {
           responseData = hebrewGuardrails.applyHebrewAutoReplacements(responseData);
         }
-        return sendJson(res, 200, {
+        return safeSendJson(res, 200, {
           ok: true,
           data: responseData,
           meta: result.meta || { fromCache: false, source: 'perplexity-pure' },
         });
       }
-      return sendJson(res, 200, { ok: true, data: result, meta: { fromCache: false, source: 'perplexity-pure' } });
+      return safeSendJson(res, 200, { ok: true, data: result, meta: { fromCache: false, source: 'perplexity-pure' } });
     } catch (err) {
       const statusCode = err && err.statusCode ? err.statusCode : 500;
       const message = err instanceof Error ? err.message : String(err);
       console.error('[pure-api]', statusCode, message);
-      return sendJson(res, statusCode, {
+      return safeSendJson(res, statusCode, {
         error: message,
         code: err && err.code ? err.code : undefined,
         usage: err && err.usage ? err.usage : undefined,
@@ -279,11 +288,28 @@ function badRequest(message) {
   return err;
 }
 
+/** Minimum wall-clock budget for any single live-research HTTP attempt (Perplexity / server). */
+const LIVE_SEARCH_MIN_TIMEOUT_MS = 60000;
 /** Hard cap for one live Perplexity / Gemini attempt on planner topic + general search. */
-const LIVE_SEARCH_BUDGET_MS = 90000;
+const LIVE_SEARCH_BUDGET_MS = Math.max(
+  LIVE_SEARCH_MIN_TIMEOUT_MS,
+  Number(process.env.LIVE_SEARCH_BUDGET_MS) || 90000
+);
 /** Two extra attempts after the first failure (3 tries total). */
 const LIVE_SEARCH_COMM_RETRY_COUNT = 2;
 const LIVE_SEARCH_RETRY_BACKOFF_MS = 1200;
+
+function computeLiveSearchClientWaitMs() {
+  const attempts = LIVE_SEARCH_COMM_RETRY_COUNT + 1;
+  let backoffSum = 0;
+  for (let i = 0; i < LIVE_SEARCH_COMM_RETRY_COUNT; i++) {
+    backoffSum += LIVE_SEARCH_RETRY_BACKOFF_MS * Math.pow(2, i);
+  }
+  return attempts * LIVE_SEARCH_BUDGET_MS + backoffSum + 20000;
+}
+
+/** Browser fetch budget — must cover all server retries + backoff. */
+const LIVE_SEARCH_CLIENT_WAIT_MS = computeLiveSearchClientWaitMs();
 
 function isLiveSearchTimeoutError(err) {
   if (!err) return false;
@@ -295,8 +321,11 @@ function isLiveSearchTimeoutError(err) {
 function isCommunicationError(err) {
   if (isLiveSearchTimeoutError(err)) return true;
   if (err && err.code === 'PERPLEXITY_EMPTY_CONTENT') return true;
+  if (err && (err.httpStatus === 502 || err.httpStatus === 503 || err.httpStatus === 504 || err.httpStatus === 524)) {
+    return true;
+  }
   const msg = err instanceof Error ? err.message : String(err || '');
-  return /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR|שגיאת רשת|network|empty or unusable synthesis/i.test(msg);
+  return /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR|שגיאת רשת|network|empty or unusable synthesis|Gateway timeout|502 Bad Gateway|504 Gateway|Bad Gateway/i.test(msg);
 }
 
 /** Network + timeout failures eligible for background retries. */
@@ -318,16 +347,35 @@ function liveSearchTimeoutError(message) {
   return err;
 }
 
-/** Race a promise against a hard wall-clock budget. Does not cancel the loser. */
-function withHardTimeout(promise, ms, message) {
-  const budget = typeof ms === 'number' && ms > 0 ? ms : LIVE_SEARCH_BUDGET_MS;
+/**
+ * Race a promise against a hard wall-clock budget. Does not cancel the loser.
+ * hooks.onLateResolve runs if the underlying promise settles after the budget fired.
+ */
+function withHardTimeout(promise, ms, message, hooks) {
+  const rawBudget = typeof ms === 'number' && ms > 0 ? ms : LIVE_SEARCH_BUDGET_MS;
+  const allowSubMin = Boolean(hooks && hooks.allowSubMinBudget);
+  const budget = allowSubMin
+    ? rawBudget
+    : Math.max(LIVE_SEARCH_MIN_TIMEOUT_MS, rawBudget);
   let timer = null;
+  let timedOut = false;
+  const wrapped = Promise.resolve(promise).then(function (val) {
+    if (timedOut && hooks && typeof hooks.onLateResolve === 'function') {
+      try {
+        hooks.onLateResolve(val);
+      } catch (lateHookErr) {
+        console.warn('[pure-api] onLateResolve hook failed:', lateHookErr.message || lateHookErr);
+      }
+    }
+    return val;
+  });
   const timeoutPromise = new Promise(function (_, reject) {
     timer = setTimeout(function () {
+      timedOut = true;
       reject(liveSearchTimeoutError(message));
     }, budget);
   });
-  return Promise.race([promise, timeoutPromise]).finally(function () {
+  return Promise.race([wrapped, timeoutPromise]).finally(function () {
     if (timer) clearTimeout(timer);
   });
 }
@@ -340,9 +388,17 @@ async function withLiveSearchRetry(factory, options) {
   const budget = opts.budgetMs || LIVE_SEARCH_BUDGET_MS;
   const backoffBase = opts.backoffMs != null ? Number(opts.backoffMs) : LIVE_SEARCH_RETRY_BACKOFF_MS;
   let lastErr = null;
+  const lateHook = {};
+  if (opts.onLateResolve && typeof opts.onLateResolve === 'function') {
+    lateHook.onLateResolve = opts.onLateResolve;
+  }
+  if (opts.allowSubMinBudget === true) {
+    lateHook.allowSubMinBudget = true;
+  }
+  const hookArg = lateHook.onLateResolve || lateHook.allowSubMinBudget ? lateHook : null;
   for (let i = 0; i < attempts; i++) {
     try {
-      return await withHardTimeout(factory(), budget);
+      return await withHardTimeout(factory(), budget, undefined, hookArg);
     } catch (err) {
       lastErr = err;
       if (err && (err.statusCode === 429 || err.statusCode === 401 || err.statusCode === 403)) throw err;
@@ -442,7 +498,9 @@ module.exports = {
   RIGID_JSON_RETRY_MANDATE,
   createLegacyPostHandler,
   badRequest,
+  LIVE_SEARCH_MIN_TIMEOUT_MS,
   LIVE_SEARCH_BUDGET_MS,
+  LIVE_SEARCH_CLIENT_WAIT_MS,
   LIVE_SEARCH_COMM_RETRY_COUNT,
   LIVE_SEARCH_RETRY_BACKOFF_MS,
   isLiveSearchTimeoutError,
