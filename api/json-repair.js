@@ -13,13 +13,18 @@
 function stripReasoningTokens(text) {
   let s = String(text || '');
   if (!s) return s;
-  // 1) Drop fully-formed <think>…</think> blocks (case-insensitive, multi-line).
-  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
-  // 2) Orphan closing tag (opener missing/trimmed): everything before it is reasoning.
-  const lastClose = s.toLowerCase().lastIndexOf('</think>');
-  if (lastClose >= 0) s = s.slice(lastClose + '</think>'.length);
-  // 3) Strip any leftover lone tags.
-  s = s.replace(/<\/?think>/gi, '');
+  // 1) … blocks (Perplexity sonar-reasoning-pro and similar).
+  s = s.replace(/<\s*think\s*>[\s\S]*?<\s*\/\s*think\s*>/gi, '');
+  // 2) … wrappers.
+  s = s.replace(/<\s*redacted_thinking\s*>[\s\S]*?<\s*\/\s*redacted_thinking\s*>/gi, '');
+  // 3) Orphan closing tags — keep text after the last closing marker only.
+  const closeMarkers = ['</' + 'think>', '</think>'];
+  closeMarkers.forEach(function (marker) {
+    const idx = s.toLowerCase().lastIndexOf(marker.toLowerCase());
+    if (idx >= 0) s = s.slice(idx + marker.length);
+  });
+  // 4) Strip leftover lone tags.
+  s = s.replace(/<\/?(?:think|redacted_thinking)\b[^>]*>/gi, '');
   return s.trim();
 }
 

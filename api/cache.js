@@ -3291,6 +3291,45 @@ async function deleteTopicProseArchive(gradeId, topic, options) {
   return { deleted: deletedKeys.length, deletedKeys: deletedKeys, preservedGrade: true };
 }
 
+/** Mirror a verified topic_master payload into community_drive_archive (search_query + grade + summary_md). */
+async function mirrorTopicMasterLiveResearchToCommunityArchive(gid, gradeLabel, topicStr, safe) {
+  if (!gid || !topicStr || !safe) return false;
+  try {
+    const phaseC = require('./pure-phase-c');
+    const communityArchive = require('./community-drive-archive');
+    if (
+      !phaseC
+      || typeof phaseC.isThinGenericPhaseCPayload !== 'function'
+      || typeof phaseC.phaseCHasFilledTheory !== 'function'
+      || typeof phaseC.buildArchiveSummaryMdFromPhaseC !== 'function'
+      || !communityArchive
+      || typeof communityArchive.persistLiveResearchToCommunityArchive !== 'function'
+    ) {
+      return false;
+    }
+    if (phaseC.isThinGenericPhaseCPayload(safe) || !phaseC.phaseCHasFilledTheory(safe)) {
+      return false;
+    }
+    const summaryMd = phaseC.buildArchiveSummaryMdFromPhaseC(safe, gradeLabel || gid, topicStr);
+    if (!summaryMd || summaryMd.length < 280) return false;
+    await communityArchive.persistLiveResearchToCommunityArchive({
+      topic: topicStr,
+      searchQuery: topicStr,
+      gradeId: gid,
+      summaryMd: summaryMd,
+      phase: TOPIC_MASTER_PHASE,
+      model: 'perplexity',
+    });
+    return true;
+  } catch (mirrorErr) {
+    console.warn(
+      '[community-drive-archive] topic_master live mirror failed:',
+      mirrorErr && mirrorErr.message ? mirrorErr.message : mirrorErr
+    );
+    return false;
+  }
+}
+
 /** Persist unified Step B→C master JSON under grade_id + normalized topic. */
 async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData, ownerBody) {
   const gid = String(gradeId || '').trim();
@@ -3326,35 +3365,7 @@ async function setTopicMasterCache(gradeId, gradeLabel, topic, masterData, owner
   }
   const savedKey = await setCachedResult(body, safe);
   if (savedKey) {
-    try {
-      const phaseC = require('./pure-phase-c');
-      const communityArchive = require('./community-drive-archive');
-      if (
-        phaseC
-        && typeof phaseC.isThinGenericPhaseCPayload === 'function'
-        && typeof phaseC.phaseCHasFilledTheory === 'function'
-        && typeof phaseC.buildArchiveSummaryMdFromPhaseC === 'function'
-        && communityArchive
-        && typeof communityArchive.persistLiveResearchToCommunityArchive === 'function'
-        && !phaseC.isThinGenericPhaseCPayload(safe)
-        && phaseC.phaseCHasFilledTheory(safe)
-      ) {
-        const summaryMd = phaseC.buildArchiveSummaryMdFromPhaseC(safe, gradeLabel || gid, topicStr);
-        await communityArchive.persistLiveResearchToCommunityArchive({
-          topic: topicStr,
-          searchQuery: topicStr,
-          gradeId: gid,
-          summaryMd: summaryMd,
-          phase: TOPIC_MASTER_PHASE,
-          model: 'perplexity',
-        });
-      }
-    } catch (mirrorErr) {
-      console.warn(
-        '[community-drive-archive] topic_master live mirror failed:',
-        mirrorErr && mirrorErr.message ? mirrorErr.message : mirrorErr
-      );
-    }
+    await mirrorTopicMasterLiveResearchToCommunityArchive(gid, gradeLabel, topicStr, safe);
   }
   return savedKey;
 }
@@ -5881,6 +5892,7 @@ module.exports = {
   getCachedResult,
   getTopicMasterCache,
   setTopicMasterCache,
+  mirrorTopicMasterLiveResearchToCommunityArchive,
   getGeneralSearchCache,
   setGeneralSearchCache,
   isUsableGeneralSearchPeriodPayload,

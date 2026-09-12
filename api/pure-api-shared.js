@@ -157,13 +157,13 @@ async function callPerplexityJson(systemPrompt, userPrompt, options) {
       max_tokens: opts.max_tokens != null
         ? Math.max(4096, opts.max_tokens)
         : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-      jsonObject: true,
+      jsonObject: false,
       messages: [
         { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, isRetry) },
         { role: 'user', content: userPrompt },
       ],
     });
-    const result = jsonRepair.parsePureModelJson(raw, {
+    const result = jsonRepair.parsePureModelJson(jsonRepair.stripReasoningTokens(raw), {
       phase: phase,
       context: parseContext,
       unwrap: true,
@@ -199,13 +199,13 @@ async function callPerplexityJsonSafe(systemPrompt, userPrompt, options) {
       max_tokens: opts.max_tokens != null
         ? Math.max(4096, opts.max_tokens)
         : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-      jsonObject: true,
+      jsonObject: false,
       messages: [
         { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, isRetry) },
         { role: 'user', content: userPrompt },
       ],
     });
-    lastResult = jsonRepair.parsePureModelJson(lastRaw, {
+    lastResult = jsonRepair.parsePureModelJson(jsonRepair.stripReasoningTokens(lastRaw), {
       phase: phase,
       context: parseContext,
       unwrap: true,
@@ -294,8 +294,9 @@ function isLiveSearchTimeoutError(err) {
 
 function isCommunicationError(err) {
   if (isLiveSearchTimeoutError(err)) return true;
+  if (err && err.code === 'PERPLEXITY_EMPTY_CONTENT') return true;
   const msg = err instanceof Error ? err.message : String(err || '');
-  return /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR|שגיאת רשת|network/i.test(msg);
+  return /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|UND_ERR|שגיאת רשת|network|empty or unusable synthesis/i.test(msg);
 }
 
 /** Network + timeout failures eligible for background retries. */

@@ -11,6 +11,20 @@ const PERPLEXITY_SEARCH_MODEL = 'sonar';
 /** Single premium synthesis model for ALL users — quality-first, no dynamic downgrade. */
 const PERPLEXITY_MODEL = 'sonar-reasoning-pro';
 
+/** OpenAI-style json_object is not supported on Sonar / online models — prompt + parse only. */
+function modelSupportsJsonResponseFormat(model) {
+  const m = String(model || '').trim().toLowerCase();
+  if (!m) return false;
+  if (m.indexOf('sonar') >= 0) return false;
+  return true;
+}
+
+function isResponseFormatRejectedError(err) {
+  if (!err || err.statusCode !== 400) return false;
+  const msg = String(err.message || err.supabaseBody || '').toLowerCase();
+  return /response_format|json_object|invalid.*format|unsupported.*format/.test(msg);
+}
+
 /**
  * Perplexity accepts max_tokens up to 128000 (API schema). sonar-reasoning-pro's effective
  * completion output is model-bound (~8k), but we no longer impose a lower ceiling
@@ -196,16 +210,33 @@ function extractMessageContent(data) {
   if (!message || typeof message !== 'object') return '';
 
   const content = message.content != null ? message.content : message.text;
-  if (typeof content === 'string') return content.trim();
+  if (typeof content === 'string') {
+    const trimmed = content.trim();
+    if (!trimmed) return '';
+    const stripped = jsonRepair.stripReasoningTokens(trimmed);
+    return stripped || trimmed;
+  }
 
   if (Array.isArray(content)) {
-    return content.map(function (part) {
-      if (!part) return '';
-      if (typeof part === 'string') return part;
-      if (typeof part.text === 'string') return part.text;
-      if (typeof part.content === 'string') return part.content;
-      return '';
-    }).join('').trim();
+    const parts = [];
+    content.forEach(function (part) {
+      if (!part) return;
+      if (typeof part === 'string') {
+        parts.push(part);
+        return;
+      }
+      const type = String(part.type || '').toLowerCase();
+      if (type === 'reasoning' || type === 'thinking' || type === 'redacted_thinking') return;
+      if (typeof part.text === 'string' && part.text.trim()) {
+        parts.push(part.text);
+        return;
+      }
+      if (typeof part.content === 'string' && part.content.trim()) {
+        parts.push(part.content);
+      }
+    });
+    const joined = parts.join('').trim();
+    if (joined) return joined;
   }
 
   return '';
@@ -488,7 +519,7 @@ async function callPerplexityChatWithCitations(options) {
     max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
     messages: opts.messages || [],
   };
-  if (opts.jsonObject !== false) {
+  if (opts.jsonObject === true && modelSupportsJsonResponseFormat(model)) {
     body.response_format = { type: 'json_object' };
   }
 
@@ -502,15 +533,16 @@ async function callPerplexityChatWithCitations(options) {
       return executePerplexityRequest(apiKey, body, false, null, requestOpts);
     }, 'chat-citations');
   } catch (formatErr) {
-    if (!body.response_format || !formatErr || formatErr.statusCode !== 400) throw formatErr;
+    if (!body.response_format || !isResponseFormatRejectedError(formatErr)) throw formatErr;
     console.warn('[perplexity] response_format json_object rejected — retrying without it');
     delete body.response_format;
     result = await withRateLimitRetry(function () {
       return executePerplexityRequest(apiKey, body, false, null, requestOpts);
     }, 'chat-citations-no-format');
   }
+  const cleanedContent = jsonRepair.stripReasoningTokens(result.content || '');
   return {
-    content: result.content,
+    content: cleanedContent || result.content,
     citations: result.citations || [],
     rawResponseText: result.rawResponseText || '',
   };
@@ -537,7 +569,7 @@ async function callPerplexityChat(options) {
     max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
     messages: opts.messages || [],
   };
-  if (opts.jsonObject) {
+  if (opts.jsonObject === true && modelSupportsJsonResponseFormat(model)) {
     body.response_format = { type: 'json_object' };
   }
 
@@ -550,14 +582,15 @@ async function callPerplexityChat(options) {
       return executePerplexityRequest(apiKey, body, useStream, onDelta);
     }, 'chat');
   } catch (formatErr) {
-    if (!body.response_format || !formatErr || formatErr.statusCode !== 400) throw formatErr;
+    if (!body.response_format || !isResponseFormatRejectedError(formatErr)) throw formatErr;
     console.warn('[perplexity] response_format json_object rejected — retrying without it');
     delete body.response_format;
     result = await withRateLimitRetry(function () {
       return executePerplexityRequest(apiKey, body, useStream, onDelta);
     }, 'chat-no-format');
   }
-  return result.content;
+  const cleaned = jsonRepair.stripReasoningTokens(result.content || '');
+  return cleaned || result.content;
 }
 
 /**
@@ -601,4 +634,6 @@ module.exports = {
   extractCitations,
   extractCitationItems,
   extractHttpsUrlsFromText,
+  modelSupportsJsonResponseFormat,
+  isResponseFormatRejectedError,
 };
