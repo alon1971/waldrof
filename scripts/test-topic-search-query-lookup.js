@@ -81,13 +81,21 @@ const noGradeStillHits = archive.pickBestArchiveRowsBySearchQuery([
 ], 'רנסנס', '7');
 assert(noGradeStillHits.length === 1, 'topic row without grade_id is still returned');
 
-const fromAltColumns = archive.extractArchiveRowContent({
+const fromPrimary = archive.extractArchiveRowContent({
+  search_query: 'רנסנס',
+  summary_md: 'ציר זמן של הרנסנס בכיתה ז׳: פירנצה, פרספקטיבה, לאונרדו.',
+  content: 'עמודה משנית שלא אמורה להיסרק.',
+  summary_text: 'גם summary_text לא אמור להיסרק כשיש summary_md.',
+});
+assert(/ציר זמן|לאונרדו/.test(fromPrimary.text), 'read text from summary_md only');
+assert(!/משנית/.test(fromPrimary.text), 'do not scan content when summary_md exists');
+assert(fromPrimary.columnsUsed[0] === 'summary_md', 'primary column is summary_md');
+
+const emptyPrimary = archive.extractArchiveRowContent({
   search_query: 'רנסנס',
   summary_md: '',
   content: 'תוכן שיעור רנסנס שמור בעמודת content ולא ב-summary_md.',
-  json_data: { theory: { title: 'רנסנס', sections: [{ heading: 'מהות', content: 'פסקה מלאה על פרספקטיבה.' }] } },
 });
-assert(/עמודת content/.test(fromAltColumns.text), 'read text from content column');
-assert(fromAltColumns.payload && fromAltColumns.payload.theory, 'read JSON payload from json_data');
+assert(!emptyPrimary.text, 'do not scan content/body when summary_md is empty');
 
 console.log('OK: topic archive lookup uses search_query (not topic/subject)');
