@@ -81,4 +81,13 @@ const noGradeStillHits = archive.pickBestArchiveRowsBySearchQuery([
 ], 'רנסנס', '7');
 assert(noGradeStillHits.length === 1, 'topic row without grade_id is still returned');
 
+const fromAltColumns = archive.extractArchiveRowContent({
+  search_query: 'רנסנס',
+  summary_md: '',
+  content: 'תוכן שיעור רנסנס שמור בעמודת content ולא ב-summary_md.',
+  json_data: { theory: { title: 'רנסנס', sections: [{ heading: 'מהות', content: 'פסקה מלאה על פרספקטיבה.' }] } },
+});
+assert(/עמודת content/.test(fromAltColumns.text), 'read text from content column');
+assert(fromAltColumns.payload && fromAltColumns.payload.theory, 'read JSON payload from json_data');
+
 console.log('OK: topic archive lookup uses search_query (not topic/subject)');
