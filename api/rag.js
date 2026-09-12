@@ -54,6 +54,7 @@ const RECENT_PROJECT_UPLOAD_LIMIT = 8;
 const DRIVE_ENRICHMENT_PHASES = new Set([
   'grade',
   'topic',
+  'topic_master',
   'pedagogy_deep_dive',
   'archive_summary',
 ]);
@@ -68,6 +69,7 @@ const SOURCE_PRIORITY = {
 const RAG_PHASES = new Set([
   'grade',
   'topic',
+  'topic_master',
   'pedagogy_deep_dive',
   'archive_summary',
   'chat_followup',

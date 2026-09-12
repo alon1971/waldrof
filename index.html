@@ -31567,6 +31567,9 @@
       appState.topicCommunityMeta = meta || null;
       if (Array.isArray(meta.communityMatches)) {
         appState.topicCommunityMatches = meta.communityMatches;
+        if (typeof renderTopicCommunitySlot === 'function') {
+          renderTopicCommunitySlot(meta.communityMatches);
+        }
       }
 
       var summaryHtml = buildStepBSummaryHtmlFromPurePhaseC(data);
