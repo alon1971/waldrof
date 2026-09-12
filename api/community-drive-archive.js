@@ -195,9 +195,120 @@ function archiveRowSearchQuery(row) {
   return String((row && (row.search_query || row.query_text || '')) || '').trim();
 }
 
+const ARCHIVE_ROW_META_KEYS = {
+  id: true,
+  archive_key: true,
+  search_query: true,
+  query_text: true,
+  grade_id: true,
+  grade_level: true,
+  topic: true,
+  community_status: true,
+  source_fingerprint: true,
+  drive_fingerprint: true,
+  source_file_ids: true,
+  model: true,
+  created_at: true,
+  updated_at: true,
+};
+
+const ARCHIVE_TEXT_COLUMN_KEYS = [
+  'summary_md', 'summary_text', 'content', 'body', 'raw_text', 'text',
+  'markdown', 'html', 'notes', 'lesson_text', 'period_text', 'essay',
+];
+
+const ARCHIVE_JSON_COLUMN_KEYS = [
+  'json_data', 'result_data', 'payload', 'data', 'lesson_json',
+  'period_plan', 'phase_c', 'topic_master', 'theory',
+];
+
+function looksLikePhaseCPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Boolean(
+    value.theory || value.core_emphases || value.inspiration ||
+    value.key_points || value.blockPlan || value.sections
+  );
+}
+
+function parseArchiveJsonValue(value) {
+  if (value == null) return null;
+  if (typeof value === 'object') {
+    return looksLikePhaseCPayload(value) ? value : null;
+  }
+  const raw = String(value).trim();
+  if (!raw || (raw.charAt(0) !== '{' && raw.charAt(0) !== '[')) return null;
+  const parsed = jsonRepair.safeParseJson
+    ? jsonRepair.safeParseJson(raw)
+    : (function () {
+      try { return JSON.parse(raw); } catch (err) { return null; }
+    }());
+  if (looksLikePhaseCPayload(parsed)) return parsed;
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    if (looksLikePhaseCPayload(parsed.data)) return parsed.data;
+    if (looksLikePhaseCPayload(parsed.result_data)) return parsed.result_data;
+    if (looksLikePhaseCPayload(parsed.payload)) return parsed.payload;
+  }
+  return null;
+}
+
+/**
+ * Read lesson/period text or JSON from whatever column actually holds it.
+ * Live table uses summary_md / summary_text; also scan content, body, json_data, etc.
+ */
+function extractArchiveRowContent(row) {
+  const result = { text: '', payload: null, fileRefs: [], fileUrls: [], columnsUsed: [] };
+  if (!row || typeof row !== 'object') return result;
+
+  function addText(value, column) {
+    const text = String(value == null ? '' : value).trim();
+    if (!text || text.length < 20) return;
+    if (result.text.indexOf(text) >= 0) return;
+    result.text = result.text ? (result.text + '\n\n' + text) : text;
+    if (column && result.columnsUsed.indexOf(column) < 0) result.columnsUsed.push(column);
+  }
+
+  function addPayload(value, column) {
+    const parsed = parseArchiveJsonValue(value);
+    if (!parsed) return;
+    if (!result.payload) result.payload = parsed;
+    if (column && result.columnsUsed.indexOf(column) < 0) result.columnsUsed.push(column);
+  }
+
+  ARCHIVE_JSON_COLUMN_KEYS.forEach(function (key) {
+    if (row[key] != null) addPayload(row[key], key);
+  });
+  ARCHIVE_TEXT_COLUMN_KEYS.forEach(function (key) {
+    if (row[key] != null) {
+      addPayload(row[key], key);
+      addText(row[key], key);
+    }
+  });
+
+  Object.keys(row).forEach(function (key) {
+    if (ARCHIVE_ROW_META_KEYS[key]) return;
+    if (key === 'file_refs' || key === 'citations' || key === 'source_file_ids') return;
+    const value = row[key];
+    if (value == null) return;
+    addPayload(value, key);
+    if (typeof value === 'string') addText(value, key);
+  });
+
+  const refs = Array.isArray(row.file_refs) ? row.file_refs : [];
+  result.fileRefs = refs;
+  refs.forEach(function (ref) {
+    const url = String((ref && (ref.webViewLink || ref.fileUrl || ref.url || ref.file_url)) || '').trim();
+    if (url && result.fileUrls.indexOf(url) < 0) result.fileUrls.push(url);
+  });
+  const directUrl = String(row.file_url || row.fileUrl || row.url || '').trim();
+  if (directUrl && result.fileUrls.indexOf(directUrl) < 0) result.fileUrls.push(directUrl);
+
+  return result;
+}
+
 function archiveRowHasUsableContent(row) {
   if (!row || typeof row !== 'object') return false;
-  if (String(row.summary_md || row.summary_text || '').trim()) return true;
+  const extracted = extractArchiveRowContent(row);
+  if (extracted.text || extracted.payload) return true;
   if (Array.isArray(row.file_refs) && row.file_refs.length) return true;
   if (Array.isArray(row.source_file_ids) && row.source_file_ids.length) return true;
   return false;
@@ -238,8 +349,8 @@ function pickBestArchiveRowsBySearchQuery(rows, topic, gradeId) {
     const aGrade = gid && archiveRowGradeId(a) === gid ? 1 : 0;
     const bGrade = gid && archiveRowGradeId(b) === gid ? 1 : 0;
     if (aGrade !== bGrade) return bGrade - aGrade;
-    const aSummary = String(a.summary_md || a.summary_text || '').trim().length;
-    const bSummary = String(b.summary_md || b.summary_text || '').trim().length;
+    const aSummary = extractArchiveRowContent(a).text.length;
+    const bSummary = extractArchiveRowContent(b).text.length;
     if (aSummary !== bSummary) return bSummary - aSummary;
     return archiveTimestampMs(b) - archiveTimestampMs(a);
   });
@@ -266,7 +377,7 @@ function collectFileRefsFromArchiveRows(rows) {
 
 function collectSummariesFromArchiveRows(rows) {
   return (rows || []).map(function (row) {
-    return String((row && (row.summary_md || row.summary_text)) || '').trim();
+    return extractArchiveRowContent(row).text;
   }).filter(function (text) {
     return text.length >= 40;
   });
@@ -1056,7 +1167,7 @@ async function tryInstantArchiveRetrieval(query, options) {
       console.warn('[community-drive-archive] key lookup failed:', lookupErr.message || lookupErr);
       existing = null;
     }
-    if (existing && String(existing.summary_md || existing.summary_text || '').trim()) {
+    if (existing && extractArchiveRowContent(existing).text) {
       lookupPath = 'archive_key:' + archiveKey.slice(0, 12) + ':phase=' + String(phase || 'empty');
       break;
     }
@@ -1104,9 +1215,9 @@ async function tryInstantArchiveRetrieval(query, options) {
     return null;
   }
 
-  const archivedBody = String(existing.summary_md || existing.summary_text || '').trim();
+  const archivedBody = extractArchiveRowContent(existing).text;
   if (!archivedBody) {
-    logArchiveMiss('entry found but summary_md/summary_text empty', {
+    logArchiveMiss('entry found but archive content columns empty', {
       grade: gradeId,
       topic: topic.slice(0, 40),
     });
@@ -2356,6 +2467,8 @@ module.exports = {
   pickBestArchiveRowsBySearchQuery,
   collectFileRefsFromArchiveRows,
   collectSummariesFromArchiveRows,
+  extractArchiveRowContent,
+  looksLikePhaseCPayload,
   fetchArchiveRowsBySearchQuery,
   fetchArchiveRowBySearchQuery,
   fetchArchiveRowByTopicGrade,

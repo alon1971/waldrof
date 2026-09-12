@@ -276,6 +276,193 @@ function stripPhaseCWireOnlyFields(data) {
   return data;
 }
 
+function archiveMarkdownInline(text) {
+  return String(text || '')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .trim();
+}
+
+function archiveMarkdownToHtml(md) {
+  const raw = String(md || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return '';
+  const blocks = raw.split(/\n{2,}/).map(function (block) { return block.trim(); }).filter(Boolean);
+  return blocks.map(function (block) {
+    const lines = block.split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
+    if (!lines.length) return '';
+    if (lines.every(function (line) { return /^[-*•]\s+/.test(line); })) {
+      return '<ul>' + lines.map(function (line) {
+        return '<li>' + archiveMarkdownInline(line.replace(/^[-*•]\s+/, '')) + '</li>';
+      }).join('') + '</ul>';
+    }
+    return '<p>' + archiveMarkdownInline(lines.join(' ')) + '</p>';
+  }).filter(Boolean).join('\n');
+}
+
+function stripMarkdownHeadingMarks(heading) {
+  return String(heading || '')
+    .replace(/^\d+[\.\)\:\-]\s*/, '')
+    .replace(/[#*_`]/g, '')
+    .trim();
+}
+
+function parseArchiveMarkdownToTheory(markdown, topic, grade) {
+  const topicStr = String(topic || 'נושא').trim();
+  const gradeStr = String(grade || '').trim();
+  const text = String(markdown || '').replace(/\r\n/g, '\n').trim();
+  const titleSuffix = gradeStr ? (gradeStr + ' · ' + topicStr) : topicStr;
+  if (!text) {
+    return {
+      title: 'רקע תיאורטי — ' + titleSuffix,
+      sections: [],
+      bibliography: { books: [], articles: [], websites: [] },
+    };
+  }
+
+  const lines = text.split('\n');
+  let title = '';
+  const sections = [];
+  let currentHeading = '';
+  let currentChunks = [];
+
+  function flush() {
+    const body = currentChunks.join('\n').trim();
+    const heading = stripMarkdownHeadingMarks(currentHeading);
+    if (!body && !heading) return;
+    sections.push({
+      heading: heading || ('חלון ' + (sections.length + 1)),
+      content: archiveMarkdownToHtml(body) || archiveMarkdownToHtml(heading),
+      icon: 'fa-compass',
+    });
+    currentHeading = '';
+    currentChunks = [];
+  }
+
+  lines.forEach(function (line) {
+    const h1 = line.match(/^#\s+(.+)$/);
+    const h2 = line.match(/^#{2,3}\s+(.+)$/);
+    if (h1 && !sections.length && !currentHeading) {
+      title = stripMarkdownHeadingMarks(h1[1]);
+      return;
+    }
+    if (h2) {
+      flush();
+      currentHeading = h2[1];
+      return;
+    }
+    currentChunks.push(line);
+  });
+  flush();
+
+  if (!sections.length) {
+    sections.push({
+      heading: 'מהות ורקע פדגוגי',
+      content: archiveMarkdownToHtml(text),
+      icon: 'fa-compass',
+    });
+  }
+
+  return {
+    title: title || ('רקע תיאורטי — ' + titleSuffix),
+    sections: sections.filter(function (sec) {
+      return String(sec.content || '').trim();
+    }),
+    bibliography: { books: [], articles: [], websites: [] },
+  };
+}
+
+function linksFromArchiveFileRefs(refs) {
+  const seen = {};
+  const links = [];
+  (refs || []).forEach(function (ref) {
+    const url = String((ref && (ref.webViewLink || ref.fileUrl || ref.url || ref.file_url)) || '').trim();
+    if (!url || seen[url]) return;
+    seen[url] = true;
+    links.push({
+      title: String((ref && (ref.name || ref.fileName || ref.title)) || url).trim(),
+      url: url,
+    });
+  });
+  return links;
+}
+
+function phaseCHasFilledTheory(data) {
+  if (!data || typeof data !== 'object' || !data.theory || typeof data.theory !== 'object') return false;
+  const title = String(data.theory.title || '').trim();
+  const sections = Array.isArray(data.theory.sections) ? data.theory.sections : [];
+  return Boolean(title) && sections.some(function (sec) {
+    return String((sec && (sec.content || sec.text || sec.body)) || '').trim().length >= 20;
+  });
+}
+
+function buildPhaseCFromArchiveRows(rows, grade, topic) {
+  const communityDriveArchive = require('./community-drive-archive');
+  const topicStr = String(topic || 'נושא').trim();
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return null;
+
+  const texts = [];
+  const payloads = [];
+  const fileRefs = [];
+  list.forEach(function (row) {
+    const extracted = communityDriveArchive.extractArchiveRowContent
+      ? communityDriveArchive.extractArchiveRowContent(row)
+      : { text: String((row && (row.summary_md || row.summary_text)) || '').trim(), payload: null, fileRefs: [] };
+    if (extracted.text) texts.push(extracted.text);
+    if (extracted.payload) payloads.push(extracted.payload);
+    if (Array.isArray(extracted.fileRefs)) {
+      extracted.fileRefs.forEach(function (ref) { fileRefs.push(ref); });
+    }
+  });
+
+  const essay = texts.join('\n\n').trim();
+  let parsed = payloads[0] || tryParsePhaseCJsonFromEssay(essay);
+  if (!parsed) {
+    const theory = parseArchiveMarkdownToTheory(essay, topicStr, grade);
+    parsed = {
+      theory: theory,
+      core_emphases: theory.sections.map(function (sec) { return sec.content; }).join('\n'),
+      rawText: essay,
+      _archiveSourceEssay: essay,
+    };
+  } else if (!parsed.theory || !Array.isArray(parsed.theory.sections) || !parsed.theory.sections.length) {
+    parsed.theory = parseArchiveMarkdownToTheory(
+      essay || gatherPhaseCFallbackSourceText(parsed),
+      topicStr,
+      grade
+    );
+    if (!parsed.core_emphases) {
+      parsed.core_emphases = parsed.theory.sections.map(function (sec) { return sec.content; }).join('\n');
+    }
+    parsed._archiveSourceEssay = essay || parsed._archiveSourceEssay;
+  }
+
+  const links = linksFromArchiveFileRefs(fileRefs);
+  if (links.length && (!Array.isArray(parsed.relevant_links) || !parsed.relevant_links.length)) {
+    parsed.relevant_links = links;
+  }
+
+  const normalized = safeNormalizePhaseCResponse(parsed, grade, topicStr, { archiveEssay: essay });
+  if (!phaseCHasFilledTheory(normalized) && essay) {
+    normalized.theory = parseArchiveMarkdownToTheory(essay, topicStr, grade);
+  }
+  if (!phaseCHasFilledTheory(normalized)) return null;
+  if (!normalized.core_emphases || tab3FieldPlainLen(normalized.core_emphases) < 40) {
+    normalized.core_emphases = (normalized.theory.sections || []).map(function (sec) {
+      return sec.content;
+    }).join('\n');
+  }
+  if (!Array.isArray(normalized.key_points) || !normalized.key_points.length) {
+    normalized.key_points = (normalized.theory.sections || []).map(function (sec) {
+      return String(sec.heading || '').trim();
+    }).filter(Boolean).slice(0, 8);
+  }
+  if ((!Array.isArray(normalized.relevant_links) || !normalized.relevant_links.length) && links.length) {
+    normalized.relevant_links = links;
+  }
+  return stripPhaseCWireOnlyFields(normalized);
+}
+
 function stripHtmlToPlainText(html) {
   return String(html || '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -3830,6 +4017,42 @@ async function runPurePhaseC(body, requestContext) {
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
 
+  const skipArchiveStop = Boolean(body.researchExpand || body.archiveUpgrade);
+  if (!skipArchiveStop) {
+    try {
+      const communityDriveArchive = require('./community-drive-archive');
+      const archiveRows = await communityDriveArchive.fetchArchiveRowsBySearchQuery(topic, gradeId);
+      if (archiveRows && archiveRows.length) {
+        const fromRows = buildPhaseCFromArchiveRows(archiveRows, grade, topic);
+        if (fromRows && phaseCHasFilledTheory(fromRows)) {
+          console.log(
+            '[pure-phase-c] search_query HIT — serving archive and skipping live search/AI | topic='
+            + topic
+            + ' | rows=' + archiveRows.length
+          );
+          return {
+            data: stripPhaseCWireOnlyFields(fromRows),
+            meta: {
+              fromCache: true,
+              source: 'community_drive_archive_search_query',
+              communityMatches: [],
+              archiveFiles: (archiveRows[0] && Array.isArray(archiveRows[0].file_refs))
+                ? archiveRows[0].file_refs.map(function (ref) {
+                  return ref && (ref.name || ref.fileName);
+                }).filter(Boolean)
+                : [],
+            },
+          };
+        }
+      }
+    } catch (archiveFirstErr) {
+      console.warn(
+        '[pure-phase-c] search_query-first lookup failed:',
+        archiveFirstErr && archiveFirstErr.message ? archiveFirstErr.message : archiveFirstErr
+      );
+    }
+  }
+
   const archiveSources = await retrieveCommunityArchiveSources(gradeId, topic, grade);
 
   let teacher = null;
@@ -4232,5 +4455,8 @@ module.exports = {
   stripGenericCompassFallbackSentences,
   retrieveCommunityArchiveSources,
   buildPhaseCFromSourceEssay,
+  buildPhaseCFromArchiveRows,
+  parseArchiveMarkdownToTheory,
+  phaseCHasFilledTheory,
   buildArchiveSourcePromptBlock,
 };
