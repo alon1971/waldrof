@@ -16,7 +16,7 @@ const PERPLEXITY_MODEL = 'sonar-reasoning-pro';
  * completion output is model-bound (~8k), but we no longer impose a lower ceiling
  * of our own so the model emits the fullest possible book-length teacher manual.
  */
-const PERPLEXITY_MAX_OUTPUT_TOKENS_PRO = 16000;
+const PERPLEXITY_MAX_OUTPUT_TOKENS_PRO = 128000;
 const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 6000;
 // Activity-based IDLE timeout for the upstream Perplexity connection. For STREAMING this is
 // reset on every inbound byte/delta (see armTimer + readStreamResponse), so the request is

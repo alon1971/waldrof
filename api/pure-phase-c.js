@@ -3322,7 +3322,7 @@ const PHASE_C_ESSAY_DEPTH_REQUIREMENTS = [
   '=== MAXIMUM ESSAY DEPTH (MANDATORY — exhaustive teacher manual, NOT a summary) ===',
   'ABSOLUTE DIRECTIVE: DO NOT SUMMARIZE. DO NOT abbreviate. DO NOT write thin bullets, stubs, or overviews.',
   'You are writing a MASSIVE, COMPREHENSIVE, MULTI-SECTION teaching manual for a single Waldorf teacher — book-chapter length, not an abstract.',
-  'Spend the ENTIRE output token budget. Longer is better. If you feel you are getting close to "enough", keep going with new concrete detail.',
+  'Spend the ENTIRE output token budget (up to the API max — use every token the model allows). Longer is better. If you feel you are getting close to "enough", keep going with new concrete detail.',
   'The manual MUST cover ALL of the following dimensions in depth — never skip a dimension:',
   '  1) Exhaustive pedagogical & anthroposophical background (the spiritual-scientific WHY behind teaching this topic at this grade).',
   '  2) Structural developmental axis for the grade (the soul-spiritual developmental stage, the Developmental Compass מצפן התפתחותי, what is awakening in the child, why NOW). Use חציית הרוביקון הראשונה (גיל 9) / חציית הרוביקון השנייה (גיל 12) — NEVER "הלידה הראשונה" or "הלידה השנייה" in headings or prose.',
@@ -3418,8 +3418,6 @@ const SYSTEM_PROMPT = [
   'key_points (array of 6-8 rich strings — EACH 4-7 substantial grade-locked sentences on lesson architecture, storytelling, and blackboard drawing; prose only; NEVER duplicate core_emphases),',
   'recommended_reading (array of 6-8 objects: {title, author, note} — note MUST be 2-4 substantive sentences; NO urls),',
   'relevant_links (array of 6-12 objects: {title, url} — THE ONLY place for live HTTPS links and bibliography website URLs; Resources tab; prefer top-level Waldorf/anthro portals; at most 1-2 ministry links total; NEVER inside narrative fields).',
-  '',
-  shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
 ].join(' ');
 
 function normalizeBibliography(bib) {
@@ -3847,13 +3845,9 @@ function buildPhaseCGenerationUserPrompt(grade, topic, archiveSources) {
     'Write pedagogical content in Hebrew unless the topic itself is in another language.',
     archiveBlock ? ('\n' + archiveBlock + '\n') : '',
     '',
-    shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
-    '',
     shared.PROFESSIONAL_LINKS_INSTRUCTION,
     '',
     PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
-    '',
-    shared.PEDAGOGICAL_DEPTH_INSTRUCTION,
     '',
     PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
     '',
