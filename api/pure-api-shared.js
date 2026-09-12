@@ -157,7 +157,6 @@ async function callPerplexityJson(systemPrompt, userPrompt, options) {
       max_tokens: opts.max_tokens != null
         ? Math.max(4096, opts.max_tokens)
         : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-      jsonObject: true,
       messages: [
         { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, isRetry) },
         { role: 'user', content: userPrompt },
@@ -199,7 +198,6 @@ async function callPerplexityJsonSafe(systemPrompt, userPrompt, options) {
       max_tokens: opts.max_tokens != null
         ? Math.max(4096, opts.max_tokens)
         : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-      jsonObject: true,
       messages: [
         { role: 'system', content: buildRigidJsonSystemPrompt(systemPrompt, isRetry) },
         { role: 'user', content: userPrompt },

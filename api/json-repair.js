@@ -6,7 +6,7 @@
 /**
  * Remove reasoning-model scaffolding before parsing. Perplexity reasoning models
  * (e.g. sonar-reasoning-pro) emit a <think>…</think> chain-of-thought block ahead of
- * the JSON answer; `response_format` does NOT strip it. Because that reasoning text
+ * the JSON answer; the API does not strip it. Because that reasoning text
  * frequently contains { } characters, it derails bracket-based JSON extraction, so we
  * remove it explicitly up front to keep parsing bulletproof.
  */

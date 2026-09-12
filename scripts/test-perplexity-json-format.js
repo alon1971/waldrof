@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 'use strict';
 
-const pplx = require('../api/perplexity-client');
 const jsonRepair = require('../api/json-repair');
 
 function assert(condition, message) {
@@ -10,10 +9,6 @@ function assert(condition, message) {
     process.exit(1);
   }
 }
-
-assert(!pplx.modelSupportsJsonResponseFormat('sonar-reasoning-pro'), 'sonar models skip json_object');
-assert(!pplx.modelSupportsJsonResponseFormat('sonar'), 'sonar search skips json_object');
-assert(pplx.modelSupportsJsonResponseFormat('llama-3.1-70b-instruct'), 'non-sonar may use json_object');
 
 const thinkOpen = '<' + 'think>';
 const thinkClose = '</' + 'think>';
@@ -26,4 +21,4 @@ assert(!/think>/i.test(stripped), 'think tags removed');
 const parsed = jsonRepair.parsePureModelJson(stripped, { phase: 'topic_master', context: { topic: 'רנסנס', grade: '7' } });
 assert(parsed.parsed && parsed.parsed.theory, 'parsed topic_master JSON after reasoning strip');
 
-console.log('OK: Perplexity sonar skips response_format; reasoning strip preserves JSON');
+console.log('OK: Perplexity JSON parsing uses prompt-only contract; reasoning strip preserves JSON');

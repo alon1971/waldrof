@@ -488,27 +488,14 @@ async function callPerplexityChatWithCitations(options) {
     max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
     messages: opts.messages || [],
   };
-  if (opts.jsonObject !== false) {
-    body.response_format = { type: 'json_object' };
-  }
 
   const requestOpts = {};
   if (opts.totalTimeoutMs) requestOpts.totalTimeoutMs = opts.totalTimeoutMs;
   if (opts.idleTimeoutMs) requestOpts.idleTimeoutMs = opts.idleTimeoutMs;
 
-  let result;
-  try {
-    result = await withRateLimitRetry(function () {
-      return executePerplexityRequest(apiKey, body, false, null, requestOpts);
-    }, 'chat-citations');
-  } catch (formatErr) {
-    if (!body.response_format || !formatErr || formatErr.statusCode !== 400) throw formatErr;
-    console.warn('[perplexity] response_format json_object rejected — retrying without it');
-    delete body.response_format;
-    result = await withRateLimitRetry(function () {
-      return executePerplexityRequest(apiKey, body, false, null, requestOpts);
-    }, 'chat-citations-no-format');
-  }
+  const result = await withRateLimitRetry(function () {
+    return executePerplexityRequest(apiKey, body, false, null, requestOpts);
+  }, 'chat-citations');
   return {
     content: result.content,
     citations: result.citations || [],
@@ -537,26 +524,13 @@ async function callPerplexityChat(options) {
     max_tokens: opts.max_tokens != null ? opts.max_tokens : defaultMaxTokens,
     messages: opts.messages || [],
   };
-  if (opts.jsonObject) {
-    body.response_format = { type: 'json_object' };
-  }
 
   const useStream = opts.stream !== false;
   const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
 
-  let result;
-  try {
-    result = await withRateLimitRetry(function () {
-      return executePerplexityRequest(apiKey, body, useStream, onDelta);
-    }, 'chat');
-  } catch (formatErr) {
-    if (!body.response_format || !formatErr || formatErr.statusCode !== 400) throw formatErr;
-    console.warn('[perplexity] response_format json_object rejected — retrying without it');
-    delete body.response_format;
-    result = await withRateLimitRetry(function () {
-      return executePerplexityRequest(apiKey, body, useStream, onDelta);
-    }, 'chat-no-format');
-  }
+  const result = await withRateLimitRetry(function () {
+    return executePerplexityRequest(apiKey, body, useStream, onDelta);
+  }, 'chat');
   return result.content;
 }
 
