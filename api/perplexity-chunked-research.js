@@ -4,6 +4,7 @@
  */
 const perplexityClient = require('./perplexity-client');
 const shared = require('./pure-api-shared');
+const jsonRepair = require('./json-repair');
 
 /** Optional hard wall cap per chunk (0 = rely on streaming + idle timeout only). */
 const CHUNK_PER_REQUEST_WALL_MS = 0;
@@ -142,9 +143,19 @@ async function runSequentialResearchChunks(segments, context) {
       });
     }
 
-    const part = parseFn(apiResult.content, segment);
+    const rawContent = apiResult.content || '';
+    const repairedContent = jsonRepair.repairSegmentJson(rawContent) || rawContent;
+    let part = parseFn(repairedContent, segment);
+    if (!part || typeof part !== 'object') {
+      part = parseFn(rawContent, segment);
+    }
+    if (!part || typeof part !== 'object') {
+      part = jsonRepair.salvageParseModelJson(repairedContent, ctx.salvageParseOptions || { unwrap: true });
+    }
     if (part && typeof part === 'object') {
       mergeFn(merged, part);
+    } else {
+      console.warn('[perplexity-chunk] segment parse failed after repair:', label);
     }
     console.log('[perplexity-chunk] done', label, 'mergedKeys=', Object.keys(merged).join(','));
   }
