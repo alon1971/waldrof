@@ -28666,6 +28666,8 @@
     /** When set, holdPageScroll must not yank the viewport back — a reveal scroll is in progress. */
     var pendingRevealScrollEl = null;
     var revealScrollTimer = null;
+    var gradeRevealGeneration = 0;
+    var gradeRevealCancelWatch = null;
 
     function isProgrammaticScrollActive() {
       return programmaticScrollGuard > 0;
@@ -30070,25 +30072,169 @@
       persistActiveStep();
     }
 
+    function cancelGradeResultsReveal() {
+      gradeRevealGeneration += 1;
+      if (revealScrollTimer) {
+        clearTimeout(revealScrollTimer);
+        revealScrollTimer = null;
+      }
+      if (typeof gradeRevealCancelWatch === 'function') {
+        gradeRevealCancelWatch();
+        gradeRevealCancelWatch = null;
+      }
+    }
+
+    function whenGradeResultsDomReady(done) {
+      var body = document.getElementById('grade-insights-body');
+      var community = document.getElementById('grade-community-list');
+      var panel = document.getElementById('grade-insights-panel');
+      var watchEls = [body, community, panel].filter(Boolean);
+      var finished = false;
+      var quietTimer = null;
+      var hardTimer = null;
+      var observers = [];
+
+      function cleanup() {
+        if (quietTimer) clearTimeout(quietTimer);
+        if (hardTimer) clearTimeout(hardTimer);
+        observers.forEach(function (obs) {
+          try { obs.disconnect(); } catch (e) { /* ignore */ }
+        });
+        observers = [];
+      }
+
+      function finish() {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            revealScrollTimer = setTimeout(function () {
+              revealScrollTimer = null;
+              done();
+            }, 350);
+          });
+        });
+      }
+
+      function bumpQuiet() {
+        if (finished) return;
+        if (quietTimer) clearTimeout(quietTimer);
+        quietTimer = setTimeout(finish, 80);
+      }
+
+      if (typeof MutationObserver === 'function') {
+        watchEls.forEach(function (el) {
+          var obs = new MutationObserver(bumpQuiet);
+          obs.observe(el, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+          });
+          observers.push(obs);
+        });
+      }
+
+      bumpQuiet();
+      hardTimer = setTimeout(finish, 1400);
+      return function cancel() {
+        if (finished) return;
+        finished = true;
+        cleanup();
+      };
+    }
+
+    function scrollPageToY(y, behavior) {
+      y = Math.max(0, Math.round(Number(y) || 0));
+      var b = behavior || 'smooth';
+      try {
+        window.scrollTo({ top: y, left: 0, behavior: b });
+      } catch (err) {
+        try { window.scrollTo(0, y); } catch (err2) { /* ignore */ }
+      }
+      if (b === 'auto' || b === 'instant') {
+        try {
+          if (document.documentElement) document.documentElement.scrollTop = y;
+          if (document.body) document.body.scrollTop = y;
+        } catch (err3) { /* ignore */ }
+      }
+    }
+
+    function yToRevealGradeResults() {
+      var step2 = document.getElementById('step-2');
+      var panel = document.getElementById('grade-insights-panel');
+      var body = document.getElementById('grade-insights-body');
+      var junction = document.getElementById('btn-to-step-2') ||
+        document.getElementById('grade-community-list') ||
+        body ||
+        panel;
+      var chrome = getStickyChromeHeight();
+      var scrollY = window.scrollY || window.pageYOffset || 0;
+      var vp = window.innerHeight || 800;
+      // Same landing for every grade: arrived material above, Step B in the lower half.
+      if (step2 && !step2.classList.contains('hidden')) {
+        var stepRect = step2.getBoundingClientRect();
+        var desiredTop = chrome + Math.max(180, Math.round(vp * 0.40));
+        return Math.max(0, stepRect.top + scrollY - desiredTop);
+      }
+      if (junction) {
+        var rect = junction.getBoundingClientRect();
+        return Math.max(0, rect.top + scrollY - chrome - 16);
+      }
+      return Math.max(0, scrollY + 380);
+    }
+
+    function applyGradeResultsRevealScroll() {
+      scrollPageToY(yToRevealGradeResults(), 'smooth');
+    }
+
     function scrollToGradeResults() {
       var panel = document.getElementById('grade-insights-panel');
       gradeResultsContainerRef.current = panel;
       if (!panel || panel.classList.contains('hidden')) return;
+
+      var gen = ++gradeRevealGeneration;
       pendingRevealScrollEl = panel;
-      if (revealScrollTimer) clearTimeout(revealScrollTimer);
-      revealScrollTimer = setTimeout(function () {
+      if (revealScrollTimer) {
+        clearTimeout(revealScrollTimer);
         revealScrollTimer = null;
+      }
+      if (typeof gradeRevealCancelWatch === 'function') {
+        gradeRevealCancelWatch();
+        gradeRevealCancelWatch = null;
+      }
+
+      gradeRevealCancelWatch = whenGradeResultsDomReady(function () {
+        if (gen !== gradeRevealGeneration) return;
         pendingRevealScrollEl = panel;
-        try {
-          window.scrollBy({ top: 380, left: 0, behavior: 'smooth' });
-        } catch (err) {
-          try { window.scrollBy(0, 380); } catch (err2) { /* ignore */ }
-        }
-        setTimeout(function () {
-          revealStepBAfterGradeResults();
-          if (pendingRevealScrollEl === panel) pendingRevealScrollEl = null;
-        }, 450);
-      }, 300);
+        revealStepBAfterGradeResults();
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            if (gen !== gradeRevealGeneration) return;
+            pendingRevealScrollEl = panel;
+            applyGradeResultsRevealScroll();
+            runAfterSmoothScroll(function () {
+              if (gen !== gradeRevealGeneration) return;
+              revealStepBAfterGradeResults();
+              var step2 = document.getElementById('step-2');
+              if (step2 && !step2.classList.contains('hidden')) {
+                var stepRect = step2.getBoundingClientRect();
+                var vp = window.innerHeight || 0;
+                if (stepRect.top > vp - 140 || stepRect.bottom < 80) {
+                  pendingRevealScrollEl = panel;
+                  applyGradeResultsRevealScroll();
+                  runAfterSmoothScroll(function () {
+                    if (gen !== gradeRevealGeneration) return;
+                    if (pendingRevealScrollEl === panel) pendingRevealScrollEl = null;
+                  });
+                  return;
+                }
+              }
+              if (pendingRevealScrollEl === panel) pendingRevealScrollEl = null;
+            });
+          });
+        });
+      });
     }
 
     function scrollToPhaseCResults() {
@@ -31117,6 +31263,8 @@
         gradeResearchAbort.abort();
         gradeResearchAbort = null;
       }
+      cancelGradeResultsReveal();
+      pendingRevealScrollEl = null;
       setGradeInsightsLoadingUi(false);
       appState.grade = null;
       appState.gradeLabel = null;
@@ -31150,6 +31298,7 @@
       }
 
       if (gradeResearchAbort) gradeResearchAbort.abort();
+      cancelGradeResultsReveal();
       const runId = ++gradeResearchRunId;
       gradeResearchAbort = new AbortController();
       const signal = gradeResearchAbort.signal;
@@ -31237,6 +31386,10 @@
       } finally {
         if (runId !== gradeResearchRunId) return;
         gradeResearchAbort = null;
+        var insightsPanelHold = document.getElementById('grade-insights-panel');
+        if (insightsPanelHold && !insightsPanelHold.classList.contains('hidden')) {
+          pendingRevealScrollEl = insightsPanelHold;
+        }
         setGradeInsightsLoadingUi(false);
         await communityPromise;
         // Unlock Step B nav only — keep Step A visible/active so the teacher
