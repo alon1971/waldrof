@@ -24,7 +24,7 @@ const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 6000;
 // generation is never cut. This is generous (vs. the 45s browser-facing idle) because there
 // is no heartbeat upstream to reset it before sonar-reasoning-pro emits its first token.
 // For the NON-streaming https fallback it acts as a total request timeout.
-const REQUEST_TIMEOUT_MS = 180000;
+const REQUEST_TIMEOUT_MS = 300000;
 /** Up to 3 retries after a 429 (1s, 2s, 4s backoff) before surfacing an error. */
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_BASE_DELAY_MS = 1000;

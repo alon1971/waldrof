@@ -11413,8 +11413,8 @@
 
       function makeIdleTimeoutError() {
         const e = new Error(isEnglish()
-          ? 'The connection was closed after 45 seconds with no response from the server. Please try again.'
-          : 'החיבור נסגר לאחר 45 שניות ללא תגובה מהשרת. נסו שוב בעוד רגע.');
+          ? 'The connection was closed after 5 minutes with no response from the server. Please try again.'
+          : 'החיבור נסגר לאחר 5 דקות ללא תגובה מהשרת. נסו שוב בעוד רגע.');
         e.isStreamIdleTimeout = true;
         return e;
       }
@@ -14662,8 +14662,8 @@
       } catch (err) {
         if (err && err.isStreamIdleTimeout) {
           throw new Error(isEnglish()
-            ? 'Expansion research stalled — 45 seconds passed with no response. Please try again.'
-            : 'מחקר ההרחבה נקטע — עברו 45 שניות ללא תגובה מהשרת. נסו שוב.');
+            ? 'Expansion research stalled — 5 minutes passed with no response. Please try again.'
+            : 'מחקר ההרחבה נקטע — עברו 5 דקות ללא תגובה מהשרת. נסו שוב.');
         }
         throw err;
       }
@@ -15387,8 +15387,8 @@
       } catch (err) {
         if (err && err.isStreamIdleTimeout) {
           throw new Error(isEnglish()
-            ? 'Expansion research stalled — 45 seconds passed with no response. Please try again.'
-            : 'מחקר ההרחבה נקטע — עברו 45 שניות ללא תגובה מהשרת. נסו שוב.');
+            ? 'Expansion research stalled — 5 minutes passed with no response. Please try again.'
+            : 'מחקר ההרחבה נקטע — עברו 5 דקות ללא תגובה מהשרת. נסו שוב.');
         }
         throw err;
       }

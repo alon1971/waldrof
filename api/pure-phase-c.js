@@ -6,7 +6,6 @@ const shared = require('./pure-api-shared');
 const cache = require('./cache');
 const authContext = require('./auth-context');
 const perplexityClient = require('./perplexity-client');
-const perplexityChunked = require('./perplexity-chunked-research');
 const jsonRepair = require('./json-repair');
 const waldorfWebSeed = require('../waldorf-web-seed');
 const subscriptionApi = require('./subscription');
@@ -1685,80 +1684,30 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
     query: opts.query || '',
   };
 
-  function parseChunkRaw(raw) {
-    const chunkResult = jsonRepair.parsePureModelJson(raw, {
-      phase: phase,
-      context: parseContext,
-      unwrap: true,
-    });
-    return chunkResult.parsed && typeof chunkResult.parsed === 'object' ? chunkResult.parsed : null;
-  }
-
-  if (opts.chunked === false) {
-    const apiResult = await perplexityClient.callPerplexityChatWithCitations({
-      model: perplexityClient.PERPLEXITY_MODEL,
-      stream: opts.stream !== false,
-      temperature: opts.temperature != null ? opts.temperature : 0.35,
-      max_tokens: opts.max_tokens != null
-        ? opts.max_tokens
-        : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-      idleTimeoutMs: opts.idleTimeoutMs || perplexityClient.REQUEST_TIMEOUT_MS,
-      totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
-      onDelta: typeof opts.onDelta === 'function' ? opts.onDelta : undefined,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    });
-    const raw = apiResult.content;
-    const result = jsonRepair.parsePureModelJson(raw, {
-      phase: phase,
-      context: parseContext,
-      unwrap: true,
-    });
-    if (result.parsed && typeof result.parsed === 'object') {
-      result.parsed._apiResponseRaw = String(raw || '').slice(0, 4000);
-      result.parsed._liveCitations = Array.isArray(apiResult.citations) ? apiResult.citations.filter(Boolean) : [];
-    }
-    return result;
-  }
-
-  const segments = perplexityChunked.buildPhaseCChunkSegments(
-    systemPrompt,
-    userPrompt,
-    parseContext.gradeLabel || parseContext.grade,
-    parseContext.topic
-  );
-  const chunked = await perplexityChunked.runSequentialResearchChunks(segments, {
-    parseChunk: parseChunkRaw,
-    mergePart: perplexityChunked.deepMergeJsonParts,
-    salvageParseOptions: { unwrap: true },
-    callOptions: {
-      stream: opts.stream !== false,
-      temperature: opts.temperature != null ? opts.temperature : 0.35,
-      idleTimeoutMs: opts.idleTimeoutMs || perplexityClient.REQUEST_TIMEOUT_MS,
-      totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
-      onDelta: typeof opts.onDelta === 'function' ? opts.onDelta : undefined,
-    },
+  const apiResult = await perplexityClient.callPerplexityChatWithCitations({
+    model: perplexityClient.PERPLEXITY_MODEL,
+    stream: opts.stream !== false,
+    temperature: opts.temperature != null ? opts.temperature : 0.35,
+    max_tokens: opts.max_tokens != null
+      ? opts.max_tokens
+      : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    idleTimeoutMs: opts.idleTimeoutMs || perplexityClient.REQUEST_TIMEOUT_MS,
+    totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
+    onDelta: typeof opts.onDelta === 'function' ? opts.onDelta : undefined,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
   });
-
-  const mergedParse = jsonRepair.parsePureModelJson(chunked.rawCombined, {
+  const raw = apiResult.content;
+  const result = jsonRepair.parsePureModelJson(raw, {
     phase: phase,
     context: parseContext,
     unwrap: true,
   });
-  const parsed = chunked.merged && Object.keys(chunked.merged).length
-    ? chunked.merged
-    : (mergedParse.parsed || null);
-
-  const result = {
-    parsed: parsed,
-    parseFallback: Boolean(mergedParse.parseFallback && (!parsed || !Object.keys(parsed).length)),
-    raw: chunked.rawCombined,
-  };
   if (result.parsed && typeof result.parsed === 'object') {
-    result.parsed._apiResponseRaw = String(chunked.rawCombined || '').slice(0, 4000);
-    result.parsed._liveCitations = Array.isArray(chunked.citations) ? chunked.citations.filter(Boolean) : [];
+    result.parsed._apiResponseRaw = String(raw || '').slice(0, 4000);
+    result.parsed._liveCitations = Array.isArray(apiResult.citations) ? apiResult.citations.filter(Boolean) : [];
   }
   return result;
 }
