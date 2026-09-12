@@ -2,6 +2,7 @@
  * GET/POST /api/search-history — list a teacher's cached lesson plans (phase=topic).
  */
 const cacheDb = require('./cache');
+const communityDriveArchive = require('./community-drive-archive');
 const knowledgeIngest = require('./knowledge-ingest');
 const authContext = require('./auth-context');
 const env = require('./env');
@@ -248,6 +249,38 @@ async function executeSearchHistory(req) {
       err.statusCode = 400;
       throw err;
     }
+    // Instant community_drive_archive (search_query) — before slow cached_results scans.
+    try {
+      const leanRow = typeof communityDriveArchive.fetchArchiveRowBySearchQuery === 'function'
+        ? await communityDriveArchive.fetchArchiveRowBySearchQuery(topic, gradeId)
+        : null;
+      const leanText = leanRow && typeof communityDriveArchive.extractArchiveRowContent === 'function'
+        ? String((communityDriveArchive.extractArchiveRowContent(leanRow).text) || '').trim()
+        : String((leanRow && (leanRow.summary_md || leanRow.summary_text)) || '').trim();
+      if (leanText.length >= 40) {
+        console.log('[search-history][debug] probe_topic lean HIT | topic=' + topic.slice(0, 40));
+        return {
+          ok: true,
+          action: 'probe_topic',
+          match: {
+            matchType: 'exact',
+            similarity: 1,
+            cacheKey: leanRow && leanRow.archive_key ? leanRow.archive_key : null,
+            suggestedTopic: topic,
+            archiveTitle: topic,
+            topic: topic,
+            requestedTopic: topic,
+            gradeId: gradeId,
+            gradeLabel: (body && body.gradeLabel) || null,
+            archiveSource: 'community_drive_archive_search_query',
+            communityDriveFast: true,
+          },
+        };
+      }
+    } catch (leanErr) {
+      console.warn('[search-history] probe_topic lean lookup failed:', leanErr.message || leanErr);
+    }
+
     // Global archive probe — never scoped to the requesting teacher (credit-gate pre-check).
     const match = await cacheDb.findArchiveTopicSuggestion({
       topic: topic,

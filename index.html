@@ -28611,7 +28611,10 @@
         var isExact = Boolean(
           topicMatch &&
           topicMatch.matchType === 'exact' &&
-          (topicMatch.resultData || topicMatch.historicPayload || topicMatch.cacheKey)
+          (topicMatch.communityDriveFast ||
+            topicMatch.resultData ||
+            topicMatch.historicPayload ||
+            topicMatch.cacheKey)
         );
         return {
           kind: 'topic',
@@ -30103,7 +30106,8 @@
       return text.length >= 24 || el.offsetHeight >= 48;
     }
 
-    function notifyPlannerContentDisplayed(watchEl) {
+    function notifyPlannerContentDisplayed(watchEl, options) {
+      options = options || {};
       var el = watchEl ||
         document.getElementById('web-research-result') ||
         document.getElementById('grade-insights-body') ||
@@ -30115,7 +30119,9 @@
       }
       function finish() {
         if (gen !== gradeRevealGeneration) return;
-        revealStepBAfterGradeResults();
+        if (options.openStepB !== false) {
+          revealStepBAfterGradeResults();
+        }
         scrollQuarterPageAfterContentShown();
         pendingRevealScrollEl = null;
       }
@@ -30132,7 +30138,7 @@
         requestAnimationFrame(function () { requestAnimationFrame(finish); });
       }
       var obs = null;
-      var timer = setTimeout(complete, 1500);
+      var timer = setTimeout(complete, 600);
       if (typeof MutationObserver === 'function') {
         obs = new MutationObserver(function () {
           if (plannerContentLooksReady(el)) complete();
@@ -30152,7 +30158,8 @@
       var panel = document.getElementById('grade-insights-panel');
       gradeResultsContainerRef.current = panel;
       notifyPlannerContentDisplayed(
-        document.getElementById('grade-insights-body') || panel
+        document.getElementById('grade-insights-body') || panel,
+        { openStepB: false }
       );
     }
 
@@ -31296,6 +31303,8 @@
             : 'תשובת AI לא שלמה — חסרה תמונת גיל. נסו שוב.');
         }
         renderGradeInsightsPanel(grade, data);
+        setGradeInsightsLoadingUi(false);
+        scrollToGradeResults();
       } catch (err) {
         if (runId !== gradeResearchRunId || signal.aborted || isGradeResearchAbortError(err)) return;
         if (isRateLimitError(err)) return;
@@ -31310,7 +31319,6 @@
           pendingRevealScrollEl = insightsPanelHold;
         }
         setGradeInsightsLoadingUi(false);
-        await communityPromise;
         // Unlock Step B nav only — keep Step A visible/active so the teacher
         // can read the loaded grade content and move on when ready.
         appState.step = 1;
@@ -31326,10 +31334,7 @@
         renderStepProgress();
         updateWorkspaceChrome();
         persistActiveStep();
-        var insightsPanelDone = document.getElementById('grade-insights-panel');
-        if (insightsPanelDone && !insightsPanelDone.classList.contains('hidden')) {
-          scrollToGradeResults();
-        }
+        communityPromise.catch(function () { /* already handled */ });
       }
     }
 
@@ -32110,9 +32115,11 @@
           appState.purePhaseC = null;
           document.getElementById('api-hint-step2').classList.add('hidden');
           setTopicResearchLoadingUi(true, { fromArchive: true });
-          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
+          if (preArchiveMatch.communityDriveFast) {
+            archiveHandled = true;
+          } else if (presentArchivePartialMatch(topic, preArchiveMatch)) {
             return;
-          }
+          } else {
           // presentArchivePartialMatch could not auto-load — try direct payload apply.
           try {
             var directLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
@@ -32145,6 +32152,7 @@
             updateTopicResearchButton();
           }
           return;
+          }
         }
 
         // Partial suggestion UI is free — credit only if teacher later chooses live search.
@@ -32220,17 +32228,9 @@
       }
 
       try {
-        // Archive already gated above; only re-probe if we skipped the credit-gate path.
+        // Archive already gated above — no second probe when checkArchiveHit already ran.
         if (!skipArchiveProbe && !archiveHandled) {
-          let archiveMatch = preArchiveMatch;
-          if (!archiveMatch) {
-            try {
-              archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-            } catch (probeErr) {
-              if (isBenignStreamAbortError(probeErr)) return;
-              console.warn('[archive-probe] topic search failed:', probeErr);
-            }
-          }
+          var archiveMatch = preArchiveMatch;
           if (runId !== topicResearchRunId || signal.aborted) {
             setTopicResearchLoadingUi(false);
             btn.disabled = false;
@@ -32245,7 +32245,7 @@
             presentGradeMismatchNotice(archiveMatch.gradeMismatch);
             return;
           }
-          if (presentArchivePartialMatch(topic, archiveMatch)) {
+          if (archiveMatch && archiveMatch.matchType === 'partial' && presentArchivePartialMatch(topic, archiveMatch)) {
             return;
           }
         }
