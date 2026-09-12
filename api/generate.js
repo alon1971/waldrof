@@ -2838,102 +2838,6 @@ async function tryServeFromCachedResults(body, communityProbe) {
     return cached;
   }
 
-  if (body.phase !== 'topic') return null;
-
-  const suggestion = await cacheDb.safeArchiveLookup(
-    'findArchiveTopicSuggestion:' + String(topic).slice(0, 40),
-    function () {
-      return cacheDb.findArchiveTopicSuggestion({
-        topic: body.topic,
-        gradeId: gradeId,
-        gradeLabel: body.gradeLabel || null,
-      });
-    },
-    {
-      phase: 'topic',
-      budgetMs: cacheDb.ARCHIVE_LOOKUP_BUDGET_MS,
-      onFailure: async function () {
-        if (topic && gradeId != null) {
-          try {
-            await cacheDb.deleteTopicProseArchive(gradeId, topic, {
-              gradeLabel: body.gradeLabel || null,
-            });
-          } catch (purgeErr) {
-            console.warn('[cached_results] topic suggestion purge after timeout failed:', purgeErr.message || purgeErr);
-          }
-        }
-      },
-    }
-  );
-  if (suggestion && suggestion.matchType === 'grade_mismatch' && suggestion.gradeMismatch &&
-      !pedagogicalScope.isPedagogicalScopeOverridden(body)) {
-    console.log(
-      '[cached_results] GRADE GUARDRAIL blocked topic search:',
-      suggestion.requestedTopic || body.topic
-    );
-    return pedagogicalScope.buildScopeMismatchGenerateResult(body, suggestion.gradeMismatch, probeMeta);
-  }
-  if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
-    const serveArchive = isArchiveOnlyLookup(body)
-      || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
-    if (!serveArchive) {
-      console.log(
-        '[cached_results] SKIP non-enhanced archive exact match — Perplexity regeneration:',
-        suggestion.topic
-      );
-      return null;
-    }
-    console.log(
-      '[cached_results] HIT (consolidated archive ≥99% similarity)',
-      suggestion.topic,
-      suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : '',
-      'sim=' + (suggestion.similarity || 1).toFixed(3)
-    );
-    if (!body.skipKnowledgeIngest) {
-      knowledgeIngest.ingestFromGenerateResultAsync(body, suggestion.resultData);
-    }
-    let archivePayload = enrichmentLinksApi.stripNonPinterestLinksFromArchiveData(
-      JSON.parse(JSON.stringify(suggestion.resultData))
-    ).data;
-    archivePayload = stripCurriculumFromTopicPayload(archivePayload);
-    const archiveMeta = {
-      fromCache: true,
-      cacheKey: suggestion.cacheKey,
-      table: 'cached_results',
-      source: 'consolidated_archive',
-      similarity: suggestion.similarity,
-      requestedTopic: body.topic || suggestion.requestedTopic || null,
-      enhanced: cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData),
-    };
-    return {
-      data: archivePayload,
-      meta: attachCommunityMeta(archiveMeta, probeMeta),
-    };
-  }
-  if (!isArchiveOnlyLookup(body) && suggestion && suggestion.matchType === 'partial') {
-    console.log(
-      '[cached_results] PARTIAL archive topic — awaiting confirmation:',
-      suggestion.topic,
-      suggestion.cacheKey ? suggestion.cacheKey.slice(0, 12) : ''
-    );
-    return {
-      data: null,
-      meta: attachCommunityMeta({
-        fromCache: false,
-        needsArchiveConfirmation: true,
-        archiveSuggestion: {
-          matchType: 'partial',
-          suggestedTopic: suggestion.topic,
-          archiveTitle: suggestion.topic,
-          requestedTopic: body.topic || null,
-          cacheKey: suggestion.cacheKey,
-          similarity: suggestion.similarity,
-          gradeId: suggestion.gradeId,
-          gradeLabel: suggestion.gradeLabel || null,
-        },
-      }, probeMeta),
-    };
-  }
   return null;
 }
 
@@ -2979,17 +2883,6 @@ async function probeWouldServeFromCache(body) {
     const cacheOpts = isArchiveOnlyLookup(body) ? { requireEnhanced: false } : {};
     const cached = await cacheDb.getCachedResult(body, cacheOpts);
     if (cached) return true;
-    if (body.phase === 'topic') {
-      const suggestion = await cacheDb.findArchiveTopicSuggestion({
-        topic: body.topic,
-        gradeId: body.currentGrade ?? body.gradeId,
-      });
-      if (suggestion && suggestion.matchType === 'exact' && suggestion.resultData) {
-        const serveArchive = isArchiveOnlyLookup(body)
-          || cacheDb.isEnhancedCachedPayload('topic', suggestion.resultData);
-        if (serveArchive) return true;
-      }
-    }
   } catch (probeErr) {
     console.warn('[generate] cache probe failed:', probeErr.message || probeErr);
   }

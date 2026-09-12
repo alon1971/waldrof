@@ -15784,7 +15784,7 @@
       checkAndShowCommunityTopicAlert();
       nudgeGoogleTranslate();
       if (options.scrollIntoView !== false) {
-        scrollRevealedContentIntoView(out);
+        unifiedRevealStepBAfterContentLoad(out);
       }
     }
 
@@ -18891,7 +18891,7 @@
           json = bodyText && bodyText.trim() ? JSON.parse(bodyText) : {};
         } catch (parseErr) {
           console.warn('[archive-probe] non-JSON response:', parseErr && parseErr.message ? parseErr.message : parseErr);
-          return probeArchiveTopicMatchLocal(topic, gradeId);
+          return null;
         }
         if (res.ok && !json.error) {
           const data = json.data || json;
@@ -18899,13 +18899,24 @@
             return { matchType: 'grade_mismatch', gradeMismatch: data.gradeMismatch, message: data.message || null };
           }
           if (data && data.match) return filterArchiveProbeMatch(data.match);
+          if (data && data.hit) {
+            return filterArchiveProbeMatch({
+              matchType: 'exact',
+              similarity: 1,
+              cacheKey: data.cacheKey || '',
+              topic: topic,
+              suggestedTopic: topic,
+              gradeId: gradeId,
+              archiveSource: data.source || 'lean_archive',
+            });
+          }
         }
       } catch (apiErr) {
         console.warn('[archive-probe] API failed:', apiErr);
       } finally {
         if (probeTimer) clearTimeout(probeTimer);
       }
-      return filterArchiveProbeMatch(probeArchiveTopicMatchLocal(topic, gradeId));
+      return null;
     }
 
     async function reloadArchiveLessonItem(cacheKey) {
@@ -28600,26 +28611,19 @@
         };
       }
       if (kind === 'topic') {
-        var topicMatch = null;
-        var topicProbeFailed = false;
-        try {
-          topicMatch = await probeArchiveTopicMatch(params.topic, params.gradeId);
-        } catch (probeErr) {
-          topicProbeFailed = true;
-          console.warn('[archive-probe] checkArchiveHit topic failed:', probeErr);
-        }
-        var isExact = Boolean(
-          topicMatch &&
-          topicMatch.matchType === 'exact' &&
-          (topicMatch.resultData || topicMatch.historicPayload || topicMatch.cacheKey)
-        );
+        var topicProbe = await probeArchiveCacheHit('probe_topic', {
+          topic: params.topic,
+          gradeId: params.gradeId,
+          currentGrade: params.gradeId,
+          gradeLabel: appState.gradeLabel || getGradeLabelById(params.gradeId) || null,
+        });
         return {
           kind: 'topic',
-          isArchiveHit: isExact,
-          isPartial: Boolean(topicMatch && topicMatch.matchType === 'partial'),
-          probe: null,
-          match: topicMatch,
-          probeFailed: topicProbeFailed,
+          isArchiveHit: Boolean(topicProbe && topicProbe.hit),
+          isPartial: false,
+          probe: topicProbe,
+          match: null,
+          probeFailed: Boolean(topicProbe && topicProbe.probeFailed),
         };
       }
       return { kind: kind || '', isArchiveHit: false, isPartial: false, probe: null, match: null, probeFailed: false };
@@ -29901,7 +29905,7 @@
       var topicInput = document.getElementById('topic-input');
       var resultsEl = document.getElementById('web-research-result');
       if (resultsEl && !resultsEl.classList.contains('hidden') && String(resultsEl.innerHTML || '').trim()) {
-        scrollRevealedContentIntoView(resultsEl);
+        unifiedRevealStepBAfterContentLoad(resultsEl);
         if (shouldFocus && topicInput) {
           try {
             topicInput.focus({ preventScroll: true });
@@ -30084,19 +30088,21 @@
       }
     }
 
-    function whenGradeResultsDomReady(done) {
-      var body = document.getElementById('grade-insights-body');
-      var community = document.getElementById('grade-community-list');
-      var panel = document.getElementById('grade-insights-panel');
-      var watchEls = [body, community, panel].filter(Boolean);
+    var UNIFIED_REVEAL_SCROLL_GAP_PX = 16;
+
+    function contentElementIsReady(el) {
+      if (!el || !el.isConnected) return false;
+      if (el.classList && el.classList.contains('hidden')) return false;
+      if (el.querySelector && el.querySelector('.fa-spinner, [aria-busy="true"]')) return false;
+      var text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+      return text.length >= 40 || el.offsetHeight >= 80;
+    }
+
+    function whenDomContentReady(el, done) {
       var finished = false;
-      var quietTimer = null;
-      var hardTimer = null;
       var observers = [];
 
       function cleanup() {
-        if (quietTimer) clearTimeout(quietTimer);
-        if (hardTimer) clearTimeout(hardTimer);
         observers.forEach(function (obs) {
           try { obs.disconnect(); } catch (e) { /* ignore */ }
         });
@@ -30108,35 +30114,31 @@
         finished = true;
         cleanup();
         requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            revealScrollTimer = setTimeout(function () {
-              revealScrollTimer = null;
-              done();
-            }, 350);
-          });
+          requestAnimationFrame(done);
         });
       }
 
-      function bumpQuiet() {
-        if (finished) return;
-        if (quietTimer) clearTimeout(quietTimer);
-        quietTimer = setTimeout(finish, 80);
+      function check() {
+        if (contentElementIsReady(el)) finish();
       }
 
-      if (typeof MutationObserver === 'function') {
-        watchEls.forEach(function (el) {
-          var obs = new MutationObserver(bumpQuiet);
-          obs.observe(el, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-          });
-          observers.push(obs);
-        });
+      if (contentElementIsReady(el)) {
+        finish();
+        return function () {};
       }
 
-      bumpQuiet();
-      hardTimer = setTimeout(finish, 1400);
+      if (typeof MutationObserver === 'function' && el) {
+        var obs = new MutationObserver(check);
+        obs.observe(el, { childList: true, subtree: true, characterData: true });
+        observers.push(obs);
+      }
+      var poll = setInterval(check, 50);
+      observers.push({ disconnect: function () { clearInterval(poll); } });
+      var hard = setTimeout(function () {
+        if (contentElementIsReady(el)) finish();
+        else cleanup();
+      }, 4000);
+      observers.push({ disconnect: function () { clearTimeout(hard); } });
       return function cancel() {
         if (finished) return;
         finished = true;
@@ -30144,57 +30146,36 @@
       };
     }
 
-    function scrollPageToY(y, behavior) {
-      y = Math.max(0, Math.round(Number(y) || 0));
-      var b = behavior || 'smooth';
+    function scrollLoadedAnchorIntoView(anchor) {
+      if (!anchor || !anchor.isConnected) return;
+      var chrome = getStickyChromeHeight();
+      var rect = anchor.getBoundingClientRect();
+      var y = Math.max(0, Math.round(
+        rect.top + (window.scrollY || window.pageYOffset || 0) - chrome - UNIFIED_REVEAL_SCROLL_GAP_PX
+      ));
       try {
-        window.scrollTo({ top: y, left: 0, behavior: b });
+        window.scrollTo({ top: y, left: 0, behavior: 'smooth' });
       } catch (err) {
         try { window.scrollTo(0, y); } catch (err2) { /* ignore */ }
       }
-      if (b === 'auto' || b === 'instant') {
-        try {
-          if (document.documentElement) document.documentElement.scrollTop = y;
-          if (document.body) document.body.scrollTop = y;
-        } catch (err3) { /* ignore */ }
-      }
     }
 
-    function yToRevealGradeResults() {
-      var step2 = document.getElementById('step-2');
+    /**
+     * One reveal scroll for every class/topic: wait until content DOM is real, open Step B,
+     * then scroll by a fixed chrome offset — no grade/topic branches.
+     */
+    function unifiedRevealStepBAfterContentLoad(contentWatchEl) {
+      var watch = contentWatchEl ||
+        document.getElementById('web-research-result') ||
+        document.getElementById('grade-insights-body') ||
+        document.getElementById('grade-insights-panel');
+      if (!watch) return;
       var panel = document.getElementById('grade-insights-panel');
-      var body = document.getElementById('grade-insights-body');
-      var junction = document.getElementById('btn-to-step-2') ||
-        document.getElementById('grade-community-list') ||
-        body ||
-        panel;
-      var chrome = getStickyChromeHeight();
-      var scrollY = window.scrollY || window.pageYOffset || 0;
-      var vp = window.innerHeight || 800;
-      // Same landing for every grade: arrived material above, Step B in the lower half.
-      if (step2 && !step2.classList.contains('hidden')) {
-        var stepRect = step2.getBoundingClientRect();
-        var desiredTop = chrome + Math.max(180, Math.round(vp * 0.40));
-        return Math.max(0, stepRect.top + scrollY - desiredTop);
+      if (panel && (watch === panel || watch.id === 'grade-insights-body')) {
+        gradeResultsContainerRef.current = panel;
       }
-      if (junction) {
-        var rect = junction.getBoundingClientRect();
-        return Math.max(0, rect.top + scrollY - chrome - 16);
-      }
-      return Math.max(0, scrollY + 380);
-    }
-
-    function applyGradeResultsRevealScroll() {
-      scrollPageToY(yToRevealGradeResults(), 'smooth');
-    }
-
-    function scrollToGradeResults() {
-      var panel = document.getElementById('grade-insights-panel');
-      gradeResultsContainerRef.current = panel;
-      if (!panel || panel.classList.contains('hidden')) return;
-
       var gen = ++gradeRevealGeneration;
-      pendingRevealScrollEl = panel;
+      pendingRevealScrollEl = watch;
       if (revealScrollTimer) {
         clearTimeout(revealScrollTimer);
         revealScrollTimer = null;
@@ -30204,37 +30185,32 @@
         gradeRevealCancelWatch = null;
       }
 
-      gradeRevealCancelWatch = whenGradeResultsDomReady(function () {
+      gradeRevealCancelWatch = whenDomContentReady(watch, function () {
         if (gen !== gradeRevealGeneration) return;
-        pendingRevealScrollEl = panel;
         revealStepBAfterGradeResults();
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
             if (gen !== gradeRevealGeneration) return;
-            pendingRevealScrollEl = panel;
-            applyGradeResultsRevealScroll();
+            var stepB = document.getElementById('step-2') ||
+              document.getElementById('step-b-container');
+            if (stepB) stepB.classList.remove('hidden');
+            var anchor = stepB || watch;
+            pendingRevealScrollEl = anchor;
+            scrollLoadedAnchorIntoView(anchor);
             runAfterSmoothScroll(function () {
               if (gen !== gradeRevealGeneration) return;
-              revealStepBAfterGradeResults();
-              var step2 = document.getElementById('step-2');
-              if (step2 && !step2.classList.contains('hidden')) {
-                var stepRect = step2.getBoundingClientRect();
-                var vp = window.innerHeight || 0;
-                if (stepRect.top > vp - 140 || stepRect.bottom < 80) {
-                  pendingRevealScrollEl = panel;
-                  applyGradeResultsRevealScroll();
-                  runAfterSmoothScroll(function () {
-                    if (gen !== gradeRevealGeneration) return;
-                    if (pendingRevealScrollEl === panel) pendingRevealScrollEl = null;
-                  });
-                  return;
-                }
-              }
-              if (pendingRevealScrollEl === panel) pendingRevealScrollEl = null;
+              if (pendingRevealScrollEl === anchor) pendingRevealScrollEl = null;
             });
           });
         });
       });
+    }
+
+    function scrollToGradeResults() {
+      unifiedRevealStepBAfterContentLoad(
+        document.getElementById('grade-insights-body') ||
+        document.getElementById('grade-insights-panel')
+      );
     }
 
     function scrollToPhaseCResults() {
@@ -31407,10 +31383,7 @@
         renderStepProgress();
         updateWorkspaceChrome();
         persistActiveStep();
-        var insightsPanelDone = document.getElementById('grade-insights-panel');
-        if (insightsPanelDone && !insightsPanelDone.classList.contains('hidden')) {
-          scrollToGradeResults();
-        }
+        scrollToGradeResults();
       }
     }
 
@@ -32029,7 +32002,7 @@
       if (meta.statusBanner) {
         displayHtml = meta.statusBanner + displayHtml;
       }
-      injectStepBWebResearchHtml(displayHtml);
+      injectStepBWebResearchHtml(displayHtml, { scrollIntoView: true });
       updateTopicResearchButton();
       updatePedagogyExportButtonsVisibility();
       ensurePedagogySuggestionEvents();
@@ -32168,77 +32141,13 @@
       );
       const skipArchiveProbe = Boolean(genOpts.scopeOverride || forceCacheBypass);
 
-      let preArchiveMatch = null;
-      let archiveHandled = false;
-
       if (!skipArchiveProbe) {
         setTopicResearchLoadingUi(true, { checkingArchive: true });
-        // 1) Archive/cache check FIRST — never open credit modal before this.
+        // Same credit-gate as grade: one getCachedResult probe, then one fetch.
         var archiveCheck = await checkArchiveHit('topic', {
           topic: topic,
           gradeId: currentGrade,
         });
-        preArchiveMatch = archiveCheck.match;
-        if (preArchiveMatch && preArchiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
-          presentGradeMismatchNotice(preArchiveMatch.gradeMismatch);
-          return;
-        }
-
-        // 2) Exact archive hit → load + display immediately, no credit modal.
-        if (archiveCheck.isArchiveHit && preArchiveMatch) {
-          appState.topic = topic;
-          appState.lessonFromArchive = true;
-          appState.purePhaseC = null;
-          document.getElementById('api-hint-step2').classList.add('hidden');
-          setTopicResearchLoadingUi(true, { fromArchive: true });
-          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
-            return;
-          }
-          // presentArchivePartialMatch could not auto-load — try direct payload apply.
-          try {
-            var directLoaded = await applyTopicMasterArchivePayload(topic, preArchiveMatch);
-            if (directLoaded) return;
-            if (preArchiveMatch.resultData || preArchiveMatch.item) {
-              var applied = await applyArchiveTopicMatch(preArchiveMatch, {
-                closeChat: false,
-                userQuery: topic,
-                allowLiveFallback: false,
-              });
-              if (applied) return;
-            }
-            if (preArchiveMatch.cacheKey) {
-              var histItem = await reloadArchiveLessonItem(preArchiveMatch.cacheKey);
-              if (histItem) {
-                await applyLessonPlanFromHistory(histItem, { userQuery: topic });
-                return;
-              }
-            }
-          } catch (archiveLoadErr) {
-            if (isBenignStreamAbortError(archiveLoadErr)) return;
-            console.warn('[archive-probe] exact hit direct load failed:', archiveLoadErr);
-          }
-          // Matching archived record exists — never open the credit modal.
-          // Stop here rather than reclassifying as a miss (which would bill the teacher).
-          setTopicResearchLoadingUi(false);
-          var archiveBtn = document.getElementById('btn-topic-research');
-          if (archiveBtn) {
-            archiveBtn.disabled = false;
-            updateTopicResearchButton();
-          }
-          return;
-        }
-
-        // Partial suggestion UI is free — credit only if teacher later chooses live search.
-        if (archiveCheck.isPartial && preArchiveMatch) {
-          appState.topic = topic;
-          document.getElementById('api-hint-step2').classList.add('hidden');
-          if (presentArchivePartialMatch(topic, preArchiveMatch)) {
-            return;
-          }
-        }
-
-        // 3) Confirmed cache miss → credit confirm only before a live search.
-        // Never bill when probe failed (global archive may still hit on the live path).
         if (
           !archiveCheck.isArchiveHit &&
           !archiveCheck.probeFailed &&
@@ -32251,7 +32160,6 @@
           });
           if (!creditOk) return;
         }
-        archiveHandled = Boolean(archiveCheck.isPartial && preArchiveMatch);
       } else if (!genOpts.skipCreditConfirm) {
         // Explicit live bypass — billable.
         var creditOkLive = await confirmPaidSearchAction({
@@ -32301,36 +32209,6 @@
       }
 
       try {
-        // Archive already gated above; only re-probe if we skipped the credit-gate path.
-        if (!skipArchiveProbe && !archiveHandled) {
-          let archiveMatch = preArchiveMatch;
-          if (!archiveMatch) {
-            try {
-              archiveMatch = await probeArchiveTopicMatch(topic, currentGrade);
-            } catch (probeErr) {
-              if (isBenignStreamAbortError(probeErr)) return;
-              console.warn('[archive-probe] topic search failed:', probeErr);
-            }
-          }
-          if (runId !== topicResearchRunId || signal.aborted) {
-            setTopicResearchLoadingUi(false);
-            btn.disabled = false;
-            updateTopicResearchButton();
-            return;
-          }
-          if (archiveMatch && archiveMatch.matchType === 'grade_mismatch' && !genOpts.scopeOverride) {
-            setTopicResearchLoadingUi(false);
-            btn.disabled = false;
-            updateTopicResearchButton();
-            topicResearchAbort = null;
-            presentGradeMismatchNotice(archiveMatch.gradeMismatch);
-            return;
-          }
-          if (presentArchivePartialMatch(topic, archiveMatch)) {
-            return;
-          }
-        }
-
         await runPurePhaseCFromStepB(topic, runId, signal, { forceRefresh: forceCacheBypass, bypassCache: forceCacheBypass });
       } catch (err) {
         // Abort / BodyStreamBuffer during re-render or scroll restore — silent.

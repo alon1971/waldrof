@@ -128,17 +128,15 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
   if (!topicStr) return result;
 
   try {
-    const communitySearch = require('./community-search');
     const communityDriveArchive = require('./community-drive-archive');
-    const driveCatalogSync = require('./drive-catalog-sync');
-    const ragDb = require('./rag');
-
-    const archiveRows = communityDriveArchive.fetchArchiveRowsBySearchQuery
-      ? await communityDriveArchive.fetchArchiveRowsBySearchQuery(topicStr, gid).catch(function (err) {
-        console.warn('[pure-phase-c] search_query archive lookup failed:', err.message || err);
-        return [];
-      })
-      : [];
+    let archiveRows = [];
+    if (typeof communityDriveArchive.leanTopicArchiveLookup === 'function') {
+      const row = await communityDriveArchive.leanTopicArchiveLookup(topicStr, gid).catch(function (err) {
+        console.warn('[pure-phase-c] lean archive lookup failed:', err.message || err);
+        return null;
+      });
+      if (row) archiveRows = [row];
+    }
     if (Array.isArray(archiveRows) && archiveRows.length) {
       result.archiveRows = archiveRows;
       result.searchQueryHit = true;
@@ -152,105 +150,7 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
         + ' | rows=' + archiveRows.length
         + ' | essayChars=' + result.essay.length
       );
-      return result;
     }
-
-    const lookups = await Promise.all([
-      communitySearch.runCommunitySearch(topicStr, {
-        gradeId: gid,
-        currentGrade: gid,
-        topic: topicStr,
-        limit: 12,
-        skipGeminiExpand: true,
-        strictGradeScope: true,
-      }).catch(function (err) {
-        console.warn('[pure-phase-c] community file search failed:', err.message || err);
-        return null;
-      }),
-      ragDb.retrieveForRequest({
-        phase: 'topic_master',
-        topic: topicStr,
-        gradeId: gid,
-        currentGrade: gid,
-        gradeLabel: grade || '',
-      }).catch(function (err) {
-        console.warn('[pure-phase-c] RAG retrieve failed:', err.message || err);
-        return null;
-      }),
-      communityDriveArchive.tryInstantArchiveRetrieval(topicStr, {
-        gradeId: gid,
-        currentGrade: gid,
-        topic: topicStr,
-      }).catch(function (err) {
-        console.warn('[pure-phase-c] community archive summary lookup failed:', err.message || err);
-        return null;
-      }),
-    ]);
-
-    const probe = lookups[0];
-    const ragResult = lookups[1];
-    const instant = lookups[2];
-    const archiveRowsFallback = [];
-    const matches = (probe && Array.isArray(probe.matches)) ? probe.matches : [];
-    result.matches = matches;
-    result.archiveRows = archiveRowsFallback;
-    result.searchQueryHit = false;
-
-    const matchRefs = typeof communityDriveArchive.normalizeFileRefsFromMatches === 'function'
-      ? communityDriveArchive.normalizeFileRefsFromMatches(matches)
-      : [];
-    const archiveRefs = typeof communityDriveArchive.collectFileRefsFromArchiveRows === 'function'
-      ? communityDriveArchive.collectFileRefsFromArchiveRows(archiveRowsFallback)
-      : [];
-    const instantRefs = instant && Array.isArray(instant.fileRefs) ? instant.fileRefs : [];
-    const fileRefs = [];
-    const seenRef = {};
-    matchRefs.concat(archiveRefs, instantRefs).forEach(function (ref) {
-      if (!ref) return;
-      const key = String(ref.driveFileId || ref.id || ref.name || ref.fileName || '').trim();
-      if (!key || seenRef[key]) return;
-      seenRef[key] = true;
-      fileRefs.push(ref);
-    });
-
-    if (fileRefs.length && typeof driveCatalogSync.isDriveCatalogSyncConfigured === 'function'
-        && driveCatalogSync.isDriveCatalogSyncConfigured()) {
-      try {
-        const token = await driveCatalogSync.resolveDriveAccessToken({});
-        if (token && typeof communityDriveArchive.extractTextsForRefs === 'function') {
-          const extracted = await communityDriveArchive.extractTextsForRefs(fileRefs.slice(0, 8), token);
-          result.files = (extracted && extracted.bundles) || [];
-          console.log(
-            '[pure-phase-c] extracted community/archive files:',
-            result.files.length,
-            '| names:',
-            result.files.map(function (file) { return file.name; }).join(' | '),
-            '| chars:',
-            result.files.reduce(function (sum, file) { return sum + (file.charCount || 0); }, 0)
-          );
-        }
-      } catch (extractErr) {
-        console.warn('[pure-phase-c] archive file extract failed:', extractErr.message || extractErr);
-      }
-    }
-
-    const extra = [];
-    const rowSummaries = typeof communityDriveArchive.collectSummariesFromArchiveRows === 'function'
-      ? communityDriveArchive.collectSummariesFromArchiveRows(archiveRowsFallback)
-      : [];
-    rowSummaries.forEach(function (summary) {
-      extra.push(summary);
-    });
-    if (ragResult && ragResult.context) {
-      result.ragContext = String(ragResult.context || '').trim();
-      if (result.ragContext) extra.push(result.ragContext);
-    }
-    const instantSummary = instant && String(instant.summary || instant.summary_md || '').trim();
-    if (instantSummary && instantSummary.length >= 80 && extra.indexOf(instantSummary) < 0) {
-      extra.push(instantSummary);
-    }
-
-    result.essay = formatArchiveSourceEssay(result.files, extra);
   } catch (err) {
     console.warn('[pure-phase-c] retrieveCommunityArchiveSources failed:', err.message || err);
   }
@@ -471,8 +371,8 @@ function buildPhaseCFromArchiveRows(rows, grade, topic) {
   const fileRefs = [];
   list.forEach(function (row) {
     const extracted = communityDriveArchive.extractArchiveRowContent
-      ? communityDriveArchive.extractArchiveRowContent(row)
-      : { text: String((row && (row.summary_md || row.summary_text)) || '').trim(), payload: null, fileRefs: [] };
+      ? communityDriveArchive.extractArchiveRowContent(row, { parsePayload: true })
+      : { text: String((row && row.summary_md) || '').trim(), payload: null, fileRefs: [] };
     if (extracted.text) texts.push(extracted.text);
     if (extracted.payload) payloads.push(extracted.payload);
     if (Array.isArray(extracted.fileRefs)) {
@@ -3941,81 +3841,33 @@ function buildPhaseCPedagogicalTemplate(grade, topic) {
 }
 
 async function lookupLocalTopicArchive(gradeId, topic, grade, options) {
-  const opts = options || {};
-  const allowPartial = Boolean(opts.allowPartial);
   if (!gradeId || !topic) return null;
 
-  const lookups = await Promise.all([
-    cache.safeArchiveLookup(
-      'topic_master:' + String(topic).slice(0, 40),
-      function () { return cache.getTopicMasterCache(gradeId, topic); },
-      { phase: 'topic_master', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
-    ),
-    cache.safeArchiveLookup(
-      'archive_suggestion:' + String(topic).slice(0, 40),
-      function () {
-        return cache.findArchiveTopicSuggestion({
-          topic: topic,
-          gradeId: gradeId,
-          gradeLabel: grade || null,
-        });
-      },
-      { phase: 'topic', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
-    ),
-  ]);
+  const cached = await cache.getCachedResult({
+    phase: 'topic_master',
+    topic: topic,
+    currentGrade: gradeId,
+    gradeId: gradeId,
+    gradeLabel: grade || null,
+  }, { requireEnhanced: false });
 
-  const cached = lookups[0];
-  const suggestion = lookups[1];
-
-  if (suggestion && suggestion.matchType === 'grade_mismatch') {
-    return { gradeMismatch: suggestion };
-  }
-
-  if (cached && cached.data) {
-    try {
-      const data = safeNormalizePhaseCResponse(cached.data, grade, topic);
-      if (isThinGenericPhaseCPayload(data)) {
-        console.warn('[pure-phase-c] ignoring thin generic topic_master cache for', topic);
-      } else {
-        return {
-          data: data,
-          cacheKey: cached.meta && cached.meta.cacheKey,
-          source: (cached.meta && cached.meta.source) || 'topic_master_archive',
-          matchType: 'exact',
-        };
-      }
-    } catch (normErr) {
-      console.warn('[pure-phase-c] topic_master normalize failed:', normErr.message || normErr);
+  if (!cached || !cached.data) return null;
+  try {
+    const data = safeNormalizePhaseCResponse(cached.data, grade, topic);
+    if (isThinGenericPhaseCPayload(data)) {
+      console.warn('[pure-phase-c] ignoring thin generic topic_master cache for', topic);
+      return null;
     }
+    return {
+      data: data,
+      cacheKey: cached.meta && cached.meta.cacheKey,
+      source: (cached.meta && cached.meta.source) || 'topic_master_archive',
+      matchType: 'exact',
+    };
+  } catch (normErr) {
+    console.warn('[pure-phase-c] topic_master normalize failed:', normErr.message || normErr);
+    return null;
   }
-
-  if (suggestion && suggestion.matchType === 'exact') {
-    const extracted = extractPhaseCFromArchiveMatch(suggestion, grade, topic);
-    if (extracted) {
-      return {
-        data: extracted,
-        cacheKey: suggestion.cacheKey,
-        source: suggestion.archiveSource || 'consolidated_archive',
-        matchType: 'exact',
-      };
-    }
-  }
-
-  if (allowPartial && suggestion && (suggestion.resultData || suggestion.historicPayload)) {
-    const extracted = extractPhaseCFromArchiveMatch(suggestion, grade, topic);
-    if (extracted) {
-      return {
-        data: extracted,
-        cacheKey: suggestion.cacheKey,
-        source: 'archive_partial_fallback',
-        matchType: 'partial',
-      };
-    }
-  }
-
-  return suggestion && suggestion.matchType === 'partial'
-    ? { partial: suggestion, matchType: 'partial' }
-    : null;
 }
 
 function serveArchiveFallback(hit) {
@@ -4083,38 +3935,66 @@ async function runPurePhaseC(body, requestContext) {
   if (!topic) throw shared.badRequest('topic is required');
 
   const skipArchiveStop = Boolean(body.researchExpand || body.archiveUpgrade);
-  if (!skipArchiveStop) {
+  if (!skipArchiveStop && gradeId && !shouldBypassTopicMasterCache(body)) {
     try {
       const communityDriveArchive = require('./community-drive-archive');
-      const archiveRows = await communityDriveArchive.fetchArchiveRowsBySearchQuery(topic, gradeId);
-      if (archiveRows && archiveRows.length) {
-        const fromRows = buildPhaseCFromArchiveRows(archiveRows, grade, topic);
-        if (fromRows && phaseCHasFilledTheory(fromRows)) {
-          console.log(
-            '[pure-phase-c] search_query HIT — serving archive and skipping live search/AI | topic='
-            + topic
-            + ' | rows=' + archiveRows.length
-          );
-          return {
-            data: stripPhaseCWireOnlyFields(fromRows),
-            meta: {
-              fromCache: true,
-              source: 'community_drive_archive_search_query',
-              communityMatches: [],
-              archiveFiles: (archiveRows[0] && Array.isArray(archiveRows[0].file_refs))
-                ? archiveRows[0].file_refs.map(function (ref) {
-                  return ref && (ref.name || ref.fileName);
-                }).filter(Boolean)
-                : [],
-            },
-          };
+      if (typeof communityDriveArchive.tryInstantArchiveRetrieval === 'function') {
+        const instant = await communityDriveArchive.tryInstantArchiveRetrieval(topic, {
+          gradeId: gradeId,
+          currentGrade: gradeId,
+          topic: topic,
+          forceRefresh: false,
+        });
+        if (instant && instant.communityStatus === 'ok' && instant.summary) {
+          const essay = String(instant.summary || '').trim();
+          const fromInstant = buildPhaseCFromSourceEssay(essay, grade, topic, {
+            essay: essay,
+            archiveRows: [],
+            files: [],
+            matches: [],
+            searchQueryHit: true,
+          });
+          if (fromInstant && !isThinGenericPhaseCPayload(fromInstant)) {
+            console.log(
+              '[pure-phase-c] lean search_query HIT — same path as grade essence | topic='
+              + topic.slice(0, 40)
+            );
+            return {
+              data: stripPhaseCWireOnlyFields(fromInstant),
+              meta: {
+                fromCache: true,
+                source: 'community_drive_archive_search_query',
+                communityMatches: [],
+              },
+            };
+          }
         }
       }
-    } catch (archiveFirstErr) {
+    } catch (instantErr) {
       console.warn(
-        '[pure-phase-c] search_query-first lookup failed:',
-        archiveFirstErr && archiveFirstErr.message ? archiveFirstErr.message : archiveFirstErr
+        '[pure-phase-c] lean archive lookup failed:',
+        instantErr && instantErr.message ? instantErr.message : instantErr
       );
+    }
+
+    const archiveHit = await lookupLocalTopicArchive(gradeId, topic, grade, { allowPartial: false });
+    if (archiveHit && archiveHit.gradeMismatch) {
+      const err = new Error(archiveHit.gradeMismatch.message || 'נושא זה אינו מתאים לכיתה שנבחרה');
+      err.statusCode = 400;
+      err.code = 'GRADE_MISMATCH';
+      throw err;
+    }
+    if (archiveHit && archiveHit.data && !isThinGenericPhaseCPayload(archiveHit.data)) {
+      console.log('[pure-phase-c] getCachedResult HIT — same key path as grade | topic=' + topic);
+      return {
+        data: archiveHit.data,
+        meta: {
+          fromCache: true,
+          cacheKey: archiveHit.cacheKey || undefined,
+          source: archiveHit.source || 'topic_master_archive',
+          communityMatches: [],
+        },
+      };
     }
   }
 
@@ -4181,32 +4061,6 @@ async function runPurePhaseC(body, requestContext) {
       console.log('[pure-phase-c] cache bypass — live Perplexity crawl for', topic);
     } catch (purgeErr) {
       console.warn('[pure-phase-c] topic_master cache purge failed:', purgeErr.message || purgeErr);
-    }
-  }
-
-  if (gradeId && !shouldBypassTopicMasterCache(body)) {
-    const archiveHit = await lookupLocalTopicArchive(gradeId, topic, grade, { allowPartial: false });
-    if (archiveHit && archiveHit.gradeMismatch) {
-      const err = new Error(archiveHit.gradeMismatch.message || 'נושא זה אינו מתאים לכיתה שנבחרה');
-      err.statusCode = 400;
-      err.code = 'GRADE_MISMATCH';
-      throw err;
-    }
-    if (archiveHit && archiveHit.data && !isThinGenericPhaseCPayload(archiveHit.data)) {
-      const cacheKey = archiveHit.cacheKey || null;
-      if (cacheKey) {
-        await registerTeacherHistory(cacheKey, archiveHit.data);
-      }
-      console.log('[pure-phase-c] archive hit — skipping live search', archiveHit.source, topic);
-      return {
-        data: archiveHit.data,
-        meta: {
-          fromCache: true,
-          cacheKey: cacheKey || undefined,
-          source: archiveHit.source,
-          communityMatches: archiveSources.matches || [],
-        },
-      };
     }
   }
 
