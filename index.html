@@ -30181,6 +30181,24 @@
       });
     }
 
+    /** Gentle downward nudge after grade/topic research renders — signals load complete. */
+    function nudgeViewportAfterResearchReveal() {
+      var half = Math.round((window.innerHeight || 600) * 0.5);
+      var delta = Math.min(400, Math.max(300, half));
+      var scrollY = window.scrollY || window.pageYOffset || 0;
+      var docH = Math.max(
+        document.documentElement ? document.documentElement.scrollHeight : 0,
+        document.body ? document.body.scrollHeight : 0
+      );
+      var maxY = Math.max(0, docH - (window.innerHeight || 0));
+      var targetY = Math.min(maxY, scrollY + delta);
+      try {
+        window.scrollTo({ top: targetY, left: 0, behavior: 'smooth' });
+      } catch (err) {
+        try { window.scrollTo(0, targetY); } catch (err2) { /* ignore */ }
+      }
+    }
+
     /** Align loaded grade/topic card under sticky chrome (same landing for every class). */
     function scrollPlannerContentIntoView(anchorEl) {
       requestAnimationFrame(function () {
@@ -30237,15 +30255,18 @@
           (options.scrollGradeInsightsTitle || options.openStepB === false
             ? (document.getElementById('grade-insights-panel') || el)
             : (document.getElementById('web-research-result') || el));
+        function afterPrimaryResearchScrollSettled() {
+          if (gen !== gradeRevealGeneration) return;
+          pendingRevealScrollEl = null;
+          nudgeViewportAfterResearchReveal();
+        }
         if (options.scrollGradeInsightsTitle || options.openStepB === false) {
           scrollGradeInsightsHeaderToPageTop();
+          runAfterSmoothScroll(afterPrimaryResearchScrollSettled);
         } else {
           pendingRevealScrollEl = scrollAnchor || el;
           scrollPlannerContentIntoView(scrollAnchor);
-          runAfterSmoothScroll(function () {
-            if (gen !== gradeRevealGeneration) return;
-            pendingRevealScrollEl = null;
-          });
+          runAfterSmoothScroll(afterPrimaryResearchScrollSettled);
         }
       }
       if (!el || plannerContentLooksReady(el)) {
