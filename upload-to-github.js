@@ -25,6 +25,8 @@ const ROOT = __dirname;
 // Files changed for layout, recent searches, Word export, and Render deployment.
 const FILES_TO_UPLOAD = [
   'index.html',
+  'landing.html',
+  'manifest.json',
   'languages.js',
   'chat-sidebar.js',
   'search-history.js',

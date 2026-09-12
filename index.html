@@ -154,7 +154,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title data-i18n="meta_title">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א'-ח'</title>
   <script>window.__WALDROF_LANGUAGES_LOADED__ = false;</script>
-  <script src="languages.js?v=20260820a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
+  <script src="languages.js?v=20260912a" onload="window.__WALDROF_LANGUAGES_LOADED__ = true" onerror="console.warn('[waldrof] languages.js failed to load'); window.__WALDROF_LANGUAGES_LOADED__ = false;"></script>
   <script src="i18n-core.js?v=20260712h"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -1368,9 +1368,29 @@
       padding: 0.35rem 0.85rem;
       font-size: 0.78rem;
       min-height: 2rem;
-      order: -1; /* first in the RTL flex row */
+      order: -2; /* first in the RTL flex row — public site home */
+    }
+    #btn-nav-toc {
+      padding: 0.35rem 0.85rem;
+      font-size: 0.78rem;
+      min-height: 2rem;
+      order: -1;
+      border-color: rgba(158, 71, 42, 0.4);
+      background: rgba(255, 252, 246, 0.96);
+      color: #7e341c;
+      font-weight: 700;
+    }
+    #btn-nav-toc.active {
+      background: #9e472a;
+      color: #fff;
     }
     #header-compact-back-home {
+      padding: 0.28rem 0.75rem;
+      font-size: 0.72rem;
+      min-height: 1.85rem;
+      order: -2;
+    }
+    #header-compact-toc {
       padding: 0.28rem 0.75rem;
       font-size: 0.72rem;
       min-height: 1.85rem;
@@ -1711,6 +1731,7 @@
     }
     @media (min-width: 640px) {
       .app-top-nav-inner > .step-pill-community,
+      .app-top-nav-inner > .step-pill-toc,
       .app-top-nav-inner > .community-summarizer-btn,
       .app-top-nav-inner > #btn-nav-community-summarizer,
       .app-top-nav-inner > .step-pill-waldorf-sites,
@@ -1740,6 +1761,7 @@
       }
       #step-progress .step-pill,
       .app-top-nav-inner > .step-pill-community,
+      .app-top-nav-inner > .step-pill-toc,
       .app-top-nav-inner > .community-summarizer-btn,
       .app-top-nav-inner > #btn-nav-community-summarizer,
       .app-top-nav-inner > .step-pill-waldorf-sites,
@@ -5402,6 +5424,16 @@
       padding-top: 0.28rem !important;
       padding-bottom: 0.24rem !important;
     }
+    .app-site-chrome header .app-brand-home-link {
+      text-decoration: none;
+      color: inherit;
+      display: inline-block;
+      max-width: min(100%, 38rem);
+    }
+    .app-site-chrome header .app-brand-home-link:hover .app-brand-title,
+    .app-site-chrome header .app-brand-home-link:focus-visible .app-brand-title {
+      color: #3f5d3f !important;
+    }
     .app-site-chrome header .app-brand-title {
       margin: 0;
       max-width: min(100%, 38rem);
@@ -7093,7 +7125,9 @@
   <header class="app-chrome-header border-b border-gold/30 bg-gradient-to-l from-parchment via-cream to-parchment">
     <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 py-2 sm:py-2.5">
       <div class="app-chrome-tagline-row flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h1 class="app-brand-title app-chrome-tagline font-display font-bold text-sage-dark" data-i18n="header_tagline">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א-ח</h1>
+        <a href="/" id="app-brand-home-link" class="app-brand-home-link" data-go-site-home>
+          <h1 class="app-brand-title app-chrome-tagline font-display font-bold text-sage-dark" data-i18n="header_tagline">מרכז המידע למורי הוולדורף בישראל, בתי ספר יסודיים א-ח</h1>
+        </a>
         <div class="app-chrome-actions-row flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
           <div id="identity-email-bar" class="identity-email-bar hidden">
             <label for="identity-email-input" class="identity-email-label" data-i18n="identity_email_label">דוא״ל לגישה</label>
@@ -7164,6 +7198,10 @@
         <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
         <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
       </button>
+      <button type="button" id="header-compact-toc" class="header-compact-nav-btn touch-btn" data-open-toc data-i18n-aria="nav_toc_aria">
+        <i class="fa-solid fa-list" aria-hidden="true"></i>
+        <span data-i18n="nav_toc">תוכן עניינים</span>
+      </button>
       <button type="button" id="header-compact-edit-grade" class="header-compact-nav-btn touch-btn">
         <span data-i18n="header_compact_edit_grade">עריכת כיתה</span>
       </button>
@@ -7201,6 +7239,12 @@
           data-back-to-home data-i18n-aria="back_to_home">
           <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
           <span data-i18n="back_to_home">חזרה לעמוד הבית</span>
+        </button>
+        <button type="button" id="btn-nav-toc"
+          class="step-pill step-pill-toc touch-btn inline-flex items-center justify-center gap-1.5 rounded-full text-sm sm:text-xs cursor-pointer"
+          data-open-toc data-i18n-aria="nav_toc_aria">
+          <i class="fa-solid fa-list" aria-hidden="true"></i>
+          <span data-i18n="nav_toc">תוכן עניינים</span>
         </button>
         <div class="flex flex-wrap gap-2 sm:gap-2 justify-center items-stretch" id="step-progress" data-i18n-aria="nav_wizard_aria"></div>
         <button type="button" id="btn-nav-general-search"
@@ -8225,10 +8269,22 @@
 
     function getCleanAppPathname() {
       try {
-        return stripCorruptedUrlSegment(window.location.pathname || '/');
+        return stripCorruptedUrlSegment(window.location.pathname || '/planner');
       } catch (e) {
-        return '/';
+        return '/planner';
       }
+    }
+
+    function ensurePlannerPathname() {
+      try {
+        var path = getCleanAppPathname();
+        if (path === '/planner') return;
+        var search = '';
+        try { search = window.location.search || ''; } catch (eSearch) { /* ignore */ }
+        var hash = '';
+        try { hash = sanitizeProductTabLocationHash(window.location.hash) || ''; } catch (eHash) { /* ignore */ }
+        window.history.replaceState(null, '', '/planner' + search + hash);
+      } catch (e) { /* ignore */ }
     }
 
     function sanitizeProductTabLocationHash(rawHash) {
@@ -25508,6 +25564,7 @@
       opts = opts || {};
       stopSpeaking();
       rememberNavScrollPosition(getNavScrollKey());
+      ensurePlannerPathname();
       appState.navSection = 'home';
       hideGeneralSearchView();
       hideWaldorfSitesView();
@@ -25583,8 +25640,14 @@
       if (document.body.getAttribute('data-back-home-bound') === '1') return;
       document.body.setAttribute('data-back-home-bound', '1');
       document.addEventListener('click', function (e) {
-        var btn = e.target && e.target.closest ? e.target.closest('[data-back-to-home]') : null;
-        if (!btn) return;
+        var siteHome = e.target && e.target.closest ? e.target.closest('[data-back-to-home], [data-go-site-home]') : null;
+        if (siteHome) {
+          e.preventDefault();
+          window.location.assign('/');
+          return;
+        }
+        var tocBtn = e.target && e.target.closest ? e.target.closest('[data-open-toc]') : null;
+        if (!tocBtn) return;
         e.preventDefault();
         openHomeView();
       });
@@ -28373,9 +28436,11 @@
       const communityBtn = document.getElementById('btn-nav-community');
       const generalSearchBtn = document.getElementById('btn-nav-general-search');
       const waldorfSitesBtn = document.getElementById('btn-nav-waldorf-sites');
+      const tocBtn = document.getElementById('btn-nav-toc');
       if (communityBtn) communityBtn.classList.toggle('active', isCommunityView());
       if (generalSearchBtn) generalSearchBtn.classList.toggle('active', isGeneralSearchView());
       if (waldorfSitesBtn) waldorfSitesBtn.classList.toggle('active', isWaldorfSitesView());
+      if (tocBtn) tocBtn.classList.toggle('active', isHomeView());
       syncHomeChrome();
     }
 
@@ -28455,6 +28520,7 @@
       var communityBtn = document.getElementById('header-compact-community');
       var communitySummarizerBtn = document.getElementById('header-compact-community-summarizer');
       var sitesBtn = document.getElementById('header-compact-sites');
+      var tocBtn = document.getElementById('header-compact-toc');
       var inWs = isWorkspaceOpen();
       if (topicBtn) topicBtn.disabled = !canNavigateToStep(2);
       if (phaseCBtn) {
@@ -28472,6 +28538,9 @@
       }
       if (sitesBtn) {
         sitesBtn.classList.toggle('active', isWaldorfSitesView());
+      }
+      if (tocBtn) {
+        tocBtn.classList.toggle('active', isHomeView());
       }
       if (gradeBtn) {
         gradeBtn.disabled = false;
@@ -34544,6 +34613,8 @@
         if (!btn || btn.disabled) return;
         onStepNavClick(parseInt(btn.getAttribute('data-step-nav'), 10), e);
       });
+      bindWizardNavClick(document.getElementById('btn-nav-toc'), function () { openHomeView(); });
+      bindWizardNavClick(document.getElementById('header-compact-toc'), function () { openHomeView(); });
       bindWizardNavClick(document.getElementById('btn-nav-community'), function () { openCommunityRepo(); });
       bindWizardNavClick(document.getElementById('btn-nav-community-summarizer'), function () { openCommunitySummarizerModal(); });
       bindWizardNavClick(document.getElementById('btn-nav-general-search'), function () { openGeneralSearchView(); });
@@ -34920,6 +34991,7 @@
       }
       try { resetWizardOnPageLoad(); } catch (e) { console.warn('[waldrof] resetWizardOnPageLoad:', e); }
       try { populateGradeSelect(); } catch (e) { console.warn('[waldrof] populateGradeSelect:', e); }
+      try { ensurePlannerPathname(); } catch (e) { /* ignore */ }
       if (pageReloaded) {
         try { armScrollRestoreSuppression(1500); } catch (e) { /* ignore */ }
         try { openHomeView({ skipScrollRestore: true }); } catch (e) { console.warn('[waldrof] openHomeView:', e); }

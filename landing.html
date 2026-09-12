@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>אלון ירושלמי | חינוך ולדורף, אנתרופוסופיה ותכנון פדגוגי</title>
+  <meta name="description" content="וולדורף פלנר - המרכז הפדגוגי והמאגר המקיף לחינוך ולדורף ואנתרופוסופיה בישראל מאת אלון ירושלמי. תכנון תקופות, מערכי שיעור לכיתות א'-ח', 12 החושים, ששת הממים והפדגוגיה המשחקית.">
+  <meta name="keywords" content="חינוך ולדורף, אנתרופוסופיה, מערכי שיעור ולדורף, תכנון תקופות, אלון ירושלמי, 12 החושים, כיתה א ולדורף, פדגוגיה משחקית, ששת הממים, חינוך אנתרופוסופי ישראל, רודולף שטיינר">
+  <meta name="author" content="אלון ירושלמי">
+  <link rel="canonical" href="https://www.waldorfplanner.co.il/">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "EducationalOrganization",
+    "name": "Waldorf Planner - אלון ירושלמי",
+    "url": "https://www.waldorfplanner.co.il",
+    "founder": {
+      "@type": "Person",
+      "name": "אלון ירושלמי",
+      "jobTitle": "מחנך ומנהל מוסדות חינוך ולדורף"
+    },
+    "description": "המאגר המרכזי לתכנון לימודים, מערכי שיעור ומאמרי הגות בחינוך ולדורף ואנתרופוסופיה בישראל.",
+    "knowsAbout": [
+      "חינוך ולדורף",
+      "אנתרופוסופיה",
+      "רודולף שטיינר",
+      "12 החושים",
+      "פדגוגיה משחקית",
+      "ששת הממים",
+      "תכנון תקופות"
+    ]
+  }
+  </script>
+
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-55NVT1E0CD"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-55NVT1E0CD');
+  </script>
+  <script>
+    (function bouncePlannerCallbacks() {
+      try {
+        var params = new URLSearchParams(window.location.search || '');
+        var oauthKeys = ['code', 'state', 'error', 'error_description', 'error_code'];
+        var shouldBounce = params.has('checkout');
+        for (var i = 0; i < oauthKeys.length; i++) {
+          if (params.has(oauthKeys[i])) {
+            shouldBounce = true;
+            break;
+          }
+        }
+        if (shouldBounce) {
+          window.location.replace('/planner' + window.location.search + window.location.hash);
+        }
+      } catch (e) { /* stay on landing */ }
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700&family=Frank+Ruhl+Libre:wght@500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-main: #fbf9f5;
+      --bg-card: #ffffff;
+      --text-main: #2b2b2b;
+      --text-muted: #5f6368;
+      --accent: #9e472a;
+      --accent-hover: #7e341c;
+      --accent-soft: #f4ece6;
+      --border-color: #e5dec9;
+      --font-serif: 'Frank Ruhl Libre', serif;
+      --font-sans: 'Assistant', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.75;
+      font-size: 1.08rem;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border-color);
+      padding: 1.1rem 2rem;
+      background: rgba(251, 249, 245, 0.96);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(5px);
+    }
+
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .logo {
+      font-family: var(--font-serif);
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    nav {
+      display: flex;
+      align-items: center;
+      gap: 1.2rem;
+      flex-wrap: wrap;
+    }
+
+    nav a {
+      text-decoration: none;
+      color: var(--text-main);
+      font-weight: 600;
+      font-size: 1rem;
+      transition: color 0.2s;
+    }
+
+    nav a:hover { color: var(--accent); }
+
+    .btn-nav-search {
+      background: var(--accent);
+      color: #fff !important;
+      padding: 0.45rem 1.1rem;
+      border-radius: 20px;
+      font-weight: 700;
+      font-size: 0.92rem;
+      transition: background 0.2s, transform 0.15s;
+      box-shadow: 0 2px 8px rgba(158, 71, 42, 0.2);
+    }
+
+    .btn-nav-search:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .hero {
+      max-width: 900px;
+      margin: 3.5rem auto 2rem;
+      padding: 0 1.5rem;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-family: var(--font-serif);
+      font-size: 2.8rem;
+      line-height: 1.25;
+      margin-bottom: 1.2rem;
+      color: #1e1e1e;
+    }
+
+    .hero p.lead {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 760px;
+      margin: 0 auto 2rem;
+    }
+
+    .cta-area { margin: 2rem 0; }
+
+    .cta-btn-main {
+      background: var(--accent);
+      color: white;
+      text-decoration: none;
+      padding: 0.95rem 2.2rem;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 1.15rem;
+      display: inline-block;
+      box-shadow: 0 4px 14px rgba(158, 71, 42, 0.25);
+      transition: transform 0.15s, background 0.2s;
+    }
+
+    .cta-btn-main:hover {
+      background: var(--accent-hover);
+      transform: translateY(-2px);
+    }
+
+    .quote-box {
+      border-right: 4px solid var(--accent);
+      background: var(--accent-soft);
+      padding: 1.2rem 1.8rem;
+      margin: 2.5rem auto;
+      text-align: right;
+      font-style: italic;
+      border-radius: 4px;
+      max-width: 780px;
+    }
+
+    .quote-box cite {
+      display: block;
+      margin-top: 0.5rem;
+      font-weight: 600;
+      font-style: normal;
+      color: var(--accent);
+      font-size: 0.95rem;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    .section-title {
+      font-family: var(--font-serif);
+      font-size: 2rem;
+      margin-bottom: 0.8rem;
+      border-bottom: 2px solid var(--accent);
+      display: inline-block;
+      padding-bottom: 0.3rem;
+    }
+
+    .grid-pillars {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .pillar-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 1.8rem;
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .pillar-card h3 {
+      font-family: var(--font-serif);
+      font-size: 1.35rem;
+      color: var(--accent);
+      margin-bottom: 0.7rem;
+    }
+
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin: 1.5rem 0 2rem;
+    }
+
+    .filter-btn {
+      background: #eee7dd;
+      border: none;
+      padding: 0.5rem 1.1rem;
+      border-radius: 20px;
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+
+    .filter-btn.active, .filter-btn:hover {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .articles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 2rem;
+    }
+
+    .article-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .article-card .tag {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    .article-card h4 {
+      font-family: var(--font-serif);
+      font-size: 1.5rem;
+      line-height: 1.3;
+      margin-bottom: 0.8rem;
+    }
+
+    .article-card p {
+      font-size: 0.98rem;
+      color: #444;
+      margin-bottom: 1.5rem;
+      flex-grow: 1;
+    }
+
+    .read-full-link {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 1rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      border-bottom: 1px solid var(--accent);
+      align-self: flex-start;
+      transition: color 0.2s;
+    }
+
+    .read-full-link:hover { color: var(--accent-hover); }
+
+    .projects-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.8rem;
+      margin-top: 1.5rem;
+    }
+
+    .project-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 2.2rem;
+      border-radius: 6px;
+    }
+
+    .project-card h3 {
+      font-family: var(--font-serif);
+      font-size: 1.6rem;
+      color: var(--accent);
+      margin-bottom: 0.8rem;
+    }
+
+    .project-card p {
+      margin-bottom: 1.2rem;
+      color: #444;
+    }
+
+    .project-card a {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: underline;
+    }
+
+    footer {
+      border-top: 1px solid var(--border-color);
+      background: #f1ece4;
+      padding: 3rem 1.5rem;
+      margin-top: 5rem;
+      text-align: center;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.1rem; }
+      nav { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="nav-container">
+      <a href="/" class="logo">אלון ירושלמי | הגות ועשייה חינוכית</a>
+      <nav>
+        <a href="#pillars">ארבעת העוגנים הפדגוגיים</a>
+        <a href="/planner" class="btn-nav-search">🔍 כניסה למערכת החיפוש החי ומאגר קהילתי רחב ↗</a>
+        <a href="#writings">מאמרים</a>
+        <a href="https://www.educationpace.com/blog" target="_blank" rel="noopener noreferrer">הבלוג ב-Education Pace ↗</a>
+        <a href="#projects">פודקאסט וקהילה</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>לחנך מתוך תודעת האדם</h1>
+      <p class="lead">
+        מעל 30 שנה של חינוך כיתה, ניהול מסגרות ייחודיות וחקירה פנימית. מסע שמחבר בין ידע האדם האנתרופוסופי, כוחו של המשחק, ועבודתו הפנימית הבלתי מתפשרת של המחנך.
+      </p>
+
+      <div class="cta-area">
+        <a href="/planner" class="cta-btn-main">
+          🔍 כניסה למערכת החיפוש החי ומאגר קהילתי רחב ↗
+        </a>
+      </div>
+
+      <div class="quote-box">
+        "ההנחה שהפדגוגיה היא תורת הילד ולא תורת האדם, זאת היא אחת הטעויות המרגיזות ביותר."
+        <cite>— יאנוש קורצ'אק (מתוך המבוא לספר "מסעות בחינוך" / אלון ירושלמי)</cite>
+      </div>
+    </section>
+
+    <section class="container" id="pillars">
+      <h2 class="section-title">ארבעת העוגנים הפדגוגיים</h2>
+      <div class="grid-pillars">
+
+        <div class="pillar-card">
+          <h3>1. חינוך עצמי של המחנך</h3>
+          <p>
+            איש חינוך אינו רק מעביר חומר; הוא מחויב להישיר מבט אל הילד הפגוע שחי בתוכו. כל מה שמפעיל אותנו בכיתה הוא הזמנה לתרגול פנימי: חשיבה ערה, הפרדת עובדות מפרשנות ושליטה בתגובה הרגשית.
+          </p>
+        </div>
+
+        <div class="pillar-card">
+          <h3>2. הפדגוגיה המשחקית</h3>
+          <p>
+            הוראה אינה העברה טכנית של ידע, אלא יצירה חיה. המשחק הוא שפת הנפש של הילד. פיתוח סקרנות, דמיון וחוסן אינו קורה מול חוברות עבודה, אלא דרך סיפור, תנועה והתנסות אמיתית.
+          </p>
+        </div>
+
+        <div class="pillar-card">
+          <h3>3. התפתחות ושונות</h3>
+          <p>
+            כבוד למקצבי השביעונים ול-12 החושים, לצד פתיחות אמיצה לילדי ההווה. שחרור מסורות שהפכו לטקסים יבשים והתאמת מעשה ההוראה לשונות נוירולוגית ולעולם מוצף מסכים.
+          </p>
+        </div>
+
+        <div class="pillar-card">
+          <h3>4. חירות ורשת קהילתית</h3>
+          <p>
+            שינוי חברתי לא נולד במאבקים צועקים, אלא בזריעת זרעים של חשיבה עצמאית. פירוק המבנה הפירמידלי הנוקשה של מערכת החינוך לטובת ניהול רשתי, שיתופי ואנושי.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <section class="container" id="writings">
+      <h2 class="section-title">כתבים, מסות ותובנות מהשטח</h2>
+
+      <div class="filter-bar">
+        <button type="button" class="filter-btn active" data-filter="all">כל התכנים</button>
+        <button type="button" class="filter-btn" data-filter="social">סמכות, חברה והורות</button>
+        <button type="button" class="filter-btn" data-filter="waldorf">ולדורף ועבודת המורה</button>
+        <button type="button" class="filter-btn" data-filter="auto">אוטוביוגרפיה חינוכית</button>
+      </div>
+
+      <div class="articles-grid">
+
+        <article class="article-card" data-cat="social">
+          <div>
+            <div class="tag">סמכות, חברה והורות</div>
+            <h4>חינוך לאחריות חברתית: מדוע איני מפגין</h4>
+            <p>
+              השינוי החברתי האמיתי לא יצמח מצעקות ומאבקים של 'מי צודק ומי טועה', אלא מטיפוח תודעה חופשית ושקט פנימי באמצעות ששת תרגילי ההכנה היומיומיים של המחנך.
+            </p>
+          </div>
+          <a href="https://docs.google.com/document/d/1K7PjigY2f-0PuiSB0-IfpUeiT1xDrye8mwUFLvIqupQ/edit?usp=sharing" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לפתיחת המאמר המלא ב-Google Docs ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="waldorf">
+          <div>
+            <div class="tag">ולדורף ועבודת המורה</div>
+            <h4>הילד כדייר העולם: סכנת הניכור החושי והקוריקולום</h4>
+            <p>
+              על המעבר החד של הנשמה אל תוך דחיסות הגוף הפיזי, הניכור מחומרים סינתטיים ומסכים, ומדוע הקוריקולום בכל שכבת גיל הוא מראה מנחמת לחיי הנפש של הילד.
+            </p>
+          </div>
+          <a href="https://docs.google.com/document/d/1xJZh8tMcYTz7wYJGfbsT-fidlYwJQF6EHk86-RNyILw/edit?usp=sharing" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לפתיחת המאמר המלא ב-Google Docs ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="waldorf">
+          <div>
+            <div class="tag">ולדורף ועבודת המורה</div>
+            <h4>חשיבה מחודשת על כיתה א'</h4>
+            <p>
+              התבוננות מעמיקה באתגרי המעבר מהגן לכיתה א': בשלות רגשית, ויסות חושי-תנועתי, פדגוגיה ערה מול הילדים של ימינו ויצירת גשר בריא של אמון ושמחה בלמידה.
+            </p>
+          </div>
+          <a href="https://docs.google.com/document/d/1JgNKTYbVjocjHWG3UaO7lNEnq9umbkDq/edit?usp=sharing&ouid=111997011569122073700&rtpof=true&sd=true" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לפתיחת המאמר המלא ב-Google Docs ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="auto">
+          <div>
+            <div class="tag">אוטוביוגרפיה חינוכית</div>
+            <h4>מסעות בחינוך: מהילד השקוף ועד לשער הכיתה</h4>
+            <p>
+              על השנים שבהן הצטיינתי ב"אומנות הצמצום", על סבתא והאהבה לסיפורים, והמורה אניטה שהצילה אותי מעצמי. מדוע מחנך שלא פוגש את פצעי ילדותו אינו יכול להיות חופשי מול תלמידיו.
+            </p>
+          </div>
+          <a href="https://docs.google.com/document/d/1X5u2n6Vf4K7Qe1u7jP3-a8Z4W_0/edit" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לפתיחת מסמך האוטוביוגרפיה המלא ב-Google Docs ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="social">
+          <div>
+            <div class="tag">סמכות, חברה והורות</div>
+            <h4>סמכות וגבולות: הורות, סמכות וחינוך לעצמאות</h4>
+            <p>
+              אחד האתגרים הקשים ביותר בתקופה המודרנית הוא היכולת לייצר סמכות מתוך אהבה ונוכחות, ללא כוחניות ומתוך הבנת מקצבי הנפש של הילד.
+            </p>
+          </div>
+          <a href="https://www.educationpace.com/post/parenting-authority" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לקריאת המאמר המלא ב-Education Pace ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="waldorf">
+          <div>
+            <div class="tag">ולדורף ועבודת המורה</div>
+            <h4>ששת המ"מים: הערך הנוסף בחינוך</h4>
+            <p>
+              עבודת המחנך מתוך שישה אלמנטים של מודעות המאפשרים ניהול כיתה באופן בריא ומיטיב: מודעות אסתטית, מרחבית, רגשית, עצמית, קהילתית וצוותית.
+            </p>
+          </div>
+          <a href="https://www.educationpace.com/post/%D7%94%D7%A2%D7%A8%D7%9A-%D7%94%D7%A0%D7%95%D7%A1%D7%A3-%D7%91%D7%97%D7%99%D7%A0%D7%95%D7%9A-%D7%A2%D7%91%D7%95%D7%93%D7%AA-%D7%94%D7%9E%D7%97%D7%A0%D7%9A-%D7%9E%D7%AA%D7%95%D7%9A-%D7%A9%D7%99%D7%A9%D7%94-%D7%90%D7%9C%D7%9E%D7%A0%D7%98%D7%99%D7%9D-%D7%A9%D7%9C-%D7%9E%D7%95%D7%93%D7%A2%D7%95%D7%AA-%D7%90%D7%A9%D7%A8-%D7%9E%D7%90%D7%A4%D7%A9%D7%A8%D7%99%D7%9D-%D7%A0%D7%99%D7%94%D7%95%D7%9C-%D7%9B%D7%99%D7%AA%D7%94-%D7%91%D7%90%D7%95%D7%A4%D7%9F-%D7%91%D7%A8%D7%99%D7%90-%D7%95%D7%9E%D7%99%D7%98%D7%99%D7%91" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לקריאת המאמר המלא ב-Education Pace ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="social">
+          <div>
+            <div class="tag">סמכות, חברה והורות</div>
+            <h4>הסליחה: משמעותה בהתבוננות על ספר יונה, זרתוסתרא וישוע</h4>
+            <p>
+              משמעותה העמוקה של הסליחה בהתפתחות התודעה האנושית: ממסעו של יונה הנביא אל עומק הים והלב, דרך הפיצול המוסרי של זרתוסתרא ועד לאהבה ללא תנאי.
+            </p>
+          </div>
+          <a href="https://www.educationpace.com/post/%D7%94%D7%A1%D7%9C%D7%99%D7%97%D7%94-%D7%9E%D7%A9%D7%9E%D7%A2%D7%95%D7%AA%D7%94-%D7%91%D7%94%D7%AA%D7%91%D7%95%D7%A0%D7%A0%D7%95%D7%AA-%D7%A2%D7%9C-%D7%A1%D7%A4%D7%A8-%D7%99%D7%95%D7%A0%D7%94-%D7%AA%D7%95%D7%A8%D7%AA%D7%95-%D7%A9%D7%9C-%D7%96%D7%A8%D7%AA%D7%95%D7%A1%D7%AA%D7%90-%D7%95%D7%94%D7%A7%D7%A9%D7%A8-%D7%9C%D7%99%D7%A9%D7%95%D7%A2" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לקריאת המאמר המלא ב-Education Pace ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="waldorf">
+          <div>
+            <div class="tag">ולדורף ועבודת המורה</div>
+            <h4>מסע ההתפתחות כיתות א'-ה': איך עובדים עם ילדי כיתה ה'?</h4>
+            <p>
+              ההקבלה בין שלבי ההתפתחות ההיסטוריים של האנושות לנפש הילד, והמענה החינוכי המדויק לילדי כיתה ה' הנמצאים בשיא ההרמוניה הפיזית והנפשית.
+            </p>
+          </div>
+          <a href="https://www.educationpace.com/post/%D7%9E%D7%A1%D7%A2-%D7%94%D7%94%D7%AA%D7%A4%D7%AA%D7%97%D7%95%D7%AA-%D7%9B%D7%99%D7%AA%D7%95%D7%AA-%D7%90-%D7%94-%D7%90%D7%99%D7%9A-%D7%A2%D7%95%D7%91%D7%93%D7%99%D7%9D-%D7%A2%D7%9D-%D7%99%D7%9C%D7%93%D7%99-%D7%9B%D7%99%D7%AA%D7%94-%D7%94" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לקריאת המאמר המלא ב-Education Pace ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="social">
+          <div>
+            <div class="tag">סמכות, חברה והורות</div>
+            <h4>בניית סמכות בכיתה</h4>
+            <p>
+              "כשאני נכנס לכיתה, 30 זוגות עיניים מסתכלות עליי בציפייה: מי אני? מי הוא האדם שעומד מולנו?" – על סמכות פנימית שקטה הנובעת מביטחון ואמון הדדי.
+            </p>
+          </div>
+          <a href="https://www.educationpace.com/post/your-title-what-s-your-blog-about" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לקריאת המאמר המלא ב-Education Pace ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="social">
+          <div>
+            <div class="tag">סמכות, חברה והורות</div>
+            <h4>חינוך כמנוף לשינוי חברתי</h4>
+            <p>
+              כיצד שלבי ההתפתחות בשלושת השביעונים של שטיינר מניחים את היסודות לחברה בריאה המושתתת על חופש במחשבה, שוויון בזכויות ואחווה בכלכלה.
+            </p>
+          </div>
+          <a href="https://www.educationpace.com/post/%D7%97%D7%99%D7%A0%D7%95%D7%9A-%D7%9B%D7%9E%D7%A0%D7%95%D7%A3-%D7%9C%D7%A9%D7%99%D7%A0%D7%95%D7%99-%D7%97%D7%91%D7%A8%D7%AA%D7%99" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לקריאת המאמר המלא ב-Education Pace ↗
+          </a>
+        </article>
+
+        <article class="article-card" data-cat="waldorf">
+          <div>
+            <div class="tag">ולדורף ועבודת המורה</div>
+            <h4>החינוך כאומנות אנושית</h4>
+            <p>
+              מעשה ההוראה אינו יישום מכני של תוכנית לימודים, אלא אומנות חיה המתרחשת במפגש שבין אישיות המורה לנפש התלמיד ברגע ההווה.
+            </p>
+          </div>
+          <a href="https://www.educationpace.com/post/%D7%94%D7%97%D7%99%D7%A0%D7%95%D7%9A-%D7%9B%D7%90%D7%95%D7%9E%D7%A0%D7%95%D7%AA-%D7%90%D7%A0%D7%95%D7%A9%D7%99%D7%AA-%D7%90%D7%9C%D7%95%D7%9F-%D7%99%D7%A8%D7%95%D7%A9%D7%9C%D7%9E%D7%99" target="_blank" rel="noopener noreferrer" class="read-full-link">
+            לקריאת המאמר המלא ב-Education Pace ↗
+          </a>
+        </article>
+
+      </div>
+    </section>
+
+    <section class="container" id="projects" style="margin-top: 4rem;">
+      <h2 class="section-title">פרויקטים וקהילה</h2>
+      <div class="projects-grid">
+
+        <div class="project-card">
+          <h3>🎙️ הפודקאסט: מסעות בחינוך</h3>
+          <p>
+            מרחב שיחה והעמקה בהנחיית אלון ירושלמי והילה שקד. דיונים על פדגוגיה חיה, אתגרי כיתה, וקורס אודיו מקיף על 12 החושים והחוויה האנושית.
+          </p>
+          <a href="https://open.spotify.com/show/4zUeG0uE0D1z4x9rLz1Q" target="_blank" rel="noopener noreferrer">האזנה ב-Spotify ↗</a>
+        </div>
+
+        <div class="project-card">
+          <h3>🌐 קהילת Education Pace</h3>
+          <p>
+            הפלטפורמה המשותפת למחנכים ומחנכות בישראל: קורס 12 החושים, מפגשי העשרה, ליווי צוותים ומאמרים מקצועיים.
+          </p>
+          <a href="https://www.educationpace.com/" target="_blank" rel="noopener noreferrer">מעבר לאתר הרשמי (educationpace.com) ↗</a>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>© כל הזכויות שמורות לאלון ירושלמי | Waldorf Planner &amp; מסעות בחינוך</p>
+  </footer>
+
+  <script>
+    function filterArticles(category, trigger) {
+      var cards = document.querySelectorAll('.article-card');
+      var buttons = document.querySelectorAll('.filter-btn');
+      var key = String(category || 'all');
+
+      buttons.forEach(function (btn) {
+        btn.classList.toggle('active', btn === trigger || (!trigger && btn.getAttribute('data-filter') === key));
+      });
+
+      cards.forEach(function (card) {
+        var show = key === 'all' || card.getAttribute('data-cat') === key;
+        card.style.display = show ? 'flex' : 'none';
+      });
+    }
+
+    document.querySelectorAll('.filter-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        filterArticles(btn.getAttribute('data-filter') || 'all', btn);
+      });
+    });
+  </script>
+</body>
+</html>

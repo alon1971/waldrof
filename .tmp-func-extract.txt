@@ -1,0 +1,414 @@
+﻿
+######## 31f5ac0 ########
+
+--- mapRow ---
+function mapRow(row) {
+      const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
+      const extras = parseCommunityNotes(rawNotes);
+      const filePath = row.file_path || '';
+      const topic = (row.topic || extras.topicLegacy || '').trim();
+      const displayNotes = extras.description || extras.freeText || '';
+      const displayTitle = extras.title || row.file_name || topic || '╫ק╫ץ╫₧╫¿ ╫º╫פ╫ש╫£╫¬╫ש';
+      const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
+      return {
+        id: id,
+        dbId: row.id != null ? String(row.id).trim() : null,
+        userId: row.user_id || row.userId || null,
+        title: displayTitle,
+        notes: displayNotes,
+        authorName: extras.author || '',
+        gradeLevel: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : ''),
+        topic: topic,
+        createdAt: row.created_at || null,
+        fileName: row.file_name || '',
+        filePath: filePath,
+        fileSize: extras.fileSize,
+        fileType: extras.fileType || '',
+        fileUrl: resolveCommunityFileUrl(row),
+      };
+    }
+
+--- filterByGrade ---
+function filterByGrade(items, gradeId) {
+      const gid = String(gradeId || '').trim();
+      if (!gid) return items.slice();
+      if (gid === GENERAL_GRADE_ID) {
+        return items.filter(function (i) {
+          const level = String(i.gradeLevel || '').trim().toLowerCase();
+          return !level || level === GENERAL_GRADE_ID;
+        });
+      }
+      return items.filter(function (i) {
+        const level = String(i.gradeLevel || '').trim();
+        if (level) return level === gid || level === String(gid);
+        // Ungraded rows must not leak into every classroom when the topic
+        // clearly belongs to another Waldorf grade (e.g. ╫¿╫ץ╫₧╫נ Γזע ╫ץ╫│ only).
+        if (typeof WaldorfHebrewTopicMatch !== 'undefined'
+          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(i.topic || '');
+          if (block && block.gradeId && String(block.gradeId) !== gid) return false;
+        }
+        return true;
+      });
+    }
+
+--- loadCommunity ---
+async function loadCommunity() {
+      if (!isCloudConfigured()) {
+        appState.communityCache = [];
+        appState.communityForGrade = [];
+        return;
+      }
+      try {
+        const rows = await fetchCommunityMaterials();
+        appState.communityCache = (rows || []).map(mapRow).filter(function (item) {
+          return Boolean(resolveCommunityMaterialId(item));
+        });
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      } catch (err) {
+        console.warn('[community] loadCommunity failed:', formatSupabaseError(err));
+        appState.communityCache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      }
+    }
+
+--- getDynamicTopicsForGrade ---
+function getDynamicTopicsForGrade(gradeId) {
+      const map = {};
+      const gid = String(gradeId || '').trim();
+      filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
+        const t = (item.topic || '').trim();
+        if (!t) return;
+        // Hide curriculum ghost folders parked under the wrong grade
+        // (e.g. empty ┬½╫¿╫ץ╫₧╫נ┬╗ under ╫¢╫ש╫¬╫פ ╫נ╫│ Γאפ belongs to ╫¢╫ש╫¬╫פ ╫ץ╫│).
+        if (gid && gid !== 'general'
+          && typeof WaldorfHebrewTopicMatch !== 'undefined'
+          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(t);
+          if (block && block.gradeId && String(block.gradeId) !== gid) return;
+        }
+        const key = normalizeTopicKey(t);
+        if (!map[key]) map[key] = { id: t, label: t, count: 0 };
+        map[key].count++;
+      });
+      return Object.keys(map).map(function (k) { return map[k]; })
+        .sort(function (a, b) { return a.label.localeCompare(b.label, 'he'); });
+    }
+
+--- renderCatalogGrades ---
+function renderCatalogGrades() {
+      const el = document.getElementById('catalog-grades');
+      const gradePanel = document.getElementById('catalog-grade-panel');
+      const materialsEl = document.getElementById('catalog-materials');
+      if (!el) return;
+      el.classList.remove('hidden');
+      if (gradePanel) gradePanel.classList.add('hidden');
+      if (materialsEl) materialsEl.classList.add('hidden');
+      mutateCatalogDom(function () {
+        el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
+          CATALOG_GRADES.map(function (g) {
+            const topics = getDynamicTopicsForGrade(g.id);
+            const n = filterByGrade(appState.communityCache, g.id).length;
+            const isGeneral = Boolean(g.isGeneral);
+            const icon = isGeneral ? 'fa-globe' : 'fa-folder';
+            const subtitle = isGeneral
+              ? escapeHtml(t('catalog_general_hint'))
+              : escapeHtml(t('grade_age_prefix') + ' ' + g.age);
+            return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50' + (isGeneral ? ' catalog-grade-card--general' : '') + '" data-grade="' + g.id + '">' +
+              '<div class="flex items-start gap-3">' +
+              '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
+              '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
+              '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
+          }).join('');
+        el.querySelectorAll('[data-grade]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            renderCatalog('grade', btn.getAttribute('data-grade'));
+          });
+        });
+      });
+    }
+
+--- collectCatalogFilesForGrade ---
+function collectCatalogFilesForGrade(gradeId) {
+      return filterByGrade(appState.communityCache, gradeId)
+        .map(mapCacheItemToCatalogFile)
+        .filter(function (item) { return Boolean(item.id); })
+        .sort(function (a, b) {
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
+        });
+    }
+
+--- collectCatalogFiles ---
+function collectCatalogFiles(gradeId, topicId) {
+      const topicKey = normalizeTopicKey(topicId);
+      return collectCatalogFilesForGrade(gradeId)
+        .filter(function (item) { return normalizeTopicKey(item.topic) === topicKey; });
+    }
+
+--- renderCatalog ---
+async function renderCatalog(view, gradeId, topicId, opts) {
+      opts = opts || {};
+      if (isCatalogUploadModalOpen() && !opts.force) return;
+      const scrollY = capturePageScrollY();
+      const prevGradeId = catalogState.gradeId;
+      const prevView = catalogState.view;
+      const prevTopic = catalogState.topic;
+      const nextView = view || 'grades';
+      let nextGradeId = catalogState.gradeId;
+      let nextTopic = catalogState.topic;
+      if (nextView === 'grades' || !view) {
+        nextGradeId = null;
+        nextTopic = null;
+      } else if (nextView === 'grade') {
+        nextGradeId = gradeId;
+        nextTopic = null;
+      } else if (nextView === 'materials') {
+        nextGradeId = gradeId;
+        nextTopic = topicId;
+      }
+      const contextChanged = prevView !== nextView
+        || String(prevGradeId) !== String(nextGradeId)
+        || String(prevTopic) !== String(nextTopic);
+      if (contextChanged) {
+        clearCommunityFormDraftOnSuccess();
+      } else {
+        saveAllCommunityFormDrafts();
+      }
+      catalogState.view = nextView;
+      catalogState.gradeId = nextGradeId;
+      catalogState.topic = nextTopic;
+      if (!nextGradeId || String(prevGradeId) !== String(nextGradeId)) {
+        catalogState.gradeFolderId = null;
+      }
+      renderCatalogBreadcrumb();
+      showCatalogStatus('', '');
+      bindCatalogSearchBar();
+      updateCatalogSearchVisibility();
+      if (catalogState.view === 'grades') {
+        if (isCloudConfigured()) {
+          showCatalogStatus(t('catalog_loading'), 'info');
+          try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
+          showCatalogStatus('', '');
+        }
+        renderCatalogGrades();
+      } else if (catalogState.view === 'grade') {
+        await renderCatalogGradePanel(catalogState.gradeId);
+        scrollToCatalogContent('grade');
+      } else if (catalogState.view === 'materials') {
+        await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
+        scrollToCatalogContent('materials');
+      }
+      if (catalogState.view === 'grades') restorePageScrollY(scrollY);
+      persistActiveStep();
+    }
+
+
+######## HEAD ########
+
+--- mapRow ---
+function mapRow(row) {
+      const rawNotes = row[COMMUNITY_META_FIELD] || row.notes || row.description || '';
+      const extras = parseCommunityNotes(rawNotes);
+      const filePath = row.file_path || '';
+      const topic = (row.topic || extras.topicLegacy || '').trim();
+      const displayNotes = extras.description || extras.freeText || '';
+      const displayTitle = extras.title || row.file_name || topic || '╫ק╫ץ╫₧╫¿ ╫º╫פ╫ש╫£╫¬╫ש';
+      const id = row.id != null ? String(row.id).trim() : resolveCommunityMaterialId(row);
+      return {
+        id: id,
+        dbId: row.id != null ? String(row.id).trim() : null,
+        userId: row.user_id || row.userId || null,
+        title: displayTitle,
+        notes: displayNotes,
+        authorName: extras.author || '',
+        gradeLevel: row.grade_level != null ? String(row.grade_level) : (row.grade != null ? String(row.grade) : ''),
+        topic: topic,
+        createdAt: row.created_at || null,
+        fileName: row.file_name || '',
+        filePath: filePath,
+        fileSize: extras.fileSize,
+        fileType: extras.fileType || '',
+        fileUrl: resolveCommunityFileUrl(row),
+      };
+    }
+
+--- filterByGrade ---
+function filterByGrade(items, gradeId) {
+      const gid = String(gradeId || '').trim();
+      if (!gid) return items.slice();
+      if (gid === GENERAL_GRADE_ID) {
+        return items.filter(function (i) {
+          const level = String(i.gradeLevel || '').trim().toLowerCase();
+          return !level || level === GENERAL_GRADE_ID;
+        });
+      }
+      return items.filter(function (i) {
+        const level = String(i.gradeLevel || '').trim();
+        if (level) return level === gid || level === String(gid);
+        // Ungraded rows must not leak into every classroom when the topic
+        // clearly belongs to another Waldorf grade (e.g. ╫¿╫ץ╫₧╫נ Γזע ╫ץ╫│ only).
+        if (typeof WaldorfHebrewTopicMatch !== 'undefined'
+          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(i.topic || '');
+          if (block && block.gradeId && String(block.gradeId) !== gid) return false;
+        }
+        return true;
+      });
+    }
+
+--- loadCommunity ---
+async function loadCommunity() {
+      if (!isCloudConfigured()) {
+        appState.communityCache = [];
+        appState.communityForGrade = [];
+        return;
+      }
+      try {
+        const rows = await fetchCommunityMaterials();
+        appState.communityCache = (rows || []).map(mapRow).filter(function (item) {
+          return Boolean(resolveCommunityMaterialId(item));
+        });
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      } catch (err) {
+        console.warn('[community] loadCommunity failed:', formatSupabaseError(err));
+        appState.communityCache = Array.isArray(appState.communityCache) ? appState.communityCache : [];
+        appState.communityForGrade = filterByGrade(appState.communityCache, appState.grade);
+      }
+    }
+
+--- getDynamicTopicsForGrade ---
+function getDynamicTopicsForGrade(gradeId) {
+      const map = {};
+      const gid = String(gradeId || '').trim();
+      filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
+        const t = (item.topic || '').trim();
+        if (!t) return;
+        // Hide curriculum ghost folders parked under the wrong grade
+        // (e.g. empty ┬½╫¿╫ץ╫₧╫נ┬╗ under ╫¢╫ש╫¬╫פ ╫נ╫│ Γאפ belongs to ╫¢╫ש╫¬╫פ ╫ץ╫│).
+        if (gid && gid !== 'general'
+          && typeof WaldorfHebrewTopicMatch !== 'undefined'
+          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(t);
+          if (block && block.gradeId && String(block.gradeId) !== gid) return;
+        }
+        const key = normalizeTopicKey(t);
+        if (!map[key]) map[key] = { id: t, label: t, count: 0 };
+        map[key].count++;
+      });
+      return Object.keys(map).map(function (k) { return map[k]; })
+        .sort(function (a, b) { return a.label.localeCompare(b.label, 'he'); });
+    }
+
+--- renderCatalogGrades ---
+function renderCatalogGrades() {
+      const el = document.getElementById('catalog-grades');
+      const gradePanel = document.getElementById('catalog-grade-panel');
+      const materialsEl = document.getElementById('catalog-materials');
+      if (!el) return;
+      el.classList.remove('hidden');
+      if (gradePanel) gradePanel.classList.add('hidden');
+      if (materialsEl) materialsEl.classList.add('hidden');
+      mutateCatalogDom(function () {
+        el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
+          CATALOG_GRADES.map(function (g) {
+            const topics = getDynamicTopicsForGrade(g.id);
+            const n = filterByGrade(appState.communityCache, g.id).length;
+            const isGeneral = Boolean(g.isGeneral);
+            const icon = isGeneral ? 'fa-globe' : 'fa-folder';
+            const subtitle = isGeneral
+              ? escapeHtml(t('catalog_general_hint'))
+              : escapeHtml(t('grade_age_prefix') + ' ' + g.age);
+            return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50' + (isGeneral ? ' catalog-grade-card--general' : '') + '" data-grade="' + g.id + '">' +
+              '<div class="flex items-start gap-3">' +
+              '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
+              '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
+              '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topics.length, files: n })) + '</div></div></div></button>';
+          }).join('');
+        el.querySelectorAll('[data-grade]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            renderCatalog('grade', btn.getAttribute('data-grade'));
+          });
+        });
+      });
+    }
+
+--- collectCatalogFilesForGrade ---
+function collectCatalogFilesForGrade(gradeId) {
+      return filterByGrade(appState.communityCache, gradeId)
+        .map(mapCacheItemToCatalogFile)
+        .filter(function (item) { return Boolean(item.id); })
+        .sort(function (a, b) {
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
+        });
+    }
+
+--- collectCatalogFiles ---
+function collectCatalogFiles(gradeId, topicId) {
+      const topicKey = normalizeTopicKey(topicId);
+      return collectCatalogFilesForGrade(gradeId)
+        .filter(function (item) { return normalizeTopicKey(item.topic) === topicKey; });
+    }
+
+--- renderCatalog ---
+async function renderCatalog(view, gradeId, topicId, opts) {
+      opts = opts || {};
+      if (isCatalogUploadModalOpen() && !opts.force) return;
+      const scrollY = capturePageScrollY();
+      const prevGradeId = catalogState.gradeId;
+      const prevView = catalogState.view;
+      const prevTopic = catalogState.topic;
+      const nextView = view || 'grades';
+      let nextGradeId = catalogState.gradeId;
+      let nextTopic = catalogState.topic;
+      if (nextView === 'grades' || !view) {
+        nextGradeId = null;
+        nextTopic = null;
+      } else if (nextView === 'grade') {
+        nextGradeId = gradeId;
+        nextTopic = null;
+      } else if (nextView === 'materials') {
+        nextGradeId = gradeId;
+        nextTopic = topicId;
+      }
+      const contextChanged = prevView !== nextView
+        || String(prevGradeId) !== String(nextGradeId)
+        || String(prevTopic) !== String(nextTopic);
+      if (contextChanged) {
+        clearCommunityFormDraftOnSuccess();
+      } else {
+        saveAllCommunityFormDrafts();
+      }
+      catalogState.view = nextView;
+      catalogState.gradeId = nextGradeId;
+      catalogState.topic = nextTopic;
+      if (!nextGradeId || String(prevGradeId) !== String(nextGradeId)) {
+        catalogState.gradeFolderId = null;
+      }
+      renderCatalogBreadcrumb();
+      showCatalogStatus('', '');
+      bindCatalogSearchBar();
+      updateCatalogSearchVisibility();
+      if (catalogState.view === 'grades') {
+        if (isCloudConfigured()) {
+          showCatalogStatus(t('catalog_loading'), 'info');
+          try { await loadCommunity(); } catch (e) { showCatalogStatus(e.message, 'error'); }
+          showCatalogStatus('', '');
+        }
+        renderCatalogGrades();
+      } else if (catalogState.view === 'grade') {
+        await renderCatalogGradePanel(catalogState.gradeId);
+        scrollToCatalogContent('grade');
+      } else if (catalogState.view === 'materials') {
+        await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
+        scrollToCatalogContent('materials');
+      }
+      if (catalogState.view === 'grades') restorePageScrollY(scrollY);
+      persistActiveStep();
+    }
+

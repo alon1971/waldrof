@@ -126,11 +126,11 @@ function getAppBaseUrl() {
 }
 
 function getBillingSuccessUrl() {
-  return cleanUrl(process.env.BILLING_SUCCESS_URL || getAppBaseUrl() + '/?checkout=success');
+  return cleanUrl(process.env.BILLING_SUCCESS_URL || getAppBaseUrl() + '/planner?checkout=success');
 }
 
 function getBillingCancelUrl() {
-  return cleanUrl(process.env.BILLING_CANCEL_URL || getAppBaseUrl() + '/?checkout=cancelled');
+  return cleanUrl(process.env.BILLING_CANCEL_URL || getAppBaseUrl() + '/planner?checkout=cancelled');
 }
 
 function getBillingReportEmail() {

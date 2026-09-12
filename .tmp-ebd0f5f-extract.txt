@@ -1,0 +1,339 @@
+======== countSyncableFilesUnderFolder ========
+async function countSyncableFilesUnderFolder(folderId, accessToken, options) {
+  const opts = options || {};
+  const maxDepth = Math.min(Number(opts.maxDepth) || 8, MAX_FOLDER_DEPTH);
+  const maxFiles = Math.min(Number(opts.maxFiles) || 5000, 8000);
+  let total = 0;
+
+  async function walk(id, depth) {
+    if (!id || depth > maxDepth || total >= maxFiles) return;
+    let children = [];
+    try {
+      children = await listDriveChildren(id, accessToken);
+    } catch (err) {
+      console.warn(
+        '[drive-catalog-sync] count files list failed:',
+        id,
+        err && err.message ? err.message : err
+      );
+      return;
+    }
+    for (let i = 0; i < children.length; i++) {
+      if (total >= maxFiles) return;
+      const item = children[i];
+      if (!item || !item.id) continue;
+      if (item.mimeType === FOLDER_MIME) {
+        await walk(item.id, depth + 1);
+        continue;
+      }
+      if (!isSyncableDriveFile(item)) continue;
+      total += 1;
+    }
+  }
+
+  await walk(folderId, 0);
+  return total;
+}
+
+======== summarizeDriveCatalogForUi ========
+async function summarizeDriveCatalogForUi(options) {
+  const opts = options || {};
+  if (!isDriveCatalogSyncConfigured() && !opts.accessToken) {
+    return {
+      success: true,
+      source: 'drive',
+      driveConfigured: false,
+      grades: {},
+    };
+  }
+
+  const rootFolderId = getCatalogRootFolderId(opts);
+  const cacheKey = String(rootFolderId || '');
+  const now = Date.now();
+  if (
+    !opts.forceRefresh
+    && driveCatalogUiOverviewCache.payload
+    && driveCatalogUiOverviewCache.key === cacheKey
+    && driveCatalogUiOverviewCache.expiresAt > now
+  ) {
+    return driveCatalogUiOverviewCache.payload;
+  }
+
+  let accessToken;
+  let index;
+  try {
+    accessToken = await resolveDriveAccessToken(opts);
+    index = await getDriveFolderIndex(Object.assign({}, opts, { accessToken: accessToken }));
+  } catch (err) {
+    return {
+      success: false,
+      source: 'drive',
+      driveConfigured: true,
+      grades: {},
+      communityError: String(err && err.message ? err.message : err),
+    };
+  }
+
+  const gradeRootFolders = index.gradeRootFolders || {};
+  const topicFolders = index.topicFolders || {};
+  const byFolderId = index.byFolderId || {};
+  const gradeIds = Object.keys(gradeRootFolders);
+
+  const grades = {};
+  await Promise.all(gradeIds.map(async function (gradeId) {
+    const topicMap = topicFolders[gradeId] || {};
+    const topicsByFolderId = {};
+    Object.keys(topicMap).forEach(function (key) {
+      const folderId = topicMap[key];
+      if (!folderId || topicsByFolderId[folderId]) return;
+      const meta = byFolderId[folderId] || {};
+      const path = Array.isArray(meta.path) ? meta.path : [];
+      const label = String(meta.catalogTopic || path[path.length - 1] || key || '').trim();
+      if (!label) return;
+      topicsByFolderId[folderId] = {
+        id: label,
+        label: label,
+        folderId: folderId,
+      };
+    });
+    const topics = Object.keys(topicsByFolderId).map(function (id) {
+      return topicsByFolderId[id];
+    }).sort(function (a, b) {
+      return String(a.label).localeCompare(String(b.label), 'he');
+    });
+
+    let fileCount = 0;
+    try {
+      fileCount = await countSyncableFilesUnderFolder(gradeRootFolders[gradeId], accessToken, {
+        maxDepth: 8,
+        maxFiles: 5000,
+      });
+    } catch (countErr) {
+      console.warn(
+        '[drive-catalog-sync] grade file count failed:',
+        gradeId,
+        countErr && countErr.message ? countErr.message : countErr
+      );
+    }
+
+    grades[gradeId] = {
+      gradeId: gradeId,
+      gradeFolderId: gradeRootFolders[gradeId],
+      topicCount: topics.length,
+      fileCount: fileCount,
+      topics: topics,
+    };
+  }));
+
+  const payload = {
+    success: true,
+    source: 'drive',
+    driveConfigured: true,
+    grades: grades,
+  };
+  driveCatalogUiOverviewCache = {
+    key: cacheKey,
+    expiresAt: now + FOLDER_INDEX_TTL_MS,
+    payload: payload,
+  };
+  return payload;
+}
+
+======== index.html function extracts ========
+--- loadCommunityDriveCatalogOverview ---
+async function loadCommunityDriveCatalogOverview(options) {
+      options = options || {};
+      try {
+        const url = communityCatalogDriveUrl() + (options.forceRefresh ? '?refresh=1' : '');
+        const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
+        if (!res.ok) {
+          console.warn('[catalog] Drive overview HTTP', res.status);
+          return null;
+        }
+        const data = await res.json();
+        if (data && data.grades && typeof data.grades === 'object') {
+          appState.communityDriveCatalogOverview = data;
+          return data;
+        }
+      } catch (err) {
+        console.warn('[catalog] Drive overview failed:', err && err.message ? err.message : err);
+      }
+      return null;
+    }
+
+--- getDynamicTopicsForGrade ---
+function getDynamicTopicsForGrade(gradeId) {
+      const gid = String(gradeId || '').trim();
+      const driveGrade = getDriveCatalogGradeOverview(gid);
+      if (driveGrade && Array.isArray(driveGrade.topics) && driveGrade.topics.length) {
+        return driveGrade.topics.map(function (topic) {
+          return {
+            id: topic.id || topic.label,
+            label: topic.label || topic.id,
+            count: Number(topic.count) || 0,
+          };
+        }).sort(function (a, b) {
+          return String(a.label).localeCompare(String(b.label), 'he');
+        });
+      }
+
+      const map = {};
+      filterByGrade(appState.communityCache, gradeId).forEach(function (item) {
+        const t = (item.topic || '').trim();
+        if (!t) return;
+        // Hide curriculum ghost folders parked under the wrong grade
+        // (e.g. empty «רומא» under כיתה א׳ — belongs to כיתה ו׳).
+        if (gid && gid !== 'general'
+          && typeof WaldorfHebrewTopicMatch !== 'undefined'
+          && typeof WaldorfHebrewTopicMatch.findCurriculumTopicBlock === 'function') {
+          const block = WaldorfHebrewTopicMatch.findCurriculumTopicBlock(t);
+          if (block && block.gradeId && String(block.gradeId) !== gid) return;
+        }
+        const key = normalizeTopicKey(t);
+        if (!map[key]) map[key] = { id: t, label: t, count: 0 };
+        map[key].count++;
+      });
+      return Object.keys(map).map(function (k) { return map[k]; })
+        .sort(function (a, b) { return a.label.localeCompare(b.label, 'he'); });
+    }
+
+--- renderCatalogGrades ---
+function renderCatalogGrades() {
+      const el = document.getElementById('catalog-grades');
+      const gradePanel = document.getElementById('catalog-grade-panel');
+      const materialsEl = document.getElementById('catalog-materials');
+      if (!el) return;
+      el.classList.remove('hidden');
+      if (gradePanel) gradePanel.classList.add('hidden');
+      if (materialsEl) materialsEl.classList.add('hidden');
+      mutateCatalogDom(function () {
+        el.innerHTML = '<p class="col-span-full text-sm text-walnut/70 mb-2">' + escapeHtml(t('catalog_choose_grade')) + '</p>' +
+          CATALOG_GRADES.map(function (g) {
+            const topics = getDynamicTopicsForGrade(g.id);
+            const driveGrade = getDriveCatalogGradeOverview(g.id);
+            const dbFiles = filterByGrade(appState.communityCache, g.id).length;
+            const n = driveGrade && Number(driveGrade.fileCount) > 0
+              ? Number(driveGrade.fileCount)
+              : dbFiles;
+            const topicCount = driveGrade && Number(driveGrade.topicCount) > 0
+              ? Number(driveGrade.topicCount)
+              : topics.length;
+            const isGeneral = Boolean(g.isGeneral);
+            const icon = isGeneral ? 'fa-globe' : 'fa-folder';
+            const subtitle = isGeneral
+              ? escapeHtml(t('catalog_general_hint'))
+              : escapeHtml(t('grade_age_prefix') + ' ' + g.age);
+            return '<button type="button" class="catalog-grade-card text-dir-start bg-gradient-to-br from-cream to-parchment rounded-2xl border border-gold/35 p-4 sm:p-5 shadow-sm hover:border-sage/50' + (isGeneral ? ' catalog-grade-card--general' : '') + '" data-grade="' + g.id + '">' +
+              '<div class="flex items-start gap-3">' +
+              '<span class="inline-flex w-10 h-10 shrink-0 items-center justify-center rounded-xl bg-sage/15 text-sage-dark"><i class="fa-solid ' + icon + '"></i></span>' +
+              '<div><div class="app-subhead font-display font-bold text-burgundy">' + escapeHtml(getCatalogGradeLabel(g.id)) + '</div>' +
+              '<div class="text-xs text-walnut/60 mt-0.5">' + subtitle + '</div>' +
+              '<div class="text-xs text-sage-dark mt-2 font-medium">' + escapeHtml(t('catalog_topics_count', { topics: topicCount, files: n })) + '</div></div></div></button>';
+          }).join('');
+        el.querySelectorAll('[data-grade]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            renderCatalog('grade', btn.getAttribute('data-grade'));
+          });
+        });
+      });
+    }
+
+--- formatDriveSearchHit ---
+not found: formatDriveSearchHit
+
+--- refs communityDriveCatalogOverview (3) ---
+[0] communityDriveCatalogOverview: null,
+      visualGallery: [],
+      pedagogicalResources: [],
+      gradeResearch: null,
+      aiGeneratedPlan: null,
+      driveMerge: null,
+      bibliographyRegistry: {},
+      bibliographySummaries: {},
+      pedagogyRegistry: {},
+      pedagogySummaries: {},
+      lessonCacheKey: '',
+      lessonCacheMeta: null,
+      gradeCacheKey: '',
+      generalSearchCacheKey: '',
+      lessonFromArchive: false,
+      communityAutoSync: true,
+      archiveSuggestionPendi
+---
+[1] communityDriveCatalogOverview = data;
+          return data;
+        }
+      } catch (err) {
+        console.warn('[catalog] Drive overview failed:', err && err.message ? err.message : err);
+      }
+      return null;
+    }
+
+    function getDriveCatalogGradeOverview(gradeId) {
+      const overview = appState.communityDriveCatalogOverview;
+      if (!overview || !overview.grades) return null;
+      const gid = String(gradeId || '').trim();
+      return overview.grades[gid] || null;
+    }
+
+    fun
+---
+[2] communityDriveCatalogOverview) {
+            await loadCommunityDriveCatalogOverview();
+          }
+        } catch (driveErr) { /* ignore — DB fallback remains */ }
+        await renderCatalogGradePanel(catalogState.gradeId);
+        scrollToCatalogContent('grade');
+      } else if (catalogState.view === 'materials') {
+        await renderCatalogMaterials(catalogState.gradeId, catalogState.topic, opts);
+        scrollToCatalogContent('materials');
+      }
+      if (catalogState.view === 'grades
+---
+======== Drive hit mapper candidates ========
+======== gradeId/catalogTopic/webViewLink snippets ========
+[0] gradeId || null,
+          catalogTopic
+---
+[1] gradeId)) + '" ' +
+          'data-community-topic="' + escapeHtml(catalogTopic
+---
+[2] gradeId || '');
+      const selectedTopic = String(
+        opts.catalogTopic
+---
+[3] gradeId: '', catalogTopic
+---
+[4] gradeId: gradeId, catalogTopic: catalogTopic
+---
+[5] gradeId, catalogTopic
+---
+[6] gradeId || !catalogTopic
+---
+[7] gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic
+---
+[8] gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic
+---
+[9] gradeId || (folderBrief.meta && folderBrief.meta.gradeId) || '';
+      const catalogTopic
+---
+[10] gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic
+---
+[11] gradeId)) + '" data-topic="' + escapeHtml(String(catalogTopic
+---
+[12] gradeId || match.grade_level || '') || '').trim();
+      var topic = String(match.catalogTopic
+---
+[13] catalogTopic || 'קובץ Drive',
+            locationPath: buildDriveCitationLocation(match),
+            webViewLink
+---
+[14] gradeId = saved.catalogGradeId;
+      if (saved.catalogTopic
+---
+[15] gradeId);
+            const catalogTopic
+---
+[16] gradeId: gid,
+              topic: catalogTopic
+---

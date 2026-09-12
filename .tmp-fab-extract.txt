@@ -1,0 +1,143 @@
+﻿===== CSS (2364-2452) =====
+    /* Floating background-status chip Γאפ compact side FAB so it never covers page text. */
+    #community-summarizer-bg-float-mount,
+    #community-summarizer-bg-host {
+      display: block;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+    #community-summarizer-bg-indicator {
+      position: fixed !important;
+      z-index: 2147483000 !important;
+      bottom: max(1.25rem, env(safe-area-inset-bottom, 0px)) !important;
+      inset-inline-start: max(0.65rem, env(safe-area-inset-inline-start, 0px)) !important;
+      inset-inline-end: auto !important;
+      top: auto !important;
+      width: 4.35rem;
+      max-width: 4.35rem;
+      display: inline-flex !important;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.28rem;
+      padding: 0.7rem 0.4rem 0.55rem;
+      border-radius: 1.35rem;
+      border: 1.5px solid rgba(107, 142, 107, 0.55);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(232, 242, 232, 0.97));
+      color: #3f5d3f;
+      box-shadow: 0 10px 24px rgba(47, 69, 56, 0.26);
+      cursor: pointer;
+      font-size: 0.68rem;
+      font-weight: 700;
+      line-height: 1.2;
+      text-align: center;
+      direction: inherit;
+      white-space: normal;
+      transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+    }
+    #community-summarizer-bg-indicator.hidden {
+      display: none !important;
+    }
+    #community-summarizer-bg-indicator:hover {
+      transform: translateY(-2px);
+      border-color: rgba(107, 142, 107, 0.8);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(214, 232, 214, 0.98));
+    }
+    #community-summarizer-bg-indicator:focus-visible {
+      outline: 2px solid #6b8e6b;
+      outline-offset: 3px;
+    }
+    #community-summarizer-bg-indicator .community-summarizer-bg-icon {
+      font-size: 1.2rem;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    #community-summarizer-bg-indicator .community-summarizer-bg-copy {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.08rem;
+      min-width: 0;
+      width: 100%;
+    }
+    #community-summarizer-bg-indicator #community-summarizer-bg-status {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      word-break: break-word;
+      hyphens: auto;
+      max-width: 100%;
+    }
+    #community-summarizer-bg-indicator .community-summarizer-bg-view {
+      display: none;
+      font-size: 0.62rem;
+      font-weight: 700;
+      color: #5a7a5a;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    #community-summarizer-bg-indicator.is-ready .community-summarizer-bg-view {
+      display: inline;
+    }
+    #community-summarizer-bg-indicator.is-ready {
+      border-color: rgba(107, 142, 107, 0.75);
+      background: linear-gradient(160deg, rgba(255, 252, 246, 0.99), rgba(214, 232, 214, 0.97));
+    }
+    #community-summarizer-bg-indicator.is-ready .community-summarizer-bg-icon {
+      color: #3f5d3f;
+    }
+
+===== HTML (-) =====
+  <div id="community-summarizer-bg-float-mount" class="community-summarizer-bg-mount">
+    <div id="community-summarizer-bg-host" class="community-summarizer-bg-host">
+      <button type="button" id="community-summarizer-bg-indicator" class="hidden" aria-hidden="true" data-i18n-aria="community_summarizer_bg_aria" aria-label="╫ñ╫¬╫ק ╫נ╫¬ ╫í╫ש╫¢╫ץ╫¥ ╫פ╫₧╫נ╫ע╫¿ ╫פ╫º╫פ╫ש╫£╫¬╫ש" title="╫₧╫ñ╫ש╫º ╫í╫ש╫¢╫ץ╫¥ ╫º╫פ╫ש╫£╫¬╫ש ╫ס╫¿╫º╫óΓאª">
+        <i class="fa-solid fa-clock fa-spin community-summarizer-bg-icon" aria-hidden="true"></i>
+        <span class="community-summarizer-bg-copy">
+          <span id="community-summarizer-bg-status" data-i18n="community_summarizer_bg_working">╫₧╫í╫¢╫¥Γאª</span>
+          <span class="community-summarizer-bg-view" data-i18n="community_summarizer_bg_view">╫£╫ª╫ñ╫ש╫ש╫פ</span>
+        </span>
+      </button>
+    </div>
+  </div>
+</body>
+</html>
+
+===== JS =====
+    function placeCommunitySummarizerBgHost() {
+      var host = document.getElementById('community-summarizer-bg-host');
+      if (!host) return;
+      var target = document.getElementById('community-summarizer-bg-float-mount');
+      if (target && host.parentNode !== target) {
+        target.appendChild(host);
+      }
+    }
+
+    function syncCommunitySummarizerBgIndicator() {
+      var badge = document.getElementById('community-summarizer-bg-indicator');
+      if (!badge) return;
+      placeCommunitySummarizerBgHost();
+      var host = document.getElementById('community-summarizer-bg-host');
+      var modalOpen = isCommunitySummarizerModalOpen();
+      var summarizing = Boolean(appState.isSummarizing || appState.communitySummarizerLoading);
+      var show = Boolean(appState.communitySummarizerBgPending) && !modalOpen
+        && (summarizing || appState.communitySummarizerResult);
+      var ready = show && !summarizing && Boolean(appState.communitySummarizerResult);
+      var statusEl = document.getElementById('community-summarizer-bg-status');
+      var iconEl = badge.querySelector('.community-summarizer-bg-icon');
+      var tip = ready ? t('community_summarizer_bg_title_ready') : t('community_summarizer_bg_title_working');
+      badge.classList.toggle('hidden', !show);
+      badge.classList.toggle('is-ready', ready);
+      badge.setAttribute('aria-hidden', show ? 'false' : 'true');
+      badge.setAttribute('title', tip);
+      if (host) host.classList.toggle('is-visible', show);
+      if (statusEl) {
+        statusEl.setAttribute('data-i18n', ready ? 'community_summarizer_bg_ready' : 'community_summarizer_bg_working');
+        statusEl.textContent = ready ? t('community_summarizer_bg_ready') : t('community_summarizer_bg_working');
+      }
+      if (iconEl) {
+        iconEl.className = ready
+          ? 'fa-solid fa-circle-check community-summarizer-bg-icon'
+          : 'fa-solid fa-clock fa-spin community-summarizer-bg-icon';
+      }

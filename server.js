@@ -120,8 +120,30 @@ function createApiResponse(nativeRes) {
   };
 }
 
+function normalizePublicPath(pathname) {
+  const raw = String(pathname || '/');
+  if (raw.length > 1 && /\/+$/.test(raw)) return raw.replace(/\/+$/, '') || '/';
+  return raw || '/';
+}
+
+function sendRedirect(res, location) {
+  res.writeHead(302, {
+    Location: location,
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+  });
+  res.end();
+}
+
 function serveStatic(req, res, pathname) {
-  const relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^\/+/, '');
+  const normalized = normalizePublicPath(pathname);
+  let relative;
+  if (normalized === '/' || normalized === '/landing.html') {
+    relative = 'landing.html';
+  } else if (normalized === '/planner') {
+    relative = 'index.html';
+  } else {
+    relative = decodeURIComponent(pathname).replace(/^\/+/, '');
+  }
   const filePath = path.resolve(ROOT, relative);
   const rootResolved = path.resolve(ROOT);
   if (filePath !== rootResolved && !filePath.startsWith(rootResolved + path.sep)) {
@@ -130,8 +152,8 @@ function serveStatic(req, res, pathname) {
   }
   fs.readFile(filePath, function (err, data) {
     if (err) {
-      if (relative !== 'index.html' && !path.extname(relative)) {
-        return serveStatic(req, res, '/');
+      if (relative !== 'index.html' && relative !== 'landing.html' && !path.extname(relative)) {
+        return serveStatic(req, res, '/planner');
       }
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Not found');
@@ -865,14 +887,28 @@ async function handleApiAdminSyncDrive(req, res) {
 const server = http.createServer(async function (req, res) {
   const pathname = new URL(req.url || '/', 'http://' + (req.headers.host || 'localhost')).pathname;
 
+  if (pathname === '/planner/' || pathname === '/app' || pathname === '/app/' || pathname === '/index.html') {
+    return sendRedirect(res, '/planner');
+  }
+
   // Lightweight public ping — no auth, no DB/Supabase. Used by Render health checks + keep-warm.
   if (pathname === '/health' || pathname === '/api/health' || pathname === '/api/ping') {
+    const method = String(req.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') {
+      res.writeHead(405, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Allow': 'GET, HEAD',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      });
+      return res.end('Method Not Allowed');
+    }
     res.writeHead(200, {
-      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Type': 'text/plain; charset=utf-8',
       'Cache-Control': 'no-store',
       'Access-Control-Allow-Origin': '*',
     });
-    return res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
+    return res.end(method === 'HEAD' ? '' : 'OK');
   }
 
   if (pathname === '/api/generate') {
