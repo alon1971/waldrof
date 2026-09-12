@@ -5,11 +5,21 @@
 const perplexityClient = require('./perplexity-client');
 const shared = require('./pure-api-shared');
 
-/** Target wall time per chunk (keeps each upstream call under typical proxy limits). */
-const CHUNK_PER_REQUEST_WALL_MS = 28000;
+/** Optional hard wall cap per chunk (0 = rely on streaming + idle timeout only). */
+const CHUNK_PER_REQUEST_WALL_MS = 0;
 const CHUNK_NETWORK_RETRY_ATTEMPTS = 3;
 const CHUNK_NETWORK_RETRY_BASE_DELAY_MS = 1200;
-const CHUNK_DEFAULT_MAX_TOKENS = 4800;
+/** Default segment budget — match sonar-reasoning-pro pro ceiling so outputs are not truncated. */
+const CHUNK_DEFAULT_MAX_TOKENS = perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO;
+/** Rich narrative segments (theory, inspiration, structure). */
+const CHUNK_MAX_TOKENS_DEEP = CHUNK_DEFAULT_MAX_TOKENS;
+/** Resource / link segments (still full prose in snippets and notes). */
+const CHUNK_MAX_TOKENS_RESOURCES = Math.min(14000, CHUNK_DEFAULT_MAX_TOKENS);
+/** Compact JSON slices (summaries, webResearch overview). */
+const CHUNK_MAX_TOKENS_COMPACT = Math.min(10000, CHUNK_DEFAULT_MAX_TOKENS);
+
+const SEGMENT_DEPTH_NUDGE =
+  'Use the FULL max_tokens output budget for this segment. Write deep, book-length Hebrew prose — never summarize, never truncate mid-field.';
 
 function sleep(ms) {
   return new Promise(function (resolve) { setTimeout(resolve, ms); });
@@ -74,17 +84,22 @@ function deepMergeJsonParts(into, from) {
 
 async function invokePerplexityChunk(messages, options) {
   const opts = options || {};
-  return perplexityClient.callPerplexityChatWithCitations({
+  const requestBody = {
     apiKey: opts.apiKey,
     model: perplexityClient.PERPLEXITY_MODEL,
     stream: opts.stream !== false,
     temperature: opts.temperature != null ? opts.temperature : 0.35,
     max_tokens: opts.max_tokens != null ? opts.max_tokens : CHUNK_DEFAULT_MAX_TOKENS,
     idleTimeoutMs: opts.idleTimeoutMs || perplexityClient.REQUEST_TIMEOUT_MS,
-    totalTimeoutMs: opts.totalTimeoutMs != null ? opts.totalTimeoutMs : CHUNK_PER_REQUEST_WALL_MS,
     onDelta: typeof opts.onDelta === 'function' ? opts.onDelta : undefined,
     messages: messages,
-  });
+  };
+  if (typeof opts.totalTimeoutMs === 'number' && opts.totalTimeoutMs > 0) {
+    requestBody.totalTimeoutMs = opts.totalTimeoutMs;
+  } else if (CHUNK_PER_REQUEST_WALL_MS > 0) {
+    requestBody.totalTimeoutMs = CHUNK_PER_REQUEST_WALL_MS;
+  }
+  return perplexityClient.callPerplexityChatWithCitations(requestBody);
 }
 
 /**
@@ -156,29 +171,29 @@ function buildPhaseCChunkSegments(systemPromptBase, userPromptBase, grade, topic
       id: 'phase_c_background_theory',
       keys: ['theory'],
       systemPrompt: systemPromptBase + '\nSEGMENT SCOPE: Return a JSON object with ONLY the "theory" key (exhaustive background, developmental axis, lesson architecture in theory sections).',
-      userPrompt: sharedUser + '\n\n=== SEGMENT 1/4 — BACKGROUND & THEORETICAL DEPTH ===\nProduce ONLY "theory" with 4-6 deep sections (6-10 paragraphs each). No other keys.',
-      callOptions: { max_tokens: 5200 },
+      userPrompt: sharedUser + '\n\n=== SEGMENT 1/4 — BACKGROUND & THEORETICAL DEPTH ===\n' + SEGMENT_DEPTH_NUDGE + '\nProduce ONLY "theory" with 4-6 deep sections (6-10 paragraphs each). No other keys.',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_DEEP },
     },
     {
       id: 'phase_c_inspiration',
       keys: ['inspiration'],
       systemPrompt: systemPromptBase + '\nSEGMENT SCOPE: Return a JSON object with ONLY the "inspiration" key (storytelling, movement, blackboard art, classroom inspiration blocks).',
-      userPrompt: sharedUser + '\n\n=== SEGMENT 2/4 — INSPIRATION & CREATIVE ACTIVITIES ===\nProduce ONLY "inspiration" (3-4 global blocks × 8-12 rich items). No other keys.',
-      callOptions: { max_tokens: 4800 },
+      userPrompt: sharedUser + '\n\n=== SEGMENT 2/4 — INSPIRATION & CREATIVE ACTIVITIES ===\n' + SEGMENT_DEPTH_NUDGE + '\nProduce ONLY "inspiration" (3-4 global blocks × 8-12 rich multi-sentence items). No other keys.',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_DEEP },
     },
     {
       id: 'phase_c_structure',
       keys: ['core_emphases', 'key_points', 'pinterest_links'],
       systemPrompt: systemPromptBase + '\nSEGMENT SCOPE: Return JSON with ONLY "core_emphases", "key_points", and "pinterest_links".',
-      userPrompt: sharedUser + '\n\n=== SEGMENT 3/4 — STRUCTURE & LESSON ARCHITECTURE ===\nProduce core_emphases (6-8 paragraphs), key_points (6-8 rich strings), pinterest_links (4-8 live URLs). No other keys.',
-      callOptions: { max_tokens: 4800 },
+      userPrompt: sharedUser + '\n\n=== SEGMENT 3/4 — STRUCTURE & LESSON ARCHITECTURE ===\n' + SEGMENT_DEPTH_NUDGE + '\nProduce core_emphases (6-8 long paragraphs), key_points (6-8 items × 4-7 sentences each), pinterest_links (4-8 live URLs). No other keys.',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_DEEP },
     },
     {
       id: 'phase_c_resources',
       keys: ['pedagogical_resources', 'recommended_reading', 'relevant_links'],
       systemPrompt: systemPromptBase + '\nSEGMENT SCOPE: Return JSON with ONLY "pedagogical_resources", "recommended_reading", and "relevant_links".',
-      userPrompt: sharedUser + '\n\n=== SEGMENT 4/4 — RESOURCES & VERIFIED LINKS ===\nProduce pedagogical_resources, recommended_reading (6-8), relevant_links (6-12 HTTPS Waldorf portals). No other keys.',
-      callOptions: { max_tokens: 4200 },
+      userPrompt: sharedUser + '\n\n=== SEGMENT 4/4 — RESOURCES & VERIFIED LINKS ===\n' + SEGMENT_DEPTH_NUDGE + '\nProduce pedagogical_resources (substantive snippets), recommended_reading (6-8 with 2-4 sentence notes), relevant_links (6-12 HTTPS Waldorf portals). No other keys.',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_RESOURCES },
     },
   ];
 }
@@ -190,22 +205,22 @@ function buildGradeSynthesisChunkSegments(systemContent, userPromptBase) {
       id: 'grade_portrait_part1',
       keys: ['gradeInsights'],
       systemPrompt: systemContent + '\nSEGMENT 1/3: JSON with ONLY gradeInsights containing part1AgePictureHtml, part1DevelopmentBullets, archivesSynthesisHtml, developmentBullets.',
-      userPrompt: base + '\n\n=== SEGMENT 1/3 — AGE PICTURE & ARCHIVE SYNTHESIS ===\nReturn ONLY those gradeInsights fields inside gradeInsights.',
-      callOptions: { max_tokens: 4500 },
+      userPrompt: base + '\n\n=== SEGMENT 1/3 — AGE PICTURE & ARCHIVE SYNTHESIS ===\n' + SEGMENT_DEPTH_NUDGE + '\nReturn ONLY those gradeInsights fields inside gradeInsights.',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_DEEP },
     },
     {
       id: 'grade_portrait_part2',
       keys: ['gradeInsights'],
       systemPrompt: systemContent + '\nSEGMENT 2/3: JSON with ONLY gradeInsights containing part2ClassroomIdeasHtml, part2ClassroomIdeas, part3CommunityExpansionsHtml, part3CommunityIdeas, globalCurricula, typicalBlocks, sources.',
-      userPrompt: base + '\n\n=== SEGMENT 2/3 — CLASSROOM & COMMUNITY ===\nReturn ONLY those gradeInsights fields inside gradeInsights.',
-      callOptions: { max_tokens: 4500 },
+      userPrompt: base + '\n\n=== SEGMENT 2/3 — CLASSROOM & COMMUNITY ===\n' + SEGMENT_DEPTH_NUDGE + '\nReturn ONLY those gradeInsights fields inside gradeInsights.',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_DEEP },
     },
     {
       id: 'grade_teacher_summaries',
       keys: ['teacherSummaries'],
       systemPrompt: systemContent + '\nSEGMENT 3/3: JSON with ONLY "teacherSummaries" (exactly 3 entries).',
-      userPrompt: base + '\n\n=== SEGMENT 3/3 — TEACHER SUMMARIES ===\nReturn ONLY teacherSummaries array.',
-      callOptions: { max_tokens: 2800 },
+      userPrompt: base + '\n\n=== SEGMENT 3/3 — TEACHER SUMMARIES ===\n' + SEGMENT_DEPTH_NUDGE + '\nReturn ONLY teacherSummaries array (each body = rich multi-sentence Hebrew).',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_COMPACT },
     },
   ];
 }
@@ -217,15 +232,15 @@ function buildTopicSynthesisChunkSegments(systemContent, userPromptBase) {
       id: 'topic_web_research',
       keys: ['webResearch'],
       systemPrompt: systemContent + '\nSEGMENT 1/2: JSON with ONLY "webResearch" object.',
-      userPrompt: base + '\n\n=== SEGMENT 1/2 — TOPIC ESSENCE OVERVIEW ===\nReturn ONLY webResearch.',
-      callOptions: { max_tokens: 3200 },
+      userPrompt: base + '\n\n=== SEGMENT 1/2 — TOPIC ESSENCE OVERVIEW ===\n' + SEGMENT_DEPTH_NUDGE + '\nReturn ONLY webResearch (rich summary and highlights).',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_COMPACT },
     },
     {
       id: 'topic_block_theory',
       keys: ['blockPlan'],
       systemPrompt: systemContent + '\nSEGMENT 2/2: JSON with ONLY "blockPlan" containing theory (title + sections) — no other blockPlan keys.',
-      userPrompt: base + '\n\n=== SEGMENT 2/2 — BLOCK THEORY SECTIONS ===\nReturn ONLY blockPlan.theory depth sections.',
-      callOptions: { max_tokens: 4500 },
+      userPrompt: base + '\n\n=== SEGMENT 2/2 — BLOCK THEORY SECTIONS ===\n' + SEGMENT_DEPTH_NUDGE + '\nReturn ONLY blockPlan.theory depth sections (2-4 sections, full HTML paragraphs).',
+      callOptions: { max_tokens: CHUNK_MAX_TOKENS_DEEP },
     },
   ];
 }
@@ -234,6 +249,9 @@ module.exports = {
   CHUNK_PER_REQUEST_WALL_MS,
   CHUNK_NETWORK_RETRY_ATTEMPTS,
   CHUNK_DEFAULT_MAX_TOKENS,
+  CHUNK_MAX_TOKENS_DEEP,
+  CHUNK_MAX_TOKENS_RESOURCES,
+  CHUNK_MAX_TOKENS_COMPACT,
   withChunkNetworkRetry,
   deepMergeJsonParts,
   runSequentialResearchChunks,
