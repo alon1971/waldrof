@@ -270,6 +270,29 @@ function extractJsonByRegex(text) {
   return '';
 }
 
+/**
+ * Aggressive outer-object extract for LLM replies: drop ```json fences / <think>,
+ * take the span from the first { to the last }, then cleanse control chars and
+ * Hebrew / typographic quotes that break JSON.parse.
+ */
+function extractRobustJsonObject(text) {
+  let s = stripReasoningTokens(String(text || '')).replace(/^\uFEFF/, '').trim();
+  const fenced = s.match(/```(?:json|javascript|js)?\s*([\s\S]*?)```/i);
+  if (fenced) s = fenced[1].trim();
+  else {
+    s = s.replace(/^```(?:json|javascript|js)?\s*/i, '').replace(/```\s*$/gi, '').trim();
+  }
+  s = s.replace(/^json\s*:/i, '').trim();
+  s = cleanseJsonCharacters(s);
+  // Curly quotes used as JSON delimiters — do NOT convert Hebrew gershayim (״) inside values.
+  s = s.replace(/[\u201c\u201d\u201e\u201f]/g, '"');
+  s = s.replace(/[\u2018\u2019\u201b]/g, "'");
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  return s.trim();
+}
+
 /** Strip invisible control characters and zero-width marks that break JSON.parse. */
 function cleanseJsonCharacters(raw) {
   let text = String(raw || '').replace(/^\uFEFF/, '');
@@ -524,10 +547,11 @@ function parsePureModelJson(raw, options) {
 }
 
 function buildJsonParseAttempts(text) {
+  const robust = extractRobustJsonObject(text);
   const stripped = stripMarkdownJsonFences(text);
   const normalized = normalizeJsonSmartQuotes(cleanseJsonCharacters(stripped));
-  const regexExtracted = extractJsonByRegex(normalized);
-  const extracted = extractJsonPayload(normalized) || regexExtracted || normalized;
+  const regexExtracted = extractJsonByRegex(normalized) || extractJsonByRegex(robust);
+  const extracted = extractJsonPayload(normalized) || regexExtracted || robust || normalized;
   const preprocessed = preprocessModelJson(text);
   const quoteFixed = repairUnescapedInnerQuotesInJsonStrings(extracted);
   const escapeFixed = repairInvalidEscapeSequences(quoteFixed);
@@ -535,6 +559,9 @@ function buildJsonParseAttempts(text) {
   const quoteAndLiteral = repairJsonText(escapeFixed);
 
   const cores = [
+    robust,
+    repairJsonText(robust),
+    repairUnescapedInnerQuotesInJsonStrings(robust),
     preprocessed,
     extracted,
     regexExtracted,
@@ -668,6 +695,7 @@ module.exports = {
   normalizeJsonSmartQuotes,
   extractJsonPayload,
   extractJsonByRegex,
+  extractRobustJsonObject,
   cleanseJsonCharacters,
   repairInvalidEscapeSequences,
   plainTextFromModelOutput,

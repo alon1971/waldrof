@@ -140,7 +140,18 @@ function parseGeminiSummaryJson(rawText) {
       console.warn('[community-drive-archive] falling back to Hebrew prose sliced from broken JSON');
       return proseAfterBrace;
     }
-    throw new Error('המודל החזיר תשובה שאינה JSON תקין');
+    const repaired = jsonRepair.safeParseJson ? jsonRepair.safeParseJson(cleaned) : null;
+    if (repaired && typeof repaired === 'object') {
+      const recovered = repaired.summary != null
+        ? String(repaired.summary).trim()
+        : (repaired.text != null ? String(repaired.text).trim() : '');
+      if (recovered) {
+        console.warn('[community-drive-archive] recovered summary via json-repair');
+        return recovered;
+      }
+    }
+    console.warn('[community-drive-archive] Gemini JSON unusable — returning cleaned prose instead of failing');
+    return plain || cleaned || '';
   }
 }
 
