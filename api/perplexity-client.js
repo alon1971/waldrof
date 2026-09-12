@@ -39,6 +39,12 @@ const PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH = 6000;
 // is no heartbeat upstream to reset it before sonar-reasoning-pro emits its first token.
 // For the NON-streaming https fallback it acts as a total request timeout.
 const REQUEST_TIMEOUT_MS = 180000;
+const LIVE_RESEARCH_MIN_TIMEOUT_MS = 60000;
+
+function clampLiveResearchTimeoutMs(ms, fallbackMs) {
+  const base = typeof ms === 'number' && ms > 0 ? ms : (fallbackMs || REQUEST_TIMEOUT_MS);
+  return Math.max(LIVE_RESEARCH_MIN_TIMEOUT_MS, base);
+}
 /** Up to 3 retries after a 429 (1s, 2s, 4s backoff) before surfacing an error. */
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_BASE_DELAY_MS = 1000;
@@ -373,11 +379,9 @@ function abortedPerplexityError() {
 
 async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, requestOpts) {
   const opts = requestOpts && typeof requestOpts === 'object' ? requestOpts : {};
-  const idleTimeoutMs = typeof opts.idleTimeoutMs === 'number' && opts.idleTimeoutMs > 0
-    ? opts.idleTimeoutMs
-    : REQUEST_TIMEOUT_MS;
+  const idleTimeoutMs = clampLiveResearchTimeoutMs(opts.idleTimeoutMs, REQUEST_TIMEOUT_MS);
   const totalTimeoutMs = typeof opts.totalTimeoutMs === 'number' && opts.totalTimeoutMs > 0
-    ? opts.totalTimeoutMs
+    ? clampLiveResearchTimeoutMs(opts.totalTimeoutMs, REQUEST_TIMEOUT_MS)
     : 0;
   const streaming = useStream !== false;
   const requestBody = Object.assign({}, body, { stream: streaming });
@@ -454,9 +458,10 @@ async function fetchPerplexity(apiKey, body, useStream) {
 async function httpsPerplexityOnce(apiKey, body, requestOpts) {
   const requestBody = Object.assign({}, body, { stream: false });
   const headers = buildHeaders(apiKey, false);
-  const timeoutMs = requestOpts && requestOpts.totalTimeoutMs
-    ? requestOpts.totalTimeoutMs
-    : REQUEST_TIMEOUT_MS;
+  const timeoutMs = clampLiveResearchTimeoutMs(
+    requestOpts && requestOpts.totalTimeoutMs ? requestOpts.totalTimeoutMs : 0,
+    REQUEST_TIMEOUT_MS
+  );
   const result = await httpsPostJson(PERPLEXITY_URL, headers, requestBody, timeoutMs);
   if (result.status < 200 || result.status >= 300) {
     throw mapHttpError(result.status, result.text);
