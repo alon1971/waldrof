@@ -1573,13 +1573,18 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
       ? opts.max_tokens
       : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
     totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
-    jsonObject: true,
+    jsonObject: false,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
   });
-  const raw = apiResult.content;
+  const raw = jsonRepair.stripReasoningTokens(String(apiResult.content || ''));
+  if (!raw || raw.length < 40) {
+    const err = new Error('Perplexity returned empty or unusable synthesis content');
+    err.code = 'PERPLEXITY_EMPTY_CONTENT';
+    throw err;
+  }
   const phase = opts.phase || 'topic_master';
   const result = jsonRepair.parsePureModelJson(raw, {
     phase: phase,
@@ -3296,7 +3301,7 @@ const SYSTEM_PROMPT = [
   PHASE_C_NARRATIVE_TEXT_ONLY_RULE,
   PHASE_C_SOURCE_HARVESTING_INSTRUCTION,
   PHASE_C_NO_HALLUCINATED_MEDIA_INSTRUCTION,
-  'Respond ONLY with valid JSON (no markdown fences, no commentary). The API uses response_format=json_object — your entire reply MUST be one parseable JSON object using exactly these keys:',
+  'Respond ONLY with valid JSON (no markdown fences, no commentary). Do NOT wrap in ```json. Your entire reply MUST be one parseable JSON object using exactly these keys:',
   'theory (object: {title, sections: [{heading, content, icon?}], bibliography: {books, articles, websites: [{title, url?, author?, note?}]}} — exhaustive book-length theoretical background; 4-6 sections; EACH section content = 6-10 deep paragraphs using ONLY <p>, <strong>, <ul>/<li>; cover anthroposophical background, developmental axis, concrete lesson plans, storytelling, blackboard drawings, and seminar-paper findings; NO links or citations in section HTML; bibliography holds all sources),',
   'inspiration (object: {title, global: [{title, items: [rich multi-sentence pedagogical mini-essays — storytelling, recitation, painting, movement, blackboard art — plain prose/HTML without links]}], podcast: {title, episodes: [{theme, insight, url?}]} — OPTIONAL; omit unless every episode has verified HTTPS url, narrative: [essay strings]} — vivid concrete classroom inspiration; 3-4 blocks × 8-12 items; NO bare URLs in item prose),',
   'pinterest_links (array of objects: {title, url, board} — 4-8 live Pinterest board or curated pin URLs for this grade+topic Waldorf visual inspiration),',
