@@ -277,12 +277,15 @@ function badRequest(message) {
   return err;
 }
 
-/** Minimum wall-clock budget for sonar-reasoning-pro (thinking + first tokens). */
-const LIVE_SEARCH_MIN_TIMEOUT_MS = 120000;
-/** Hard cap for one live Perplexity / Gemini attempt on planner topic + general search. */
-const LIVE_SEARCH_BUDGET_MS = 120000;
+/** Minimum idle silence budget for sonar-reasoning-pro streaming (ms without upstream bytes). */
+const LIVE_SEARCH_MIN_TIMEOUT_MS = 180000;
+/** Hard wall-clock cap for one live Perplexity attempt (streaming resets idle, not total). */
+const LIVE_SEARCH_BUDGET_MS = Math.max(
+  180000,
+  Number(process.env.LIVE_SEARCH_BUDGET_MS) || 300000
+);
 /** Browser fetch to /api/pure-phase-c should outlive at least one server attempt. */
-const LIVE_SEARCH_CLIENT_WAIT_MS = 150000;
+const LIVE_SEARCH_CLIENT_WAIT_MS = Math.max(LIVE_SEARCH_BUDGET_MS + 30000, 330000);
 const LIVE_SEARCH_COMM_RETRY_COUNT = 1;
 
 function isLiveSearchTimeoutError(err) {

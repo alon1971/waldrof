@@ -213,6 +213,7 @@ async function readStreamResponse(res, onDelta, onActivity) {
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
+  let lastCitationPayload = null;
 
   while (true) {
     const chunk = await reader.read();
@@ -233,6 +234,9 @@ async function readStreamResponse(res, onDelta, onActivity) {
       if (!payload || payload === '[DONE]') continue;
       const parsed = parseSsePayload(payload);
       if (parsed) {
+        if (extractCitations(parsed).length || (parsed.search_results && parsed.search_results.length)) {
+          lastCitationPayload = parsed;
+        }
         const delta = extractStreamDelta(parsed);
         if (delta) { content += delta; emitStreamDelta(onDelta, delta, content); }
       }
@@ -246,6 +250,9 @@ async function readStreamResponse(res, onDelta, onActivity) {
       if (payload && payload !== '[DONE]') {
         const parsed = parseSsePayload(payload);
         if (parsed) {
+          if (extractCitations(parsed).length || (parsed.search_results && parsed.search_results.length)) {
+            lastCitationPayload = parsed;
+          }
           const delta = extractStreamDelta(parsed);
           if (delta) { content += delta; emitStreamDelta(onDelta, delta, content); }
         }
@@ -253,11 +260,13 @@ async function readStreamResponse(res, onDelta, onActivity) {
     }
   }
 
-  return content.trim();
+  const citations = lastCitationPayload ? extractCitations(lastCitationPayload) : [];
+  return { content: content.trim(), citations: citations };
 }
 
 function parseSseText(text, onDelta) {
   let content = '';
+  let lastCitationPayload = null;
   String(text || '').split('\n').forEach(function (line) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.indexOf('data:') !== 0) return;
@@ -265,11 +274,17 @@ function parseSseText(text, onDelta) {
     if (!payload || payload === '[DONE]') return;
     const parsed = parseSsePayload(payload);
     if (parsed) {
+      if (extractCitations(parsed).length || (parsed.search_results && parsed.search_results.length)) {
+        lastCitationPayload = parsed;
+      }
       const delta = extractStreamDelta(parsed);
       if (delta) { content += delta; emitStreamDelta(onDelta, delta, content); }
     }
   });
-  return content.trim();
+  return {
+    content: content.trim(),
+    citations: lastCitationPayload ? extractCitations(lastCitationPayload) : [],
+  };
 }
 
 function extractMessageContent(data) {
@@ -450,10 +465,9 @@ async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, req
     }, totalTimeoutMs);
   }
 
-  // Idle timeout resets on every token unless a hard totalTimeoutMs cap is set.
+  // Idle timeout resets on every inbound byte/delta; totalTimer (if set) is an absolute wall cap.
   function armTimer() {
     if (!controller) return;
-    if (totalTimeoutMs) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(function () {
       try { controller.abort(); } catch (e) { /* ignore */ }
@@ -493,9 +507,13 @@ async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, req
       // Reset the idle timeout on every upstream byte, not only on content deltas,
       // so a healthy-but-quiet research phase is never aborted mid-stream.
       const streamed = await readStreamResponse(res, streamOnDelta, armTimer);
-      if (streamed) {
-        logPerplexitySuccess('fetch-stream', requestContext, streamed, null, '');
-        return { content: streamed, citations: [] };
+      const streamedContent = streamed && typeof streamed === 'object' ? streamed.content : streamed;
+      const streamedCitations = streamed && typeof streamed === 'object' && Array.isArray(streamed.citations)
+        ? streamed.citations
+        : [];
+      if (streamedContent) {
+        logPerplexitySuccess('fetch-stream', requestContext, streamedContent, null, '');
+        return { content: streamedContent, citations: streamedCitations };
       }
       logPerplexityFailure('fetch-stream', requestContext, 'empty_stream_content', '');
       throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
@@ -623,12 +641,15 @@ async function callPerplexityChatWithCitations(options) {
 
   const requestOpts = {};
   if (opts.totalTimeoutMs) requestOpts.totalTimeoutMs = opts.totalTimeoutMs;
-  if (opts.idleTimeoutMs) requestOpts.idleTimeoutMs = opts.idleTimeoutMs;
+  requestOpts.idleTimeoutMs = opts.idleTimeoutMs || REQUEST_TIMEOUT_MS;
+
+  const useStream = opts.stream !== false;
+  const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
 
   let result;
   try {
     result = await withRateLimitRetry(function () {
-      return executePerplexityRequest(apiKey, body, false, null, requestOpts);
+      return executePerplexityRequest(apiKey, body, useStream, onDelta, requestOpts);
     }, 'chat-citations');
   } catch (chatErr) {
     console.error('[perplexity] callPerplexityChatWithCitations failed | ' + describePerplexityRequest(body) +
@@ -671,11 +692,15 @@ async function callPerplexityChat(options) {
 
   const useStream = opts.stream !== false;
   const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
+  const requestOpts = {
+    idleTimeoutMs: opts.idleTimeoutMs || REQUEST_TIMEOUT_MS,
+  };
+  if (opts.totalTimeoutMs) requestOpts.totalTimeoutMs = opts.totalTimeoutMs;
 
   let result;
   try {
     result = await withRateLimitRetry(function () {
-      return executePerplexityRequest(apiKey, body, useStream, onDelta);
+      return executePerplexityRequest(apiKey, body, useStream, onDelta, requestOpts);
     }, 'chat');
   } catch (chatErr) {
     console.error('[perplexity] callPerplexityChat failed | ' + describePerplexityRequest(body, { stream: useStream }) +

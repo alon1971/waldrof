@@ -2152,8 +2152,11 @@ async function callPerplexity(apiKey, userPrompt, extraSystem, options) {
 
   return perplexityClient.callPerplexityChat({
     apiKey: key,
+    model: perplexityClient.PERPLEXITY_MODEL,
     temperature: temperature,
-    stream: opts.stream,
+    stream: opts.stream !== false,
+    idleTimeoutMs: opts.idleTimeoutMs || perplexityClient.REQUEST_TIMEOUT_MS,
+    totalTimeoutMs: opts.totalTimeoutMs,
     onDelta: typeof opts.onDelta === 'function' ? opts.onDelta : undefined,
     messages: [
       { role: 'system', content: systemContent },
