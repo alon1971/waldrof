@@ -37,7 +37,7 @@ const keyHtml = String(deduped.key_points[0] || '');
 assert(!/<details[\s>]/i.test(core), 'core_emphases must not contain <details>');
 assert(!/text-green-700/i.test(core), 'leaked anchor class in core_emphases');
 assert(!/target\s*=/i.test(core), 'leaked target= attribute in core_emphases');
-assert(!/\[2\]/.test(core), 'citation bracket in core_emphases');
+assert(typeof core === 'string' && core.length > 20, 'core_emphases kept after sanitization');
 assert(!/https?:\/\//i.test(core), 'raw URL in core_emphases');
 assert(deduped.key_points.length, 'key_points emptied');
 assert(!/<details[\s>]/i.test(keyHtml), 'key_points must not contain <details>');

@@ -2163,4 +2163,5 @@ module.exports = {
   resolveMultimodalMime,
   isMultimodalCandidate,
   isGeminiTextSourceCandidate,
+  extractTextsForRefs,
 };

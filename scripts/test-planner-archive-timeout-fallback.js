@@ -85,6 +85,7 @@ shared.withHardTimeout(new Promise(function () { /* never settles */ }), 40, 'te
     const templateText = JSON.stringify(template);
     assert(!/לא השיב בזמן|שלד ראשוני|timeout_skeleton/i.test(templateText), 'template has no timeout/empty-skeleton copy');
     assert(/מצפן|כיתה ז|רנסנס/i.test(templateText), 'template uses existing grade compass prose for the topic');
+    assert(!/מציע הזדמנות לחבר בין התוכן לבין מצפן הגיל/.test(templateText), 'template must not append the thin generic compass sentence');
 
     const unwrapped = phaseC.unwrapArchivePhaseCData({ purePhaseC: { theory: { title: 'x' } } });
     assert(unwrapped && unwrapped.theory && unwrapped.theory.title === 'x', 'unwrap purePhaseC wrapper');

@@ -19,6 +19,211 @@ function isPhaseCParseFallback(parsed) {
   return Boolean(parsed && typeof parsed === 'object' && parsed._parseFallback);
 }
 
+/** Recurring thin template that must never be shown as pedagogical research. */
+const GENERIC_COMPASS_FALLBACK_RE =
+  /הנושא\s*[«"״][^«"״]{0,80}[»"״]\s*מציע הזדמנות לחבר בין התוכן לבין מצפן הגיל\.?/g;
+const GENERIC_COMPASS_FALLBACK_LOOSE_RE = /מציע הזדמנות לחבר בין התוכן לבין מצפן הגיל/g;
+
+function stripGenericCompassFallbackSentences(text) {
+  return String(text || '')
+    .replace(GENERIC_COMPASS_FALLBACK_RE, '')
+    .replace(GENERIC_COMPASS_FALLBACK_LOOSE_RE, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function collectPhaseCPlainBlob(data) {
+  if (!data || typeof data !== 'object') return '';
+  const chunks = [];
+  function push(value) {
+    const text = stripHtmlToPlainText(String(value || '')).trim();
+    if (text) chunks.push(text);
+  }
+  push(data.core_emphases);
+  push(data.rawText);
+  if (Array.isArray(data.key_points)) data.key_points.forEach(push);
+  if (data.theory && Array.isArray(data.theory.sections)) {
+    data.theory.sections.forEach(function (sec) {
+      push(sec && (sec.content || sec.text || sec.body));
+    });
+  }
+  if (data.inspiration) {
+    if (Array.isArray(data.inspiration.global)) {
+      data.inspiration.global.forEach(function (block) {
+        if (block && Array.isArray(block.items)) block.items.forEach(push);
+      });
+    }
+    if (Array.isArray(data.inspiration.narrative)) data.inspiration.narrative.forEach(push);
+  }
+  return chunks.join('\n\n').trim();
+}
+
+function countGenericCompassFallbackHits(text) {
+  const matches = String(text || '').match(GENERIC_COMPASS_FALLBACK_LOOSE_RE);
+  return matches ? matches.length : 0;
+}
+
+/** True when the payload is only the repeating grade-compass stub, not real research. */
+function isThinGenericPhaseCPayload(data) {
+  if (!data || typeof data !== 'object') return true;
+  if (data._timeoutFallback || data._pedagogicalTemplate) return true;
+  const raw = collectPhaseCPlainBlob(data);
+  const cleaned = stripGenericCompassFallbackSentences(raw);
+  if (!cleaned || cleaned.length < 280) return true;
+  const hits = countGenericCompassFallbackHits(raw);
+  if (hits >= 2) return true;
+  if (hits >= 1 && cleaned.length < 1400) return true;
+  return false;
+}
+
+function tryParsePhaseCJsonFromEssay(essay) {
+  const raw = String(essay || '').trim();
+  if (!raw || raw.charAt(0) !== '{') return null;
+  try {
+    const parsed = jsonRepair.parsePureModelJson
+      ? jsonRepair.parsePureModelJson(raw, { phase: 'topic_master', unwrap: true, fallbackOnError: false })
+      : null;
+    const data = parsed && parsed.parsed && typeof parsed.parsed === 'object'
+      ? parsed.parsed
+      : JSON.parse(raw);
+    if (!data || typeof data !== 'object') return null;
+    if (data.theory || data.core_emphases || data.inspiration || data.blockPlan) return data;
+  } catch (err) {
+    return null;
+  }
+  return null;
+}
+
+function formatArchiveSourceEssay(files, extraTexts) {
+  const parts = [];
+  (files || []).forEach(function (file) {
+    const name = String(file && (file.name || file.fileName) || 'קובץ מאגר').trim();
+    const text = String(file && file.text || '').trim();
+    if (!text || text.length < 40) return;
+    parts.push('=== קובץ מאגר: ' + name + ' ===\n' + text);
+  });
+  (extraTexts || []).forEach(function (text) {
+    const trimmed = String(text || '').trim();
+    if (trimmed && trimmed.length >= 40) parts.push(trimmed);
+  });
+  return parts.join('\n\n').trim();
+}
+
+/**
+ * Read community / Drive / RAG source texts so Stage B+C can be filled from real files
+ * (docx / PDF / text / JSON) instead of a generic compass stub.
+ */
+async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
+  const result = { essay: '', files: [], matches: [], ragContext: '' };
+  const gid = String(gradeId || '').trim();
+  const topicStr = String(topic || '').trim();
+  if (!gid || !topicStr) return result;
+
+  try {
+    const communitySearch = require('./community-search');
+    const communityDriveArchive = require('./community-drive-archive');
+    const driveCatalogSync = require('./drive-catalog-sync');
+    const ragDb = require('./rag');
+
+    const lookups = await Promise.all([
+      communitySearch.runCommunitySearch(topicStr, {
+        gradeId: gid,
+        currentGrade: gid,
+        topic: topicStr,
+        limit: 12,
+        skipGeminiExpand: true,
+        strictGradeScope: true,
+      }).catch(function (err) {
+        console.warn('[pure-phase-c] community file search failed:', err.message || err);
+        return null;
+      }),
+      ragDb.retrieveForRequest({
+        phase: 'topic_master',
+        topic: topicStr,
+        gradeId: gid,
+        currentGrade: gid,
+        gradeLabel: grade || '',
+      }).catch(function (err) {
+        console.warn('[pure-phase-c] RAG retrieve failed:', err.message || err);
+        return null;
+      }),
+      communityDriveArchive.tryInstantArchiveRetrieval(topicStr, {
+        gradeId: gid,
+        currentGrade: gid,
+        topic: topicStr,
+      }).catch(function (err) {
+        console.warn('[pure-phase-c] community archive summary lookup failed:', err.message || err);
+        return null;
+      }),
+    ]);
+
+    const probe = lookups[0];
+    const ragResult = lookups[1];
+    const instant = lookups[2];
+    const matches = (probe && Array.isArray(probe.matches)) ? probe.matches : [];
+    result.matches = matches;
+
+    const fileRefs = typeof communityDriveArchive.normalizeFileRefsFromMatches === 'function'
+      ? communityDriveArchive.normalizeFileRefsFromMatches(matches)
+      : [];
+
+    if (fileRefs.length && typeof driveCatalogSync.isDriveCatalogSyncConfigured === 'function'
+        && driveCatalogSync.isDriveCatalogSyncConfigured()) {
+      try {
+        const token = await driveCatalogSync.resolveDriveAccessToken({});
+        if (token && typeof communityDriveArchive.extractTextsForRefs === 'function') {
+          const extracted = await communityDriveArchive.extractTextsForRefs(fileRefs.slice(0, 8), token);
+          result.files = (extracted && extracted.bundles) || [];
+          console.log(
+            '[pure-phase-c] extracted community/archive files:',
+            result.files.length,
+            '| names:',
+            result.files.map(function (file) { return file.name; }).join(' | '),
+            '| chars:',
+            result.files.reduce(function (sum, file) { return sum + (file.charCount || 0); }, 0)
+          );
+        }
+      } catch (extractErr) {
+        console.warn('[pure-phase-c] archive file extract failed:', extractErr.message || extractErr);
+      }
+    }
+
+    const extra = [];
+    if (ragResult && ragResult.context) {
+      result.ragContext = String(ragResult.context || '').trim();
+      if (result.ragContext) extra.push(result.ragContext);
+    }
+    const instantSummary = instant && String(instant.summary || instant.summary_md || '').trim();
+    if (instantSummary && instantSummary.length >= 80) extra.push(instantSummary);
+
+    result.essay = formatArchiveSourceEssay(result.files, extra);
+  } catch (err) {
+    console.warn('[pure-phase-c] retrieveCommunityArchiveSources failed:', err.message || err);
+  }
+  return result;
+}
+
+function buildPhaseCFromSourceEssay(essay, grade, topic, sources) {
+  const topicStr = String(topic || 'נושא').trim();
+  const cleaned = sterilizePhaseCFallbackText(essay) || stripGenericCompassFallbackSentences(essay);
+  if (!cleaned || cleaned.length < 80) return null;
+  const maybeJson = tryParsePhaseCJsonFromEssay(cleaned);
+  const parsed = maybeJson || {
+    core_emphases: cleaned,
+    rawText: cleaned,
+    _archiveSourceEssay: cleaned,
+  };
+  if (sources && Array.isArray(sources.files) && sources.files.length) {
+    parsed._archiveSourceFiles = sources.files.map(function (file) {
+      return file && (file.name || file.fileName);
+    }).filter(Boolean);
+  }
+  const normalized = safeNormalizePhaseCResponse(parsed, grade, topicStr, { archiveEssay: cleaned });
+  if (isThinGenericPhaseCPayload(normalized)) return null;
+  return normalized;
+}
+
 function stripHtmlToPlainText(html) {
   return String(html || '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -1071,7 +1276,7 @@ function sanitizePhaseCStringField(value) {
 }
 
 function sanitizePhaseCPlainProse(text) {
-  let out = String(text || '');
+  let out = stripGenericCompassFallbackSentences(String(text || ''));
   out = stripPercentEncodedUrlGarbage(out);
   if (hasDisallowedForeignScript(out)) {
     out = out.split(/\n\n+/).map(function (para) {
@@ -1104,7 +1309,7 @@ function stripSequentialDuplicateHtmlBlocks(html) {
 }
 
 function sanitizePhaseCProseField(text) {
-  const raw = String(text || '').trim();
+  const raw = stripGenericCompassFallbackSentences(String(text || '').trim());
   if (!raw) return '';
   if (/<[a-z][\s\S]*>/i.test(raw)) {
     return stripSequentialDuplicateHtmlBlocks(stripPedagogicalNarrativeMarkup(raw));
@@ -1589,10 +1794,9 @@ function buildGradeDefaultCoreEmphasesParagraphs(grade, topic) {
   if (!topicStr || topicStr === 'הנושא' || topicStr === 'נושא') return base;
   return base.map(function (paragraph, index) {
     if (index === 2) {
-      return paragraph.replace('«' + topicStr + '»', '«' + topicStr + '»')
-        .replace(/דגשים לבניית התקופה[^:]*:/, 'דגשים לבניית התקופה בנושא «' + topicStr + '»:');
+      return paragraph.replace(/דגשים לבניית התקופה[^:]*:/, 'דגשים לבניית התקופה בנושא «' + topicStr + '»:');
     }
-    return paragraph + ' הנושא «' + topicStr + '» מציע הזדמנות לחבר בין התוכן לבין מצפן הגיל.';
+    return paragraph;
   });
 }
 
@@ -2038,13 +2242,14 @@ function ensurePhaseCTab3Population(normalized, opts) {
   const grade = String(options.grade || '').trim();
   const topic = String(options.topic || 'נושא').trim();
   const parsed = options.parsed;
-  const richEssay = gatherRichTab3SourceText(
+  const archiveEssay = stripGenericCompassFallbackSentences(options.archiveEssay || '');
+  const richEssay = stripGenericCompassFallbackSentences(gatherRichTab3SourceText(
     normalized,
-    options.essay || '',
+    options.essay || archiveEssay || '',
     parsed
-  );
+  ));
   const defaultParagraphs = buildGradeDefaultCoreEmphasesParagraphs(grade, topic);
-  const payloadEssay = richEssay || defaultParagraphs.join('\n\n');
+  const payloadEssay = richEssay || archiveEssay || defaultParagraphs.join('\n\n');
 
   if (tab3FieldPlainLen(normalized.core_emphases) < PHASE_C_TAB3_MIN_PLAIN_CHARS) {
     const partition = partitionFallbackEssay(payloadEssay);
@@ -2327,7 +2532,9 @@ function centralizePhaseCLinksToTab3(normalized, topic) {
 /**
  * Rebuild a normalized Phase C response from parse-fallback debris into full-length sterile prose.
  */
-function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
+function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic, options) {
+  const opts = options || {};
+  const archiveEssay = stripGenericCompassFallbackSentences(opts.archiveEssay || '');
   const source = gatherPhaseCFallbackSourceText(parsed);
   let essay = sterilizePhaseCFallbackText(source);
   if (!essay) {
@@ -2336,12 +2543,16 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
   if (!essay) {
     essay = String(source || '').trim();
   }
+  essay = stripGenericCompassFallbackSentences(essay);
+  if ((!essay || essay.length < 80) && archiveEssay) {
+    essay = archiveEssay;
+  }
 
   const topicStr = String(topic || 'נושא').trim();
   const gradeStr = String(grade || '').trim();
   const titleSuffix = gradeStr ? (gradeStr + ' · ' + topicStr) : topicStr;
   const defaultParagraphs = buildGradeDefaultCoreEmphasesParagraphs(gradeStr, topicStr);
-  const richEssay = essay || defaultParagraphs.join('\n\n');
+  const richEssay = essay || archiveEssay || defaultParagraphs.join('\n\n');
   const partition = partitionFallbackEssay(richEssay);
 
   let theoryParagraphs = partition.theoryParagraphs;
@@ -2416,6 +2627,7 @@ function applyPhaseCFallbackCleaner(normalized, parsed, grade, topic) {
 
   return ensurePhaseCTab3Population(normalized, {
     essay: richEssay,
+    archiveEssay: archiveEssay,
     grade: gradeStr,
     topic: topicStr,
     parsed: parsed,
@@ -2941,8 +3153,15 @@ function resolveGradeId(body) {
   return digit ? digit[0] : '';
 }
 
-function safeNormalizePhaseCResponse(parsed, grade, topic) {
+function safeNormalizePhaseCResponse(parsed, grade, topic, options) {
   const topicStr = String(topic || 'נושא').trim();
+  const opts = options || {};
+  const archiveEssay = stripGenericCompassFallbackSentences(
+    opts.archiveEssay || (parsed && parsed._archiveSourceEssay) || ''
+  );
+  if (parsed && typeof parsed === 'object' && archiveEssay && !parsed._archiveSourceEssay) {
+    parsed._archiveSourceEssay = archiveEssay;
+  }
   adaptTopicMasterPayload(parsed, { grade: grade, gradeLabel: grade, topic: topicStr });
   if (parsed && typeof parsed === 'object') {
     stampTopicMasterArchiveLinks(parsed, parsed);
@@ -2959,23 +3178,27 @@ function safeNormalizePhaseCResponse(parsed, grade, topic) {
         title: 'רקע תיאורטי — ' + topicStr,
         sections: [{
           heading: 'תוכן',
-          content: gatherPhaseCFallbackSourceText(parsed) || 'לא ניתן לעבד את התשובה.',
+          content: gatherPhaseCFallbackSourceText(parsed) || archiveEssay || 'לא ניתן לעבד את התשובה.',
           icon: 'fa-compass',
         }],
       },
-      core_emphases: gatherPhaseCFallbackSourceText(parsed),
+      core_emphases: gatherPhaseCFallbackSourceText(parsed) || archiveEssay,
       _parseFallback: true,
       _normalizeFallback: true,
     }, grade, topicStr);
   }
   if (needsFallbackClean) {
-    result = applyPhaseCFallbackCleaner(result, parsed, grade, topicStr);
+    result = applyPhaseCFallbackCleaner(result, parsed, grade, topicStr, { archiveEssay: archiveEssay });
   } else {
-    const sourceEssay = sterilizePhaseCFallbackText(gatherPhaseCFallbackSourceText(parsed)) ||
-      gatherRichTab3SourceText(result, '', parsed);
+    const sourceEssay = stripGenericCompassFallbackSentences(
+      sterilizePhaseCFallbackText(gatherPhaseCFallbackSourceText(parsed)) ||
+      gatherRichTab3SourceText(result, archiveEssay, parsed) ||
+      archiveEssay
+    );
     duplicateRichPayloadAcrossFallbackTabs(result, sourceEssay, grade, topicStr);
     result = ensurePhaseCTab3Population(result, {
       essay: sourceEssay,
+      archiveEssay: archiveEssay,
       grade: grade,
       topic: topicStr,
       parsed: parsed,
@@ -3015,7 +3238,30 @@ function buildResearchExpandIntro(archiveText, userQuery) {
   ].join(' ');
 }
 
-function buildPhaseCGenerationUserPrompt(grade, topic) {
+function buildArchiveSourcePromptBlock(archiveSources) {
+  const sources = archiveSources || {};
+  const essay = String(sources.essay || '').trim();
+  if (!essay) return '';
+  const names = (sources.files || []).map(function (file) {
+    return file && (file.name || file.fileName);
+  }).filter(Boolean);
+  return [
+    '=== COMMUNITY / ARCHIVE SOURCE TEXTS (PRIMARY — fill Stage B and Stage C from these) ===',
+    'The server located and READ the following teacher-archive / community files.',
+    names.length ? ('Files: ' + names.join(' | ')) : '',
+    'You MUST use this extracted file text as the PRIMARY factual and pedagogical source.',
+    'Fill theory (יסודות אנתרופוסופיים), core_emphases (גיל והתפתחות / מצפן למורה), and inspiration (יישום בכיתה) directly from these materials.',
+    'Also produce a FULL 3–4 week main-lesson period: weekly goals, daily lesson architecture, artistic work, stories, and experiments drawn from the files.',
+    'Do NOT invent a generic compass stub. Do NOT write «הנושא מציע הזדמנות לחבר בין התוכן לבין מצפן הגיל».',
+    'If a file is a period plan, timeline, lesson notes, or JSON archive payload — extract and expand its actual content into the JSON fields.',
+    '',
+    essay.slice(0, 16000),
+    '=== END COMMUNITY / ARCHIVE SOURCE TEXTS ===',
+  ].filter(Boolean).join('\n');
+}
+
+function buildPhaseCGenerationUserPrompt(grade, topic, archiveSources) {
+  const archiveBlock = buildArchiveSourcePromptBlock(archiveSources);
   return [
     WALDORF_CORE_SYSTEM_PROMPT,
     '',
@@ -3024,6 +3270,7 @@ function buildPhaseCGenerationUserPrompt(grade, topic) {
     'Topic: ' + topic,
     'Focus on developmental appropriateness, soul-spiritual qualities, and practical classroom orientation.',
     'Write pedagogical content in Hebrew unless the topic itself is in another language.',
+    archiveBlock ? ('\n' + archiveBlock + '\n') : '',
     '',
     shared.STRUCTURAL_COMPLETENESS_INSTRUCTION,
     '',
@@ -3055,6 +3302,10 @@ function buildPhaseCGenerationUserPrompt(grade, topic) {
     '- pedagogical_resources: each snippet = a substantive multi-sentence paraphrase of the real PDF/source content (never an empty stub).',
     '- recommended_reading: 6-8 entries with substantive 2-4 sentence notes (titles/authors only — NO urls).',
     '- relevant_links: 6-12 reliable top-level Waldorf/anthro portal URLs; NEVER inside narrative fields.',
+    '',
+    'STAGE C PRODUCTS (MANDATORY when writing the theory + inspiration + core_emphases essays):',
+    'Include a complete 3–4 week period plan with weekly goals, artistic activities, stories, experiments, and day-by-day main-lesson sequences.',
+    'FORBIDDEN: the generic sentence «הנושא מציע הזדמנות לחבר בין התוכן לבין מצפן הגיל» or any repeating template compass stub.',
   ].join('\n');
 }
 
@@ -3084,6 +3335,7 @@ async function recordLiveSearchUsage(body, requestContext, teacher) {
 
 function hasBillablePhaseCData(normalized) {
   if (!normalized || typeof normalized !== 'object') return false;
+  if (isThinGenericPhaseCPayload(normalized)) return false;
   const theorySections = normalized.theory &&
     Array.isArray(normalized.theory.sections) ? normalized.theory.sections : [];
   if (theorySections.some(function (sec) {
@@ -3351,7 +3603,8 @@ function extractPhaseCFromArchiveMatch(match, grade, topic) {
   }
   try {
     const normalized = safeNormalizePhaseCResponse(data, grade, topic);
-    if (normalized && (normalized.theory || hasBillablePhaseCData(normalized))) {
+    if (normalized && !isThinGenericPhaseCPayload(normalized) &&
+        (normalized.theory || hasBillablePhaseCData(normalized))) {
       return normalized;
     }
   } catch (err) {
@@ -3415,12 +3668,16 @@ async function lookupLocalTopicArchive(gradeId, topic, grade, options) {
   if (cached && cached.data) {
     try {
       const data = safeNormalizePhaseCResponse(cached.data, grade, topic);
-      return {
-        data: data,
-        cacheKey: cached.meta && cached.meta.cacheKey,
-        source: (cached.meta && cached.meta.source) || 'topic_master_archive',
-        matchType: 'exact',
-      };
+      if (isThinGenericPhaseCPayload(data)) {
+        console.warn('[pure-phase-c] ignoring thin generic topic_master cache for', topic);
+      } else {
+        return {
+          data: data,
+          cacheKey: cached.meta && cached.meta.cacheKey,
+          source: (cached.meta && cached.meta.source) || 'topic_master_archive',
+          matchType: 'exact',
+        };
+      }
     } catch (normErr) {
       console.warn('[pure-phase-c] topic_master normalize failed:', normErr.message || normErr);
     }
@@ -3476,11 +3733,35 @@ function servePedagogicalTemplate(grade, topic) {
   };
 }
 
-async function fallbackAfterLiveSearchFailure(err, gradeId, topic, grade) {
+async function fallbackAfterLiveSearchFailure(err, gradeId, topic, grade, archiveSources) {
   if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
-  console.warn('[pure-phase-c] live search communication failed:', err && err.message ? err.message : err);
+  const reason = shared.isLiveSearchTimeoutError && shared.isLiveSearchTimeoutError(err)
+    ? 'live_search_timeout'
+    : 'live_search_error';
+  console.warn('[pure-phase-c] live search failed —', reason + ':', err && err.message ? err.message : err);
+
+  const fromFiles = archiveSources && archiveSources.essay
+    ? buildPhaseCFromSourceEssay(archiveSources.essay, grade, topic, archiveSources)
+    : null;
+  if (fromFiles) {
+    console.log('[pure-phase-c] serving extracted archive/community file content after live-search failure');
+    return {
+      data: fromFiles,
+      meta: {
+        fromCache: false,
+        fallback: true,
+        fallbackReason: reason,
+        source: 'community_archive_files',
+        archiveFiles: (archiveSources.files || []).map(function (file) {
+          return file && (file.name || file.fileName);
+        }).filter(Boolean),
+        communityMatches: archiveSources.matches || [],
+      },
+    };
+  }
+
   const fallback = await lookupLocalTopicArchive(gradeId, topic, grade, { allowPartial: true });
-  if (fallback && fallback.data) {
+  if (fallback && fallback.data && !isThinGenericPhaseCPayload(fallback.data)) {
     return serveArchiveFallback(fallback);
   }
   return servePedagogicalTemplate(grade, topic);
@@ -3495,8 +3776,7 @@ async function runPurePhaseC(body, requestContext) {
   if (!grade) throw shared.badRequest('grade is required');
   if (!topic) throw shared.badRequest('topic is required');
 
-  // Community Drive summarization is decoupled — see /api/community-summarizer.
-  // Live topic research is web/archive only.
+  const archiveSources = await retrieveCommunityArchiveSources(gradeId, topic, grade);
 
   let teacher = null;
   try {
@@ -3570,7 +3850,7 @@ async function runPurePhaseC(body, requestContext) {
       err.code = 'GRADE_MISMATCH';
       throw err;
     }
-    if (archiveHit && archiveHit.data) {
+    if (archiveHit && archiveHit.data && !isThinGenericPhaseCPayload(archiveHit.data)) {
       const cacheKey = archiveHit.cacheKey || null;
       if (cacheKey) {
         await registerTeacherHistory(cacheKey, archiveHit.data);
@@ -3582,16 +3862,22 @@ async function runPurePhaseC(body, requestContext) {
           fromCache: true,
           cacheKey: cacheKey || undefined,
           source: archiveHit.source,
+          communityMatches: archiveSources.matches || [],
         },
       };
     }
   }
 
-  const userPrompt = buildPhaseCGenerationUserPrompt(grade, topic);
+  const userPrompt = buildPhaseCGenerationUserPrompt(grade, topic, archiveSources);
 
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
-    console.log('[pure-phase-c] live web research (community summary decoupled)');
+    console.log(
+      '[pure-phase-c] live web research',
+      archiveSources.files && archiveSources.files.length
+        ? ('+ ' + archiveSources.files.length + ' archive file(s)')
+        : '(no archive file text yet)'
+    );
     const modelResult = await shared.withLiveSearchRetry(function () {
       return callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
         phase: 'topic_master',
@@ -3603,14 +3889,25 @@ async function runPurePhaseC(body, requestContext) {
       });
     });
     const parsed = modelResult.parsed;
-    let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
+    let normalized = safeNormalizePhaseCResponse(parsed, grade, topic, {
+      archiveEssay: archiveSources.essay,
+    });
     stampTopicMasterArchiveLinks(normalized, parsed);
+    if (isThinGenericPhaseCPayload(normalized) && archiveSources.essay) {
+      const fromFiles = buildPhaseCFromSourceEssay(archiveSources.essay, grade, topic, archiveSources);
+      if (fromFiles) {
+        console.warn('[pure-phase-c] model output was thin — using extracted archive file content');
+        normalized = fromFiles;
+      }
+    }
 
     if (body.mergeWithHistoric && body.historicPayload && typeof body.historicPayload === 'object') {
       adaptTopicMasterPayload(body.historicPayload, { gradeId: gradeId, grade: grade, gradeLabel: grade, topic: topic });
       try {
         const mergedParsed = await mergeTopicMasterPayloads(body.historicPayload, normalized, grade, topic);
-        normalized = safeNormalizePhaseCResponse(mergedParsed, grade, topic);
+        normalized = safeNormalizePhaseCResponse(mergedParsed, grade, topic, {
+          archiveEssay: archiveSources.essay,
+        });
         stampTopicMasterArchiveLinks(normalized, mergedParsed);
       } catch (mergeErr) {
         console.warn('[pure-phase-c] topic_master merge failed — returning fresh payload:', mergeErr.message || mergeErr);
@@ -3618,7 +3915,7 @@ async function runPurePhaseC(body, requestContext) {
     }
 
     let savedKey = null;
-    if (gradeId) {
+    if (gradeId && !isThinGenericPhaseCPayload(normalized)) {
       try {
         savedKey = await cache.setTopicMasterCache(gradeId, grade, topic, normalized, ownerBody);
         if (savedKey) {
@@ -3627,6 +3924,8 @@ async function runPurePhaseC(body, requestContext) {
       } catch (saveErr) {
         console.warn('[pure-phase-c] topic_master cache save failed:', saveErr.message || saveErr);
       }
+    } else if (isThinGenericPhaseCPayload(normalized)) {
+      console.warn('[pure-phase-c] refusing to cache thin generic topic_master payload for', topic);
     }
 
     const searchUsage = await billLiveSearchAfterSuccess(body, requestContext, teacher, normalized);
@@ -3641,10 +3940,14 @@ async function runPurePhaseC(body, requestContext) {
         merged: Boolean(body.mergeWithHistoric && body.historicPayload),
         searchBilled: Boolean(searchUsage),
         usage: searchUsage || undefined,
+        communityMatches: archiveSources.matches || [],
+        archiveFiles: (archiveSources.files || []).map(function (file) {
+          return file && (file.name || file.fileName);
+        }).filter(Boolean),
       },
     };
   } catch (err) {
-    return fallbackAfterLiveSearchFailure(err, gradeId, topic, grade);
+    return fallbackAfterLiveSearchFailure(err, gradeId, topic, grade, archiveSources);
   }
 }
 
@@ -3763,4 +4066,9 @@ module.exports = {
   violatesPedagogicalTopicContext,
   isPinterestPhaseCUrl,
   shouldBypassTopicMasterCache,
+  isThinGenericPhaseCPayload,
+  stripGenericCompassFallbackSentences,
+  retrieveCommunityArchiveSources,
+  buildPhaseCFromSourceEssay,
+  buildArchiveSourcePromptBlock,
 };
