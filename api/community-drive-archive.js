@@ -1,12 +1,13 @@
 /**
- * Community Drive archive — Gemini pedagogical summaries of Drive hits.
- * Used only by the standalone /api/community-summarizer flow (not live web search).
+ * Community Drive archive — pedagogical summaries keyed by search_query + grade.
+ * Sources: (1) Gemini summaries of Drive hits (/api/community-summarizer),
+ * (2) successful live Perplexity topic_master research (mirrored from cached_results save).
  * Public archive (no userId).
  * Cache policy: serve community_drive_archive immediately unless community_materials
  * gained a newer folder/file for the same grade+topic (then regenerate).
  *
- * CACHE SOURCE ISOLATION: lookups and upserts hit community_drive_archive ONLY.
- * Never read or write public.cached_results (Perplexity / live web) from this module.
+ * Never read or write public.cached_results from this module (except the one-way
+ * topic_master mirror invoked from cache.setTopicMasterCache after live research).
  */
 const crypto = require('crypto');
 const env = require('./env');
@@ -2627,6 +2628,86 @@ async function resolveCommunityDriveSummary(query, matches, options) {
   };
 }
 
+const LIVE_RESEARCH_ARCHIVE_PHASE = 'topic_master';
+const MIN_LIVE_RESEARCH_SUMMARY_CHARS = 280;
+
+/**
+ * Upsert a verified live Perplexity topic_master result for instant search_query HITs.
+ * Keys: search_query + grade_id/grade_level + summary_md (formatted Markdown).
+ */
+async function persistLiveResearchToCommunityArchive(options) {
+  const opts = options || {};
+  const topic = String(opts.topic || opts.searchQuery || opts.search_query || '').trim();
+  const gradeId = normalizeArchiveGradeId(opts.gradeId || opts.currentGrade || opts.grade_id || '');
+  let summaryMd = sanitizeCommunitySummaryMarkdown(
+    String(opts.summaryMd || opts.summary_md || '').trim()
+  );
+  if (!topic || !gradeId) {
+    console.warn('[community-drive-archive] live research persist skipped — missing topic or grade', {
+      topic: topic.slice(0, 40),
+      gradeId: gradeId,
+    });
+    return null;
+  }
+  if (!summaryMd || summaryMd.length < MIN_LIVE_RESEARCH_SUMMARY_CHARS) {
+    console.warn('[community-drive-archive] live research persist skipped — summary too short', {
+      topic: topic.slice(0, 40),
+      gradeId: gradeId,
+      chars: summaryMd.length,
+    });
+    return null;
+  }
+
+  const phase = String(opts.phase || LIVE_RESEARCH_ARCHIVE_PHASE).trim() || LIVE_RESEARCH_ARCHIVE_PHASE;
+  const archiveKey = buildArchiveKey(topic, {
+    gradeId: gradeId,
+    topic: topic,
+    phase: phase,
+  });
+  const fingerprint = String(
+    opts.sourceFingerprint || ('perplexity_live|' + phase + '|' + archiveKey.slice(0, 16))
+  ).trim();
+
+  const record = {
+    archive_key: archiveKey,
+    search_query: topic,
+    query_text: topic,
+    grade_id: gradeId,
+    grade_level: gradeId,
+    topic: topic,
+    summary_md: summaryMd,
+    summary_text: summaryMd,
+    community_status: 'ok',
+    source_fingerprint: fingerprint,
+    drive_fingerprint: fingerprint,
+    source_file_ids: [],
+    file_refs: Array.isArray(opts.fileRefs) ? opts.fileRefs : [],
+    citations: dedupeCommunityCitations(Array.isArray(opts.citations) ? opts.citations : []),
+    model: String(opts.model || 'perplexity').trim() || 'perplexity',
+  };
+
+  const logContext = {
+    source: 'live_research_perplexity',
+    topic: topic,
+    gradeId: gradeId,
+    phase: phase,
+    archiveKeyPrefix: archiveKey.slice(0, 16),
+  };
+
+  await upsertArchiveRow(record, logContext);
+  console.log(
+    '[community-drive-archive] live research upsert OK | topic='
+    + topic.slice(0, 40)
+    + ' | grade='
+    + gradeId
+    + ' | key='
+    + archiveKey.slice(0, 12)
+    + ' | chars='
+    + summaryMd.length
+  );
+  return { archiveKey: archiveKey, topic: topic, gradeId: gradeId };
+}
+
 module.exports = {
   TABLE_NAME,
   COMMUNITY_SUMMARY_HEADING,
@@ -2674,4 +2755,6 @@ module.exports = {
   isMultimodalCandidate,
   isGeminiTextSourceCandidate,
   extractTextsForRefs,
+  persistLiveResearchToCommunityArchive,
+  LIVE_RESEARCH_ARCHIVE_PHASE,
 };

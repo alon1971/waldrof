@@ -648,6 +648,57 @@ function stripHtmlToPlainText(html) {
     .trim();
 }
 
+/**
+ * Serialize a verified topic_master payload into Markdown for community_drive_archive.summary_md.
+ */
+function buildArchiveSummaryMdFromPhaseC(payload, grade, topic) {
+  if (!payload || typeof payload !== 'object') return '';
+  const essay = String(payload._archiveSourceEssay || '').trim();
+  if (essay.length >= 80 && /^#\s/m.test(essay)) {
+    return essay;
+  }
+
+  const parts = [];
+  const topicStr = String(topic || 'נושא').trim();
+  const gradeStr = String(grade || '').trim();
+  const theory = payload.theory;
+  if (theory && typeof theory === 'object') {
+    const title = String(theory.title || '').trim();
+    parts.push(title ? ('# ' + title) : ('# ' + topicStr + (gradeStr ? (' · ' + gradeStr) : '')));
+    (Array.isArray(theory.sections) ? theory.sections : []).forEach(function (sec, idx) {
+      const heading = String(sec && sec.heading || '').trim() || ('חלק ' + (idx + 1));
+      const body = stripHtmlToPlainText(sec && (sec.content || sec.text || sec.body));
+      if (!body || body.length < 12) return;
+      parts.push('## ' + heading);
+      parts.push(body);
+      parts.push('');
+    });
+  }
+
+  if (parts.length <= 1) {
+    const fallback = gatherPhaseCFallbackSourceText(payload);
+    if (fallback.length >= 80) return fallback;
+    return '';
+  }
+
+  const links = Array.isArray(payload.relevant_links) ? payload.relevant_links : [];
+  const linkLines = [];
+  links.forEach(function (link, idx) {
+    if (!link || typeof link !== 'object') return;
+    const url = String(link.url || link.webViewLink || link.href || '').trim();
+    if (!url || !/^https?:\/\//i.test(url)) return;
+    const label = String(link.title || link.label || link.name || url).trim();
+    linkLines.push((linkLines.length + 1) + '. [' + label + '](' + url + ')');
+  });
+  if (linkLines.length) {
+    parts.push('## מראי מקום והפניות');
+    parts.push('');
+    parts.push(linkLines.join('\n'));
+  }
+
+  return parts.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /** Known JSON key tokens — discard if a quoted value equals one of these exactly. */
 const PHASE_C_JSON_KEY_TOKENS = new Set([
   'theory', 'inspiration', 'sections', 'heading', 'headings', 'content', 'title', 'text', 'body',
@@ -4660,4 +4711,5 @@ module.exports = {
   isEmptyArchiveSourceLine,
   phaseCHasFilledTheory,
   buildArchiveSourcePromptBlock,
+  buildArchiveSummaryMdFromPhaseC,
 };
