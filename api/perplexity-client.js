@@ -28,6 +28,8 @@ const REQUEST_TIMEOUT_MS = 180000;
 /** Up to 3 retries after a 429 (1s, 2s, 4s backoff) before surfacing an error. */
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_BASE_DELAY_MS = 1000;
+/** Max chars of upstream body logged to Render (full enough to debug JSON/SSE issues). */
+const PERPLEXITY_LOG_BODY_MAX = 12000;
 
 function sleep(ms) {
   return new Promise(function (resolve) { setTimeout(resolve, ms); });
@@ -44,6 +46,92 @@ function resolveApiKey() {
   const key = env.getPerplexityApiKey();
   const normalized = normalizeApiKey(key);
   return normalized || null;
+}
+
+function truncateForLog(text, maxLen) {
+  const s = String(text || '');
+  const limit = typeof maxLen === 'number' && maxLen > 0 ? maxLen : PERPLEXITY_LOG_BODY_MAX;
+  if (s.length <= limit) return s;
+  return s.slice(0, limit) + '… [truncated, total ' + s.length + ' chars]';
+}
+
+function describePerplexityRequest(body, extras) {
+  const b = body && typeof body === 'object' ? body : {};
+  const msgs = Array.isArray(b.messages) ? b.messages : [];
+  let userPreview = '';
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i] && msgs[i].role === 'user') {
+      userPreview = String(msgs[i].content || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      break;
+    }
+  }
+  const parts = [
+    'model=' + String(b.model || '?'),
+    'messages=' + msgs.length,
+    'max_tokens=' + String(b.max_tokens != null ? b.max_tokens : '?'),
+  ];
+  if (userPreview) parts.push('userPreview="' + userPreview + '"');
+  if (extras && typeof extras === 'object') {
+    Object.keys(extras).forEach(function (key) {
+      if (extras[key] != null && extras[key] !== '') parts.push(key + '=' + String(extras[key]));
+    });
+  }
+  return parts.join(' ');
+}
+
+function logPerplexityRequestStart(transport, body, extras) {
+  console.log('[perplexity] request START | transport=' + transport + ' | ' + describePerplexityRequest(body, extras));
+}
+
+function logPerplexityHttpFailure(transport, status, responseText, context) {
+  console.error(
+    '[perplexity] HTTP failure | transport=' + transport +
+    (context ? ' | ' + context : '') +
+    ' | status=' + status +
+    ' | body=' + truncateForLog(responseText)
+  );
+}
+
+function summarizeParsedCompletion(data) {
+  if (!data || typeof data !== 'object') return 'parsed=null';
+  const choice = data.choices && data.choices[0];
+  const finish = choice && choice.finish_reason != null ? String(choice.finish_reason) : '?';
+  const usage = data.usage && typeof data.usage === 'object'
+    ? (' prompt_tokens=' + (data.usage.prompt_tokens != null ? data.usage.prompt_tokens : '?') +
+      ' completion_tokens=' + (data.usage.completion_tokens != null ? data.usage.completion_tokens : '?'))
+    : '';
+  const id = data.id ? String(data.id) : '';
+  return 'finish_reason=' + finish + usage + (id ? ' id=' + id.slice(0, 24) : '');
+}
+
+function logPerplexitySuccess(transport, context, content, dataOrNull, rawResponseText) {
+  const len = String(content || '').length;
+  const preview = truncateForLog(String(content || '').replace(/\s+/g, ' ').trim(), 320);
+  const meta = dataOrNull ? summarizeParsedCompletion(dataOrNull) : 'streamed';
+  console.log(
+    '[perplexity] response OK | transport=' + transport +
+    (context ? ' | ' + context : '') +
+    ' | contentLen=' + len +
+    ' | ' + meta +
+    ' | contentPreview="' + preview + '"'
+  );
+  if (len < 40 && rawResponseText) {
+    console.log(
+      '[perplexity] short/empty extracted content — full upstream body | transport=' + transport +
+      ' | body=' + truncateForLog(rawResponseText)
+    );
+  }
+}
+
+function logPerplexityFailure(transport, context, reason, rawResponseText) {
+  console.error(
+    '[perplexity] response FAILED | transport=' + transport +
+    (context ? ' | ' + context : '') +
+    ' | reason=' + reason +
+    (rawResponseText != null && rawResponseText !== ''
+      ? ' | body=' + truncateForLog(rawResponseText)
+      : '')
+  );
 }
 
 function buildHeaders(apiKey, streaming) {
@@ -211,7 +299,8 @@ function extractMessageContent(data) {
   return '';
 }
 
-function mapHttpError(status, responseText) {
+function mapHttpError(status, responseText, logContext) {
+  logPerplexityHttpFailure(logContext && logContext.transport ? logContext.transport : 'unknown', status, responseText, logContext && logContext.label);
   const detail = String(responseText || '').slice(0, 400);
   let err;
   if (status === 401 || status === 403) {
@@ -372,6 +461,17 @@ async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, req
   }
   armTimer();
 
+  const requestContext = describePerplexityRequest(body, {
+    stream: streaming,
+    idleTimeoutMs: idleTimeoutMs,
+    totalTimeoutMs: totalTimeoutMs || 'none',
+  });
+  logPerplexityRequestStart('fetch', body, {
+    stream: streaming,
+    idleTimeoutMs: idleTimeoutMs,
+    totalTimeoutMs: totalTimeoutMs || 'none',
+  });
+
   try {
     const res = await fetch(PERPLEXITY_URL, {
       method: 'POST',
@@ -382,7 +482,7 @@ async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, req
 
     if (!res.ok) {
       const errText = await res.text();
-      throw mapHttpError(res.status, errText);
+      throw mapHttpError(res.status, errText, { transport: 'fetch', label: requestContext });
     }
 
     if (streaming) {
@@ -393,18 +493,33 @@ async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, req
       // Reset the idle timeout on every upstream byte, not only on content deltas,
       // so a healthy-but-quiet research phase is never aborted mid-stream.
       const streamed = await readStreamResponse(res, streamOnDelta, armTimer);
-      if (streamed) return { content: streamed, citations: [] };
+      if (streamed) {
+        logPerplexitySuccess('fetch-stream', requestContext, streamed, null, '');
+        return { content: streamed, citations: [] };
+      }
+      logPerplexityFailure('fetch-stream', requestContext, 'empty_stream_content', '');
       throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
     }
 
     const responseText = await res.text();
     const data = jsonRepair.safeParseJson(responseText);
     if (!data) {
+      logPerplexityFailure('fetch', requestContext, 'non_json_body', responseText);
       throw new Error('Perplexity API returned non-JSON: ' + responseText.slice(0, 200));
     }
     const content = extractMessageContent(data);
-    if (!content) throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+    if (!content) {
+      logPerplexityFailure('fetch', requestContext, 'empty_message_content', responseText);
+      throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+    }
+    logPerplexitySuccess('fetch', requestContext, content, data, responseText);
     return { content: content, citations: extractCitations(data), rawResponseText: responseText };
+  } catch (fetchPathErr) {
+    const errMsg = fetchPathErr instanceof Error ? fetchPathErr.message : String(fetchPathErr);
+    if (!/Perplexity API \d+|non-JSON|תשובה ריקה|empty_stream/.test(errMsg)) {
+      console.error('[perplexity] fetch path exception | ' + requestContext + ' | ' + errMsg);
+    }
+    throw fetchPathErr;
   } finally {
     if (timer) clearTimeout(timer);
     if (totalTimer) clearTimeout(totalTimer);
@@ -426,16 +541,23 @@ async function httpsPerplexityOnce(apiKey, body, requestOpts) {
   const timeoutMs = requestOpts && requestOpts.totalTimeoutMs
     ? requestOpts.totalTimeoutMs
     : REQUEST_TIMEOUT_MS;
+  const requestContext = describePerplexityRequest(body, { stream: false, timeoutMs: timeoutMs });
+  logPerplexityRequestStart('https', body, { stream: false, timeoutMs: timeoutMs });
   const result = await httpsPostJson(PERPLEXITY_URL, headers, requestBody, timeoutMs);
   if (result.status < 200 || result.status >= 300) {
-    throw mapHttpError(result.status, result.text);
+    throw mapHttpError(result.status, result.text, { transport: 'https', label: requestContext });
   }
   const data = jsonRepair.safeParseJson(result.text);
   if (!data) {
+    logPerplexityFailure('https', requestContext, 'non_json_body', result.text);
     throw new Error('Perplexity API returned non-JSON: ' + String(result.text || '').slice(0, 200));
   }
   const content = extractMessageContent(data);
-  if (!content) throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+  if (!content) {
+    logPerplexityFailure('https', requestContext, 'empty_message_content', result.text);
+    throw new Error('Perplexity החזיר תשובה ריקה — נסו שוב בעוד רגע.');
+  }
+  logPerplexitySuccess('https', requestContext, content, data, result.text);
   return { content: content, citations: extractCitations(data), rawResponseText: result.text };
 }
 
@@ -449,6 +571,12 @@ async function executePerplexityRequest(apiKey, body, useStream, onDelta, reques
     return await fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, requestOpts);
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+    if (isAbortOrTimeoutError(msg)) {
+      console.error(
+        '[perplexity] request aborted/timeout | ' + describePerplexityRequest(body, { stream: useStream !== false }) +
+        ' | ' + msg
+      );
+    }
     // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
     if (isAbortOrTimeoutError(msg)) throw abortedPerplexityError();
     // Rate limits are retried at the outer wrapper — do not fall through to https.
@@ -461,6 +589,10 @@ async function executePerplexityRequest(apiKey, body, useStream, onDelta, reques
       return await httpsPerplexityOnce(apiKey, body, requestOpts);
     } catch (httpsErr) {
       const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
+      console.error(
+        '[perplexity] https fallback failed | ' + describePerplexityRequest(body, { stream: useStream !== false }) +
+        ' | ' + httpsMsg
+      );
       if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
       if (isRateLimitError(httpsErr)) throw httpsErr;
       throw new Error('שגיאת רשת בחיבור ל-Perplexity: ' + httpsMsg);
@@ -493,9 +625,21 @@ async function callPerplexityChatWithCitations(options) {
   if (opts.totalTimeoutMs) requestOpts.totalTimeoutMs = opts.totalTimeoutMs;
   if (opts.idleTimeoutMs) requestOpts.idleTimeoutMs = opts.idleTimeoutMs;
 
-  const result = await withRateLimitRetry(function () {
-    return executePerplexityRequest(apiKey, body, false, null, requestOpts);
-  }, 'chat-citations');
+  let result;
+  try {
+    result = await withRateLimitRetry(function () {
+      return executePerplexityRequest(apiKey, body, false, null, requestOpts);
+    }, 'chat-citations');
+  } catch (chatErr) {
+    console.error('[perplexity] callPerplexityChatWithCitations failed | ' + describePerplexityRequest(body) +
+      ' | ' + (chatErr && chatErr.message ? chatErr.message : chatErr));
+    throw chatErr;
+  }
+  console.log(
+    '[perplexity] callPerplexityChatWithCitations done | contentLen=' +
+    String(result.content || '').length +
+    ' citations=' + (result.citations ? result.citations.length : 0)
+  );
   return {
     content: result.content,
     citations: result.citations || [],
@@ -528,9 +672,17 @@ async function callPerplexityChat(options) {
   const useStream = opts.stream !== false;
   const onDelta = typeof opts.onDelta === 'function' ? opts.onDelta : null;
 
-  const result = await withRateLimitRetry(function () {
-    return executePerplexityRequest(apiKey, body, useStream, onDelta);
-  }, 'chat');
+  let result;
+  try {
+    result = await withRateLimitRetry(function () {
+      return executePerplexityRequest(apiKey, body, useStream, onDelta);
+    }, 'chat');
+  } catch (chatErr) {
+    console.error('[perplexity] callPerplexityChat failed | ' + describePerplexityRequest(body, { stream: useStream }) +
+      ' | ' + (chatErr && chatErr.message ? chatErr.message : chatErr));
+    throw chatErr;
+  }
+  console.log('[perplexity] callPerplexityChat done | contentLen=' + String(result.content || '').length);
   return result.content;
 }
 
