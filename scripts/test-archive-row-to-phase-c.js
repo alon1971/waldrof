@@ -48,4 +48,43 @@ assert(Array.isArray(fromRow.theory.sections) && fromRow.theory.sections.length,
 assert(/רנסנס|פרספקטיבה|לאונרדו|פירנצה/.test(JSON.stringify(fromRow)), 'real archive prose reaches Stage B/C');
 assert(fromRow.relevant_links && fromRow.relevant_links[0] && /ציר זמן/.test(fromRow.relevant_links[0].title), 'linked files become sources');
 
+assert(phaseC.isEmptyArchiveSourceLine(')'), 'bare ) is an empty source line');
+assert(phaseC.isEmptyArchiveSourceLine('1. [](https://drive.google.com/file/d/abc)'), 'empty markdown link is empty');
+assert(!phaseC.isEmptyArchiveSourceLine('1. [ציר זמן.docx](https://drive.google.com/file/d/abc)'), 'named file is kept');
+
+const emptyBibMd = [
+  '# נושא ארכיון',
+  '',
+  '## 1. רקע והדגשה פדגוגית',
+  'פסקה אמיתית על ההוראה בכיתה ועל מצפן הגיל של התלמידים.',
+  '',
+  '## 5. מראי מקום והפניות למאגר',
+  '1. )',
+  '2. [](https://drive.google.com/file/d/abc)',
+  '3. [ציר זמן.docx](https://drive.google.com/file/d/xyz)',
+].join('\n');
+const emptyBibTheory = phaseC.parseArchiveMarkdownToTheory(emptyBibMd, 'רנסנס', 'כיתה ז׳');
+const bibSec = emptyBibTheory.sections.find(function (sec) {
+  return /מראי מקום/.test(String(sec.heading || ''));
+});
+assert(bibSec, 'bibliography heading is kept when a real file exists');
+assert(/ציר זמן\.docx/.test(bibSec.content), 'named archive file is shown');
+assert(!/\)\s*</.test(bibSec.content) && bibSec.content.indexOf('>)') === -1, 'empty parentheses are not rendered');
+assert(!/\[\]\(/.test(bibSec.content), 'empty markdown links are not rendered');
+
+const onlyEmptyBibMd = [
+  '# נושא ארכיון',
+  '',
+  '## 1. רקע והדגשה פדגוגית',
+  'פסקה אמיתית על ההוראה בכיתה ועל מצפן הגיל של התלמידים.',
+  '',
+  '## 5. מראי מקום והפניות למאגר',
+  '1. )',
+  '2. ()',
+].join('\n');
+const onlyEmptyTheory = phaseC.parseArchiveMarkdownToTheory(onlyEmptyBibMd, 'רנסנס', 'כיתה ז׳');
+assert(!onlyEmptyTheory.sections.some(function (sec) {
+  return /מראי מקום/.test(String(sec.heading || ''));
+}), 'empty bibliography section is omitted');
+
 console.log('OK: archive markdown/JSON fills Stage B/C theory title and sections');

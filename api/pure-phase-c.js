@@ -276,10 +276,49 @@ function stripPhaseCWireOnlyFields(data) {
   return data;
 }
 
+function isEmptyArchiveSourceLine(line) {
+  const s = String(line || '')
+    .replace(/^\d+[\.\)]\s*/, '')
+    .replace(/^[-*•]\s+/, '')
+    .replace(/\[([^\]]*)\]\((https?:\/\/[^)]*)\)/g, '$1')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/[\s\u200f\u200e\(\)\[\]"'«»\-–—.,;:•*]+/g, '')
+    .trim();
+  return s.length < 2;
+}
+
+function archiveSourceLeafName(label, url) {
+  let raw = String(label || '').trim().replace(/^\d+[\.\)]\s*/, '');
+  if (/[>\/]/.test(raw)) {
+    const parts = raw.split(/\s*>\s*|\s*\/\s*/).map(function (p) {
+      return String(p || '').trim();
+    }).filter(Boolean);
+    if (parts.length) raw = parts[parts.length - 1];
+  }
+  if (raw && !/^https?:\/\//i.test(raw) && raw.replace(/[\s\(\)\[\]"'«».,;:]+/g, '').length >= 2) {
+    return raw;
+  }
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const segs = (parsed.pathname || '').split('/').filter(Boolean);
+    const tail = segs.length ? decodeURIComponent(segs[segs.length - 1]) : '';
+    if (tail && /\.[a-z0-9]{2,8}$/i.test(tail)) return tail;
+  } catch (e) { /* ignore */ }
+  return '';
+}
+
 function archiveMarkdownInline(text) {
   return String(text || '')
+    .replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, function (_m, label, url) {
+      const name = archiveSourceLeafName(label, url);
+      if (!name) return '';
+      return '<a href="' + escapeHtmlForFallback(url) + '" target="_blank" rel="noopener noreferrer">' +
+        escapeHtmlForFallback(name) + '</a>';
+    })
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\[\s*\]/g, '')
     .trim();
 }
 
@@ -290,12 +329,23 @@ function archiveMarkdownToHtml(md) {
   return blocks.map(function (block) {
     const lines = block.split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
     if (!lines.length) return '';
-    if (lines.every(function (line) { return /^[-*•]\s+/.test(line); })) {
-      return '<ul>' + lines.map(function (line) {
-        return '<li>' + archiveMarkdownInline(line.replace(/^[-*•]\s+/, '')) + '</li>';
-      }).join('') + '</ul>';
+    const isList = lines.every(function (line) {
+      return /^[-*•]\s+/.test(line) || /^\d+[\.\)]\s+/.test(line);
+    });
+    if (isList) {
+      const items = lines.map(function (line) {
+        const body = line.replace(/^[-*•]\s+/, '').replace(/^\d+[\.\)]\s+/, '');
+        if (isEmptyArchiveSourceLine(body)) return '';
+        const html = archiveMarkdownInline(body);
+        if (!html || isEmptyArchiveSourceLine(html.replace(/<[^>]+>/g, ' '))) return '';
+        return '<li>' + html + '</li>';
+      }).filter(Boolean);
+      if (!items.length) return '';
+      return '<ul>' + items.join('') + '</ul>';
     }
-    return '<p>' + archiveMarkdownInline(lines.join(' ')) + '</p>';
+    const kept = lines.filter(function (line) { return !isEmptyArchiveSourceLine(line); });
+    if (!kept.length) return '';
+    return '<p>' + archiveMarkdownInline(kept.join(' ')) + '</p>';
   }).filter(Boolean).join('\n');
 }
 
@@ -329,9 +379,16 @@ function parseArchiveMarkdownToTheory(markdown, topic, grade) {
     const body = currentChunks.join('\n').trim();
     const heading = stripMarkdownHeadingMarks(currentHeading);
     if (!body && !heading) return;
+    const isBib = /מראי מקום|ביבליוגרפיה|bibliography|references/i.test(heading);
+    const content = archiveMarkdownToHtml(body);
+    if (isBib && !content) {
+      currentHeading = '';
+      currentChunks = [];
+      return;
+    }
     sections.push({
       heading: heading || ('חלון ' + (sections.length + 1)),
-      content: archiveMarkdownToHtml(body) || archiveMarkdownToHtml(heading),
+      content: content || archiveMarkdownToHtml(heading),
       icon: 'fa-compass',
     });
     currentHeading = '';
@@ -4457,6 +4514,8 @@ module.exports = {
   buildPhaseCFromSourceEssay,
   buildPhaseCFromArchiveRows,
   parseArchiveMarkdownToTheory,
+  archiveMarkdownToHtml,
+  isEmptyArchiveSourceLine,
   phaseCHasFilledTheory,
   buildArchiveSourcePromptBlock,
 };
