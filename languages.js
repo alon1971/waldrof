@@ -207,6 +207,7 @@ const LANGUAGES = {
     community_found_dismiss:     'סגירת התראה',
     community_materials_title:   'העשרה פדגוגית וחומרים מהקהילה',
     btn_to_step2:                'המשך לשלב ב׳ — הגדרת נושא התקופה',
+    btn_to_step3:                'המשך לשלב ג׳ — תוצרים ומהות פדגוגית',
 
     step2_title:                 'מה הנושא המבוקש לתקופת הלימוד?',
     step2_desc:                  'הזינו נושא — המערכת תטען את תוכן השיעור השמור בארכיון עבור כיתה',
@@ -1017,6 +1018,7 @@ const LANGUAGES = {
     community_found_dismiss:     'Dismiss alert',
     community_materials_title:   'Pedagogical enrichment & community materials',
     btn_to_step2:                'Continue to Step B — define the block topic',
+    btn_to_step3:                'Continue to Step C — products and pedagogical essence',
 
     step2_title:                 'What is the main lesson topic?',
     step2_desc:                  'Enter a topic — the system loads the saved lesson from the archive for grade',
@@ -1653,7 +1655,7 @@ const LANGUAGES = {
     topic_placeholder:           '',
     api_hint_step2:              'Erfordert einen aktiven API-Schlüssel',
     btn_topic_research:          'Thema erforschen',
-    btn_to_step3:                'Weiter zu Materialien',
+    btn_to_step3:                'Weiter zu Schritt C — Produkte und pädagogische Essenz',
 
     step3_title:                 'Unterrichtsmaterialien',
     step3_question:              'Welche Materialien möchtest du hinzufügen?',
@@ -1871,7 +1873,7 @@ const LANGUAGES = {
     topic_placeholder:           '',
     api_hint_step2:              'Requiere una clave API activa',
     btn_topic_research:          'Investigar tema',
-    btn_to_step3:                'Continuar a materiales',
+    btn_to_step3:                'Continuar al paso C — productos y esencia pedagógica',
 
     step3_title:                 'Materiales didácticos',
     step3_question:              '¿Qué materiales deseas agregar?',

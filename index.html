@@ -7529,6 +7529,13 @@
       <div id="web-research-result" class="hidden step-b-archive-reading"></div>
       <div id="topic-community-alert" class="hidden community-found-alert" role="status" aria-live="polite"></div>
       <div id="topic-community-slot" class="hidden mt-0 p-4 sm:p-5 rounded-2xl border border-sage/30 bg-gradient-to-l from-sage/5 via-cream to-parchment/80"></div>
+      <div id="step-b-continue-to-c" class="hidden mt-6 text-center">
+        <button type="button" id="btn-to-step-3"
+          class="touch-btn w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-burgundy hover:bg-burgundy/90 active:bg-burgundy/80 text-white px-6 sm:px-8 rounded-xl font-medium shadow-md">
+          <span data-i18n="btn_to_step3">המשך לשלב ג׳ — תוצרים ומהות פדגוגית</span>
+          <i class="fa-solid fa-arrow-left icon-inline"></i>
+        </button>
+      </div>
       </div>
     </section>
 
@@ -7539,14 +7546,6 @@
           <span data-i18n="community_materials_title">העשרה פדגוגית וחומרים מהקהילה</span>
         </h3>
         <div id="grade-community-list"></div>
-      </div>
-
-      <div class="mt-6 text-center">
-        <button type="button" id="btn-to-step-2"
-          class="touch-btn w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-burgundy hover:bg-burgundy/90 active:bg-burgundy/80 text-white px-6 sm:px-8 rounded-xl font-medium shadow-md">
-          <span data-i18n="btn_to_step2">המשך לשלב ב׳ — הגדרת נושא התקופה</span>
-          <i class="fa-solid fa-arrow-left icon-inline"></i>
-        </button>
       </div>
     </div>
   </div>
@@ -15794,6 +15793,7 @@
       if (options.scrollIntoView !== false) {
         notifyPlannerContentDisplayed(out);
       }
+      syncStepCContinueVisibility();
     }
 
     function buildPhaseBEssenceHtml(dive, meta) {
@@ -28889,6 +28889,34 @@
       onHeaderCompactScroll();
     }
 
+    function canOpenStepCFromResearch() {
+      return Boolean(
+        appState.grade &&
+        String(appState.topic || '').trim() &&
+        appState.topicResearchCompleted &&
+        (appState.purePhaseC || appState.aiGeneratedPlan)
+      );
+    }
+
+    function syncStepCContinueVisibility() {
+      var wrap = document.getElementById('step-b-continue-to-c');
+      var btn = document.getElementById('btn-to-step-3');
+      var ready = canOpenStepCFromResearch();
+      if (wrap) wrap.classList.toggle('hidden', !ready);
+      if (btn) btn.disabled = !ready;
+    }
+
+    function goToStepCFromStepB(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (!canNavigateToStep(3) || !canOpenStepCFromResearch()) return;
+      rememberNavScrollPosition(getNavScrollKey());
+      applyForwardNavScroll();
+      openPhaseCWorkspace({ initialTab: appState.activeProductTab || 'narrative' });
+    }
+
     function updateWorkspaceChrome() {
       document.body.classList.toggle('ws-products-view', isProductsView());
       requestAnimationFrame(syncProductTabsStickyLayout);
@@ -28897,6 +28925,7 @@
       updateClearTopicProseButtonVisibility();
       ensureAdminResearchToolsEvents();
       updateAdminResearchToolsVisibility();
+      syncStepCContinueVisibility();
     }
 
     const SERVER_CACHE_ADMIN_EMAILS = ['alon1971@gmail.com'];
@@ -34943,12 +34972,13 @@
           return;
         }
 
+        if (active.id === 'btn-to-step-3' && canOpenStepCFromResearch()) {
+          e.preventDefault();
+          goToStepCFromStepB();
+          return;
+        }
+
         if (isWizardStepVisible(1)) {
-          if (active.id === 'btn-to-step-2') {
-            e.preventDefault();
-            goToStep2FromStep1();
-            return;
-          }
           // Grade selection / submit must stay on Step A — never auto-jump to Step B.
           if (active.id === 'btn-grade-submit' && !active.disabled) {
             e.preventDefault();
@@ -35209,7 +35239,7 @@
       bindWizardNavClick(document.getElementById('btn-grade-submit'), function () { onGradeSubmit(); });
       const gradeCancelBtn = document.getElementById('btn-grade-research-cancel');
       if (gradeCancelBtn) gradeCancelBtn.addEventListener('click', cancelGradeResearch);
-      bindWizardNavClick(document.getElementById('btn-to-step-2'), goToStep2FromStep1);
+      bindWizardNavClick(document.getElementById('btn-to-step-3'), goToStepCFromStepB);
       document.getElementById('topic-input').addEventListener('input', function () {
         appState.topic = this.value.trim();
         if (appState.archiveSuggestionPending) {
