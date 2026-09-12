@@ -1412,56 +1412,177 @@ function buildCitationsPayload(fileRefs, extraCitations) {
   }).filter(Boolean));
 }
 
-async function upsertArchiveRow(record) {
+function describeArchiveUpsertPayloadForLog(record) {
+  const r = record && typeof record === 'object' ? record : {};
+  const summary = String(r.summary_md || r.summary_text || '').trim();
+  return {
+    table: TABLE_NAME,
+    archive_key: String(r.archive_key || ''),
+    archive_key_prefix: String(r.archive_key || '').slice(0, 16),
+    search_query: String(r.search_query || r.query_text || ''),
+    topic: String(r.topic || ''),
+    grade_id: r.grade_id != null ? r.grade_id : null,
+    grade_level: r.grade_level != null ? r.grade_level : null,
+    community_status: r.community_status,
+    columnKeys: Object.keys(r).sort(),
+    summary_md_chars: summary.length,
+    file_refs_count: Array.isArray(r.file_refs) ? r.file_refs.length : 0,
+    citations_count: Array.isArray(r.citations) ? r.citations.length : 0,
+    source_file_ids_count: Array.isArray(r.source_file_ids) ? r.source_file_ids.length : 0,
+    json_body_bytes: (function () {
+      try {
+        return Buffer.byteLength(JSON.stringify(r), 'utf8');
+      } catch (e) {
+        return -1;
+      }
+    })(),
+    model: r.model || null,
+  };
+}
+
+function classifySupabaseArchiveUpsertError(status, errText) {
+  const t = String(errText || '').toLowerCase();
+  const hints = [];
+  if (status === 401 || status === 403 || /row-level security|\brls\b|permission denied|jwt expired|invalid api key/i.test(t)) {
+    hints.push('possible_RLS_or_auth');
+  }
+  if (/column .* does not exist|could not find .* column|unknown column|schema cache/i.test(t)) {
+    hints.push('missing_or_unknown_column');
+  }
+  if (/violates .* constraint|duplicate key|null value in column/i.test(t)) {
+    hints.push('constraint_or_not_null');
+  }
+  if (/payload too large|request entity too large|body exceeded/i.test(t)) {
+    hints.push('payload_too_large');
+  }
+  return hints;
+}
+
+function logArchiveUpsertFailure(phase, status, errText, payloadPreview, extra) {
+  const hints = classifySupabaseArchiveUpsertError(status, errText);
+  console.error(
+    '[community-drive-archive] upsert FAILED — ' + phase,
+    Object.assign(
+      {
+        httpStatus: status,
+        rejectionHints: hints,
+        supabaseResponse: String(errText || '').slice(0, 8000),
+        attemptedPayload: payloadPreview,
+      },
+      extra || {}
+    )
+  );
+}
+
+async function upsertArchiveRow(record, logContext) {
   const cfg = getSupabaseConfig();
   if (!cfg.url || !cfg.key) {
-    throw new Error('Supabase not configured for community_drive_archive');
+    const err = new Error('Supabase not configured for community_drive_archive');
+    console.error('[community-drive-archive] upsert aborted — missing Supabase config', {
+      hasUrl: Boolean(cfg.url),
+      hasKey: Boolean(cfg.key),
+      context: logContext || null,
+      payload: describeArchiveUpsertPayloadForLog(record),
+    });
+    throw err;
   }
   const payload = Object.assign({}, record, {
     updated_at: new Date().toISOString(),
   });
+  const payloadPreview = describeArchiveUpsertPayloadForLog(payload);
+  console.log('[community-drive-archive] upsert START', {
+    context: logContext || null,
+    payload: payloadPreview,
+    supabaseHost: String(cfg.url || '').replace(/\/rest\/v1.*$/, '').slice(0, 80),
+  });
 
-  async function postPayload(body) {
-    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: cfg.key,
-        Authorization: 'Bearer ' + cfg.key,
-        Prefer: 'resolution=merge-duplicates,return=representation',
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    return { res: res, text: text };
+  async function postPayload(body, label) {
+    let res;
+    let text = '';
+    try {
+      res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: cfg.key,
+          Authorization: 'Bearer ' + cfg.key,
+          Prefer: 'resolution=merge-duplicates,return=representation',
+        },
+        body: JSON.stringify(body),
+      });
+      text = await res.text();
+    } catch (fetchErr) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.error('[community-drive-archive] upsert network error — ' + label, {
+        context: logContext || null,
+        error: msg,
+        attemptedPayload: describeArchiveUpsertPayloadForLog(body),
+      });
+      throw fetchErr;
+    }
+    return { res: res, text: text, bodyPreview: describeArchiveUpsertPayloadForLog(body) };
   }
 
-  let attempt = await postPayload(payload);
+  let attempt = await postPayload(payload, 'attempt_1');
   // Optional alias columns may be missing on older DBs — strip and retry once.
   if (!attempt.res.ok) {
     const errText = String(attempt.text || '');
+    logArchiveUpsertFailure('attempt_1', attempt.res.status, errText, attempt.bodyPreview, {
+      context: logContext || null,
+      willRetryWithoutOptionalColumns: true,
+    });
     const optionalCols = ['citations', 'summary_text', 'drive_fingerprint', 'grade_level'];
     const stripped = Object.assign({}, payload);
-    let removed = false;
+    const removedCols = [];
     optionalCols.forEach(function (col) {
       if (Object.prototype.hasOwnProperty.call(stripped, col) && new RegExp(col, 'i').test(errText)) {
         delete stripped[col];
-        removed = true;
+        removedCols.push(col);
       }
     });
-    if (removed) {
-      console.warn('[community-drive-archive] upsert retry without optional columns');
-      attempt = await postPayload(stripped);
+    if (removedCols.length) {
+      console.warn('[community-drive-archive] upsert retry without optional columns:', removedCols.join(', '), {
+        context: logContext || null,
+      });
+      attempt = await postPayload(stripped, 'attempt_2_stripped_' + removedCols.join('_'));
+      if (!attempt.res.ok) {
+        logArchiveUpsertFailure('attempt_2_after_column_strip', attempt.res.status, attempt.text, attempt.bodyPreview, {
+          context: logContext || null,
+          strippedColumns: removedCols,
+        });
+      }
     }
   }
   if (!attempt.res.ok) {
-    throw new Error(
+    const errText = String(attempt.text || '');
+    const err = new Error(
       'community_drive_archive upsert failed (' + attempt.res.status + '): '
-      + String(attempt.text || '').slice(0, 300)
+      + errText.slice(0, 800)
     );
+    err.statusCode = attempt.res.status;
+    err.supabaseBody = errText;
+    err.attemptedPayload = attempt.bodyPreview || payloadPreview;
+    throw err;
   }
-  const data = attempt.text ? JSON.parse(attempt.text) : [];
-  return Array.isArray(data) ? data[0] : data;
+  let data = [];
+  try {
+    data = attempt.text ? JSON.parse(attempt.text) : [];
+  } catch (parseErr) {
+    console.error('[community-drive-archive] upsert OK but response JSON parse failed', {
+      context: logContext || null,
+      parseError: parseErr instanceof Error ? parseErr.message : String(parseErr),
+      responseSnippet: String(attempt.text || '').slice(0, 500),
+      attemptedPayload: payloadPreview,
+    });
+    throw parseErr;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  console.log('[community-drive-archive] upsert OK', {
+    context: logContext || null,
+    archive_key_prefix: payloadPreview.archive_key_prefix,
+    returnedId: row && row.id != null ? row.id : null,
+  });
+  return row;
 }
 
 function extractGeminiText(payload) {
@@ -2439,9 +2560,18 @@ async function resolveCommunityDriveSummary(query, matches, options) {
     model: generated.model,
   };
 
+  const persistLogContext = {
+    source: 'resolveCommunityDriveSummary',
+    topic: topic,
+    gradeId: gradeId,
+    searchQuery: q,
+    archiveKeyPrefix: archiveKey.slice(0, 16),
+  };
+  console.log('[community-drive-archive] persist START (post-Gemini)', persistLogContext);
+
   let persistError = null;
   try {
-    await upsertArchiveRow(record);
+    await upsertArchiveRow(record, persistLogContext);
     console.log(
       '[community-drive-archive] upserted summary',
       '| key:',
@@ -2452,13 +2582,29 @@ async function resolveCommunityDriveSummary(query, matches, options) {
       fingerprint.slice(0, 12)
     );
   } catch (persistErr) {
-    console.error('[community-drive-archive] persist failed (retrying once):', persistErr.message || persistErr);
+    console.error('[community-drive-archive] persist failed (retrying once)', {
+      context: persistLogContext,
+      message: persistErr instanceof Error ? persistErr.message : String(persistErr),
+      httpStatus: persistErr && persistErr.statusCode,
+      supabaseBody: persistErr && persistErr.supabaseBody
+        ? String(persistErr.supabaseBody).slice(0, 8000)
+        : undefined,
+      attemptedPayload: persistErr && persistErr.attemptedPayload,
+    });
     try {
-      await upsertArchiveRow(record);
-      console.log('[community-drive-archive] upsert succeeded on retry');
+      await upsertArchiveRow(record, Object.assign({}, persistLogContext, { retry: 2 }));
+      console.log('[community-drive-archive] upsert succeeded on retry', persistLogContext);
     } catch (retryErr) {
       persistError = String(retryErr && retryErr.message ? retryErr.message : retryErr);
-      console.error('[community-drive-archive] persist failed after retry:', persistError);
+      console.error('[community-drive-archive] persist failed after retry', {
+        context: persistLogContext,
+        message: persistError,
+        httpStatus: retryErr && retryErr.statusCode,
+        supabaseBody: retryErr && retryErr.supabaseBody
+          ? String(retryErr.supabaseBody).slice(0, 8000)
+          : undefined,
+        attemptedPayload: retryErr && retryErr.attemptedPayload,
+      });
     }
   }
 
@@ -2520,6 +2666,8 @@ module.exports = {
   hasNewerCommunityMaterials,
   dedupeCommunityCitations,
   dedupeCitationsInMarkdown,
+  upsertArchiveRow,
+  describeArchiveUpsertPayloadForLog,
   resolveCommunityDriveSummary,
   emptySummaryResult,
   resolveMultimodalMime,

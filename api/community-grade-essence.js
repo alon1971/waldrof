@@ -274,52 +274,8 @@ async function purgeStaleGradeEssenceArchives(gradeId) {
   return count;
 }
 
-async function upsertGradeEssenceArchiveRow(record) {
-  const cfg = getSupabaseConfig();
-  if (!cfg.url || !cfg.key) {
-    throw new Error('Supabase not configured for community_drive_archive');
-  }
-  const payload = Object.assign({}, record, {
-    updated_at: new Date().toISOString(),
-  });
-
-  async function postPayload(body) {
-    const res = await fetch(cfg.url + '/rest/v1/' + TABLE_NAME + '?on_conflict=archive_key', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: cfg.key,
-        Authorization: 'Bearer ' + cfg.key,
-        Prefer: 'resolution=merge-duplicates,return=representation',
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    return { res: res, text: text };
-  }
-
-  let attempt = await postPayload(payload);
-  if (!attempt.res.ok) {
-    const errText = String(attempt.text || '');
-    const optionalCols = ['citations', 'summary_text', 'drive_fingerprint', 'grade_level'];
-    const stripped = Object.assign({}, payload);
-    let removed = false;
-    optionalCols.forEach(function (col) {
-      if (Object.prototype.hasOwnProperty.call(stripped, col) && new RegExp(col, 'i').test(errText)) {
-        delete stripped[col];
-        removed = true;
-      }
-    });
-    if (removed) attempt = await postPayload(stripped);
-  }
-  if (!attempt.res.ok) {
-    throw new Error(
-      'grade_essence archive upsert failed (' + attempt.res.status + '): '
-      + String(attempt.text || '').slice(0, 300)
-    );
-  }
-  const data = attempt.text ? JSON.parse(attempt.text) : [];
-  return Array.isArray(data) ? data[0] : data;
+async function upsertGradeEssenceArchiveRow(record, logContext) {
+  return communityDriveArchive.upsertArchiveRow(record, logContext || { source: 'grade_essence' });
 }
 
 function sanitizeSummary(summary) {
@@ -1092,9 +1048,14 @@ async function runGradeEssenceSummary(options) {
     model: generated.model,
   };
 
+  const persistLogContext = {
+    source: 'grade_essence',
+    gradeId: gradeId,
+    archiveKeyPrefix: archiveKey.slice(0, 16),
+  };
   let persistError = null;
   try {
-    await upsertGradeEssenceArchiveRow(record);
+    await upsertGradeEssenceArchiveRow(record, persistLogContext);
     console.log(
       '[community-grade-essence] upserted | grade:',
       gradeId,
@@ -1105,7 +1066,15 @@ async function runGradeEssenceSummary(options) {
     );
   } catch (persistErr) {
     persistError = String(persistErr && persistErr.message ? persistErr.message : persistErr);
-    console.error('[community-grade-essence] persist failed:', persistError);
+    console.error('[community-grade-essence] persist failed', {
+      context: persistLogContext,
+      message: persistError,
+      httpStatus: persistErr && persistErr.statusCode,
+      supabaseBody: persistErr && persistErr.supabaseBody
+        ? String(persistErr.supabaseBody).slice(0, 8000)
+        : undefined,
+      attemptedPayload: persistErr && persistErr.attemptedPayload,
+    });
   }
 
   return {
