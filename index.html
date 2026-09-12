@@ -8410,6 +8410,8 @@
     // (including server heartbeats), so a long-but-healthy generation is never cut off.
     const STREAM_IDLE_TIMEOUT_MS = 45000;
     const CURRICULUM_REQUEST_TIMEOUT_MS = 60000;
+    const PURE_API_TIMEOUT_MS = 50000;
+    const ARCHIVE_PROBE_TIMEOUT_MS = 8000;
     var archiveCurriculumHealInFlight = null;
 
     function parseApiCooldownSeconds(message) {
@@ -18738,8 +18740,17 @@
         const contributor = WaldorfAuth.getContributorProfile();
         if (contributor) body.teacherUser = contributor;
       }
+      var probeController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var probeTimer = probeController
+        ? setTimeout(function () { try { probeController.abort(); } catch (e) { /* ignore */ } }, ARCHIVE_PROBE_TIMEOUT_MS)
+        : null;
       try {
-        const res = await fetch(apiUrl, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(body),
+          signal: probeController ? probeController.signal : undefined,
+        });
         const bodyText = await res.text();
         let json;
         try {
@@ -18757,6 +18768,8 @@
         }
       } catch (apiErr) {
         console.warn('[archive-probe] API failed:', apiErr);
+      } finally {
+        if (probeTimer) clearTimeout(probeTimer);
       }
       return filterArchiveProbeMatch(probeArchiveTopicMatchLocal(topic, gradeId));
     }
@@ -27514,10 +27527,16 @@
         return;
       }
       resultsEl.classList.remove('hidden');
+      var fallbackBanner = '';
+      if (meta && meta.fallback) {
+        fallbackBanner = '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-info ml-1"></i> ' +
+          escapeHtml(meta.userNotice || t('topic_research_fallback_timeout')) + '</p>';
+      }
       var curriculumHtml = (data.periodBlock || (data.curriculum && data.curriculum.length))
         ? renderGeneralSearchCurriculumSection(data.curriculum)
         : '';
       resultsEl.innerHTML =
+        fallbackBanner +
         '<div class="pure-phase-c-grid">' +
         '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-road text-sage"></i> ' + escapeHtml(t('general_search_section_axis')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.developmental_axis, { blockPath: 'developmental_axis', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
         '<article class="pure-data-card general-search-card"><div class="content-card-head"><h3><i class="fa-solid fa-seedling text-terracotta"></i> ' + escapeHtml(t('general_search_section_emphases')) + '</h3>' + buildTtsListenButtonHtml() + '</div>' + renderPureTextBlock(data.core_pedagogical_emphases, { blockPath: 'core_pedagogical_emphases', cacheKey: appState.generalSearchCacheKey }) + '</article>' +
@@ -27590,13 +27609,35 @@
         if (identityEmail) headers['X-User-Email'] = identityEmail;
       }
       var fetchInit = { method: 'POST', headers: headers, body: JSON.stringify(payload || {}) };
-      if (signal) fetchInit.signal = signal;
+      var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timeoutId = controller
+        ? setTimeout(function () { try { controller.abort(); } catch (e) { /* ignore */ } }, PURE_API_TIMEOUT_MS)
+        : null;
+      function onExternalAbort() {
+        try { if (controller) controller.abort(); } catch (e) { /* ignore */ }
+      }
+      if (signal) {
+        if (signal.aborted && controller) controller.abort();
+        else if (typeof signal.addEventListener === 'function') {
+          signal.addEventListener('abort', onExternalAbort, { once: true });
+        }
+      }
+      if (controller) fetchInit.signal = controller.signal;
       var res;
       try {
         res = await fetch(endpoint, fetchInit);
       } catch (netErr) {
-        if (netErr && netErr.name === 'AbortError') throw netErr;
+        if (netErr && netErr.name === 'AbortError') {
+          if (signal && signal.aborted) throw netErr;
+          var timeoutErr = new Error(isEnglish()
+            ? 'Live search did not respond in time. Showing available archive materials or a starter outline.'
+            : 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים במאגר או שלד ראשוני.');
+          timeoutErr.code = 'LIVE_SEARCH_TIMEOUT';
+          throw timeoutErr;
+        }
         throw new Error('שגיאת רשת: ' + (netErr.message || netErr));
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
       }
       var bodyText = await res.text();
       var json;
@@ -30993,9 +31034,13 @@
       const btn = document.getElementById('btn-topic-research');
       const topicInput = document.getElementById('topic-input');
       if (loadingText) {
-        loadingText.textContent = fromArchive
-          ? t('topic_research_loading_archive')
-          : (t('topic_research_deep') || getLiveSearchLoadingText());
+        if (fromArchive) {
+          loadingText.textContent = t('topic_research_loading_archive');
+        } else if (options.checkingArchive) {
+          loadingText.textContent = t('topic_research_checking_archive') || t('topic_research_loading_archive');
+        } else {
+          loadingText.textContent = t('topic_research_deep') || getLiveSearchLoadingText();
+        }
       }
       holdPageScroll(function () {
         if (loadingEl) {
@@ -31585,9 +31630,21 @@
 
         const data = response.data;
         const meta = response.meta || {};
-        var statusMsg = meta.fromCache
-          ? (isEnglish() ? 'Loaded from archive — review the topic summary, then open Step C when ready.' : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.')
-          : (isEnglish() ? 'Research complete — review the topic summary, then open Step C when ready.' : 'המחקר הושלם — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.');
+        var statusMsg;
+        if (meta.fallback) {
+          statusMsg = meta.userNotice || t('topic_research_fallback_timeout') ||
+            (isEnglish()
+              ? 'Live search did not respond in time. Showing available materials.'
+              : 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים.');
+        } else if (meta.fromCache) {
+          statusMsg = isEnglish()
+            ? 'Loaded from archive — review the topic summary, then open Step C when ready.'
+            : 'נטען מהארכיון — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.';
+        } else {
+          statusMsg = isEnglish()
+            ? 'Research complete — review the topic summary, then open Step C when ready.'
+            : 'המחקר הושלם — עיינו בסיכום הנושא, ולאחר מכן פתחו את שלב ג׳ כשתהיו מוכנים.';
+        }
         commitPurePhaseCToStepB(topic, data, Object.assign({}, meta, {
           statusBanner: '<p class="text-sage-dark m-0 mb-3"><i class="fa-solid fa-circle-check ml-1"></i> ' +
             escapeHtml(statusMsg) + '</p>',
@@ -31599,6 +31656,23 @@
       } catch (e) {
         if (runId !== topicResearchRunId || signal.aborted || isTopicResearchAbortError(e)) return;
         if (isRateLimitError(e)) return;
+        if (e && e.code === 'LIVE_SEARCH_TIMEOUT') {
+          try {
+            var timeoutMatch = await probeArchiveTopicMatch(topic, appState.grade);
+            if (timeoutMatch && timeoutMatch.matchType !== 'grade_mismatch') {
+              var timeoutLoaded = await applyTopicMasterArchivePayload(topic, timeoutMatch);
+              if (timeoutLoaded) return;
+              var timeoutApplied = await applyArchiveTopicMatch(timeoutMatch, {
+                closeChat: false,
+                userQuery: topic,
+                allowLiveFallback: false,
+              });
+              if (timeoutApplied) return;
+            }
+          } catch (timeoutFbErr) {
+            console.warn('[waldrof] timeout archive fallback failed:', timeoutFbErr);
+          }
+        }
         if (out) {
           out.classList.remove('hidden');
           out.innerHTML = '<p class="text-terracotta"><i class="fa-solid fa-triangle-exclamation ml-1"></i> ' + escapeHtml(e.message) + '</p>';
@@ -31682,6 +31756,7 @@
       let archiveHandled = false;
 
       if (!skipArchiveProbe) {
+        setTopicResearchLoadingUi(true, { checkingArchive: true });
         // 1) Archive/cache check FIRST — never open credit modal before this.
         var archiveCheck = await checkArchiveHit('topic', {
           topic: topic,

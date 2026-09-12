@@ -1717,13 +1717,16 @@ async function runPureGeneralSearch(body, requestContext) {
     periodBlock ? '(15-day cache miss — Gemini + Perplexity links)' : '(Gemini + Perplexity links)'
   );
   try {
-    const normalized = await generateNormalizedGeneralSearch(systemPrompt, userPrompt, {
-      phase: periodBlock ? 'general_search_period' : 'general_search',
-      query: query,
-      periodBlock: periodBlock,
-      gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
-      gradeInfo: gradeInfo,
-    });
+    const normalized = await shared.withHardTimeout(
+      generateNormalizedGeneralSearch(systemPrompt, userPrompt, {
+        phase: periodBlock ? 'general_search_period' : 'general_search',
+        query: query,
+        periodBlock: periodBlock,
+        gradeLabel: (typeof gradeInfo !== 'undefined' && gradeInfo.gradeLabel) || '',
+        gradeInfo: gradeInfo,
+      }),
+      shared.LIVE_SEARCH_BUDGET_MS
+    );
 
     const archiveResult = await persistGeneralSearchArchive(
       query,
@@ -1749,8 +1752,59 @@ async function runPureGeneralSearch(body, requestContext) {
       },
     };
   } catch (err) {
-    throw err;
+    if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
+    const reason = shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error';
+    console.warn('[pure-general-search] live search failed —', reason + ':', err && err.message ? err.message : err);
+    const archived = await lookupArchivedGeneralSearch();
+    if (archived && archived.data) {
+      return {
+        data: archived.data,
+        meta: Object.assign({}, archived.meta || {}, {
+          fromCache: true,
+          fallback: true,
+          fallbackReason: reason,
+          source: 'general_search_timeout_fallback',
+          userNotice: 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים במאגר.',
+        }),
+      };
+    }
+    return {
+      data: buildGeneralSearchTimeoutSkeleton(query, periodBlock, gradeInfo),
+      meta: {
+        fromCache: false,
+        fallback: true,
+        fallbackReason: reason,
+        source: 'timeout_skeleton',
+        periodBlock: periodBlock,
+        userNotice: 'החיפוש החי לא השיב בזמן. מוצג שלד ראשוני — ניתן להרחיב מאוחר יותר.',
+      },
+    };
   }
+}
+
+function buildGeneralSearchTimeoutSkeleton(query, periodBlock, gradeInfo) {
+  const q = String(query || 'נושא').trim();
+  const notice = 'החיפוש החי לא השיב בזמן. זהו שלד ראשוני — ניתן להרחיב מאוחר יותר.';
+  const data = {
+    developmental_axis: notice + '\n\nמתווה ראשוני לנושא «' + q + '».',
+    core_pedagogical_emphases: notice,
+    recommended_literature: [],
+    relevant_links: [],
+    _timeoutFallback: true,
+  };
+  if (periodBlock) {
+    const gradeLabel = gradeInfo && gradeInfo.gradeLabel ? String(gradeInfo.gradeLabel) : '';
+    data.curriculum = [];
+    for (let day = 1; day <= 15; day++) {
+      data.curriculum.push({
+        day: day,
+        topic: 'יום ' + day + ' — ' + q,
+        content: 'שלד ראשוני ליום זה' + (gradeLabel ? ' ל' + gradeLabel : '') + '. השלימו תוכן פדגוגי לאחר מכן.',
+        art: '',
+      });
+    }
+  }
+  return data;
 }
 
 const legacyHandler = async function (req, res) {

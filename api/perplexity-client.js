@@ -340,21 +340,35 @@ function abortedPerplexityError() {
   return new Error('הקריאה ל-Perplexity הופסקה עקב חוסר תגובה (timeout). נסו שוב בעוד רגע.');
 }
 
-async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta) {
+async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, requestOpts) {
+  const opts = requestOpts && typeof requestOpts === 'object' ? requestOpts : {};
+  const idleTimeoutMs = typeof opts.idleTimeoutMs === 'number' && opts.idleTimeoutMs > 0
+    ? opts.idleTimeoutMs
+    : REQUEST_TIMEOUT_MS;
+  const totalTimeoutMs = typeof opts.totalTimeoutMs === 'number' && opts.totalTimeoutMs > 0
+    ? opts.totalTimeoutMs
+    : 0;
   const streaming = useStream !== false;
   const requestBody = Object.assign({}, body, { stream: streaming });
   const headers = buildHeaders(apiKey, streaming);
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   let timer = null;
+  let totalTimer = null;
 
-  // For streaming we use an IDLE timeout (reset on every token) so a long but
-  // healthy generation is never aborted; non-streaming uses a fixed total timeout.
+  if (totalTimeoutMs && controller) {
+    totalTimer = setTimeout(function () {
+      try { controller.abort(); } catch (e) { /* ignore */ }
+    }, totalTimeoutMs);
+  }
+
+  // Idle timeout resets on every token unless a hard totalTimeoutMs cap is set.
   function armTimer() {
     if (!controller) return;
+    if (totalTimeoutMs) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(function () {
       try { controller.abort(); } catch (e) { /* ignore */ }
-    }, REQUEST_TIMEOUT_MS);
+    }, idleTimeoutMs);
   }
   armTimer();
 
@@ -393,6 +407,7 @@ async function fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta) {
     return { content: content, citations: extractCitations(data), rawResponseText: responseText };
   } finally {
     if (timer) clearTimeout(timer);
+    if (totalTimer) clearTimeout(totalTimer);
   }
 }
 
@@ -405,10 +420,13 @@ async function fetchPerplexity(apiKey, body, useStream) {
   return result.content;
 }
 
-async function httpsPerplexityOnce(apiKey, body) {
+async function httpsPerplexityOnce(apiKey, body, requestOpts) {
   const requestBody = Object.assign({}, body, { stream: false });
   const headers = buildHeaders(apiKey, false);
-  const result = await httpsPostJson(PERPLEXITY_URL, headers, requestBody, REQUEST_TIMEOUT_MS);
+  const timeoutMs = requestOpts && requestOpts.totalTimeoutMs
+    ? requestOpts.totalTimeoutMs
+    : REQUEST_TIMEOUT_MS;
+  const result = await httpsPostJson(PERPLEXITY_URL, headers, requestBody, timeoutMs);
   if (result.status < 200 || result.status >= 300) {
     throw mapHttpError(result.status, result.text);
   }
@@ -426,9 +444,9 @@ async function httpsPerplexity(apiKey, body) {
 }
 
 /** Fetch (streaming or not) with a single https fallback on connection failure. */
-async function executePerplexityRequest(apiKey, body, useStream, onDelta) {
+async function executePerplexityRequest(apiKey, body, useStream, onDelta, requestOpts) {
   try {
-    return await fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta);
+    return await fetchPerplexityResponseOnce(apiKey, body, useStream, onDelta, requestOpts);
   } catch (fetchErr) {
     const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
     // Aborted/stuck request — stop immediately, never re-call (avoids double-billing + hangs).
@@ -440,7 +458,7 @@ async function executePerplexityRequest(apiKey, body, useStream, onDelta) {
 
     console.warn('[perplexity] connection failed, single https fallback:', msg);
     try {
-      return await httpsPerplexity(apiKey, body);
+      return await httpsPerplexityOnce(apiKey, body, requestOpts);
     } catch (httpsErr) {
       const httpsMsg = httpsErr instanceof Error ? httpsErr.message : String(httpsErr);
       if (isAbortOrTimeoutError(httpsMsg)) throw abortedPerplexityError();
@@ -471,8 +489,12 @@ async function callPerplexityChatWithCitations(options) {
     messages: opts.messages || [],
   };
 
+  const requestOpts = {};
+  if (opts.totalTimeoutMs) requestOpts.totalTimeoutMs = opts.totalTimeoutMs;
+  if (opts.idleTimeoutMs) requestOpts.idleTimeoutMs = opts.idleTimeoutMs;
+
   const result = await withRateLimitRetry(function () {
-    return executePerplexityRequest(apiKey, body, false);
+    return executePerplexityRequest(apiKey, body, false, null, requestOpts);
   }, 'chat-citations');
   return {
     content: result.content,
@@ -543,6 +565,7 @@ module.exports = {
   PERPLEXITY_SEARCH_MODEL,
   PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
   PERPLEXITY_MAX_OUTPUT_TOKENS_SEARCH,
+  REQUEST_TIMEOUT_MS,
   normalizeApiKey,
   resolveApiKey,
   callPerplexityChat,
