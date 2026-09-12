@@ -3436,12 +3436,6 @@ async function executeGenerate(body, apiKey, requestContext, streamHooks) {
     body.skipRag = true;
   }
 
-  if (body.userInitiated && body.phase === 'topic') {
-    body.skipCache = true;
-    body.forceFresh = true;
-    console.log('[generate] userInitiated — cache bypass for', body.phase, body.topic || '');
-  }
-
   if (body.bypassCache || body.forceRefresh) {
     body.skipCache = true;
     body.forceFresh = true;

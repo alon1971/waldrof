@@ -907,6 +907,7 @@ async function callPhaseCPerplexitySafe(systemPrompt, userPrompt, options) {
     max_tokens: opts.max_tokens != null
       ? opts.max_tokens
       : perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+    totalTimeoutMs: opts.totalTimeoutMs || shared.LIVE_SEARCH_BUDGET_MS,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -3129,13 +3130,17 @@ async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
   const userPrompt = buildArchiveUpgradePhaseCUserPrompt(historic, grade, topic);
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
-    const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
-      phase: 'topic_master',
-      grade: grade,
-      gradeLabel: grade,
-      topic: topic,
-      max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-    });
+    const modelResult = await shared.withHardTimeout(
+      callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+        phase: 'topic_master',
+        grade: grade,
+        gradeLabel: grade,
+        topic: topic,
+        max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+        totalTimeoutMs: shared.LIVE_SEARCH_BUDGET_MS,
+      }),
+      shared.LIVE_SEARCH_BUDGET_MS
+    );
     const parsed = modelResult.parsed;
     let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
     stampTopicMasterArchiveLinks(normalized, parsed);
@@ -3160,7 +3165,18 @@ async function runArchiveUpgradePhaseC(body, requestContext, teacher) {
       },
     };
   } catch (err) {
-    throw err;
+    if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
+    console.warn('[pure-phase-c] archive upgrade live search failed — returning historic:', err.message || err);
+    return {
+      data: safeNormalizePhaseCResponse(historic, grade, topic),
+      meta: {
+        fromCache: true,
+        fallback: true,
+        fallbackReason: shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error',
+        source: 'archive_upgrade_timeout_fallback',
+        userNotice: liveSearchUserNotice('archive'),
+      },
+    };
   }
 }
 
@@ -3185,13 +3201,17 @@ async function runResearchExpandPhaseC(body, requestContext, teacher) {
   const userPrompt = buildResearchExpandPhaseCUserPrompt(historic, grade, topic);
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
-    const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
-      phase: 'topic_master',
-      grade: grade,
-      gradeLabel: grade,
-      topic: topic,
-      max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-    });
+    const modelResult = await shared.withHardTimeout(
+      callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+        phase: 'topic_master',
+        grade: grade,
+        gradeLabel: grade,
+        topic: topic,
+        max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+        totalTimeoutMs: shared.LIVE_SEARCH_BUDGET_MS,
+      }),
+      shared.LIVE_SEARCH_BUDGET_MS
+    );
     const parsed = modelResult.parsed;
     let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
     stampTopicMasterArchiveLinks(normalized, parsed);
@@ -3223,7 +3243,18 @@ async function runResearchExpandPhaseC(body, requestContext, teacher) {
       },
     };
   } catch (err) {
-    throw err;
+    if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
+    console.warn('[pure-phase-c] research expand live search failed — returning historic:', err.message || err);
+    return {
+      data: safeNormalizePhaseCResponse(historic, grade, topic),
+      meta: {
+        fromCache: true,
+        fallback: true,
+        fallbackReason: shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error',
+        source: 'research_expand_timeout_fallback',
+        userNotice: liveSearchUserNotice('archive'),
+      },
+    };
   }
 }
 
@@ -3298,6 +3329,187 @@ async function mergeTopicMasterPayloads(historic, fresh, grade, topic) {
     }
   );
   return modelResult.parsed;
+}
+
+function unwrapArchivePhaseCData(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.purePhaseC && typeof raw.purePhaseC === 'object') return raw.purePhaseC;
+  if (raw.phaseC && typeof raw.phaseC === 'object') return raw.phaseC;
+  return raw;
+}
+
+function extractPhaseCFromArchiveMatch(match, grade, topic) {
+  if (!match) return null;
+  const raw = match.resultData || match.historicPayload
+    || (match.item && match.item.resultData) || null;
+  if (!raw || typeof raw !== 'object') return null;
+  let data;
+  try {
+    data = JSON.parse(JSON.stringify(unwrapArchivePhaseCData(raw) || raw));
+  } catch (cloneErr) {
+    return null;
+  }
+  if (!data || typeof data !== 'object') return null;
+  if (!data.theory && data.blockPlan && data.blockPlan.theory) {
+    data.theory = data.blockPlan.theory;
+  }
+  if (!data.core_emphases && data.blockPlan) {
+    const essence = data.blockPlan.rawContent || data.blockPlan.essence || '';
+    if (essence) data.core_emphases = essence;
+  }
+  try {
+    const normalized = safeNormalizePhaseCResponse(data, grade, topic);
+    if (normalized && (normalized.theory || hasBillablePhaseCData(normalized))) {
+      return normalized;
+    }
+  } catch (err) {
+    console.warn('[pure-phase-c] archive convert failed:', err.message || err);
+  }
+  return null;
+}
+
+function buildPhaseCTimeoutSkeleton(grade, topic) {
+  const topicStr = String(topic || 'נושא').trim();
+  const gradeStr = String(grade || '').trim();
+  const notice = 'החיפוש החי לא השיב בזמן. זהו שלד ראשוני לבניית התקופה — ניתן להרחיב את המחקר מאוחר יותר.';
+  return safeNormalizePhaseCResponse({
+    theory: {
+      title: 'שלד ראשוני — ' + topicStr,
+      sections: [{
+        heading: 'מתווה ראשוני לתקופה',
+        content: notice + '\n\nתקופת «' + topicStr + '»' +
+          (gradeStr ? ' ל' + gradeStr : '') +
+          ': התחילו ממהות הנושא, התאמה לגיל, וציר התפתחותי. השלימו רקע תיאורטי, השראה פדגוגית ומערך ימים לאחר מכן.',
+      }],
+    },
+    core_emphases: notice,
+    key_points: [
+      'הגדירו את מהות הנושא ואת התאמתו' + (gradeStr ? ' ל' + gradeStr : '') + '.',
+      'בנו ציר התפתחותי רציף לימי השיעור הראשי.',
+      'הוסיפו השראה אמנותית וסיפורית לאחר שהשלד יציב.',
+    ],
+    _timeoutFallback: true,
+    _normalizeFallback: true,
+  }, grade, topicStr);
+}
+
+function liveSearchUserNotice(kind) {
+  if (kind === 'skeleton') {
+    return 'החיפוש החי לא השיב בזמן. מוצג שלד ראשוני לבניית התקופה — ניתן להרחיב מאוחר יותר.';
+  }
+  return 'החיפוש החי לא השיב בזמן. מוצגים החומרים הזמינים במאגר.';
+}
+
+async function lookupLocalTopicArchive(gradeId, topic, grade, options) {
+  const opts = options || {};
+  const allowPartial = Boolean(opts.allowPartial);
+  if (!gradeId || !topic) return null;
+
+  const lookups = await Promise.all([
+    cache.safeArchiveLookup(
+      'topic_master:' + String(topic).slice(0, 40),
+      function () { return cache.getTopicMasterCache(gradeId, topic); },
+      { phase: 'topic_master', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
+    ),
+    cache.safeArchiveLookup(
+      'archive_suggestion:' + String(topic).slice(0, 40),
+      function () {
+        return cache.findArchiveTopicSuggestion({
+          topic: topic,
+          gradeId: gradeId,
+          gradeLabel: grade || null,
+        });
+      },
+      { phase: 'topic', budgetMs: cache.ARCHIVE_LOOKUP_BUDGET_MS }
+    ),
+  ]);
+
+  const cached = lookups[0];
+  const suggestion = lookups[1];
+
+  if (suggestion && suggestion.matchType === 'grade_mismatch') {
+    return { gradeMismatch: suggestion };
+  }
+
+  if (cached && cached.data) {
+    try {
+      const data = safeNormalizePhaseCResponse(cached.data, grade, topic);
+      return {
+        data: data,
+        cacheKey: cached.meta && cached.meta.cacheKey,
+        source: (cached.meta && cached.meta.source) || 'topic_master_archive',
+        matchType: 'exact',
+      };
+    } catch (normErr) {
+      console.warn('[pure-phase-c] topic_master normalize failed:', normErr.message || normErr);
+    }
+  }
+
+  if (suggestion && suggestion.matchType === 'exact') {
+    const extracted = extractPhaseCFromArchiveMatch(suggestion, grade, topic);
+    if (extracted) {
+      return {
+        data: extracted,
+        cacheKey: suggestion.cacheKey,
+        source: suggestion.archiveSource || 'consolidated_archive',
+        matchType: 'exact',
+      };
+    }
+  }
+
+  if (allowPartial && suggestion && (suggestion.resultData || suggestion.historicPayload)) {
+    const extracted = extractPhaseCFromArchiveMatch(suggestion, grade, topic);
+    if (extracted) {
+      return {
+        data: extracted,
+        cacheKey: suggestion.cacheKey,
+        source: 'archive_partial_fallback',
+        matchType: 'partial',
+      };
+    }
+  }
+
+  return suggestion && suggestion.matchType === 'partial'
+    ? { partial: suggestion, matchType: 'partial' }
+    : null;
+}
+
+function serveArchiveFallback(hit, reason) {
+  return {
+    data: hit.data,
+    meta: {
+      fromCache: true,
+      fallback: true,
+      fallbackReason: reason || 'live_search_timeout',
+      cacheKey: hit.cacheKey || undefined,
+      source: hit.source || 'archive_fallback',
+      userNotice: liveSearchUserNotice('archive'),
+    },
+  };
+}
+
+function serveTimeoutSkeleton(grade, topic, reason) {
+  return {
+    data: buildPhaseCTimeoutSkeleton(grade, topic),
+    meta: {
+      fromCache: false,
+      fallback: true,
+      fallbackReason: reason || 'live_search_timeout',
+      source: 'timeout_skeleton',
+      userNotice: liveSearchUserNotice('skeleton'),
+    },
+  };
+}
+
+async function fallbackAfterLiveSearchFailure(err, gradeId, topic, grade) {
+  if (err && (err.statusCode === 429 || err.statusCode === 401)) throw err;
+  const reason = shared.isLiveSearchTimeoutError(err) ? 'live_search_timeout' : 'live_search_error';
+  console.warn('[pure-phase-c] live search failed —', reason + ':', err && err.message ? err.message : err);
+  const fallback = await lookupLocalTopicArchive(gradeId, topic, grade, { allowPartial: true });
+  if (fallback && fallback.data) {
+    return serveArchiveFallback(fallback, reason);
+  }
+  return serveTimeoutSkeleton(grade, topic, reason);
 }
 
 async function runPurePhaseC(body, requestContext) {
@@ -3377,28 +3589,27 @@ async function runPurePhaseC(body, requestContext) {
   }
 
   if (gradeId && !shouldBypassTopicMasterCache(body)) {
-    const cached = await cache.getTopicMasterCache(gradeId, topic);
-    if (cached && cached.data) {
-      try {
-        adaptTopicMasterPayload(cached.data, { gradeId: gradeId, grade: grade, gradeLabel: grade, topic: topic });
-        stampTopicMasterArchiveLinks(cached.data, cached.data);
-        const cacheKey = cached.meta && cached.meta.cacheKey ? cached.meta.cacheKey : null;
-        if (cacheKey) {
-          await registerTeacherHistory(cacheKey, cached.data);
-        }
-        return {
-          data: safeNormalizePhaseCResponse(cached.data, grade, topic),
-          meta: Object.assign({
-            fromCache: true,
-            cacheKey: cacheKey || undefined,
-            source: cached.meta && cached.meta.semanticMatch
-              ? (cached.meta.source || 'topic_master_semantic')
-              : 'topic_master_archive',
-          }, cached.meta || {}),
-        };
-      } catch (cacheErr) {
-        console.warn('[pure-phase-c] cache normalize failed, regenerating:', cacheErr.message || cacheErr);
+    const archiveHit = await lookupLocalTopicArchive(gradeId, topic, grade, { allowPartial: false });
+    if (archiveHit && archiveHit.gradeMismatch) {
+      const err = new Error(archiveHit.gradeMismatch.message || 'נושא זה אינו מתאים לכיתה שנבחרה');
+      err.statusCode = 400;
+      err.code = 'GRADE_MISMATCH';
+      throw err;
+    }
+    if (archiveHit && archiveHit.data) {
+      const cacheKey = archiveHit.cacheKey || null;
+      if (cacheKey) {
+        await registerTeacherHistory(cacheKey, archiveHit.data);
       }
+      console.log('[pure-phase-c] archive hit — skipping live search', archiveHit.source, topic);
+      return {
+        data: archiveHit.data,
+        meta: {
+          fromCache: true,
+          cacheKey: cacheKey || undefined,
+          source: archiveHit.source,
+        },
+      };
     }
   }
 
@@ -3407,13 +3618,17 @@ async function runPurePhaseC(body, requestContext) {
   await enforceLiveSearchQuota(body, requestContext, teacher);
   try {
     console.log('[pure-phase-c] live web research (community summary decoupled)');
-    const modelResult = await callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
-      phase: 'topic_master',
-      grade: grade,
-      gradeLabel: grade,
-      topic: topic,
-      max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
-    });
+    const modelResult = await shared.withHardTimeout(
+      callPhaseCPerplexitySafe(SYSTEM_PROMPT, userPrompt, {
+        phase: 'topic_master',
+        grade: grade,
+        gradeLabel: grade,
+        topic: topic,
+        max_tokens: perplexityClient.PERPLEXITY_MAX_OUTPUT_TOKENS_PRO,
+        totalTimeoutMs: shared.LIVE_SEARCH_BUDGET_MS,
+      }),
+      shared.LIVE_SEARCH_BUDGET_MS
+    );
     const parsed = modelResult.parsed;
     let normalized = safeNormalizePhaseCResponse(parsed, grade, topic);
     stampTopicMasterArchiveLinks(normalized, parsed);
@@ -3456,7 +3671,7 @@ async function runPurePhaseC(body, requestContext) {
       },
     };
   } catch (err) {
-    throw err;
+    return fallbackAfterLiveSearchFailure(err, gradeId, topic, grade);
   }
 }
 
@@ -3558,6 +3773,10 @@ module.exports = {
   buildGradeDefaultCoreEmphasesParagraphs,
   tab3FieldPlainLen,
   stampTopicMasterArchiveLinks,
+  extractPhaseCFromArchiveMatch,
+  buildPhaseCTimeoutSkeleton,
+  lookupLocalTopicArchive,
+  unwrapArchivePhaseCData,
   collectPhaseCLinkUrlList,
   collectPhaseCLinkItemsForDisplay,
   buildPhaseCFallbackSourcesSectionHtml,

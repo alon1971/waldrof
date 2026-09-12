@@ -277,6 +277,36 @@ function badRequest(message) {
   return err;
 }
 
+/** Hard cap for live Perplexity / Gemini calls on planner topic + general search. */
+const LIVE_SEARCH_BUDGET_MS = 40000;
+
+function isLiveSearchTimeoutError(err) {
+  if (!err) return false;
+  if (err.code === 'LIVE_SEARCH_TIMEOUT' || err.name === 'AbortError') return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /timeout|חוסר תגובה|aborted|Gateway timeout/i.test(msg);
+}
+
+function liveSearchTimeoutError(message) {
+  const err = new Error(message || 'הקריאה לחיפוש החי הופסקה עקב חוסר תגובה (timeout).');
+  err.code = 'LIVE_SEARCH_TIMEOUT';
+  return err;
+}
+
+/** Race a promise against a hard wall-clock budget. Does not cancel the loser. */
+function withHardTimeout(promise, ms, message) {
+  const budget = typeof ms === 'number' && ms > 0 ? ms : LIVE_SEARCH_BUDGET_MS;
+  let timer = null;
+  const timeoutPromise = new Promise(function (_, reject) {
+    timer = setTimeout(function () {
+      reject(liveSearchTimeoutError(message));
+    }, budget);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(function () {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 const PROFESSIONAL_LINKS_INSTRUCTION = [
   'LIVE WEB SEARCH REQUIRED for every external URL — include ONLY verified, functioning HTTPS links from professional pedagogical sources.',
   'PRIORITIZE: Rudolf Steiner Archive / GA lectures, waldorflibrary.org, AWSNA, IASWECE, academic Waldorf essays, teacher journals,',
@@ -357,6 +387,10 @@ module.exports = {
   RIGID_JSON_RETRY_MANDATE,
   createLegacyPostHandler,
   badRequest,
+  LIVE_SEARCH_BUDGET_MS,
+  isLiveSearchTimeoutError,
+  liveSearchTimeoutError,
+  withHardTimeout,
   PROFESSIONAL_LINKS_INSTRUCTION,
   STRUCTURAL_COMPLETENESS_INSTRUCTION,
   PEDAGOGICAL_DEPTH_INSTRUCTION,
