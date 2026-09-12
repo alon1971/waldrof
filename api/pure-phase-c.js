@@ -133,6 +133,28 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
     const driveCatalogSync = require('./drive-catalog-sync');
     const ragDb = require('./rag');
 
+    const archiveRows = communityDriveArchive.fetchArchiveRowsBySearchQuery
+      ? await communityDriveArchive.fetchArchiveRowsBySearchQuery(topicStr, gid).catch(function (err) {
+        console.warn('[pure-phase-c] search_query archive lookup failed:', err.message || err);
+        return [];
+      })
+      : [];
+    if (Array.isArray(archiveRows) && archiveRows.length) {
+      result.archiveRows = archiveRows;
+      result.searchQueryHit = true;
+      const rowSummariesFast = typeof communityDriveArchive.collectSummariesFromArchiveRows === 'function'
+        ? communityDriveArchive.collectSummariesFromArchiveRows(archiveRows)
+        : [];
+      result.essay = formatArchiveSourceEssay([], rowSummariesFast);
+      console.log(
+        '[pure-phase-c] search_query archive ready for Stage B/C | topic='
+        + topicStr.slice(0, 40)
+        + ' | rows=' + archiveRows.length
+        + ' | essayChars=' + result.essay.length
+      );
+      return result;
+    }
+
     const lookups = await Promise.all([
       communitySearch.runCommunitySearch(topicStr, {
         gradeId: gid,
@@ -155,12 +177,6 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
         console.warn('[pure-phase-c] RAG retrieve failed:', err.message || err);
         return null;
       }),
-      communityDriveArchive.fetchArchiveRowsBySearchQuery
-        ? communityDriveArchive.fetchArchiveRowsBySearchQuery(topicStr, gid).catch(function (err) {
-          console.warn('[pure-phase-c] search_query archive lookup failed:', err.message || err);
-          return [];
-        })
-        : Promise.resolve([]),
       communityDriveArchive.tryInstantArchiveRetrieval(topicStr, {
         gradeId: gid,
         currentGrade: gid,
@@ -173,18 +189,18 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
 
     const probe = lookups[0];
     const ragResult = lookups[1];
-    const archiveRows = Array.isArray(lookups[2]) ? lookups[2] : [];
-    const instant = lookups[3];
+    const instant = lookups[2];
+    const archiveRowsFallback = [];
     const matches = (probe && Array.isArray(probe.matches)) ? probe.matches : [];
     result.matches = matches;
-    result.archiveRows = archiveRows;
-    result.searchQueryHit = archiveRows.length > 0;
+    result.archiveRows = archiveRowsFallback;
+    result.searchQueryHit = false;
 
     const matchRefs = typeof communityDriveArchive.normalizeFileRefsFromMatches === 'function'
       ? communityDriveArchive.normalizeFileRefsFromMatches(matches)
       : [];
     const archiveRefs = typeof communityDriveArchive.collectFileRefsFromArchiveRows === 'function'
-      ? communityDriveArchive.collectFileRefsFromArchiveRows(archiveRows)
+      ? communityDriveArchive.collectFileRefsFromArchiveRows(archiveRowsFallback)
       : [];
     const instantRefs = instant && Array.isArray(instant.fileRefs) ? instant.fileRefs : [];
     const fileRefs = [];
@@ -220,7 +236,7 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
 
     const extra = [];
     const rowSummaries = typeof communityDriveArchive.collectSummariesFromArchiveRows === 'function'
-      ? communityDriveArchive.collectSummariesFromArchiveRows(archiveRows)
+      ? communityDriveArchive.collectSummariesFromArchiveRows(archiveRowsFallback)
       : [];
     rowSummaries.forEach(function (summary) {
       extra.push(summary);
@@ -235,14 +251,6 @@ async function retrieveCommunityArchiveSources(gradeId, topic, grade) {
     }
 
     result.essay = formatArchiveSourceEssay(result.files, extra);
-    if (result.searchQueryHit) {
-      console.log(
-        '[pure-phase-c] search_query archive ready for Stage B/C | topic='
-        + topicStr.slice(0, 40)
-        + ' | rows=' + archiveRows.length
-        + ' | essayChars=' + result.essay.length
-      );
-    }
   } catch (err) {
     console.warn('[pure-phase-c] retrieveCommunityArchiveSources failed:', err.message || err);
   }

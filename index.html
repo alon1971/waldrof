@@ -30058,11 +30058,37 @@
       scrollElementIntoViewWithChrome(anchor, behavior, 'start');
     }
 
+    function revealStepBAfterGradeResults() {
+      var step2 = document.getElementById('step-2');
+      if (!step2) return;
+      step2.classList.remove('hidden');
+      step2.classList.add('step-reveal-quiet');
+      enableWizardTopicStepNavigation();
+      syncStepBChrome();
+      renderStepProgress();
+      updateWorkspaceChrome();
+      persistActiveStep();
+    }
+
     function scrollToGradeResults() {
       var panel = document.getElementById('grade-insights-panel');
       gradeResultsContainerRef.current = panel;
       if (!panel || panel.classList.contains('hidden')) return;
-      scrollRevealedContentIntoView(panel);
+      pendingRevealScrollEl = panel;
+      if (revealScrollTimer) clearTimeout(revealScrollTimer);
+      revealScrollTimer = setTimeout(function () {
+        revealScrollTimer = null;
+        pendingRevealScrollEl = panel;
+        try {
+          window.scrollBy({ top: 380, left: 0, behavior: 'smooth' });
+        } catch (err) {
+          try { window.scrollBy(0, 380); } catch (err2) { /* ignore */ }
+        }
+        setTimeout(function () {
+          revealStepBAfterGradeResults();
+          if (pendingRevealScrollEl === panel) pendingRevealScrollEl = null;
+        }, 450);
+      }, 300);
     }
 
     function scrollToPhaseCResults() {
@@ -31163,7 +31189,7 @@
       setGradeInsightsLoadingUi(true);
       prepareGradeResearchView();
       renderTopicCommunitySlot();
-      // Stay on Step A after grade selection — no Step B jump; scroll to results when they appear.
+      // Stay on Step A until results render — then scroll down and open Step B.
 
       const communityPromise = isCloudConfigured()
         ? loadCommunity().then(function () {
