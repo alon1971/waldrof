@@ -28478,21 +28478,9 @@
     }
 
     async function confirmPaidSearchAction(options) {
-      var opts = options || {};
-      // Archive/cache hits and free system actions never show the credit modal.
-      // Callers MUST run checkArchiveHit first; this is a hard safety net only.
-      if (opts.skipConfirm || opts.isArchiveHit || opts.fromCache || opts.free === true) {
-        return true;
-      }
-      if (opts.phase === 'chat_followup') return true;
-      if (typeof WaldorfAuth === 'undefined' || typeof WaldorfAuth.confirmCreditUsage !== 'function') {
-        return true;
-      }
-      try {
-        return await WaldorfAuth.confirmCreditUsage(opts);
-      } catch (err) {
-        return false;
-      }
+      // No client-side credit modal or pre-confirm gate — live search goes straight to the API.
+      // Quota, auth, and billing are enforced server-side on /api/pure-phase-c and related routes.
+      return true;
     }
 
     async function probeArchiveCacheHit(action, payload) {
